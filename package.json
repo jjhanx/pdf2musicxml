@@ -1,0 +1,38 @@
+{
+  "name": "pdf2mxl-audiveris",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "PDF 악보를 Audiveris로 MusicXML(.mxl) 변환 — mxlplayer와 같은 Vite+React+TS 스택",
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:web": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "convert": "tsx scripts/convert-cli.ts",
+    "start:server": "node --import tsx server/index.ts"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/archiver": "^7.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}

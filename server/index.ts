@@ -134,7 +134,14 @@ function tail(s: string, max = 8000): string {
 }
 
 if (fsSync.existsSync(distDir)) {
-  app.use(express.static(distDir));
+  const serveStatic = express.static(distDir);
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      next();
+      return;
+    }
+    serveStatic(req, res, next);
+  });
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       next();

@@ -86,6 +86,10 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 
 생성된 `.mxl` / `.musicxml` 파일을 PC로 옮긴 뒤, [mxlplayer](https://github.com/jjhanx/mxlplayer)에서 **파일 업로드**로 열면 됩니다.
 
+## 문제 해결 (웹 UI)
+
+- **변환 버튼이 반응 없음**: 브라우저별로 드롭 직후 `FileList`가 비는 경우가 있어 `DataTransfer.items` 경로를 추가했습니다. 서버는 정적 파일이 `/api`를 덮지 않도록 정리되어 있습니다.
+
 ## 프로젝트 구조
 
 ```

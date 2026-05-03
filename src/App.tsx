@@ -24,6 +24,31 @@ function isPdfFile(f: File): boolean {
   return byType || byName;
 }
 
+/** 드롭 직후 일부 환경에서 `files`만 비고 `items`에만 들어오는 경우 보완 */
+function extractPdfFilesFromDataTransfer(dt: DataTransfer): File[] {
+  const out: File[] = [];
+  const seen = new Set<string>();
+
+  const take = (f: File | null) => {
+    if (!f || !isPdfFile(f)) return;
+    const k = taskKey(f);
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(f);
+  };
+
+  if (dt.files?.length) {
+    for (let i = 0; i < dt.files.length; i++) take(dt.files[i]);
+  }
+  if (!out.length && dt.items?.length) {
+    for (let i = 0; i < dt.items.length; i++) {
+      const item = dt.items[i];
+      if (item.kind === 'file') take(item.getAsFile());
+    }
+  }
+  return out;
+}
+
 function taskKey(f: File): string {
   return `${f.name}|${f.size}|${f.lastModified}`;
 }
@@ -58,13 +83,18 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<ConvertTask[]>([]);
   const filesRef = useRef<File[]>([]);
+  const healthRef = useRef<Health | null>(null);
 
   tasksRef.current = tasks;
   filesRef.current = files;
+  healthRef.current = health;
 
   useEffect(() => {
     fetch('/api/health')
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<Health>;
+      })
       .then(setHealth)
       .catch(() => setHealth({ ok: false, audiverisConfigured: false }));
   }, []);
@@ -77,8 +107,16 @@ export default function App() {
 
   const addFilesFromList = useCallback((list: FileList | File[]) => {
     const arr = Array.from(list);
-    setFiles((prev) => mergePdfFiles(prev, arr));
+    setFiles((prev) => {
+      const next = mergePdfFiles(prev, arr);
+      filesRef.current = next;
+      return next;
+    });
     const pdfCount = arr.filter(isPdfFile).length;
+    if (!pdfCount) {
+      setStatus('추가된 PDF가 없습니다 (.pdf 확장자·MIME 확인)');
+      return;
+    }
     if (pdfCount < arr.length) {
       setStatus(`PDF ${pdfCount}개 추가됨 (PDF가 아닌 항목은 제외)`);
     } else {
@@ -87,6 +125,7 @@ export default function App() {
   }, []);
 
   const clearFiles = useCallback(() => {
+    filesRef.current = [];
     setFiles([]);
     setTasks([]);
     setStatus('');
@@ -94,7 +133,11 @@ export default function App() {
   }, []);
 
   const removeFileAt = useCallback((index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setFiles((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      filesRef.current = next;
+      return next;
+    });
   }, []);
 
   const convertOne = useCallback(async (file: File): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
@@ -125,7 +168,20 @@ export default function App() {
 
   const runBatch = useCallback(async () => {
     const list = [...filesRef.current];
-    if (!list.length || !health?.audiverisConfigured) return;
+    const h = healthRef.current;
+
+    if (!list.length) {
+      setStatus('변환할 PDF가 없습니다. 드롭 또는 파일 선택으로 목록을 채운 뒤 다시 눌러 주세요.');
+      return;
+    }
+    if (h === null) {
+      setStatus('서버 상태를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
+    if (!h.audiverisConfigured) {
+      setStatus('Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.');
+      return;
+    }
 
     revokeTaskUrls(tasksRef.current);
 
@@ -174,7 +230,7 @@ export default function App() {
     } finally {
       setBusy(false);
     }
-  }, [health?.audiverisConfigured, convertOne]);
+  }, [convertOne]);
 
   const onDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
@@ -201,8 +257,9 @@ export default function App() {
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-    const dt = e.dataTransfer.files;
-    if (dt?.length) addFilesFromList(dt);
+    const dropped = extractPdfFilesFromDataTransfer(e.dataTransfer);
+    if (dropped.length) addFilesFromList(dropped);
+    else setStatus('여기에 놓인 파일에서 PDF를 찾지 못했습니다. 확장자 .pdf 인지 확인해 주세요.');
   };
 
   return (

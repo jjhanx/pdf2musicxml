@@ -18,7 +18,7 @@ a {
 }
 
 .page {
-  max-width: 560px;
+  max-width: 720px;
   margin: 0 auto;
   padding: 1.5rem;
 }
@@ -88,4 +88,113 @@ button:disabled {
 
 .ok {
   color: #81c995;
+}
+
+.dropzone {
+  border: 2px dashed #3d4453;
+  border-radius: 12px;
+  padding: 1.25rem 1rem;
+  text-align: center;
+  background: #171a21;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.dropzone-active {
+  border-color: #3d6fed;
+  background: #1a2840;
+}
+
+.dropzone-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.dropzone-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: #9aa0a6;
+}
+
+.btn-secondary {
+  background: #3c4048;
+  color: #e8eaed;
+}
+
+.file-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  border: 1px solid #2e3440;
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.file-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid #2e3440;
+  font-size: 0.85rem;
+}
+
+.file-list li:last-child {
+  border-bottom: none;
+}
+
+.file-list-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-link {
+  background: transparent;
+  color: #8ab4ff;
+  padding: 0.25rem 0.5rem;
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+
+.btn-link:disabled {
+  opacity: 0.35;
+}
+
+.task-table {
+  width: 100%;
+  margin-top: 1rem;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.task-table th,
+.task-table td {
+  border: 1px solid #2e3440;
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.task-table th {
+  background: #171a21;
+  color: #9aa0a6;
+  font-weight: 600;
+}
+
+.task-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+}
+
+.task-err {
+  display: inline-block;
+  max-width: 240px;
 }

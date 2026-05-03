@@ -72,6 +72,17 @@ function revokeTaskUrls(tasks: ConvertTask[]) {
   }
 }
 
+/** HTTP(평문)에서는 `crypto.randomUUID()`가 없거나 예외를 유발할 수 있음 */
+function newTaskId(): string {
+  try {
+    const c = globalThis.crypto;
+    if (c?.randomUUID) return c.randomUUID();
+  } catch {
+    /* skip */
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [files, setFiles] = useState<File[]>([]);
@@ -82,12 +93,8 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<ConvertTask[]>([]);
-  const filesRef = useRef<File[]>([]);
-  const healthRef = useRef<Health | null>(null);
 
   tasksRef.current = tasks;
-  filesRef.current = files;
-  healthRef.current = health;
 
   useEffect(() => {
     fetch('/api/health')
@@ -107,11 +114,7 @@ export default function App() {
 
   const addFilesFromList = useCallback((list: FileList | File[]) => {
     const arr = Array.from(list);
-    setFiles((prev) => {
-      const next = mergePdfFiles(prev, arr);
-      filesRef.current = next;
-      return next;
-    });
+    setFiles((prev) => mergePdfFiles(prev, arr));
     const pdfCount = arr.filter(isPdfFile).length;
     if (!pdfCount) {
       setStatus('추가된 PDF가 없습니다 (.pdf 확장자·MIME 확인)');
@@ -125,7 +128,6 @@ export default function App() {
   }, []);
 
   const clearFiles = useCallback(() => {
-    filesRef.current = [];
     setFiles([]);
     setTasks([]);
     setStatus('');
@@ -133,11 +135,7 @@ export default function App() {
   }, []);
 
   const removeFileAt = useCallback((index: number) => {
-    setFiles((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      filesRef.current = next;
-      return next;
-    });
+    setFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
   const convertOne = useCallback(async (file: File): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
@@ -166,71 +164,77 @@ export default function App() {
     return { downloadUrl, downloadName: name };
   }, []);
 
-  const runBatch = useCallback(async () => {
-    const list = [...filesRef.current];
-    const h = healthRef.current;
+  const runBatchWith = useCallback(
+    async (listArg: File[], healthArg: Health | null) => {
+      const list = [...listArg];
 
-    if (!list.length) {
-      setStatus('변환할 PDF가 없습니다. 드롭 또는 파일 선택으로 목록을 채운 뒤 다시 눌러 주세요.');
-      return;
-    }
-    if (h === null) {
-      setStatus('서버 상태를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
-      return;
-    }
-    if (!h.audiverisConfigured) {
-      setStatus('Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.');
-      return;
-    }
-
-    revokeTaskUrls(tasksRef.current);
-
-    const initialTasks: ConvertTask[] = list.map((f) => ({
-      id: crypto.randomUUID(),
-      fileName: f.name,
-      phase: 'queued',
-    }));
-    setTasks(initialTasks);
-    setBusy(true);
-    setStatus(`총 ${list.length}개 변환 시작 (순차 처리)`);
-
-    try {
-      for (let i = 0; i < list.length; i++) {
-        const file = list[i];
-        const taskId = initialTasks[i].id;
-
-        setTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? { ...t, phase: 'running' } : t)),
-        );
-
-        try {
-          const result = await convertOne(file);
-          setTasks((prev) =>
-            prev.map((t) => {
-              if (t.id !== taskId) return t;
-              if (result.errorMessage) {
-                return { ...t, phase: 'error', errorMessage: result.errorMessage };
-              }
-              return {
-                ...t,
-                phase: 'done',
-                downloadUrl: result.downloadUrl,
-                downloadName: result.downloadName,
-              };
-            }),
-          );
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          setTasks((prev) =>
-            prev.map((t) => (t.id === taskId ? { ...t, phase: 'error', errorMessage: msg } : t)),
-          );
-        }
+      if (!list.length) {
+        setStatus('변환할 PDF가 없습니다. 드롭 또는 파일 선택으로 목록을 채운 뒤 다시 눌러 주세요.');
+        return;
       }
-      setStatus('일괄 변환 종료 — 각 행에서 결과를 저장하세요.');
-    } finally {
-      setBusy(false);
-    }
-  }, [convertOne]);
+      if (healthArg === null) {
+        setStatus('서버 상태를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
+        return;
+      }
+      if (!healthArg.audiverisConfigured) {
+        setStatus('Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.');
+        return;
+      }
+
+      revokeTaskUrls(tasksRef.current);
+
+      const initialTasks: ConvertTask[] = list.map((f) => ({
+        id: newTaskId(),
+        fileName: f.name,
+        phase: 'queued',
+      }));
+      setTasks(initialTasks);
+      setBusy(true);
+      setStatus(`총 ${list.length}개 변환 시작 (순차 처리)`);
+
+      try {
+        for (let i = 0; i < list.length; i++) {
+          const file = list[i];
+          const taskId = initialTasks[i].id;
+
+          setTasks((prev) =>
+            prev.map((t) => (t.id === taskId ? { ...t, phase: 'running' } : t)),
+          );
+
+          try {
+            const result = await convertOne(file);
+            setTasks((prev) =>
+              prev.map((t) => {
+                if (t.id !== taskId) return t;
+                if (result.errorMessage) {
+                  return { ...t, phase: 'error', errorMessage: result.errorMessage };
+                }
+                return {
+                  ...t,
+                  phase: 'done',
+                  downloadUrl: result.downloadUrl,
+                  downloadName: result.downloadName,
+                };
+              }),
+            );
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            setTasks((prev) =>
+              prev.map((t) => (t.id === taskId ? { ...t, phase: 'error', errorMessage: msg } : t)),
+            );
+          }
+        }
+        setStatus('일괄 변환 종료 — 각 행에서 결과를 저장하세요.');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setStatus(`변환 준비 중 오류: ${msg}`);
+        console.error(e);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [convertOne],
+  );
 
   const onDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
@@ -305,7 +309,13 @@ export default function App() {
           <button
             type="button"
             disabled={!files.length || !health?.audiverisConfigured || busy}
-            onClick={() => void runBatch()}
+            onClick={() =>
+              void runBatchWith(files, health).catch((err: unknown) => {
+                console.error(err);
+                setBusy(false);
+                setStatus(`오류: ${err instanceof Error ? err.message : String(err)}`);
+              })
+            }
           >
             변환 ({files.length}개)
           </button>

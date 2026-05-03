@@ -118,6 +118,10 @@ button:disabled {
   color: #9aa0a6;
 }
 
+.dropzone-actions {
+  margin-top: 0.85rem;
+}
+
 .btn-secondary {
   background: #3c4048;
   color: #e8eaed;

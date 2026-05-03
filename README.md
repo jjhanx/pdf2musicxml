@@ -5,7 +5,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 
 ## 기능
 
-- **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**, 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드
+- **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**(전용 영역), 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드
 - **REST API**: `POST /api/convert`(multipart 필드명 `pdf`), `GET /api/health`
 - **CLI**: `npm run convert -- <파일.pdf>` → 기본 저장 `~/Downloads`(Linux) 등
 - **운영 모드**: `npm run build` 후 `dist`를 Express가 같은 포트에서 서빙 (`npm run start:prod`)

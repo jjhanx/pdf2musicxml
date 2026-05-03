@@ -16,7 +16,12 @@ type ConvertTask = {
 };
 
 function isPdfFile(f: File): boolean {
-  return f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+  const byName = /\.pdf$/i.test(f.name);
+  const byType =
+    f.type === 'application/pdf' ||
+    f.type === 'application/x-pdf' ||
+    (f.type === 'application/octet-stream' && byName);
+  return byType || byName;
 }
 
 function taskKey(f: File): string {
@@ -52,8 +57,10 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<ConvertTask[]>([]);
+  const filesRef = useRef<File[]>([]);
 
   tasksRef.current = tasks;
+  filesRef.current = files;
 
   useEffect(() => {
     fetch('/api/health')
@@ -117,11 +124,11 @@ export default function App() {
   }, []);
 
   const runBatch = useCallback(async () => {
-    if (!files.length || !health?.audiverisConfigured) return;
+    const list = [...filesRef.current];
+    if (!list.length || !health?.audiverisConfigured) return;
 
     revokeTaskUrls(tasksRef.current);
 
-    const list = [...files];
     const initialTasks: ConvertTask[] = list.map((f) => ({
       id: crypto.randomUUID(),
       fileName: f.name,
@@ -131,51 +138,62 @@ export default function App() {
     setBusy(true);
     setStatus(`총 ${list.length}개 변환 시작 (순차 처리)`);
 
-    for (let i = 0; i < list.length; i++) {
-      const file = list[i];
-      const taskId = initialTasks[i].id;
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i];
+        const taskId = initialTasks[i].id;
 
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, phase: 'running' } : t)),
-      );
+        setTasks((prev) =>
+          prev.map((t) => (t.id === taskId ? { ...t, phase: 'running' } : t)),
+        );
 
-      try {
-        const result = await convertOne(file);
-        setTasks((prev) =>
-          prev.map((t) => {
-            if (t.id !== taskId) return t;
-            if (result.errorMessage) {
-              return { ...t, phase: 'error', errorMessage: result.errorMessage };
-            }
-            return {
-              ...t,
-              phase: 'done',
-              downloadUrl: result.downloadUrl,
-              downloadName: result.downloadName,
-            };
-          }),
-        );
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? { ...t, phase: 'error', errorMessage: msg } : t)),
-        );
+        try {
+          const result = await convertOne(file);
+          setTasks((prev) =>
+            prev.map((t) => {
+              if (t.id !== taskId) return t;
+              if (result.errorMessage) {
+                return { ...t, phase: 'error', errorMessage: result.errorMessage };
+              }
+              return {
+                ...t,
+                phase: 'done',
+                downloadUrl: result.downloadUrl,
+                downloadName: result.downloadName,
+              };
+            }),
+          );
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setTasks((prev) =>
+            prev.map((t) => (t.id === taskId ? { ...t, phase: 'error', errorMessage: msg } : t)),
+          );
+        }
       }
+      setStatus('일괄 변환 종료 — 각 행에서 결과를 저장하세요.');
+    } finally {
+      setBusy(false);
     }
+  }, [health?.audiverisConfigured, convertOne]);
 
-    setBusy(false);
-    setStatus('일괄 변환 종료 — 각 행에서 결과를 저장하세요.');
-  }, [files, health?.audiverisConfigured, convertOne]);
+  const onDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
 
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
     setDragOver(true);
   };
 
   const onDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const related = e.relatedTarget as Node | null;
+    if (related && e.currentTarget.contains(related)) return;
     setDragOver(false);
   };
 
@@ -197,40 +215,43 @@ export default function App() {
           <code>.musicxml</code> 이라 mxlplayer의 업로드(.xml / .musicxml / .mxl)와 호환됩니다.
         </p>
 
+        {/* 버튼은 드롭존 밖에 두어, 자식 위로 드래그할 때 dragleave/드롭 타깃 문제를 피함 */}
         <div
           className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
+          onDragEnter={onDragEnter}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
         >
-          <p className="dropzone-title">PDF를 여기에 놓거나 아래에서 선택하세요</p>
-          <p className="dropzone-hint">여러 파일 동시 선택 · 드래그 앤 드롭 모두 가능</p>
-          <div className="row" style={{ marginTop: '0.75rem' }}>
-            <label className="file-label">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,application/pdf"
-                multiple
-                hidden
-                onChange={(ev) => {
-                  const fl = ev.target.files;
-                  if (fl?.length) addFilesFromList(fl);
-                }}
-              />
-              PDF 선택 (복수)
-            </label>
-            <button type="button" className="btn-secondary" disabled={!files.length} onClick={clearFiles}>
-              목록 비우기
-            </button>
-            <button
-              type="button"
-              disabled={!files.length || !health?.audiverisConfigured || busy}
-              onClick={runBatch}
-            >
-              변환 ({files.length}개)
-            </button>
-          </div>
+          <p className="dropzone-title">PDF를 여기에 놓으세요</p>
+          <p className="dropzone-hint">여러 파일 한 번에 · 드롭 영역은 위 칸만 해당합니다</p>
+        </div>
+
+        <div className="row dropzone-actions">
+          <label className="file-label">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              multiple
+              hidden
+              onChange={(ev) => {
+                const fl = ev.target.files;
+                if (fl?.length) addFilesFromList(fl);
+              }}
+            />
+            PDF 선택 (복수)
+          </label>
+          <button type="button" className="btn-secondary" disabled={!files.length} onClick={clearFiles}>
+            목록 비우기
+          </button>
+          <button
+            type="button"
+            disabled={!files.length || !health?.audiverisConfigured || busy}
+            onClick={() => void runBatch()}
+          >
+            변환 ({files.length}개)
+          </button>
         </div>
 
         {files.length > 0 && (

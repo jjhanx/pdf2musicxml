@@ -6,6 +6,7 @@ import { promises as fs } from 'node:fs';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   collectMusicXmlOutputs,
@@ -14,6 +15,9 @@ import {
 } from '../shared/audiveris.js';
 
 const PORT = Number(process.env.PORT || 8787);
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.join(__dirname, '..', 'dist');
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -46,7 +50,8 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
   if (!bin) {
     res.status(503).json({
       error: 'AUDIVERIS_BIN is not set',
-      detail: '예: PowerShell에서 $env:AUDIVERIS_BIN="D:\\Audiveris\\bin\\Audiveris.bat"',
+      detail:
+        'Linux: export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris  |  Windows: Audiveris.bat 경로',
     });
     return;
   }
@@ -128,7 +133,24 @@ function tail(s: string, max = 8000): string {
   return s.slice(-max);
 }
 
-app.listen(PORT, () => {
+if (fsSync.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      next();
+      return;
+    }
+    if (req.path.startsWith('/api')) {
+      next();
+      return;
+    }
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
+const host = process.env.LISTEN_HOST || '0.0.0.0';
+app.listen(PORT, host, () => {
+  const ui = fsSync.existsSync(distDir) ? ' + UI' : '';
   // eslint-disable-next-line no-console
-  console.log(`pdf2mxl API listening on http://127.0.0.1:${PORT}`);
+  console.log(`pdf2mxl listening on http://${host}:${PORT} (API${ui})`);
 });

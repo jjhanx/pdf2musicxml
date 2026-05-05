@@ -69,6 +69,25 @@ npm run start:prod
 - `http://호스트:8787` — UI + `/api` 동일 포트  
 - `dist`가 없으면 API만 동작합니다.
 
+### 백그라운드 운영 (PM2)
+
+서버 재부팅 시 자동 실행 및 안정적인 백그라운드 구동을 위해 `pm2` 사용을 권장합니다.
+
+```bash
+# 1. 전역 설치
+sudo npm install -g pm2
+
+# 2. 서버 구동 (이름을 pdf2mxl로 지정)
+AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris pm2 start npm --name "pdf2mxl" -- run start:prod
+
+# 3. 재부팅 시 자동 실행 등록
+pm2 startup
+pm2 save
+
+# 로그 확인: pm2 logs pdf2mxl
+# 재시작: pm2 restart pdf2mxl
+```
+
 ### CLI만
 
 ```bash

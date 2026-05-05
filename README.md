@@ -13,6 +13,8 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 ## 필요 조건
 
 - **Node.js** 20+ 권장
+- **Python** 3.8+ (텍스트/가사 추출 및 마스킹 파이프라인용)
+- 파이썬 의존성 설치: `pip install -r requirements.txt` (PyMuPDF, lxml)
 - **Audiveris** (호스트에 설치, 아래 환경 변수로 실행 파일 지정)
 
 ### Ubuntu에서 Audiveris (예: 24.04)
@@ -96,10 +98,13 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 
 ```
 pdf2musicxml/
-├── server/index.ts      # Express API + (있으면) dist 정적 서빙
-├── shared/audiveris.ts  # Audiveris CLI 래퍼
-├── scripts/convert-cli.ts
-├── src/App.tsx          # UI (다중 파일·드래그 앤 드롭)
+├── server/index.ts             # Express API + (있으면) dist 정적 서빙
+├── shared/audiveris.ts         # Audiveris CLI 래퍼
+├── scripts/
+│   ├── convert-cli.ts
+│   ├── pdf_text_extractor.py   # PDF 텍스트 추출 및 마스킹
+│   └── mxl_text_merger.py      # Audiveris 출력물에 텍스트(가사 등) 병합
+├── src/App.tsx                 # UI (다중 파일·드래그 앤 드롭)
 └── vite.config.ts
 ```
 

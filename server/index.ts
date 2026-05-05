@@ -6,7 +6,11 @@ import { promises as fs } from 'node:fs';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { exec as execCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+
+const exec = promisify(execCallback);
 
 import {
   collectMusicXmlOutputs,
@@ -70,13 +74,30 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
   try {
     await fs.mkdir(outBase, { recursive: true });
 
+    // Step 1: Extract Text & Mask PDF
+    const maskedPdfPath = path.join(sessionRoot, 'masked_input.pdf');
+    const textDataPath = path.join(sessionRoot, 'text_data.json');
+    const extractorScript = path.join(__dirname, '..', 'scripts', 'pdf_text_extractor.py');
+    
+    console.log('Running text extraction...');
+    try {
+      await exec(`python "${extractorScript}" "${file.path}" "${maskedPdfPath}" "${textDataPath}"`);
+    } catch (e) {
+      console.error('Text extraction failed, falling back to original PDF', e);
+      // Fallback: use original file if python script fails (e.g., no PyMuPDF)
+      await fs.copyFile(file.path, maskedPdfPath);
+      await fs.writeFile(textDataPath, '[]');
+    }
+
+    // Step 2: Run Audiveris on Masked PDF
+    console.log('Running Audiveris...');
     const result = await runAudiveris({
       audiverisBin: bin,
       outputBaseDir: outBase,
-      inputPdfPath: file.path,
+      inputPdfPath: maskedPdfPath,
     });
 
-    const outputs = await collectMusicXmlOutputs(outBase);
+    let outputs = await collectMusicXmlOutputs(outBase);
     if (outputs.length === 0) {
       await wipeSession();
       res.status(422).json({
@@ -87,6 +108,23 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
       });
       return;
     }
+
+    // Step 3: Merge Text back into MusicXML
+    console.log('Merging text into MusicXML...');
+    const mergerScript = path.join(__dirname, '..', 'scripts', 'mxl_text_merger.py');
+    const mergedOutputs = [];
+    for (const p of outputs) {
+      const parsedPath = path.parse(p);
+      const mergedP = path.join(parsedPath.dir, `${parsedPath.name}_merged${parsedPath.ext}`);
+      try {
+        await exec(`python "${mergerScript}" "${p}" "${textDataPath}" "${mergedP}"`);
+        mergedOutputs.push(mergedP);
+      } catch (e) {
+        console.error(`Merging failed for ${p}`, e);
+        mergedOutputs.push(p); // Fallback to unmerged
+      }
+    }
+    outputs = mergedOutputs; // Use merged files for response
 
     const baseName = path.basename(file.originalname, path.extname(file.originalname)) || 'score';
 

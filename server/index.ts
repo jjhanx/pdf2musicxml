@@ -33,7 +33,7 @@ const upload = multer({
       cb(null, dir);
     },
     filename: (_req, file, cb) => {
-      const safe = path.basename(file.originalname).replace(/[^\w.\-\uAC00-\uD7A3]+/g, '_');
+      const safe = path.basename(file.originalname).replace(/[^\w.\-\uAC00-\uD7A3\s]+/g, '_');
       cb(null, safe || 'input.pdf');
     },
   }),
@@ -61,6 +61,8 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
   }
 
   const file = req.file;
+  const isDebug = req.body.debug === 'true';
+
   if (!file) {
     res.status(400).json({ error: 'pdf 파일 필드가 필요합니다 (multipart field name: pdf)' });
     return;
@@ -124,15 +126,17 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
         mergedOutputs.push(p); // Fallback to unmerged
       }
     }
-    outputs = mergedOutputs; // Use merged files for response
+
+    const finalOutputs = isDebug ? [...outputs, ...mergedOutputs] : mergedOutputs;
 
     const baseName = path.basename(file.originalname, path.extname(file.originalname)) || 'score';
 
-    if (outputs.length === 1) {
-      const p = outputs[0];
+    if (!isDebug && finalOutputs.length === 1) {
+      const p = finalOutputs[0];
       res.setHeader('Content-Type', 'application/octet-stream');
       const asciiName = `${baseName}${path.extname(p)}`.replace(/[^\x20-\x7E]/g, '_');
-      res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"`);
+      const encodedName = encodeURIComponent(`${baseName}${path.extname(p)}`);
+      res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`);
       const rs = fsSync.createReadStream(p);
       rs.on('error', async () => {
         await wipeSession();
@@ -144,17 +148,35 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
     }
 
     res.setHeader('Content-Type', 'application/zip');
-    const zipAscii = `${baseName}-parts.zip`.replace(/[^\x20-\x7E]/g, '_');
-    res.setHeader('Content-Disposition', `attachment; filename="${zipAscii}"`);
+    const zipName = isDebug ? `${baseName}-debug.zip` : `${baseName}-parts.zip`;
+    const zipAscii = zipName.replace(/[^\x20-\x7E]/g, '_');
+    const zipEncoded = encodeURIComponent(zipName);
+    res.setHeader('Content-Disposition', `attachment; filename="${zipAscii}"; filename*=UTF-8''${zipEncoded}`);
+    
     const archive = archiver('zip', { zlib: { level: 9 } });
     archive.on('error', async (err: Error) => {
       await wipeSession();
       if (!res.headersSent) res.status(500).end(String(err));
     });
     archive.pipe(res);
-    for (const p of outputs) {
-      archive.file(p, { name: path.basename(p) });
+
+    if (isDebug) {
+      if (fsSync.existsSync(maskedPdfPath)) {
+        archive.file(maskedPdfPath, { name: path.basename(maskedPdfPath) });
+      }
+      if (fsSync.existsSync(textDataPath)) {
+        archive.file(textDataPath, { name: path.basename(textDataPath) });
+      }
     }
+
+    const addedFiles = new Set<string>();
+    for (const p of finalOutputs) {
+      if (!addedFiles.has(p)) {
+        archive.file(p, { name: path.basename(p) });
+        addedFiles.add(p);
+      }
+    }
+    
     await archive.finalize();
     res.once('finish', wipeSession);
     res.once('close', wipeSession);

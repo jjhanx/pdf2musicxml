@@ -6,7 +6,9 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 ## 기능
 
 - **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**(전용 영역), 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드
-- **REST API**: `POST /api/convert`(multipart 필드명 `pdf`), `GET /api/health`
+- **한글 파일명 지원**: 변환된 파일 다운로드 시 원본 파일의 한글 이름이 깨지지 않고 온전하게 보존됩니다.
+- **디버그 모드**: UI에서 "중간 과정 파일 함께 다운로드 (디버그 모드, ZIP)"를 체크하면 마스킹된 PDF, 텍스트 데이터 JSON, 병합 전후의 MXL 등 모든 중간 산출물을 ZIP으로 묶어서 받을 수 있어 과정 추적이 용이합니다.
+- **REST API**: `POST /api/convert`(multipart 필드명 `pdf`, `debug` 플래그 지원), `GET /api/health`
 - **CLI**: `npm run convert -- <파일.pdf>` → 기본 저장 `~/Downloads`(Linux) 등
 - **운영 모드**: `npm run build` 후 `dist`를 Express가 같은 포트에서 서빙 (`npm run start:prod`)
 

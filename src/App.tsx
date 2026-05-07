@@ -90,6 +90,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<ConvertTask[]>([]);
@@ -138,9 +139,10 @@ export default function App() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const convertOne = useCallback(async (file: File): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
+  const convertOne = useCallback(async (file: File, debug: boolean): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
     const fd = new FormData();
     fd.append('pdf', file);
+    fd.append('debug', debug ? 'true' : 'false');
     const res = await fetch('/api/convert', { method: 'POST', body: fd });
     const ct = res.headers.get('Content-Type') ?? '';
 
@@ -165,7 +167,7 @@ export default function App() {
   }, []);
 
   const runBatchWith = useCallback(
-    async (listArg: File[], healthArg: Health | null) => {
+    async (listArg: File[], healthArg: Health | null, debug: boolean) => {
       const list = [...listArg];
 
       if (!list.length) {
@@ -202,7 +204,7 @@ export default function App() {
           );
 
           try {
-            const result = await convertOne(file);
+            const result = await convertOne(file, debug);
             setTasks((prev) =>
               prev.map((t) => {
                 if (t.id !== taskId) return t;
@@ -310,7 +312,7 @@ export default function App() {
             type="button"
             disabled={!files.length || !health?.audiverisConfigured || busy}
             onClick={() =>
-              void runBatchWith(files, health).catch((err: unknown) => {
+              void runBatchWith(files, health, debugMode).catch((err: unknown) => {
                 console.error(err);
                 setBusy(false);
                 setStatus(`오류: ${err instanceof Error ? err.message : String(err)}`);
@@ -319,6 +321,18 @@ export default function App() {
           >
             변환 ({files.length}개)
           </button>
+        </div>
+
+        <div className="row" style={{ marginTop: '0.5rem' }}>
+          <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
+            <input
+              type="checkbox"
+              checked={debugMode}
+              onChange={(e) => setDebugMode(e.target.checked)}
+              disabled={busy}
+            />
+            중간 과정 파일 함께 다운로드 (디버그 모드, ZIP)
+          </label>
         </div>
 
         {files.length > 0 && (

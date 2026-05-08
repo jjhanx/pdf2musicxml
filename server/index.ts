@@ -90,6 +90,8 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
         maxBuffer: 1024 * 1024 * 100 // 100MB buffer for easyocr model download logs
       });
     } catch (e: any) {
+      const errLog = `Error: ${e?.message || String(e)}\nSTDOUT:\n${e?.stdout}\nSTDERR:\n${e?.stderr}\n`;
+      try { fsSync.writeFileSync(path.join(__dirname, '..', 'error.log'), errLog); } catch (err) {}
       console.error('Text extraction failed:', e?.message || String(e));
       if (e?.stdout) console.error('STDOUT tail:', e.stdout.slice(-1000));
       if (e?.stderr) console.error('STDERR tail:', e.stderr.slice(-1000));

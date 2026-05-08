@@ -23,6 +23,8 @@ const PORT = Number(process.env.PORT || 8787);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, '..', 'dist');
 
+const pythonCmd = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
+
 const app = express();
 app.use(cors({ origin: true }));
 
@@ -85,7 +87,7 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
     
     console.log('Running text extraction...');
     try {
-      await exec(`python "${extractorScript}" "${file.path}" "${maskedPdfPath}" "${textDataPath}"`, {
+      await exec(`"${pythonCmd}" "${extractorScript}" "${file.path}" "${maskedPdfPath}" "${textDataPath}"`, {
         env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
         maxBuffer: 1024 * 1024 * 100 // 100MB buffer for easyocr model download logs
       });
@@ -128,7 +130,7 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
       const parsedPath = path.parse(p);
       const mergedP = path.join(parsedPath.dir, `${parsedPath.name}_merged${parsedPath.ext}`);
       try {
-        await exec(`python "${mergerScript}" "${p}" "${textDataPath}" "${mergedP}"`);
+        await exec(`"${pythonCmd}" "${mergerScript}" "${p}" "${textDataPath}" "${mergedP}"`);
         mergedOutputs.push(mergedP);
       } catch (e) {
         console.error(`Merging failed for ${p}`, e);

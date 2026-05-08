@@ -160,8 +160,13 @@ export default function App() {
     const blob = await res.blob();
     const cd = res.headers.get('Content-Disposition');
     let name = file.name.replace(/\.pdf$/i, '') + (ct.includes('zip') ? '-parts.zip' : '.mxl');
-    const m = cd?.match(/filename="([^"]+)"/);
-    if (m?.[1]) name = m[1];
+    const mUtf8 = cd?.match(/filename\*=UTF-8''([^;]+)/i);
+    if (mUtf8?.[1]) {
+      name = decodeURIComponent(mUtf8[1]);
+    } else {
+      const m = cd?.match(/filename="([^"]+)"/);
+      if (m?.[1]) name = m[1];
+    }
     const downloadUrl = URL.createObjectURL(blob);
     return { downloadUrl, downloadName: name };
   }, []);

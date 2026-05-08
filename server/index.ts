@@ -83,7 +83,9 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
     
     console.log('Running text extraction...');
     try {
-      await exec(`python "${extractorScript}" "${file.path}" "${maskedPdfPath}" "${textDataPath}"`);
+      await exec(`python "${extractorScript}" "${file.path}" "${maskedPdfPath}" "${textDataPath}"`, {
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      });
     } catch (e) {
       console.error('Text extraction failed, falling back to original PDF', e);
       // Fallback: use original file if python script fails (e.g., no PyMuPDF)

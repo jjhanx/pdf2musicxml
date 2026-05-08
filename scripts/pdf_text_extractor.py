@@ -8,6 +8,13 @@ except ImportError:
     print("Error: PyMuPDF is not installed. Please run: pip install PyMuPDF", file=sys.stderr)
     sys.exit(1)
 
+try:
+    import easyocr
+    import numpy as np
+except ImportError:
+    print("Error: easyocr or numpy is not installed. Please run: pip install easyocr numpy", file=sys.stderr)
+    sys.exit(1)
+
 def extract_and_mask_text(input_pdf_path, output_pdf_path, output_json_path):
     try:
         doc = fitz.open(input_pdf_path)
@@ -15,34 +22,56 @@ def extract_and_mask_text(input_pdf_path, output_pdf_path, output_json_path):
         print(f"Error opening PDF: {e}", file=sys.stderr)
         sys.exit(1)
 
+    print("Initializing EasyOCR reader (this may take a moment)...")
+    # ko for Korean, en for English
+    reader = easyocr.Reader(['ko', 'en'])
+
     all_text_data = []
 
     for page_num in range(len(doc)):
         page = doc[page_num]
+        print(f"Processing page {page_num + 1}/{len(doc)}...")
         
-        # Get dictionary of all text blocks
-        # block = (x0, y0, x1, y1, "lines in block", block_no, block_type)
-        # block_type 0 is text, 1 is image.
-        blocks = page.get_text("blocks")
+        # Render page to image for OCR
+        # We use a higher resolution (e.g., zoom=2) for better OCR accuracy
+        zoom = 2
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False, colorspace=fitz.csRGB)
+        
+        # Convert pixmap to numpy array for EasyOCR
+        img_np = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, 3)
+        
+        # Run EasyOCR
+        results = reader.readtext(img_np)
         
         page_text_data = []
-        for b in blocks:
-            if b[6] == 0:  # text block
-                text = b[4].strip()
-                if not text:
-                    continue
+        for (bbox, text, prob) in results:
+            # Filter low confidence or very short/empty text
+            # Music notes/lines might be misidentified as text with very low confidence
+            text = text.strip()
+            if not text or prob < 0.3:
+                continue
                 
-                rect = fitz.Rect(b[:4])
-                
-                # Store data
-                page_text_data.append({
-                    "text": text,
-                    "bbox": [rect.x0, rect.y0, rect.x1, rect.y1]
-                })
-                
-                # Mask the text with a white rectangle
-                # We use draw_rect with fill color white
-                page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1), overlay=True)
+            # Bbox from EasyOCR is [[x1, y1], [x2, y1], [x2, y2], [x1, y2]] in scaled image coordinates
+            # We need to map it back to original PDF coordinates by dividing by zoom
+            x0 = min(p[0] for p in bbox) / zoom
+            y0 = min(p[1] for p in bbox) / zoom
+            x1 = max(p[0] for p in bbox) / zoom
+            y1 = max(p[1] for p in bbox) / zoom
+            
+            # Create a PyMuPDF Rect. Add a slight padding to ensure the whole text is masked
+            pad = 2
+            rect = fitz.Rect(max(0, x0 - pad), max(0, y0 - pad), x1 + pad, y1 + pad)
+            
+            # Store data
+            page_text_data.append({
+                "text": text,
+                "bbox": [rect.x0, rect.y0, rect.x1, rect.y1]
+            })
+            
+            # Mask the text with a white rectangle
+            # We use draw_rect with fill color white
+            page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1), overlay=True)
 
         all_text_data.append({
             "page": page_num + 1,

@@ -16,7 +16,12 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 
 - **Node.js** 20+ 권장
 - **Python** 3.8+ (텍스트/가사 추출 및 마스킹 파이프라인용)
-- 파이썬 의존성 설치: `pip install -r requirements.txt` (PyMuPDF, lxml)
+- 파이썬 의존성 설치: `pip install -r requirements.txt` (PyMuPDF, lxml, easyocr, numpy)
+  - **Ubuntu 서버 환경 추가 설정**: 악보의 한글 가사를 정확히 인식하고 분리하기 위해 `easyocr` 라이브러리를 사용합니다. 서버 환경(CLI)에서 OpenCV 관련 에러가 발생한다면 다음 OS 패키지를 설치해야 합니다.
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y libgl1 libglib2.0-0
+    ```
 - **Audiveris** (호스트에 설치, 아래 환경 변수로 실행 파일 지정)
 
 ### Ubuntu에서 Audiveris (예: 24.04)

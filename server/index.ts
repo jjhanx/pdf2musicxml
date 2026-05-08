@@ -33,6 +33,8 @@ const upload = multer({
       cb(null, dir);
     },
     filename: (_req, file, cb) => {
+      // multer decodes multipart headers as latin1 by default. Convert back to utf8.
+      file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
       const safe = path.basename(file.originalname).replace(/[^\w.\-\uAC00-\uD7A3\s]+/g, '_');
       cb(null, safe || 'input.pdf');
     },
@@ -84,11 +86,14 @@ app.post('/api/convert', upload.single('pdf'), async (req, res) => {
     console.log('Running text extraction...');
     try {
       await exec(`python "${extractorScript}" "${file.path}" "${maskedPdfPath}" "${textDataPath}"`, {
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        maxBuffer: 1024 * 1024 * 100 // 100MB buffer for easyocr model download logs
       });
-    } catch (e) {
-      console.error('Text extraction failed, falling back to original PDF', e);
-      // Fallback: use original file if python script fails (e.g., no PyMuPDF)
+    } catch (e: any) {
+      console.error('Text extraction failed:', e?.message || String(e));
+      if (e?.stdout) console.error('STDOUT tail:', e.stdout.slice(-1000));
+      if (e?.stderr) console.error('STDERR tail:', e.stderr.slice(-1000));
+      // Fallback: use original file if python script fails
       await fs.copyFile(file.path, maskedPdfPath);
       await fs.writeFile(textDataPath, '[]');
     }

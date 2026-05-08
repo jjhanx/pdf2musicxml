@@ -23,7 +23,13 @@ const PORT = Number(process.env.PORT || 8787);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, '..', 'dist');
 
-const pythonCmd = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
+let defaultPython = process.platform === 'win32' ? 'python' : 'python3';
+if (fsSync.existsSync(path.join(__dirname, '..', 'venv', 'bin', 'python'))) {
+  defaultPython = path.join(__dirname, '..', 'venv', 'bin', 'python');
+} else if (fsSync.existsSync(path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe'))) {
+  defaultPython = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe');
+}
+const pythonCmd = process.env.PYTHON_BIN || defaultPython;
 
 const app = express();
 app.use(cors({ origin: true }));

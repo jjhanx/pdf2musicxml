@@ -33,8 +33,8 @@ def extract_and_mask_text(input_pdf_path, output_pdf_path, output_json_path):
         print(f"Processing page {page_num + 1}/{len(doc)}...")
         
         # Render page to image for OCR
-        # We use a higher resolution (e.g., zoom=2) for better OCR accuracy
-        zoom = 2
+        # We use a balanced resolution (zoom=1.5) to speed up OCR and prevent proxy timeouts
+        zoom = 1.5
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=False, colorspace=fitz.csRGB)
         

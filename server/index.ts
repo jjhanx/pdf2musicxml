@@ -233,8 +233,9 @@ if (fsSync.existsSync(distDir)) {
 }
 
 const host = process.env.LISTEN_HOST || '0.0.0.0';
-app.listen(PORT, host, () => {
+const server = app.listen(PORT, host, () => {
   const ui = fsSync.existsSync(distDir) ? ' + UI' : '';
   // eslint-disable-next-line no-console
   console.log(`pdf2mxl listening on http://${host}:${PORT} (API${ui})`);
 });
+server.setTimeout(30 * 60 * 1000); // 30 minutes timeout for long OCR/Audiveris tasks

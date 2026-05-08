@@ -1,13 +1,15 @@
 import archiver from 'archiver';
+import busboy from 'busboy';
 import cors from 'cors';
 import express from 'express';
-import multer from 'multer';
 import { randomUUID } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { exec as execCallback } from 'node:child_process';
+import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
@@ -40,21 +42,17 @@ const pythonCmd = process.env.PYTHON_BIN || defaultPython;
 const app = express();
 app.use(cors({ origin: true }));
 
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'pdf2mxl-up-'));
-      cb(null, dir);
-    },
-    filename: (_req, file, cb) => {
-      // multer decodes multipart headers as latin1 by default. Convert back to utf8.
-      file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
-      const safe = path.basename(file.originalname).replace(/[^\w.\-\uAC00-\uD7A3\s]+/g, '_');
-      cb(null, safe || 'input.pdf');
-    },
-  }),
-  limits: { fileSize: 80 * 1024 * 1024 },
-});
+const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
+
+function decodeMultipartFilename(name: string): string {
+  return Buffer.from(name || 'input.pdf', 'latin1').toString('utf8');
+}
+
+function safeUploadBasename(originalHeaderName: string): string {
+  const decoded = decodeMultipartFilename(originalHeaderName);
+  const safe = path.basename(decoded).replace(/[^\w.\-\uAC00-\uD7A3\s]+/g, '_');
+  return safe || 'input.pdf';
+}
 
 app.get('/api/health', (_req, res) => {
   const bin = resolveAudiverisBin();
@@ -99,7 +97,8 @@ type JobRecord = {
   status: JobStatus;
   sessionRoot: string;
   originalName: string;
-  inputPdfPath: string;
+  /** 업로드가 끝나면 설정되며, 그 후 executeJob이 실행됩니다. */
+  inputPdfPath?: string;
   isDebug: boolean;
   createdAt: number;
   /** 변환이 끝난 시점(성공 또는 최종 실패 판정). TTL 기준. */
@@ -130,7 +129,7 @@ function tail(s: string, max = 8000): string {
 
 async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   const job = jobs.get(jobId);
-  if (!job) return;
+  if (!job || !job.inputPdfPath) return;
 
   const { sessionRoot, inputPdfPath, originalName, isDebug } = job;
   const outBase = path.join(sessionRoot, 'audiveris-out');
@@ -242,7 +241,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   }
 }
 
-app.post('/api/convert', upload.single('pdf'), (req, res) => {
+app.post('/api/convert', (req, res) => {
   const bin = resolveAudiverisBin();
   if (!bin) {
     res.status(503).json({
@@ -253,29 +252,153 @@ app.post('/api/convert', upload.single('pdf'), (req, res) => {
     return;
   }
 
-  const file = req.file;
-  const isDebug = req.body.debug === 'true';
+  const ct = req.headers['content-type'] || '';
+  if (!ct.toLowerCase().includes('multipart/form-data')) {
+    res
+      .status(400)
+      .json({ error: 'Content-Type은 multipart/form-data 여야 합니다 (필드 pdf, 선택 debug)' });
+    return;
+  }
 
-  if (!file) {
-    res.status(400).json({ error: 'pdf 파일 필드가 필요합니다 (multipart field name: pdf)' });
+  let sessionRoot: string;
+  try {
+    sessionRoot = fsSync.mkdtempSync(path.join(os.tmpdir(), 'pdf2mxl-up-'));
+  } catch (_e) {
+    res.status(500).json({ error: '임시 업로드 폴더를 만들 수 없습니다' });
     return;
   }
 
   const jobId = randomUUID();
-  const sessionRoot = path.dirname(file.path);
 
   jobs.set(jobId, {
     status: 'pending',
     sessionRoot,
-    originalName: file.originalname,
-    inputPdfPath: file.path,
-    isDebug,
+    originalName: 'input.pdf',
+    isDebug: false,
     createdAt: Date.now(),
   });
 
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('X-Pdf2Mxl-Async', '202-early');
   res.status(202).json({ jobId, message: '작업이 접수되었습니다' });
 
-  void executeJob(jobId, bin);
+  let receiveSettled = false;
+  const markReceiveFailed = async (payload: JobErrorPayload) => {
+    if (receiveSettled) return;
+    const job = jobs.get(jobId);
+    if (!job) return;
+    receiveSettled = true;
+    await fs.rm(job.sessionRoot, { recursive: true, force: true }).catch(() => {});
+    job.status = 'failed';
+    job.finishedAt = Date.now();
+    job.error = payload;
+    delete job.inputPdfPath;
+  };
+
+  let debugField = false;
+  let sawPdfField = false;
+  let pdfWriteChain: Promise<void> = Promise.resolve();
+
+  const bb = busboy({
+    headers: req.headers,
+    defParamCharset: 'utf8',
+    limits: { fileSize: MAX_UPLOAD_BYTES },
+  });
+
+  bb.on('field', (name, val) => {
+    if (name === 'debug' && val === 'true') debugField = true;
+  });
+
+  bb.on('file', (name, file, info) => {
+    if (name !== 'pdf') {
+      file.resume();
+      return;
+    }
+    if (sawPdfField) {
+      file.resume();
+      return;
+    }
+    sawPdfField = true;
+
+    const job = jobs.get(jobId);
+    if (!job) {
+      file.resume();
+      return;
+    }
+
+    const diskName = safeUploadBasename(info.filename);
+    const destPath = path.join(sessionRoot, diskName);
+    const originalDisplayName = decodeMultipartFilename(info.filename);
+    job.originalName = originalDisplayName;
+
+    const ws = createWriteStream(destPath);
+    file.on('limit', () => {
+      void markReceiveFailed({
+        status: 400,
+        error: '파일이 너무 큽니다',
+        detail: `최대 ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB`,
+      });
+    });
+
+    pdfWriteChain = pdfWriteChain.then(() =>
+      pipeline(file, ws)
+        .then(() => {
+          const j = jobs.get(jobId);
+          if (!j || j.status === 'failed') return;
+          j.inputPdfPath = destPath;
+        })
+        .catch((e) =>
+          markReceiveFailed({
+            status: 500,
+            error: '업로드 저장 실패',
+            detail: e instanceof Error ? e.message : String(e),
+          }),
+        ),
+    );
+  });
+
+  bb.on('error', (e) => {
+    void markReceiveFailed({
+      status: 400,
+      error: 'multipart 처리 오류',
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  });
+
+  bb.on('finish', () => {
+    void pdfWriteChain.then(() => {
+      if (receiveSettled) return;
+      const job = jobs.get(jobId);
+      if (!job || job.status === 'failed') return;
+      if (!sawPdfField) {
+        void markReceiveFailed({
+          status: 400,
+          error: 'pdf 파일 필드가 필요합니다',
+          detail: 'multipart field name: pdf',
+        });
+        return;
+      }
+      if (!job.inputPdfPath) {
+        void markReceiveFailed({
+          status: 500,
+          error: '업로드가 완료되지 않았습니다',
+        });
+        return;
+      }
+      job.isDebug = debugField;
+      void executeJob(jobId, bin);
+    });
+  });
+
+  req.on('error', (e) => {
+    void markReceiveFailed({
+      status: 400,
+      error: '업로드 연결 오류',
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  });
+
+  req.pipe(bb);
 });
 
 app.get('/api/status/:jobId', (req, res) => {

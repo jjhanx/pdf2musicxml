@@ -17,10 +17,18 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **Node.js** 20+ 권장
 - **Python** 3.8+ (텍스트/가사 추출 및 마스킹 파이프라인용)
 - 파이썬 의존성 설치: `pip install -r requirements.txt` (PyMuPDF, lxml, easyocr, numpy)
-  - **Ubuntu 서버 환경 추가 설정**: 악보의 한글 가사를 정확히 인식하고 분리하기 위해 `easyocr` 라이브러리를 사용합니다. 서버 환경(CLI)에서 OpenCV 관련 에러가 발생한다면 다음 OS 패키지를 설치해야 합니다.
+  - **Ubuntu 24.04+ 서버 환경 설정 (필수)**: 최근 우분투 버전에서는 시스템 보호를 위해 전역 `pip` 설치가 막혀 있습니다. 따라서 파이썬 가상환경(venv)을 생성하고 필요한 패키지(`easyocr` 등)와 OS 의존성 패키지를 설치해야 합니다.
     ```bash
     sudo apt-get update
-    sudo apt-get install -y libgl1 libglib2.0-0
+    sudo apt-get install -y libgl1 libglib2.0-0 python3-venv
+    
+    # 가상환경 생성 및 의존성 설치
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    
+    # 서버 환경변수에 적용 (서버가 가상환경의 파이썬을 사용하도록 설정)
+    export PYTHON_BIN=$(pwd)/venv/bin/python
     ```
 - **Audiveris** (호스트에 설치, 아래 환경 변수로 실행 파일 지정)
 

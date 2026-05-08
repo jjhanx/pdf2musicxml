@@ -4,6 +4,8 @@ type Health = {
   ok: boolean;
   audiverisConfigured: boolean;
   hint?: string;
+  jobRetentionHours?: number;
+  jobRetentionNote?: string;
 };
 
 type ConvertTask = {
@@ -68,8 +70,15 @@ function mergePdfFiles(existing: File[], incoming: File[]): File[] {
 
 function revokeTaskUrls(tasks: ConvertTask[]) {
   for (const t of tasks) {
-    if (t.downloadUrl) URL.revokeObjectURL(t.downloadUrl);
+    const u = t.downloadUrl;
+    if (u?.startsWith('blob:')) URL.revokeObjectURL(u);
   }
+}
+
+const POLL_INTERVAL_MS = 3000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /** HTTP(평문)에서는 `crypto.randomUUID()`가 없거나 예외를 유발할 수 있음 */
@@ -143,23 +152,77 @@ export default function App() {
     const fd = new FormData();
     fd.append('pdf', file);
     fd.append('debug', debug ? 'true' : 'false');
-    const res = await fetch('/api/convert', { method: 'POST', body: fd });
-    const ct = res.headers.get('Content-Type') ?? '';
+    const acceptRes = await fetch('/api/convert', { method: 'POST', body: fd });
+    const acceptCt = acceptRes.headers.get('Content-Type') ?? '';
 
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      if (ct.includes('application/json')) {
-        const j = (await res.json()) as { error?: string; detail?: string; stderrTail?: string };
+    if (acceptRes.status !== 202) {
+      let msg = `HTTP ${acceptRes.status}`;
+      if (acceptCt.includes('application/json')) {
+        const j = (await acceptRes.json()) as { error?: string; detail?: string; stderrTail?: string };
         msg = [j.error, j.detail, j.stderrTail].filter(Boolean).join('\n') || msg;
       } else {
-        msg = await res.text();
+        msg = await acceptRes.text();
       }
       return { errorMessage: msg };
     }
 
-    const blob = await res.blob();
-    const cd = res.headers.get('Content-Disposition');
-    let name = file.name.replace(/\.pdf$/i, '') + (ct.includes('zip') ? '-parts.zip' : '.mxl');
+    const accepted = (await acceptRes.json()) as { jobId?: string };
+    if (!accepted.jobId) {
+      return { errorMessage: '서버에서 작업 ID(jobId)를 받지 못했습니다' };
+    }
+    const { jobId } = accepted;
+
+    for (;;) {
+      const st = await fetch(`/api/status/${jobId}`);
+      const stCt = st.headers.get('Content-Type') ?? '';
+      if (!st.ok) {
+        let msg = `상태 조회 HTTP ${st.status}`;
+        if (stCt.includes('application/json')) {
+          const j = (await st.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        }
+        return { errorMessage: msg };
+      }
+
+      const j = (await st.json()) as {
+        status: string;
+        httpError?: number;
+        error?: string;
+        detail?: string;
+        stderrTail?: string;
+      };
+
+      if (j.status === 'failed') {
+        const msg =
+          [j.error, j.detail, j.stderrTail].filter(Boolean).join('\n') ||
+          `변환 실패 (HTTP ${j.httpError ?? '?'})`;
+        return { errorMessage: msg };
+      }
+
+      if (j.status === 'completed') {
+        break;
+      }
+
+      await sleep(POLL_INTERVAL_MS);
+    }
+
+    const dl = await fetch(`/api/download/${jobId}`);
+    const dlCt = dl.headers.get('Content-Type') ?? '';
+
+    if (!dl.ok) {
+      let msg = `다운로드 HTTP ${dl.status}`;
+      if (dlCt.includes('application/json')) {
+        const errBody = (await dl.json()) as { error?: string };
+        if (errBody.error) msg = errBody.error;
+      } else {
+        msg = await dl.text();
+      }
+      return { errorMessage: msg };
+    }
+
+    const blob = await dl.blob();
+    const cd = dl.headers.get('Content-Disposition');
+    let name = file.name.replace(/\.pdf$/i, '') + (dlCt.includes('zip') ? '-parts.zip' : '.mxl');
     const mUtf8 = cd?.match(/filename\*=UTF-8''([^;]+)/i);
     if (mUtf8?.[1]) {
       name = decodeURIComponent(mUtf8[1]);
@@ -366,6 +429,13 @@ export default function App() {
           )}
           {health?.audiverisConfigured && <>Audiveris 준비됨 (로컬 API)</>}
         </div>
+
+        {health?.audiverisConfigured && (health.jobRetentionNote ?? health.jobRetentionHours != null) && (
+          <p className="sub retention-note" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
+            {health.jobRetentionNote ??
+              `변환이 끝난 뒤 서버에 올라온 결과는 최대 ${health.jobRetentionHours}시간 동안만 보관됩니다. 그 안에 다운로드해 주세요.`}
+          </p>
+        )}
 
         {status && <div className="status">{status}</div>}
 

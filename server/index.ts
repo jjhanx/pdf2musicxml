@@ -68,7 +68,7 @@ app.get('/api/health', (_req, res) => {
 
 type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
-type JobProgressPhase = 'ocr' | 'audiveris' | 'merge';
+type JobProgressPhase = 'upload' | 'ocr' | 'audiveris' | 'merge';
 
 type JobProgress = {
   phase: JobProgressPhase;
@@ -133,6 +133,11 @@ function purgeExpiredJobs(): void {
       void fs.rm(job.sessionRoot, { recursive: true, force: true }).catch(() => {});
     }
   }
+}
+
+function noCacheJson(res: express.Response): void {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
 }
 
 const PROGRESS_PREFIX = 'PDF2MXL_PROGRESS ';
@@ -400,6 +405,12 @@ app.post('/api/convert', (req, res) => {
     isDebug: false,
     createdAt: Date.now(),
   });
+  setJobProgress(jobs.get(jobId), {
+    phase: 'upload',
+    current: 0,
+    total: 1,
+    detail: '서버에 PDF 접수됨, 본문 수신 중…',
+  });
 
   res.setHeader('X-Accel-Buffering', 'no');
   res.setHeader('X-Pdf2Mxl-Async', '202-early');
@@ -416,6 +427,7 @@ app.post('/api/convert', (req, res) => {
     job.finishedAt = Date.now();
     job.error = payload;
     delete job.inputPdfPath;
+    delete job.progress;
   };
 
   let debugField = false;
@@ -454,6 +466,13 @@ app.post('/api/convert', (req, res) => {
     const originalDisplayName = decodeMultipartFilename(info.filename);
     job.originalName = originalDisplayName;
 
+    setJobProgress(job, {
+      phase: 'upload',
+      current: 0,
+      total: 1,
+      detail: 'PDF 파일 저장 중…',
+    });
+
     const ws = createWriteStream(destPath);
     file.on('limit', () => {
       void markReceiveFailed({
@@ -469,6 +488,12 @@ app.post('/api/convert', (req, res) => {
           const j = jobs.get(jobId);
           if (!j || j.status === 'failed') return;
           j.inputPdfPath = destPath;
+          setJobProgress(j, {
+            phase: 'upload',
+            current: 1,
+            total: 1,
+            detail: '업로드 완료, 변환 파이프라인 시작…',
+          });
         })
         .catch((e) =>
           markReceiveFailed({
@@ -525,6 +550,7 @@ app.post('/api/convert', (req, res) => {
 });
 
 app.get('/api/status/:jobId', (req, res) => {
+  noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {
     res.status(404).json({ error: '알 수 없는 작업입니다' });

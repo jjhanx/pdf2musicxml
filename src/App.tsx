@@ -91,6 +91,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function taskProgressPhaseLabel(phase: string): string {
+  if (phase === 'upload') return 'PDF 업로드';
   if (phase === 'ocr') return 'OCR·마스킹';
   if (phase === 'audiveris') return '악보 인식(Audiveris)';
   if (phase === 'merge') return '가사 병합';
@@ -98,9 +99,12 @@ function taskProgressPhaseLabel(phase: string): string {
 }
 
 function formatTaskProgressLine(p: TaskProgress): string {
+  const phase = taskProgressPhaseLabel(p.phase);
   const frac = p.total > 0 ? `${p.current} / ${p.total}` : '';
-  const det = p.detail ? (frac ? ` — ${p.detail}` : p.detail) : '';
-  return `${taskProgressPhaseLabel(p.phase)}${frac ? ` (${frac})` : ''}${det}`.trim();
+  const parts: string[] = [phase];
+  if (frac) parts.push(`(${frac})`);
+  if (p.detail) parts.push(p.detail);
+  return parts.join(' ');
 }
 
 /** HTTP(평문)에서는 `crypto.randomUUID()`가 없거나 예외를 유발할 수 있음 */
@@ -200,7 +204,7 @@ export default function App() {
     const { jobId } = accepted;
 
     for (;;) {
-      const st = await fetch(`/api/status/${jobId}`);
+      const st = await fetch(`/api/status/${jobId}`, { cache: 'no-store' });
       const stCt = st.headers.get('Content-Type') ?? '';
       if (!st.ok) {
         let msg = `상태 조회 HTTP ${st.status}`;

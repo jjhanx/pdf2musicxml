@@ -405,29 +405,28 @@ app.post('/api/convert', (req, res) => {
     isDebug: false,
     createdAt: Date.now(),
   });
-  setJobProgress(jobs.get(jobId), {
-    phase: 'upload',
-    current: 0,
-    total: 1,
-    detail: '서버에 PDF 접수됨, 본문 수신 중…',
-  });
-
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.setHeader('X-Pdf2Mxl-Async', '202-early');
-  res.status(202).json({ jobId, message: '작업이 접수되었습니다' });
+  /** 202는 multipart·파일 저장이 끝난 뒤에만 보냅니다(조기 202 시 일부 브라우저·프록시에서 본문 전송이 멈춤). */
 
   let receiveSettled = false;
-  const markReceiveFailed = async (payload: JobErrorPayload) => {
+  const failReceive = (payload: JobErrorPayload) => {
     if (receiveSettled) return;
-    const job = jobs.get(jobId);
-    if (!job) return;
     receiveSettled = true;
-    await fs.rm(job.sessionRoot, { recursive: true, force: true }).catch(() => {});
-    job.status = 'failed';
-    job.finishedAt = Date.now();
-    job.error = payload;
-    delete job.inputPdfPath;
-    delete job.progress;
+    const job = jobs.get(jobId);
+    if (job) {
+      void fs.rm(job.sessionRoot, { recursive: true, force: true }).catch(() => {});
+      jobs.delete(jobId);
+    }
+    if (!res.headersSent) {
+      const code =
+        payload.status >= 400 && payload.status < 600 ? payload.status : 400;
+      res.status(code).json({
+        error: payload.error,
+        detail: payload.detail,
+        exitCode: payload.exitCode,
+        stdoutTail: payload.stdoutTail,
+        stderrTail: payload.stderrTail,
+      });
+    }
   };
 
   let debugField = false;
@@ -475,7 +474,7 @@ app.post('/api/convert', (req, res) => {
 
     const ws = createWriteStream(destPath);
     file.on('limit', () => {
-      void markReceiveFailed({
+      failReceive({
         status: 400,
         error: '파일이 너무 큽니다',
         detail: `최대 ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB`,
@@ -486,7 +485,7 @@ app.post('/api/convert', (req, res) => {
       pipeline(file, ws)
         .then(() => {
           const j = jobs.get(jobId);
-          if (!j || j.status === 'failed') return;
+          if (!j || receiveSettled) return;
           j.inputPdfPath = destPath;
           setJobProgress(j, {
             phase: 'upload',
@@ -496,7 +495,7 @@ app.post('/api/convert', (req, res) => {
           });
         })
         .catch((e) =>
-          markReceiveFailed({
+          failReceive({
             status: 500,
             error: '업로드 저장 실패',
             detail: e instanceof Error ? e.message : String(e),
@@ -506,7 +505,7 @@ app.post('/api/convert', (req, res) => {
   });
 
   bb.on('error', (e) => {
-    void markReceiveFailed({
+    failReceive({
       status: 400,
       error: 'multipart 처리 오류',
       detail: e instanceof Error ? e.message : String(e),
@@ -517,9 +516,9 @@ app.post('/api/convert', (req, res) => {
     void pdfWriteChain.then(() => {
       if (receiveSettled) return;
       const job = jobs.get(jobId);
-      if (!job || job.status === 'failed') return;
+      if (!job) return;
       if (!sawPdfField) {
-        void markReceiveFailed({
+        failReceive({
           status: 400,
           error: 'pdf 파일 필드가 필요합니다',
           detail: 'multipart field name: pdf',
@@ -527,19 +526,24 @@ app.post('/api/convert', (req, res) => {
         return;
       }
       if (!job.inputPdfPath) {
-        void markReceiveFailed({
+        failReceive({
           status: 500,
           error: '업로드가 완료되지 않았습니다',
         });
         return;
       }
       job.isDebug = debugField;
+      if (!res.headersSent) {
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.setHeader('X-Pdf2Mxl-Async', '202-after-upload');
+        res.status(202).json({ jobId, message: '작업이 접수되었습니다' });
+      }
       void executeJob(jobId, bin);
     });
   });
 
   req.on('error', (e) => {
-    void markReceiveFailed({
+    failReceive({
       status: 400,
       error: '업로드 연결 오류',
       detail: e instanceof Error ? e.message : String(e),

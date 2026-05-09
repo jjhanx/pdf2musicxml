@@ -9,7 +9,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **진행 표시**: OCR 단계에서는 PDF **페이지 단위**(예: 3/10)로 진행률을 내보냅니다. Audiveris·가사 병합 단계에서도 단계명과 처리 중인 항목 번호를 표시합니다(로그 형식에 따라 Audiveris 세부 진행은 제한적일 수 있음).
 - **한글 파일명 지원**: 변환된 파일 다운로드 시 원본 파일의 한글 이름이 깨지지 않고 온전하게 보존됩니다.
 - **디버그 모드**: UI에서 "중간 과정 파일 함께 다운로드 (디버그 모드, ZIP)"를 체크하면 마스킹된 PDF, 텍스트 데이터 JSON, 병합 전후의 MXL 등 모든 중간 산출물을 ZIP으로 묶어서 받을 수 있어 과정 추적이 용이합니다.
-- **비동기 변환(폴링)**: Nginx·Cloudflare 등 앞단 프록시의 **게이트웨이 타임아웃(예: 504)** 을 피하기 위해, **`POST /api/convert`는 multipart 본문(파일 업로드)이 끝나기 전에** **HTTP 202** 와 `jobId`를 먼저 내려보냅니다. 업로드·저장은 같은 연결에서 이어지고, 변환은 서버 백그라운드에서 진행됩니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다.
+- **비동기 변환(폴링)**: 변환(OCR·Audiveris 등)은 시간이 오래 걸리므로 **완료 후 곧바로 파일을 응답하지 않습니다.** `POST /api/convert`는 **PDF 수신·저장이 끝난 뒤** **HTTP 202** 와 `jobId`를 돌려주고, 실제 변환은 서버 백그라운드에서 돌아갑니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다. (과거에는 업로드 도중 202를 보내 일부 환경에서 본문 전송이 멈추는 문제가 있어, 202 시점을 저장 완료 후로 옮겼습니다.)
 - **결과 보관 기간(TTL)**: 변환이 **완료되었거나 최종 실패로 판정된 시점**부터 **24시간**이 지나면 서버 메모리의 작업 기록과, 아직 남아 있던 임시 결과 파일을 자동으로 삭제합니다. UI와 `GET /api/health` 응답에 동일 안내가 포함됩니다.
 - **REST API**: `POST /api/convert`, `GET /api/status/:jobId`, `GET /api/download/:jobId`, `GET /api/health` (아래 [REST API (비동기)](#rest-api-비동기) 참고)
 - **CLI**: `npm run convert -- <파일.pdf>` → 기본 저장 `~/Downloads`(Linux) 등
@@ -121,7 +121,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | 메서드·경로 | 설명 |
 |-------------|------|
 | `GET /api/health` | 서버·Audiveris 구성 여부. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
-| `POST /api/convert` | `multipart/form-data`: 필드 `pdf`(파일), `debug`(`true`/`false`, 선택). **요청 본문을 다 받기 전에** **202 Accepted** 와 `{ "jobId", "message" }`를 먼저 반환합니다. 응답 헤더에 `X-Pdf2Mxl-Async: 202-early`(확인용), nginx 앞일 때 버퍼 끄기용 `X-Accel-Buffering: no`가 붙을 수 있습니다. 업로드·검증 실패 시 작업 상태가 `failed`로 남습니다. |
+| `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`. **파일이 디스크에 저장된 뒤** **202 Accepted** 와 `{ "jobId", "message" }`. 헤더 `X-Pdf2Mxl-Async: 202-after-upload`, `X-Accel-Buffering: no`. 업로드·multipart 오류 시 **동일 POST**에서 4xx/5xx JSON(이 경우 `jobId` 없음). |
 | `GET /api/status/:jobId` | `pending` → `processing` → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `ocr` \| `audiveris` \| `merge`), `current`, `total`, 선택 `detail` |
 | `GET /api/download/:jobId` | `completed` 일 때만 단일 MXL/MusicXML 또는 ZIP 스트림. 완료 전·실패 후는 409. 전송 종료 후 서버가 해당 작업의 임시 디렉터리 정리 |
 
@@ -145,8 +145,9 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 - **502 Bad Gateway**: nginx가 **업스트림(Node)에 TCP 연결을 못 하거나**, 앱이 **기동 직후 크래시**하면 납니다. 서버에서 `curl -sS http://127.0.0.1:8787/api/health`(포트는 환경에 맞게)로 직접 확인하고, `pm2 logs pdf2mxl` 등으로 **Node/TS 구문 오류·모듈 누락**을 봅니다. `proxy_pass`의 호스트·포트가 실제 리슨과 같은지 확인하세요.
 - **진행률이 안 바뀜 / 항상 '변환 중…'만 보임**: 브라우저·역프록시가 **`GET /api/status`를 캐시**하면 JSON이 갱신되지 않을 수 있습니다. 최신 코드는 응답에 `Cache-Control: no-store`를 붙이고, 클라이언트는 `fetch(..., { cache: 'no-store' })`로 폴링합니다. nginx에서 **`proxy_cache`** 를 쓰는 경우 `location /api/` 에 대해 캐시를 끄거나 해당 URI를 제외하세요.
 - **504 Gateway Time-out (역프록시 뒤에서 변환/업로드 중 끊김)**  
-  - **조기 202**: 예전에는 `multer`가 파일 전체를 디스크에 저장한 뒤에만 응답할 수 있어, **업로드가 길면** nginx `proxy_read_timeout` 전에 백엔드 응답이 없어 504가 날 수 있었습니다. 현재는 **`busboy`로 스트리밍 수신**하면서 **먼저 202**를 보냅니다. 배포 후 네트워크 탭에서 `/api/convert`가 본문 전송 중에도 **202**인지, `X-Pdf2Mxl-Async: 202-early` 헤더가 있는지 확인하세요.  
+  - **POST `/api/convert`**: nginx는 백엔드가 **202를 보낼 때까지** 응답을 기다립니다. 이 202는 **파일 업로드·저장이 끝난 뒤** 나가므로, **매우 큰 PDF·느린 업링크**에서는 업로드 시간만큼 `proxy_read_timeout`이 필요할 수 있습니다. 변환 자체는 202 이후 백그라운드에서 돌아가므로 긴 OCR은 **상태 폴링**으로 이어집니다.  
   - **다운로드**: `/api/download/...` 로 ZIP 등을 오래 받는 경우에도 프록시 **읽기 타임아웃**에 걸릴 수 있습니다. nginx 예: `proxy_read_timeout 3600s;`, `proxy_send_timeout 3600s;`, 필요 시 `client_max_body_size`(업로드 용량)도 조정하세요.
+- **업로드 단계에서 멈춘 것처럼 보임 / 작은 PDF인데 진행이 안 됨**: 과거 **업로드 도중 202**를 보내던 방식은 HTTP 클라이언트·프록시에 따라 **POST 본문 전송이 교착**될 수 있습니다. 최신 코드는 **저장 완료 후 202**입니다. 배포 후 `/api/convert` 응답 헤더에 `X-Pdf2Mxl-Async: 202-after-upload`인지 확인하세요.
 - **변환 직후 다음 날 다운로드 링크가 동작하지 않음**: **24시간 TTL**이 지나 작업·파일이 삭제된 경우입니다. 다시 변환하거나, 보관 기간을 늘리려면 서버 코드의 `JOB_RETENTION_MS`를 조정하세요.
 - **변환 버튼 클릭 시 아무 반응 없음**: 과거 빌드에서 존재하지 않는 `runBatch()`를 호출하는 버그가 있었습니다. 최신 `main`을 받아 다시 빌드하세요.
 - **HTTP(평문) 접속**: `crypto.randomUUID()`는 보안 컨텍스트에서만 안전하게 쓰이므로, 평문 HTTP에서는 대체 ID 생성으로 처리합니다.

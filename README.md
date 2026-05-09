@@ -3,13 +3,16 @@
 PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 내려받는 도구입니다.  
 프론트는 **Vite + React + TypeScript**, API는 **Express**이며 [mxlplayer](https://github.com/jjhanx/mxlplayer)와 같은 계열의 웹 스택입니다.
 
+- **Audiveris MXL 없음(HTTP 422)**: 마스킹 PDF만으로는 `.mxl`이 안 나오는데 원본은 될 수 있어, 기본적으로 **원본 PDF 자동 재시도**(`PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL`)를 둡니다. 로그에 `WARN [masked_input#10]`·`ERS`가 보이면 10번째 **악보 장(sheet)** 처리 문제인 경우가 많습니다.
+
 ## 최근 변경 (벡터 우선 마스킹·가사·파일명)
 
 - **PDF 텍스트 마스킹** (`scripts/pdf_text_extractor.py`): 벡터 PDF는 **PyMuPDF로 글리프/span 좌표를 먼저 추출·마스킹**하고, EasyOCR은 보완용으로만 사용합니다. OCR 박스가 벡터 텍스트 영역과 많이 겹치면 무시합니다.
 - **페이지별 OCR 생략**: `PDF2MXL_VECTOR_OCR_SKIP_THRESHOLD`(기본 `40`) — 페이지당 벡터로 읽힌 글자 수가 이 이상이면 해당 페이지는 EasyOCR을 건너뜁니다.
 - **가사 병합** (`scripts/mxl_text_merger.py`): **기본은 안전 모드** — Audiveris MXL 본문은 건드리지 않고 **`*_merged_lyrics.txt` 사이드카**만 둡니다. 예전처럼 MusicXML에 `direction`/`words`를 대량 삽입하려면 `PDF2MXL_INJECT_LYRICS_DIRECTIONS=1`.
 - **한글·ZIP 파일명**: `POST /api/convert` 멀티파트 파일명 디코딩을 보강해 `_�@…` 형태의 깨짐을 줄였습니다.
-- 자세한 품질·호환 대응은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md), **서버에서 무엇을 어떻게 점검할지**는 동 문서의 **「서버 배포 후 점검 체크리스트」**를 따르세요.
+- **Audiveris 재시도**: 마스킹 PDF에서 `.mxl`이 하나도 없으면, 기본 설정으로 **원본 PDF에 대해 Audiveris를 한 번 더** 실행합니다(`PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL=0`으로 끔).
+- 자세한 품질·호환 대응 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md), **서버에서 무엇을 어떻게 점검할지**는 동 문서의 **「서버 배포 후 점검 체크리스트」**를 따르세요.
 
 ## 기능
 
@@ -62,6 +65,7 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `AUDIVERIS_NO_FLAT_OUTPUT` | `1`이면 `-option …useSeparateBookFolders=false` 비활성화 |
 | `PDF2MXL_VECTOR_OCR_SKIP_THRESHOLD` | 페이지당 **벡터 추출 글자 수**가 이 값 **이상**이면 해당 페이지 **EasyOCR 생략**(기본 `40`). 가사가 잘 안 지워지면 낮출 것(예: `20`). |
 | `PDF2MXL_INJECT_LYRICS_DIRECTIONS` | `1`이면 **구버전**: 병합 MXL 첫 마디에 `direction`/`words` 대량 삽입. **기본(미설정)**: MXL은 원본 유지, 가사는 **`*_merged_lyrics.txt`** 사이드카만 생성. |
+| `PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL` | 마스킹 PDF로 Audiveris를 돌렸는데 **.mxl/.musicxml이 하나도 없을 때** 같은 작업에서 **업로드 원본 PDF로 한 번 더** Audiveris를 실행합니다. 끄려면 `0` 또는 `false`(기본: 재시도 허용). |
 
 품질·호환 이슈(한글 파일명, mxlplayer `realValue`, 마디 수 등)는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)를 참고하세요.
 

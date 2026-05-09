@@ -271,7 +271,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       maskedPdfPath,
       textDataPath,
     );
-    if (ex.code !== 0) {
+    const extractionOk = ex.code === 0;
+    if (!extractionOk) {
       const errLog = `exit ${ex.code}\nSTDOUT:\n${ex.stdout}\nSTDERR:\n${ex.stderr}\n`;
       try {
         fsSync.writeFileSync(path.join(__dirname, '..', 'error.log'), errLog);
@@ -286,6 +287,29 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     }
 
     const pageHint = job.pdfPageCount && job.pdfPageCount > 0 ? job.pdfPageCount : 1;
+    const audiverisFallback =
+      extractionOk &&
+      process.env.PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL !== '0' &&
+      process.env.PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL !== 'false';
+
+    const runAudiverisOn = (pdfPath: string) =>
+      runAudiveris({
+        audiverisBin,
+        outputBaseDir: outBase,
+        inputPdfPath: pdfPath,
+        onStreamLine: (_stream, line) => {
+          const parsed = parseAudiverisProgressLine(line, job.pdfPageCount ?? 0);
+          if (parsed) {
+            setJobProgress(jobs.get(jobId), {
+              phase: 'audiveris',
+              current: parsed.current,
+              total: parsed.total,
+              detail: 'Audiveris 처리',
+            });
+          }
+        },
+      });
+
     console.log(`[job ${jobId}] Running Audiveris...`);
     setJobProgress(job, {
       phase: 'audiveris',
@@ -293,28 +317,43 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       total: pageHint,
       detail: 'Audiveris 악보 인식 중…',
     });
-    const result = await runAudiveris({
-      audiverisBin,
-      outputBaseDir: outBase,
-      inputPdfPath: maskedPdfPath,
-      onStreamLine: (_stream, line) => {
-        const parsed = parseAudiverisProgressLine(line, job.pdfPageCount ?? 0);
-        if (parsed) {
-          setJobProgress(jobs.get(jobId), {
-            phase: 'audiveris',
-            current: parsed.current,
-            total: parsed.total,
-            detail: 'Audiveris 처리',
-          });
-        }
-      },
-    });
+    let result = await runAudiverisOn(maskedPdfPath);
+    let outputs = await collectMusicXmlOutputs(outBase);
 
-    const outputs = await collectMusicXmlOutputs(outBase);
+    let retriedOnOriginal = false;
+    if (outputs.length === 0 && audiverisFallback) {
+      console.warn(`[job ${jobId}] No MusicXML after masked PDF; retrying Audiveris on original upload`);
+      setJobProgress(job, {
+        phase: 'audiveris',
+        current: 0,
+        total: pageHint,
+        detail: '마스킹 PDF에서 MXL 없음 — 원본 PDF로 재시도',
+      });
+      await fs.rm(outBase, { recursive: true, force: true });
+      await fs.mkdir(outBase, { recursive: true });
+      result = await runAudiverisOn(inputPdfPath);
+      outputs = await collectMusicXmlOutputs(outBase);
+      retriedOnOriginal = true;
+    }
+
     if (outputs.length === 0) {
+      let hint: string;
+      if (retriedOnOriginal) {
+        hint =
+          'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [masked_input#N]·ERS 등은 보통 N번째 악보 장 처리/내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 안 나올 수 있습니다. ' +
+          '이미 원본 PDF로도 재시도했습니다. 디버그 ZIP의 masked_input.pdf에서 가사 가림이 오선·음표를 망가뜨리지 않았는지 확인하고, Audiveris GUI로 동일 PDF를 열어 해당 장 오류를 확인하세요.';
+      } else if (!audiverisFallback) {
+        hint = extractionOk
+          ? '마스킹된 PDF만 Audiveris에 넘겼으며 .mxl/.musicxml이 없습니다. 원본 PDF로 한 번 더 돌리려면 PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL 환경 변수를 제거하거나 1로 두세요(기본은 재시도 허용). WARN/ERS 로그는 악보 장 단위 오류일 수 있습니다.'
+          : '텍스트 마스킹 단계가 실패해 원본과 같은 PDF가 Audiveris에 전달됐을 수 있습니다. 그런데도 출력이 없으면 Audiveris·PDF 자체 인식 문제입니다. error.log·Audiveris 로그(WARN/ERS)를 확인하세요.';
+      } else {
+        hint =
+          'Audiveris에 MusicXML이 생성되지 않았습니다. 로그의 WARN [masked_input#N]·ERS를 확인하고, PDF2MXL_VECTOR_OCR_SKIP_THRESHOLD로 마스킹을 조정하거나 Audiveris GUI로 동일 PDF를 열어 보세요.';
+      }
       await fail({
         status: 422,
         error: 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
+        detail: hint,
         exitCode: result.code,
         stdoutTail: tail(result.stdout),
         stderrTail: tail(result.stderr),

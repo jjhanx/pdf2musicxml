@@ -220,6 +220,7 @@ export default function App() {
         httpError?: number;
         error?: string;
         detail?: string;
+        stdoutTail?: string;
         stderrTail?: string;
         progress?: TaskProgress;
       };
@@ -230,7 +231,7 @@ export default function App() {
 
       if (j.status === 'failed') {
         const msg =
-          [j.error, j.detail, j.stderrTail].filter(Boolean).join('\n') ||
+          [j.error, j.detail, j.stdoutTail, j.stderrTail].filter(Boolean).join('\n') ||
           `변환 실패 (HTTP ${j.httpError ?? '?'})`;
         return { errorMessage: msg };
       }

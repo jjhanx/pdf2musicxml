@@ -45,7 +45,16 @@ app.use(cors({ origin: true }));
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
 
 function decodeMultipartFilename(name: string): string {
-  return Buffer.from(name || 'input.pdf', 'latin1').toString('utf8');
+  const raw = (name || 'input.pdf').trim() || 'input.pdf';
+  const nfc = (s: string) => s.normalize('NFC');
+  const hasHangul = (s: string) => /[\uAC00-\uD7A3]/.test(s);
+  const hasReplacement = (s: string) => /[\uFFFD]/.test(s);
+  const fromLatin = Buffer.from(raw, 'latin1').toString('utf8');
+
+  if (hasHangul(raw) && !hasReplacement(raw)) return nfc(raw);
+  if (hasHangul(fromLatin) && !hasReplacement(fromLatin)) return nfc(fromLatin);
+  if (raw !== fromLatin && hasHangul(fromLatin)) return nfc(fromLatin);
+  return nfc(fromLatin);
 }
 
 function safeUploadBasename(originalHeaderName: string): string {
@@ -335,7 +344,15 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       }
     }
 
-    const finalOutputs = isDebug ? [...outputs, ...mergedOutputs] : mergedOutputs;
+    let finalOutputs = isDebug ? [...outputs, ...mergedOutputs] : mergedOutputs;
+    if (isDebug) {
+      const extras: string[] = [];
+      for (const p of mergedOutputs) {
+        const lyricTxt = path.join(path.dirname(p), `${path.parse(p).name}_lyrics.txt`);
+        if (fsSync.existsSync(lyricTxt)) extras.push(lyricTxt);
+      }
+      finalOutputs = [...finalOutputs, ...extras];
+    }
     const baseName = path.basename(originalName, path.extname(originalName)) || 'score';
 
     if (!isDebug && finalOutputs.length === 1) {

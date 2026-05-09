@@ -52,6 +52,10 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `PORT` | API/UI 포트 (기본 `8787`) |
 | `LISTEN_HOST` | 바인딩 주소 (기본 `0.0.0.0`). `127.0.0.1`만 열려면 nginx 뒤에 둘 때 사용 |
 | `AUDIVERIS_NO_FLAT_OUTPUT` | `1`이면 `-option …useSeparateBookFolders=false` 비활성화 |
+| `PDF2MXL_VECTOR_OCR_SKIP_THRESHOLD` | 페이지당 **벡터 추출 글자 수**가 이 값 **이상**이면 해당 페이지 **EasyOCR 생략**(기본 `40`). 가사가 잘 안 지워지면 낮출 것(예: `20`). |
+| `PDF2MXL_INJECT_LYRICS_DIRECTIONS` | `1`이면 **구버전**: 병합 MXL 첫 마디에 `direction`/`words` 대량 삽입. **기본(미설정)**: MXL은 원본 유지, 가사는 **`*_merged_lyrics.txt`** 사이드카만 생성. |
+
+품질·호환 이슈(한글 파일명, mxlplayer `realValue`, 마디 수 등)는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)를 참고하세요.
 
 영구 설정 예 (`~/.bashrc`):
 

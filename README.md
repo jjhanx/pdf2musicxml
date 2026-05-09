@@ -3,6 +3,14 @@
 PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 내려받는 도구입니다.  
 프론트는 **Vite + React + TypeScript**, API는 **Express**이며 [mxlplayer](https://github.com/jjhanx/mxlplayer)와 같은 계열의 웹 스택입니다.
 
+## 최근 변경 (벡터 우선 마스킹·가사·파일명)
+
+- **PDF 텍스트 마스킹** (`scripts/pdf_text_extractor.py`): 벡터 PDF는 **PyMuPDF로 글리프/span 좌표를 먼저 추출·마스킹**하고, EasyOCR은 보완용으로만 사용합니다. OCR 박스가 벡터 텍스트 영역과 많이 겹치면 무시합니다.
+- **페이지별 OCR 생략**: `PDF2MXL_VECTOR_OCR_SKIP_THRESHOLD`(기본 `40`) — 페이지당 벡터로 읽힌 글자 수가 이 이상이면 해당 페이지는 EasyOCR을 건너뜁니다.
+- **가사 병합** (`scripts/mxl_text_merger.py`): **기본은 안전 모드** — Audiveris MXL 본문은 건드리지 않고 **`*_merged_lyrics.txt` 사이드카**만 둡니다. 예전처럼 MusicXML에 `direction`/`words`를 대량 삽입하려면 `PDF2MXL_INJECT_LYRICS_DIRECTIONS=1`.
+- **한글·ZIP 파일명**: `POST /api/convert` 멀티파트 파일명 디코딩을 보강해 `_�@…` 형태의 깨짐을 줄였습니다.
+- 자세한 품질·호환 대응은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md), **서버에서 무엇을 어떻게 점검할지**는 동 문서의 **「서버 배포 후 점검 체크리스트」**를 따르세요.
+
 ## 기능
 
 - **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**(전용 영역), 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드
@@ -61,7 +69,18 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 
 ```bash
 export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
+# (선택) 벡터 OCR 임계값·가사 주입 — 가이드 문서 참고
+# export PDF2MXL_VECTOR_OCR_SKIP_THRESHOLD=30
+# export PDF2MXL_INJECT_LYRICS_DIRECTIONS=1
 ```
+
+### 서버 배포 요약 (운영)
+
+1. **코드 반영**: `git pull origin main` (또는 배포 브랜치).
+2. **의존성**: `npm ci` 또는 `npm install`, Python venv에서 `pip install -r requirements.txt` (변경 시).
+3. **프론트 빌드**: `npm run build` — `start:prod`는 `dist`를 서빙합니다.
+4. **환경 변수**: `AUDIVERIS_BIN`, `PYTHON_BIN`(venv 권장), 필요 시 `PDF2MXL_*` — PM2/systemd에 반영 후 **프로세스 재시작**.
+5. **동작 확인**: `GET /api/health`, 한글 파일명 PDF + 디버그 ZIP으로 샘플 변환 — 단계별 세부 항목은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
 
 ## 설치·실행
 
@@ -156,7 +175,7 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 - **변환 버튼 클릭 시 아무 반응 없음**: 과거 빌드에서 존재하지 않는 `runBatch()`를 호출하는 버그가 있었습니다. 최신 `main`을 받아 다시 빌드하세요.
 - **HTTP(평문) 접속**: `crypto.randomUUID()`는 보안 컨텍스트에서만 안전하게 쓰이므로, 평문 HTTP에서는 대체 ID 생성으로 처리합니다.
 - **변환 버튼이 반응 없음(그 외)**: 브라우저별로 드롭 직후 `FileList`가 비는 경우가 있어 `DataTransfer.items` 경로를 추가했습니다. 서버는 정적 파일이 `/api`를 덮지 않도록 정리되어 있습니다.
-- **다운로드된 ZIP 파일 이름이 `ë__Â...` 같은 외계어로 깨지는 현상**: 멀티파트에서 온 파일명이 **Latin-1로 잘못 인코딩**되어 들어오는 경우가 있습니다. 서버는 **UTF-8로 되돌려** 안전한 파일명으로 저장·응답합니다.
+- **다운로드된 ZIP 파일 이름이 `ë__Â...` 또는 `_�@…`처럼 깨지는 현상**: 멀티파트 `filename*` / `filename` 조합과 **Latin-1 오해석**이 겹칠 때 발생할 수 있습니다. 최신 서버는 UTF-8·NFC·한글·대체 문자를 고려해 디코딩합니다. 여전히 깨지면 **브라우저·역프록시가 `Content-Disposition`을 어떻게 전달하는지**(인코딩 헤더 절단 여부)를 확인하세요.
 - **디버그 모드의 `text_data.json`이 빈 배열 `[]`이고 마스킹이 안 되는 현상**: `easyocr`이 100MB 가량의 AI 모델을 처음 다운로드할 때 터미널에 출력하는 진행률 바가 Node.js `exec()`의 기본 버퍼 크기(1MB)를 초과하여 파이썬 스크립트가 강제 종료(Crash)되면서 발생하는 문제입니다. 최신 코드에서는 허용 버퍼를 늘리고 강제로 UTF-8 인코딩 환경 변수를 주입하여 해결했습니다.
   - **주의**: 패치 적용 전에 스크립트가 강제 종료되어 **모델 파일이 손상된 상태로 남아있는 경우** 계속해서 똑같이 실패할 수 있습니다. 이 경우 사용자 폴더 하위의 `~/.EasyOCR/model` 폴더를 통째로 삭제한 뒤, 변환을 다시 실행하여 모델이 처음부터 온전하게 다운로드 되도록 해야 합니다.
 
@@ -164,12 +183,14 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 
 ```
 pdf2musicxml/
+├── docs/
+│   └── 악보_변환_품질_가이드.md  # 품질·호환·서버 점검 체크리스트 (한글)
 ├── server/index.ts             # Express API + (있으면) dist 정적 서빙
 ├── shared/audiveris.ts         # Audiveris CLI 래퍼
 ├── scripts/
 │   ├── convert-cli.ts
-│   ├── pdf_text_extractor.py   # PDF 텍스트 추출 및 마스킹
-│   └── mxl_text_merger.py      # Audiveris 출력물에 텍스트(가사 등) 병합
+│   ├── pdf_text_extractor.py   # 벡터 우선 + 선택적 OCR 마스킹
+│   └── mxl_text_merger.py      # 가사 사이드카(기본) / 선택적 MXL 주입
 ├── src/App.tsx                 # UI (다중 파일·드래그 앤 드롭)
 └── vite.config.ts
 ```

@@ -174,7 +174,7 @@ async function runPythonExtractorWithProgress(
     const errChunks: Buffer[] = [];
     let errLineBuf = '';
 
-    const feedProgressFromText(text: string): void {
+    const feedProgressFromText = (text: string): void => {
       errLineBuf += text;
       let nl: number;
       while ((nl = errLineBuf.indexOf('\n')) >= 0) {
@@ -199,7 +199,7 @@ async function runPythonExtractorWithProgress(
           /* skip */
         }
       }
-    }
+    };
 
     child.stdout?.on('data', (d: Buffer) => outChunks.push(d));
     child.stderr?.on('data', (d: Buffer) => {

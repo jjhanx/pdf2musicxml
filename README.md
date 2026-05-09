@@ -142,6 +142,7 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 
 ## 문제 해결 (웹 UI 및 서버)
 
+- **502 Bad Gateway**: nginx가 **업스트림(Node)에 TCP 연결을 못 하거나**, 앱이 **기동 직후 크래시**하면 납니다. 서버에서 `curl -sS http://127.0.0.1:8787/api/health`(포트는 환경에 맞게)로 직접 확인하고, `pm2 logs pdf2mxl` 등으로 **Node/TS 구문 오류·모듈 누락**을 봅니다. `proxy_pass`의 호스트·포트가 실제 리슨과 같은지 확인하세요.
 - **504 Gateway Time-out (역프록시 뒤에서 변환/업로드 중 끊김)**  
   - **조기 202**: 예전에는 `multer`가 파일 전체를 디스크에 저장한 뒤에만 응답할 수 있어, **업로드가 길면** nginx `proxy_read_timeout` 전에 백엔드 응답이 없어 504가 날 수 있었습니다. 현재는 **`busboy`로 스트리밍 수신**하면서 **먼저 202**를 보냅니다. 배포 후 네트워크 탭에서 `/api/convert`가 본문 전송 중에도 **202**인지, `X-Pdf2Mxl-Async: 202-early` 헤더가 있는지 확인하세요.  
   - **다운로드**: `/api/download/...` 로 ZIP 등을 오래 받는 경우에도 프록시 **읽기 타임아웃**에 걸릴 수 있습니다. nginx 예: `proxy_read_timeout 3600s;`, `proxy_send_timeout 3600s;`, 필요 시 `client_max_body_size`(업로드 용량)도 조정하세요.

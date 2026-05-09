@@ -2,6 +2,15 @@ import sys
 import json
 import os
 
+PROGRESS_PREFIX = "PDF2MXL_PROGRESS "
+
+def emit_progress(phase, current, total, detail=None):
+    """Node 서버가 stderr 한 줄로 파싱해 UI 진행률에 반영합니다."""
+    payload = {"phase": phase, "current": int(current), "total": int(total)}
+    if detail:
+        payload["detail"] = detail
+    print(PROGRESS_PREFIX + json.dumps(payload, ensure_ascii=False), file=sys.stderr, flush=True)
+
 try:
     import fitz  # PyMuPDF
 except ImportError:
@@ -22,15 +31,24 @@ def extract_and_mask_text(input_pdf_path, output_pdf_path, output_json_path):
         print(f"Error opening PDF: {e}", file=sys.stderr)
         sys.exit(1)
 
+    page_count = len(doc)
+    emit_progress("ocr", 0, page_count, "EasyOCR 초기화 중")
+
     print("Initializing EasyOCR reader (this may take a moment)...")
     # ko for Korean, en for English
     reader = easyocr.Reader(['ko', 'en'])
 
     all_text_data = []
 
-    for page_num in range(len(doc)):
+    for page_num in range(page_count):
         page = doc[page_num]
-        print(f"Processing page {page_num + 1}/{len(doc)}...")
+        emit_progress(
+            "ocr",
+            page_num + 1,
+            page_count,
+            f"페이지 {page_num + 1}/{page_count} 텍스트 추출·마스킹",
+        )
+        print(f"Processing page {page_num + 1}/{page_count}...")
         
         # Render page to image for OCR
         # We use a balanced resolution (zoom=1.5) to speed up OCR and prevent proxy timeouts

@@ -15,6 +15,8 @@ export interface AudiverisRunOptions {
   inputPdfPath: string;
   /** 추가 인자 (예: -option 키=값) */
   extraArgs?: string[];
+  /** 배치 로그 한 줄씩(개행 단위). 긴 작업 진행 표시용 */
+  onStreamLine?: (stream: 'stdout' | 'stderr', line: string) => void;
 }
 
 export interface AudiverisRunResult {
@@ -44,6 +46,33 @@ export function resolveAudiverisBin(): string | undefined {
   return v || undefined;
 }
 
+function attachLineReader(
+  stream: NodeJS.ReadableStream | null | undefined,
+  onLine: (line: string) => void,
+): { flush: () => void } {
+  if (!stream) {
+    return { flush: () => {} };
+  }
+  let buf = '';
+  stream?.on('data', (d: Buffer) => {
+    buf += d.toString('utf8');
+    let i: number;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const raw = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      onLine(raw.endsWith('\r') ? raw.slice(0, -1) : raw);
+    }
+  });
+  return {
+    flush: () => {
+      if (buf.length) {
+        onLine(buf.endsWith('\r') ? buf.slice(0, -1) : buf);
+        buf = '';
+      }
+    },
+  };
+}
+
 export function runAudiveris(opts: AudiverisRunOptions): Promise<AudiverisRunResult> {
   const args = buildArgs(opts);
   const bin = opts.audiverisBin;
@@ -54,14 +83,45 @@ export function runAudiveris(opts: AudiverisRunOptions): Promise<AudiverisRunRes
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    child.stdout?.on('data', (d: Buffer) => stdoutChunks.push(d));
-    child.stderr?.on('data', (d: Buffer) => stderrChunks.push(d));
+    const onLine = opts.onStreamLine;
+    const streamedLines: string[] = [];
+
+    const recordLine = (stream: 'stdout' | 'stderr', line: string) => {
+      streamedLines.push(`[${stream}] ${line}`);
+      if (streamedLines.length > 400) streamedLines.splice(0, streamedLines.length - 300);
+    };
+
+    let outFlush: { flush: () => void } | undefined;
+    let errFlush: { flush: () => void } | undefined;
+
+    if (onLine) {
+      outFlush = attachLineReader(child.stdout!, (line) => {
+        if (line.length) {
+          recordLine('stdout', line);
+          onLine('stdout', line);
+        }
+      });
+      errFlush = attachLineReader(child.stderr!, (line) => {
+        if (line.length) {
+          recordLine('stderr', line);
+          onLine('stderr', line);
+        }
+      });
+    } else {
+      child.stdout?.on('data', (d: Buffer) => stdoutChunks.push(d));
+      child.stderr?.on('data', (d: Buffer) => stderrChunks.push(d));
+    }
     child.on('error', reject);
     child.on('close', (code) => {
+      if (onLine) {
+        outFlush?.flush();
+        errFlush?.flush();
+      }
+      const streamedText = streamedLines.join('\n');
       resolve({
         code,
-        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+        stdout: onLine ? streamedText : Buffer.concat(stdoutChunks).toString('utf8'),
+        stderr: onLine ? streamedText : Buffer.concat(stderrChunks).toString('utf8'),
       });
     });
   });

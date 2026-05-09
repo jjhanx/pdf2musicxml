@@ -202,3 +202,57 @@ button:disabled {
   display: inline-block;
   max-width: 240px;
 }
+
+.task-status-running {
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.task-progress-line {
+  font-size: 0.78rem;
+  color: #bdc1c6;
+  line-height: 1.35;
+  margin-bottom: 0.35rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.task-progress-track {
+  height: 6px;
+  background: #2e3440;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.task-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3d6fed, #6ba4ff);
+  border-radius: 4px;
+  transition: width 0.35s ease-out;
+}
+
+.task-progress-indeterminate {
+  height: 6px;
+  background: #2e3440;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.task-progress-indeterminate-bar {
+  height: 100%;
+  width: 35%;
+  background: #3d6fed;
+  border-radius: 4px;
+  animation: task-indet 1.2s ease-in-out infinite;
+}
+
+@keyframes task-indet {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}

@@ -6,6 +6,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 ## 기능
 
 - **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**(전용 영역), 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드
+- **진행 표시**: OCR 단계에서는 PDF **페이지 단위**(예: 3/10)로 진행률을 내보냅니다. Audiveris·가사 병합 단계에서도 단계명과 처리 중인 항목 번호를 표시합니다(로그 형식에 따라 Audiveris 세부 진행은 제한적일 수 있음).
 - **한글 파일명 지원**: 변환된 파일 다운로드 시 원본 파일의 한글 이름이 깨지지 않고 온전하게 보존됩니다.
 - **디버그 모드**: UI에서 "중간 과정 파일 함께 다운로드 (디버그 모드, ZIP)"를 체크하면 마스킹된 PDF, 텍스트 데이터 JSON, 병합 전후의 MXL 등 모든 중간 산출물을 ZIP으로 묶어서 받을 수 있어 과정 추적이 용이합니다.
 - **비동기 변환(폴링)**: Nginx·Cloudflare 등 앞단 프록시의 **게이트웨이 타임아웃(예: 504)** 을 피하기 위해, **`POST /api/convert`는 multipart 본문(파일 업로드)이 끝나기 전에** **HTTP 202** 와 `jobId`를 먼저 내려보냅니다. 업로드·저장은 같은 연결에서 이어지고, 변환은 서버 백그라운드에서 진행됩니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다.
@@ -121,10 +122,10 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 |-------------|------|
 | `GET /api/health` | 서버·Audiveris 구성 여부. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
 | `POST /api/convert` | `multipart/form-data`: 필드 `pdf`(파일), `debug`(`true`/`false`, 선택). **요청 본문을 다 받기 전에** **202 Accepted** 와 `{ "jobId", "message" }`를 먼저 반환합니다. 응답 헤더에 `X-Pdf2Mxl-Async: 202-early`(확인용), nginx 앞일 때 버퍼 끄기용 `X-Accel-Buffering: no`가 붙을 수 있습니다. 업로드·검증 실패 시 작업 상태가 `failed`로 남습니다. |
-| `GET /api/status/:jobId` | `pending` → `processing` → `completed` \| `failed`. 실패 시 본문에 `error`, `detail`, `stderrTail` 등 포함(조회 응답은 200). 없는 ID는 404 |
+| `GET /api/status/:jobId` | `pending` → `processing` → `completed` \| `failed`. `processing`·`pending` 중일 때 갱신되는 **`progress`** 객체: `phase`(`ocr` \| `audiveris` \| `merge`), `current`, `total`, 선택 `detail`(한글 설명). 실패 시 본문에 `error` 등 포함(조회 응답은 200). 없는 ID는 404 |
 | `GET /api/download/:jobId` | `completed` 일 때만 단일 MXL/MusicXML 또는 ZIP 스트림. 완료 전·실패 후는 409. 전송 종료 후 서버가 해당 작업의 임시 디렉터리 정리 |
 
-프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 3초 간격**으로 `/api/status/:jobId`를 호출하고, 완료되면 `/api/download/:jobId`로 Blob을 받아 저장 링크를 제공합니다.
+프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, **`progress`가 있으면** 테이블에 단계명·`current/total`·진행 막대를 표시합니다. 완료되면 `/api/download/:jobId`로 Blob을 받아 저장 링크를 제공합니다.
 
 **참고**: 만료(TTL)로 작업이 삭제된 뒤에는 동일 `jobId`로 상태 조회 시 404가 됩니다.
 

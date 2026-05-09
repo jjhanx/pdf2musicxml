@@ -8,6 +8,14 @@ type Health = {
   jobRetentionNote?: string;
 };
 
+/** `/api/status`의 progress와 동일 */
+type TaskProgress = {
+  phase: string;
+  current: number;
+  total: number;
+  detail?: string;
+};
+
 type ConvertTask = {
   id: string;
   fileName: string;
@@ -15,6 +23,7 @@ type ConvertTask = {
   downloadUrl?: string;
   downloadName?: string;
   errorMessage?: string;
+  progress?: TaskProgress;
 };
 
 function isPdfFile(f: File): boolean {
@@ -75,10 +84,23 @@ function revokeTaskUrls(tasks: ConvertTask[]) {
   }
 }
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 2000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function taskProgressPhaseLabel(phase: string): string {
+  if (phase === 'ocr') return 'OCR·마스킹';
+  if (phase === 'audiveris') return '악보 인식(Audiveris)';
+  if (phase === 'merge') return '가사 병합';
+  return phase;
+}
+
+function formatTaskProgressLine(p: TaskProgress): string {
+  const frac = p.total > 0 ? `${p.current} / ${p.total}` : '';
+  const det = p.detail ? (frac ? ` — ${p.detail}` : p.detail) : '';
+  return `${taskProgressPhaseLabel(p.phase)}${frac ? ` (${frac})` : ''}${det}`.trim();
 }
 
 /** HTTP(평문)에서는 `crypto.randomUUID()`가 없거나 예외를 유발할 수 있음 */
@@ -148,7 +170,12 @@ export default function App() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const convertOne = useCallback(async (file: File, debug: boolean): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
+  const convertOne = useCallback(
+    async (
+      file: File,
+      debug: boolean,
+      onProgress?: (p: TaskProgress | undefined) => void,
+    ): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
     const fd = new FormData();
     fd.append('pdf', file);
     fd.append('debug', debug ? 'true' : 'false');
@@ -190,7 +217,12 @@ export default function App() {
         error?: string;
         detail?: string;
         stderrTail?: string;
+        progress?: TaskProgress;
       };
+
+      if (j.progress) {
+        onProgress?.(j.progress);
+      }
 
       if (j.status === 'failed') {
         const msg =
@@ -231,8 +263,11 @@ export default function App() {
       if (m?.[1]) name = m[1];
     }
     const downloadUrl = URL.createObjectURL(blob);
+    onProgress?.(undefined);
     return { downloadUrl, downloadName: name };
-  }, []);
+  },
+    [],
+  );
 
   const runBatchWith = useCallback(
     async (listArg: File[], healthArg: Health | null, debug: boolean) => {
@@ -272,16 +307,21 @@ export default function App() {
           );
 
           try {
-            const result = await convertOne(file, debug);
+            const result = await convertOne(file, debug, (p) => {
+              setTasks((prev) =>
+                prev.map((t) => (t.id === taskId ? { ...t, progress: p } : t)),
+              );
+            });
             setTasks((prev) =>
               prev.map((t) => {
                 if (t.id !== taskId) return t;
                 if (result.errorMessage) {
-                  return { ...t, phase: 'error', errorMessage: result.errorMessage };
+                  return { ...t, phase: 'error', errorMessage: result.errorMessage, progress: undefined };
                 }
                 return {
                   ...t,
                   phase: 'done',
+                  progress: undefined,
                   downloadUrl: result.downloadUrl,
                   downloadName: result.downloadName,
                 };
@@ -290,7 +330,7 @@ export default function App() {
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             setTasks((prev) =>
-              prev.map((t) => (t.id === taskId ? { ...t, phase: 'error', errorMessage: msg } : t)),
+              prev.map((t) => (t.id === taskId ? { ...t, phase: 'error', errorMessage: msg, progress: undefined } : t)),
             );
           }
         }
@@ -454,7 +494,35 @@ export default function App() {
                   <td className="task-name">{t.fileName}</td>
                   <td>
                     {t.phase === 'queued' && '대기'}
-                    {t.phase === 'running' && '변환 중…'}
+                    {t.phase === 'running' && (
+                      <div className="task-status-running">
+                        {!t.progress && <span>변환 중…</span>}
+                        {t.progress && (
+                          <>
+                            <div className="task-progress-line" title={formatTaskProgressLine(t.progress)}>
+                              {formatTaskProgressLine(t.progress)}
+                            </div>
+                            {t.progress.total > 0 ? (
+                              <div className="task-progress-track" aria-hidden>
+                                <div
+                                  className="task-progress-fill"
+                                  style={{
+                                    width: `${Math.min(
+                                      100,
+                                      (100 * Math.min(t.progress.current, t.progress.total)) / t.progress.total,
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
+                            ) : (
+                              <div className="task-progress-indeterminate" aria-hidden>
+                                <div className="task-progress-indeterminate-bar" />
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                     {t.phase === 'done' && <span className="ok">완료</span>}
                     {t.phase === 'error' && <span className="err">실패</span>}
                   </td>

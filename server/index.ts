@@ -8,7 +8,7 @@ import { promises as fs } from 'node:fs';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { exec as execCallback } from 'node:child_process';
+import { exec as execCallback, spawn } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +68,15 @@ app.get('/api/health', (_req, res) => {
 
 type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
+type JobProgressPhase = 'ocr' | 'audiveris' | 'merge';
+
+type JobProgress = {
+  phase: JobProgressPhase;
+  current: number;
+  total: number;
+  detail?: string;
+};
+
 type JobResult =
   | {
       kind: 'single';
@@ -105,6 +114,10 @@ type JobRecord = {
   finishedAt?: number;
   error?: JobErrorPayload;
   result?: JobResult;
+  /** UI·폴링용 진행률(OCR 페이지, Audiveris/병합 단계 등) */
+  progress?: JobProgress;
+  /** OCR에서 알게 된 PDF 전체 페이지 수(Audiveris 로그 해석 보조) */
+  pdfPageCount?: number;
 };
 
 const jobs = new Map<string, JobRecord>();
@@ -120,6 +133,89 @@ function purgeExpiredJobs(): void {
       void fs.rm(job.sessionRoot, { recursive: true, force: true }).catch(() => {});
     }
   }
+}
+
+const PROGRESS_PREFIX = 'PDF2MXL_PROGRESS ';
+
+function setJobProgress(job: JobRecord | undefined, p: JobProgress): void {
+  if (!job || job.status === 'failed' || job.status === 'completed') return;
+  job.progress = p;
+  if (p.phase === 'ocr' && p.total > 0) job.pdfPageCount = p.total;
+}
+
+function parseAudiverisProgressLine(line: string, pageFallback: number): { current: number; total: number } | null {
+  const slash = line.match(/(\d+)\s*\/\s*(\d+)/);
+  if (slash) {
+    const a = parseInt(slash[1], 10);
+    const b = parseInt(slash[2], 10);
+    if (b > 0 && a >= 0 && a <= b) return { current: a, total: b };
+  }
+  const sheet = line.match(/(?:sheet|page|페이지)\s*[#:：]?\s*(\d+)/i);
+  if (sheet && pageFallback > 0) {
+    const n = parseInt(sheet[1], 10);
+    if (n > 0) return { current: Math.min(n, pageFallback), total: pageFallback };
+  }
+  return null;
+}
+
+async function runPythonExtractorWithProgress(
+  jobId: string,
+  scriptPath: string,
+  inputPdf: string,
+  maskedOut: string,
+  jsonOut: string,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(pythonCmd, [scriptPath, inputPdf, maskedOut, jsonOut], {
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      windowsHide: true,
+    });
+    const outChunks: Buffer[] = [];
+    const errChunks: Buffer[] = [];
+    let errLineBuf = '';
+
+    const feedProgressFromText(text: string): void {
+      errLineBuf += text;
+      let nl: number;
+      while ((nl = errLineBuf.indexOf('\n')) >= 0) {
+        const line = errLineBuf.slice(0, nl).trim();
+        errLineBuf = errLineBuf.slice(nl + 1);
+        if (!line.startsWith(PROGRESS_PREFIX)) continue;
+        try {
+          const payload = JSON.parse(line.slice(PROGRESS_PREFIX.length)) as Record<string, unknown>;
+          const phase = payload.phase;
+          const current = Number(payload.current);
+          const total = Number(payload.total);
+          const detail = typeof payload.detail === 'string' ? payload.detail : undefined;
+          if (phase === 'ocr' && Number.isFinite(current) && Number.isFinite(total)) {
+            setJobProgress(jobs.get(jobId), {
+              phase: 'ocr',
+              current,
+              total,
+              detail,
+            });
+          }
+        } catch {
+          /* skip */
+        }
+      }
+    }
+
+    child.stdout?.on('data', (d: Buffer) => outChunks.push(d));
+    child.stderr?.on('data', (d: Buffer) => {
+      errChunks.push(d);
+      feedProgressFromText(d.toString('utf8'));
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      feedProgressFromText('\n');
+      resolve({
+        code: code ?? 1,
+        stdout: Buffer.concat(outChunks).toString('utf8'),
+        stderr: Buffer.concat(errChunks).toString('utf8'),
+      });
+    });
+  });
 }
 
 function tail(s: string, max = 8000): string {
@@ -140,6 +236,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     job.status = 'failed';
     job.error = payload;
     job.finishedAt = Date.now();
+    delete job.progress;
   };
 
   job.status = 'processing';
@@ -152,33 +249,51 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     const extractorScript = path.join(__dirname, '..', 'scripts', 'pdf_text_extractor.py');
 
     console.log(`[job ${jobId}] Running text extraction...`);
-    try {
-      await exec(
-        `"${pythonCmd}" "${extractorScript}" "${inputPdfPath}" "${maskedPdfPath}" "${textDataPath}"`,
-        {
-          env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-          maxBuffer: 1024 * 1024 * 100,
-        },
-      );
-    } catch (e: any) {
-      const errLog = `Error: ${e?.message || String(e)}\nSTDOUT:\n${e?.stdout}\nSTDERR:\n${e?.stderr}\n`;
+    setJobProgress(job, { phase: 'ocr', current: 0, total: 0, detail: 'OCR 준비 중' });
+    const ex = await runPythonExtractorWithProgress(
+      jobId,
+      extractorScript,
+      inputPdfPath,
+      maskedPdfPath,
+      textDataPath,
+    );
+    if (ex.code !== 0) {
+      const errLog = `exit ${ex.code}\nSTDOUT:\n${ex.stdout}\nSTDERR:\n${ex.stderr}\n`;
       try {
         fsSync.writeFileSync(path.join(__dirname, '..', 'error.log'), errLog);
       } catch (_err) {
         /* skip */
       }
-      console.error('Text extraction failed:', e?.message || String(e));
-      if (e?.stdout) console.error('STDOUT tail:', e.stdout.slice(-1000));
-      if (e?.stderr) console.error('STDERR tail:', e.stderr.slice(-1000));
+      console.error('Text extraction failed:', ex.code);
+      if (ex.stdout) console.error('STDOUT tail:', ex.stdout.slice(-1000));
+      if (ex.stderr) console.error('STDERR tail:', ex.stderr.slice(-1000));
       await fs.copyFile(inputPdfPath, maskedPdfPath);
       await fs.writeFile(textDataPath, '[]');
     }
 
+    const pageHint = job.pdfPageCount && job.pdfPageCount > 0 ? job.pdfPageCount : 1;
     console.log(`[job ${jobId}] Running Audiveris...`);
+    setJobProgress(job, {
+      phase: 'audiveris',
+      current: 0,
+      total: pageHint,
+      detail: 'Audiveris 악보 인식 중…',
+    });
     const result = await runAudiveris({
       audiverisBin,
       outputBaseDir: outBase,
       inputPdfPath: maskedPdfPath,
+      onStreamLine: (_stream, line) => {
+        const parsed = parseAudiverisProgressLine(line, job.pdfPageCount ?? 0);
+        if (parsed) {
+          setJobProgress(jobs.get(jobId), {
+            phase: 'audiveris',
+            current: parsed.current,
+            total: parsed.total,
+            detail: 'Audiveris 처리',
+          });
+        }
+      },
     });
 
     const outputs = await collectMusicXmlOutputs(outBase);
@@ -196,7 +311,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     console.log(`[job ${jobId}] Merging text into MusicXML...`);
     const mergerScript = path.join(__dirname, '..', 'scripts', 'mxl_text_merger.py');
     const mergedOutputs: string[] = [];
-    for (const p of outputs) {
+    for (let i = 0; i < outputs.length; i++) {
+      const p = outputs[i];
+      setJobProgress(job, {
+        phase: 'merge',
+        current: i + 1,
+        total: outputs.length,
+        detail: `${path.basename(p)} 가사 병합`,
+      });
       const parsedPath = path.parse(p);
       const mergedP = path.join(parsedPath.dir, `${parsedPath.name}_merged${parsedPath.ext}`);
       try {
@@ -233,6 +355,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     job.status = 'completed';
     job.finishedAt = Date.now();
+    delete job.progress;
     console.log(`[job ${jobId}] Completed`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -410,11 +533,20 @@ app.get('/api/status/:jobId', (req, res) => {
 
   if (job.status === 'failed' && job.error) {
     const { status, ...body } = job.error;
-    res.status(200).json({ status: job.status, httpError: status, ...body });
+    res.status(200).json({
+      status: job.status,
+      httpError: status,
+      ...(job.progress ? { progress: job.progress } : {}),
+      ...body,
+    });
     return;
   }
 
-  res.json({ status: job.status });
+  const payload: { status: JobStatus; progress?: JobProgress } = { status: job.status };
+  if (job.progress && (job.status === 'pending' || job.status === 'processing')) {
+    payload.progress = job.progress;
+  }
+  res.json(payload);
 });
 
 function streamZipToResponse(

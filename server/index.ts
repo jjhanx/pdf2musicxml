@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   collectMusicXmlOutputs,
+  ocrLanguageConstantArgsFromEnv,
   resolveAudiverisBin,
   runAudiveris,
 } from '../shared/audiveris.js';
@@ -51,11 +52,22 @@ function safeUploadBasename(originalHeaderName: string): string {
   return safe || 'input.pdf';
 }
 
+function resolvedAudiverisOcrLangSpec(): string | null {
+  const raw = process.env.AUDIVERIS_OCR_LANG;
+  if (raw === '') return null;
+  const spec = (raw ?? 'kor+eng').trim();
+  return spec || null;
+}
+
 app.get('/api/health', (_req, res) => {
   const bin = resolveAudiverisBin();
+  const ocrLangEffective = resolvedAudiverisOcrLangSpec();
+  const ocrLangConstantInjected = ocrLanguageConstantArgsFromEnv().length > 0;
   res.json({
     ok: true,
     audiverisConfigured: Boolean(bin),
+    audiverisOcrLangEffective: ocrLangEffective,
+    audiverisOcrLangConstantInjected: ocrLangConstantInjected,
     hint: bin ? undefined : 'Set AUDIVERIS_BIN to Audiveris.bat or bin/Audiveris',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:

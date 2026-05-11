@@ -2,7 +2,7 @@
  * Audiveris CLI wrapper — 공식 문서: https://audiveris.github.io/audiveris/_pages/guides/advanced/cli/
  *
  * 기본 호출 형태:
- *   Audiveris -batch -export -output <baseOutputDir> -- <input.pdf>
+ *   Audiveris -batch -export -output <baseOutputDir> [-constant org.audiveris.omr.text.Language.defaultSpecification=kor+eng] ... -- <input.pdf>
  */
 
 import { spawn } from 'node:child_process';
@@ -30,15 +30,30 @@ function buildArgs(opts: AudiverisRunOptions): string[] {
   return ['-batch', '-export', '-output', opts.outputBaseDir, ...extra, '--', opts.inputPdfPath];
 }
 
+/**
+ * Tesseract OCR 언어 사양 (예: kor+eng).
+ * - 미설정: 기본 `kor+eng` (한글 가사·제목 + 라틴 기호 병행 악보에 맞춤)
+ * - 빈 문자열 `AUDIVERIS_OCR_LANG=`: 상수를 넣지 않음 → Audiveris 기본(보통 eng만)
+ * @see https://audiveris.github.io/audiveris/_pages/guides/main/languages/
+ */
+export function ocrLanguageConstantArgsFromEnv(): string[] {
+  const raw = process.env.AUDIVERIS_OCR_LANG;
+  if (raw === '') return [];
+  const spec = (raw ?? 'kor+eng').trim();
+  if (!spec) return [];
+  return ['-constant', `org.audiveris.omr.text.Language.defaultSpecification=${spec}`];
+}
+
 /** 단일 폴더에 .mxl 모으기 (여러 악보 책 폴더 방지) — 필요 시 환경변수로 끔 */
 export function defaultExtraArgsFromEnv(): string[] {
-  if (process.env.AUDIVERIS_NO_FLAT_OUTPUT === '1' || process.env.AUDIVERIS_NO_FLAT_OUTPUT === 'true') {
-    return [];
-  }
-  return [
-    '-option',
-    'org.audiveris.omr.sheet.BookManager.useSeparateBookFolders=false',
-  ];
+  const flat =
+    process.env.AUDIVERIS_NO_FLAT_OUTPUT === '1' || process.env.AUDIVERIS_NO_FLAT_OUTPUT === 'true'
+      ? []
+      : [
+          '-option',
+          'org.audiveris.omr.sheet.BookManager.useSeparateBookFolders=false',
+        ];
+  return [...ocrLanguageConstantArgsFromEnv(), ...flat];
 }
 
 export function resolveAudiverisBin(): string | undefined {

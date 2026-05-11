@@ -28,6 +28,7 @@ function usage(): never {
 
 Environment:
   AUDIVERIS_BIN   필수. Audiveris 실행 파일 경로 (Windows: Audiveris.bat)
+  AUDIVERIS_OCR_LANG  선택. 미설정 시 kor+eng. 비우면 Audiveris 기본(eng).
 `);
   process.exit(1);
 }

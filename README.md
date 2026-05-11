@@ -15,8 +15,9 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 
 - **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**(전용 영역), 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드
 - **진행 표시**: 업로드 단계와 Audiveris 단계의 진행 상황을 표시합니다(Audiveris 로그 형식에 따라 세부 진행은 제한적일 수 있음).
+- **한글 제목·가사(OCR)**: Audiveris는 글자에 Tesseract를 쓰며 **기본이 영어(`eng`)**라 한글이 비거나 제목이 "Untitled Score"로 남을 수 있습니다. 서버는 **기본으로 `kor+eng`** OCR 언어를 넘깁니다. Audiveris **Tools → Languages**에서 **Korean(`kor`)** 데이터를 설치하고, `GET /api/health`의 `audiverisOcrLangEffective`로 설정을 확인하세요.
 - **한글 파일명 지원**: 변환된 파일 다운로드 시 원본 파일의 한글 이름이 깨지지 않고 온전하게 보존됩니다.
-- **디버그 모드**: UI에서 "중간 과정 파일 함께 다운로드 (디버그 모드, ZIP)"를 체크하면 **업로드 원본 PDF**와 Audiveris가 만든 **MXL/MusicXML**을 ZIP으로 받습니다.
+- **디버그 모드**: UI에서 "업로드 원본 PDF + Audiveris 결과물 ZIP으로 받기 (디버그)"를 체크하면 **업로드 원본 PDF**와 Audiveris가 만든 **MXL/MusicXML**을 ZIP으로 받습니다.
 - **비동기 변환(폴링)**: 변환(Audiveris)은 시간이 오래 걸리므로 **완료 후 곧바로 파일을 응답하지 않습니다.** `POST /api/convert`는 **PDF 수신·저장이 끝난 뒤** **HTTP 202** 와 `jobId`를 돌려주고, 실제 변환은 서버 백그라운드에서 돌아갑니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다. (과거에는 업로드 도중 202를 보내 일부 환경에서 본문 전송이 멈추는 문제가 있어, 202 시점을 저장 완료 후로 옮겼습니다.)
 - **결과 보관 기간(TTL)**: 변환이 **완료되었거나 최종 실패로 판정된 시점**부터 **24시간**이 지나면 서버 메모리의 작업 기록과, 아직 남아 있던 임시 결과 파일을 자동으로 삭제합니다. UI와 `GET /api/health` 응답에 동일 안내가 포함됩니다.
 - **REST API**: `POST /api/convert`, `GET /api/status/:jobId`, `GET /api/download/:jobId`, `GET /api/health` (아래 [REST API (비동기)](#rest-api-비동기) 참고)
@@ -44,6 +45,8 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | 변수 | 설명 |
 |------|------|
 | `AUDIVERIS_BIN` | **필수**(변환 시). 예: `/opt/audiveris/bin/Audiveris` |
+| `AUDIVERIS_OCR_LANG` | Tesseract 언어 사양. **미설정 시 `kor+eng`**(한글 가사·제목 + 라틴). Audiveris 기본(보통 영어만)을 쓰려면 빈 값: `AUDIVERIS_OCR_LANG=` |
+| `TESSDATA_PREFIX` | (선택) Tesseract `tessdata` 폴더. 미설정 시 Audiveris 사용자 설정 쪽 `tessdata` 사용 |
 | `PORT` | API/UI 포트 (기본 `8787`) |
 | `LISTEN_HOST` | 바인딩 주소 (기본 `0.0.0.0`). `127.0.0.1`만 열려면 nginx 뒤에 둘 때 사용 |
 | `AUDIVERIS_NO_FLAT_OUTPUT` | `1`이면 `-option …useSeparateBookFolders=false` 비활성화 |
@@ -125,7 +128,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 
 | 메서드·경로 | 설명 |
 |-------------|------|
-| `GET /api/health` | 서버·Audiveris 구성 여부. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
+| `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`). JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
 | `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`. **파일이 디스크에 저장된 뒤** **202 Accepted** 와 `{ "jobId", "message" }`. 헤더 `X-Pdf2Mxl-Async: 202-after-upload`, `X-Accel-Buffering: no`. 업로드·multipart 오류 시 **동일 POST**에서 4xx/5xx JSON(이 경우 `jobId` 없음). |
 | `GET /api/status/:jobId` | `pending` → `processing` → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
 | `GET /api/download/:jobId` | `completed` 일 때만 단일 MXL/MusicXML 또는 ZIP 스트림. 완료 전·실패 후는 409. 전송 종료 후 서버가 해당 작업의 임시 디렉터리 정리 |

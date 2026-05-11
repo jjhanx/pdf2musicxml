@@ -92,9 +92,7 @@ function sleep(ms: number): Promise<void> {
 
 function taskProgressPhaseLabel(phase: string): string {
   if (phase === 'upload') return 'PDF 업로드';
-  if (phase === 'ocr') return 'OCR·마스킹';
   if (phase === 'audiveris') return '악보 인식(Audiveris)';
-  if (phase === 'merge') return '가사 병합';
   return phase;
 }
 
@@ -444,7 +442,7 @@ export default function App() {
               onChange={(e) => setDebugMode(e.target.checked)}
               disabled={busy}
             />
-            중간 과정 파일 함께 다운로드 (디버그 모드, ZIP)
+            업로드 원본 PDF + Audiveris 결과물 ZIP으로 받기 (디버그)
           </label>
         </div>
 

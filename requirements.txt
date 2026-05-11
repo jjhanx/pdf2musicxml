@@ -1,4 +1,1 @@
-PyMuPDF>=1.24.0
-lxml>=5.2.0
-easyocr>=1.7.0
-numpy>=1.20.0
+# 이 레포는 PDF→MusicXML 변환을 Audiveris + Node만 사용합니다. Python 패키지는 필요하지 않습니다.

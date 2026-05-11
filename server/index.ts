@@ -8,12 +8,8 @@ import { promises as fs } from 'node:fs';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { exec as execCallback, spawn } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
-import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-
-const exec = promisify(execCallback);
 
 import {
   collectMusicXmlOutputs,
@@ -30,14 +26,6 @@ const PURGE_INTERVAL_MS = 15 * 60 * 1000;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, '..', 'dist');
-
-let defaultPython = process.platform === 'win32' ? 'python' : 'python3';
-if (fsSync.existsSync(path.join(__dirname, '..', 'venv', 'bin', 'python'))) {
-  defaultPython = path.join(__dirname, '..', 'venv', 'bin', 'python');
-} else if (fsSync.existsSync(path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe'))) {
-  defaultPython = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe');
-}
-const pythonCmd = process.env.PYTHON_BIN || defaultPython;
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -77,7 +65,7 @@ app.get('/api/health', (_req, res) => {
 
 type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
-type JobProgressPhase = 'upload' | 'ocr' | 'audiveris' | 'merge';
+type JobProgressPhase = 'upload' | 'audiveris';
 
 type JobProgress = {
   phase: JobProgressPhase;
@@ -97,8 +85,9 @@ type JobResult =
       kind: 'zip';
       finalOutputs: string[];
       isDebug: boolean;
-      maskedPdfPath: string;
-      textDataPath: string;
+      /** 디버그 ZIP에 업로드 원본 PDF를 포함할 때 */
+      uploadedPdfPath?: string;
+      uploadedPdfZipName?: string;
       zipName: string;
     };
 
@@ -123,9 +112,9 @@ type JobRecord = {
   finishedAt?: number;
   error?: JobErrorPayload;
   result?: JobResult;
-  /** UI·폴링용 진행률(OCR 페이지, Audiveris/병합 단계 등) */
+  /** UI·폴링용 진행률 (업로드, Audiveris 단계) */
   progress?: JobProgress;
-  /** OCR에서 알게 된 PDF 전체 페이지 수(Audiveris 로그 해석 보조) */
+  /** Audiveris 로그에서 추출한 전체 페이지/장 수 힌트 */
   pdfPageCount?: number;
 };
 
@@ -149,12 +138,10 @@ function noCacheJson(res: express.Response): void {
   res.setHeader('Pragma', 'no-cache');
 }
 
-const PROGRESS_PREFIX = 'PDF2MXL_PROGRESS ';
-
 function setJobProgress(job: JobRecord | undefined, p: JobProgress): void {
   if (!job || job.status === 'failed' || job.status === 'completed') return;
   job.progress = p;
-  if (p.phase === 'ocr' && p.total > 0) job.pdfPageCount = p.total;
+  if (p.phase === 'audiveris' && p.total > 0) job.pdfPageCount = p.total;
 }
 
 function parseAudiverisProgressLine(line: string, pageFallback: number): { current: number; total: number } | null {
@@ -170,66 +157,6 @@ function parseAudiverisProgressLine(line: string, pageFallback: number): { curre
     if (n > 0) return { current: Math.min(n, pageFallback), total: pageFallback };
   }
   return null;
-}
-
-async function runPythonExtractorWithProgress(
-  jobId: string,
-  scriptPath: string,
-  inputPdf: string,
-  maskedOut: string,
-  jsonOut: string,
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(pythonCmd, [scriptPath, inputPdf, maskedOut, jsonOut], {
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-      windowsHide: true,
-    });
-    const outChunks: Buffer[] = [];
-    const errChunks: Buffer[] = [];
-    let errLineBuf = '';
-
-    const feedProgressFromText = (text: string): void => {
-      errLineBuf += text;
-      let nl: number;
-      while ((nl = errLineBuf.indexOf('\n')) >= 0) {
-        const line = errLineBuf.slice(0, nl).trim();
-        errLineBuf = errLineBuf.slice(nl + 1);
-        if (!line.startsWith(PROGRESS_PREFIX)) continue;
-        try {
-          const payload = JSON.parse(line.slice(PROGRESS_PREFIX.length)) as Record<string, unknown>;
-          const phase = payload.phase;
-          const current = Number(payload.current);
-          const total = Number(payload.total);
-          const detail = typeof payload.detail === 'string' ? payload.detail : undefined;
-          if (phase === 'ocr' && Number.isFinite(current) && Number.isFinite(total)) {
-            setJobProgress(jobs.get(jobId), {
-              phase: 'ocr',
-              current,
-              total,
-              detail,
-            });
-          }
-        } catch {
-          /* skip */
-        }
-      }
-    };
-
-    child.stdout?.on('data', (d: Buffer) => outChunks.push(d));
-    child.stderr?.on('data', (d: Buffer) => {
-      errChunks.push(d);
-      feedProgressFromText(d.toString('utf8'));
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      feedProgressFromText('\n');
-      resolve({
-        code: code ?? 1,
-        stdout: Buffer.concat(outChunks).toString('utf8'),
-        stderr: Buffer.concat(errChunks).toString('utf8'),
-      });
-    });
-  });
 }
 
 function tail(s: string, max = 8000): string {
@@ -258,57 +185,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   try {
     await fs.mkdir(outBase, { recursive: true });
 
-    const maskedPdfPath = path.join(sessionRoot, 'masked_input.pdf');
-    const textDataPath = path.join(sessionRoot, 'text_data.json');
-    const extractorScript = path.join(__dirname, '..', 'scripts', 'pdf_text_extractor.py');
-
-    console.log(`[job ${jobId}] Running text extraction...`);
-    setJobProgress(job, { phase: 'ocr', current: 0, total: 0, detail: 'OCR 준비 중' });
-    const ex = await runPythonExtractorWithProgress(
-      jobId,
-      extractorScript,
-      inputPdfPath,
-      maskedPdfPath,
-      textDataPath,
-    );
-    const extractionOk = ex.code === 0;
-    if (!extractionOk) {
-      const errLog = `exit ${ex.code}\nSTDOUT:\n${ex.stdout}\nSTDERR:\n${ex.stderr}\n`;
-      try {
-        fsSync.writeFileSync(path.join(__dirname, '..', 'error.log'), errLog);
-      } catch (_err) {
-        /* skip */
-      }
-      console.error('Text extraction failed:', ex.code);
-      if (ex.stdout) console.error('STDOUT tail:', ex.stdout.slice(-1000));
-      if (ex.stderr) console.error('STDERR tail:', ex.stderr.slice(-1000));
-      await fs.copyFile(inputPdfPath, maskedPdfPath);
-      await fs.writeFile(textDataPath, '[]');
-    }
-
     const pageHint = job.pdfPageCount && job.pdfPageCount > 0 ? job.pdfPageCount : 1;
-    const audiverisFallback =
-      extractionOk &&
-      process.env.PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL !== '0' &&
-      process.env.PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL !== 'false';
-
-    const runAudiverisOn = (pdfPath: string) =>
-      runAudiveris({
-        audiverisBin,
-        outputBaseDir: outBase,
-        inputPdfPath: pdfPath,
-        onStreamLine: (_stream, line) => {
-          const parsed = parseAudiverisProgressLine(line, job.pdfPageCount ?? 0);
-          if (parsed) {
-            setJobProgress(jobs.get(jobId), {
-              phase: 'audiveris',
-              current: parsed.current,
-              total: parsed.total,
-              detail: 'Audiveris 처리',
-            });
-          }
-        },
-      });
 
     console.log(`[job ${jobId}] Running Audiveris...`);
     setJobProgress(job, {
@@ -317,85 +194,43 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       total: pageHint,
       detail: 'Audiveris 악보 인식 중…',
     });
-    let result = await runAudiverisOn(maskedPdfPath);
-    let outputs = await collectMusicXmlOutputs(outBase);
 
-    let retriedOnOriginal = false;
-    if (outputs.length === 0 && audiverisFallback) {
-      console.warn(`[job ${jobId}] No MusicXML after masked PDF; retrying Audiveris on original upload`);
-      setJobProgress(job, {
-        phase: 'audiveris',
-        current: 0,
-        total: pageHint,
-        detail: '마스킹 PDF에서 MXL 없음 — 원본 PDF로 재시도',
-      });
-      await fs.rm(outBase, { recursive: true, force: true });
-      await fs.mkdir(outBase, { recursive: true });
-      result = await runAudiverisOn(inputPdfPath);
-      outputs = await collectMusicXmlOutputs(outBase);
-      retriedOnOriginal = true;
-    }
+    const result = await runAudiveris({
+      audiverisBin,
+      outputBaseDir: outBase,
+      inputPdfPath,
+      onStreamLine: (_stream, line) => {
+        const parsed = parseAudiverisProgressLine(line, job.pdfPageCount ?? 0);
+        if (parsed) {
+          setJobProgress(jobs.get(jobId), {
+            phase: 'audiveris',
+            current: parsed.current,
+            total: parsed.total,
+            detail: 'Audiveris 처리',
+          });
+        }
+      },
+    });
+
+    const outputs = await collectMusicXmlOutputs(outBase);
 
     if (outputs.length === 0) {
-      let hint: string;
-      if (retriedOnOriginal) {
-        hint =
-          'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [masked_input#N]·ERS 등은 보통 N번째 악보 장 처리/내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 안 나올 수 있습니다. ' +
-          '이미 원본 PDF로도 재시도했습니다. 디버그 ZIP의 masked_input.pdf에서 가사 가림이 오선·음표를 망가뜨리지 않았는지 확인하고, Audiveris GUI로 동일 PDF를 열어 해당 장 오류를 확인하세요.';
-      } else if (!audiverisFallback) {
-        hint = extractionOk
-          ? '마스킹된 PDF만 Audiveris에 넘겼으며 .mxl/.musicxml이 없습니다. 원본 PDF로 한 번 더 돌리려면 PDF2MXL_AUDIVERIS_FALLBACK_ORIGINAL 환경 변수를 제거하거나 1로 두세요(기본은 재시도 허용). WARN/ERS 로그는 악보 장 단위 오류일 수 있습니다.'
-          : '텍스트 마스킹 단계가 실패해 원본과 같은 PDF가 Audiveris에 전달됐을 수 있습니다. 그런데도 출력이 없으면 Audiveris·PDF 자체 인식 문제입니다. error.log·Audiveris 로그(WARN/ERS)를 확인하세요.';
-      } else {
-        hint =
-          'Audiveris에 MusicXML이 생성되지 않았습니다. 로그의 WARN [masked_input#N]·ERS를 확인하고, PDF2MXL_VECTOR_OCR_SKIP_THRESHOLD로 마스킹을 조정하거나 Audiveris GUI로 동일 PDF를 열어 보세요.';
-      }
       await fail({
         status: 422,
         error: 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
-        detail: hint,
-        exitCode: result.code,
+        detail:
+          'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.',
+        exitCode: result.code ?? undefined,
         stdoutTail: tail(result.stdout),
         stderrTail: tail(result.stderr),
       });
       return;
     }
 
-    console.log(`[job ${jobId}] Merging text into MusicXML...`);
-    const mergerScript = path.join(__dirname, '..', 'scripts', 'mxl_text_merger.py');
-    const mergedOutputs: string[] = [];
-    for (let i = 0; i < outputs.length; i++) {
-      const p = outputs[i];
-      setJobProgress(job, {
-        phase: 'merge',
-        current: i + 1,
-        total: outputs.length,
-        detail: `${path.basename(p)} 가사 병합`,
-      });
-      const parsedPath = path.parse(p);
-      const mergedP = path.join(parsedPath.dir, `${parsedPath.name}_merged${parsedPath.ext}`);
-      try {
-        await exec(`"${pythonCmd}" "${mergerScript}" "${p}" "${textDataPath}" "${mergedP}"`);
-        mergedOutputs.push(mergedP);
-      } catch (e) {
-        console.error(`Merging failed for ${p}`, e);
-        mergedOutputs.push(p);
-      }
-    }
-
-    let finalOutputs = isDebug ? [...outputs, ...mergedOutputs] : mergedOutputs;
-    if (isDebug) {
-      const extras: string[] = [];
-      for (const p of mergedOutputs) {
-        const lyricTxt = path.join(path.dirname(p), `${path.parse(p).name}_lyrics.txt`);
-        if (fsSync.existsSync(lyricTxt)) extras.push(lyricTxt);
-      }
-      finalOutputs = [...finalOutputs, ...extras];
-    }
     const baseName = path.basename(originalName, path.extname(originalName)) || 'score';
 
-    if (!isDebug && finalOutputs.length === 1) {
-      const p = finalOutputs[0];
+    if (!isDebug && outputs.length === 1) {
+      const p = outputs[0];
       job.result = {
         kind: 'single',
         filePath: p,
@@ -406,10 +241,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       const zipName = isDebug ? `${baseName}-debug.zip` : `${baseName}-parts.zip`;
       job.result = {
         kind: 'zip',
-        finalOutputs,
+        finalOutputs: outputs,
         isDebug,
-        maskedPdfPath,
-        textDataPath,
+        uploadedPdfPath: inputPdfPath,
+        uploadedPdfZipName: path.basename(originalName),
         zipName,
       };
     }
@@ -547,7 +382,7 @@ app.post('/api/convert', (req, res) => {
             phase: 'upload',
             current: 1,
             total: 1,
-            detail: '업로드 완료, 변환 파이프라인 시작…',
+            detail: '업로드 완료, Audiveris 준비 중…',
           });
         })
         .catch((e) =>
@@ -655,13 +490,9 @@ function streamZipToResponse(
   });
   archive.pipe(res);
 
-  if (result.isDebug) {
-    if (fsSync.existsSync(result.maskedPdfPath)) {
-      archive.file(result.maskedPdfPath, { name: path.basename(result.maskedPdfPath) });
-    }
-    if (fsSync.existsSync(result.textDataPath)) {
-      archive.file(result.textDataPath, { name: path.basename(result.textDataPath) });
-    }
+  if (result.isDebug && result.uploadedPdfPath && fsSync.existsSync(result.uploadedPdfPath)) {
+    const zipPdfName = result.uploadedPdfZipName?.trim() || path.basename(result.uploadedPdfPath);
+    archive.file(result.uploadedPdfPath, { name: zipPdfName });
   }
 
   const addedFiles = new Set<string>();

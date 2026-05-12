@@ -33,9 +33,15 @@ def group_texts_by_line(texts, y_tolerance=20):
     return lines
 
 def process_mxl(pdf_path, mxl_path, output_mxl_path):
-    log_file = output_mxl_path + ".log.txt"
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    log_file = os.path.join(project_root, "last_ocr_debug.log")
+    
+    # clear previous log
+    with open(log_file, "w", encoding="utf-8") as f:
+        f.write("--- NEW RUN ---\n")
+        
     def _log(msg):
-        print(msg)
+        print(msg, flush=True)
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(msg + "\n")
             

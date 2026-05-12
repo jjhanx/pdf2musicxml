@@ -10,6 +10,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import { exec as execCallback } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const exec = promisify(execCallback);
 
 import {
   collectMusicXmlOutputs,
@@ -225,6 +229,26 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     });
 
     const outputs = await collectMusicXmlOutputs(outBase);
+
+    if (outputs.length > 0) {
+      setJobProgress(job, {
+        phase: 'audiveris',
+        current: pageHint,
+        total: pageHint,
+        detail: 'MusicXML 후처리 (조표/가사 보정) 중…',
+      });
+      for (const p of outputs) {
+        if (p.endsWith('.mxl')) {
+          const scriptPath = path.join(__dirname, '..', 'scripts', 'postprocess_mxl.py');
+          try {
+            console.log(`[job ${jobId}] Running postprocess_mxl.py for ${p}`);
+            await exec(`python "${scriptPath}" "${inputPdfPath}" "${p}" "${p}"`);
+          } catch (pyErr) {
+            console.error(`[job ${jobId}] Post-processing failed for ${p}:`, pyErr);
+          }
+        }
+      }
+    }
 
     if (outputs.length === 0) {
       await fail({

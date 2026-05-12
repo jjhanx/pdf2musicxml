@@ -73,7 +73,17 @@ def process_mxl(pdf_path, mxl_path, output_mxl_path):
             _log("Invalid MXL")
             return
             
-        root_file_path = ET.fromstring(container_xml).find('.//{urn:oasis:names:tc:opendocument:xmlns:container}rootfile').attrib['full-path']
+        container_tree = ET.fromstring(container_xml)
+        root_file_path = None
+        for elem in container_tree.iter():
+            if 'rootfile' in elem.tag.lower():
+                root_file_path = elem.attrib.get('full-path')
+                break
+                
+        if not root_file_path:
+            _log("Could not find rootfile in container.xml")
+            return
+            
         score_xml = files[root_file_path]
         tree = ET.parse(io.BytesIO(score_xml))
         root = tree.getroot()

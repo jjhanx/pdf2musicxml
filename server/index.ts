@@ -256,7 +256,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           const pythonBin = resolvePythonBin();
           try {
             console.log(`[job ${jobId}] Running postprocess_mxl.py for ${p} using ${pythonBin}`);
-            await exec(`"${pythonBin}" "${scriptPath}" "${inputPdfPath}" "${p}" "${p}"`);
+            const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptPath}" "${inputPdfPath}" "${p}" "${p}"`);
+            if (stdout) console.log(`[job ${jobId}] Python Output:\n${stdout}`);
+            if (stderr) console.error(`[job ${jobId}] Python Error:\n${stderr}`);
           } catch (pyErr) {
             console.error(`[job ${jobId}] Post-processing failed for ${p}:`, pyErr);
           }

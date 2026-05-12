@@ -120,6 +120,7 @@ def process_mxl(pdf_path, mxl_path, output_mxl_path):
     lyric_els = root.findall('.//lyric/text')
     
     print(f"Mapping {len(ocr_syllables)} OCR syllables to {len(lyric_els)} MusicXML lyric tags.")
+    print(f"Extracted Syllables: {''.join(ocr_syllables)}")
     
     # Sequential replacement
     for i, l_el in enumerate(lyric_els):

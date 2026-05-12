@@ -123,7 +123,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [dragOver, setDragOver] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
+  const [autoSave, setAutoSave] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<ConvertTask[]>([]);
@@ -175,12 +175,11 @@ export default function App() {
   const convertOne = useCallback(
     async (
       file: File,
-      debug: boolean,
       onProgress?: (p: TaskProgress | undefined) => void,
     ): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
     const fd = new FormData();
     fd.append('pdf', file);
-    fd.append('debug', debug ? 'true' : 'false');
+    fd.append('debug', 'false');
     const acceptRes = await fetch('/api/convert', { method: 'POST', body: fd });
     const acceptCt = acceptRes.headers.get('Content-Type') ?? '';
 
@@ -273,7 +272,7 @@ export default function App() {
   );
 
   const runBatchWith = useCallback(
-    async (listArg: File[], healthArg: Health | null, debug: boolean) => {
+    async (listArg: File[], healthArg: Health | null, autoSaveFlag: boolean) => {
       const list = [...listArg];
 
       if (!list.length) {
@@ -310,7 +309,7 @@ export default function App() {
           );
 
           try {
-            const result = await convertOne(file, debug, (p) => {
+            const result = await convertOne(file, (p) => {
               setTasks((prev) =>
                 prev.map((t) => (t.id === taskId ? { ...t, progress: p } : t)),
               );
@@ -330,6 +329,15 @@ export default function App() {
                 };
               }),
             );
+
+            if (autoSaveFlag && result.downloadUrl && !result.errorMessage) {
+              const a = document.createElement('a');
+              a.href = result.downloadUrl;
+              a.download = result.downloadName || 'score.mxl';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+            }
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             setTasks((prev) =>
@@ -423,7 +431,7 @@ export default function App() {
             type="button"
             disabled={!files.length || !health?.audiverisConfigured || busy}
             onClick={() =>
-              void runBatchWith(files, health, debugMode).catch((err: unknown) => {
+              void runBatchWith(files, health, autoSave).catch((err: unknown) => {
                 console.error(err);
                 setBusy(false);
                 setStatus(`오류: ${err instanceof Error ? err.message : String(err)}`);
@@ -438,11 +446,11 @@ export default function App() {
           <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
             <input
               type="checkbox"
-              checked={debugMode}
-              onChange={(e) => setDebugMode(e.target.checked)}
+              checked={autoSave}
+              onChange={(e) => setAutoSave(e.target.checked)}
               disabled={busy}
             />
-            업로드 원본 PDF + Audiveris 결과물 ZIP으로 받기 (디버그)
+            결과 저장하기
           </label>
         </div>
 

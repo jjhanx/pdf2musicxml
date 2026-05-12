@@ -41,9 +41,9 @@ def process_mxl(pdf_path, mxl_path, output_mxl_path):
             
     _log("Loading PaddleOCR...")
     try:
-        ocr = PaddleOCR(use_angle_cls=False, lang='korean', enable_mkldnn=False)
+        ocr = PaddleOCR(use_angle_cls=False, lang='korean', det_limit_side_len=960)
         _log("Extracting images from PDF...")
-        images = convert_from_path(pdf_path, dpi=200)
+        images = convert_from_path(pdf_path, dpi=150) # Reduced DPI to save memory
         
         ocr_texts = []
         for i, img in enumerate(images):

@@ -67,8 +67,12 @@ function resolvePythonBin(): string {
   if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
   const venvPython = path.join(__dirname, '..', '.venv', 'bin', 'python');
   if (fsSync.existsSync(venvPython)) return venvPython;
+  const venvPython2 = path.join(__dirname, '..', 'venv', 'bin', 'python');
+  if (fsSync.existsSync(venvPython2)) return venvPython2;
   const venvWinPython = path.join(__dirname, '..', '.venv', 'Scripts', 'python.exe');
   if (fsSync.existsSync(venvWinPython)) return venvWinPython;
+  const venvWinPython2 = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe');
+  if (fsSync.existsSync(venvWinPython2)) return venvWinPython2;
   return 'python'; // fallback to global
 }
 

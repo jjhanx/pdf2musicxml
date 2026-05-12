@@ -1,5 +1,5 @@
-paddlepaddle
-paddleocr
+paddlepaddle==2.6.2
+paddleocr>=2.8.1
 pdf2image
 opencv-python
 lxml

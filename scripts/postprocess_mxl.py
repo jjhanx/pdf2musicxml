@@ -39,7 +39,7 @@ def process_mxl(pdf_path, mxl_path, output_mxl_path):
     for i, img in enumerate(images):
         import numpy as np
         img_cv = np.array(img)
-        result = ocr.ocr(img_cv, cls=False)
+        result = ocr.ocr(img_cv)
         if result and result[0]:
             for line in result[0]:
                 bbox = line[0]

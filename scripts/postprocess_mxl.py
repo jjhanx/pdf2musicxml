@@ -30,7 +30,7 @@ def group_texts_by_line(texts, y_tolerance=20):
 
 def process_mxl(pdf_path, mxl_path, output_mxl_path):
     print("Loading PaddleOCR...")
-    ocr = PaddleOCR(use_angle_cls=False, lang='korean', show_log=False)
+    ocr = PaddleOCR(use_angle_cls=False, lang='korean')
     
     print("Extracting images from PDF...")
     images = convert_from_path(pdf_path, dpi=200)

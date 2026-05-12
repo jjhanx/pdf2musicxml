@@ -2,6 +2,10 @@ import sys
 import zipfile
 import io
 import os
+# Disable Paddle IR to prevent NotImplementedError with newer Paddle versions
+os.environ['FLAGS_enable_pir_api'] = '0'
+os.environ['PADDLE_DISABLE_PIR'] = '1'
+
 import re
 import xml.etree.ElementTree as ET
 from pdf2image import convert_from_path
@@ -30,7 +34,7 @@ def group_texts_by_line(texts, y_tolerance=20):
 
 def process_mxl(pdf_path, mxl_path, output_mxl_path):
     print("Loading PaddleOCR...")
-    ocr = PaddleOCR(use_angle_cls=False, lang='korean')
+    ocr = PaddleOCR(use_angle_cls=False, lang='korean', enable_mkldnn=False)
     
     print("Extracting images from PDF...")
     images = convert_from_path(pdf_path, dpi=200)

@@ -63,6 +63,15 @@ function resolvedAudiverisOcrLangSpec(): string | null {
   return spec || null;
 }
 
+function resolvePythonBin(): string {
+  if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
+  const venvPython = path.join(__dirname, '..', '.venv', 'bin', 'python');
+  if (fsSync.existsSync(venvPython)) return venvPython;
+  const venvWinPython = path.join(__dirname, '..', '.venv', 'Scripts', 'python.exe');
+  if (fsSync.existsSync(venvWinPython)) return venvWinPython;
+  return 'python'; // fallback to global
+}
+
 app.get('/api/health', (_req, res) => {
   const bin = resolveAudiverisBin();
   const ocrLangEffective = resolvedAudiverisOcrLangSpec();
@@ -240,9 +249,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       for (const p of outputs) {
         if (p.endsWith('.mxl')) {
           const scriptPath = path.join(__dirname, '..', 'scripts', 'postprocess_mxl.py');
+          const pythonBin = resolvePythonBin();
           try {
-            console.log(`[job ${jobId}] Running postprocess_mxl.py for ${p}`);
-            await exec(`python "${scriptPath}" "${inputPdfPath}" "${p}" "${p}"`);
+            console.log(`[job ${jobId}] Running postprocess_mxl.py for ${p} using ${pythonBin}`);
+            await exec(`"${pythonBin}" "${scriptPath}" "${inputPdfPath}" "${p}" "${p}"`);
           } catch (pyErr) {
             console.error(`[job ${jobId}] Post-processing failed for ${p}:`, pyErr);
           }

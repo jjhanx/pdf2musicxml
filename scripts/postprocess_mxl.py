@@ -73,15 +73,12 @@ def process_mxl(pdf_path, mxl_path, output_mxl_path):
             _log("Invalid MXL")
             return
             
-        container_tree = ET.fromstring(container_xml)
-        root_file_path = None
-        for elem in container_tree.iter():
-            if 'rootfile' in elem.tag.lower():
-                root_file_path = elem.attrib.get('full-path')
-                break
-                
-        if not root_file_path:
-            _log("Could not find rootfile in container.xml")
+        container_str = container_xml.decode('utf-8')
+        match = re.search(r'full-path="([^"]+)"', container_str)
+        if match:
+            root_file_path = match.group(1)
+        else:
+            _log(f"Could not find rootfile in container.xml: {container_str}")
             return
             
         score_xml = files[root_file_path]

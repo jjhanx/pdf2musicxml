@@ -92,7 +92,7 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
+type JobStatus = 'pending' | 'processing' | 'review_needed' | 'completed' | 'failed';
 
 type JobProgressPhase = 'upload' | 'audiveris';
 
@@ -145,6 +145,8 @@ type JobRecord = {
   progress?: JobProgress;
   /** Audiveris 로그에서 추출한 전체 페이지/장 수 힌트 */
   pdfPageCount?: number;
+  reviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  reviewData?: any;
 };
 
 const jobs = new Map<string, JobRecord>();
@@ -248,21 +250,49 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'audiveris',
         current: pageHint,
         total: pageHint,
-        detail: 'MusicXML 후처리 (조표/가사 보정) 중…',
+        detail: 'PDF에서 한글 추출 및 매핑 중…',
       });
-      for (const p of outputs) {
-        if (p.endsWith('.mxl')) {
-          const scriptPath = path.join(__dirname, '..', 'scripts', 'postprocess_mxl.py');
-          const pythonBin = resolvePythonBin();
-          try {
-            console.log(`[job ${jobId}] Running postprocess_mxl.py for ${p} using ${pythonBin}`);
-            const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptPath}" "${inputPdfPath}" "${p}" "${p}"`);
-            if (stdout) console.log(`[job ${jobId}] Python Output:\n${stdout}`);
-            if (stderr) console.error(`[job ${jobId}] Python Error:\n${stderr}`);
-          } catch (pyErr) {
-            console.error(`[job ${jobId}] Post-processing failed for ${p}:`, pyErr);
-          }
+      
+      const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_ocr.py');
+      const pythonBin = resolvePythonBin();
+      const ocrJsonPath = path.join(sessionRoot, 'ocr_data.json');
+      const cropsDir = path.join(sessionRoot, 'crops');
+      
+      try {
+        console.log(`[job ${jobId}] Running extract_ocr.py using ${pythonBin}`);
+        const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${ocrJsonPath}" "${cropsDir}"`);
+        if (stdout) console.log(`[job ${jobId}] extract_ocr.py Output:\n${stdout}`);
+        if (stderr) console.error(`[job ${jobId}] extract_ocr.py Error:\n${stderr}`);
+        
+        if (fsSync.existsSync(ocrJsonPath)) {
+            const ocrData = JSON.parse(await fs.readFile(ocrJsonPath, 'utf8'));
+            const needsReview = ocrData.some((item: any) => item.confidence < 0.95);
+            
+            if (needsReview) {
+               console.log(`[job ${jobId}] OCR confidence low, pausing for review...`);
+               job.status = 'review_needed';
+               job.reviewData = ocrData;
+               
+               await new Promise<void>((resolve, reject) => {
+                  job.reviewDeferred = { resolve, reject };
+               });
+               
+               console.log(`[job ${jobId}] Review completed, resuming...`);
+               job.status = 'processing';
+            }
+            
+            const scriptInject = path.join(__dirname, '..', 'scripts', 'inject_ocr.py');
+            for (const p of outputs) {
+                if (p.endsWith('.mxl')) {
+                    console.log(`[job ${jobId}] Running inject_ocr.py for ${p} using ${pythonBin}`);
+                    const { stdout: stdoutInj, stderr: stderrInj } = await exec(`"${pythonBin}" "${scriptInject}" "${p}" "${p}" "${ocrJsonPath}"`);
+                    if (stdoutInj) console.log(`[job ${jobId}] inject_ocr.py Output:\n${stdoutInj}`);
+                    if (stderrInj) console.error(`[job ${jobId}] inject_ocr.py Error:\n${stderrInj}`);
+                }
+            }
         }
+      } catch (pyErr) {
+        console.error(`[job ${jobId}] Post-processing failed:`, pyErr);
       }
     }
 
@@ -620,6 +650,58 @@ app.get('/api/download/:jobId', (req, res) => {
   };
 
   streamZipToResponse(res, job.result, zipCleanup);
+});
+
+app.use('/api/crops', (req, res, next) => {
+  const match = req.path.match(/^\/([^\/]+)\/(.*)$/);
+  if (!match) return next();
+  const jobId = match[1];
+  const filename = match[2];
+  const job = jobs.get(jobId);
+  if (!job) return res.status(404).end();
+  const filePath = path.join(job.sessionRoot, 'crops', filename);
+  res.sendFile(filePath);
+});
+
+app.get('/api/review/:jobId', (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  if (job.status !== 'review_needed' || !job.reviewData) {
+    res.status(400).json({ error: '리뷰가 필요하지 않거나 준비되지 않았습니다' });
+    return;
+  }
+  res.json(job.reviewData);
+});
+
+app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  if (job.status !== 'review_needed' || !job.reviewDeferred) {
+    res.status(400).json({ error: '현재 작업이 리뷰 대기 상태가 아닙니다' });
+    return;
+  }
+  
+  try {
+    const updatedData = req.body;
+    const ocrJsonPath = path.join(job.sessionRoot, 'ocr_data.json');
+    await fs.writeFile(ocrJsonPath, JSON.stringify(updatedData, null, 2), 'utf8');
+    
+    // Resolve the promise to continue
+    job.reviewDeferred.resolve();
+    delete job.reviewDeferred;
+    delete job.reviewData;
+    
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 if (fsSync.existsSync(distDir)) {

@@ -26,6 +26,16 @@ type ConvertTask = {
   progress?: TaskProgress;
 };
 
+type OcrReviewItem = {
+  id: string;
+  page: number;
+  text: string;
+  confidence: number;
+  x: number;
+  y: number;
+  crop_filename: string;
+};
+
 function isPdfFile(f: File): boolean {
   const byName = /\.pdf$/i.test(f.name);
   const byType =
@@ -124,6 +134,9 @@ export default function App() {
   const [status, setStatus] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [autoSave, setAutoSave] = useState(false);
+  
+  const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
+  const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<ConvertTask[]>([]);
@@ -176,6 +189,7 @@ export default function App() {
     async (
       file: File,
       onProgress?: (p: TaskProgress | undefined) => void,
+      onReviewNeeded?: (jobId: string) => void,
     ): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
     const fd = new FormData();
     fd.append('pdf', file);
@@ -199,6 +213,7 @@ export default function App() {
       return { errorMessage: '서버에서 작업 ID(jobId)를 받지 못했습니다' };
     }
     const { jobId } = accepted;
+    let reviewTriggered = false;
 
     for (;;) {
       const st = await fetch(`/api/status/${jobId}`, { cache: 'no-store' });
@@ -224,6 +239,11 @@ export default function App() {
 
       if (j.progress) {
         onProgress?.(j.progress);
+      }
+
+      if (j.status === 'review_needed' && !reviewTriggered) {
+        reviewTriggered = true;
+        onReviewNeeded?.(jobId);
       }
 
       if (j.status === 'failed') {
@@ -309,11 +329,26 @@ export default function App() {
           );
 
           try {
-            const result = await convertOne(file, (p) => {
-              setTasks((prev) =>
-                prev.map((t) => (t.id === taskId ? { ...t, progress: p } : t)),
-              );
-            });
+            const result = await convertOne(
+              file, 
+              (p) => {
+                setTasks((prev) =>
+                  prev.map((t) => (t.id === taskId ? { ...t, progress: p } : t)),
+                );
+              },
+              async (jobId) => {
+                try {
+                  const r = await fetch(`/api/review/${jobId}`);
+                  if (r.ok) {
+                    const data = await r.json();
+                    setReviewData(data);
+                    setReviewingJobId(jobId);
+                  }
+                } catch (e) {
+                  console.error('Failed to fetch review data', e);
+                }
+              }
+            );
             setTasks((prev) =>
               prev.map((t) => {
                 if (t.id !== taskId) return t;
@@ -385,6 +420,28 @@ export default function App() {
     const dropped = extractPdfFilesFromDataTransfer(e.dataTransfer);
     if (dropped.length) addFilesFromList(dropped);
     else setStatus('여기에 놓인 파일에서 PDF를 찾지 못했습니다. 확장자 .pdf 인지 확인해 주세요.');
+  };
+
+  const submitReview = async () => {
+    if (!reviewingJobId) return;
+    try {
+      await fetch(`/api/review/${reviewingJobId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reviewData)
+      });
+      setReviewingJobId(null);
+      setReviewData([]);
+    } catch (e) {
+      console.error(e);
+      alert('리뷰 제출 실패');
+    }
+  };
+
+  const handleReviewTextChange = (index: number, newText: string) => {
+    const newData = [...reviewData];
+    newData[index].text = newText;
+    setReviewData(newData);
   };
 
   return (
@@ -563,6 +620,52 @@ export default function App() {
           <strong>Downloads</strong> 폴더입니다.
         </p>
       </div>
+
+      {reviewingJobId && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
+        }}>
+          <div style={{
+            background: 'var(--card-bg, #fff)',
+            padding: '2rem',
+            borderRadius: '8px',
+            maxWidth: '800px',
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            width: '90%'
+          }}>
+            <h2 style={{ marginTop: 0 }}>글자 인식 확인</h2>
+            <p>원본 이미지와 다르게 인식된 글자가 있는지 확인하고 수정해주세요.</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
+              {reviewData.map((item, i) => (
+                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--bg-color, #f5f5f5)', padding: '1rem', borderRadius: '4px' }}>
+                  <img 
+                    src={`/api/crops/${reviewingJobId}/${item.crop_filename}`} 
+                    alt={`Crop ${i}`} 
+                    style={{ maxHeight: '60px', minWidth: '50px', background: 'white', border: '1px solid #ccc' }} 
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+                    <div style={{ fontSize: '0.8rem', color: '#666' }}>신뢰도: {(item.confidence * 100).toFixed(1)}%</div>
+                    <input 
+                      type="text" 
+                      value={item.text} 
+                      onChange={(e) => handleReviewTextChange(i, e.target.value)}
+                      style={{ padding: '0.5rem', fontSize: '1rem' }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={submitReview} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem' }}>확인 및 계속</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

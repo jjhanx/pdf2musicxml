@@ -13,8 +13,8 @@ from paddleocr import PaddleOCR
 def extract_ocr(pdf_path, output_json_path, crops_dir):
     os.makedirs(crops_dir, exist_ok=True)
     
-    ocr = PaddleOCR(use_angle_cls=False, lang='korean', det_limit_side_len=960)
-    images = convert_from_path(pdf_path, dpi=150)
+    ocr = PaddleOCR(use_angle_cls=False, lang='korean', det_limit_side_len=2560)
+    images = convert_from_path(pdf_path, dpi=300)
     
     ocr_results = []
     
@@ -28,7 +28,11 @@ def extract_ocr(pdf_path, output_json_path, crops_dir):
                 text = line[1][0]
                 confidence = line[1][1]
                 
-                if re.search(r'[가-힣]', text):
+                has_korean = bool(re.search(r'[가-힣]', text))
+                has_alpha = bool(re.search(r'[A-Za-z]', text))
+                
+                # Include if it has Korean, or if it has alphabets (to catch broken misrecognized Korean)
+                if has_korean or has_alpha:
                     y_center = sum(p[1] for p in bbox) / 4
                     x_center = sum(p[0] for p in bbox) / 4
                     

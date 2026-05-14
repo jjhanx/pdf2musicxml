@@ -638,6 +638,11 @@ export default function App() {
           }}>
             <h2 style={{ marginTop: 0 }}>글자 인식 확인</h2>
             <p>원본 이미지와 다르게 인식된 글자가 있는지 확인하고 수정해주세요.</p>
+            <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
+              <strong>💡 누락된 글자가 있나요?</strong><br/>
+              만약 인식 자체가 되지 않아 수정할 칸조차 없다면, <strong>앞이나 뒤 글자의 칸에 누락된 글자를 이어서 적어주세요.</strong><br/>
+              (예: '백두산' 뒤에 '이'가 누락되었다면, '백두산'을 <strong>'백두산이'</strong>로 수정)
+            </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
               {reviewData.map((item, i) => (

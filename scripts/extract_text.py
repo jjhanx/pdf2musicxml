@@ -77,17 +77,17 @@ def extract_vector(pdf_path, output_json_path, doc):
             x_center = (min_x0 + max_x1) / 2
             y_center = (min_y0 + max_y1) / 2
             
-            # Zoom bounding boxes for masking
-            zoomed_bbox = [min_x0 * zoom, min_y0 * zoom, max_x1 * zoom, max_y1 * zoom]
+            # Use original points (72 DPI) for bbox so mask_pdf.py can draw rect accurately
+            original_bbox = [float(min_x0), float(min_y0), float(max_x1), float(max_y1)]
             
             results.append({
                 "id": f"p{page_idx+1}_{item_idx}",
                 "page": page_idx + 1,
                 "text": merged_text,
                 "confidence": 1.0,
-                "x": float(x_center * zoom),
+                "x": float(x_center * zoom), # UI might still sort or use these in 300 DPI equivalent
                 "y": float(y_center * zoom),
-                "bbox": zoomed_bbox,
+                "bbox": original_bbox,
                 "type": "unknown",
             })
             item_idx += 1

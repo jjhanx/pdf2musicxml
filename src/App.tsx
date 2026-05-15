@@ -135,8 +135,11 @@ export default function App() {
   
   const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
   const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
+  const [reviewOriginalFileName, setReviewOriginalFileName] = useState('');
+  const [hasSavedData, setHasSavedData] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadReviewRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<ConvertTask[]>([]);
 
   tasksRef.current = tasks;
@@ -350,6 +353,10 @@ export default function App() {
                     
                     setReviewData(initData);
                     setReviewingJobId(jobId);
+                    setReviewOriginalFileName(file.name);
+                    
+                    const saved = localStorage.getItem('pdf2mxl_review_' + file.name);
+                    setHasSavedData(!!saved);
                   }
                 } catch (e) {
                   console.error('Failed to fetch review data', e);
@@ -429,6 +436,62 @@ export default function App() {
     else setStatus('여기에 놓인 파일에서 PDF를 찾지 못했습니다. 확장자 .pdf 인지 확인해 주세요.');
   };
 
+  useEffect(() => {
+    if (reviewingJobId && reviewOriginalFileName && reviewData.length > 0) {
+      localStorage.setItem('pdf2mxl_review_' + reviewOriginalFileName, JSON.stringify(reviewData));
+    }
+  }, [reviewData, reviewingJobId, reviewOriginalFileName]);
+
+  const handleLoadPrevious = () => {
+    if (!reviewOriginalFileName) return;
+    const saved = localStorage.getItem('pdf2mxl_review_' + reviewOriginalFileName);
+    if (saved) {
+       try {
+         const parsed = JSON.parse(saved);
+         const merged = reviewData.map(item => {
+            const match = parsed.find((p: any) => p.id === item.id);
+            return match ? { ...item, type: match.type, text: match.text } : item;
+         });
+         setReviewData(merged);
+       } catch (e) {
+         console.error('Failed to load saved data', e);
+       }
+    }
+  };
+
+  const handleDownloadReview = () => {
+    const jsonStr = JSON.stringify(reviewData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `review_backup_${reviewOriginalFileName || 'data'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUploadReview = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+       try {
+         const parsed = JSON.parse(ev.target?.result as string);
+         if (Array.isArray(parsed)) {
+            const merged = reviewData.map(item => {
+               const match = parsed.find((p: any) => p.id === item.id);
+               return match ? { ...item, type: match.type, text: match.text } : item;
+            });
+            setReviewData(merged);
+         }
+       } catch (err) {
+         alert('올바른 백업 파일(.json)이 아닙니다.');
+       }
+       if (uploadReviewRef.current) uploadReviewRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
   const submitReview = async () => {
     if (!reviewingJobId) return;
     try {
@@ -437,8 +500,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(reviewData)
       });
+      if (reviewOriginalFileName) {
+         localStorage.removeItem('pdf2mxl_review_' + reviewOriginalFileName);
+      }
       setReviewingJobId(null);
       setReviewData([]);
+      setReviewOriginalFileName('');
+      setHasSavedData(false);
     } catch (e) {
       console.error(e);
       alert('리뷰 제출 실패');
@@ -649,12 +717,28 @@ export default function App() {
             overflowY: 'auto',
             width: '95%'
           }}>
-            <h2 style={{ marginTop: 0 }}>문자 검토 및 매핑 (Audiveris 실행 전)</h2>
-            <p>인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요. 지정된 글자 영역은 악보 인식 시 마스킹되어 오류를 줄입니다. (악보 관련 기호나 템포 표시는 '악보 기호 / 템포 (마스킹 X)'로 두세요)</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 0 }}>
+               <h2 style={{ margin: 0 }}>문자 검토 및 매핑 (Audiveris 실행 전)</h2>
+               <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {hasSavedData && (
+                     <button onClick={handleLoadPrevious} style={{ padding: '0.5rem 1rem', background: '#f57c00', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                        이전 작업 불러오기
+                     </button>
+                  )}
+                  <button onClick={handleDownloadReview} style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }}>
+                     백업(.json) 저장
+                  </button>
+                  <label style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', display: 'inline-block' }}>
+                     불러오기
+                     <input type="file" ref={uploadReviewRef} accept=".json" style={{ display: 'none' }} onChange={handleUploadReview} />
+                  </label>
+               </div>
+            </div>
+            <p style={{ marginTop: '0.5rem' }}>인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요. 지정된 글자 영역은 악보 인식 시 마스킹되어 오류를 줄입니다. (악보 관련 기호나 템포 표시는 '악보 기호 / 템포 (마스킹 X)'로 두세요)</p>
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
-              <strong>💡 가사 매핑 가이드</strong><br/>
-              가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 각 한글 글자는 하나의 음표에 배정됩니다. <br/>
-              쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 가독성을 위한 것이며 매핑 계산에서는 무시됩니다.)
+              <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
+              가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
+              <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다.</em>
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>

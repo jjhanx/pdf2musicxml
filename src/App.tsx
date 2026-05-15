@@ -650,7 +650,7 @@ export default function App() {
             width: '95%'
           }}>
             <h2 style={{ marginTop: 0 }}>문자 검토 및 매핑 (Audiveris 실행 전)</h2>
-            <p>인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요. 지정된 글자 영역은 악보 인식 시 마스킹되어 오류를 줄입니다. (악보 관련 기호는 '무시'로 두세요)</p>
+            <p>인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요. 지정된 글자 영역은 악보 인식 시 마스킹되어 오류를 줄입니다. (악보 관련 기호나 템포 표시는 '악보 기호 / 템포 (마스킹 X)'로 두세요)</p>
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
               <strong>💡 가사 매핑 가이드</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 각 한글 글자는 하나의 음표에 배정됩니다. <br/>
@@ -666,7 +666,7 @@ export default function App() {
                          onChange={(e) => handleReviewTypeChange(i, e.target.value)}
                          style={{ padding: '0.5rem', fontSize: '1rem', minWidth: '120px' }}
                       >
-                         <option value="unknown">지정 안함 / 무시</option>
+                         <option value="unknown">악보 기호 / 템포 (마스킹 X)</option>
                          <option value="title">제목</option>
                          <option value="composer">작곡가</option>
                          <option value="lyricist">작사가</option>

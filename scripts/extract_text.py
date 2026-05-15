@@ -3,39 +3,94 @@ import os
 import json
 import re
 
+def strip_pua(text):
+    import re
+    # Remove Private Use Area characters commonly used for musical symbols
+    return re.sub(r'[\uE000-\uF8FF\U000F0000-\U000FFFFF\U00100000-\U0010FFFF]', '', text)
+
 def extract_vector(pdf_path, output_json_path, doc):
     import fitz
     results = []
     
     for page_idx, page in enumerate(doc):
         zoom = 300 / 72
-        
         blocks = page.get_text("dict")["blocks"]
-        item_idx = 0
+        
+        raw_spans = []
         for b in blocks:
             if b['type'] == 0:  # Text block
                 for l in b["lines"]:
                     for s in l["spans"]:
-                        text = s["text"].strip()
+                        text = strip_pua(s["text"]).strip()
                         if not text: continue
                         
                         bbox = s["bbox"]  # (x0, y0, x1, y1) in points
-                        x0, y0, x1, y1 = [coord * zoom for coord in bbox]
-                        
-                        x_center = (x0 + x1) / 2
-                        y_center = (y0 + y1) / 2
-                        
-                        results.append({
-                            "id": f"p{page_idx+1}_{item_idx}",
-                            "page": page_idx + 1,
+                        y_center = (bbox[1] + bbox[3]) / 2
+                        raw_spans.append({
                             "text": text,
-                            "confidence": 1.0,
-                            "x": float(x_center),
-                            "y": float(y_center),
-                            "bbox": bbox, # Original points for masking
-                            "type": "unknown",
+                            "bbox": bbox,
+                            "y_center": y_center,
+                            "x0": bbox[0]
                         })
-                        item_idx += 1
+                        
+        # Sort by y_center
+        raw_spans.sort(key=lambda x: x["y_center"])
+        
+        lines = []
+        current_line = []
+        for s in raw_spans:
+            if not current_line:
+                current_line.append(s)
+            else:
+                avg_y = sum(x["y_center"] for x in current_line) / len(current_line)
+                if abs(s["y_center"] - avg_y) < 5:  # 5 points vertical tolerance
+                    current_line.append(s)
+                else:
+                    lines.append(current_line)
+                    current_line = [s]
+        if current_line:
+            lines.append(current_line)
+            
+        item_idx = 0
+        for line in lines:
+            line.sort(key=lambda x: x["x0"])
+            
+            merged_text = ""
+            min_x0 = min(s["bbox"][0] for s in line)
+            min_y0 = min(s["bbox"][1] for s in line)
+            max_x1 = max(s["bbox"][2] for s in line)
+            max_y1 = max(s["bbox"][3] for s in line)
+            
+            for i, s in enumerate(line):
+                if i > 0:
+                    prev = line[i-1]
+                    gap = s["bbox"][0] - prev["bbox"][2]
+                    # If gap is large enough (e.g. > 4 points), add a space
+                    if gap > 4:
+                        merged_text += " "
+                merged_text += s["text"]
+                
+            merged_text = merged_text.strip()
+            if not merged_text:
+                continue
+                
+            x_center = (min_x0 + max_x1) / 2
+            y_center = (min_y0 + max_y1) / 2
+            
+            # Zoom bounding boxes for masking
+            zoomed_bbox = [min_x0 * zoom, min_y0 * zoom, max_x1 * zoom, max_y1 * zoom]
+            
+            results.append({
+                "id": f"p{page_idx+1}_{item_idx}",
+                "page": page_idx + 1,
+                "text": merged_text,
+                "confidence": 1.0,
+                "x": float(x_center * zoom),
+                "y": float(y_center * zoom),
+                "bbox": zoomed_bbox,
+                "type": "unknown",
+            })
+            item_idx += 1
                         
     with open(output_json_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
@@ -58,7 +113,7 @@ def extract_image(pdf_path, output_json_path):
         if result and result[0]:
             for item_idx, line in enumerate(result[0]):
                 bbox = line[0]
-                text = line[1][0]
+                text = strip_pua(line[1][0])
                 confidence = line[1][1]
                 
                 # Exclude if it's completely empty or whitespace

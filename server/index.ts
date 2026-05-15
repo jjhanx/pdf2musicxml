@@ -229,10 +229,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
     const ocrJsonPath = path.join(sessionRoot, 'ocr_data.json');
-    const cropsDir = path.join(sessionRoot, 'crops');
     
     console.log(`[job ${jobId}] Running extract_text.py using ${pythonBin}`);
-    const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${ocrJsonPath}" "${cropsDir}"`);
+    const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${ocrJsonPath}"`);
     if (stdout) console.log(`[job ${jobId}] extract_text.py Output:\n${stdout}`);
     if (stderr) console.error(`[job ${jobId}] extract_text.py Error:\n${stderr}`);
 

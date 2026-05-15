@@ -72,8 +72,9 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
         elif t == 'copyright':
             copyright_text += text + " "
         elif t == 'lyrics':
-            slots = item.get('lyric_slots', [])
-            lyric_slots.extend(slots)
+            text_nospace = text.replace(' ', '')
+            for char in text_nospace:
+                lyric_slots.append(char)
             
     # 3. Inject Metadata
     if title_text:
@@ -129,7 +130,7 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                     syllable = lyric_slots[slot_idx]
                     slot_idx += 1
                     
-                    if syllable.strip():
+                    if syllable != '-':
                         # Remove existing lyric elements
                         for old_lyric in note.findall('lyric'):
                             note.remove(old_lyric)
@@ -138,7 +139,7 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                         syllabic_el = ET.SubElement(lyric_el, 'syllabic')
                         syllabic_el.text = 'single' # Simplify, could be begin/middle/end
                         text_el = ET.SubElement(lyric_el, 'text')
-                        text_el.text = syllable.strip()
+                        text_el.text = syllable
                         
     out_xml_bytes = ET.tostring(root, encoding='UTF-8', xml_declaration=True)
     files[root_file_path] = out_xml_bytes

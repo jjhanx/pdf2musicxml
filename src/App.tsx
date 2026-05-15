@@ -8,7 +8,6 @@ type Health = {
   jobRetentionNote?: string;
 };
 
-/** `/api/status`의 progress와 동일 */
 type TaskProgress = {
   phase: string;
   current: number;
@@ -33,7 +32,11 @@ type OcrReviewItem = {
   confidence: number;
   x: number;
   y: number;
+  bbox?: number[];
   crop_filename: string;
+  type?: string;
+  note_count?: number;
+  lyric_slots?: string[];
 };
 
 function isPdfFile(f: File): boolean {
@@ -45,7 +48,6 @@ function isPdfFile(f: File): boolean {
   return byType || byName;
 }
 
-/** 드롭 직후 일부 환경에서 `files`만 비고 `items`에만 들어오는 경우 보완 */
 function extractPdfFilesFromDataTransfer(dt: DataTransfer): File[] {
   const out: File[] = [];
   const seen = new Set<string>();
@@ -115,7 +117,6 @@ function formatTaskProgressLine(p: TaskProgress): string {
   return parts.join(' ');
 }
 
-/** HTTP(평문)에서는 `crypto.randomUUID()`가 없거나 예외를 유발할 수 있음 */
 function newTaskId(): string {
   try {
     const c = globalThis.crypto;
@@ -340,8 +341,20 @@ export default function App() {
                 try {
                   const r = await fetch(`/api/review/${jobId}`);
                   if (r.ok) {
-                    const data = await r.json();
-                    setReviewData(data);
+                    const data: OcrReviewItem[] = await r.json();
+                    
+                    // Initialize missing fields for the UI
+                    const initData = data.map(item => {
+                        const noSpaceText = item.text.replace(/\s+/g, '');
+                        return {
+                           ...item,
+                           type: item.type || 'unknown',
+                           note_count: item.note_count || noSpaceText.length,
+                           lyric_slots: item.lyric_slots || noSpaceText.split('')
+                        };
+                    });
+                    
+                    setReviewData(initData);
                     setReviewingJobId(jobId);
                   }
                 } catch (e) {
@@ -438,9 +451,36 @@ export default function App() {
     }
   };
 
+  const handleReviewTypeChange = (index: number, type: string) => {
+    const newData = [...reviewData];
+    newData[index].type = type;
+    setReviewData(newData);
+  };
+
   const handleReviewTextChange = (index: number, newText: string) => {
     const newData = [...reviewData];
     newData[index].text = newText;
+    setReviewData(newData);
+  };
+  
+  const handleNoteCountChange = (index: number, countStr: string) => {
+    const count = parseInt(countStr) || 0;
+    const newData = [...reviewData];
+    const oldSlots = newData[index].lyric_slots || [];
+    const newSlots = Array(count).fill('');
+    for(let j=0; j<Math.min(count, oldSlots.length); j++) {
+        newSlots[j] = oldSlots[j];
+    }
+    newData[index].note_count = count;
+    newData[index].lyric_slots = newSlots;
+    setReviewData(newData);
+  };
+  
+  const handleSlotChange = (itemIndex: number, slotIndex: number, val: string) => {
+    const newData = [...reviewData];
+    if (newData[itemIndex].lyric_slots) {
+       newData[itemIndex].lyric_slots![slotIndex] = val;
+    }
     setReviewData(newData);
   };
 
@@ -631,42 +671,85 @@ export default function App() {
             background: 'var(--card-bg, #fff)',
             padding: '2rem',
             borderRadius: '8px',
-            maxWidth: '800px',
+            maxWidth: '900px',
             maxHeight: '80vh',
             overflowY: 'auto',
-            width: '90%'
+            width: '95%'
           }}>
-            <h2 style={{ marginTop: 0 }}>글자 인식 확인</h2>
-            <p>원본 이미지와 다르게 인식된 글자가 있는지 확인하고 수정해주세요.</p>
+            <h2 style={{ marginTop: 0 }}>문자 검토 및 매핑 (Audiveris 실행 전)</h2>
+            <p>인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요. 지정된 글자 영역은 악보 인식 시 마스킹되어 오류를 줄입니다. (악보 관련 기호는 '무시'로 두세요)</p>
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
-              <strong>💡 누락된 글자가 있나요?</strong><br/>
-              만약 인식 자체가 되지 않아 수정할 칸조차 없다면, <strong>앞이나 뒤 글자의 칸에 누락된 글자를 이어서 적어주세요.</strong><br/>
-              (예: '백두산' 뒤에 '이'가 누락되었다면, '백두산'을 <strong>'백두산이'</strong>로 수정)
+              <strong>💡 가사 매핑 가이드</strong><br/>
+              가사를 선택하면 <strong>음표 수</strong>를 지정할 수 있습니다. 각 칸마다 하나의 음표 아래에 배치될 글자(음절)를 적어주세요. 쉼표나 여러 음표에 걸쳐 있는 경우 빈 칸으로 두거나 글자를 분배하면 됩니다.
             </div>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
               {reviewData.map((item, i) => (
-                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--bg-color, #f5f5f5)', padding: '1rem', borderRadius: '4px' }}>
-                  <img 
-                    src={`/api/crops/${reviewingJobId}/${item.crop_filename}`} 
-                    alt={`Crop ${i}`} 
-                    style={{ maxHeight: '60px', minWidth: '50px', background: 'white', border: '1px solid #ccc' }} 
-                  />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
-                    <div style={{ fontSize: '0.8rem', color: '#666' }}>신뢰도: {(item.confidence * 100).toFixed(1)}%</div>
-                    <input 
-                      type="text" 
-                      value={item.text} 
-                      onChange={(e) => handleReviewTextChange(i, e.target.value)}
-                      style={{ padding: '0.5rem', fontSize: '1rem' }}
-                    />
+                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--bg-color, #f5f5f5)', padding: '1rem', borderRadius: '4px', borderLeft: item.type==='lyrics'?'4px solid #1976d2':'4px solid #ccc' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                      <img 
+                        src={`/api/crops/${reviewingJobId}/${item.crop_filename}`} 
+                        alt={`Crop ${i}`} 
+                        style={{ maxHeight: '60px', minWidth: '50px', background: 'white', border: '1px solid #ccc' }} 
+                      />
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', flex: 1, alignItems: 'center' }}>
+                         <select 
+                            value={item.type} 
+                            onChange={(e) => handleReviewTypeChange(i, e.target.value)}
+                            style={{ padding: '0.5rem', fontSize: '1rem' }}
+                         >
+                            <option value="unknown">지정 안함 / 무시</option>
+                            <option value="title">제목</option>
+                            <option value="composer">작곡가</option>
+                            <option value="lyricist">작사가</option>
+                            <option value="copyright">저작권</option>
+                            <option value="lyrics">가사</option>
+                         </select>
+                         
+                         {item.type !== 'lyrics' && (
+                             <input 
+                               type="text" 
+                               value={item.text} 
+                               onChange={(e) => handleReviewTextChange(i, e.target.value)}
+                               style={{ padding: '0.5rem', fontSize: '1rem', flex: 1 }}
+                             />
+                         )}
+                         {item.type === 'lyrics' && (
+                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>음표 수:</label>
+                                <input 
+                                   type="number" 
+                                   min="1" 
+                                   max="50" 
+                                   value={item.note_count || 1} 
+                                   onChange={(e) => handleNoteCountChange(i, e.target.value)}
+                                   style={{ padding: '0.5rem', width: '60px' }}
+                                />
+                             </div>
+                         )}
+                      </div>
                   </div>
+                  
+                  {item.type === 'lyrics' && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '0.5rem' }}>
+                          {item.lyric_slots?.map((slot, slotIdx) => (
+                              <input
+                                 key={slotIdx}
+                                 type="text"
+                                 value={slot}
+                                 placeholder={`${slotIdx + 1}`}
+                                 onChange={(e) => handleSlotChange(i, slotIdx, e.target.value)}
+                                 style={{ width: '40px', padding: '0.25rem', textAlign: 'center', border: '1px solid #aaa' }}
+                              />
+                          ))}
+                      </div>
+                  )}
                 </div>
               ))}
             </div>
 
             <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={submitReview} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem' }}>확인 및 계속</button>
+              <button onClick={submitReview} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', background: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Audiveris 실행 (악보 인식 시작)</button>
             </div>
           </div>
         </div>

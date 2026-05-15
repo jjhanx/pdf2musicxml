@@ -3,3 +3,4 @@ paddleocr==2.8.0
 pdf2image
 opencv-python
 lxml
+PyMuPDF

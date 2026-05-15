@@ -217,8 +217,61 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     await fs.mkdir(outBase, { recursive: true });
 
     const pageHint = job.pdfPageCount && job.pdfPageCount > 0 ? job.pdfPageCount : 1;
+    const pythonBin = resolvePythonBin();
 
-    console.log(`[job ${jobId}] Running Audiveris...`);
+    // Phase 1: Text Extraction (Pre-Audiveris)
+    setJobProgress(job, {
+      phase: 'upload',
+      current: 1,
+      total: 1,
+      detail: 'PDF에서 문자 추출 중 (PyMuPDF / PaddleOCR)…',
+    });
+
+    const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
+    const ocrJsonPath = path.join(sessionRoot, 'ocr_data.json');
+    const cropsDir = path.join(sessionRoot, 'crops');
+    
+    console.log(`[job ${jobId}] Running extract_text.py using ${pythonBin}`);
+    const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${ocrJsonPath}" "${cropsDir}"`);
+    if (stdout) console.log(`[job ${jobId}] extract_text.py Output:\n${stdout}`);
+    if (stderr) console.error(`[job ${jobId}] extract_text.py Error:\n${stderr}`);
+
+    // Phase 2: UI Review
+    if (fsSync.existsSync(ocrJsonPath)) {
+      const ocrData = JSON.parse(await fs.readFile(ocrJsonPath, 'utf8'));
+      
+      console.log(`[job ${jobId}] Pausing for UI review...`);
+      job.status = 'review_needed';
+      job.reviewData = ocrData;
+      
+      await new Promise<void>((resolve, reject) => {
+        job.reviewDeferred = { resolve, reject };
+      });
+      
+      console.log(`[job ${jobId}] Review completed, resuming...`);
+      job.status = 'processing';
+    }
+
+    // Phase 3: Masking
+    setJobProgress(job, {
+      phase: 'audiveris',
+      current: 0,
+      total: pageHint,
+      detail: 'PDF 마스킹 및 Audiveris 준비 중…',
+    });
+    
+    const scriptMask = path.join(__dirname, '..', 'scripts', 'mask_pdf.py');
+    const maskedPdfPath = path.join(sessionRoot, 'masked_input.pdf');
+    if (fsSync.existsSync(ocrJsonPath)) {
+       console.log(`[job ${jobId}] Running mask_pdf.py using ${pythonBin}`);
+       await exec(`"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${maskedPdfPath}" "${ocrJsonPath}"`);
+    }
+
+    // Use masked pdf if it exists, otherwise use original
+    const pdfToProcess = fsSync.existsSync(maskedPdfPath) ? maskedPdfPath : inputPdfPath;
+
+    // Phase 4: Audiveris
+    console.log(`[job ${jobId}] Running Audiveris on ${pdfToProcess}...`);
     setJobProgress(job, {
       phase: 'audiveris',
       current: 0,
@@ -229,7 +282,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     const result = await runAudiveris({
       audiverisBin,
       outputBaseDir: outBase,
-      inputPdfPath,
+      inputPdfPath: pdfToProcess,
       onStreamLine: (_stream, line) => {
         const parsed = parseAudiverisProgressLine(line, job.pdfPageCount ?? 0);
         if (parsed) {
@@ -245,54 +298,23 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     const outputs = await collectMusicXmlOutputs(outBase);
 
-    if (outputs.length > 0) {
+    // Phase 5: Inject
+    if (outputs.length > 0 && fsSync.existsSync(ocrJsonPath)) {
       setJobProgress(job, {
         phase: 'audiveris',
         current: pageHint,
         total: pageHint,
-        detail: 'PDF에서 한글 추출 및 매핑 중…',
+        detail: '인식된 가사와 메타데이터 주입 중…',
       });
       
-      const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_ocr.py');
-      const pythonBin = resolvePythonBin();
-      const ocrJsonPath = path.join(sessionRoot, 'ocr_data.json');
-      const cropsDir = path.join(sessionRoot, 'crops');
-      
-      try {
-        console.log(`[job ${jobId}] Running extract_ocr.py using ${pythonBin}`);
-        const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${ocrJsonPath}" "${cropsDir}"`);
-        if (stdout) console.log(`[job ${jobId}] extract_ocr.py Output:\n${stdout}`);
-        if (stderr) console.error(`[job ${jobId}] extract_ocr.py Error:\n${stderr}`);
-        
-        if (fsSync.existsSync(ocrJsonPath)) {
-            const ocrData = JSON.parse(await fs.readFile(ocrJsonPath, 'utf8'));
-            const needsReview = ocrData.some((item: any) => item.confidence < 0.95);
-            
-            if (needsReview) {
-               console.log(`[job ${jobId}] OCR confidence low, pausing for review...`);
-               job.status = 'review_needed';
-               job.reviewData = ocrData;
-               
-               await new Promise<void>((resolve, reject) => {
-                  job.reviewDeferred = { resolve, reject };
-               });
-               
-               console.log(`[job ${jobId}] Review completed, resuming...`);
-               job.status = 'processing';
-            }
-            
-            const scriptInject = path.join(__dirname, '..', 'scripts', 'inject_ocr.py');
-            for (const p of outputs) {
-                if (p.endsWith('.mxl')) {
-                    console.log(`[job ${jobId}] Running inject_ocr.py for ${p} using ${pythonBin}`);
-                    const { stdout: stdoutInj, stderr: stderrInj } = await exec(`"${pythonBin}" "${scriptInject}" "${p}" "${p}" "${ocrJsonPath}"`);
-                    if (stdoutInj) console.log(`[job ${jobId}] inject_ocr.py Output:\n${stdoutInj}`);
-                    if (stderrInj) console.error(`[job ${jobId}] inject_ocr.py Error:\n${stderrInj}`);
-                }
-            }
-        }
-      } catch (pyErr) {
-        console.error(`[job ${jobId}] Post-processing failed:`, pyErr);
+      const scriptInject = path.join(__dirname, '..', 'scripts', 'inject_ocr.py');
+      for (const p of outputs) {
+          if (p.endsWith('.mxl')) {
+              console.log(`[job ${jobId}] Running inject_ocr.py for ${p} using ${pythonBin}`);
+              const { stdout: stdoutInj, stderr: stderrInj } = await exec(`"${pythonBin}" "${scriptInject}" "${p}" "${p}" "${ocrJsonPath}"`);
+              if (stdoutInj) console.log(`[job ${jobId}] inject_ocr.py Output:\n${stdoutInj}`);
+              if (stderrInj) console.error(`[job ${jobId}] inject_ocr.py Error:\n${stderrInj}`);
+          }
       }
     }
 

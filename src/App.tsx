@@ -34,7 +34,30 @@ type OcrReviewItem = {
   y: number;
   bbox?: number[];
   type?: string;
+  /** MusicXML에서 `part` 순서(1=첫 파트, 합창 4부면 보통 4). Audiveris 출력 part-list 순서와 동일 */
+  lyricPartIndex?: number;
+  /** 해당 파트 안의 MusicXML `<voice>` (미입력 시 1). 피아노·성부 겹침 악보에서 조정 */
+  lyricVoice?: string;
+  /** 이 블록의 가사를 넣기 전, 해당 성부에서 건너뛸 선율 음표 수(박·도입 등) */
+  lyricSkipNotes?: number;
 };
+
+function mergeReviewFieldsFromSaved(
+  item: OcrReviewItem,
+  match: Record<string, unknown>,
+): OcrReviewItem {
+  const next = { ...item };
+  if (typeof match.type === 'string') next.type = match.type;
+  if (typeof match.text === 'string') next.text = match.text;
+  if (typeof match.lyricPartIndex === 'number' && match.lyricPartIndex >= 1) {
+    next.lyricPartIndex = Math.floor(match.lyricPartIndex);
+  }
+  if (typeof match.lyricVoice === 'string') next.lyricVoice = match.lyricVoice;
+  if (typeof match.lyricSkipNotes === 'number' && match.lyricSkipNotes >= 0) {
+    next.lyricSkipNotes = Math.floor(match.lyricSkipNotes);
+  }
+  return next;
+}
 
 function isPdfFile(f: File): boolean {
   const byName = /\.pdf$/i.test(f.name);
@@ -344,12 +367,19 @@ export default function App() {
                     const data: OcrReviewItem[] = await r.json();
                     
                     // Initialize missing fields for the UI
-                    const initData = data.map(item => {
-                        return {
-                           ...item,
-                           type: item.type || 'unknown'
-                        };
-                    });
+                    const initData = data.map((item) => ({
+                      ...item,
+                      type: item.type || 'unknown',
+                      lyricPartIndex:
+                        typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
+                          ? Math.floor(item.lyricPartIndex)
+                          : 1,
+                      lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
+                      lyricSkipNotes:
+                        typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
+                          ? Math.floor(item.lyricSkipNotes)
+                          : 0,
+                    }));
                     
                     setReviewData(initData);
                     setReviewingJobId(jobId);
@@ -448,9 +478,9 @@ export default function App() {
     if (saved) {
        try {
          const parsed = JSON.parse(saved);
-         const merged = reviewData.map(item => {
-            const match = parsed.find((p: any) => p.id === item.id);
-            return match ? { ...item, type: match.type, text: match.text } : item;
+         const merged = reviewData.map((item) => {
+            const match = parsed.find((p: { id?: string }) => p.id === item.id);
+            return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
          });
          setReviewData(merged);
        } catch (e) {
@@ -478,9 +508,9 @@ export default function App() {
        try {
          const parsed = JSON.parse(ev.target?.result as string);
          if (Array.isArray(parsed)) {
-            const merged = reviewData.map(item => {
-               const match = parsed.find((p: any) => p.id === item.id);
-               return match ? { ...item, type: match.type, text: match.text } : item;
+            const merged = reviewData.map((item) => {
+               const match = parsed.find((p: { id?: string }) => p.id === item.id);
+               return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
             });
             setReviewData(merged);
          }
@@ -516,12 +546,41 @@ export default function App() {
   const handleReviewTypeChange = (index: number, type: string) => {
     const newData = [...reviewData];
     newData[index].type = type;
+    if (type === 'lyrics') {
+      if (newData[index].lyricPartIndex == null || newData[index].lyricPartIndex! < 1) {
+        newData[index].lyricPartIndex = 1;
+      }
+      if (newData[index].lyricVoice == null || newData[index].lyricVoice === '') {
+        newData[index].lyricVoice = '1';
+      }
+      if (newData[index].lyricSkipNotes == null || newData[index].lyricSkipNotes! < 0) {
+        newData[index].lyricSkipNotes = 0;
+      }
+    }
     setReviewData(newData);
   };
 
   const handleReviewTextChange = (index: number, newText: string) => {
     const newData = [...reviewData];
     newData[index].text = newText;
+    setReviewData(newData);
+  };
+
+  const handleLyricPartIndexChange = (index: number, v: number) => {
+    const newData = [...reviewData];
+    newData[index].lyricPartIndex = Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1;
+    setReviewData(newData);
+  };
+
+  const handleLyricVoiceChange = (index: number, v: string) => {
+    const newData = [...reviewData];
+    newData[index].lyricVoice = v.trim() || '1';
+    setReviewData(newData);
+  };
+
+  const handleLyricSkipNotesChange = (index: number, v: number) => {
+    const newData = [...reviewData];
+    newData[index].lyricSkipNotes = Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
     setReviewData(newData);
   };
 
@@ -738,6 +797,7 @@ export default function App() {
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
+              <strong>파트·성부:</strong> Audiveris가 만든 MusicXML에서 가사를 넣을 <strong>파트 순번</strong>(1=첫 파트, 4부 합창이면 보통 4)과, 같은 파트에 성부가 여러 개일 때의 <strong>voice 번호</strong>(보통 1)를 지정합니다. 가사가 중간부터 밀리면 해당 성부에서 <strong>앞쪽 몇 개 음표를 건너뛰기</strong>를 조정해 보세요.<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다.</em>
             </div>
             
@@ -767,17 +827,95 @@ export default function App() {
                   </div>
                   
                   {item.type === 'lyrics' && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '0.5rem', marginLeft: '136px', padding: '0.5rem', background: '#e3f2fd', borderRadius: '4px' }}>
-                          {item.text.replace(/ /g, '').split('').map((char, slotIdx) => (
-                              <div key={slotIdx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '24px' }}>
-                                 <span style={{ fontSize: '0.75rem', color: '#666' }}>{slotIdx + 1}</span>
-                                 <strong style={{ fontSize: '1.1rem', color: char === '-' ? '#999' : '#000' }}>{char}</strong>
-                              </div>
-                          ))}
-                          {item.text.replace(/ /g, '').length === 0 && (
-                             <span style={{ fontSize: '0.8rem', color: '#666' }}>텍스트를 입력하면 음표 번호가 표시됩니다.</span>
-                          )}
+                    <>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '12px',
+                          alignItems: 'center',
+                          marginTop: '0.5rem',
+                          marginLeft: '136px',
+                          padding: '0.5rem',
+                          background: '#f5f5f5',
+                          borderRadius: '4px',
+                          fontSize: '0.9rem',
+                        }}
+                      >
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          파트 순번
+                          <input
+                            type="number"
+                            min={1}
+                            max={32}
+                            value={item.lyricPartIndex ?? 1}
+                            onChange={(e) =>
+                              handleLyricPartIndexChange(i, parseInt(e.target.value, 10))
+                            }
+                            style={{ width: '4rem', padding: '0.35rem' }}
+                          />
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          voice
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={item.lyricVoice ?? '1'}
+                            onChange={(e) => handleLyricVoiceChange(i, e.target.value)}
+                            style={{ width: '3rem', padding: '0.35rem' }}
+                          />
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          앞쪽 음표 생략
+                          <input
+                            type="number"
+                            min={0}
+                            max={999}
+                            value={item.lyricSkipNotes ?? 0}
+                            onChange={(e) =>
+                              handleLyricSkipNotesChange(i, parseInt(e.target.value, 10))
+                            }
+                            style={{ width: '4rem', padding: '0.35rem' }}
+                          />
+                        </label>
                       </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '8px',
+                          marginTop: '0.5rem',
+                          marginLeft: '136px',
+                          padding: '0.5rem',
+                          background: '#e3f2fd',
+                          borderRadius: '4px',
+                        }}
+                      >
+                        {item.text.replace(/ /g, '').split('').map((char, slotIdx) => (
+                          <div
+                            key={slotIdx}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              minWidth: '24px',
+                            }}
+                          >
+                            <span style={{ fontSize: '0.75rem', color: '#666' }}>{slotIdx + 1}</span>
+                            <strong
+                              style={{ fontSize: '1.1rem', color: char === '-' ? '#999' : '#000' }}
+                            >
+                              {char}
+                            </strong>
+                          </div>
+                        ))}
+                        {item.text.replace(/ /g, '').length === 0 && (
+                          <span style={{ fontSize: '0.8rem', color: '#666' }}>
+                            텍스트를 입력하면 음표 번호가 표시됩니다.
+                          </span>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               ))}

@@ -88,13 +88,26 @@ function attachLineReader(
   };
 }
 
+/** Linux 서버 등 화면 없는 환경에서 Audiveris가 AWT/X11로 폰트를 열려다 실패하지 않도록 JVM에 headless를 넣습니다. */
+export function envForAudiverisSpawn(): NodeJS.ProcessEnv {
+  const headless = '-Djava.awt.headless=true';
+  const next = { ...process.env };
+  const cur = next.JAVA_TOOL_OPTIONS?.trim();
+  if (!cur) {
+    next.JAVA_TOOL_OPTIONS = headless;
+  } else if (!/\bjava\.awt\.headless=/.test(cur)) {
+    next.JAVA_TOOL_OPTIONS = `${cur} ${headless}`;
+  }
+  return next;
+}
+
 export function runAudiveris(opts: AudiverisRunOptions): Promise<AudiverisRunResult> {
   const args = buildArgs(opts);
   const bin = opts.audiverisBin;
   const shell = path.extname(bin).toLowerCase() === '.bat';
 
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { shell, windowsHide: true });
+    const child = spawn(bin, args, { shell, windowsHide: true, env: envForAudiverisSpawn() });
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];

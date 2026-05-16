@@ -3,7 +3,7 @@
 PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 내려받는 도구입니다.  
 프론트는 **Vite + React + TypeScript**, API는 **Express**이며 [mxlplayer](https://github.com/jjhanx/mxlplayer)와 같은 계열의 웹 스택입니다.
 
-- **Audiveris MXL 없음(HTTP 422)**: 출력 폴더에 `.mxl`/`.musicxml`이 없을 때입니다. 로그에 `WARN [#10]`·`ERS`가 보이면 **10번째 악보 장(sheet)** 처리 문제인 경우가 많습니다. 동일 PDF를 Audiveris GUI로 열어 해당 장을 확인하세요.
+- **Audiveris MXL 없음(HTTP 422)**: 출력 폴더에 `.mxl`/`.musicxml`이 없을 때입니다. 로그에 `Can't connect to X11`·`java.awt.AWTError`가 보이면 **헤드리스 Linux**에서 `DISPLAY`만 잡혀 Audiveris가 GUI 초기화에 실패한 경우입니다. 앱은 Audiveris 실행 시 `JAVA_TOOL_OPTIONS`에 `-Djava.awt.headless=true`를 붙이도록 되어 있으며, 그래도 안 되면 `unset DISPLAY` 후 PM2 재시작을 검토하세요. 로그에 `WARN [#10]`·`ERS`가 보이면 **10번째 악보 장(sheet)** 처리 문제인 경우가 많습니다. 동일 PDF를 Audiveris GUI로 열어 해당 장을 확인하세요.
 
 ## 최근 변경 (Audiveris 단일 파이프라인)
 

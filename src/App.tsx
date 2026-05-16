@@ -59,6 +59,14 @@ function mergeReviewFieldsFromSaved(
   return next;
 }
 
+/** 추출 JSON은 type이 unknown인 경우가 많아, 검토 창 첫 표시 시 기본은 가사로 둔다. */
+function defaultReviewTypeForInit(t: string | undefined): string {
+  if (t === 'title' || t === 'composer' || t === 'lyricist' || t === 'copyright' || t === 'lyrics') {
+    return t;
+  }
+  return 'lyrics';
+}
+
 function isPdfFile(f: File): boolean {
   const byName = /\.pdf$/i.test(f.name);
   const byType =
@@ -369,7 +377,7 @@ export default function App() {
                     // Initialize missing fields for the UI
                     const initData = data.map((item) => ({
                       ...item,
-                      type: item.type || 'unknown',
+                      type: defaultReviewTypeForInit(item.type),
                       lyricPartIndex:
                         typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
                           ? Math.floor(item.lyricPartIndex)

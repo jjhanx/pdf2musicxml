@@ -61,7 +61,14 @@ function mergeReviewFieldsFromSaved(
 
 /** 추출 JSON은 type이 unknown인 경우가 많아, 검토 창 첫 표시 시 기본은 가사로 둔다. */
 function defaultReviewTypeForInit(t: string | undefined): string {
-  if (t === 'title' || t === 'composer' || t === 'lyricist' || t === 'copyright' || t === 'lyrics') {
+  if (
+    t === 'title' ||
+    t === 'composer' ||
+    t === 'lyricist' ||
+    t === 'copyright' ||
+    t === 'lyrics' ||
+    t === 'tempo'
+  ) {
     return t;
   }
   return 'lyrics';
@@ -801,7 +808,7 @@ export default function App() {
                   </label>
                </div>
             </div>
-            <p style={{ marginTop: '0.5rem' }}>인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요. 지정된 글자 영역은 악보 인식 시 마스킹되어 오류를 줄입니다. (악보 관련 기호나 템포 표시는 '악보 기호 / 템포 (마스킹 X)'로 두세요)</p>
+            <p style={{ marginTop: '0.5rem' }}>인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요. 지정된 영역은 Audiveris에 넘어가기 전 하얗게 마스킹되는 항목(제목·작곡·가사·<strong>템포</strong> 등)과, 마스킹하지 않는 <strong>악보 기호</strong>를 구분해 주세요. 템포는 숫자만(예: 75) 또는 ♩= 75 형태로 편집하면 MusicXML에 <code>sound tempo</code>로 들어가 재생 속도에 반영되기 쉽습니다.</p>
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
@@ -811,18 +818,19 @@ export default function App() {
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
               {reviewData.map((item, i) => (
-                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--bg-color, #f5f5f5)', padding: '1rem', borderRadius: '4px', borderLeft: item.type==='lyrics'?'4px solid #1976d2':'4px solid #ccc' }}>
+                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--bg-color, #f5f5f5)', padding: '1rem', borderRadius: '4px', borderLeft: item.type==='lyrics'?'4px solid #1976d2':item.type==='tempo'?'4px solid #e65100':'4px solid #ccc' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <select 
                          value={item.type} 
                          onChange={(e) => handleReviewTypeChange(i, e.target.value)}
                          style={{ padding: '0.5rem', fontSize: '1rem', minWidth: '120px' }}
                       >
-                         <option value="unknown">악보 기호 / 템포 (마스킹 X)</option>
+                         <option value="unknown">악보 기호 (마스킹 X)</option>
                          <option value="title">제목</option>
                          <option value="composer">작곡가</option>
                          <option value="lyricist">작사가</option>
                          <option value="copyright">저작권</option>
+                         <option value="tempo">템포(BPM)</option>
                          <option value="lyrics">가사</option>
                       </select>
                       

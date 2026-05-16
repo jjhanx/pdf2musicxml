@@ -151,6 +151,97 @@ def apply_lyric_events(part_el, ns, events):
                 add_lyric_to_note(note, ns, char)
 
 
+def is_tag(el, ns, local):
+    tag = qname(ns, local)
+    return el.tag == tag or el.tag.endswith("}" + local)
+
+
+def parse_bpm_from_text(text: str):
+    """인식된 문자열에서 BPM 후보 추출 (♩= 75, =75, 75 등)."""
+    if not text or not str(text).strip():
+        return None
+    s = str(text).strip()
+    m = re.search(r"=\s*(\d+(?:\.\d+)?)", s)
+    if m:
+        v = float(m.group(1))
+        if 20 <= v <= 400:
+            return v
+    for n in re.findall(r"\d+(?:\.\d+)?", s):
+        v = float(n)
+        if 20 <= v <= 400:
+            return v
+    return None
+
+
+def collect_tempo_bpm(ocr_data):
+    """type==tempo 항목 중 읽기 순으로 첫 번째 유효 BPM."""
+    items = [it for it in ocr_data if it.get("type") == "tempo"]
+    items.sort(key=lambda it: (it.get("page", 1), it.get("y", 0), it.get("x", 0)))
+    for it in items:
+        bpm = parse_bpm_from_text(it.get("text", ""))
+        if bpm is not None:
+            return bpm
+    return None
+
+
+def format_bpm_str(bpm: float) -> str:
+    if bpm == int(bpm):
+        return str(int(bpm))
+    return str(bpm)
+
+
+def first_measure_elem(parts, ns):
+    if not parts:
+        return None
+    measures = findall_ns(parts[0], "measure", ns)
+    return measures[0] if measures else None
+
+
+def ensure_opening_tempo(parts, ns, bpm: float):
+    """첫 파트 첫 마디의 sound tempo·metronome을 검토 BPM에 맞춘다. 없으면 direction을 추가한다."""
+    bpm_str = format_bpm_str(bpm)
+    measure = first_measure_elem(parts, ns)
+    if measure is None:
+        return
+
+    has_sound_tempo = False
+    first_metro_dir = None
+    for direction in findall_ns(measure, "direction", ns):
+        if direction.find(qname(ns, "metronome")) is not None and first_metro_dir is None:
+            first_metro_dir = direction
+        sound = direction.find(qname(ns, "sound"))
+        if sound is not None and "tempo" in sound.attrib:
+            sound.set("tempo", bpm_str)
+            has_sound_tempo = True
+        for el in direction.iter():
+            if is_tag(el, ns, "per-minute"):
+                el.text = bpm_str
+
+    if has_sound_tempo:
+        return
+    if first_metro_dir is not None:
+        sound_el = first_metro_dir.find(qname(ns, "sound"))
+        if sound_el is None:
+            sound_el = ET.SubElement(first_metro_dir, qname(ns, "sound"))
+        sound_el.set("tempo", bpm_str)
+        return
+
+    # 첫 마디에 표준 템포 direction 삽입 (플레이어가 sound tempo를 읽도록)
+    direction = ET.Element(qname(ns, "direction"))
+    direction.set("placement", "above")
+    dtype = ET.SubElement(direction, qname(ns, "direction-type"))
+    metro = ET.SubElement(dtype, qname(ns, "metronome"))
+    metro.set("parentheses", "no")
+    beat = ET.SubElement(metro, qname(ns, "beat-unit"))
+    beat.text = "quarter"
+    pm = ET.SubElement(metro, qname(ns, "per-minute"))
+    pm.text = bpm_str
+    sound = ET.SubElement(direction, qname(ns, "sound"))
+    sound.set("tempo", bpm_str)
+
+    measure.insert(0, direction)
+
+
 def collect_lyric_groups(ocr_data):
     """lyricPartIndex(1-based)별로 가사 항목을 모은 뒤, 각 그룹을 (page,y,x)로 정렬."""
     groups = {}
@@ -199,6 +290,10 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     parts = find_parts(root, ns)
     for part_el in parts:
         fix_key_signatures_part(part_el, ns)
+
+    bpm_user = collect_tempo_bpm(ocr_data)
+    if bpm_user is not None:
+        ensure_opening_tempo(parts, ns, bpm_user)
 
     title_text = ""
     composer_text = ""

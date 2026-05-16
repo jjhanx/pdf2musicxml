@@ -8,8 +8,8 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         
     doc = fitz.open(pdf_in)
     
-    # Types to mask so Audiveris doesn't get confused
-    mask_types = {'title', 'composer', 'lyricist', 'copyright', 'lyrics'}
+    # Types to mask so Audiveris doesn't get confused (템포 문자는 검토 후 MusicXML에 주입)
+    mask_types = {'title', 'composer', 'lyricist', 'copyright', 'lyrics', 'tempo'}
     
     for item in data:
         item_type = item.get('type', 'unknown')

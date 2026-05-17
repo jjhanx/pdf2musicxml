@@ -160,11 +160,22 @@ def find_parts(root, ns):
     return findall_ns(root, "part", ns)
 
 
-def add_lyric_to_note(note, ns, text_char):
+def _lyric_number_matches(el, target: int) -> bool:
+    raw = el.get("number")
+    if target == 1:
+        return raw is None or raw == "1"
+    return raw == str(target)
+
+
+def add_lyric_to_note(note, ns, text_char, lyric_number=1):
+    """같은 음표에 1절·2절 등 여러 가사 줄을 둘 때 `lyric_number`로 `<lyric number>` 를 구분한다."""
     lyric_tag = qname(ns, "lyric")
     for old in list(note.findall(lyric_tag)):
-        note.remove(old)
+        if _lyric_number_matches(old, lyric_number):
+            note.remove(old)
     lyric_el = ET.SubElement(note, lyric_tag)
+    if lyric_number != 1:
+        lyric_el.set("number", str(lyric_number))
     syllabic_el = ET.SubElement(lyric_el, qname(ns, "syllabic"))
     syllabic_el.text = "single"
     text_el = ET.SubElement(lyric_el, qname(ns, "text"))
@@ -224,18 +235,19 @@ def count_matching_voice(c: dict, target: str) -> int:
     return sum(n for v, n in c.items() if voices_match(v, target))
 
 
-def build_events_for_items(items_sorted, part_el=None, ns=None):
+def build_events_for_items(items_sorted, part_el=None, ns=None, melody_voice_override=None):
     """
-    items_sorted: 해당 파트에 붙일 가사 블록들 (페이지·y·x 정렬됨).
-    각 블록마다 lyricSkipNotes·lyricVoice·text 적용.
-    lyricVoice 가 '*' 이면 voice 태그와 무관하게 이 파트의 가사 후보 음표 순서대로 부착.
+    items_sorted: 해당 (파트·절·멜로디 줄) 스트림에 붙일 가사 블록들 (페이지·y·x 정렬됨).
+    각 블록마다 lyricSkipNotes·(멜로디) voice·text 적용.
+    melody_voice_override가 있으면 항목별 lyricVoice 대신 이 값만 쓴다(같은 스트림 강제).
 
-    part_el/ns가 주어지면: 지정한 voice에 해당하는 멜로디 음이 하나도 없을 때(다성부+Audiveris voice 번호 불일치 등)
+    part_el/ns가 주어지면: 지정한 voice에 해당하는 멜로디 음이 하나도 없을 때
     자동으로 '*'(문서 순 전체)로 바꿔 가사가 통째로 빠지는 경우를 줄인다.
     """
     events = []
     for it in items_sorted:
-        voice = _normalize_lyric_voice(it.get("lyricVoice"))
+        raw_src = melody_voice_override if melody_voice_override is not None else it.get("lyricVoice")
+        voice = _normalize_lyric_voice(raw_src)
         if (
             part_el is not None
             and ns is not None
@@ -260,7 +272,7 @@ def build_events_for_items(items_sorted, part_el=None, ns=None):
     return events
 
 
-def apply_lyric_events(part_el, ns, events):
+def apply_lyric_events(part_el, ns, events, lyric_number=1):
     notes = list_attachable_notes(part_el, ns)
     idx = 0
     for ev in events:
@@ -299,7 +311,7 @@ def apply_lyric_events(part_el, ns, events):
                 _m, note, _v = notes[idx]
                 idx += 1
             if char != "-":
-                add_lyric_to_note(note, ns, char)
+                add_lyric_to_note(note, ns, char, lyric_number)
 
 
 def is_tag(el, ns, local):
@@ -393,9 +405,13 @@ def ensure_opening_tempo(parts, ns, bpm: float):
     measure.insert(0, direction)
 
 
-def collect_lyric_groups(ocr_data):
-    """lyricPartIndex(1-based)별로 가사 항목을 모은 뒤, 각 그룹을 (page,y,x)로 정렬."""
-    groups = {}
+def collect_lyric_streams(ocr_data):
+    """가사를 (파트, 가사 절, 멜로디 voice) 스트림으로 나눈다.
+
+    - lyricVerseIndex: 1절·2절 등 → MusicXML `<lyric number>` (기본 1).
+    - lyricVoice: 같은 시점에 겹치는 **서로 다른 멜로디 줄**(MusicXML `<voice>`), 1절/2절과 무관.
+    """
+    buckets = {}
     for item in ocr_data:
         if item.get("type") != "lyrics":
             continue
@@ -405,12 +421,27 @@ def collect_lyric_groups(ocr_data):
             pi = 1
         if pi < 1:
             pi = 1
-        groups.setdefault(pi, []).append(item)
-    for pi in groups:
-        groups[pi].sort(
-            key=lambda it: (it.get("page", 1), it.get("y", 0), it.get("x", 0))
+        try:
+            verse = int(item.get("lyricVerseIndex", 1) or 1)
+        except (TypeError, ValueError):
+            verse = 1
+        if verse < 1:
+            verse = 1
+        if verse > 32:
+            verse = 32
+        mv = _normalize_lyric_voice(item.get("lyricVoice"))
+        key = (pi, verse, mv)
+        buckets.setdefault(key, []).append(item)
+
+    by_part = {}
+    for (pi, verse, mv), items in buckets.items():
+        items.sort(key=lambda it: (it.get("page", 1), it.get("y", 0), it.get("x", 0)))
+        by_part.setdefault(pi, []).append(
+            {"verse": verse, "melody_voice": mv, "items": items}
         )
-    return groups
+    for pi in by_part:
+        by_part[pi].sort(key=lambda s: (s["verse"], s["melody_voice"]))
+    return by_part
 
 
 def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
@@ -514,9 +545,10 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                 rights = ET.SubElement(idf, qname(ns, "rights"))
             rights.text = copyright_text.strip()
 
-    groups = collect_lyric_groups(ocr_data)
-    if groups and parts:
-        for part_index, items in sorted(groups.items()):
+    streams_by_part = collect_lyric_streams(ocr_data)
+    if streams_by_part and parts:
+        for part_index in sorted(streams_by_part.keys()):
+            stream_list = streams_by_part[part_index]
             p_idx0 = part_index - 1
             if p_idx0 < 0 or p_idx0 >= len(parts):
                 print(
@@ -525,8 +557,14 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                 )
                 p_idx0 = len(parts) - 1
             part_el = parts[p_idx0]
-            events = build_events_for_items(items, part_el, ns)
-            apply_lyric_events(part_el, ns, events)
+            for stream in stream_list:
+                verse_n = stream["verse"]
+                mv = stream["melody_voice"]
+                items = stream["items"]
+                events = build_events_for_items(
+                    items, part_el, ns, melody_voice_override=mv
+                )
+                apply_lyric_events(part_el, ns, events, lyric_number=verse_n)
 
     out_xml_bytes = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     files[root_file_path] = out_xml_bytes

@@ -38,7 +38,9 @@ type OcrReviewItem = {
   type?: string;
   /** MusicXML에서 `part` 순서(1=첫 파트, 합창 4부면 보통 4). Audiveris 출력 part-list 순서와 동일 */
   lyricPartIndex?: number;
-  /** 해당 파트 안의 MusicXML `<voice>` (미입력 시 1). 피아노·성부 겹침 악보에서 조정 */
+  /** 같은 파트·같은 멜로디에 1절·2절 등 → MusicXML `<lyric number>` (1부터). 멜로디 줄(voice)과 별개 */
+  lyricVerseIndex?: number;
+  /** 해당 파트 안의 MusicXML `<voice>` — 동시에 울리는 **서로 다른 멜로디 줄**(1절/2절이 아님). 미입력 시 1 */
   lyricVoice?: string;
   /** 이 블록의 가사를 넣기 전, 해당 성부에서 건너뛸 선율 음표 수(박·도입 등) */
   lyricSkipNotes?: number;
@@ -53,6 +55,9 @@ function mergeReviewFieldsFromSaved(
   if (typeof match.text === 'string') next.text = match.text;
   if (typeof match.lyricPartIndex === 'number' && match.lyricPartIndex >= 1) {
     next.lyricPartIndex = Math.floor(match.lyricPartIndex);
+  }
+  if (typeof match.lyricVerseIndex === 'number' && match.lyricVerseIndex >= 1) {
+    next.lyricVerseIndex = Math.floor(match.lyricVerseIndex);
   }
   if (typeof match.lyricVoice === 'string') next.lyricVoice = match.lyricVoice;
   if (typeof match.lyricSkipNotes === 'number' && match.lyricSkipNotes >= 0) {
@@ -415,6 +420,10 @@ export default function App() {
                         typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
                           ? Math.floor(item.lyricPartIndex)
                           : 1,
+                      lyricVerseIndex:
+                        typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
+                          ? Math.floor(item.lyricVerseIndex)
+                          : 1,
                       lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
                       lyricSkipNotes:
                         typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
@@ -570,11 +579,19 @@ export default function App() {
 
   const submitReview = async () => {
     if (!reviewingJobId) return;
-    const normalizedItems = reviewData.map((item) => {
-      if (item.type !== 'lyrics') return item;
-      const lv = item.lyricVoice?.trim();
-      return { ...item, lyricVoice: lv && lv.length > 0 ? lv : '1' };
-    });
+      const normalizedItems = reviewData.map((item) => {
+        if (item.type !== 'lyrics') return item;
+        const lv = item.lyricVoice?.trim();
+        const vn =
+          typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
+            ? Math.floor(item.lyricVerseIndex)
+            : 1;
+        return {
+          ...item,
+          lyricVoice: lv && lv.length > 0 ? lv : '1',
+          lyricVerseIndex: Math.min(32, vn),
+        };
+      });
     try {
       const res = await fetch(`/api/review/${reviewingJobId}`, {
         method: 'POST',
@@ -645,6 +662,9 @@ export default function App() {
       if (newData[index].lyricPartIndex == null || newData[index].lyricPartIndex! < 1) {
         newData[index].lyricPartIndex = 1;
       }
+      if (newData[index].lyricVerseIndex == null || newData[index].lyricVerseIndex! < 1) {
+        newData[index].lyricVerseIndex = 1;
+      }
       if (newData[index].lyricVoice == null || newData[index].lyricVoice === '') {
         newData[index].lyricVoice = '1';
       }
@@ -658,6 +678,12 @@ export default function App() {
   const handleReviewTextChange = (index: number, newText: string) => {
     const newData = [...reviewData];
     newData[index].text = newText;
+    setReviewData(newData);
+  };
+
+  const handleLyricVerseIndexChange = (index: number, v: number) => {
+    const newData = [...reviewData];
+    newData[index].lyricVerseIndex = Number.isFinite(v) && v >= 1 ? Math.min(32, Math.floor(v)) : 1;
     setReviewData(newData);
   };
 
@@ -927,7 +953,7 @@ export default function App() {
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
-              <strong>파트·성부:</strong> Audiveris가 만든 MusicXML에서 가사를 넣을 <strong>파트 순번</strong>(1=첫 파트, 4부 합창이면 보통 4)과, 같은 파트에 성부가 여러 개일 때의 <strong>voice 번호</strong>(보통 1)를 지정합니다. 피아노·2성부 한 파트처럼 voice가 여러 줄로 갈릴 때는 <strong>전체 순서 (*)</strong>를 쓰면 해당 파트의 음표를 문서 순서대로 맞출 수 있습니다. 가사가 중간부터 밀리면 해당 성부에서 <strong>앞쪽 몇 개 음표를 건너뛰기</strong>를 조정해 보세요.<br/>
+              <strong>파트·가사 절·멜로디 줄:</strong> <strong>파트 순번</strong>은 MusicXML의 몇 번째 악기/성부인지(1=첫 파트)입니다. <strong>가사 절</strong>(1절·2절…)은 같은 멜로디에 붙는 <strong>서로 다른 가사 줄</strong>이며, 병합 시 같은 음표에 <code>lyric number=&quot;1&quot;</code>, <code>&quot;2&quot;</code>…로 나뉩니다. <strong>멜로디 줄(voice)</strong>은 같은 마디에서 <strong>동시에 울리는 서로 다른 선율</strong>(성부 2줄 등)에 쓰는 MusicXML <code>&lt;voice&gt;</code>이며 <em>1절/2절과 다릅니다</em>. 한 줄만 있는 성부는 보통 멜로디 줄 1과 가사 절만 쓰면 됩니다. 피아노·2멜로디 한 파트면 <strong>전체 순서 (*)</strong> 또는 해당 <code>&lt;voice&gt;</code> 번호를 지정하세요. 가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 하이픈(<strong>-</strong>)을 쓰세요.<br/>
               <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다.<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다.</em>
             </div>
@@ -1001,11 +1027,26 @@ export default function App() {
                           />
                         </label>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          voice
+                          가사 절
+                          <input
+                            type="number"
+                            min={1}
+                            max={32}
+                            title="1절=1, 2절=2 … MusicXML lyric number"
+                            value={item.lyricVerseIndex ?? 1}
+                            onChange={(e) =>
+                              handleLyricVerseIndexChange(i, parseInt(e.target.value, 10))
+                            }
+                            style={{ width: '4rem', padding: '0.35rem' }}
+                          />
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          멜로디 줄
                           <select
                             value={lyricVoicePresetKey(item.lyricVoice)}
                             onChange={(e) => handleLyricVoicePresetChange(i, e.target.value)}
                             style={{ padding: '0.35rem', minWidth: '9rem' }}
+                            title="MusicXML &lt;voice&gt;: 동시에 울리는 다른 선율. 1절/2절과 무관."
                           >
                             <option value="1">1</option>
                             <option value="2">2</option>

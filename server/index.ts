@@ -96,7 +96,7 @@ app.get('/api/health', (_req, res) => {
     hint: bin ? undefined : 'Set AUDIVERIS_BIN to Audiveris.bat or bin/Audiveris',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:
-      '변환 완료 또는 실패 처리 후 서버에 보관되는 작업·파일은 24시간이 지나면 자동으로 삭제됩니다.',
+      '변환 완료 또는 실패 처리 후 서버에 보관되는 작업·파일은 24시간이 지나면 자동으로 삭제됩니다. 완료 직후 다운로드를 받아도 같은 jobId로 마스킹·인식 점검 API는 TTL 전까지 사용할 수 있습니다.',
   });
 });
 
@@ -192,6 +192,46 @@ function setJobProgress(job: JobRecord | undefined, p: JobProgress): void {
   if (!job || job.status === 'failed' || job.status === 'completed') return;
   job.progress = p;
   if (p.phase === 'audiveris' && p.total > 0) job.pdfPageCount = p.total;
+}
+
+function diagnosticJobsAllowed(job: JobRecord | undefined): job is JobRecord {
+  return Boolean(job && (job.status === 'completed' || job.status === 'audiveris_review_needed'));
+}
+
+async function pdfPageCountViaPython(pdfPath: string): Promise<number | null> {
+  if (!fsSync.existsSync(pdfPath)) return null;
+  const script = path.join(__dirname, '..', 'scripts', 'pdf_diagnostic.py');
+  const pythonBin = resolvePythonBin();
+  try {
+    const { stdout } = await exec(`"${pythonBin}" "${script}" info "${pdfPath}"`, {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    const j = JSON.parse(String(stdout).trim()) as { pageCount?: unknown };
+    return typeof j.pageCount === 'number' && j.pageCount >= 1 ? j.pageCount : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
+  if (job.status === 'audiveris_review_needed' && job.preInjectMxlPaths?.length) {
+    const p = job.preInjectMxlPaths[0];
+    if (p && fsSync.existsSync(p)) return p;
+    return null;
+  }
+  if (job.status === 'completed' && job.result) {
+    if (job.result.kind === 'single') {
+      const p = job.result.filePath;
+      const low = p.toLowerCase();
+      if ((low.endsWith('.mxl') || low.endsWith('.musicxml')) && fsSync.existsSync(p)) return p;
+      return null;
+    }
+    for (const p of job.result.finalOutputs) {
+      if (!p) continue;
+      if (p.toLowerCase().endsWith('.mxl') && fsSync.existsSync(p)) return p;
+    }
+  }
+  return null;
 }
 
 function parseAudiverisProgressLine(line: string, pageFallback: number): { current: number; total: number } | null {
@@ -642,11 +682,7 @@ app.get('/api/status/:jobId', (req, res) => {
   res.json(payload);
 });
 
-function streamZipToResponse(
-  res: express.Response,
-  result: Extract<JobResult, { kind: 'zip' }>,
-  wipeSession: () => Promise<void>,
-): void {
+function streamZipToResponse(res: express.Response, result: Extract<JobResult, { kind: 'zip' }>): void {
   res.setHeader('Content-Type', 'application/zip');
   const zipAscii = result.zipName.replace(/[^\x20-\x7E]/g, '_');
   const zipEncoded = encodeURIComponent(result.zipName);
@@ -656,8 +692,7 @@ function streamZipToResponse(
   );
 
   const archive = archiver('zip', { zlib: { level: 9 } });
-  archive.on('error', async (err: Error) => {
-    await wipeSession();
+  archive.on('error', (err: Error) => {
     if (!res.headersSent) res.status(500).end(String(err));
   });
   archive.pipe(res);
@@ -679,12 +714,9 @@ function streamZipToResponse(
     try {
       await archive.finalize();
     } catch (err) {
-      await wipeSession();
       if (!res.headersSent) res.status(500).end(String(err));
     }
   })();
-  res.once('finish', wipeSession);
-  res.once('close', wipeSession);
 }
 
 app.get('/api/download/:jobId', (req, res) => {
@@ -698,9 +730,6 @@ app.get('/api/download/:jobId', (req, res) => {
     return;
   }
 
-  const sessionRoot = job.sessionRoot;
-  const wipeSession = () => fs.rm(sessionRoot, { recursive: true, force: true }).catch(() => {});
-
   if (job.result.kind === 'single') {
     const { filePath, downloadBaseName, ext } = job.result;
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -710,36 +739,148 @@ app.get('/api/download/:jobId', (req, res) => {
       'Content-Disposition',
       `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
     );
-    let cleaned = false;
-    const cleanupJob = async () => {
-      if (cleaned) return;
-      cleaned = true;
-      jobs.delete(req.params.jobId);
-      await wipeSession();
-    };
     const rs = fsSync.createReadStream(filePath);
     rs.on('error', () => {
-      void cleanupJob();
-    });
-    res.once('finish', () => {
-      void cleanupJob();
-    });
-    res.once('close', () => {
-      void cleanupJob();
+      if (!res.headersSent) res.status(500).end('read error');
     });
     rs.pipe(res);
     return;
   }
 
-  let zipCleaned = false;
-  const zipCleanup = async () => {
-    if (zipCleaned) return;
-    zipCleaned = true;
-    jobs.delete(req.params.jobId);
-    await wipeSession();
-  };
+  streamZipToResponse(res, job.result);
+});
 
-  streamZipToResponse(res, job.result, zipCleanup);
+app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res
+      .status(404)
+      .json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
+    return;
+  }
+  const inputPdfPath = job.inputPdfPath;
+  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
+    res.status(404).json({ error: '업로드 원본 PDF가 세션에 없습니다' });
+    return;
+  }
+  const maskedPdfPath = path.join(job.sessionRoot, 'masked_input.pdf');
+  const maskedExists = fsSync.existsSync(maskedPdfPath);
+  const [origCount, maskedCount] = await Promise.all([
+    pdfPageCountViaPython(inputPdfPath),
+    maskedExists ? pdfPageCountViaPython(maskedPdfPath) : Promise.resolve(null),
+  ]);
+  const pageCountForUi = origCount ?? maskedCount ?? job.pdfPageCount ?? 1;
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  res.json({
+    jobId: req.params.jobId,
+    status: job.status,
+    originalName: job.originalName,
+    originalPdf: { exists: true, pageCount: origCount },
+    maskedPdf: { exists: maskedExists, pageCount: maskedExists ? maskedCount : null },
+    pageCountForUi: Math.max(1, pageCountForUi),
+    pageCountsMatch:
+      !maskedExists ||
+      origCount == null ||
+      maskedCount == null ||
+      origCount === maskedCount,
+    scoreMusicXmlAvailable: Boolean(mxlPath),
+  });
+});
+
+app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).end();
+    return;
+  }
+  const source = (req.query.source as string) === 'masked' ? 'masked' : 'original';
+  const page = parseInt(req.params.pageNum, 10);
+  const dpiRaw = parseInt(String(req.query.dpi ?? '132'), 10);
+  const dpi = Number.isFinite(dpiRaw) ? Math.min(240, Math.max(72, dpiRaw)) : 132;
+
+  const inputPdfPath = job.inputPdfPath;
+  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
+    res.status(404).end();
+    return;
+  }
+  const maskedPdfPath = path.join(job.sessionRoot, 'masked_input.pdf');
+  const pdfPath =
+    source === 'masked'
+      ? maskedPdfPath
+      : inputPdfPath;
+  if (!fsSync.existsSync(pdfPath)) {
+    res.status(404).end();
+    return;
+  }
+
+  const count = await pdfPageCountViaPython(pdfPath);
+  if (!count || !Number.isFinite(page) || page < 1 || page > count) {
+    res.status(400).json({ error: '페이지 번호가 범위를 벗어났습니다' });
+    return;
+  }
+
+  try {
+    const cacheDir = path.join(job.sessionRoot, '.diag-cache');
+    await fs.mkdir(cacheDir, { recursive: true });
+    const cacheFile = path.join(cacheDir, `p${page}-${source}-dpi${dpi}.png`);
+    let needRender = true;
+    if (fsSync.existsSync(cacheFile)) {
+      const [stPdf, stPng] = await Promise.all([fs.stat(pdfPath), fs.stat(cacheFile)]);
+      if (stPng.mtimeMs >= stPdf.mtimeMs) needRender = false;
+    }
+    if (needRender) {
+      const script = path.join(__dirname, '..', 'scripts', 'pdf_diagnostic.py');
+      const pythonBin = resolvePythonBin();
+      await exec(
+        `"${pythonBin}" "${script}" render "${pdfPath}" ${page} "${cacheFile}" ${dpi}`,
+        { maxBuffer: 32 * 1024 * 1024 },
+      );
+    }
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=120');
+    res.sendFile(path.resolve(cacheFile));
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: '점검 대상 작업이 아닙니다' });
+    return;
+  }
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  if (!mxlPath) {
+    res.status(404).json({ error: 'MXL/MusicXML 파일을 찾을 수 없습니다' });
+    return;
+  }
+  try {
+    const cacheDir = path.join(job.sessionRoot, '.diag-cache');
+    await fs.mkdir(cacheDir, { recursive: true });
+    const outXml = path.join(cacheDir, 'inspect-score.musicxml');
+    let needExtract = true;
+    if (fsSync.existsSync(outXml) && fsSync.existsSync(mxlPath)) {
+      const [stM, stX] = await Promise.all([fs.stat(mxlPath), fs.stat(outXml)]);
+      if (stX.mtimeMs >= stM.mtimeMs) needExtract = false;
+    }
+    if (needExtract) {
+      const mxlScript = path.join(__dirname, '..', 'scripts', 'mxl_to_musicxml_file.py');
+      const pythonBin = resolvePythonBin();
+      await exec(`"${pythonBin}" "${mxlScript}" "${mxlPath}" "${outXml}"`, {
+        maxBuffer: 40 * 1024 * 1024,
+      });
+    }
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.resolve(outXml), (err) => {
+      if (err && !res.headersSent) res.status(500).json({ error: String(err) });
+    });
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
 });
 
 app.use('/api/crops', (req, res, next) => {

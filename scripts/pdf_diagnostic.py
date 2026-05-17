@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""PDF diagnostic helpers (PyMuPDF).
+
+Usage:
+  pdf_diagnostic.py info <pdf_path>
+      Print JSON: {"pageCount": N}
+
+  pdf_diagnostic.py render <pdf_path> <page_1based> <out_png_path> [dpi]
+      Rasterize one page to PNG (RGB, no alpha).
+"""
+from __future__ import annotations
+
+import json
+import sys
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        print("usage: pdf_diagnostic.py info|render ...", file=sys.stderr)
+        sys.exit(1)
+
+    cmd = sys.argv[1]
+    if cmd == "info":
+        if len(sys.argv) < 3:
+            sys.exit(1)
+        path = sys.argv[2]
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(path)
+        n = doc.page_count
+        doc.close()
+        print(json.dumps({"pageCount": n}))
+        return
+
+    if cmd == "render":
+        if len(sys.argv) < 5:
+            sys.exit(1)
+        path = sys.argv[2]
+        page_1 = int(sys.argv[3])
+        out_png = sys.argv[4]
+        dpi = float(sys.argv[5]) if len(sys.argv) > 5 else 144.0
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(path)
+        idx = page_1 - 1
+        if idx < 0 or idx >= doc.page_count:
+            doc.close()
+            sys.exit(2)
+        page = doc[idx]
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        pix.save(out_png)
+        doc.close()
+        return
+
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

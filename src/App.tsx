@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AudiverisInspectPanel } from './AudiverisInspectPanel';
 
 type Health = {
   ok: boolean;
@@ -21,6 +22,8 @@ type ConvertTask = {
   id: string;
   fileName: string;
   phase: 'queued' | 'running' | 'done' | 'error';
+  /** 완료 후 마스킹·인식 점검 API용(24h TTL 전까지) */
+  jobId?: string;
   downloadUrl?: string;
   downloadName?: string;
   errorMessage?: string;
@@ -193,6 +196,8 @@ export default function App() {
   const [hasSavedData, setHasSavedData] = useState(false);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
   const [audiverisReviewJobId, setAudiverisReviewJobId] = useState<string | null>(null);
+  const [audiverisModalTab, setAudiverisModalTab] = useState<'adjust' | 'inspect'>('adjust');
+  const [inspectJobId, setInspectJobId] = useState<string | null>(null);
   const [audiverisTranspose, setAudiverisTranspose] = useState(0);
   const audiverisReplaceRef = useRef<HTMLInputElement>(null);
 
@@ -201,6 +206,10 @@ export default function App() {
   const tasksRef = useRef<ConvertTask[]>([]);
 
   tasksRef.current = tasks;
+
+  useEffect(() => {
+    if (audiverisReviewJobId) setAudiverisModalTab('adjust');
+  }, [audiverisReviewJobId]);
 
   useEffect(() => {
     fetch('/api/health')
@@ -356,7 +365,7 @@ export default function App() {
     }
     const downloadUrl = URL.createObjectURL(blob);
     onProgress?.(undefined);
-    return { downloadUrl, downloadName: name };
+    return { downloadUrl, downloadName: name, jobId };
   },
     [],
   );
@@ -458,6 +467,7 @@ export default function App() {
                   ...t,
                   phase: 'done',
                   progress: undefined,
+                  jobId: result.jobId,
                   downloadUrl: result.downloadUrl,
                   downloadName: result.downloadName,
                 };
@@ -892,9 +902,23 @@ export default function App() {
                   </td>
                   <td>
                     {t.phase === 'done' && t.downloadUrl && (
-                      <a href={t.downloadUrl} download={t.downloadName}>
-                        저장
-                      </a>
+                      <>
+                        <a href={t.downloadUrl} download={t.downloadName}>
+                          저장
+                        </a>
+                        {t.jobId && (
+                          <>
+                            {' · '}
+                            <button
+                              type="button"
+                              className="btn-link"
+                              onClick={() => setInspectJobId(t.jobId!)}
+                            >
+                              마스킹·인식 점검
+                            </button>
+                          </>
+                        )}
+                      </>
                     )}
                     {t.phase === 'error' && (
                       <span className="err task-err" title={t.errorMessage}>
@@ -1149,74 +1173,135 @@ export default function App() {
               background: 'var(--card-bg, #fff)',
               padding: '1.75rem',
               borderRadius: '8px',
-              maxWidth: '520px',
-              width: '92%',
+              maxWidth: audiverisModalTab === 'inspect' ? '96vw' : '520px',
+              width: audiverisModalTab === 'inspect' ? '96%' : '92%',
+              maxHeight: '92vh',
+              overflow: 'auto',
               boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
             }}
           >
-            <h2 style={{ margin: '0 0 0.75rem' }}>Audiveris 결과 보정</h2>
-            <p style={{ margin: '0 0 1rem', lineHeight: 1.55, color: '#444' }}>
-              인식된 악보를 들어보거나 악보 편집기로 연 뒤, <strong>음높이·음표</strong>를 정한 다음 이어가세요. MXL은 아래에서 받거나, MuseScore 등에서 고친 파일을 교체 업로드할 수 있습니다.
-            </p>
-            <p style={{ margin: '0 0 1rem', lineHeight: 1.55, color: '#444' }}>
-              <strong>조옮김(반음)</strong>은 <strong>곡 전체가 같은 간격</strong>으로만 밀린 경우(예: 통째로 한 옥타브)에 맞습니다. <strong>일부 마디·일부 성부만</strong> 틀리면 조옮김은 0으로 두고, 틀린 음만 편집기에서 고친 뒤 <strong>교체 MXL</strong>로 올리는 것이 맞습니다.
-            </p>
-            <p style={{ margin: '0 0 1rem', fontSize: '0.9rem', color: '#666' }}>
-              이 작업을 마칠 때까지 서버의 변환은 잠시 멈춰 있습니다.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <a
-                href={`/api/raw-mxl/${audiverisReviewJobId}`}
-                download
-                style={{ color: '#1565c0', fontWeight: 600 }}
-              >
-                Audiveris 원본 MXL 다운로드
-              </a>
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  조옮김(반음, −24〜24)
-                  <input
-                    type="number"
-                    min={-24}
-                    max={24}
-                    value={audiverisTranspose}
-                    onChange={(e) => {
-                      const n = parseInt(e.target.value, 10);
-                      setAudiverisTranspose(Number.isFinite(n) ? Math.max(-24, Math.min(24, n)) : 0);
-                    }}
-                    style={{ width: '4rem', padding: '0.4rem' }}
-                  />
-                </label>
-                <p style={{ fontSize: '0.82rem', color: '#666', margin: '6px 0 0', lineHeight: 1.45 }}>
-                  위에서 설명한 대로 곡 전체에만 적용됩니다. 부분 오류는 교체 파일로 처리하세요.
-                </p>
-              </div>
-              <div>
-                <div style={{ marginBottom: '6px', fontSize: '0.9rem' }}>교체 MXL (선택)</div>
-                <input
-                  ref={audiverisReplaceRef}
-                  type="file"
-                  accept=".mxl,.xml,.musicxml,application/vnd.recordare.musicxml+xml,application/xml,text/xml"
-                />
-              </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                onClick={() => void submitContinueAudiveris()}
-                style={{
-                  marginTop: '0.5rem',
-                  padding: '0.65rem 1.25rem',
-                  fontSize: '1rem',
-                  background: '#2e7d32',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
+                className={audiverisModalTab === 'adjust' ? '' : 'btn-muted'}
+                onClick={() => setAudiverisModalTab('adjust')}
               >
-                이어하기 (OCR·가사 주입)
+                보정·이어하기
+              </button>
+              <button
+                type="button"
+                className={audiverisModalTab === 'inspect' ? '' : 'btn-muted'}
+                onClick={() => setAudiverisModalTab('inspect')}
+              >
+                마스킹·인식 점검
               </button>
             </div>
+
+            {audiverisModalTab === 'inspect' ? (
+              <AudiverisInspectPanel
+                jobId={audiverisReviewJobId}
+                onClose={() => setAudiverisModalTab('adjust')}
+              />
+            ) : (
+              <>
+                <h2 style={{ margin: '0 0 0.75rem' }}>Audiveris 결과 보정</h2>
+                <p style={{ margin: '0 0 1rem', lineHeight: 1.55, color: '#444' }}>
+                  인식된 악보를 들어보거나 악보 편집기로 연 뒤, <strong>음높이·음표</strong>를 정한 다음 이어가세요. MXL은 아래에서 받거나, MuseScore 등에서 고친 파일을 교체 업로드할 수 있습니다.
+                </p>
+                <p style={{ margin: '0 0 1rem', lineHeight: 1.55, color: '#444' }}>
+                  <strong>조옮김(반음)</strong>은 <strong>곡 전체가 같은 간격</strong>으로만 밀린 경우(예: 통째로 한 옥타브)에 맞습니다. <strong>일부 마디·일부 성부만</strong> 틀리면 조옮김은 0으로 두고, 틀린 음만 편집기에서 고친 뒤 <strong>교체 MXL</strong>로 올리는 것이 맞습니다.
+                </p>
+                <p style={{ margin: '0 0 1rem', fontSize: '0.9rem', color: '#666' }}>
+                  이 작업을 마칠 때까지 서버의 변환은 잠시 멈춰 있습니다.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <a
+                    href={`/api/raw-mxl/${audiverisReviewJobId}`}
+                    download
+                    style={{ color: '#1565c0', fontWeight: 600 }}
+                  >
+                    Audiveris 원본 MXL 다운로드
+                  </a>
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      조옮김(반음, −24〜24)
+                      <input
+                        type="number"
+                        min={-24}
+                        max={24}
+                        value={audiverisTranspose}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10);
+                          setAudiverisTranspose(Number.isFinite(n) ? Math.max(-24, Math.min(24, n)) : 0);
+                        }}
+                        style={{ width: '4rem', padding: '0.4rem' }}
+                      />
+                    </label>
+                    <p style={{ fontSize: '0.82rem', color: '#666', margin: '6px 0 0', lineHeight: 1.45 }}>
+                      위에서 설명한 대로 곡 전체에만 적용됩니다. 부분 오류는 교체 파일로 처리하세요.
+                    </p>
+                  </div>
+                  <div>
+                    <div style={{ marginBottom: '6px', fontSize: '0.9rem' }}>교체 MXL (선택)</div>
+                    <input
+                      ref={audiverisReplaceRef}
+                      type="file"
+                      accept=".mxl,.xml,.musicxml,application/vnd.recordare.musicxml+xml,application/xml,text/xml"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void submitContinueAudiveris()}
+                    style={{
+                      marginTop: '0.5rem',
+                      padding: '0.65rem 1.25rem',
+                      fontSize: '1rem',
+                      background: '#2e7d32',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                  >
+                    이어하기 (OCR·가사 주입)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {inspectJobId && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10001,
+            padding: '2vh 2vw',
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--card-bg, #1e222a)',
+              padding: '1.25rem',
+              borderRadius: '12px',
+              maxWidth: '1200px',
+              width: '100%',
+              maxHeight: '96vh',
+              overflow: 'auto',
+              border: '1px solid #2e3440',
+            }}
+          >
+            <AudiverisInspectPanel jobId={inspectJobId} onClose={() => setInspectJobId(null)} />
           </div>
         </div>
       )}

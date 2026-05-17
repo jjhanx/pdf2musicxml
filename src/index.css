@@ -66,6 +66,12 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.btn-muted {
+  background: #3c4049;
+  color: #e8eaed;
+  border: 1px solid #5f6368;
+}
+
 .file-label {
   display: inline-block;
   padding: 0.55rem 1rem;

@@ -190,6 +190,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
           <h3 style={{ margin: '0 0 6px', color: 'var(--text-color, #e8eaed)' }}>마스킹·Audiveris 인식 점검</h3>
           <p style={{ margin: 0, fontSize: '0.9rem', color: '#bdc1c6', lineHeight: 1.45 }}>
             같은 <strong>페이지</strong>에서 <strong>원본 PDF</strong>와 <strong>마스킹 PDF</strong>를 나란히 보고, 가사·제목 등이 과하게 지워졌는지·남았는지 확인하세요.
+            Audiveris가 읽기 <strong>직전</strong> 벡터 PDF(<code>masked_input.pdf</code>)는 아래 링크로 브라우저에서 열거나 저장해 MuseScore·Adobe 등으로 비교할 수 있습니다.
             오른쪽은 Audiveris가 낸 악보(MusicXML) 미리보기입니다. 파트를 고르면 해당 <strong>성부 한 줄(파트)</strong>만 보기 쉽게 필터합니다(곡 전체와 페이지는 1:1이 아닐 수 있음).
           </p>
         </div>
@@ -241,6 +242,56 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
             <>악보 미리보기용 MusicXML 사용 가능.</>
           ) : (
             <span className="err">이 단계에서는 악보 XML을 아직 쓸 수 없습니다.</span>
+          )}
+          {summary.maskedPdf.exists && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: '10px 12px',
+                background: '#2a2f3a',
+                borderRadius: 8,
+                border: '1px solid #3c4049',
+              }}
+            >
+              <div style={{ marginBottom: 8, color: '#e8eaed', lineHeight: 1.45 }}>
+                <strong>Audiveris 입력 PDF</strong> — 서버의 <code style={{ fontSize: '0.82rem' }}>masked_input.pdf</code>와 동일합니다. MXL·MusicXML이 이미 잘못돼
+                있어도, <strong>OCR 마스킹 직후</strong> 악보가 맞는지 여기서 먼저 확인하세요.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', alignItems: 'center' }}>
+                <a
+                  href={`/api/diagnostic/${jobId}/masked-pdf`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: '#8ab4ff', fontWeight: 600 }}
+                >
+                  새 탭에서 PDF 열기
+                </a>
+                <a
+                  href={`/api/diagnostic/${jobId}/masked-pdf?download=1`}
+                  style={{ color: '#8ab4ff', fontWeight: 600 }}
+                  download
+                >
+                  마스킹 PDF 다운로드
+                </a>
+              </div>
+            </div>
+          )}
+          {summary.originalPdf.exists && (
+            <div style={{ marginTop: 8, fontSize: '0.84rem', color: '#9aa0a6' }}>
+              업로드 원본 PDF:{' '}
+              <a
+                href={`/api/diagnostic/${jobId}/original-pdf`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#8ab4ff' }}
+              >
+                열기
+              </a>
+              {' · '}
+              <a href={`/api/diagnostic/${jobId}/original-pdf?download=1`} style={{ color: '#8ab4ff' }} download>
+                다운로드
+              </a>
+            </div>
           )}
         </div>
       )}

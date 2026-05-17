@@ -149,6 +149,8 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/diagnostic/:jobId/summary` | `completed` 또는 `audiveris_review_needed` 일 때만. 원본/마스킹 PDF 존재·페이지 수·MusicXML 미리보기 가능 여부 JSON (`Cache-Control: no-store`) |
 | `GET /api/diagnostic/:jobId/page/:pageNum/png` | 쿼리 `source=original` 또는 `masked`, 선택 `dpi`(72–240, 기본 132). PyMuPDF로 해당 페이지 PNG |
 | `GET /api/diagnostic/:jobId/score-musicxml` | Audiveris MXL에서 평문 MusicXML(미리보기용). 완료 결과가 ZIP이면 출력 목록 중 첫 `.mxl` 기준 |
+| `GET /api/diagnostic/:jobId/masked-pdf` | Audiveris에 넣기 직전 **`masked_input.pdf`** (`application/pdf`). 기본 `inline`(새 탭), `?download=1`이면 다운로드 |
+| `GET /api/diagnostic/:jobId/original-pdf` | 세션에 남은 **업로드 원본 PDF**. 동일하게 `?download=1` 지원 |
 
 프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, `review_needed`이면 Pre-Audiveris 검토 모달, **`audiveris_review_needed`**이면 Audiveris 결과 보정 모달을 띄웁니다. 제출은 각각 `/api/review/:jobId`, `/api/continue-audiveris/:jobId`로 이어집니다. 완료 행의 **마스킹·인식 점검**은 동일 `jobId`로 진단 API를 사용합니다.
 

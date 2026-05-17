@@ -234,6 +234,30 @@ function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
   return null;
 }
 
+function diagnosticPdfDownloadBaseName(job: JobRecord, kind: 'masked' | 'original'): string {
+  const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
+  return kind === 'masked' ? `${base}-masked-audiveris-input` : `${base}-upload-original`;
+}
+
+function sendDiagnosticSessionPdf(
+  res: express.Response,
+  absPath: string,
+  downloadBaseName: string,
+  attachment: boolean,
+): void {
+  const safeAscii = `${downloadBaseName}.pdf`.replace(/[^\x20-\x7E]/g, '_');
+  const encoded = encodeURIComponent(`${downloadBaseName}.pdf`);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Cache-Control', 'private, max-age=60');
+  res.setHeader(
+    'Content-Disposition',
+    `${attachment ? 'attachment' : 'inline'}; filename="${safeAscii}"; filename*=UTF-8''${encoded}`,
+  );
+  res.sendFile(path.resolve(absPath), (err) => {
+    if (err && !res.headersSent) res.status(500).json({ error: String(err) });
+  });
+}
+
 function parseAudiverisProgressLine(line: string, pageFallback: number): { current: number; total: number } | null {
   const slash = line.match(/(\d+)\s*\/\s*(\d+)/);
   if (slash) {
@@ -881,6 +905,55 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
   } catch (e) {
     if (!res.headersSent) res.status(500).json({ error: String(e) });
   }
+});
+
+app.get('/api/diagnostic/:jobId/masked-pdf', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
+    return;
+  }
+  const maskedPdfPath = path.join(job.sessionRoot, 'masked_input.pdf');
+  if (!fsSync.existsSync(maskedPdfPath)) {
+    res.status(404).json({
+      error:
+        'masked_input.pdf가 없습니다. OCR·마스킹 단계가 없었거나, 아직 생성되지 않았을 수 있습니다.',
+    });
+    return;
+  }
+  const attachment =
+    req.query.download === '1' ||
+    req.query.download === 'true' ||
+    String(req.query.disposition ?? '').toLowerCase() === 'attachment';
+  sendDiagnosticSessionPdf(
+    res,
+    maskedPdfPath,
+    diagnosticPdfDownloadBaseName(job, 'masked'),
+    attachment,
+  );
+});
+
+app.get('/api/diagnostic/:jobId/original-pdf', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
+    return;
+  }
+  const inputPdfPath = job.inputPdfPath;
+  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
+    res.status(404).json({ error: '업로드 원본 PDF가 세션에 없습니다' });
+    return;
+  }
+  const attachment =
+    req.query.download === '1' ||
+    req.query.download === 'true' ||
+    String(req.query.disposition ?? '').toLowerCase() === 'attachment';
+  sendDiagnosticSessionPdf(
+    res,
+    inputPdfPath,
+    diagnosticPdfDownloadBaseName(job, 'original'),
+    attachment,
+  );
 });
 
 app.use('/api/crops', (req, res, next) => {

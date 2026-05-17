@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 type Health = {
   ok: boolean;
   audiverisConfigured: boolean;
+  audiverisPauseOnWarn?: boolean;
+  audiverisWarnPattern?: string | null;
   hint?: string;
   jobRetentionHours?: number;
   jobRetentionNote?: string;
@@ -790,7 +792,20 @@ export default function App() {
               서버를 다시 실행하세요.
             </>
           )}
-          {health?.audiverisConfigured && <>Audiveris 준비됨 (로컬 API)</>}
+          {health?.audiverisConfigured && (
+            <>
+              Audiveris 준비됨 (로컬 API)
+              {health.audiverisPauseOnWarn && (
+                <>
+                  <br />
+                  <span style={{ fontSize: '0.9em' }}>
+                    Audiveris 로그에 WARN이 나오면 자동으로 <strong>결과 보정</strong> 단계에서 멈춥니다 (
+                    <code>AUDIVERIS_PAUSE_ON_WARN</code>).
+                  </span>
+                </>
+              )}
+            </>
+          )}
         </div>
 
         {health?.audiverisConfigured && (health.jobRetentionNote ?? health.jobRetentionHours != null) && (

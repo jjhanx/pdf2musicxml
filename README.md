@@ -52,6 +52,8 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 |------|------|
 | `AUDIVERIS_BIN` | **필수**(변환 시). 예: `/opt/audiveris/bin/Audiveris` |
 | `AUDIVERIS_OCR_LANG` | Tesseract 언어 사양. **미설정 시 `kor+eng`**(한글 가사·제목 + 라틴). Audiveris 기본(보통 영어만)을 쓰려면 빈 값: `AUDIVERIS_OCR_LANG=` |
+| `AUDIVERIS_PAUSE_ON_WARN` | `1`/`true`/`yes`이면 Audiveris 표준출력·에러에 `WARN`(또는 `AUDIVERIS_WARN_PATTERN`)이 **한 번이라도** 보이면 **`pauseAfterAudiveris` 없이도** `audiveris_review_needed`로 멈춤(HITL). |
+| `AUDIVERIS_WARN_PATTERN` | (선택) Audiveris 로그를 스캔할 정규식. 미설정 시 `\bWARN\b`(대소문자 무시). |
 | `TESSDATA_PREFIX` | (선택) Tesseract `tessdata` 폴더. 미설정 시 Audiveris 사용자 설정 쪽 `tessdata` 사용 |
 | `PORT` | API/UI 포트 (기본 `8787`) |
 | `LISTEN_HOST` | 바인딩 주소 (기본 `0.0.0.0`). `127.0.0.1`만 열려면 nginx 뒤에 둘 때 사용 |
@@ -135,7 +137,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 
 | 메서드·경로 | 설명 |
 |-------------|------|
-| `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`). JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
+| `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`)·**`audiverisPauseOnWarn`**, 선택 **`audiverisWarnPattern`**. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
 | `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`, 선택 **`pauseAfterAudiveris`** (`true`면 Audiveris MXL 생성 직후 파이프라인 일시 정지). **파일이 디스크에 저장된 뒤** **202 Accepted** 와 `{ "jobId", "message" }`. 헤더 `X-Pdf2Mxl-Async: 202-after-upload`, `X-Accel-Buffering: no`. 업로드·multipart 오류 시 **동일 POST**에서 4xx/5xx JSON(이 경우 `jobId` 없음). |
 | `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → (`audiveris_review_needed`) → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
 | `GET /api/review/:jobId` | 상태가 `review_needed`일 때 추출된 문자 영역(좌표/텍스트) 데이터 가져오기 |

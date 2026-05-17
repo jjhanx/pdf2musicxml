@@ -182,7 +182,17 @@ export async function collectMusicXmlOutputs(searchRoot: string): Promise<string
   return acc;
 }
 
-export function defaultDownloadsDir(): string {
-  const home = process.env.USERPROFILE || process.env.HOME || process.cwd();
-  return path.join(home, 'Downloads');
+export function audiverisLogSuggestsHumanReview(stdout: string, stderr: string): boolean {
+  const v = process.env.AUDIVERIS_PAUSE_ON_WARN?.trim().toLowerCase();
+  if (v !== '1' && v !== 'true' && v !== 'yes') return false;
+  const blob = `${String(stdout ?? '')}\n${String(stderr ?? '')}`;
+  const custom = process.env.AUDIVERIS_WARN_PATTERN?.trim();
+  if (custom) {
+    try {
+      return new RegExp(custom, 'm').test(blob);
+    } catch {
+      return /\bWARN\b/i.test(blob);
+    }
+  }
+  return /\bWARN\b/i.test(blob);
 }

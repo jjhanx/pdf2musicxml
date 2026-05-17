@@ -41,6 +41,19 @@ def note_voice(note, ns):
     return "1"
 
 
+def voices_match(a: str, b: str) -> bool:
+    """Audiveris·편집기에 따라 '1'/'01' 등이 달라질 수 있어 비교 시 정규화."""
+    if a == b:
+        return True
+    sa, sb = str(a).strip(), str(b).strip()
+    if sa == sb:
+        return True
+    try:
+        return int(sa) == int(sb)
+    except (TypeError, ValueError):
+        return False
+
+
 # MusicXML: MIDI 60 = middle C; midi = (octave + 1) * 12 + pc + alter
 _STEP_PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 _CHROMA = [
@@ -120,17 +133,26 @@ def transpose_score_chromatic(root, ns, delta: int):
 
 
 def list_attachable_notes(part_el, ns):
-    """(measure, note, voice) in score order."""
+    """(measure, note, voice) in score order.
+
+    Audiveris 등은 2성부 한 파트에서 둘째 줄 음에 `<chord/>`를 붙이는 경우가 많아,
+    기존처럼 chord를 무조건 제외하면 해당 성부 음표가 통째로 빠져 가사가 전혀 붙지 않을 수 있다.
+    같은 `<voice>`의 화음 덧붙임만 제외하고, 다른 voice와 겹치는 chord 음은 포함한다.
+    """
     out = []
     for measure in findall_ns(part_el, "measure", ns):
+        last_included_voice = None
         for note in findall_ns(measure, "note", ns):
             if has_rest(note, ns):
                 continue
-            if has_chord(note, ns):
-                continue
             if has_grace(note, ns):
                 continue
-            out.append((measure, note, note_voice(note, ns)))
+            v = note_voice(note, ns)
+            if has_chord(note, ns):
+                if last_included_voice is not None and voices_match(v, last_included_voice):
+                    continue
+            last_included_voice = v
+            out.append((measure, note, v))
     return out
 
 
@@ -188,15 +210,44 @@ def _normalize_lyric_voice(raw):
     return v
 
 
-def build_events_for_items(items_sorted):
+def attachable_voice_counts(part_el, ns):
+    notes = list_attachable_notes(part_el, ns)
+    c = {}
+    for _m, _n, v in notes:
+        c[v] = c.get(v, 0) + 1
+    return c
+
+
+def count_matching_voice(c: dict, target: str) -> int:
+    if target == "*":
+        return sum(c.values())
+    return sum(n for v, n in c.items() if voices_match(v, target))
+
+
+def build_events_for_items(items_sorted, part_el=None, ns=None):
     """
     items_sorted: 해당 파트에 붙일 가사 블록들 (페이지·y·x 정렬됨).
     각 블록마다 lyricSkipNotes·lyricVoice·text 적용.
     lyricVoice 가 '*' 이면 voice 태그와 무관하게 이 파트의 가사 후보 음표 순서대로 부착.
+
+    part_el/ns가 주어지면: 지정한 voice에 해당하는 멜로디 음이 하나도 없을 때(다성부+Audiveris voice 번호 불일치 등)
+    자동으로 '*'(문서 순 전체)로 바꿔 가사가 통째로 빠지는 경우를 줄인다.
     """
     events = []
     for it in items_sorted:
         voice = _normalize_lyric_voice(it.get("lyricVoice"))
+        if (
+            part_el is not None
+            and ns is not None
+            and voice != "*"
+        ):
+            c = attachable_voice_counts(part_el, ns)
+            if c and count_matching_voice(c, voice) == 0:
+                print(
+                    f"inject_ocr: 경고: lyricVoice={voice!r} 에 해당하는 가사 후보 음표가 없어 '전체 순서(*)'로 바꿉니다.",
+                    file=sys.stderr,
+                )
+                voice = "*"
         try:
             skip = int(it.get("lyricSkipNotes", 0) or 0)
         except (TypeError, ValueError):
@@ -221,7 +272,7 @@ def apply_lyric_events(part_el, ns, events):
             else:
                 skipped = 0
                 while idx < len(notes) and skipped < need:
-                    if notes[idx][2] == v_target:
+                    if voices_match(notes[idx][2], v_target):
                         skipped += 1
                     idx += 1
         elif ev["op"] == "syllable":
@@ -237,7 +288,7 @@ def apply_lyric_events(part_el, ns, events):
                 _m, note, _v = notes[idx]
                 idx += 1
             else:
-                while idx < len(notes) and notes[idx][2] != v_target:
+                while idx < len(notes) and not voices_match(notes[idx][2], v_target):
                     idx += 1
                 if idx >= len(notes):
                     print(
@@ -474,7 +525,7 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                 )
                 p_idx0 = len(parts) - 1
             part_el = parts[p_idx0]
-            events = build_events_for_items(items)
+            events = build_events_for_items(items, part_el, ns)
             apply_lyric_events(part_el, ns, events)
 
     out_xml_bytes = ET.tostring(root, encoding="UTF-8", xml_declaration=True)

@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 const exec = promisify(execCallback);
 
 import {
+  audiverisLogSuggestsHumanReview,
   collectMusicXmlOutputs,
   ocrLanguageConstantArgsFromEnv,
   resolveAudiverisBin,
@@ -63,6 +64,11 @@ function resolvedAudiverisOcrLangSpec(): string | null {
   return spec || null;
 }
 
+function audiverisPauseOnWarnFromEnv(): boolean {
+  const v = process.env.AUDIVERIS_PAUSE_ON_WARN?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 function resolvePythonBin(): string {
   if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
   const venvPython = path.join(__dirname, '..', '.venv', 'bin', 'python');
@@ -85,6 +91,8 @@ app.get('/api/health', (_req, res) => {
     audiverisConfigured: Boolean(bin),
     audiverisOcrLangEffective: ocrLangEffective,
     audiverisOcrLangConstantInjected: ocrLangConstantInjected,
+    audiverisPauseOnWarn: audiverisPauseOnWarnFromEnv(),
+    audiverisWarnPattern: process.env.AUDIVERIS_WARN_PATTERN?.trim() || null,
     hint: bin ? undefined : 'Set AUDIVERIS_BIN to Audiveris.bat or bin/Audiveris',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:
@@ -322,13 +330,20 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     let mxlForInject = outputs.filter((p) => p.toLowerCase().endsWith('.mxl'));
 
-    if (
-      outputs.length > 0 &&
-      job.pauseAfterAudiveris &&
-      mxlForInject.length > 0
-    ) {
+    const autoPauseFromAudiverisLog = audiverisLogSuggestsHumanReview(
+      result.stdout,
+      result.stderr,
+    );
+    if (autoPauseFromAudiverisLog) {
+      console.log(
+        `[job ${jobId}] AUDIVERIS_PAUSE_ON_WARN: 로그에 WARN 등이 감지되어 Audiveris 보정(HITL) 단계로 전환합니다.`,
+      );
+    }
+    const pauseForAudiverisReview = job.pauseAfterAudiveris || autoPauseFromAudiverisLog;
+
+    if (outputs.length > 0 && pauseForAudiverisReview && mxlForInject.length > 0) {
       job.preInjectMxlPaths = [...mxlForInject];
-      console.log(`[job ${jobId}] Pausing for Audiveris 결과 보정 (선택)...`);
+      console.log(`[job ${jobId}] Pausing for Audiveris 결과 보정…`);
       job.status = 'audiveris_review_needed';
       await new Promise<void>((resolve, reject) => {
         job.audiverisReviewDeferred = { resolve, reject };

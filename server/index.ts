@@ -92,7 +92,13 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-type JobStatus = 'pending' | 'processing' | 'review_needed' | 'completed' | 'failed';
+type JobStatus =
+  | 'pending'
+  | 'processing'
+  | 'review_needed'
+  | 'audiveris_review_needed'
+  | 'completed'
+  | 'failed';
 
 type JobProgressPhase = 'upload' | 'audiveris';
 
@@ -147,6 +153,11 @@ type JobRecord = {
   pdfPageCount?: number;
   reviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   reviewData?: any;
+  /** Audiveris 직후 보정 단계용 */
+  pauseAfterAudiveris?: boolean;
+  preInjectMxlPaths?: string[];
+  audiverisReviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  injectMxlPathsOverride?: string[];
 };
 
 const jobs = new Map<string, JobRecord>();
@@ -193,6 +204,18 @@ function parseAudiverisProgressLine(line: string, pageFallback: number): { curre
 function tail(s: string, max = 8000): string {
   if (s.length <= max) return s;
   return s.slice(-max);
+}
+
+async function mergeOcrMetaTranspose(sessionRoot: string, semitones: number): Promise<void> {
+  const metaPath = path.join(sessionRoot, 'ocr_meta.json');
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = JSON.parse(await fs.readFile(metaPath, 'utf8')) as Record<string, unknown>;
+  } catch {
+    /* no file or invalid */
+  }
+  meta.transposeSemitones = Math.max(-24, Math.min(24, Math.round(semitones)));
+  await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
 }
 
 async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
@@ -297,23 +320,51 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     const outputs = await collectMusicXmlOutputs(outBase);
 
+    let mxlForInject = outputs.filter((p) => p.toLowerCase().endsWith('.mxl'));
+
+    if (
+      outputs.length > 0 &&
+      job.pauseAfterAudiveris &&
+      mxlForInject.length > 0
+    ) {
+      job.preInjectMxlPaths = [...mxlForInject];
+      console.log(`[job ${jobId}] Pausing for Audiveris 결과 보정 (선택)...`);
+      job.status = 'audiveris_review_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.audiverisReviewDeferred = { resolve, reject };
+      });
+      delete job.audiverisReviewDeferred;
+      const useOverride =
+        job.injectMxlPathsOverride &&
+        job.injectMxlPathsOverride.length > 0 &&
+        job.injectMxlPathsOverride.every((p) => fsSync.existsSync(p));
+      mxlForInject = useOverride
+        ? job.injectMxlPathsOverride!
+        : [...(job.preInjectMxlPaths ?? [])];
+      delete job.injectMxlPathsOverride;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Audiveris 보정 단계 이후 주입 재개...`);
+    }
+
     // Phase 5: Inject
-    if (outputs.length > 0 && fsSync.existsSync(ocrJsonPath)) {
+    if (mxlForInject.length > 0 && fsSync.existsSync(ocrJsonPath)) {
       setJobProgress(job, {
         phase: 'audiveris',
         current: pageHint,
         total: pageHint,
         detail: '인식된 가사와 메타데이터 주입 중…',
       });
-      
+
       const scriptInject = path.join(__dirname, '..', 'scripts', 'inject_ocr.py');
-      for (const p of outputs) {
-          if (p.endsWith('.mxl')) {
-              console.log(`[job ${jobId}] Running inject_ocr.py for ${p} using ${pythonBin}`);
-              const { stdout: stdoutInj, stderr: stderrInj } = await exec(`"${pythonBin}" "${scriptInject}" "${p}" "${p}" "${ocrJsonPath}"`);
-              if (stdoutInj) console.log(`[job ${jobId}] inject_ocr.py Output:\n${stdoutInj}`);
-              if (stderrInj) console.error(`[job ${jobId}] inject_ocr.py Error:\n${stderrInj}`);
-          }
+      for (const p of mxlForInject) {
+        if (p.toLowerCase().endsWith('.mxl')) {
+          console.log(`[job ${jobId}] Running inject_ocr.py for ${p} using ${pythonBin}`);
+          const { stdout: stdoutInj, stderr: stderrInj } = await exec(
+            `"${pythonBin}" "${scriptInject}" "${p}" "${p}" "${ocrJsonPath}"`,
+          );
+          if (stdoutInj) console.log(`[job ${jobId}] inject_ocr.py Output:\n${stdoutInj}`);
+          if (stderrInj) console.error(`[job ${jobId}] inject_ocr.py Error:\n${stderrInj}`);
+        }
       }
     }
 
@@ -424,6 +475,7 @@ app.post('/api/convert', (req, res) => {
   };
 
   let debugField = false;
+  let pauseAfterAudiverisField = false;
   let sawPdfField = false;
   let pdfWriteChain: Promise<void> = Promise.resolve();
 
@@ -435,6 +487,7 @@ app.post('/api/convert', (req, res) => {
 
   bb.on('field', (name, val) => {
     if (name === 'debug' && val === 'true') debugField = true;
+    if (name === 'pauseAfterAudiveris' && val === 'true') pauseAfterAudiverisField = true;
   });
 
   bb.on('file', (name, file, info) => {
@@ -527,6 +580,7 @@ app.post('/api/convert', (req, res) => {
         return;
       }
       job.isDebug = debugField;
+      job.pauseAfterAudiveris = pauseAfterAudiverisField;
       if (!res.headersSent) {
         res.setHeader('X-Accel-Buffering', 'no');
         res.setHeader('X-Pdf2Mxl-Async', '202-after-upload');
@@ -698,6 +752,120 @@ app.get('/api/review/:jobId', (req, res) => {
   res.json(job.reviewData);
 });
 
+app.get('/api/raw-mxl/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (
+    !job ||
+    job.status !== 'audiveris_review_needed' ||
+    !job.preInjectMxlPaths?.length
+  ) {
+    res.status(404).json({ error: '원본 MXL을 내려받을 수 없는 상태입니다' });
+    return;
+  }
+  const p = job.preInjectMxlPaths[0];
+  if (!fsSync.existsSync(p)) {
+    res.status(404).json({ error: 'MXL 파일이 없습니다' });
+    return;
+  }
+  const asciiName = path.basename(p).replace(/[^\x20-\x7E]/g, '_') || 'audiveris-raw.mxl';
+  const encoded = encodeURIComponent(path.basename(p) || 'audiveris-raw.mxl');
+  res.setHeader('Content-Type', 'application/vnd.recordare.musicxml+xml');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${asciiName}"; filename*=UTF-8''${encoded}`,
+  );
+  res.sendFile(path.resolve(p), (err) => {
+    if (err && !res.headersSent) res.status(500).json({ error: String(err) });
+  });
+});
+
+app.post('/api/continue-audiveris/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'audiveris_review_needed' || !job.audiverisReviewDeferred) {
+    res.status(400).json({ error: 'Audiveris 보정 대기 상태가 아닙니다' });
+    return;
+  }
+  const ct = (req.headers['content-type'] || '').toLowerCase();
+  if (ct.includes('application/json')) {
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(Buffer.from(c)));
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const raw = Buffer.concat(chunks).toString('utf8').trim() || '{}';
+          const parsed = JSON.parse(raw) as { transposeSemitones?: unknown };
+          const ts =
+            typeof parsed.transposeSemitones === 'number' &&
+            Number.isFinite(parsed.transposeSemitones)
+              ? Math.round(parsed.transposeSemitones)
+              : 0;
+          await mergeOcrMetaTranspose(job.sessionRoot, ts);
+          job.injectMxlPathsOverride = [...(job.preInjectMxlPaths ?? [])];
+          job.audiverisReviewDeferred!.resolve();
+          delete job.audiverisReviewDeferred;
+          res.json({ ok: true });
+        } catch (e) {
+          if (!res.headersSent) res.status(400).json({ error: String(e) });
+        }
+      })();
+    });
+    req.on('error', (e) => {
+      if (!res.headersSent) res.status(400).json({ error: String(e) });
+    });
+    return;
+  }
+  if (ct.includes('multipart/form-data')) {
+    const bb = busboy({
+      headers: req.headers,
+      defParamCharset: 'utf8',
+      limits: { fileSize: MAX_UPLOAD_BYTES },
+    });
+    let tsStr = '0';
+    let filePromise: Promise<void> = Promise.resolve();
+    let sawMxl = false;
+    bb.on('field', (name, val) => {
+      if (name === 'transposeSemitones') tsStr = val;
+    });
+    bb.on('file', (name, file) => {
+      if (name !== 'mxl') {
+        file.resume();
+        return;
+      }
+      sawMxl = true;
+      const dest = path.join(job.sessionRoot, 'user_replaced_score.mxl');
+      const ws = createWriteStream(dest);
+      filePromise = filePromise.then(() => pipeline(file, ws));
+    });
+    bb.on('error', (e) => {
+      if (!res.headersSent) res.status(400).json({ error: String(e) });
+    });
+    bb.on('finish', () => {
+      void filePromise
+        .then(async () => {
+          const ts = parseInt(tsStr, 10);
+          await mergeOcrMetaTranspose(job.sessionRoot, Number.isFinite(ts) ? ts : 0);
+          const dest = path.join(job.sessionRoot, 'user_replaced_score.mxl');
+          if (sawMxl && fsSync.existsSync(dest)) {
+            job.injectMxlPathsOverride = [dest];
+          } else {
+            job.injectMxlPathsOverride = [...(job.preInjectMxlPaths ?? [])];
+          }
+          job.audiverisReviewDeferred!.resolve();
+          delete job.audiverisReviewDeferred;
+          res.json({ ok: true });
+        })
+        .catch((e) => {
+          if (!res.headersSent) res.status(500).json({ error: String(e) });
+        });
+    });
+    req.pipe(bb);
+    return;
+  }
+  res.status(400).json({
+    error: 'Content-Type은 application/json 또는 multipart/form-data 여야 합니다',
+  });
+});
+
 app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {
@@ -708,17 +876,39 @@ app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res)
     res.status(400).json({ error: '현재 작업이 리뷰 대기 상태가 아닙니다' });
     return;
   }
-  
+
   try {
-    const updatedData = req.body;
+    const body = req.body;
+    let items: unknown[];
+    let transposeSemitones = 0;
+    if (Array.isArray(body)) {
+      items = body;
+    } else if (
+      body &&
+      typeof body === 'object' &&
+      Array.isArray((body as { items?: unknown[] }).items)
+    ) {
+      const o = body as { items: unknown[]; transposeSemitones?: unknown };
+      items = o.items;
+      if (typeof o.transposeSemitones === 'number' && Number.isFinite(o.transposeSemitones)) {
+        transposeSemitones = Math.round(o.transposeSemitones);
+      }
+    } else {
+      res.status(400).json({
+        error:
+          '본문은 항목 배열이거나 { "items": [...], "transposeSemitones"?: number } 형식이어야 합니다',
+      });
+      return;
+    }
+
     const ocrJsonPath = path.join(job.sessionRoot, 'ocr_data.json');
-    await fs.writeFile(ocrJsonPath, JSON.stringify(updatedData, null, 2), 'utf8');
-    
-    // Resolve the promise to continue
+    await fs.writeFile(ocrJsonPath, JSON.stringify(items, null, 2), 'utf8');
+    await mergeOcrMetaTranspose(job.sessionRoot, transposeSemitones);
+
     job.reviewDeferred.resolve();
     delete job.reviewDeferred;
     delete job.reviewData;
-    
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: String(err) });

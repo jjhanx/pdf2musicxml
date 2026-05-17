@@ -4,6 +4,7 @@ import io
 import json
 import xml.etree.ElementTree as ET
 import re
+from pathlib import Path
 
 
 def mxl_ns_uri(root):
@@ -38,6 +39,84 @@ def note_voice(note, ns):
     if v_el is not None and v_el.text and v_el.text.strip():
         return v_el.text.strip()
     return "1"
+
+
+# MusicXML: MIDI 60 = middle C; midi = (octave + 1) * 12 + pc + alter
+_STEP_PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+_CHROMA = [
+    ("C", 0),
+    ("C", 1),
+    ("D", 0),
+    ("D", 1),
+    ("E", 0),
+    ("F", 0),
+    ("F", 1),
+    ("G", 0),
+    ("G", 1),
+    ("A", 0),
+    ("A", 1),
+    ("B", 0),
+]
+
+
+def _pitch_to_midi(step: str, alter: int, octave: int) -> int:
+    pc = _STEP_PC.get(step, 0)
+    return (octave + 1) * 12 + pc + alter
+
+
+def _midi_to_pitch(m: int):
+    m = max(0, min(127, int(round(m))))
+    octave = m // 12 - 1
+    sem = m % 12
+    step, alter = _CHROMA[sem]
+    return step, alter, octave
+
+
+def transpose_pitch_element(pitch_el, ns, delta: int):
+    if delta == 0:
+        return
+    step_el = pitch_el.find(qname(ns, "step"))
+    if step_el is None or step_el.text is None:
+        return
+    step = step_el.text.strip()
+    alter_el = pitch_el.find(qname(ns, "alter"))
+    alter = 0
+    if alter_el is not None and alter_el.text:
+        try:
+            alter = int(float(alter_el.text))
+        except (TypeError, ValueError):
+            alter = 0
+    oct_el = pitch_el.find(qname(ns, "octave"))
+    if oct_el is None or oct_el.text is None:
+        return
+    try:
+        octave = int(oct_el.text)
+    except (TypeError, ValueError):
+        return
+    midi = _pitch_to_midi(step, alter, octave) + delta
+    n_step, n_alter, n_oct = _midi_to_pitch(midi)
+    step_el.text = n_step
+    if n_alter != 0:
+        if alter_el is None:
+            alter_el = ET.SubElement(pitch_el, qname(ns, "alter"))
+        alter_el.text = str(n_alter)
+    elif alter_el is not None:
+        pitch_el.remove(alter_el)
+    oct_el.text = str(n_oct)
+
+
+def transpose_score_chromatic(root, ns, delta: int):
+    """모든 파트의 음표 음높이를 반음만큼 이동(Audiveris 오인식 보정)."""
+    if delta == 0:
+        return
+    for part_el in find_parts(root, ns):
+        for measure in findall_ns(part_el, "measure", ns):
+            for note in findall_ns(measure, "note", ns):
+                if has_rest(note, ns):
+                    continue
+                pe = note.find(qname(ns, "pitch"))
+                if pe is not None:
+                    transpose_pitch_element(pe, ns, delta)
 
 
 def list_attachable_notes(part_el, ns):
@@ -102,14 +181,22 @@ def fix_key_signatures_part(part_el, ns):
                         current_fifths = fifths
 
 
+def _normalize_lyric_voice(raw):
+    v = str(raw or "1").strip() or "1"
+    if v in ("*", "all", "any") or v.lower() in ("all", "any"):
+        return "*"
+    return v
+
+
 def build_events_for_items(items_sorted):
     """
     items_sorted: 해당 파트에 붙일 가사 블록들 (페이지·y·x 정렬됨).
     각 블록마다 lyricSkipNotes·lyricVoice·text 적용.
+    lyricVoice 가 '*' 이면 voice 태그와 무관하게 이 파트의 가사 후보 음표 순서대로 부착.
     """
     events = []
     for it in items_sorted:
-        voice = str(it.get("lyricVoice") or "1").strip() or "1"
+        voice = _normalize_lyric_voice(it.get("lyricVoice"))
         try:
             skip = int(it.get("lyricSkipNotes", 0) or 0)
         except (TypeError, ValueError):
@@ -129,24 +216,37 @@ def apply_lyric_events(part_el, ns, events):
         if ev["op"] == "skip_notes":
             v_target = ev["voice"]
             need = ev["count"]
-            skipped = 0
-            while idx < len(notes) and skipped < need:
-                if notes[idx][2] == v_target:
-                    skipped += 1
-                idx += 1
+            if v_target == "*":
+                idx = min(idx + need, len(notes))
+            else:
+                skipped = 0
+                while idx < len(notes) and skipped < need:
+                    if notes[idx][2] == v_target:
+                        skipped += 1
+                    idx += 1
         elif ev["op"] == "syllable":
             v_target = ev["voice"]
             char = ev["char"]
-            while idx < len(notes) and notes[idx][2] != v_target:
+            if v_target == "*":
+                if idx >= len(notes):
+                    print(
+                        "inject_ocr: 경고: 가사 syllable에 대응할 음표가 더 이상 없습니다.",
+                        file=sys.stderr,
+                    )
+                    break
+                _m, note, _v = notes[idx]
                 idx += 1
-            if idx >= len(notes):
-                print(
-                    "inject_ocr: 경고: 가사 syllable에 대응할 같은 성부의 음표가 더 이상 없습니다.",
-                    file=sys.stderr,
-                )
-                break
-            _m, note, _v = notes[idx]
-            idx += 1
+            else:
+                while idx < len(notes) and notes[idx][2] != v_target:
+                    idx += 1
+                if idx >= len(notes):
+                    print(
+                        "inject_ocr: 경고: 가사 syllable에 대응할 같은 성부의 음표가 더 이상 없습니다.",
+                        file=sys.stderr,
+                    )
+                    break
+                _m, note, _v = notes[idx]
+                idx += 1
             if char != "-":
                 add_lyric_to_note(note, ns, char)
 
@@ -265,6 +365,19 @@ def collect_lyric_groups(ocr_data):
 def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     with open(json_in_path, "r", encoding="utf-8") as f:
         ocr_data = json.load(f)
+    if not isinstance(ocr_data, list):
+        print("inject_ocr: ocr_data.json은 항목 배열이어야 합니다.", file=sys.stderr)
+        return
+
+    meta_path = Path(json_in_path).parent / "ocr_meta.json"
+    transpose = 0
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            transpose = int(meta.get("transposeSemitones", 0) or 0)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            transpose = 0
+    transpose = max(-24, min(24, transpose))
 
     with zipfile.ZipFile(mxl_in_path, "r") as z:
         files = {name: z.read(name) for name in z.namelist()}
@@ -290,6 +403,9 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     parts = find_parts(root, ns)
     for part_el in parts:
         fix_key_signatures_part(part_el, ns)
+
+    if transpose != 0:
+        transpose_score_chromatic(root, ns, transpose)
 
     bpm_user = collect_tempo_bpm(ocr_data)
     if bpm_user is not None:

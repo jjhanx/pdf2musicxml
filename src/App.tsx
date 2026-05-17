@@ -59,6 +59,15 @@ function mergeReviewFieldsFromSaved(
   return next;
 }
 
+const LYRIC_VOICE_PRESETS = ['1', '2', '3', '4', '*'] as const;
+
+function lyricVoicePresetKey(v: string | undefined): (typeof LYRIC_VOICE_PRESETS)[number] | '__custom__' {
+  const s = (v && String(v).trim()) || '1';
+  return (LYRIC_VOICE_PRESETS as readonly string[]).includes(s)
+    ? (s as (typeof LYRIC_VOICE_PRESETS)[number])
+    : '__custom__';
+}
+
 /** 추출 JSON은 type이 unknown인 경우가 많아, 검토 창 첫 표시 시 기본은 가사로 둔다. */
 function defaultReviewTypeForInit(t: string | undefined): string {
   if (
@@ -175,6 +184,11 @@ export default function App() {
   const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
   const [reviewOriginalFileName, setReviewOriginalFileName] = useState('');
   const [hasSavedData, setHasSavedData] = useState(false);
+  const [scoreTransposeSemitones, setScoreTransposeSemitones] = useState(0);
+  const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
+  const [audiverisReviewJobId, setAudiverisReviewJobId] = useState<string | null>(null);
+  const [audiverisTranspose, setAudiverisTranspose] = useState(0);
+  const audiverisReplaceRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadReviewRef = useRef<HTMLInputElement>(null);
@@ -229,10 +243,15 @@ export default function App() {
       file: File,
       onProgress?: (p: TaskProgress | undefined) => void,
       onReviewNeeded?: (jobId: string) => void,
+      onAudiverisReviewNeeded?: (jobId: string) => void,
+      opts?: { pauseAfterAudiveris?: boolean },
     ): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
     const fd = new FormData();
     fd.append('pdf', file);
     fd.append('debug', 'false');
+    if (opts?.pauseAfterAudiveris) {
+      fd.append('pauseAfterAudiveris', 'true');
+    }
     const acceptRes = await fetch('/api/convert', { method: 'POST', body: fd });
     const acceptCt = acceptRes.headers.get('Content-Type') ?? '';
 
@@ -253,6 +272,7 @@ export default function App() {
     }
     const { jobId } = accepted;
     let reviewTriggered = false;
+    let audiverisReviewTriggered = false;
 
     for (;;) {
       const st = await fetch(`/api/status/${jobId}`, { cache: 'no-store' });
@@ -283,6 +303,11 @@ export default function App() {
       if (j.status === 'review_needed' && !reviewTriggered) {
         reviewTriggered = true;
         onReviewNeeded?.(jobId);
+      }
+
+      if (j.status === 'audiveris_review_needed' && !audiverisReviewTriggered) {
+        audiverisReviewTriggered = true;
+        onAudiverisReviewNeeded?.(jobId);
       }
 
       if (j.status === 'failed') {
@@ -369,7 +394,7 @@ export default function App() {
 
           try {
             const result = await convertOne(
-              file, 
+              file,
               (p) => {
                 setTasks((prev) =>
                   prev.map((t) => (t.id === taskId ? { ...t, progress: p } : t)),
@@ -380,7 +405,7 @@ export default function App() {
                   const r = await fetch(`/api/review/${jobId}`);
                   if (r.ok) {
                     const data: OcrReviewItem[] = await r.json();
-                    
+
                     // Initialize missing fields for the UI
                     const initData = data.map((item) => ({
                       ...item,
@@ -395,18 +420,23 @@ export default function App() {
                           ? Math.floor(item.lyricSkipNotes)
                           : 0,
                     }));
-                    
+
                     setReviewData(initData);
                     setReviewingJobId(jobId);
                     setReviewOriginalFileName(file.name);
-                    
+
                     const saved = localStorage.getItem('pdf2mxl_review_' + file.name);
                     setHasSavedData(!!saved);
                   }
                 } catch (e) {
                   console.error('Failed to fetch review data', e);
                 }
-              }
+              },
+              (jobId) => {
+                setAudiverisTranspose(0);
+                setAudiverisReviewJobId(jobId);
+              },
+              { pauseAfterAudiveris },
             );
             setTasks((prev) =>
               prev.map((t) => {
@@ -448,7 +478,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [convertOne],
+    [convertOne, pauseAfterAudiveris],
   );
 
   const onDragEnter = (e: React.DragEvent) => {
@@ -539,12 +569,31 @@ export default function App() {
 
   const submitReview = async () => {
     if (!reviewingJobId) return;
+    const normalizedItems = reviewData.map((item) => {
+      if (item.type !== 'lyrics') return item;
+      const lv = item.lyricVoice?.trim();
+      return { ...item, lyricVoice: lv && lv.length > 0 ? lv : '1' };
+    });
     try {
-      await fetch(`/api/review/${reviewingJobId}`, {
+      const res = await fetch(`/api/review/${reviewingJobId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reviewData)
+        body: JSON.stringify({
+          items: normalizedItems,
+          transposeSemitones: scoreTransposeSemitones,
+        }),
       });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch {
+          msg = await res.text();
+        }
+        alert(msg);
+        return;
+      }
       if (reviewOriginalFileName) {
          localStorage.removeItem('pdf2mxl_review_' + reviewOriginalFileName);
       }
@@ -552,9 +601,41 @@ export default function App() {
       setReviewData([]);
       setReviewOriginalFileName('');
       setHasSavedData(false);
+      setScoreTransposeSemitones(0);
     } catch (e) {
       console.error(e);
       alert('리뷰 제출 실패');
+    }
+  };
+
+  const submitContinueAudiveris = async () => {
+    if (!audiverisReviewJobId) return;
+    const fd = new FormData();
+    fd.append('transposeSemitones', String(audiverisTranspose));
+    const rep = audiverisReplaceRef.current?.files?.[0];
+    if (rep) fd.append('mxl', rep);
+    try {
+      const r = await fetch(`/api/continue-audiveris/${audiverisReviewJobId}`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try {
+          const j = (await r.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch {
+          msg = await r.text();
+        }
+        alert(msg);
+        return;
+      }
+      setAudiverisReviewJobId(null);
+      setAudiverisTranspose(0);
+      if (audiverisReplaceRef.current) audiverisReplaceRef.current.value = '';
+    } catch (e) {
+      console.error(e);
+      alert('Audiveris 이어하기 요청 실패');
     }
   };
 
@@ -587,9 +668,22 @@ export default function App() {
     setReviewData(newData);
   };
 
-  const handleLyricVoiceChange = (index: number, v: string) => {
+  const handleLyricVoicePresetChange = (index: number, v: string) => {
     const newData = [...reviewData];
-    newData[index].lyricVoice = v.trim() || '1';
+    if (v === '__custom__') {
+      const cur = (newData[index].lyricVoice ?? '').trim();
+      newData[index].lyricVoice = (LYRIC_VOICE_PRESETS as readonly string[]).includes(cur)
+        ? '5'
+        : cur || '5';
+    } else {
+      newData[index].lyricVoice = v;
+    }
+    setReviewData(newData);
+  };
+
+  const handleLyricVoiceCustomInputChange = (index: number, v: string) => {
+    const newData = [...reviewData];
+    newData[index].lyricVoice = v;
     setReviewData(newData);
   };
 
@@ -654,7 +748,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="row" style={{ marginTop: '0.5rem' }}>
+        <div className="row" style={{ marginTop: '0.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
             <input
               type="checkbox"
@@ -663,6 +757,15 @@ export default function App() {
               disabled={busy}
             />
             결과 저장하기
+          </label>
+          <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
+            <input
+              type="checkbox"
+              checked={pauseAfterAudiveris}
+              onChange={(e) => setPauseAfterAudiveris(e.target.checked)}
+              disabled={busy}
+            />
+            Audiveris 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)
           </label>
         </div>
 
@@ -812,8 +915,42 @@ export default function App() {
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
-              <strong>파트·성부:</strong> Audiveris가 만든 MusicXML에서 가사를 넣을 <strong>파트 순번</strong>(1=첫 파트, 4부 합창이면 보통 4)과, 같은 파트에 성부가 여러 개일 때의 <strong>voice 번호</strong>(보통 1)를 지정합니다. 가사가 중간부터 밀리면 해당 성부에서 <strong>앞쪽 몇 개 음표를 건너뛰기</strong>를 조정해 보세요.<br/>
+              <strong>파트·성부:</strong> Audiveris가 만든 MusicXML에서 가사를 넣을 <strong>파트 순번</strong>(1=첫 파트, 4부 합창이면 보통 4)과, 같은 파트에 성부가 여러 개일 때의 <strong>voice 번호</strong>(보통 1)를 지정합니다. 피아노·2성부 한 파트처럼 voice가 여러 줄로 갈릴 때는 <strong>전체 순서 (*)</strong>를 쓰면 해당 파트의 음표를 문서 순서대로 맞출 수 있습니다. 가사가 중간부터 밀리면 해당 성부에서 <strong>앞쪽 몇 개 음표를 건너뛰기</strong>를 조정해 보세요.<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다.</em>
+            </div>
+
+            <div
+              style={{
+                marginTop: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                flexWrap: 'wrap',
+                padding: '0.75rem',
+                background: 'var(--bg-color, #fafafa)',
+                borderRadius: '4px',
+                fontSize: '0.9rem',
+              }}
+            >
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                전역 조옮김(반음)
+                <input
+                  type="number"
+                  min={-24}
+                  max={24}
+                  value={scoreTransposeSemitones}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setScoreTransposeSemitones(
+                      Number.isFinite(n) ? Math.max(-24, Math.min(24, n)) : 0,
+                    );
+                  }}
+                  style={{ width: '4rem', padding: '0.35rem' }}
+                />
+              </label>
+              <span style={{ color: '#666', maxWidth: '36rem', lineHeight: 1.4 }}>
+                가사·메타 주입 시점에 Audiveris 곡 전체를 반음 단위로 올리거나 내립니다. 음높이가 키와 어긋날 때 OCR 제출과 함께 적용해 보세요.
+              </span>
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
@@ -873,13 +1010,28 @@ export default function App() {
                         </label>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           voice
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={item.lyricVoice ?? '1'}
-                            onChange={(e) => handleLyricVoiceChange(i, e.target.value)}
-                            style={{ width: '3rem', padding: '0.35rem' }}
-                          />
+                          <select
+                            value={lyricVoicePresetKey(item.lyricVoice)}
+                            onChange={(e) => handleLyricVoicePresetChange(i, e.target.value)}
+                            style={{ padding: '0.35rem', minWidth: '9rem' }}
+                          >
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="*">전체 순서 (*)</option>
+                            <option value="__custom__">기타 (직접)</option>
+                          </select>
+                          {lyricVoicePresetKey(item.lyricVoice) === '__custom__' && (
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              title="MusicXML voice 번호"
+                              value={item.lyricVoice ?? ''}
+                              onChange={(e) => handleLyricVoiceCustomInputChange(i, e.target.value)}
+                              style={{ width: '3rem', padding: '0.35rem' }}
+                            />
+                          )}
                         </label>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           앞쪽 음표 생략
@@ -939,6 +1091,87 @@ export default function App() {
 
             <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={submitReview} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', background: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Audiveris 실행 (악보 인식 시작)</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {audiverisReviewJobId && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--card-bg, #fff)',
+              padding: '1.75rem',
+              borderRadius: '8px',
+              maxWidth: '520px',
+              width: '92%',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h2 style={{ margin: '0 0 0.75rem' }}>Audiveris 결과 보정</h2>
+            <p style={{ margin: '0 0 1rem', lineHeight: 1.5, color: '#444' }}>
+              아래 MXL을 MuseScore 등에서 고친 뒤 다시 올리거나, 조옮김만 지정한 뒤 이어하기를 누르세요. 작업을 마치기 전까지 변환은 잠시 멈춰 있습니다.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <a
+                href={`/api/raw-mxl/${audiverisReviewJobId}`}
+                download
+                style={{ color: '#1565c0', fontWeight: 600 }}
+              >
+                Audiveris 원본 MXL 다운로드
+              </a>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                조옮김(반음, −24〜24)
+                <input
+                  type="number"
+                  min={-24}
+                  max={24}
+                  value={audiverisTranspose}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setAudiverisTranspose(Number.isFinite(n) ? Math.max(-24, Math.min(24, n)) : 0);
+                  }}
+                  style={{ width: '4rem', padding: '0.4rem' }}
+                />
+              </label>
+              <div>
+                <div style={{ marginBottom: '6px', fontSize: '0.9rem' }}>교체 MXL (선택)</div>
+                <input
+                  ref={audiverisReplaceRef}
+                  type="file"
+                  accept=".mxl,.xml,.musicxml,application/vnd.recordare.musicxml+xml,application/xml,text/xml"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void submitContinueAudiveris()}
+                style={{
+                  marginTop: '0.5rem',
+                  padding: '0.65rem 1.25rem',
+                  fontSize: '1rem',
+                  background: '#2e7d32',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                이어하기 (OCR·가사 주입)
+              </button>
             </div>
           </div>
         </div>

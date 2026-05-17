@@ -16,7 +16,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**(전용 영역), 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드
 - **진행 표시**: 업로드 단계와 Audiveris 단계의 진행 상황을 표시합니다(Audiveris 로그 형식에 따라 세부 진행은 제한적일 수 있음).
 - **한글 제목·가사(OCR)**: Audiveris는 글자에 Tesseract를 쓰며 **기본이 영어(`eng`)**라 - **고해상도 OCR 및 벡터 PDF 직접 추출**: 기존에는 무조건 300 DPI 이미지로 OCR을 돌려 서버에 큰 부하를 주고 중단(Halt)되는 문제가 있었습니다. 현재는 `PyMuPDF`를 통해 텍스트가 내장된 **벡터 PDF**라면 1초 이내에 글자와 좌표를 빠르게 추출하며, 텍스트가 없는 **이미지 PDF**인 경우에만 300 DPI의 PaddleOCR로 대체 인식합니다.
-- **문자-악보 사전 매핑 및 마스킹 (Pre-Audiveris UI)**: Audiveris 악보 인식 전에 팝업을 띄워 인식된 글자들의 역할을 지정(`제목`, `작사가`, `가사`, **`템포(BPM)`** 등)합니다. **템포**로 지정한 영역은 마스킹되고, 검토한 BPM(예: `75`, `♩= 75`)은 `inject_ocr.py`가 첫 마디 MusicXML에 `<sound tempo="…">` 및 metronome으로 넣어 **재생기가 기본 120으로 도는 문제**를 줄입니다. 지정된 영역은 Audiveris에 넘어가기 전 하얗게 마스킹되어 악보 기호와 혼동되는 것을 막습니다. **가사**는 글자별 하이픈(`-`)으로 “이 음표는 가사 없음”을 표시할 수 있으며, Audiveris가 만든 MXL에 합칠 때 **파트 순번**(1=첫 `part`·합창 4부면 보통 4), **voice**(같은 파트에 성부가 여러 줄일 때, 기본 `1`), **앞쪽 음표 생략**(선율이 늦게 들어올 때 박 조정)을 검토 화면에서 지정할 수 있습니다. 각 항목의 의미는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「검토 UI → MusicXML 가사 주입」절에 설명합니다.
+- **문자-악보 사전 매핑 및 마스킹 (Pre-Audiveris UI)**: Audiveris 악보 인식 전에 팝업을 띄워 인식된 글자들의 역할을 지정(`제목`, `작사가`, `가사`, **`템포(BPM)`** 등)합니다. **템포**로 지정한 영역은 마스킹되고, 검토한 BPM(예: `75`, `♩= 75`)은 `inject_ocr.py`가 첫 마디 MusicXML에 `<sound tempo="…">` 및 metronome으로 넣어 **재생기가 기본 120으로 도는 문제**를 줄입니다. 지정된 영역은 Audiveris에 넘어가기 전 하얗게 마스킹되어 악보 기호와 혼동되는 것을 막습니다. **가사**는 글자별 하이픈(`-`)으로 “이 음표는 가사 없음”을 표시할 수 있으며, Audiveris가 만든 MXL에 합칠 때 **파트 순번**(1=첫 `part`·합창 4부면 보통 4), **voice**(같은 파트에 성부가 여러 줄일 때, 기본 `1`. 피아노 등 **한 파트에 voice가 두 줄**로 갈릴 때는 **`*`(전체 순서)** 로 문서 순 음표에 맞추기), **앞쪽 음표 생략**(선율이 늦게 들어올 때 박 조정)을 검토 화면에서 지정할 수 있습니다. 검토 제출 시 **전역 조옮김(반음)** 을 함께 보내면 가사 주입 전에 곡 전체 음높이를 보정할 수 있습니다. UI에서 **Audiveris 직후 멈춤**을 켜면 인식 직후 MXL을 내려받아 외부 편집기에서 고친 뒤 다시 올리거나, 조옮김만 적용하고 이어갈 수 있습니다. 각 항목의 의미는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「검토 UI → MusicXML 가사 주입」절에 설명합니다.
 - **결과 자동 저장**: UI에서 "결과 저장하기"를 체크하면 변환이 완료된 후 별도로 저장 버튼을 누르지 않아도 **자동으로 `.mxl` 파일이 다운로드**됩니다. (이전의 디버그 ZIP 다운로드 기능은 제거되었습니다.)
 - **비동기 변환(폴링)**: 변환(Audiveris)은 시간이 오래 걸리므로 **완료 후 곧바로 파일을 응답하지 않습니다.** `POST /api/convert`는 **PDF 수신·저장이 끝난 뒤** **HTTP 202** 와 `jobId`를 돌려주고, 실제 변환은 서버 백그라운드에서 돌아갑니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다. (과거에는 업로드 도중 202를 보내 일부 환경에서 본문 전송이 멈추는 문제가 있어, 202 시점을 저장 완료 후로 옮겼습니다.)
 - **결과 보관 기간(TTL)**: 변환이 **완료되었거나 최종 실패로 판정된 시점**부터 **24시간**이 지나면 서버 메모리의 작업 기록과, 아직 남아 있던 임시 결과 파일을 자동으로 삭제합니다. UI와 `GET /api/health` 응답에 동일 안내가 포함됩니다.
@@ -135,13 +135,15 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | 메서드·경로 | 설명 |
 |-------------|------|
 | `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`). JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
-| `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`. **파일이 디스크에 저장된 뒤** **202 Accepted** 와 `{ "jobId", "message" }`. 헤더 `X-Pdf2Mxl-Async: 202-after-upload`, `X-Accel-Buffering: no`. 업로드·multipart 오류 시 **동일 POST**에서 4xx/5xx JSON(이 경우 `jobId` 없음). |
-| `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
+| `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`, 선택 **`pauseAfterAudiveris`** (`true`면 Audiveris MXL 생성 직후 파이프라인 일시 정지). **파일이 디스크에 저장된 뒤** **202 Accepted** 와 `{ "jobId", "message" }`. 헤더 `X-Pdf2Mxl-Async: 202-after-upload`, `X-Accel-Buffering: no`. 업로드·multipart 오류 시 **동일 POST**에서 4xx/5xx JSON(이 경우 `jobId` 없음). |
+| `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → (`audiveris_review_needed`) → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
 | `GET /api/review/:jobId` | 상태가 `review_needed`일 때 추출된 문자 영역(좌표/텍스트) 데이터 가져오기 |
-| `POST /api/review/:jobId` | 사용자가 마스킹/가사 분류를 마친 수정된 JSON 제출 및 Audiveris 단계 재개 |
+| `POST /api/review/:jobId` | 본문은 **항목 배열**이거나 `{ "items": [...], "transposeSemitones"?: number }` — 마스킹/가사 분류 제출, 선택 시 **전역 반음 이동**(`ocr_meta.json` 반영) 후 Audiveris 단계 재개 |
+| `GET /api/raw-mxl/:jobId` | `audiveris_review_needed` 일 때 Audiveris가 만든 **주입 전** MXL 다운로드 |
+| `POST /api/continue-audiveris/:jobId` | `audiveris_review_needed` 해제: **`application/json`** `{ "transposeSemitones": number }` 또는 **`multipart/form-data`**: 필드 `transposeSemitones`, 선택 파일 필드명 **`mxl`** (교체 MXL). 이후 OCR·가사 주입 단계 진행 |
 | `GET /api/download/:jobId` | `completed` 일 때만 단일 MXL/MusicXML 또는 ZIP 스트림. 완료 전·실패 후는 409. 전송 종료 후 서버가 해당 작업의 임시 디렉터리 정리 |
 
-프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, 상태가 `review_needed`가 되면 모달을 띄워 사용자 검토를 진행하며, 이후 제출 버튼을 통해 `/api/review/:jobId` 로 POST를 보내 작업을 재개합니다. 
+프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, `review_needed`이면 Pre-Audiveris 검토 모달, **`audiveris_review_needed`**이면 Audiveris 결과 보정 모달을 띄웁니다. 제출은 각각 `/api/review/:jobId`, `/api/continue-audiveris/:jobId`로 이어집니다.
 
 **참고**: 만료(TTL)로 작업이 삭제된 뒤에는 동일 `jobId`로 상태 조회 시 404가 됩니다.
 

@@ -184,7 +184,6 @@ export default function App() {
   const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
   const [reviewOriginalFileName, setReviewOriginalFileName] = useState('');
   const [hasSavedData, setHasSavedData] = useState(false);
-  const [scoreTransposeSemitones, setScoreTransposeSemitones] = useState(0);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
   const [audiverisReviewJobId, setAudiverisReviewJobId] = useState<string | null>(null);
   const [audiverisTranspose, setAudiverisTranspose] = useState(0);
@@ -580,7 +579,6 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: normalizedItems,
-          transposeSemitones: scoreTransposeSemitones,
         }),
       });
       if (!res.ok) {
@@ -601,7 +599,6 @@ export default function App() {
       setReviewData([]);
       setReviewOriginalFileName('');
       setHasSavedData(false);
-      setScoreTransposeSemitones(0);
     } catch (e) {
       console.error(e);
       alert('리뷰 제출 실패');
@@ -916,44 +913,8 @@ export default function App() {
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
               <strong>파트·성부:</strong> Audiveris가 만든 MusicXML에서 가사를 넣을 <strong>파트 순번</strong>(1=첫 파트, 4부 합창이면 보통 4)과, 같은 파트에 성부가 여러 개일 때의 <strong>voice 번호</strong>(보통 1)를 지정합니다. 피아노·2성부 한 파트처럼 voice가 여러 줄로 갈릴 때는 <strong>전체 순서 (*)</strong>를 쓰면 해당 파트의 음표를 문서 순서대로 맞출 수 있습니다. 가사가 중간부터 밀리면 해당 성부에서 <strong>앞쪽 몇 개 음표를 건너뛰기</strong>를 조정해 보세요.<br/>
-              <strong>OCR 신뢰도:</strong> 각 블록 옆에 표시되는 값은 글자 인식 점수(대략 0–100%)이며, 낮을수록 역할 분류·텍스트를 다시 보는 것이 좋습니다. (자동으로 멈춰 되물어 주는 단계는 아직 없습니다.)<br/>
+              <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다.<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다.</em>
-            </div>
-
-            <div
-              style={{
-                marginTop: '1rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                flexWrap: 'wrap',
-                padding: '0.75rem',
-                background: 'var(--bg-color, #fafafa)',
-                borderRadius: '4px',
-                fontSize: '0.9rem',
-              }}
-            >
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                전역 조옮김(반음)
-                <input
-                  type="number"
-                  min={-24}
-                  max={24}
-                  value={scoreTransposeSemitones}
-                  onChange={(e) => {
-                    const n = parseInt(e.target.value, 10);
-                    setScoreTransposeSemitones(
-                      Number.isFinite(n) ? Math.max(-24, Math.min(24, n)) : 0,
-                    );
-                  }}
-                  style={{ width: '4rem', padding: '0.35rem' }}
-                />
-              </label>
-              <span style={{ color: '#666', maxWidth: '40rem', lineHeight: 1.5 }}>
-                가사·메타 주입 직전에 <strong>곡 전체</strong>를 같은 반음 수만큼 한꺼번에 올리거나 내립니다. 악보가 통째로 한 옥타브·한 키만 밀린 경우에 해당합니다.{' '}
-                <strong>어떤 구간은 맞고 어떤 음표만 틀리는</strong> 식의 Audiveris 오류에는 맞지 않으며, 그때는 변환 옵션에서「Audiveris 직후 멈춤」을 켜 MXL을 MuseScore 등에서{' '}
-                <strong>음표 단위로</strong> 고친 뒤 다시 올리는 편이 맞습니다. OCR이 애매한 글자 블록은 아래 <strong>신뢰도</strong>를 참고해 역할·텍스트를 확인해 주세요 (음표 단위 교정·저신뢰만 골라 되묻는 단계는 아직 없음).
-              </span>
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
@@ -1138,8 +1099,14 @@ export default function App() {
             }}
           >
             <h2 style={{ margin: '0 0 0.75rem' }}>Audiveris 결과 보정</h2>
-            <p style={{ margin: '0 0 1rem', lineHeight: 1.5, color: '#444' }}>
-              아래 MXL을 MuseScore 등에서 <strong>틀린 음표만</strong> 골라 고친 뒤 다시 올리거나, 악보 전체가 같은 간격만큼만 밀렸을 때는 조옮김만 지정하고 이어하기를 누르세요. 작업을 마치기 전까지 변환은 잠시 멈춰 있습니다.
+            <p style={{ margin: '0 0 1rem', lineHeight: 1.55, color: '#444' }}>
+              인식된 악보를 들어보거나 악보 편집기로 연 뒤, <strong>음높이·음표</strong>를 정한 다음 이어가세요. MXL은 아래에서 받거나, MuseScore 등에서 고친 파일을 교체 업로드할 수 있습니다.
+            </p>
+            <p style={{ margin: '0 0 1rem', lineHeight: 1.55, color: '#444' }}>
+              <strong>조옮김(반음)</strong>은 <strong>곡 전체가 같은 간격</strong>으로만 밀린 경우(예: 통째로 한 옥타브)에 맞습니다. <strong>일부 마디·일부 성부만</strong> 틀리면 조옮김은 0으로 두고, 틀린 음만 편집기에서 고친 뒤 <strong>교체 MXL</strong>로 올리는 것이 맞습니다.
+            </p>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.9rem', color: '#666' }}>
+              이 작업을 마칠 때까지 서버의 변환은 잠시 멈춰 있습니다.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <a
@@ -1164,8 +1131,8 @@ export default function App() {
                     style={{ width: '4rem', padding: '0.4rem' }}
                   />
                 </label>
-                <p style={{ fontSize: '0.82rem', color: '#666', margin: '6px 0 0', lineHeight: 1.4 }}>
-                  전역 조옮김은 <strong>악보 전체</strong>에만 쓰입니다. 일부 음만 어긋나면 0으로 두고 교체 MXL로 올리는 것이 맞습니다.
+                <p style={{ fontSize: '0.82rem', color: '#666', margin: '6px 0 0', lineHeight: 1.45 }}>
+                  위에서 설명한 대로 곡 전체에만 적용됩니다. 부분 오류는 교체 파일로 처리하세요.
                 </p>
               </div>
               <div>

@@ -916,6 +916,7 @@ export default function App() {
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
               <strong>파트·성부:</strong> Audiveris가 만든 MusicXML에서 가사를 넣을 <strong>파트 순번</strong>(1=첫 파트, 4부 합창이면 보통 4)과, 같은 파트에 성부가 여러 개일 때의 <strong>voice 번호</strong>(보통 1)를 지정합니다. 피아노·2성부 한 파트처럼 voice가 여러 줄로 갈릴 때는 <strong>전체 순서 (*)</strong>를 쓰면 해당 파트의 음표를 문서 순서대로 맞출 수 있습니다. 가사가 중간부터 밀리면 해당 성부에서 <strong>앞쪽 몇 개 음표를 건너뛰기</strong>를 조정해 보세요.<br/>
+              <strong>OCR 신뢰도:</strong> 각 블록 옆에 표시되는 값은 글자 인식 점수(대략 0–100%)이며, 낮을수록 역할 분류·텍스트를 다시 보는 것이 좋습니다. (자동으로 멈춰 되물어 주는 단계는 아직 없습니다.)<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다.</em>
             </div>
 
@@ -948,15 +949,17 @@ export default function App() {
                   style={{ width: '4rem', padding: '0.35rem' }}
                 />
               </label>
-              <span style={{ color: '#666', maxWidth: '36rem', lineHeight: 1.4 }}>
-                가사·메타 주입 시점에 Audiveris 곡 전체를 반음 단위로 올리거나 내립니다. 음높이가 키와 어긋날 때 OCR 제출과 함께 적용해 보세요.
+              <span style={{ color: '#666', maxWidth: '40rem', lineHeight: 1.5 }}>
+                가사·메타 주입 직전에 <strong>곡 전체</strong>를 같은 반음 수만큼 한꺼번에 올리거나 내립니다. 악보가 통째로 한 옥타브·한 키만 밀린 경우에 해당합니다.{' '}
+                <strong>어떤 구간은 맞고 어떤 음표만 틀리는</strong> 식의 Audiveris 오류에는 맞지 않으며, 그때는 변환 옵션에서「Audiveris 직후 멈춤」을 켜 MXL을 MuseScore 등에서{' '}
+                <strong>음표 단위로</strong> 고친 뒤 다시 올리는 편이 맞습니다. OCR이 애매한 글자 블록은 아래 <strong>신뢰도</strong>를 참고해 역할·텍스트를 확인해 주세요 (음표 단위 교정·저신뢰만 골라 되묻는 단계는 아직 없음).
               </span>
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
               {reviewData.map((item, i) => (
                 <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--bg-color, #f5f5f5)', padding: '1rem', borderRadius: '4px', borderLeft: item.type==='lyrics'?'4px solid #1976d2':item.type==='tempo'?'4px solid #e65100':'4px solid #ccc' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                       <select 
                          value={item.type} 
                          onChange={(e) => handleReviewTypeChange(i, e.target.value)}
@@ -970,6 +973,19 @@ export default function App() {
                          <option value="tempo">템포(BPM)</option>
                          <option value="lyrics">가사</option>
                       </select>
+                      {typeof item.confidence === 'number' && Number.isFinite(item.confidence) && (
+                        <span
+                          title="OCR 엔진이 준 글자 인식 신뢰도(참고용)"
+                          style={{
+                            fontSize: '0.85rem',
+                            color: item.confidence < 0.8 ? '#b71c1c' : '#555',
+                            fontWeight: item.confidence < 0.8 ? 600 : 400,
+                          }}
+                        >
+                          신뢰도 {Math.round(Math.max(0, Math.min(1, item.confidence)) * 100)}%
+                          {item.confidence < 0.8 ? ' · 확인 권장' : ''}
+                        </span>
+                      )}
                       
                       <input 
                         type="text" 
@@ -1123,7 +1139,7 @@ export default function App() {
           >
             <h2 style={{ margin: '0 0 0.75rem' }}>Audiveris 결과 보정</h2>
             <p style={{ margin: '0 0 1rem', lineHeight: 1.5, color: '#444' }}>
-              아래 MXL을 MuseScore 등에서 고친 뒤 다시 올리거나, 조옮김만 지정한 뒤 이어하기를 누르세요. 작업을 마치기 전까지 변환은 잠시 멈춰 있습니다.
+              아래 MXL을 MuseScore 등에서 <strong>틀린 음표만</strong> 골라 고친 뒤 다시 올리거나, 악보 전체가 같은 간격만큼만 밀렸을 때는 조옮김만 지정하고 이어하기를 누르세요. 작업을 마치기 전까지 변환은 잠시 멈춰 있습니다.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <a
@@ -1133,20 +1149,25 @@ export default function App() {
               >
                 Audiveris 원본 MXL 다운로드
               </a>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                조옮김(반음, −24〜24)
-                <input
-                  type="number"
-                  min={-24}
-                  max={24}
-                  value={audiverisTranspose}
-                  onChange={(e) => {
-                    const n = parseInt(e.target.value, 10);
-                    setAudiverisTranspose(Number.isFinite(n) ? Math.max(-24, Math.min(24, n)) : 0);
-                  }}
-                  style={{ width: '4rem', padding: '0.4rem' }}
-                />
-              </label>
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  조옮김(반음, −24〜24)
+                  <input
+                    type="number"
+                    min={-24}
+                    max={24}
+                    value={audiverisTranspose}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      setAudiverisTranspose(Number.isFinite(n) ? Math.max(-24, Math.min(24, n)) : 0);
+                    }}
+                    style={{ width: '4rem', padding: '0.4rem' }}
+                  />
+                </label>
+                <p style={{ fontSize: '0.82rem', color: '#666', margin: '6px 0 0', lineHeight: 1.4 }}>
+                  전역 조옮김은 <strong>악보 전체</strong>에만 쓰입니다. 일부 음만 어긋나면 0으로 두고 교체 MXL로 올리는 것이 맞습니다.
+                </p>
+              </div>
               <div>
                 <div style={{ marginBottom: '6px', fontSize: '0.9rem' }}>교체 MXL (선택)</div>
                 <input

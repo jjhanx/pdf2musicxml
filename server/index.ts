@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 const exec = promisify(execCallback);
 
 import {
+  audiverisExtraCliArgsFromEnv,
   audiverisLogSuggestsHumanReview,
   collectMusicXmlOutputs,
   ocrLanguageConstantArgsFromEnv,
@@ -86,11 +87,13 @@ app.get('/api/health', (_req, res) => {
   const bin = resolveAudiverisBin();
   const ocrLangEffective = resolvedAudiverisOcrLangSpec();
   const ocrLangConstantInjected = ocrLanguageConstantArgsFromEnv().length > 0;
+  const extraCli = audiverisExtraCliArgsFromEnv();
   res.json({
     ok: true,
     audiverisConfigured: Boolean(bin),
     audiverisOcrLangEffective: ocrLangEffective,
     audiverisOcrLangConstantInjected: ocrLangConstantInjected,
+    audiverisCliExtraArgCount: extraCli.length,
     audiverisPauseOnWarn: audiverisPauseOnWarnFromEnv(),
     audiverisWarnPattern: process.env.AUDIVERIS_WARN_PATTERN?.trim() || null,
     hint: bin ? undefined : 'Set AUDIVERIS_BIN to Audiveris.bat or bin/Audiveris',

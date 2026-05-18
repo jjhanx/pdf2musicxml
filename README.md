@@ -59,6 +59,7 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `PORT` | API/UI 포트 (기본 `8787`) |
 | `LISTEN_HOST` | 바인딩 주소 (기본 `0.0.0.0`). `127.0.0.1`만 열려면 nginx 뒤에 둘 때 사용 |
 | `AUDIVERIS_NO_FLAT_OUTPUT` | `1`이면 `-option …useSeparateBookFolders=false` 비활성화 |
+| `AUDIVERIS_CLI_EXTRA_JSON` | (고급) Audiveris CLI에 추가로 붙일 인자를 **JSON 문자열 배열**로 지정. 예: `["-constant","org.audiveris.omr.sheet.Scale.defaultBeamSpecification=10"]`. 잘못된 JSON은 무시됩니다. `GET /api/health`의 `audiverisCliExtraArgCount`로 개수만 확인. |
 | `MASK_PDF_TEXT_REDACT` | (선택) `1`/`true`/`yes`일 때만 마스킹에 PyMuPDF **텍스트 리독** 사용. **기본은 흰 사각형**. 리독은 가사 bbox와 겹치는 **모든 텍스트 글리프**(SMuFL **음표·잇단** 포함)를 지울 수 있어, 대부분의 악보 PDF에서는 끄는 것이 안전합니다. |
 
 품질·호환 이슈(한글 파일명, mxlplayer `realValue`, 마디 수 등)는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)를 참고하세요.
@@ -139,7 +140,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 
 | 메서드·경로 | 설명 |
 |-------------|------|
-| `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`)·**`audiverisPauseOnWarn`**, 선택 **`audiverisWarnPattern`**. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
+| `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`)·**`audiverisCliExtraArgCount`**(`AUDIVERIS_CLI_EXTRA_JSON` 토큰 수)·**`audiverisPauseOnWarn`**, 선택 **`audiverisWarnPattern`**. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
 | `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`, 선택 **`pauseAfterAudiveris`** (`true`면 Audiveris MXL 생성 직후 파이프라인 일시 정지). **파일이 디스크에 저장된 뒤** **202 Accepted** 와 `{ "jobId", "message" }`. 헤더 `X-Pdf2Mxl-Async: 202-after-upload`, `X-Accel-Buffering: no`. 업로드·multipart 오류 시 **동일 POST**에서 4xx/5xx JSON(이 경우 `jobId` 없음). |
 | `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → (`audiveris_review_needed`) → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
 | `GET /api/review/:jobId` | 상태가 `review_needed`일 때 추출된 문자 영역(좌표/텍스트) 데이터 가져오기 |

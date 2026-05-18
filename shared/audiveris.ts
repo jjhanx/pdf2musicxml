@@ -44,6 +44,23 @@ export function ocrLanguageConstantArgsFromEnv(): string[] {
   return ['-constant', `org.audiveris.omr.text.Language.defaultSpecification=${spec}`];
 }
 
+/**
+ * Audiveris CLI에 추가로 붙일 토큰 목록. `AUDIVERIS_CLI_EXTRA_JSON` 환경 변수(JSON 문자 배열)를 파싱합니다.
+ * 예: `["-constant","org.audiveris.omr.sheet.Scale.defaultBeamSpecification=10"]`
+ * @see https://audiveris.github.io/audiveris/_pages/guides/advanced/cli/
+ */
+export function audiverisExtraCliArgsFromEnv(): string[] {
+  const raw = process.env.AUDIVERIS_CLI_EXTRA_JSON?.trim();
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (!Array.isArray(v)) return [];
+    return v.map((x) => String(x));
+  } catch {
+    return [];
+  }
+}
+
 /** 단일 폴더에 .mxl 모으기 (여러 악보 책 폴더 방지) — 필요 시 환경변수로 끔 */
 export function defaultExtraArgsFromEnv(): string[] {
   const flat =
@@ -53,7 +70,7 @@ export function defaultExtraArgsFromEnv(): string[] {
           '-option',
           'org.audiveris.omr.sheet.BookManager.useSeparateBookFolders=false',
         ];
-  return [...ocrLanguageConstantArgsFromEnv(), ...flat];
+  return [...ocrLanguageConstantArgsFromEnv(), ...flat, ...audiverisExtraCliArgsFromEnv()];
 }
 
 export function resolveAudiverisBin(): string | undefined {

@@ -1,12 +1,19 @@
+import os
 import sys
 import json
 import fitz
 
-# PyMuPDF 리독: 텍스트만 제거하고 이미지·벡터(오선 등)는 건드리지 않음
-# (숫자 0은 문서상 IMAGE_NONE / LINE_ART_NONE / TEXT_REMOVE 와 동일)
+# PyMuPDF 리독: 이론상 텍스트만 제거·벡터 보존.
+# 실제 악보 PDF는 SMuFL 등으로 음표·잇단이 "텍스트 글리프"인 경우가 많아,
+# 가사 bbox와 겹치면 음표까지 글리프로 지워져 오히려 손해가 날 수 있음 → 기본은 흰 박스.
 _PDF_REDACT_IMAGE_NONE = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
 _PDF_REDACT_LINE_ART_NONE = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
 _PDF_REDACT_TEXT_REMOVE = getattr(fitz, "PDF_REDACT_TEXT_REMOVE", 0)
+
+
+def _env_truthy(name: str) -> bool:
+    v = os.environ.get(name, "").strip().lower()
+    return v in ("1", "true", "yes", "on")
 
 
 def _rect_has_vector_text(page: fitz.Page, rect: fitz.Rect) -> bool:
@@ -29,6 +36,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         data = json.load(f)
 
     doc = fitz.open(pdf_in)
+    use_text_redact = _env_truthy("MASK_PDF_TEXT_REDACT")
 
     # Types to mask so Audiveris doesn't get confused (템포 문자는 검토 후 MusicXML에 주입)
     mask_types = {'title', 'composer', 'lyricist', 'copyright', 'lyrics', 'tempo'}
@@ -50,10 +58,9 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         if rect.is_empty:
             continue
 
-        if _rect_has_vector_text(page, rect):
+        if use_text_redact and _rect_has_vector_text(page, rect):
             redact_rects.setdefault(page_idx, []).append(rect)
         else:
-            # 이미지 PDF 등: PDF에 글리프가 없으면 리독으로는 가사가 안 지워지므로 기존 방식
             white_rects.setdefault(page_idx, []).append(rect)
 
     for page_idx, rects in redact_rects.items():

@@ -229,7 +229,8 @@ function audiverisStepProbeJobsAllowed(job: JobRecord | undefined): job is JobRe
 function artifactPathWithinRunRoot(runRoot: string, rel: string): string | null {
   const trimmed = rel.trim();
   if (!trimmed || trimmed.includes('\0')) return null;
-  const normalizedRel = path.normalize(trimmed).replace(/^(\.\.(\\/|\/|$))+/, '');
+  /* 리터럴 / … / 안에서 `/` 이스케이프가 esbuild에서 깨지므로 문자 클래스만 사용 */
+  const normalizedRel = path.normalize(trimmed).replace(/^(\.\.[\\/])+/, '');
   const resolved = path.resolve(runRoot, normalizedRel);
   const rootResolved = path.resolve(runRoot);
   const relative = path.relative(rootResolved, resolved);

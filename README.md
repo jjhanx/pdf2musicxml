@@ -21,7 +21,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **결과 자동 저장**: UI에서 "결과 저장하기"를 체크하면 변환이 완료된 후 별도로 저장 버튼을 누르지 않아도 **자동으로 `.mxl` 파일이 다운로드**됩니다. (이전의 디버그 ZIP 다운로드 기능은 제거되었습니다.)
 - **비동기 변환(폴링)**: 변환(Audiveris)은 시간이 오래 걸리므로 **완료 후 곧바로 파일을 응답하지 않습니다.** `POST /api/convert`는 **PDF 수신·저장이 끝난 뒤** **HTTP 202** 와 `jobId`를 돌려주고, 실제 변환은 서버 백그라운드에서 돌아갑니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다. (과거에는 업로드 도중 202를 보내 일부 환경에서 본문 전송이 멈추는 문제가 있어, 202 시점을 저장 완료 후로 옮겼습니다.)
 - **결과 보관 기간(TTL)**: 변환이 **완료되었거나 최종 실패로 판정된 시점**부터 **24시간**이 지나면 서버 메모리의 작업 기록과 임시 결과 파일을 자동으로 삭제합니다. **`GET /api/download`로 받은 뒤에도** 같은 `jobId`로 **마스킹·인식 점검**(진단 API·웹 점검 패널)을 쓸 수 있습니다(TTL 전까지). UI와 `GET /api/health` 응답에 동일 안내가 포함됩니다.
-- **마스킹·Audiveris 인식 점검 UI**: 변환 완료 행에서 **마스킹·인식 점검**으로, **페이지별** 원본 PDF와 마스킹 PDF를 나란히 PNG로 비교합니다. Audiveris **MusicXML**은 OpenSheetMusicDisplay로 미리보며, **파트(성부)** 단위로 필터해 한 줄씩 보기 쉽게 할 수 있습니다. **Audiveris 결과 보정** 모달에서도 **마스킹·인식 점검** 탭을 열 수 있습니다.
+- **마스킹·Audiveris 인식 점검 UI**: 변환 완료·실패 행에서 **마스킹·인식 점검**으로, **페이지별** 원본 PDF와 마스킹 PDF를 나란히 PNG로 비교합니다. Audiveris **MusicXML**은 OpenSheetMusicDisplay로 미리보며, **파트(성부)** 단위로 필터해 한 줄씩 보기 쉽게 할 수 있습니다. 같은 패널에서 **Audiveris 단계별 실행**(예: `-step GRID`)으로 로그·`.omr`을 받아 이슈 재현에 쓸 수 있습니다. **Audiveris 결과 보정** 모달에서도 **마스킹·인식 점검** 탭을 열 수 있습니다.
 - **REST API**: `POST /api/convert`, `GET /api/status/:jobId`, `GET /api/download/:jobId`, 진단용 `GET /api/diagnostic/...`, `GET /api/health` (아래 [REST API (비동기)](#rest-api-비동기) 참고)
 - **CLI**: `npm run convert -- <파일.pdf>` → 기본 저장 `~/Downloads`(Linux) 등
 - **운영 모드**: `npm run build` 후 `dist`를 Express가 같은 포트에서 서빙 (`npm run start:prod`)
@@ -141,6 +141,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | 메서드·경로 | 설명 |
 |-------------|------|
 | `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`)·**`audiverisCliExtraArgCount`**(`AUDIVERIS_CLI_EXTRA_JSON` 토큰 수)·**`audiverisPauseOnWarn`**, 선택 **`audiverisWarnPattern`**. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
+| `GET /api/audiveris-sheet-steps` | Audiveris 공식 시트 단계 이름 배열 JSON `{ "steps": [ … ] }` (단계별 디버깅 UI용). 인증 없음 |
 | `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`, 선택 **`pauseAfterAudiveris`** (`true`면 Audiveris MXL 생성 직후 파이프라인 일시 정지). **파일이 디스크에 저장된 뒤** **202 Accepted** 와 `{ "jobId", "message" }`. 헤더 `X-Pdf2Mxl-Async: 202-after-upload`, `X-Accel-Buffering: no`. 업로드·multipart 오류 시 **동일 POST**에서 4xx/5xx JSON(이 경우 `jobId` 없음). |
 | `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → (`audiveris_review_needed`) → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
 | `GET /api/review/:jobId` | 상태가 `review_needed`일 때 추출된 문자 영역(좌표/텍스트) 데이터 가져오기 |
@@ -148,13 +149,15 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/raw-mxl/:jobId` | `audiveris_review_needed` 일 때 Audiveris가 만든 **주입 전** MXL 다운로드 |
 | `POST /api/continue-audiveris/:jobId` | `audiveris_review_needed` 해제: **`application/json`** `{ "transposeSemitones": number }` 또는 **`multipart/form-data`**: 필드 `transposeSemitones`, 선택 파일 필드명 **`mxl`** (교체 MXL). 이후 OCR·가사 주입 단계 진행 |
 | `GET /api/download/:jobId` | `completed` 일 때만 단일 MXL/MusicXML 또는 ZIP 스트림. 완료 전·실패 후는 409. 다운로드 후에도 작업·임시 파일은 **24시간 TTL** 전까지 유지되며, 진단 API·재다운로드 가능 |
-| `GET /api/diagnostic/:jobId/summary` | `completed` 또는 `audiveris_review_needed` 일 때만. 원본/마스킹 PDF 존재·페이지 수·MusicXML 미리보기 가능 여부 JSON (`Cache-Control: no-store`) |
+| `GET /api/diagnostic/:jobId/summary` | **`completed`**, **`audiveris_review_needed`**, 또는 **`failed`** 일 때. 원본/마스킹 PDF 존재·페이지 수·MusicXML 미리보기 가능 여부 JSON (`Cache-Control: no-store`) |
 | `GET /api/diagnostic/:jobId/page/:pageNum/png` | 쿼리 `source=original` 또는 `masked`, 선택 `dpi`(72–240, 기본 132). PyMuPDF로 해당 페이지 PNG |
 | `GET /api/diagnostic/:jobId/score-musicxml` | Audiveris MXL에서 평문 MusicXML(미리보기용). 완료 결과가 ZIP이면 출력 목록 중 첫 `.mxl` 기준 |
 | `GET /api/diagnostic/:jobId/masked-pdf` | Audiveris에 넣기 직전 **`masked_input.pdf`** (`application/pdf`). 기본 `inline`(새 탭), `?download=1`이면 다운로드 |
 | `GET /api/diagnostic/:jobId/original-pdf` | 세션에 남은 **업로드 원본 PDF**. 동일하게 `?download=1` 지원 |
+| `POST /api/diagnostic/:jobId/audiveris-step-probe` | **`completed` / `audiveris_review_needed` / `failed`** 작업만. 본문 JSON: `step`(필수, 예: `GRID`), `force?`, `sheets?`(예: `"1 4-7"`), `pdfSource?`(`masked`\|`original`). 서버가 Audiveris `-batch -save -step …`( **`-export` 없음** ) 실행 후 `exitCode`, `stdout`/`stderr`(길면 잘림), `argv`, `artifacts`(생성 파일 상대 경로·크기), `runId` 반환. 서버 부하가 크므로 필요 시만 호출 |
+| `GET /api/diagnostic/:jobId/audiveris-step-probe/:runId/download` | 위 실행 결과물 다운로드. 쿼리 **`rel`** = 해당 실행 폴더 기준 상대 경로 (예: `piece/book.omr`). 경로 탈출 차단 |
 
-프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, `review_needed`이면 Pre-Audiveris 검토 모달, **`audiveris_review_needed`**이면 Audiveris 결과 보정 모달을 띄웁니다. 제출은 각각 `/api/review/:jobId`, `/api/continue-audiveris/:jobId`로 이어집니다. 완료 행의 **마스킹·인식 점검**은 동일 `jobId`로 진단 API를 사용합니다.
+프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, `review_needed`이면 Pre-Audiveris 검토 모달, **`audiveris_review_needed`**이면 Audiveris 결과 보정 모달을 띄웩니다. 제출은 각각 `/api/review/:jobId`, `/api/continue-audiveris/:jobId`로 이어집니다. 완료 행의 **마스킹·인식 점검**은 동일 `jobId`로 진단 API를 사용합니다. **변환 실패** 행에서도 세션이 남아 있으면 동일 버튼으로 점검·**Audiveris 단계별 실행** GUI를 열 수 있습니다.
 
 **참고**: 만료(TTL)로 작업이 삭제된 뒤에는 동일 `jobId`로 상태 조회 시 404가 됩니다.
 

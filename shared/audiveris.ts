@@ -25,6 +25,78 @@ export interface AudiverisRunResult {
   stderr: string;
 }
 
+/** 공식 CLI `-help`에 나오는 시트 단계 순서 (일부 디버깅·문서와 동일한 이름). */
+export const AUDIVERIS_SHEET_STEPS = [
+  'LOAD',
+  'BINARY',
+  'SCALE',
+  'GRID',
+  'HEADERS',
+  'STEM_SEEDS',
+  'BEAMS',
+  'LEDGERS',
+  'HEADS',
+  'STEMS',
+  'REDUCTION',
+  'CUE_BEAMS',
+  'TEXTS',
+  'MEASURES',
+  'CHORDS',
+  'CURVES',
+  'SYMBOLS',
+  'LINKS',
+  'RHYTHMS',
+  'PAGE',
+] as const;
+
+export type AudiverisSheetStepName = (typeof AUDIVERIS_SHEET_STEPS)[number];
+
+export function isAudiverisSheetStep(s: string): s is AudiverisSheetStepName {
+  return (AUDIVERIS_SHEET_STEPS as readonly string[]).includes(s);
+}
+
+/**
+ * `-sheets` 인자용 토큰(공백 구분): `1`, `3`, `4-7` 등. `4-7`은 **하나의** 토큰이어야 함.
+ * @throws Error 토큰이 형식에 맞지 않을 때
+ */
+export function parseAudiverisSheetsSpec(spec: string | undefined): string[] {
+  if (!spec?.trim()) return [];
+  const parts = spec.trim().split(/\s+/);
+  for (const p of parts) {
+    if (!/^\d+(?:-\d+)?$/.test(p)) {
+      throw new Error(`잘못된 sheets 토큰: "${p}" (예: 1 또는 4-7)`);
+    }
+  }
+  return parts;
+}
+
+/**
+ * `-export` 없이 지정 단계까지 배치 실행 (`-save`로 중간 `.omr` 등 저장).
+ * @see https://audiveris.github.io/audiveris/_pages/guides/advanced/cli/
+ */
+export function buildAudiverisStepProbeArgv(opts: {
+  outputDir: string;
+  inputPdfPath: string;
+  step: string;
+  force: boolean;
+  sheetsTokens: string[];
+}): string[] {
+  const extra = defaultExtraArgsFromEnv();
+  return [
+    '-batch',
+    '-output',
+    opts.outputDir,
+    '-save',
+    ...(opts.force ? ['-force'] : []),
+    ...(opts.sheetsTokens.length ? ['-sheets', ...opts.sheetsTokens] : []),
+    '-step',
+    opts.step,
+    ...extra,
+    '--',
+    opts.inputPdfPath,
+  ];
+}
+
 function buildArgs(opts: AudiverisRunOptions): string[] {
   const extra = opts.extraArgs ?? defaultExtraArgsFromEnv();
   return ['-batch', '-export', '-output', opts.outputBaseDir, ...extra, '--', opts.inputPdfPath];
@@ -118,17 +190,31 @@ export function envForAudiverisSpawn(): NodeJS.ProcessEnv {
   return next;
 }
 
-export function runAudiveris(opts: AudiverisRunOptions): Promise<AudiverisRunResult> {
-  const args = buildArgs(opts);
-  const bin = opts.audiverisBin;
+function utf8Tail(buf: Buffer, maxBytes: number): string {
+  if (buf.length <= maxBytes) return buf.toString('utf8');
+  const slice = buf.subarray(buf.length - maxBytes);
+  return `…[stdout/stderr 앞부분 생략, 마지막 ${maxBytes}바이트]\n${slice.toString('utf8')}`;
+}
+
+/** 임의 Audiveris CLI 인자 배열 실행 (`runAudiveris`의 저수준 버전). */
+export function runAudiverisArgv(options: {
+  audiverisBin: string;
+  argv: string[];
+  onStreamLine?: (stream: 'stdout' | 'stderr', line: string) => void;
+  /** 비스트리밍 시 각 스트림 최대 보존 바이트 (미지정이면 전체 유지 — 긴 로그에 주의). */
+  maxCaptureBytesPerStream?: number;
+}): Promise<AudiverisRunResult> {
+  const bin = options.audiverisBin;
   const shell = path.extname(bin).toLowerCase() === '.bat';
+  const argv = options.argv;
+  const maxCap = options.maxCaptureBytesPerStream;
 
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { shell, windowsHide: true, env: envForAudiverisSpawn() });
+    const child = spawn(bin, argv, { shell, windowsHide: true, env: envForAudiverisSpawn() });
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    const onLine = opts.onStreamLine;
+    const onLine = options.onStreamLine;
     const streamedLines: string[] = [];
 
     const recordLine = (stream: 'stdout' | 'stderr', line: string) => {
@@ -163,12 +249,30 @@ export function runAudiveris(opts: AudiverisRunOptions): Promise<AudiverisRunRes
         errFlush?.flush();
       }
       const streamedText = streamedLines.join('\n');
+      const outBuf = Buffer.concat(stdoutChunks);
+      const errBuf = Buffer.concat(stderrChunks);
       resolve({
         code,
-        stdout: onLine ? streamedText : Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr: onLine ? streamedText : Buffer.concat(stderrChunks).toString('utf8'),
+        stdout: onLine
+          ? streamedText
+          : maxCap != null
+            ? utf8Tail(outBuf, maxCap)
+            : outBuf.toString('utf8'),
+        stderr: onLine
+          ? streamedText
+          : maxCap != null
+            ? utf8Tail(errBuf, maxCap)
+            : errBuf.toString('utf8'),
       });
     });
+  });
+}
+
+export function runAudiveris(opts: AudiverisRunOptions): Promise<AudiverisRunResult> {
+  return runAudiverisArgv({
+    audiverisBin: opts.audiverisBin,
+    argv: buildArgs(opts),
+    onStreamLine: opts.onStreamLine,
   });
 }
 

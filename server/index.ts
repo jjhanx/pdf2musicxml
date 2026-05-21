@@ -16,12 +16,17 @@ import { promisify } from 'node:util';
 const exec = promisify(execCallback);
 
 import {
+  AUDIVERIS_SHEET_STEPS,
   audiverisExtraCliArgsFromEnv,
   audiverisLogSuggestsHumanReview,
+  buildAudiverisStepProbeArgv,
   collectMusicXmlOutputs,
+  isAudiverisSheetStep,
   ocrLanguageConstantArgsFromEnv,
+  parseAudiverisSheetsSpec,
   resolveAudiverisBin,
   runAudiveris,
+  runAudiverisArgv,
 } from '../shared/audiveris.js';
 
 const PORT = Number(process.env.PORT || 8787);
@@ -101,6 +106,11 @@ app.get('/api/health', (_req, res) => {
     jobRetentionNote:
       '변환 완료 또는 실패 처리 후 서버에 보관되는 작업·파일은 24시간이 지나면 자동으로 삭제됩니다. 완료 직후 다운로드를 받아도 같은 jobId로 마스킹·인식 점검 API는 TTL 전까지 사용할 수 있습니다.',
   });
+});
+
+/** Audiveris 공식 시트 단계 이름 목록 (단계별 디버깅 UI·도구용). */
+app.get('/api/audiveris-sheet-steps', (_req, res) => {
+  res.json({ steps: [...AUDIVERIS_SHEET_STEPS] });
 });
 
 type JobStatus =
@@ -198,8 +208,68 @@ function setJobProgress(job: JobRecord | undefined, p: JobProgress): void {
 }
 
 function diagnosticJobsAllowed(job: JobRecord | undefined): job is JobRecord {
-  return Boolean(job && (job.status === 'completed' || job.status === 'audiveris_review_needed'));
+  return Boolean(
+    job &&
+      (job.status === 'completed' ||
+        job.status === 'audiveris_review_needed' ||
+        job.status === 'failed'),
+  );
 }
+
+/** 완료·보정 대기·실패 작업만 — 세션 폴더에 PDF가 남아 단계 디버깅을 돌릴 수 있는 경우 */
+function audiverisStepProbeJobsAllowed(job: JobRecord | undefined): job is JobRecord {
+  if (!job?.sessionRoot || !fsSync.existsSync(job.sessionRoot)) return false;
+  return (
+    job.status === 'completed' ||
+    job.status === 'audiveris_review_needed' ||
+    job.status === 'failed'
+  );
+}
+
+function artifactPathWithinRunRoot(runRoot: string, rel: string): string | null {
+  const trimmed = rel.trim();
+  if (!trimmed || trimmed.includes('\0')) return null;
+  const normalizedRel = path.normalize(trimmed).replace(/^(\.\.(\\/|\/|$))+/, '');
+  const resolved = path.resolve(runRoot, normalizedRel);
+  const rootResolved = path.resolve(runRoot);
+  const relative = path.relative(rootResolved, resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  return resolved;
+}
+
+async function collectAudiverisStepProbeArtifacts(
+  runRoot: string,
+): Promise<{ relPath: string; bytes: number }[]> {
+  const out: { relPath: string; bytes: number }[] = [];
+  async function walk(relDir: string): Promise<void> {
+    const absDir = path.join(runRoot, relDir);
+    let entries;
+    try {
+      entries = await fs.readdir(absDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (ent.name.startsWith('.')) continue;
+      const rel = relDir ? `${relDir}/${ent.name}` : ent.name;
+      const full = path.join(absDir, ent.name);
+      if (ent.isDirectory()) await walk(rel);
+      else {
+        try {
+          const st = await fs.stat(full);
+          if (st.isFile()) out.push({ relPath: rel.replace(/\\/g, '/'), bytes: st.size });
+        } catch {
+          /* skip */
+        }
+      }
+    }
+  }
+  await walk('');
+  out.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return out;
+}
+
+const AUDIVERIS_STEP_PROBE_CAPTURE_BYTES = 768 * 1024;
 
 async function pdfPageCountViaPython(pdfPath: string): Promise<number | null> {
   if (!fsSync.existsSync(pdfPath)) return null;
@@ -957,6 +1027,165 @@ app.get('/api/diagnostic/:jobId/original-pdf', (req, res) => {
     diagnosticPdfDownloadBaseName(job, 'original'),
     attachment,
   );
+});
+
+/** 마스킹·점검 작업 세션에서 Audiveris `-step` 배치 실행 (`-save`, `-export` 없음). 서버 부하 가능 — 필요 시만 사용. */
+app.post('/api/diagnostic/:jobId/audiveris-step-probe', express.json({ limit: '48kb' }), async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!audiverisStepProbeJobsAllowed(job)) {
+    res.status(404).json({
+      error:
+        'Audiveris 단계 실행을 할 수 있는 작업이 아니거나 세션이 만료되었습니다. 완료·실패·Audiveris 보정 대기 상태의 jobId만 가능합니다.',
+    });
+    return;
+  }
+  const bin = resolveAudiverisBin();
+  if (!bin) {
+    res.status(503).json({ error: 'AUDIVERIS_BIN이 설정되어 있지 않습니다.' });
+    return;
+  }
+
+  const body = req.body as {
+    step?: unknown;
+    force?: unknown;
+    sheets?: unknown;
+    pdfSource?: unknown;
+  };
+  const stepRaw = typeof body.step === 'string' ? body.step.trim() : '';
+  if (!isAudiverisSheetStep(stepRaw)) {
+    res.status(400).json({
+      error: '유효하지 않은 step입니다.',
+      steps: [...AUDIVERIS_SHEET_STEPS],
+    });
+    return;
+  }
+
+  let sheetsTokens: string[] = [];
+  try {
+    sheetsTokens = parseAudiverisSheetsSpec(typeof body.sheets === 'string' ? body.sheets : undefined);
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+    return;
+  }
+
+  const force = body.force === true || body.force === 'true';
+  const pdfRequested = body.pdfSource === 'original' ? 'original' : 'masked';
+
+  const maskedPdfPath = path.join(job.sessionRoot, 'masked_input.pdf');
+  const origPath = job.inputPdfPath;
+
+  let pdfPath: string | null = null;
+  let pdfUsed: 'masked' | 'original' = 'original';
+  let note: string | undefined;
+
+  if (pdfRequested === 'masked') {
+    if (fsSync.existsSync(maskedPdfPath)) {
+      pdfPath = maskedPdfPath;
+      pdfUsed = 'masked';
+    } else if (origPath && fsSync.existsSync(origPath)) {
+      pdfPath = origPath;
+      pdfUsed = 'original';
+      note = '마스킹 PDF가 없어 업로드 원본 PDF로 실행했습니다.';
+    }
+  } else {
+    if (origPath && fsSync.existsSync(origPath)) {
+      pdfPath = origPath;
+      pdfUsed = 'original';
+    }
+  }
+
+  if (!pdfPath) {
+    res.status(404).json({
+      error:
+        pdfRequested === 'masked'
+          ? '마스킹 PDF와 원본 PDF를 찾을 수 없습니다.'
+          : '업로드 원본 PDF를 찾을 수 없습니다.',
+    });
+    return;
+  }
+
+  const runId = randomUUID();
+  const runRoot = path.join(job.sessionRoot, 'audiveris-step-probes', runId);
+  await fs.mkdir(runRoot, { recursive: true });
+
+  const argv = buildAudiverisStepProbeArgv({
+    outputDir: runRoot,
+    inputPdfPath: pdfPath,
+    step: stepRaw,
+    force,
+    sheetsTokens,
+  });
+
+  try {
+    const result = await runAudiverisArgv({
+      audiverisBin: bin,
+      argv,
+      maxCaptureBytesPerStream: AUDIVERIS_STEP_PROBE_CAPTURE_BYTES,
+    });
+    const artifacts = await collectAudiverisStepProbeArtifacts(runRoot);
+    res.json({
+      runId,
+      exitCode: result.code,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      argv,
+      pdfRequested,
+      pdfUsed,
+      note,
+      artifacts,
+    });
+  } catch (e) {
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: e instanceof Error ? e.message : String(e),
+        runId,
+      });
+    }
+  }
+});
+
+/** `POST .../audiveris-step-probe` 결과 폴더 안 파일 다운로드. `rel`은 해당 실행 폴더 기준 상대 경로(예: `subdir/book.omr`). */
+app.get('/api/diagnostic/:jobId/audiveris-step-probe/:runId/download', async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!audiverisStepProbeJobsAllowed(job)) {
+    res.status(404).json({ error: '작업을 찾을 수 없거나 단계 실행 결과에 접근할 수 없습니다.' });
+    return;
+  }
+  const runRoot = path.join(job.sessionRoot, 'audiveris-step-probes', req.params.runId);
+  if (!fsSync.existsSync(runRoot)) {
+    res.status(404).json({ error: '해당 실행(runId) 폴더가 없습니다.' });
+    return;
+  }
+  const rel = req.query.rel;
+  if (typeof rel !== 'string' || !rel.trim()) {
+    res.status(400).json({ error: '쿼리 rel(상대 경로)이 필요합니다.' });
+    return;
+  }
+  const abs = artifactPathWithinRunRoot(runRoot, rel);
+  if (!abs || !fsSync.existsSync(abs)) {
+    res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
+    return;
+  }
+  try {
+    const st = await fs.stat(abs);
+    if (!st.isFile()) {
+      res.status(400).json({ error: '파일만 다운로드할 수 있습니다.' });
+      return;
+    }
+    const base = path.basename(abs);
+    const ascii = base.replace(/[^\x20-\x7E]/g, '_') || 'artifact';
+    const encoded = encodeURIComponent(base);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
+    );
+    res.sendFile(path.resolve(abs), (err) => {
+      if (err && !res.headersSent) res.status(500).json({ error: String(err) });
+    });
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
 });
 
 app.use('/api/crops', (req, res, next) => {

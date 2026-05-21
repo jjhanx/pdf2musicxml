@@ -298,7 +298,7 @@ export default function App() {
           const j = (await st.json()) as { error?: string };
           if (j.error) msg = j.error;
         }
-        return { errorMessage: msg };
+        return { errorMessage: msg, jobId };
       }
 
       const j = (await st.json()) as {
@@ -329,7 +329,7 @@ export default function App() {
         const msg =
           [j.error, j.detail, j.stdoutTail, j.stderrTail].filter(Boolean).join('\n') ||
           `변환 실패 (HTTP ${j.httpError ?? '?'})`;
-        return { errorMessage: msg };
+        return { errorMessage: msg, jobId };
       }
 
       if (j.status === 'completed') {
@@ -350,7 +350,7 @@ export default function App() {
       } else {
         msg = await dl.text();
       }
-      return { errorMessage: msg };
+      return { errorMessage: msg, jobId };
     }
 
     const blob = await dl.blob();
@@ -461,7 +461,13 @@ export default function App() {
               prev.map((t) => {
                 if (t.id !== taskId) return t;
                 if (result.errorMessage) {
-                  return { ...t, phase: 'error', errorMessage: result.errorMessage, progress: undefined };
+                  return {
+                    ...t,
+                    phase: 'error',
+                    errorMessage: result.errorMessage,
+                    progress: undefined,
+                    jobId: result.jobId ?? t.jobId,
+                  };
                 }
                 return {
                   ...t,
@@ -921,10 +927,24 @@ export default function App() {
                       </>
                     )}
                     {t.phase === 'error' && (
-                      <span className="err task-err" title={t.errorMessage}>
-                        {t.errorMessage?.slice(0, 80)}
-                        {(t.errorMessage?.length ?? 0) > 80 ? '…' : ''}
-                      </span>
+                      <>
+                        <span className="err task-err" title={t.errorMessage}>
+                          {t.errorMessage?.slice(0, 80)}
+                          {(t.errorMessage?.length ?? 0) > 80 ? '…' : ''}
+                        </span>
+                        {t.jobId && (
+                          <>
+                            {' · '}
+                            <button
+                              type="button"
+                              className="btn-link"
+                              onClick={() => setInspectJobId(t.jobId!)}
+                            >
+                              마스킹·인식 점검
+                            </button>
+                          </>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>

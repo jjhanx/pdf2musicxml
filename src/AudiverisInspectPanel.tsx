@@ -102,6 +102,261 @@ function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
   );
 }
 
+type StepProbeArtifact = { relPath: string; bytes: number };
+
+type StepProbeResponse = {
+  runId: string;
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  argv: string[];
+  pdfRequested: string;
+  pdfUsed: string;
+  note?: string;
+  artifacts: StepProbeArtifact[];
+};
+
+/** 서버 `/api/audiveris-sheet-steps` 실패 시 폴백 (공식 CLI 순서와 동일). */
+const AUDIVERIS_STEP_NAMES_FALLBACK = [
+  'LOAD',
+  'BINARY',
+  'SCALE',
+  'GRID',
+  'HEADERS',
+  'STEM_SEEDS',
+  'BEAMS',
+  'LEDGERS',
+  'HEADS',
+  'STEMS',
+  'REDUCTION',
+  'CUE_BEAMS',
+  'TEXTS',
+  'MEASURES',
+  'CHORDS',
+  'CURVES',
+  'SYMBOLS',
+  'LINKS',
+  'RHYTHMS',
+  'PAGE',
+] as const;
+
+function AudiverisStepProbeSection({
+  jobId,
+  maskedPdfExists,
+}: {
+  jobId: string;
+  maskedPdfExists: boolean;
+}) {
+  const [steps, setSteps] = useState<string[]>([]);
+  const [step, setStep] = useState('GRID');
+  const [force, setForce] = useState(false);
+  const [sheets, setSheets] = useState('');
+  const [pdfSource, setPdfSource] = useState<'masked' | 'original'>('masked');
+  const [busy, setBusy] = useState(false);
+  const [probeErr, setProbeErr] = useState<string | null>(null);
+  const [last, setLast] = useState<StepProbeResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/audiveris-sheet-steps', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((j: { steps?: unknown }) => {
+        if (cancelled || !Array.isArray(j.steps)) return;
+        const list = j.steps.filter((x): x is string => typeof x === 'string');
+        setSteps(list);
+        setStep((prev) => {
+          if (list.includes(prev)) return prev;
+          if (list.includes('GRID')) return 'GRID';
+          return list[0] ?? prev;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setSteps([...AUDIVERIS_STEP_NAMES_FALLBACK]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!maskedPdfExists && pdfSource === 'masked') setPdfSource('original');
+  }, [maskedPdfExists, pdfSource]);
+
+  const runProbe = async () => {
+    setProbeErr(null);
+    setBusy(true);
+    setLast(null);
+    try {
+      const r = await fetch(`/api/diagnostic/${jobId}/audiveris-step-probe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          step,
+          force,
+          sheets: sheets.trim() || undefined,
+          pdfSource,
+        }),
+      });
+      const ct = r.headers.get('Content-Type') ?? '';
+      const j = ct.includes('application/json') ? await r.json() : null;
+      if (!r.ok) {
+        const msg =
+          j && typeof j === 'object' && j !== null && 'error' in j
+            ? String((j as { error?: unknown }).error ?? `HTTP ${r.status}`)
+            : `HTTP ${r.status}`;
+        setProbeErr(msg);
+        return;
+      }
+      setLast(j as StepProbeResponse);
+    } catch (e) {
+      setProbeErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details
+      style={{
+        marginTop: 14,
+        padding: '12px 14px',
+        background: '#252a33',
+        borderRadius: 8,
+        border: '1px solid #3c4049',
+      }}
+    >
+      <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#e8eaed', userSelect: 'none' }}>
+        Audiveris 단계별 실행 (디버깅)
+      </summary>
+      <p style={{ margin: '10px 0 12px', fontSize: '0.86rem', color: '#bdc1c6', lineHeight: 1.5 }}>
+        서버에서 Audiveris CLI로 <code>-batch -save -step …</code> 를 실행합니다(<strong>-export 없음</strong>). SCALE→GRID→… 순으로 단계를 올려 가며 로그와 생성된{' '}
+        <code>.omr</code>·로그 파일을 받아 GitHub 이슈 재현에 쓸 수 있습니다. 서버 부하가 크므로 필요할 때만 실행하세요.
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 16px', alignItems: 'flex-end', marginBottom: 10 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: '0.78rem', color: '#9aa0a6' }}>목표 단계 (-step)</span>
+          <select value={step} onChange={(e) => setStep(e.target.value)} style={{ minWidth: 140 }}>
+            {steps.length === 0 ? (
+              <option value={step}>{step}</option>
+            ) : (
+              steps.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: '0.78rem', color: '#9aa0a6' }}>-sheets (선택)</span>
+          <input
+            type="text"
+            placeholder="예: 1 또는 1 4-7"
+            value={sheets}
+            onChange={(e) => setSheets(e.target.value)}
+            style={{ width: 140 }}
+          />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+          <span style={{ fontSize: '0.88rem', color: '#e8eaed' }}>-force (BINARY부터 재처리)</span>
+        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: '0.78rem', color: '#9aa0a6' }}>입력 PDF</span>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: maskedPdfExists ? 'pointer' : 'not-allowed' }}>
+              <input
+                type="radio"
+                name={`pdfSrc-${jobId}`}
+                checked={pdfSource === 'masked'}
+                disabled={!maskedPdfExists}
+                onChange={() => setPdfSource('masked')}
+              />
+              <span style={{ color: maskedPdfExists ? '#e8eaed' : '#666' }}>마스킹</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="radio" name={`pdfSrc-${jobId}`} checked={pdfSource === 'original'} onChange={() => setPdfSource('original')} />
+              <span style={{ color: '#e8eaed' }}>업로드 원본</span>
+            </label>
+          </div>
+        </div>
+        <button type="button" disabled={busy} onClick={() => void runProbe()}>
+          {busy ? '실행 중…' : '실행'}
+        </button>
+      </div>
+      {probeErr && (
+        <div className="status err" style={{ margin: '8px 0' }}>
+          {probeErr}
+        </div>
+      )}
+      {last && (
+        <div style={{ marginTop: 10, fontSize: '0.82rem', color: '#bdc1c6' }}>
+          <div>
+            <strong>종료 코드</strong> {last.exitCode ?? '(null)'} · <strong>사용 PDF</strong> {last.pdfUsed}{' '}
+            {last.pdfRequested !== last.pdfUsed && `(요청: ${last.pdfRequested})`}
+          </div>
+          {last.note && <div style={{ marginTop: 4, color: '#fdd663' }}>{last.note}</div>}
+          <div style={{ marginTop: 8 }}>
+            <strong>명령 인자</strong>
+            <pre
+              style={{
+                margin: '6px 0 0',
+                padding: 8,
+                background: '#1a1d24',
+                borderRadius: 6,
+                overflow: 'auto',
+                maxHeight: 120,
+                fontSize: '0.76rem',
+              }}
+            >
+              {JSON.stringify(last.argv)}
+            </pre>
+          </div>
+          {last.artifacts.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <strong>생성 파일</strong>
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                {last.artifacts.map((a) => (
+                  <li key={a.relPath}>
+                    <a
+                      href={`/api/diagnostic/${jobId}/audiveris-step-probe/${last.runId}/download?rel=${encodeURIComponent(a.relPath)}`}
+                      style={{ color: '#8ab4ff' }}
+                      download
+                    >
+                      {a.relPath}
+                    </a>{' '}
+                    ({a.bytes} bytes)
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: 'pointer', color: '#e8eaed' }}>stdout / stderr</summary>
+            <pre
+              style={{
+                marginTop: 8,
+                padding: 8,
+                background: '#1a1d24',
+                borderRadius: 6,
+                maxHeight: 220,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                fontSize: '0.76rem',
+              }}
+            >
+              === stdout ==={'\n'}
+              {last.stdout}
+              {'\n\n'}=== stderr ==={'\n'}
+              {last.stderr}
+            </pre>
+          </details>
+        </div>
+      )}
+    </details>
+  );
+}
+
 type Props = {
   jobId: string;
   onClose: () => void;
@@ -293,6 +548,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               </a>
             </div>
           )}
+          <AudiverisStepProbeSection jobId={jobId} maskedPdfExists={summary.maskedPdf.exists} />
         </div>
       )}
 

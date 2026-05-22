@@ -52,6 +52,40 @@ function filterMusicXmlToPart(xml: string, partId: string | null): string {
   }
 }
 
+/**
+ * OSMD가 잘린/단독 octave-shift 때문에 `realValue`(Fraction) 접근 크래시를 내는 경우가 있음
+ * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
+ * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
+ */
+function sanitizeMusicXmlForOsmd(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+
+    const local = (el: Element) =>
+      typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
+
+    doc.querySelectorAll('*').forEach((el) => {
+      if (local(el) === 'octave-shift') el.remove();
+    });
+
+    doc.querySelectorAll('*').forEach((el) => {
+      if (local(el) !== 'direction-type') return;
+      if (el.childElementCount === 0 && !el.textContent?.trim()) el.remove();
+    });
+
+    doc.querySelectorAll('*').forEach((el) => {
+      if (local(el) !== 'direction') return;
+      const hasDirectionType = [...el.children].some((c) => local(c) === 'direction-type');
+      if (!hasDirectionType) el.remove();
+    });
+
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
 const OSMD_RENDER_MIN_WIDTH = 56;
 const OSMD_WIDTH_RAF_RETRIES = 90;
 
@@ -110,7 +144,7 @@ function scheduleOsmdRender(opts: {
       const msg = e instanceof Error ? e.message : String(e);
       showOsmdHostError(
         host,
-        `악보를 그리는 중 오류가 났습니다: ${msg}. (예: \`realValue\` 관련 크래시는 일부 옥타브·표창 처리에서 OSMD가 깨지는 경우가 있습니다.) PNG 비교는 계속 이용할 수 있습니다.`,
+        `악보를 그리는 중 오류가 났습니다: ${msg}. (미리보기에서는 8바/옥타브 표기를 빼도록 시도했습니다. 다른 기호 때문에 남았다면 MXL은 그대로이며 PNG 비교로 검증 가능합니다.)`,
       );
       disconnectRo();
       onPaintFailure();
@@ -194,8 +228,9 @@ function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
 
     let cancelled = false;
     const stale = () => cancelled || gen !== xmlGenRef.current;
+    const xmlForOsmd = sanitizeMusicXmlForOsmd(xml);
     void osmd
-      .load(xml)
+      .load(xmlForOsmd)
       .then(() => {
         if (stale() || !host) return;
         const seq = ++paintSeqRef.current;

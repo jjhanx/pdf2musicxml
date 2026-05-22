@@ -15,8 +15,9 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 
 - **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**(전용 영역), 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드
 - **진행 표시**: 업로드 단계와 Audiveris 단계의 진행 상황을 표시합니다(Audiveris 로그 형식에 따라 세부 진행은 제한적일 수 있음).
-- **한글 제목·가사(OCR)**: Audiveris는 글자에 Tesseract를 쓰며 **기본이 영어(`eng`)**라 - **고해상도 OCR 및 벡터 PDF 직접 추출**: 기존에는 무조건 300 DPI 이미지로 OCR을 돌려 서버에 큰 부하를 주고 중단(Halt)되는 문제가 있었습니다. 현재는 `PyMuPDF`를 통해 텍스트가 내장된 **벡터 PDF**라면 1초 이내에 글자와 좌표를 빠르게 추출하며, 텍스트가 없는 **이미지 PDF**인 경우에만 300 DPI의 PaddleOCR로 대체 인식합니다.
-- **문자-악보 사전 매핑 및 마스킹 (Pre-Audiveris UI)**: Audiveris 악보 인식 전에 팝업을 띄워 인식된 글자들의 역할을 지정(`제목`, `작사가`, `가사`, **`템포(BPM)`** 등)합니다. **템포**로 지정한 영역은 마스킹되고, 검토한 BPM(예: `75`, `♩= 75`)은 `inject_ocr.py`가 첫 마디 MusicXML에 `<sound tempo="…">` 및 metronome으로 넣어 **재생기가 기본 120으로 도는 문제**를 줄입니다. 지정된 영역은 Audiveris에 넘어가기 전 **`mask_pdf.py`** 가 **흰색 사각형**으로 덮습니다(기본). 선택 환경 변수 `MASK_PDF_TEXT_REDACT=1`이면 PyMuPDF **텍스트 리독**을 쓸 수 있으나, SMuFL 등으로 인코딩된 **음표가 텍스트 글리프**인 PDF에서는 가사 영역과 겹친 음표까지 지워질 수 있습니다. **가사**는 글자별 하이픈(`-`)으로 “이 음표는 가사 없음”을 표시할 수 있으며, MXL에 합칠 때 **파트 순번**, **가사 절**(1절·2절… → `<lyric number>`), **멜로디 줄**(MusicXML `<voice>`, 동시에 울리는 다른 선율용·1절/2절과 **다름**), **`*`**(문서 순 멜로디), **앞쪽 음표 생략**을 지정합니다. 블록 옆 **신뢰도**는 OCR 참고용입니다. 각 항목의 의미는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「검토 UI → MusicXML 가사 주입」절에 설명합니다.
+- **한글 제목·가사(OCR)**: Audiveris는 글자에 Tesseract를 쓰며 **기본이 영어(`eng`)**라 한글 처리 시 **`AUDIVERIS_OCR_LANG`**(기본 `kor+eng`) 등을 맞춥니다. `kor.traineddata` 등은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「한글 인식 문제」류 절과 아래 환경 변수 표를 참고하세요.
+- **고해상도 OCR 및 벡터 PDF 직접 추출**: 검토 UI용 글자·좌표 추출은 예전처럼 항상 300 DPI OCR만 쓰면 서버 부하와 중단 위험이 컸습니다. 현재는 `PyMuPDF`로 **벡터 PDF**에 내장된 글자와 좌표를 우선 빠르게 읽고, 텍스트가 없는 **이미지 PDF**일 때만 300 DPI PaddleOCR로 대체 인식합니다.
+- **문자-악보 사전 매핑 및 마스킹 (Pre-Audiveris UI)**: Audiveris 악보 인식 전에 팝업을 띄워 인식된 글자들의 역할을 지정(`제목`, `작사가`, `가사`, **`템포(BPM)`** 등)합니다. **템포**로 지정한 영역은 마스킹되고, 검토한 BPM(예: `75`, `♩= 75`)은 `inject_ocr.py`가 첫 마디 MusicXML에 `<sound tempo="…">` 및 metronome으로 넣어 **재생기가 기본 120으로 도는 문제**를 줄입니다. 지정된 영역은 Audiveris에 넘어가기 전 **`mask_pdf.py`** 가 처리합니다. **가사** 블록은 기본적으로 **벡터 텍스트 글리프만** 골라 치웁니다: 한글·라틴 문자·숫자·공백·하이픈·문장부호(P*)는 제거 대상이고, **SMuFL·뮤지컬 심볼 코드**는 같은 bbox와 겹쳐도 남깁니다. 가사 없이 흰 사각형만 쓰려면 `MASK_PDF_LYRIC_SELECTIVE=0`입니다. 제목·템포 등 다른 분류는 종전처럼 bbox 전체를 흰 박스(또는 선택 `MASK_PDF_TEXT_REDACT=1`)로 덮습니다. **가사**는 글자별 하이픈(`-`)으로 “이 음표는 가사 없음”을 표시할 수 있으며, MXL에 합칠 때 **파트 순번**, **가사 절**(1절·2절… → `<lyric number>`), **멜로디 줄**(MusicXML `<voice>`, 동시에 울리는 다른 선율용·1절/2절과 **다름**), **`*`**(문서 순 멜로디), **앞쪽 음표 생략**을 지정합니다. 블록 옆 **신뢰도**는 OCR 참고용입니다. 각 항목의 의미는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「검토 UI → MusicXML 가사 주입」절에 설명합니다.
 - **Audiveris 직후 보정**: 「Audiveris 직후 멈춤」을 켜면 **악보 인식 직후** MXL을 받아 MuseScore 등에서 음높이·음표를 확인한 뒤, 웹의 **Audiveris 결과 보정** 모달에서 **조옮김(반음)**·**교체 MXL**을 지정해 이어갈 수 있습니다(글자·가사 역할 검토 단계와는 별개). 조옮김은 **곡 전체가 같은 간격만큼만** 밀린 경우에 해당하고, 일부만 틀리면 편집 후 MXL 교체가 맞습니다. 자세한 설명은 동 문서 「Audiveris 직후 수동 보정」절을 참고하세요.
 - **결과 자동 저장**: UI에서 "결과 저장하기"를 체크하면 변환이 완료된 후 별도로 저장 버튼을 누르지 않아도 **자동으로 `.mxl` 파일이 다운로드**됩니다. (이전의 디버그 ZIP 다운로드 기능은 제거되었습니다.)
 - **비동기 변환(폴링)**: 변환(Audiveris)은 시간이 오래 걸리므로 **완료 후 곧바로 파일을 응답하지 않습니다.** `POST /api/convert`는 **PDF 수신·저장이 끝난 뒤** **HTTP 202** 와 `jobId`를 돌려주고, 실제 변환은 서버 백그라운드에서 돌아갑니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다. (과거에는 업로드 도중 202를 보내 일부 환경에서 본문 전송이 멈추는 문제가 있어, 202 시점을 저장 완료 후로 옮겼습니다.)
@@ -60,7 +61,9 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `LISTEN_HOST` | 바인딩 주소 (기본 `0.0.0.0`). `127.0.0.1`만 열려면 nginx 뒤에 둘 때 사용 |
 | `AUDIVERIS_NO_FLAT_OUTPUT` | `1`이면 `-option …useSeparateBookFolders=false` 비활성화 |
 | `AUDIVERIS_CLI_EXTRA_JSON` | (고급) Audiveris CLI에 추가로 붙일 인자를 **JSON 문자열 배열**로 지정. 예: `["-constant","org.audiveris.omr.sheet.Scale.defaultBeamSpecification=10"]`. 잘못된 JSON은 무시됩니다. `GET /api/health`의 `audiverisCliExtraArgCount`로 개수만 확인. |
-| `MASK_PDF_TEXT_REDACT` | (선택) `1`/`true`/`yes`일 때만 마스킹에 PyMuPDF **텍스트 리독** 사용. **기본은 흰 사각형**. 리독은 가사 bbox와 겹치는 **모든 텍스트 글리프**(SMuFL **음표·잇단** 포함)를 지울 수 있어, 대부분의 악보 PDF에서는 끄는 것이 안전합니다. |
+| `MASK_PDF_TEXT_REDACT` | (선택) `1`/`true`/`yes`일 때 **제목·작곡가 등 비-가사** 구역에 벡터 텍스트가 있으면 **전체 bbox** 텍스트 리독을 시도합니다. **가사**는 기본이 **글자별 선택 리독**(아래)이라 이 옵션과 별개입니다. |
+| `MASK_PDF_LYRIC_SELECTIVE` | (선택) `0`/`false`면 끔. **기본(설정 없음)**: 타입 **`lyrics`** 만 가사로 보이는 유니코드를 **글리프 단위**로 치우고 **SMuFL·뮤지컬 심볼**은 보존합니다. 끄면 가사도 **통째로 흰 박스**. `rawdict`로 글립을 못 잡거나 비트맵 영역이면 가사 블록은 흰 박스 폴백. |
+| `MASK_PDF_LYRIC_CHAR_PAD_PT` | (선택) 가사 글리프 리덕 bbox 확장 pt(기본 `0.35`). |
 
 품질·호환 이슈(한글 파일명, mxlplayer `realValue`, 마디 수 등)는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)를 참고하세요.
 
@@ -196,7 +199,7 @@ pdf2musicxml/
 ├── shared/audiveris.ts         # Audiveris CLI 래퍼
 ├── scripts/
 │   ├── extract_text.py         # PyMuPDF 벡터 텍스트 직접 추출 및 OCR 폴백
-│   ├── mask_pdf.py             # 검토 분류 영역 마스킹(기본 흰 박스, 선택 MASK_PDF_TEXT_REDACT)
+│   ├── mask_pdf.py             # 마스킹(가사: 글리프 선택 제거 기본·SMuFL 보존 / 기타 bbox 흰 박스·선택 리독)
 │   ├── inject_ocr.py           # 검증/매핑된 글자를 MusicXML <lyric> 등에 병합
 │   ├── pdf_diagnostic.py       # 진단 API: 페이지 수·PNG 렌더
 │   ├── mxl_to_musicxml_file.py # MXL에서 MusicXML 추출(미리보기)

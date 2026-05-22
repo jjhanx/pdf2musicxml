@@ -1,14 +1,19 @@
 import os
 import sys
 import json
+import unicodedata
+
 import fitz
 
 # PyMuPDF 리독: 이론상 텍스트만 제거·벡터 보존.
-# 실제 악보 PDF는 SMuFL 등으로 음표·잇단이 "텍스트 글리프"인 경우가 많아,
-# 가사 bbox와 겹치면 음표까지 글리프로 지워져 오히려 손해가 날 수 있음 → 기본은 흰 박스.
+# 가사 블록(lyrics): 기본으로 글자·숫자·공백·하이픈류·문장부호(P*)만 글리프 단위로 제거하고,
+# SMuFL·뮤지컬 심볼은 동일 bbox 안에 있어도 두지 않음(폰트/코포인트 우선).
+# 그 외(title 등): 종전처럼 bbox 전체 흰 박스 또는 (옵션) 전체 리독.
 _PDF_REDACT_IMAGE_NONE = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
 _PDF_REDACT_LINE_ART_NONE = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
 _PDF_REDACT_TEXT_REMOVE = getattr(fitz, "PDF_REDACT_TEXT_REMOVE", 0)
+
+_TEXT_RAWDICT_FLAGS = int(getattr(fitz, "TEXT_ACCURATE_BBOXES", 0) or 0)
 
 
 def _env_truthy(name: str) -> bool:
@@ -16,8 +21,109 @@ def _env_truthy(name: str) -> bool:
     return v in ("1", "true", "yes", "on")
 
 
+def _env_falsy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("0", "false", "no", "off")
+
+
+def _char_is_music_glyph(cp: int) -> bool:
+    """PDF 악보에 흔한 음표·잇단·SMuFL — 가사 선택 제거에서는 항상 보존."""
+    if 0xE000 <= cp <= 0xF8FF:
+        return True
+    if 0x1D100 <= cp <= 0x1D1FF:
+        return True
+    if cp in (0x2669, 0x266A, 0x266B, 0x266C):
+        return True
+    if 0xF0000 <= cp <= 0xFFFFD or 0x100000 <= cp <= 0x10FFFD:
+        return True
+    return False
+
+
+# 검토 가사 블록에서 제거 허용: 글자·숫자·공백 + 하이픈 계열뿐이라는 규칙에 맞게,
+# 허용되지 않는 부호들(쉼표·마침표·인용 등)도 같이 치웁니다(P*).
+HYPHENS = frozenset(
+    ("-", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212", "\ufe63", "\uff0d")
+)
+
+
+def _char_strip_as_lyric_overlay(ch: str) -> bool:
+    """
+    True면 해당 글자를 마스킹(리독) 대상으로 함.
+    음표·음악 기호 블록은 어떤 범주에 있어도 False.
+    """
+    if len(ch) != 1:
+        return False
+    cp = ord(ch)
+    if _char_is_music_glyph(cp):
+        return False
+    if ch in HYPHENS:
+        return True
+    cat = unicodedata.category(ch)
+    if cat[0] == "L":
+        return True
+    if cat == "Nd":
+        return True
+    if cat == "Zs":
+        return True
+    if cat.startswith("P"):
+        return True
+    return False
+
+
+def _rect_expand(r: fitz.Rect, pad: float) -> fitz.Rect:
+    rr = fitz.Rect(r).normalize()
+    if rr.is_empty:
+        return rr
+    return fitz.Rect(rr.x0 - pad, rr.y0 - pad, rr.x1 + pad, rr.y1 + pad).normalize()
+
+
+def _collect_lyrics_glyph_redact_rects(page: fitz.Page, clip: fitz.Rect, pad_pt: float) -> list[fitz.Rect]:
+    """clip과 겹치는 텍스트 중 가사처럼 보이는 글자 bbox만 모은다."""
+    out: list[fitz.Rect] = []
+    c = clip.normalize()
+    if c.is_empty:
+        return out
+    try:
+        td = page.get_text("rawdict", clip=c, flags=_TEXT_RAWDICT_FLAGS)
+    except TypeError:
+        td = page.get_text("rawdict", clip=c)
+    except Exception:
+        return out
+    for block in td.get("blocks") or []:
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines") or []:
+            for sp in line.get("spans") or []:
+                chars = sp.get("chars") or []
+                if chars:
+                    for ch in chars:
+                        s = ch.get("c") or ""
+                        bb = ch.get("bbox")
+                        if not bb or len(s) != 1:
+                            continue
+                        if not _char_strip_as_lyric_overlay(s):
+                            continue
+                        r = fitz.Rect(bb).normalize()
+                        if r.is_empty:
+                            continue
+                        out.append(_rect_expand(r, pad_pt))
+                else:
+                    txt = sp.get("text") or ""
+                    bb = sp.get("bbox")
+                    if not bb or not txt.strip():
+                        continue
+                    sx0, sy0, sx1, sy1 = bb
+                    dw = max((sx1 - sx0) / len(txt), 0.001)
+                    for i, cu in enumerate(txt):
+                        if not _char_strip_as_lyric_overlay(cu):
+                            continue
+                        x0 = sx0 + i * dw
+                        r = fitz.Rect(x0, sy0, x0 + dw, sy1).normalize()
+                        if not r.is_empty:
+                            out.append(_rect_expand(r, pad_pt))
+    return out
+
+
 def _rect_has_vector_text(page: fitz.Page, rect: fitz.Rect) -> bool:
-    """이 bbox 안에 PDF 텍스트 연산자(실글리프)가 있으면 True. 순수 비트맵+OCR만 있는 구역은 False."""
     r = rect.normalize()
     if r.is_empty:
         return False
@@ -37,6 +143,11 @@ def mask_pdf(pdf_in, pdf_out, json_path):
 
     doc = fitz.open(pdf_in)
     use_text_redact = _env_truthy("MASK_PDF_TEXT_REDACT")
+    lyric_selective = not _env_falsy("MASK_PDF_LYRIC_SELECTIVE")
+    try:
+        lyric_pad = float(os.environ.get("MASK_PDF_LYRIC_CHAR_PAD_PT", "0.35") or 0.35)
+    except ValueError:
+        lyric_pad = 0.35
 
     mask_types = {"title", "composer", "lyricist", "copyright", "lyrics", "tempo"}
 
@@ -54,6 +165,16 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         page = doc[page_idx]
         rect = fitz.Rect(bbox).normalize()
         if rect.is_empty:
+            continue
+
+        is_lyrics = item_type == "lyrics"
+        if is_lyrics and lyric_selective and _rect_has_vector_text(page, rect):
+            glyph_rects = _collect_lyrics_glyph_redact_rects(page, rect, lyric_pad)
+            if glyph_rects:
+                redact_rects.setdefault(page_idx, []).extend(glyph_rects)
+                continue
+            # 벡터 텍스트가 있는데 가사 글리프를 못 찾음 / 이미지형 → 전체 박스
+            white_rects.setdefault(page_idx, []).append(rect)
             continue
 
         if use_text_redact and _rect_has_vector_text(page, rect):

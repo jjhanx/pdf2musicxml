@@ -66,18 +66,49 @@ function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
     if (!host || !xml.trim()) return;
 
     host.innerHTML = '';
-    const osmd = new OpenSheetMusicDisplay(host, {
-      autoResize: true,
-      backend: 'svg',
-    });
+    let osmd: OpenSheetMusicDisplay;
+    try {
+      osmd = new OpenSheetMusicDisplay(host, {
+        autoResize: true,
+        backend: 'svg',
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const d = document.createElement('div');
+      d.style.cssText =
+        'padding:14px;font-size:0.86rem;line-height:1.5;color:#b71c1c;white-space:pre-wrap;';
+      d.textContent = `악보 미리보기(OSMD)를 초기화하지 못했습니다: ${msg}`;
+      host.appendChild(d);
+      osmdRef.current = null;
+      return;
+    }
     osmdRef.current = osmd;
 
     let cancelled = false;
-    void osmd.load(xml).then(() => {
-      if (cancelled) return;
-      osmd.zoom = zoomRef.current;
-      osmd.render();
-    });
+    void osmd
+      .load(xml)
+      .then(() => {
+        if (cancelled) return;
+        osmd.zoom = zoomRef.current;
+        osmd.render();
+      })
+      .catch((loadErr: unknown) => {
+        if (cancelled || !host) return;
+        try {
+          osmd.clear();
+        } catch {
+          /* ignore */
+        }
+        osmdRef.current = null;
+        host.innerHTML = '';
+        const d = document.createElement('div');
+        d.style.cssText =
+          'padding:14px;font-size:0.86rem;line-height:1.5;color:#b71c1c;white-space:pre-wrap;word-break:break-word;';
+        const msg =
+          loadErr instanceof Error ? loadErr.message : typeof loadErr === 'string' ? loadErr : String(loadErr);
+        d.textContent = `MusicXML 미리보기를 불러오지 못했습니다(${msg}). 곡별로 OSMXL 스키마 차이 등으로 실패할 수 있습니다. PNG 비교만으로도 마스킹 여부를 확인할 수 있습니다.`;
+        host.appendChild(d);
+      });
 
     return () => {
       cancelled = true;

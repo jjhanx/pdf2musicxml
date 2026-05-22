@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AudiverisInspectPanel } from './AudiverisInspectPanel';
 
 type Health = {
@@ -1173,34 +1174,44 @@ export default function App() {
         </div>
       )}
 
-      {audiverisReviewJobId && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.55)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-          }}
-        >
+      {audiverisReviewJobId &&
+        createPortal(
           <div
             style={{
-              background: audiverisModalTab === 'inspect' ? '#1e222a' : '#fff',
-              padding: '1.75rem',
-              borderRadius: '8px',
-              maxWidth: audiverisModalTab === 'inspect' ? '96vw' : '520px',
-              width: audiverisModalTab === 'inspect' ? '96%' : '92%',
-              maxHeight: '92vh',
-              overflow: 'auto',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-              border: audiverisModalTab === 'inspect' ? '1px solid #2e3440' : undefined,
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100000,
+              padding: '2vh 2vw',
             }}
           >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={
+                audiverisModalTab === 'inspect'
+                  ? '마스킹·Audiveris 인식 점검'
+                  : 'Audiveris 결과 보정'
+              }
+              style={{
+                background: audiverisModalTab === 'inspect' ? '#1e222a' : '#fff',
+                color: audiverisModalTab === 'inspect' ? '#e8eaed' : undefined,
+                padding: '1.75rem',
+                borderRadius: '8px',
+                maxWidth: audiverisModalTab === 'inspect' ? '96vw' : '520px',
+                width: audiverisModalTab === 'inspect' ? '96%' : '92%',
+                maxHeight: '92vh',
+                overflow: 'auto',
+                boxShadow:
+                  '0 0 0 1px rgba(255,255,255,0.08), 0 24px 64px rgba(0,0,0,0.55)',
+                border: audiverisModalTab === 'inspect' ? '1px solid #3d4453' : undefined,
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
             <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
               <button
                 type="button"
@@ -1290,42 +1301,51 @@ export default function App() {
                 </div>
               </>
             )}
-          </div>
-        </div>
-      )}
+            </div>
+          </div>,
+          document.body,
+        )}
 
-      {inspectJobId && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.55)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10001,
-            padding: '2vh 2vw',
-          }}
-        >
+      {inspectJobId &&
+        createPortal(
           <div
+            role="presentation"
             style={{
-              background: 'var(--card-bg, #1e222a)',
-              padding: '1.25rem',
-              borderRadius: '12px',
-              maxWidth: '1200px',
-              width: '100%',
-              maxHeight: '96vh',
-              overflow: 'auto',
-              border: '1px solid #2e3440',
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100010,
+              padding: '2vh 2vw',
             }}
+            onMouseDown={() => setInspectJobId(null)}
           >
-            <AudiverisInspectPanel jobId={inspectJobId} onClose={() => setInspectJobId(null)} />
-          </div>
-        </div>
-      )}
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="마스킹·Audiveris 인식 점검"
+              style={{
+                background: '#1e222a',
+                color: '#e8eaed',
+                padding: '1.25rem',
+                borderRadius: '12px',
+                maxWidth: 'min(1200px, 96vw)',
+                width: '100%',
+                maxHeight: '96vh',
+                overflow: 'auto',
+                border: '1px solid #3d4453',
+                boxShadow: '0 0 0 1px rgba(255,255,255,0.08), 0 24px 64px rgba(0,0,0,0.55)',
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <AudiverisInspectPanel jobId={inspectJobId} onClose={() => setInspectJobId(null)} />
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

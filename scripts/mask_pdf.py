@@ -5,10 +5,13 @@ import unicodedata
 
 import fitz
 
-# PyMuPDF 리독: 선택한 사각형과 MuPDF가 잡은 “글자 bbox”가 겹치면 그 글림을 제거합니다(텍스트 연산 한정).
-# 그래서 가사 줄의 높은 line-box·패딩이 오선 글림과 만나면 음표 텍스트까지 지워질 수 있음 → 글림 높이는
-# 음표·SMuFL 글림과 겹치는 가사 후보는 리덕에서 빼서, 음표 텍스트 글림이 같이 지워지지 않게 함.
-# 가사 블록(lyrics): L/Nd/Zs/P/하이픈만 타깃, SMuFL·뮤지컬 블록은 스킵. 그 외(title 등): bbox 흰 박스 또는 (옵션) 리독.
+# PyMuPDF 리독: 선택한 사각형과 MuPDF가 잡은 “글자 bbox”가 겹치면 해당 텍스트를 제거할 수 있습니다.
+# 가사(lyrics) 글림별 처리: 기본은 **흰 박스 fill 없이**(fill=False) **공백 치환**으로 글림만 빼려 시도함.
+# 예전처럼 add_redact_annot(rect) 단독 호출 시 MuPDF 기본 흰 fill이 오선 같은 **벡터 위를 덮어**
+# 비텍스트 음표가 “사라진 것처럼” 보일 수 있어, 선택 가사 경로에서는 이를 피함.
+# 음표·SMuFL **텍스트** 글림 bbox와 만나는 가사 후보는 그대로 살려 두면 일부 가사가 남을 수 있음
+# (복사 가능한 레이어만 대상 · 이미지 가사 불가는 동일).
+# 그 외(title 등): bbox 흰 박스 또는 (옵션) 리덕 — 가사 선택 경로와 별개.
 _PDF_REDACT_IMAGE_NONE = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
 _PDF_REDACT_LINE_ART_NONE = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
 _PDF_REDACT_TEXT_REMOVE = getattr(fitz, "PDF_REDACT_TEXT_REMOVE", 0)
@@ -64,6 +67,8 @@ def _char_strip_as_lyric_overlay(ch: str) -> bool:
         return True
     if cat == "Zs":
         return True
+    if cat == "Nl":
+        return True
     if cat.startswith("P"):
         return True
     return False
@@ -106,14 +111,119 @@ def _rawdict_clip(page: fitz.Page, clip: fitz.Rect) -> dict:
         return {}
 
 
-def _collect_lyrics_and_music_glyph_rects(
+def _pdf_color_int_to_rgb(color) -> tuple[float, float, float]:
+    c = int(color or 0)
+    return ((c >> 16) / 255.0, ((c >> 8) & 0xFF) / 255.0, (c & 0xFF) / 255.0)
+
+
+def _replacement_blank_glyph() -> str:
+    raw = os.environ.get("MASK_PDF_LYRIC_REPLACE_CHAR")
+    if raw is None:
+        return " "
+    stripped = raw.strip()
+    return stripped[:1] if stripped else " "
+
+
+def _redact_fontname_candidates(span_font: str | None) -> list[str | None]:
+    """리덕 치환용 폰트: 임베드 이름이 깨지면 china-s · helv · 기본 순으로 재시도."""
+    out: list[str | None] = []
+    seen: set[str | None] = set()
+
+    def push(x: str | None) -> None:
+        if x in seen:
+            return
+        seen.add(x)
+        out.append(x)
+
+    if span_font:
+        tail = span_font.split("+")[-1].strip()
+        if tail:
+            push(tail[:64])
+            simple = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in tail)[:48]
+            if simple:
+                push(simple)
+
+    push("china-s")
+    push("helv")
+    push(None)
+    return out
+
+
+def _add_lyric_glyph_redaction(
+    page: fitz.Page,
+    rect: fitz.Rect,
+    *,
+    fontsize: float,
+    span_font: str | None,
+    rgb: tuple[float, float, float],
+    plain_old_white_fill: bool,
+    replacement_glyph: str,
+) -> None:
+    """
+    선택 가사 1글자 리덕. plain_old_white_fill 이면 예전처럼 add_redact_annot(rect) 단독(흰 fill 기본값).
+    """
+    r = rect.normalize()
+    if r.is_empty:
+        return
+
+    tac = getattr(fitz, "TEXT_ALIGN_CENTER", 1)
+    fs = float(max(fontsize, 4.0))
+
+    if plain_old_white_fill:
+        page.add_redact_annot(r)
+        return
+
+    blob = (replacement_glyph or " ")[:1]
+    exc: Exception | None = None
+    for fname in _redact_fontname_candidates(span_font):
+        try:
+            if fname is None:
+                page.add_redact_annot(
+                    r,
+                    text=blob,
+                    fontsize=fs,
+                    align=tac,
+                    fill=False,
+                    text_color=rgb,
+                    cross_out=False,
+                )
+            else:
+                page.add_redact_annot(
+                    r,
+                    text=blob,
+                    fontname=fname,
+                    fontsize=fs,
+                    align=tac,
+                    fill=False,
+                    text_color=rgb,
+                    cross_out=False,
+                )
+            return
+        except Exception as e:
+            exc = e
+            continue
+
+    try:
+        page.add_redact_annot(r, fill=False)
+        return
+    except Exception:
+        if exc:
+            raise exc
+        raise
+
+
+# (rect, fontsize, span_font_raw, pdf_color_int) — 선택 가사 1글자.
+LyricGlyph = tuple[fitz.Rect, float, str | None, int]
+
+
+def _collect_lyric_glyphs_and_music_rects(
     page: fitz.Page,
     clip: fitz.Rect,
     lyric_pad_pt: float,
     music_pad_pt: float,
-) -> tuple[list[fitz.Rect], list[fitz.Rect]]:
-    """rawdict 한 번으로 가사·음표 후보 글림 bbox 각각 모은다."""
-    lyric_rects: list[fitz.Rect] = []
+) -> tuple[list[LyricGlyph], list[fitz.Rect]]:
+    """rawdict 한 번으로 가사 글림(메타 포함)·음표 후보 텍스트 글림 bbox."""
+    lyric_glyphs: list[LyricGlyph] = []
     music_rects: list[fitz.Rect] = []
     td = _rawdict_clip(page, clip)
     for block in td.get("blocks") or []:
@@ -121,6 +231,9 @@ def _collect_lyrics_and_music_glyph_rects(
             continue
         for line in block.get("lines") or []:
             for sp in line.get("spans") or []:
+                fsize = float(sp.get("size") or 10)
+                sfont = sp.get("font")
+                pdf_color_i = sp.get("color")
                 chars = sp.get("chars") or []
                 if chars:
                     for ch in chars:
@@ -136,7 +249,9 @@ def _collect_lyrics_and_music_glyph_rects(
                             music_rects.append(_rect_expand(r, music_pad_pt))
                             continue
                         if _char_strip_as_lyric_overlay(s):
-                            lyric_rects.append(_rect_expand(r, lyric_pad_pt))
+                            rx = _rect_expand(r, lyric_pad_pt).normalize()
+                            if not rx.is_empty:
+                                lyric_glyphs.append((rx, fsize, sfont, pdf_color_i if pdf_color_i is not None else 0))
                 else:
                     txt = sp.get("text") or ""
                     bb = sp.get("bbox")
@@ -144,30 +259,33 @@ def _collect_lyrics_and_music_glyph_rects(
                         continue
                     sx0, sy0, sx1, sy1 = bb
                     dw = max((sx1 - sx0) / len(txt), 0.001)
+                    pdf_color_i = sp.get("color")
+                    if pdf_color_i is None:
+                        pdf_color_i = 0
                     for i, cu in enumerate(txt):
-                        r = fitz.Rect(sx0 + i * dw, sy0, sx0 + (i + 1) * dw, sy1).normalize()
-                        if r.is_empty:
+                        cr = fitz.Rect(sx0 + i * dw, sy0, sx0 + (i + 1) * dw, sy1).normalize()
+                        if cr.is_empty:
                             continue
                         cp = ord(cu)
                         if _char_is_music_glyph(cp):
-                            music_rects.append(_rect_expand(r, music_pad_pt))
+                            music_rects.append(_rect_expand(cr, music_pad_pt))
                             continue
                         if _char_strip_as_lyric_overlay(cu):
-                            lyric_rects.append(_rect_expand(r, lyric_pad_pt))
-    return lyric_rects, music_rects
+                            rx = _rect_expand(cr, lyric_pad_pt).normalize()
+                            if not rx.is_empty:
+                                lyric_glyphs.append((rx, fsize, sfont, pdf_color_i))
 
 
-def _lyric_redacts_skip_music_overlap(lyric_rects: list[fitz.Rect], music_rects: list[fitz.Rect]) -> list[fitz.Rect]:
-    """리덕 직후 음표 텍스트가 같이 증발하는 경우를 줄이기: 음표 글림과 겹치는 가사 리덕 후보 제거."""
-    if not lyric_rects or not music_rects:
-        return list(lyric_rects)
-    out: list[fitz.Rect] = []
-    for r in lyric_rects:
+def _lyric_glyphs_skip_music_overlap(items: list[LyricGlyph], music_rects: list[fitz.Rect]) -> list[LyricGlyph]:
+    if not items or not music_rects:
+        return list(items)
+    out: list[LyricGlyph] = []
+    for r, fs, sf, ci in items:
         if r.normalize().is_empty:
             continue
         if any(r.intersects(m) for m in music_rects):
             continue
-        out.append(r)
+        out.append((r, fs, sf, ci))
     return out
 
 
@@ -215,6 +333,10 @@ def mask_pdf(pdf_in, pdf_out, json_path):
 
         redact_rects: dict[int, list[fitz.Rect]] = {}
         white_rects: dict[int, list[fitz.Rect]] = {}
+        lyric_glyphs_by_page: dict[int, list[LyricGlyph]] = {}
+
+        lyric_plain_redact_white = _env_truthy("MASK_PDF_LYRIC_PLAIN_REDACT")
+        lyric_blank_glyph = _replacement_blank_glyph()
 
         for item in data:
             item_type = item.get("type", "unknown")
@@ -232,11 +354,11 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             is_lyrics = item_type == "lyrics"
             if is_lyrics and lyric_selective and _rect_has_vector_text(page, rect):
                 scan = _clip_vertical_grow_into_page(rect, page, staff_scan)
-                lyric_rects, music_rects = _collect_lyrics_and_music_glyph_rects(page, scan, lyric_pad, music_pad)
+                lyric_glyphs, music_rects = _collect_lyric_glyphs_and_music_rects(page, scan, lyric_pad, music_pad)
                 if music_safe_overlap and music_rects:
-                    lyric_rects = _lyric_redacts_skip_music_overlap(lyric_rects, music_rects)
-                if lyric_rects:
-                    redact_rects.setdefault(page_idx, []).extend(lyric_rects)
+                    lyric_glyphs = _lyric_glyphs_skip_music_overlap(lyric_glyphs, music_rects)
+                if lyric_glyphs:
+                    lyric_glyphs_by_page.setdefault(page_idx, []).extend(lyric_glyphs)
                     continue
                 if lyric_white_fallback:
                     white_rects.setdefault(page_idx, []).append(rect)
@@ -247,10 +369,24 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             else:
                 white_rects.setdefault(page_idx, []).append(rect)
 
-        for page_idx, rects in redact_rects.items():
+        pages_with_redact = sorted(set(redact_rects.keys()) | set(lyric_glyphs_by_page.keys()))
+        for page_idx in pages_with_redact:
             page = doc[page_idx]
-            for r in rects:
+            for r2, fsize, span_font, color_i in lyric_glyphs_by_page.get(page_idx, []):
+                _add_lyric_glyph_redaction(
+                    page,
+                    r2,
+                    fontsize=fsize,
+                    span_font=span_font,
+                    rgb=_pdf_color_int_to_rgb(color_i),
+                    plain_old_white_fill=lyric_plain_redact_white,
+                    replacement_glyph=lyric_blank_glyph,
+                )
+            for r in redact_rects.get(page_idx, []):
                 page.add_redact_annot(r)
+
+            rects_fallback = redact_rects.get(page_idx, []) or []
+
             try:
                 page.apply_redactions(
                     images=_PDF_REDACT_IMAGE_NONE,
@@ -261,7 +397,10 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                 for annot in list(page.annots() or []):
                     if annot.type[1] == "Redact":
                         page.delete_annot(annot)
-                for r in rects:
+                lyric_fb = lyric_glyphs_by_page.get(page_idx, [])
+                for r2, _fs, _sf, _ci in lyric_fb:
+                    page.draw_rect(r2, color=(1, 1, 1), fill=(1, 1, 1))
+                for r in rects_fallback:
                     page.draw_rect(r, color=(1, 1, 1), fill=(1, 1, 1))
 
         for page_idx, rects in white_rects.items():

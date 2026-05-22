@@ -275,6 +275,8 @@ def _collect_lyric_glyphs_and_music_rects(
                             if not rx.is_empty:
                                 lyric_glyphs.append((rx, fsize, sfont, pdf_color_i))
 
+    return lyric_glyphs, music_rects
+
 
 def _lyric_glyphs_skip_music_overlap(items: list[LyricGlyph], music_rects: list[fitz.Rect]) -> list[LyricGlyph]:
     if not items or not music_rects:

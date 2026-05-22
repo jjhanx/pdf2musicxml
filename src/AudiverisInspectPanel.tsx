@@ -365,6 +365,9 @@ type Props = {
 export function AudiverisInspectPanel({ jobId, onClose }: Props) {
   const [summary, setSummary] = useState<InspectSummary | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [summaryBusy, setSummaryBusy] = useState(true);
+  const [pngFailOrig, setPngFailOrig] = useState(false);
+  const [pngFailMasked, setPngFailMasked] = useState(false);
   const [page, setPage] = useState(1);
   const [dpi, setDpi] = useState(132);
   const [rawXml, setRawXml] = useState<string | null>(null);
@@ -372,6 +375,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
   const [scoreZoom, setScoreZoom] = useState(0.6);
 
   const refreshSummary = useCallback(async () => {
+    setSummaryBusy(true);
     setErr(null);
     try {
       const r = await fetch(`/api/diagnostic/${jobId}/summary`, { cache: 'no-store' });
@@ -392,6 +396,8 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setSummary(null);
+    } finally {
+      setSummaryBusy(false);
     }
   }, [jobId]);
 
@@ -414,18 +420,6 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
     }
   }, [jobId]);
 
-  useEffect(() => {
-    void refreshSummary();
-  }, [refreshSummary]);
-
-  useEffect(() => {
-    if (!summary?.scoreMusicXmlAvailable) {
-      setRawXml(null);
-      return;
-    }
-    void refreshScore();
-  }, [summary?.scoreMusicXmlAvailable, refreshScore]);
-
   const parts = rawXml ? parseScoreParts(rawXml) : [];
   const filteredXml = rawXml ? filterMusicXmlToPart(rawXml, partId || null) : '';
 
@@ -438,8 +432,35 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
       ? `/api/diagnostic/${jobId}/page/${page}/png?source=masked&dpi=${dpi}`
       : '';
 
+  useEffect(() => {
+    void refreshSummary();
+  }, [refreshSummary]);
+
+  useEffect(() => {
+    setPngFailOrig(false);
+    setPngFailMasked(false);
+  }, [origSrc, maskedSrc]);
+
+  useEffect(() => {
+    if (!summary?.scoreMusicXmlAvailable) {
+      setRawXml(null);
+      return;
+    }
+    void refreshScore();
+  }, [summary?.scoreMusicXmlAvailable, refreshScore]);
+
   return (
-    <div className="audiveris-inspect-root" style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '85vh' }}>
+    <div
+      className="audiveris-inspect-root"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        minHeight: 200,
+        minWidth: 0,
+        overflowX: 'hidden',
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h3 style={{ margin: '0 0 6px', color: 'var(--text-color, #e8eaed)' }}>마스킹·Audiveris 인식 점검</h3>
@@ -463,6 +484,12 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
           </button>
         </div>
       </div>
+
+      {summaryBusy && !summary && !err && (
+        <div className="status" style={{ margin: 0 }}>
+          작업 요약을 불러오는 중…
+        </div>
+      )}
 
       {err && (
         <div className="status err" style={{ margin: 0 }}>
@@ -620,32 +647,86 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
           gap: 12,
           flex: 1,
           minHeight: 280,
-          overflow: 'hidden',
+          minWidth: 0,
+          overflow: 'auto',
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-color, #e8eaed)' }}>원본 PDF (페이지 {page})</div>
           {origSrc ? (
-            <img
-              key={origSrc}
-              src={origSrc}
-              alt={`원본 ${page}p`}
-              style={{ maxWidth: '100%', height: 'auto', border: '1px solid #ccc', borderRadius: 4 }}
-            />
+            <>
+              <div
+                style={{
+                  background: '#eef0f3',
+                  borderRadius: 4,
+                  border: '1px solid #bdc1c6',
+                  overflow: 'auto',
+                  maxHeight: 'min(72vh, 920px)',
+                }}
+              >
+                <img
+                  key={origSrc}
+                  src={origSrc}
+                  alt={`원본 ${page}p`}
+                  decoding="async"
+                  loading="lazy"
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 'auto',
+                    minHeight: 60,
+                  }}
+                  onLoad={() => setPngFailOrig(false)}
+                  onError={() => setPngFailOrig(true)}
+                />
+              </div>
+              {pngFailOrig && (
+                <div className="err" style={{ fontSize: '0.82rem', lineHeight: 1.35 }}>
+                  원본 페이지 PNG 미리보기 로드 실패. 서버의 <code style={{ fontSize: '0.76rem' }}>pdf_diagnostic.py</code>·Python 실행 경로·캐시(
+                  <code style={{ fontSize: '0.76rem' }}>.diag-cache/</code>)를 확인하거나 DPI를 바꿔 다시 불러오세요.
+                </div>
+              )}
+            </>
           ) : (
-            <div className="sub">이미지 없음</div>
+            <div className="sub">{summaryBusy ? '…' : '이미지 없음'}</div>
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-color, #e8eaed)' }}>마스킹 PDF (페이지 {page})</div>
           {!summary?.maskedPdf.exists && <div className="sub">마스킹 파일 없음 — 비교 불가</div>}
           {summary?.maskedPdf.exists && maskedSrc && (
-            <img
-              key={maskedSrc}
-              src={maskedSrc}
-              alt={`마스킹 ${page}p`}
-              style={{ maxWidth: '100%', height: 'auto', border: '1px solid #ccc', borderRadius: 4 }}
-            />
+            <>
+              <div
+                style={{
+                  background: '#eef0f3',
+                  borderRadius: 4,
+                  border: '1px solid #bdc1c6',
+                  overflow: 'auto',
+                  maxHeight: 'min(72vh, 920px)',
+                }}
+              >
+                <img
+                  key={maskedSrc}
+                  src={maskedSrc}
+                  alt={`마스킹 ${page}p`}
+                  decoding="async"
+                  loading="lazy"
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 'auto',
+                    minHeight: 60,
+                  }}
+                  onLoad={() => setPngFailMasked(false)}
+                  onError={() => setPngFailMasked(true)}
+                />
+              </div>
+              {pngFailMasked && (
+                <div className="err" style={{ fontSize: '0.82rem', lineHeight: 1.35 }}>
+                  마스킹 페이지 PNG 미리보기 로드 실패. 마스킹 PDF 저장이 깨졌거나 래스터화에 실패했을 수 있습니다. 위쪽「요약 새로고침」 후 DPI를 바꿔 보거나, 마스킹 PDF 링크로 직접 열어 확인하세요.
+                </div>
+              )}
+            </>
           )}
         </div>
         {summary?.scoreMusicXmlAvailable && (

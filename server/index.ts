@@ -921,11 +921,17 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
   try {
     const cacheDir = path.join(job.sessionRoot, '.diag-cache');
     await fs.mkdir(cacheDir, { recursive: true });
-    const cacheFile = path.join(cacheDir, `p${page}-${source}-dpi${dpi}.png`);
+    const cacheFile = path.join(cacheDir, `p${page}-${source}-dpi${dpi}-rgb-v2.png`);
     let needRender = true;
     if (fsSync.existsSync(cacheFile)) {
       const [stPdf, stPng] = await Promise.all([fs.stat(pdfPath), fs.stat(cacheFile)]);
       if (stPng.mtimeMs >= stPdf.mtimeMs) needRender = false;
+    }
+    try {
+      const st = fsSync.statSync(cacheFile);
+      if (st.size < 64) needRender = true;
+    } catch {
+      needRender = true;
     }
     if (needRender) {
       const script = path.join(__dirname, '..', 'scripts', 'pdf_diagnostic.py');

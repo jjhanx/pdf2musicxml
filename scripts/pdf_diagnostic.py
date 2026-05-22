@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 
@@ -49,7 +50,13 @@ def main() -> None:
         page = doc[idx]
         zoom = dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat, alpha=False)
+        # colorspace를 RGB로 고정(일부 DeviceCMYK·특수 색공간 PDF가 기본 래스터에서 검게 나오는 경우 완화)
+        try:
+            if os.path.isfile(out_png):
+                os.remove(out_png)
+        except OSError:
+            pass
+        pix = page.get_pixmap(matrix=mat, alpha=False, colorspace="rgb")
         pix.save(out_png)
         doc.close()
         return

@@ -1190,7 +1190,7 @@ export default function App() {
         >
           <div
             style={{
-              background: 'var(--card-bg, #fff)',
+              background: audiverisModalTab === 'inspect' ? '#1e222a' : '#fff',
               padding: '1.75rem',
               borderRadius: '8px',
               maxWidth: audiverisModalTab === 'inspect' ? '96vw' : '520px',
@@ -1198,6 +1198,7 @@ export default function App() {
               maxHeight: '92vh',
               overflow: 'auto',
               boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+              border: audiverisModalTab === 'inspect' ? '1px solid #2e3440' : undefined,
             }}
           >
             <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>

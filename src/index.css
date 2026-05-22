@@ -204,9 +204,17 @@ button.btn-muted {
   word-break: break-all;
 }
 
+.task-table td:nth-child(3) {
+  min-width: 12rem;
+  width: 55%;
+}
+
 .task-err {
-  display: inline-block;
-  max-width: 240px;
+  display: block;
+  max-width: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .task-status-running {

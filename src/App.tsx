@@ -930,8 +930,7 @@ export default function App() {
                     {t.phase === 'error' && (
                       <>
                         <span className="err task-err" title={t.errorMessage}>
-                          {t.errorMessage?.slice(0, 80)}
-                          {(t.errorMessage?.length ?? 0) > 80 ? '…' : ''}
+                          {t.errorMessage ?? ''}
                         </span>
                         {t.jobId && (
                           <>

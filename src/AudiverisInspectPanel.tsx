@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 
 export type InspectSummary = {
@@ -52,19 +52,127 @@ function filterMusicXmlToPart(xml: string, partId: string | null): string {
   }
 }
 
+const OSMD_RENDER_MIN_WIDTH = 56;
+const OSMD_WIDTH_RAF_RETRIES = 90;
+
+/** Clears OSMD output and replaces with inline error message. */
+function showOsmdHostError(host: HTMLDivElement, message: string) {
+  host.innerHTML = '';
+  const d = document.createElement('div');
+  d.style.cssText =
+    'padding:14px;font-size:0.86rem;line-height:1.5;color:#b71c1c;white-space:pre-wrap;word-break:break-word;';
+  d.textContent = message;
+  host.appendChild(d);
+}
+
+function appendOsmdWidthHint(host: HTMLDivElement) {
+  if (host.querySelector('[data-osmd-warn="width"]')) return;
+  const d = document.createElement('div');
+  d.dataset.osmdWarn = 'width';
+  d.style.cssText =
+    'padding:8px 10px;margin:0;font-size:0.81rem;line-height:1.4;color:#664d03;background:#fffbeb;border-bottom:1px solid #fcd34d;';
+  d.textContent =
+    '미리보기 영역 폭이 아직 거의 비어 있습니다. 패널·창을 조금 더 넓히면 악보가 그려지며, 또는 PNG 줄만 비교해도 마스킹을 확인할 수 있습니다.';
+  host.insertBefore(d, host.firstChild);
+}
+
+/**
+ * Wait for nonzero layout width then call OSMD.render; catch layout bugs realValue/octave-shift.
+ * ResizeObserver retries if the modal column stayed at ~0 CSS width briefly.
+ */
+function scheduleOsmdRender(opts: {
+  host: HTMLDivElement;
+  osmd: OpenSheetMusicDisplay;
+  zoom: number;
+  isStale: () => boolean;
+  onPaintFailure: () => void;
+  roRef: MutableRefObject<ResizeObserver | null>;
+}) {
+  const { host, osmd, zoom, isStale, onPaintFailure, roRef } = opts;
+
+  const disconnectRo = () => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+  };
+
+  const tryPaint = () => {
+    if (isStale()) return;
+    try {
+      osmd.zoom = zoom;
+      osmd.render();
+      host.querySelector('[data-osmd-warn="width"]')?.remove();
+    } catch (e) {
+      try {
+        osmd.clear();
+      } catch {
+        /* ignore */
+      }
+      const msg = e instanceof Error ? e.message : String(e);
+      showOsmdHostError(
+        host,
+        `악보를 그리는 중 오류가 났습니다: ${msg}. (예: \`realValue\` 관련 크래시는 일부 옥타브·표창 처리에서 OSMD가 깨지는 경우가 있습니다.) PNG 비교는 계속 이용할 수 있습니다.`,
+      );
+      disconnectRo();
+      onPaintFailure();
+    }
+  };
+
+  let tries = 0;
+  const tick = () => {
+    if (isStale()) return;
+    tries += 1;
+    const w = host.getBoundingClientRect().width;
+    if (w < OSMD_RENDER_MIN_WIDTH && tries < OSMD_WIDTH_RAF_RETRIES) {
+      requestAnimationFrame(tick);
+      return;
+    }
+    if (w < OSMD_RENDER_MIN_WIDTH) {
+      appendOsmdWidthHint(host);
+      disconnectRo();
+      const ro = new ResizeObserver(() => {
+        if (isStale()) {
+          disconnectRo();
+          return;
+        }
+        if (host.getBoundingClientRect().width >= OSMD_RENDER_MIN_WIDTH) {
+          disconnectRo();
+          host.querySelector('[data-osmd-warn="width"]')?.remove();
+          requestAnimationFrame(tryPaint);
+        }
+      });
+      roRef.current = ro;
+      ro.observe(host);
+      return;
+    }
+    tryPaint();
+  };
+  requestAnimationFrame(tick);
+}
+
 function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const zoomRef = useRef(zoom);
+  const xmlGenRef = useRef(0);
+  /** Invalidates overlapping RAF/resize paint attempts (load-complete vs zoom). */
+  const paintSeqRef = useRef(0);
+  const roRef = useRef<ResizeObserver | null>(null);
 
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
 
   useEffect(() => {
+    const disconnectRo = () => {
+      roRef.current?.disconnect();
+      roRef.current = null;
+    };
+
     const host = hostRef.current;
     if (!host || !xml.trim()) return;
 
+    disconnectRo();
+    const gen = ++xmlGenRef.current;
     host.innerHTML = '';
     let osmd: OpenSheetMusicDisplay;
     try {
@@ -85,12 +193,22 @@ function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
     osmdRef.current = osmd;
 
     let cancelled = false;
+    const stale = () => cancelled || gen !== xmlGenRef.current;
     void osmd
       .load(xml)
       .then(() => {
-        if (cancelled) return;
-        osmd.zoom = zoomRef.current;
-        osmd.render();
+        if (stale() || !host) return;
+        const seq = ++paintSeqRef.current;
+        scheduleOsmdRender({
+          host,
+          osmd,
+          zoom: zoomRef.current,
+          isStale: () => stale() || seq !== paintSeqRef.current || !host.isConnected,
+          onPaintFailure: () => {
+            osmdRef.current = null;
+          },
+          roRef,
+        });
       })
       .catch((loadErr: unknown) => {
         if (cancelled || !host) return;
@@ -112,23 +230,48 @@ function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
 
     return () => {
       cancelled = true;
+      disconnectRo();
       osmd.clear();
       osmdRef.current = null;
     };
   }, [xml]);
 
   useEffect(() => {
+    const host = hostRef.current;
     const osmd = osmdRef.current;
-    if (!osmd || !osmd.IsReadyToRender()) return;
-    osmd.zoom = zoom;
-    osmd.render();
+    const gen = xmlGenRef.current;
+    const seq = ++paintSeqRef.current;
+
+    if (!host || !osmd || !osmd.IsReadyToRender()) return;
+    scheduleOsmdRender({
+      host,
+      osmd,
+      zoom,
+      isStale: () =>
+        gen !== xmlGenRef.current ||
+        seq !== paintSeqRef.current ||
+        !host ||
+        !host.isConnected ||
+        !osmdRef.current?.IsReadyToRender(),
+      onPaintFailure: () => {
+        osmdRef.current = null;
+      },
+      roRef,
+    });
   }, [zoom]);
 
   return (
     <div
       ref={hostRef}
       className="audiveris-inspect-osmd"
-      style={{ minHeight: 160, overflow: 'auto', border: '1px solid #ddd', borderRadius: 6, background: '#fff' }}
+      style={{
+        minHeight: 160,
+        minWidth: 'min(100%, 260px)',
+        overflow: 'auto',
+        border: '1px solid #ddd',
+        borderRadius: 6,
+        background: '#fff',
+      }}
     />
   );
 }
@@ -700,7 +843,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
                   src={origSrc}
                   alt={`원본 ${page}p`}
                   decoding="async"
-                  loading="lazy"
+                  loading="eager"
                   style={{
                     display: 'block',
                     width: '100%',
@@ -741,7 +884,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
                   src={maskedSrc}
                   alt={`마스킹 ${page}p`}
                   decoding="async"
-                  loading="lazy"
+                  loading="eager"
                   style={{
                     display: 'block',
                     width: '100%',

@@ -72,6 +72,7 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `MASK_PDF_LYRIC_STAFF_SCAN_PAD_PT` | (선택) 가사 검토 박스 위·아래로 벌려 음표 글림을 찾을 범위 pt(기본 `40`). |
 | `MASK_PDF_LYRIC_PLAIN_REDACT` | (선택) `1`이면 선택 **가사** 글림 리덕을 예전처럼 `add_redact_annot(bbox)`만 호출 (**기본 흰색 fill**)해 벡터 오선까지 가릴 수 있음. 디버깅·호환 때만 사용. |
 | `MASK_PDF_LYRIC_REPLACE_CHAR` | (선택) 가사 리덕 치환에 넣을 **한 글자**(기본 스페이스). UTF-8로 전각 공백 한 글자를 넣어 너비 유지 등을 시도할 수 있습니다. |
+| `MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK` | **`1`/true**(한글·Audiveris 파이프에 권장): 제목·가사 문자를 이미 JSON에 둔 뒤 **페이지 전체**에서 한글 완성형(U+AC00–U+D7A3)·텍스트만 추가 블랭크해 검토 bbox 밖 한글까지 지웁니다. **`MASK_PDF_LYRIC_SELECTIVE`(기본)일 때만 동작**(끄면 무시). SMuFL/PUA는 제외하고 `MASK_PDF_LYRIC_MUSIC_SAFE` 겹침 규칙은 그대로. |
 | `MASK_PDF_LYRIC_WHITE_FALLBACK` | (선택) `1`이면 가사 블록에서 글립 리덕을 하나도 못 만들 때 **전체 bbox 흰 박스** 폴백(기본 끔; 음표까지 가릴 수 있음). |
 
 품질·호환 이슈(한글 파일명, mxlplayer `realValue`, 마디 수 등)는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)를 참고하세요.
@@ -80,6 +81,8 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 
 ```bash
 export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
+# Korean pipeline: OCR text stays in JSON; blank remaining Hangul on masked Audiveris PDF:
+export MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK=1
 ```
 
 ### 서버 배포 요약 (운영)

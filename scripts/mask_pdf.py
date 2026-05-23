@@ -14,6 +14,9 @@ import fitz
 # 음표·SMuFL **텍스트 글림**과 가사의 **면적 비율**로 리덕 생략 여부를 정합니다(`MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP`).
 # 예전처럼 **교차만**으로 보호하면 `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT`.
 # 그 외(title 등): bbox 흰색 사각형 또는 (선택) 리덕.
+# 검토 원문은 JSON 등에 두고 Audiveris용 마스킹만 맞추려면 보통 **`MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK=1`** 로
+# 페이지 전체 한글 완성형(U+AC00–U+D7A3)을 추가 블랭크하여 박스 누락까지 걷어냅니다(SMuFL 텍스트는 제외됨).
+
 _PDF_REDACT_IMAGE_NONE = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
 _PDF_REDACT_LINE_ART_NONE = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
 _PDF_REDACT_TEXT_REMOVE = getattr(fitz, "PDF_REDACT_TEXT_REMOVE", 0)
@@ -58,6 +61,11 @@ def _char_is_music_glyph(cp: int) -> bool:
     if 0xF0000 <= cp <= 0xFFFFD or 0x100000 <= cp <= 0x10FFFD:
         return True
     return False
+
+
+def _is_hangul_syllable(cp: int) -> bool:
+    """한글 완성형 음절(U+AC00–U+D7A3). 검토 블록 밖 잔류 가사·제목 문자 제거 안전망으로 사용."""
+    return 0xAC00 <= cp <= 0xD7A3
 
 
 # 검토 가사 블록에서 제거 허용: 글자·숫자·공백 + 하이픈 계열뿐이라는 규칙에 맞게,
@@ -271,12 +279,26 @@ def _lyric_blocked_by_music_rect(lyric: fitz.Rect, music: fitz.Rect, *, min_over
 LyricGlyph = tuple[fitz.Rect, fitz.Rect, float, str | None, int]
 
 
+def _lyric_glyph_dedupe_key(g: LyricGlyph) -> tuple:
+    """동일 페이지에서 중복 리덕 추가 방지용(근접 좌표·폰트·색)."""
+    ov, rd, fs, sf, ci = g
+    r1 = ov.normalize()
+    r2 = rd.normalize()
+
+    def q(r: fitz.Rect) -> tuple[float, float, float, float]:
+        return round(r.x0, 2), round(r.y0, 2), round(r.x1, 2), round(r.y1, 2)
+
+    return (q(r1), q(r2), round(float(fs), 2), sf, int(ci or 0))
+
+
 def _collect_lyric_glyphs_and_music_rects(
     page: fitz.Page,
     clip: fitz.Rect,
     lyric_pad_pt: float,
     music_pad_pt: float,
     rawdict_flags: int,
+    *,
+    hangul_syllables_only: bool = False,
 ) -> tuple[list[LyricGlyph], list[fitz.Rect]]:
     """rawdict 한 번으로 가사 글림(메타 포함)·음표 후보 텍스트 글림 bbox."""
     lyric_glyphs: list[LyricGlyph] = []
@@ -303,6 +325,8 @@ def _collect_lyric_glyphs_and_music_rects(
                         cp = ord(s)
                         if _char_is_music_glyph(cp):
                             music_rects.append(_rect_expand(r, music_pad_pt))
+                            continue
+                        if hangul_syllables_only and not _is_hangul_syllable(cp):
                             continue
                         if _char_strip_as_lyric_overlay(s):
                             overlap_r = r.normalize()
@@ -336,6 +360,8 @@ def _collect_lyric_glyphs_and_music_rects(
                         cp = ord(cu)
                         if _char_is_music_glyph(cp):
                             music_rects.append(_rect_expand(cr, music_pad_pt))
+                            continue
+                        if hangul_syllables_only and not _is_hangul_syllable(cp):
                             continue
                         if _char_strip_as_lyric_overlay(cu):
                             overlap_cr = cr.normalize()
@@ -479,6 +505,41 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                 redact_rects.setdefault(page_idx, []).append(rect)
             else:
                 white_rects.setdefault(page_idx, []).append(rect)
+
+        # 검토 타입별로 원문은 이미 JSON에 있으므로, Audiveris용 마스킹 PDF에서는
+        # 페이지에 남은 한글 음절(검토 박스 누락 포함)까지 지워도 된다면 켭니다.
+        global_hangul = lyric_selective and _env_truthy("MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK")
+        if global_hangul:
+            for page_idx in range(len(doc)):
+                page = doc[page_idx]
+                scan = fitz.Rect(page.rect).normalize()
+                if scan.is_empty:
+                    continue
+                extra_gly, muz = _collect_lyric_glyphs_and_music_rects(
+                    page,
+                    scan,
+                    lyric_pad,
+                    music_pad,
+                    rawdict_flags,
+                    hangul_syllables_only=True,
+                )
+                if music_safe_overlap and muz:
+                    extra_gly = _lyric_glyphs_skip_music_overlap(
+                        extra_gly,
+                        muz,
+                        legacy_intersect=music_overlap_legacy_intersect,
+                        min_overlap_ratio=music_overlap_min,
+                    )
+                if not extra_gly:
+                    continue
+                bucket = lyric_glyphs_by_page.setdefault(page_idx, [])
+                seen_keys = {_lyric_glyph_dedupe_key(x) for x in bucket}
+                for g in extra_gly:
+                    k = _lyric_glyph_dedupe_key(g)
+                    if k in seen_keys:
+                        continue
+                    seen_keys.add(k)
+                    bucket.append(g)
 
         pages_with_redact = sorted(set(redact_rects.keys()) | set(lyric_glyphs_by_page.keys()))
         for page_idx in pages_with_redact:

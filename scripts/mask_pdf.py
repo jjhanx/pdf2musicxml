@@ -14,8 +14,8 @@ import fitz
 # 음표·SMuFL **텍스트 글림**과 가사의 **면적 비율**로 리덕 생략 여부를 정합니다(`MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP`).
 # 예전처럼 **교차만**으로 보호하면 `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT`.
 # 그 외(title 등): bbox 흰색 사각형 또는 (선택) 리덕.
-# 검토 원문은 JSON 등에 두고 Audiveris용 마스킹만 맞추려면 보통 **`MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK=1`** 로
-# 페이지 전체 한글 완성형(U+AC00–U+D7A3)을 추가 블랭크하여 박스 누락까지 걷어냅니다(SMuFL 텍스트는 제외됨).
+# 검토 원문은 JSON에 두고 Audiveris용 마스킹만 맞출 때는 **`MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK` 기본 켜짐**(`=0`으로 끔)으로
+# 페이지 전체 한글(완성형·자모·호환 자모) 텍스트를 추가 블랭크해 박스 누락 잔류를 줄입니다(SMuFL 제외).
 
 _PDF_REDACT_IMAGE_NONE = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
 _PDF_REDACT_LINE_ART_NONE = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
@@ -50,6 +50,35 @@ def _env_falsy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("0", "false", "no", "off")
 
 
+def _apply_page_redactions(page: fitz.Page) -> bool:
+    """
+    PyMuPDF `Page.apply_redactions` 기본 인자값이 images=PIXELS(2), graphics=IF_COVERED(1), text=REMOVE(0) 입니다.
+
+    kwargs를 부분만 넘기면 graphics/images가 위 기본으로 남아 **리덕 사각형과 맞닿은 오선·벡터 음표**가 깎일 수 있습니다.
+    성공 가능한 모든 경로에서 **항상 images·graphics·text를 세트로 고정**(벡터/이미지 무시·텍스트만 리덕)합니다.
+    """
+    img = int(_PDF_REDACT_IMAGE_NONE)
+    gra = int(_PDF_REDACT_LINE_ART_NONE)
+    txt = int(_PDF_REDACT_TEXT_REMOVE)
+    safe_kw: dict[str, int] = {"images": img, "graphics": gra, "text": txt}
+    try:
+        page.apply_redactions(**safe_kw)
+        return True
+    except TypeError:
+        pass
+    except ValueError:
+        pass
+    # 구버전: 키워드 미지원이면 순서대로 images, graphics, text.
+    try:
+        page.apply_redactions(img, gra, txt)
+        return True
+    except TypeError:
+        pass
+    except ValueError:
+        pass
+    return False
+
+
 def _char_is_music_glyph(cp: int) -> bool:
     """PDF 악보에 흔한 음표·잇단·SMuFL — 가사 선택 제거에서는 항상 보존."""
     if 0xE000 <= cp <= 0xF8FF:
@@ -66,6 +95,17 @@ def _char_is_music_glyph(cp: int) -> bool:
 def _is_hangul_syllable(cp: int) -> bool:
     """한글 완성형 음절(U+AC00–U+D7A3). 검토 블록 밖 잔류 가사·제목 문자 제거 안전망으로 사용."""
     return 0xAC00 <= cp <= 0xD7A3
+
+
+def _is_korean_overlay_glyph(cp: int) -> bool:
+    """글자 선택 마스킹에서 자주 등장하는 한글 블록(완성형·현대 자모·호환 자모)."""
+    if _is_hangul_syllable(cp):
+        return True
+    if 0x1100 <= cp <= 0x11FF:  # Hangul Jamo (조합형·자모)
+        return True
+    if 0x3131 <= cp <= 0x318E:  # Hangul Compatibility Jamo
+        return True
+    return False
 
 
 # 검토 가사 블록에서 제거 허용: 글자·숫자·공백 + 하이픈 계열뿐이라는 규칙에 맞게,
@@ -298,7 +338,7 @@ def _collect_lyric_glyphs_and_music_rects(
     music_pad_pt: float,
     rawdict_flags: int,
     *,
-    hangul_syllables_only: bool = False,
+    korean_overlay_only: bool = False,
 ) -> tuple[list[LyricGlyph], list[fitz.Rect]]:
     """rawdict 한 번으로 가사 글림(메타 포함)·음표 후보 텍스트 글림 bbox."""
     lyric_glyphs: list[LyricGlyph] = []
@@ -326,7 +366,7 @@ def _collect_lyric_glyphs_and_music_rects(
                         if _char_is_music_glyph(cp):
                             music_rects.append(_rect_expand(r, music_pad_pt))
                             continue
-                        if hangul_syllables_only and not _is_hangul_syllable(cp):
+                        if korean_overlay_only and not _is_korean_overlay_glyph(cp):
                             continue
                         if _char_strip_as_lyric_overlay(s):
                             overlap_r = r.normalize()
@@ -361,7 +401,7 @@ def _collect_lyric_glyphs_and_music_rects(
                         if _char_is_music_glyph(cp):
                             music_rects.append(_rect_expand(cr, music_pad_pt))
                             continue
-                        if hangul_syllables_only and not _is_hangul_syllable(cp):
+                        if korean_overlay_only and not _is_korean_overlay_glyph(cp):
                             continue
                         if _char_strip_as_lyric_overlay(cu):
                             overlap_cr = cr.normalize()
@@ -393,7 +433,7 @@ def _lyric_glyphs_skip_music_overlap(
         blocked = False
         for music_r in music_rects:
             if legacy_intersect:
-                blocked = rd.intersects(music_r)
+                blocked = overlap_r.intersects(music_r)
             else:
                 blocked = _lyric_blocked_by_music_rect(overlap_r, music_r, min_overlap_ratio=mor)
             if blocked:
@@ -436,18 +476,18 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         except ValueError:
             lyric_pad = 0
         try:
-            music_pad = float(os.environ.get("MASK_PDF_LYRIC_MUSIC_PAD_PT", "0.32") or 0.32)
+            music_pad = float(os.environ.get("MASK_PDF_LYRIC_MUSIC_PAD_PT", "0.12") or 0.12)
         except ValueError:
-            music_pad = 0.32
+            music_pad = 0.12
         music_overlap_legacy_intersect = _env_truthy("MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT")
         raw_mor = os.environ.get("MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP", "").strip()
         if raw_mor:
             try:
                 music_overlap_min = float(raw_mor)
             except ValueError:
-                music_overlap_min = 0.13
+                music_overlap_min = 0.09
         else:
-            music_overlap_min = 0.13
+            music_overlap_min = 0.09
         music_overlap_min = max(1e-4, min(0.95, music_overlap_min))
         try:
             staff_scan = float(os.environ.get("MASK_PDF_LYRIC_STAFF_SCAN_PAD_PT", "40") or 40)
@@ -507,8 +547,9 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                 white_rects.setdefault(page_idx, []).append(rect)
 
         # 검토 타입별로 원문은 이미 JSON에 있으므로, Audiveris용 마스킹 PDF에서는
-        # 페이지에 남은 한글 음절(검토 박스 누락 포함)까지 지워도 된다면 켭니다.
-        global_hangul = lyric_selective and _env_truthy("MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK")
+        # 페이지에 남은 한글(검토 박스 누락 포함)을 추가로 지웁니다. 기본 켜짐,
+        # `MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK=0` 으로 끕니다.
+        global_hangul = lyric_selective and not _env_falsy("MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK")
         if global_hangul:
             for page_idx in range(len(doc)):
                 page = doc[page_idx]
@@ -521,7 +562,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                     lyric_pad,
                     music_pad,
                     rawdict_flags,
-                    hangul_syllables_only=True,
+                    korean_overlay_only=True,
                 )
                 if music_safe_overlap and muz:
                     extra_gly = _lyric_glyphs_skip_music_overlap(
@@ -559,13 +600,13 @@ def mask_pdf(pdf_in, pdf_out, json_path):
 
             rects_fallback = redact_rects.get(page_idx, []) or []
 
-            try:
-                page.apply_redactions(
-                    images=_PDF_REDACT_IMAGE_NONE,
-                    graphics=_PDF_REDACT_LINE_ART_NONE,
-                    text=_PDF_REDACT_TEXT_REMOVE,
+            if not _apply_page_redactions(page):
+                print(
+                    "[mask_pdf] warn: apply_redactions unsupported; "
+                    "falling back to white rectangles (may hide noteheads). "
+                    "Upgrade PyMuPDF if possible.",
+                    file=sys.stderr,
                 )
-            except TypeError:
                 for annot in list(page.annots() or []):
                     if annot.type[1] == "Redact":
                         page.delete_annot(annot)

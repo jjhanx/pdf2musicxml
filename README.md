@@ -17,7 +17,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **진행 표시**: 업로드 단계와 Audiveris 단계의 진행 상황을 표시합니다(Audiveris 로그 형식에 따라 세부 진행은 제한적일 수 있음).
 - **한글 제목·가사(OCR)**: Audiveris는 글자에 Tesseract를 쓰며 **기본이 영어(`eng`)**라 한글 처리 시 **`AUDIVERIS_OCR_LANG`**(기본 `kor+eng`) 등을 맞춥니다. `kor.traineddata` 등은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「한글 인식 문제」류 절과 아래 환경 변수 표를 참고하세요.
 - **고해상도 OCR 및 벡터 PDF 직접 추출**: 검토 UI용 글자·좌표 추출은 예전처럼 항상 300 DPI OCR만 쓰면 서버 부하와 중단 위험이 컸습니다. 현재는 `PyMuPDF`로 **벡터 PDF**에 내장된 글자와 좌표를 우선 빠르게 읽고, 텍스트가 없는 **이미지 PDF**일 때만 300 DPI PaddleOCR로 대체 인식합니다.
-- **문자-악보 사전 매핑 및 마스킹 (Pre-Audiveris UI)**: Audiveris 악보 인식 전에 팝업을 띄워 인식된 글자들의 역할을 지정(`제목`, `작사가`, `가사`, **`템포(BPM)`** 등)합니다. **템포**로 지정한 영역은 마스킹되고, 검토한 BPM(예: `75`, `♩= 75`)은 `inject_ocr.py`가 첫 마디 MusicXML에 `<sound tempo="…">` 및 metronome으로 넣어 **재생기가 기본 120으로 도는 문제**를 줄입니다. 지정된 영역은 Audiveris에 넘어가기 전 **`mask_pdf.py`** 가 처리합니다. **가사** 블록(선택 리덕 모드 기본 켜짐)은 PyMuPDF로 **복사 가능한 텍스트 글림만** 하나씩 처리하며, `rawdict` 추출에 기본 포함되는 **SIDE_BEARINGS·ASCENDERS**(정확 bbox) 플래그로 과대 글림 bbox를 줄인 뒤, 기본값은 **`fill=False` + 공백(또는 `MASK_PDF_LYRIC_REPLACE_CHAR`) 치환**이라 **오선 등 벡터 위에 깔던 흰 리덕 박스**보다 표기가 더 잘 살아남습니다(`MASK_PDF_LYRIC_PLAIN_REDACT=1` 로 예전 흰 fill 리덕 복귀). MuPDF 특성상 **리덕 사각형과 bbox가 겹치는 텍스트**는 지울 수 있어(`set_small_glyph_heights`), **음표·SMuFL 텍스트 글림과 가사 글림이 면적으로 충분히 겹치면**(`MASK_PDF_LYRIC_MUSIC_SAFE` 기본값) 해당 가사 한 글자만 리덕을 생략합니다(예전처럼 살짝만 맞닿아도 치워 줬던 동작은 `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT=1`). 생략된 글자는 남습니다. 전체 가사 영역을 흰 박스로만 덮는 폴백은 `MASK_PDF_LYRIC_WHITE_FALLBACK=1`입니다. 가사 블록을 통째로 흰 박스로만 덮으려면 `MASK_PDF_LYRIC_SELECTIVE=0`입니다. 제목·템포 등 다른 분류는 종전처럼 bbox 전체를 흰 박스(또는 선택 `MASK_PDF_TEXT_REDACT=1`)로 덮습니다. **가사**는 글자별 하이픈(`-`)으로 “이 음표는 가사 없음”을 표시할 수 있으며, MXL에 합칠 때 **파트 순번**, **가사 절**(1절·2절… → `<lyric number>`), **멜로디 줄**(MusicXML `<voice>`, 동시에 울리는 다른 선율용·1절/2절과 **다름**), **`*`**(문서 순 멜로디), **앞쪽 음표 생략**을 지정합니다. 블록 옆 **신뢰도**는 OCR 참고용입니다. 각 항목의 의미는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「검토 UI → MusicXML 가사 주입」절에 설명합니다.
+- **문자-악보 사전 매핑 및 마스킹 (Pre-Audiveris UI)**: Audiveris 악보 인식 전에 팝업을 띄워 인식된 글자들의 역할을 지정(`제목`, `작사가`, `가사`, **`템포(BPM)`** 등)합니다. **템포**로 지정한 영역은 마스킹되고, 검토한 BPM(예: `75`, `♩= 75`)은 `inject_ocr.py`가 첫 마디 MusicXML에 `<sound tempo="…">` 및 metronome으로 넣어 **재생기가 기본 120으로 도는 문제**를 줄입니다. 지정된 영역은 Audiveris에 넘어가기 전 **`mask_pdf.py`** 가 처리합니다. **가사** 블록(선택 리덕 모드 기본 켜짐)은 PyMuPDF로 **복사 가능한 텍스트 글림만** 하나씩 처리하며, `rawdict` 추출에 기본 포함되는 **SIDE_BEARINGS·ASCENDERS**(정확 bbox) 플래그로 과대 글림 bbox를 줄입니다. **`MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK`** 로 페이지 전역 한글 완성형·자모 추가 블랭크가 **기본 켜져** 있습니다(`0`/`false`/`off`로 끔). 리덕의 기본 형태는 **`fill=False` + 공백(또는 `MASK_PDF_LYRIC_REPLACE_CHAR`) 치환**이라 **오선 등 벡터 위에 깔던 흰 리덕 박스**보다 표기가 더 잘 살아남습니다(`MASK_PDF_LYRIC_PLAIN_REDACT=1` 로 예전 흰 fill 리덕 복귀). MuPDF 특성상 **리덕 사각형과 bbox가 겹치는 텍스트**는 지울 수 있어(`set_small_glyph_heights`), **음표·SMuFL 텍스트 글림과 가사 글림이 면적으로 충분히 겹치면**(`MASK_PDF_LYRIC_MUSIC_SAFE` 기본값) 해당 가사 한 글자만 리덕을 생략합니다(예전처럼 살짝만 맞닿아도 치워 줬던 동작은 `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT=1`). 생략된 글자는 남습니다. 전체 가사 영역을 흰 박스로만 덮는 폴백은 `MASK_PDF_LYRIC_WHITE_FALLBACK=1`입니다. 가사 블록을 통째로 흰 박스로만 덮으려면 `MASK_PDF_LYRIC_SELECTIVE=0`입니다. 제목·템포 등 다른 분류는 종전처럼 bbox 전체를 흰 박스(또는 선택 `MASK_PDF_TEXT_REDACT=1`)로 덮습니다. **가사**는 글자별 하이픈(`-`)으로 “이 음표는 가사 없음”을 표시할 수 있으며, MXL에 합칠 때 **파트 순번**, **가사 절**(1절·2절… → `<lyric number>`), **멜로디 줄**(MusicXML `<voice>`, 동시에 울리는 다른 선율용·1절/2절과 **다름**), **`*`**(문서 순 멜로디), **앞쪽 음표 생략**을 지정합니다. 블록 옆 **신뢰도**는 OCR 참고용입니다. 각 항목의 의미는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「검토 UI → MusicXML 가사 주입」절에 설명합니다.
 - **Audiveris 직후 보정**: 「Audiveris 직후 멈춤」을 켜면 **악보 인식 직후** MXL을 받아 MuseScore 등에서 음높이·음표를 확인한 뒤, 웹의 **Audiveris 결과 보정** 모달에서 **조옮김(반음)**·**교체 MXL**을 지정해 이어갈 수 있습니다(글자·가사 역할 검토 단계와는 별개). 조옮김은 **곡 전체가 같은 간격만큼만** 밀린 경우에 해당하고, 일부만 틀리면 편집 후 MXL 교체가 맞습니다. 자세한 설명은 동 문서 「Audiveris 직후 수동 보정」절을 참고하세요.
 - **결과 자동 저장**: UI에서 "결과 저장하기"를 체크하면 변환이 완료된 후 별도로 저장 버튼을 누르지 않아도 **자동으로 `.mxl` 파일이 다운로드**됩니다. (이전의 디버그 ZIP 다운로드 기능은 제거되었습니다.)
 - **비동기 변환(폴링)**: 변환(Audiveris)은 시간이 오래 걸리므로 **완료 후 곧바로 파일을 응답하지 않습니다.** `POST /api/convert`는 **PDF 수신·저장이 끝난 뒤** **HTTP 202** 와 `jobId`를 돌려주고, 실제 변환은 서버 백그라운드에서 돌아갑니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다. (과거에는 업로드 도중 202를 보내 일부 환경에서 본문 전송이 멈추는 문제가 있어, 202 시점을 저장 완료 후로 옮겼습니다.)
@@ -66,13 +66,13 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `MASK_PDF_LYRIC_CHAR_PAD_PT` | (선택) 가사 **리덕 annot** 에만 적용되는 bbox 확장 pt(겹침 판별은 글림의 tight bbox만 사용)(기본 `0`). 과하면 음표 머리까지 건드리므로 0 근처 권장. |
 | `MASK_PDF_LYRIC_TEXT_FLAGS` | (선택) `get_text('rawdict')` 에 넣을 **`flags`** 정수 bitmask(hex `0x…` 허용). 미설정 시 **ACCURATE_BBOXES \| SIDE_BEARINGS \| ASCENDERS**(구버전에는 있는 항목만)·편집기 과대 텍스트 Object bbox를 줄이는 목적. |
 | `MASK_PDF_LYRIC_MUSIC_SAFE` | (선택) `0`/`false`면 끔. **기본**: 음표·SMuFL **텍스트 글림**과 충분히 겹치는 가사만 리덕 생략(아래 **`MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP`**). |
-| `MASK_PDF_LYRIC_MUSIC_PAD_PT` | (선택) 음표 글림 bbox를 겹침 판정용으로 부풀리는 pt(기본 **`0.32`**; 위 플래그로 글림이 좁아진 경우 소폭 상향 가능). |
-| `MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP` | (선택) 겹침 면적 / min(가사·음표면적) 의 최소 비율 기본 **`0.13`** (낮추면 가사가 더 많이 지워지고 음표와만 살짝 맞닿았을 때는 지움 허용, 너무 낮추면 머리 손상 위험). |
+| `MASK_PDF_LYRIC_MUSIC_PAD_PT` | (선택) 음표(SMuFL)·텍스트 글림 bbox를 **겹침 판정용**으로 부풀리는 pt(기본 **`0.12`**; 크면 스킵이 늘어 가사 잔류가 생기기 쉬움). |
+| `MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP` | (선택) 겹침 면적 / min(가사·음표면적) 의 최소 비율 기본 **`0.09`** (낮추면 더 적극 블랭크 / 너무 낮추면 머리 손상 / 높이면 스킵으로 잔류). |
 | `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT` | `1`이면 **예전처럼** 교차만으로 가사 리덕 생략(`MIN_OVERLAP` 무시). 남은 가사가 많을 때 과거 동작 재현용. |
 | `MASK_PDF_LYRIC_STAFF_SCAN_PAD_PT` | (선택) 가사 검토 박스 위·아래로 벌려 음표 글림을 찾을 범위 pt(기본 `40`). |
 | `MASK_PDF_LYRIC_PLAIN_REDACT` | (선택) `1`이면 선택 **가사** 글림 리덕을 예전처럼 `add_redact_annot(bbox)`만 호출 (**기본 흰색 fill**)해 벡터 오선까지 가릴 수 있음. 디버깅·호환 때만 사용. |
 | `MASK_PDF_LYRIC_REPLACE_CHAR` | (선택) 가사 리덕 치환에 넣을 **한 글자**(기본 스페이스). UTF-8로 전각 공백 한 글자를 넣어 너비 유지 등을 시도할 수 있습니다. |
-| `MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK` | **`1`/true**(한글·Audiveris 파이프에 권장): 제목·가사 문자를 이미 JSON에 둔 뒤 **페이지 전체**에서 한글 완성형(U+AC00–U+D7A3)·텍스트만 추가 블랭크해 검토 bbox 밖 한글까지 지웁니다. **`MASK_PDF_LYRIC_SELECTIVE`(기본)일 때만 동작**(끄면 무시). SMuFL/PUA는 제외하고 `MASK_PDF_LYRIC_MUSIC_SAFE` 겹침 규칙은 그대로. |
+| `MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK` | **기본 켜짐**(`0`/`false`/`off`로 끔). JSON에 문자를 둔 뒤 **페이지 전체**에서 한글 완성형·현대·호환 자모(U+AC00–U+D7A3, U+1100–11FF, U+3131–318E) 텍스트를 추가 블랭크합니다. **`MASK_PDF_LYRIC_SELECTIVE` 기본일 때만** 동작. SMuFL/PUA 제외, `MASK_PDF_LYRIC_MUSIC_SAFE` 동일. |
 | `MASK_PDF_LYRIC_WHITE_FALLBACK` | (선택) `1`이면 가사 블록에서 글립 리덕을 하나도 못 만들 때 **전체 bbox 흰 박스** 폴백(기본 끔; 음표까지 가릴 수 있음). |
 
 품질·호환 이슈(한글 파일명, mxlplayer `realValue`, 마디 수 등)는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)를 참고하세요.
@@ -81,8 +81,7 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 
 ```bash
 export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
-# Korean pipeline: OCR text stays in JSON; blank remaining Hangul on masked Audiveris PDF:
-export MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK=1
+# 전역 한글 블랭크는 기본 켜짐. 끄려면: export MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK=0
 ```
 
 ### 서버 배포 요약 (운영)

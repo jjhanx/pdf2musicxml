@@ -72,7 +72,7 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT` | `1`이면 **예전처럼** 교차만으로 가사 리덕 생략(`MIN_OVERLAP` 무시). 남은 가사가 많을 때 과거 동작 재현용. |
 | `MASK_PDF_LYRIC_REDACT_PASSES` | 기본 **`2`**(범위 1–8). 1차 `apply_redactions` 후 페이지를 다시 읽어 한글 레이어 **잔류·이중 CID** 리덕. |
 | `MASK_PDF_LYRIC_REDACT_MIN_HEIGHT_PT` | 선택 가사 **리덕 사각형** 세로 최소 pt(기본 **`0.35`**, `0`=비활성). 부족할 때 **`y1`만 아래로** 늘립니다(**위쪽 패딩 없음**, 음표·온쉼표 SMuFL과의 오겹 리덕 방지). |
-| `MASK_PDF_LYRIC_REDACT_BBOX_HEIGHT_CAP_EM` | 리덕 대상 bbox 세로 높이가 **폰트×이 값(em)** 초과면(기본 **`1.42`**, **`0`**`=자르기 비활성`) 오선까지 잡은 과대 박스로 간주해 **`TALL_TAIL`** 높이의 **아래 띠**만 리덕합니다. |
+| `MASK_PDF_LYRIC_REDACT_BBOX_HEIGHT_CAP_EM` | 리덕 대상 bbox 세로 높이가 **폰트×이 값(em)** 초과면(기본 **1.42**, **`0`**이면 비활성) 오선까지 잡은 과대 박스로 간주해 **아래 띠**(높이는 `MASK_PDF_LYRIC_REDACT_TALL_TAIL_EM`)만 리덕합니다. |
 | `MASK_PDF_LYRIC_REDACT_TALL_TAIL_EM` | 위 cap이 걸릴 때 남길 세로 높이 = **폰트×이 값**(기본 **`1.14`**). |
 | `MASK_PDF_LYRIC_STAFF_SCAN_PAD_PT` | (선택) 가사 검토 박스 위·아래로 벌려 음표 글림을 찾을 범위 pt(기본 `40`). |
 | `MASK_PDF_LYRIC_PLAIN_REDACT` | (선택) `1`이면 선택 **가사** 글림 리덕을 예전처럼 `add_redact_annot(bbox)`만 호출 (**기본 흰색 fill**)해 벡터 오선까지 가릴 수 있음. 디버깅·호환 때만 사용. |

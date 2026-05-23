@@ -12,6 +12,7 @@ import fitz
 # `add_redact_annot(rect)` 만(기본 흰 fill) 쓰면 오선 등 벡터가 칠해져 음표가 사라진 것처럼 보일 수 있습니다.
 #
 # 음표·SMuFL **텍스트 글림**과 가사의 **면적 비율**로 리덕 생략 여부를 정합니다(`MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP`).
+# **한글(완성형·호환 자모)** 은 교착 잔류를 줄이려 기본적으로 이 검사를 건너뜁니다(`MASK_PDF_LYRIC_IGNORE_MUSIC_OVERLAP_FOR_KOREAN`).
 # 예전처럼 **교차만**으로 보호하면 `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT`.
 # 그 외(title 등): bbox 흰색 사각형 또는 (선택) 리덕.
 # 검토 원문은 JSON에 두고 Audiveris용 마스킹만 맞출 때는 **`MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK` 기본 켜짐**(`=0`으로 끔)으로
@@ -218,6 +219,26 @@ def _redact_fontname_candidates(span_font: str | None) -> list[str | None]:
     return out
 
 
+def _lyric_redact_rect_min_height(r: fitz.Rect, min_h_pt: float) -> fitz.Rect:
+    """
+    CID/세로폭이 극히 작은 글림은 리덕 박스가 얇아 엔진이 한 겹만 지우고 동일 위치의
+    중복 텍스트 레이어가 남는 사례가 있습니다. 최소 높이보다 낮으면 주로 **아래쪽**으로
+    늘립니다(가사는 음표 머리보다 아래에 오는 경우가 많음).
+    """
+    if min_h_pt <= 0:
+        return r.normalize()
+    rr = r.normalize()
+    if rr.is_empty:
+        return rr
+    h = rr.height
+    if h >= min_h_pt:
+        return rr
+    deficit = min_h_pt - h
+    up = deficit * 0.25
+    down = deficit * 0.75
+    return fitz.Rect(rr.x0, rr.y0 - up, rr.x1, rr.y1 + down).normalize()
+
+
 def _add_lyric_glyph_redaction(
     page: fitz.Page,
     rect: fitz.Rect,
@@ -292,7 +313,24 @@ def _rect_area(r: fitz.Rect) -> float:
         return float(max(0.0, w * h))
 
 
-def _lyric_blocked_by_music_rect(lyric: fitz.Rect, music: fitz.Rect, *, min_overlap_ratio: float) -> bool:
+def _lyric_overlap_den_area(r: fitz.Rect, fontsize: float) -> float:
+    """
+    SMALL GLYPH HEIGHTS 로 면적 la가 과소 추정되면 ia/la 가 비현실적으로 커져
+    MUSIC_SAFE 가 가사를 과도하게 스킵(찌꺼기 잔류)합니다. 폰크기 기준 하한 면적으로 보정합니다.
+    """
+    a = max(_rect_area(r.normalize()), 1e-12)
+    fs = max(float(fontsize), 6.0)
+    floor_sq = fs * fs * 0.04
+    return max(a, float(floor_sq))
+
+
+def _lyric_blocked_by_music_rect(
+    lyric: fitz.Rect,
+    music: fitz.Rect,
+    *,
+    min_overlap_ratio: float,
+    lyric_fontsize: float,
+) -> bool:
     """
     가사 글림(보통 패드 없음)과 확장된 음표 글림 bbox의 겹침이 충분할 때만
     「음표까지 지울 수 있음 → 가사 리덕 생략」으로 간주한다.
@@ -310,25 +348,26 @@ def _lyric_blocked_by_music_rect(lyric: fitz.Rect, music: fitz.Rect, *, min_over
     if inter.is_empty:
         return False
     ia = _rect_area(inter)
-    la = max(_rect_area(lyr), 1e-12)
+    la_eff = _lyric_overlap_den_area(lyr, lyric_fontsize)
     ma = max(_rect_area(mus), 1e-12)
-    return max(ia / la, ia / ma) >= float(min_overlap_ratio)
+    return max(ia / la_eff, ia / ma) >= float(min_overlap_ratio)
 
 
 # overlap_rect는 음표 겹침 판별용(tight bbox), redact_rect는 리덕 annot에 적용.
-LyricGlyph = tuple[fitz.Rect, fitz.Rect, float, str | None, int]
+# 마지막 str: 해당 글자(겹침 스킵 시 한글 전용 처리 등).
+LyricGlyph = tuple[fitz.Rect, fitz.Rect, float, str | None, int, str]
 
 
 def _lyric_glyph_dedupe_key(g: LyricGlyph) -> tuple:
     """동일 페이지에서 중복 리덕 추가 방지용(근접 좌표·폰트·색)."""
-    ov, rd, fs, sf, ci = g
+    ov, rd, fs, sf, ci, gh = g
     r1 = ov.normalize()
     r2 = rd.normalize()
 
     def q(r: fitz.Rect) -> tuple[float, float, float, float]:
         return round(r.x0, 2), round(r.y0, 2), round(r.x1, 2), round(r.y1, 2)
 
-    return (q(r1), q(r2), round(float(fs), 2), sf, int(ci or 0))
+    return (q(r1), q(r2), round(float(fs), 2), sf, int(ci or 0), gh[:1])
 
 
 def _collect_lyric_glyphs_and_music_rects(
@@ -381,6 +420,7 @@ def _collect_lyric_glyphs_and_music_rects(
                                         fsize,
                                         sfont,
                                         pdf_color_i if pdf_color_i is not None else 0,
+                                        s,
                                     )
                                 )
                 else:
@@ -409,7 +449,7 @@ def _collect_lyric_glyphs_and_music_rects(
                             if overlap_cr.is_empty:
                                 continue
                             if not rx.is_empty:
-                                lyric_glyphs.append((overlap_cr, rx, fsize, sfont, pdf_color_i))
+                                lyric_glyphs.append((overlap_cr, rx, fsize, sfont, pdf_color_i, cu))
 
     return lyric_glyphs, music_rects
 
@@ -420,27 +460,33 @@ def _lyric_glyphs_skip_music_overlap(
     *,
     legacy_intersect: bool,
     min_overlap_ratio: float,
+    bypass_music_overlap_for_korean_overlay: bool,
 ) -> list[LyricGlyph]:
     if not items or not music_rects:
         return list(items)
     out: list[LyricGlyph] = []
     mor = float(min_overlap_ratio)
     mor = max(1e-4, mor)
-    for overlap_r, redact_r, fs, sf, ci in items:
+    for overlap_r, redact_r, fs, sf, ci, gh in items:
         rd = redact_r.normalize()
         if rd.is_empty:
+            continue
+        if bypass_music_overlap_for_korean_overlay and len(gh) == 1 and _is_korean_overlay_glyph(ord(gh)):
+            out.append((overlap_r, rd, fs, sf, ci, gh))
             continue
         blocked = False
         for music_r in music_rects:
             if legacy_intersect:
                 blocked = overlap_r.intersects(music_r)
             else:
-                blocked = _lyric_blocked_by_music_rect(overlap_r, music_r, min_overlap_ratio=mor)
+                blocked = _lyric_blocked_by_music_rect(
+                    overlap_r, music_r, min_overlap_ratio=mor, lyric_fontsize=fs
+                )
             if blocked:
                 break
         if blocked:
             continue
-        out.append((overlap_r, rd, fs, sf, ci))
+        out.append((overlap_r, rd, fs, sf, ci, gh))
     return out
 
 
@@ -480,6 +526,11 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         except ValueError:
             music_pad = 0.12
         music_overlap_legacy_intersect = _env_truthy("MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT")
+        # 같은 가로 줄에 깔린 SMuFL·한글 글림 bbox가 과대하게 겹칠 때 MUSIC_SAFE 만으로 가사 한 글이 남습니다.
+        # 기본적으로 한글(완성형·호환 자모)은 겹침 스킵을 적용하지 않고 리덕합니다. `MASK_PDF_LYRIC_IGNORE_MUSIC_OVERLAP_FOR_KOREAN=0` 으로 끕니다.
+        korean_music_overlap_bypass = lyric_selective and not _env_falsy(
+            "MASK_PDF_LYRIC_IGNORE_MUSIC_OVERLAP_FOR_KOREAN"
+        )
         raw_mor = os.environ.get("MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP", "").strip()
         if raw_mor:
             try:
@@ -533,6 +584,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                         music_rects,
                         legacy_intersect=music_overlap_legacy_intersect,
                         min_overlap_ratio=music_overlap_min,
+                        bypass_music_overlap_for_korean_overlay=korean_music_overlap_bypass,
                     )
                 if lyric_glyphs:
                     lyric_glyphs_by_page.setdefault(page_idx, []).extend(lyric_glyphs)
@@ -570,6 +622,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                         muz,
                         legacy_intersect=music_overlap_legacy_intersect,
                         min_overlap_ratio=music_overlap_min,
+                        bypass_music_overlap_for_korean_overlay=korean_music_overlap_bypass,
                     )
                 if not extra_gly:
                     continue
@@ -582,23 +635,44 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                     seen_keys.add(k)
                     bucket.append(g)
 
+        try:
+            lyric_redact_passes = int(os.environ.get("MASK_PDF_LYRIC_REDACT_PASSES", "2") or 2)
+        except ValueError:
+            lyric_redact_passes = 2
+        lyric_redact_passes = max(1, min(8, lyric_redact_passes))
+
+        try:
+            min_redact_h = float(os.environ.get("MASK_PDF_LYRIC_REDACT_MIN_HEIGHT_PT", "0.35") or 0.35)
+        except ValueError:
+            min_redact_h = 0.35
+        min_redact_h = max(0.0, min(min_redact_h, 24.0))
+
         pages_with_redact = sorted(set(redact_rects.keys()) | set(lyric_glyphs_by_page.keys()))
-        for page_idx in pages_with_redact:
-            page = doc[page_idx]
-            for _ov, r2, fsize, span_font, color_i in lyric_glyphs_by_page.get(page_idx, []):
+        pages_with_lyric_glyphs = sorted(lyric_glyphs_by_page.keys())
+
+        def _apply_lyric_redactions_on_page(
+            page: fitz.Page,
+            pidx: int,
+            glyph_rows: list[LyricGlyph],
+            *,
+            first_pass: bool,
+        ) -> None:
+            for _ov, r2, fsize, span_font, color_i, _gh in glyph_rows:
+                r_adj = _lyric_redact_rect_min_height(r2, min_redact_h)
                 _add_lyric_glyph_redaction(
                     page,
-                    r2,
+                    r_adj,
                     fontsize=fsize,
                     span_font=span_font,
                     rgb=_pdf_color_int_to_rgb(color_i),
                     plain_old_white_fill=lyric_plain_redact_white,
                     replacement_glyph=lyric_blank_glyph,
                 )
-            for r in redact_rects.get(page_idx, []):
-                page.add_redact_annot(r)
+            if first_pass:
+                for r in redact_rects.get(pidx, []):
+                    page.add_redact_annot(r)
 
-            rects_fallback = redact_rects.get(page_idx, []) or []
+            rects_fallback = redact_rects.get(pidx, []) or [] if first_pass else []
 
             if not _apply_page_redactions(page):
                 print(
@@ -610,11 +684,47 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                 for annot in list(page.annots() or []):
                     if annot.type[1] == "Redact":
                         page.delete_annot(annot)
-                lyric_fb = lyric_glyphs_by_page.get(page_idx, [])
-                for _ov, r2, _fs, _sf, _ci in lyric_fb:
-                    page.draw_rect(r2, color=(1, 1, 1), fill=(1, 1, 1))
-                for r in rects_fallback:
-                    page.draw_rect(r, color=(1, 1, 1), fill=(1, 1, 1))
+                if first_pass:
+                    for _ov, r2, _fs, _sf, _ci, _gh in glyph_rows:
+                        page.draw_rect(_lyric_redact_rect_min_height(r2, min_redact_h), color=(1, 1, 1), fill=(1, 1, 1))
+                    for r in rects_fallback:
+                        page.draw_rect(r, color=(1, 1, 1), fill=(1, 1, 1))
+
+        for page_idx in pages_with_redact:
+            page = doc[page_idx]
+            rows0 = lyric_glyphs_by_page.get(page_idx, [])
+            _apply_lyric_redactions_on_page(page, page_idx, rows0, first_pass=True)
+
+        # 동일 어절이 PDF에 텍스트로 이중 삽입된 경우 1차 apply 후에만 두 번째 겹침이 드러나는 경우가 있어,
+        # 남은 글림을 다시 읽어 리덕합니다. (한글 전역 패스와 동일한 korean_overlay_only 규칙)
+        # 전역 한글 패스가 꺼지면 페이지 전역 재수집으로 제목·푸터 라틴까지 건드릴 수 있어,
+        # 두 번째 이후 패스는 기본적으로 global_hangul 일 때만 수행합니다.
+        if lyric_selective and lyric_redact_passes > 1 and pages_with_lyric_glyphs and global_hangul:
+            for _rip in range(1, lyric_redact_passes):
+                for page_idx in pages_with_lyric_glyphs:
+                    page = doc[page_idx]
+                    scan = fitz.Rect(page.rect).normalize()
+                    if scan.is_empty:
+                        continue
+                    again, muz = _collect_lyric_glyphs_and_music_rects(
+                        page,
+                        scan,
+                        lyric_pad,
+                        music_pad,
+                        rawdict_flags,
+                        korean_overlay_only=True,
+                    )
+                    if music_safe_overlap and muz:
+                        again = _lyric_glyphs_skip_music_overlap(
+                            again,
+                            muz,
+                            legacy_intersect=music_overlap_legacy_intersect,
+                            min_overlap_ratio=music_overlap_min,
+                            bypass_music_overlap_for_korean_overlay=korean_music_overlap_bypass,
+                        )
+                    if not again:
+                        continue
+                    _apply_lyric_redactions_on_page(page, page_idx, again, first_pass=False)
 
         for page_idx, rects in white_rects.items():
             page = doc[page_idx]

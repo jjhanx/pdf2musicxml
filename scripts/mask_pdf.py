@@ -9,8 +9,9 @@ import fitz
 # 가사(lyrics) 글림별 처리: 기본은 **흰 박스 fill 없이**(fill=False) **공백 치환**으로 글림만 빼려 시도함.
 # 예전처럼 add_redact_annot(rect) 단독 호출 시 MuPDF 기본 흰 fill이 오선 같은 **벡터 위를 덮어**
 # 비텍스트 음표가 “사라진 것처럼” 보일 수 있어, 선택 가사 경로에서는 이를 피함.
-# 음표·SMuFL **텍스트** 글림 bbox와 만나는 가사 후보는 그대로 살려 두면 일부 가사가 남을 수 있음
-# (복사 가능한 레이어만 대상 · 이미지 가사 불가는 동일).
+# 음표·SMuFL **텍스트** 글림과의 **면적 비율 기준** 차단(기본)·또는 레거시 교차만으로
+# 가사 리덕을 생략할 수 있음. 가로로만 스친 겹침은 가사 제거를 허용하고,
+# 실제 음표 글림 bbox와 가사 글림이 겹치면 생략하여 머리·깃발을 보호.
 # 그 외(title 등): bbox 흰 박스 또는 (옵션) 리덕 — 가사 선택 경로와 별개.
 _PDF_REDACT_IMAGE_NONE = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
 _PDF_REDACT_LINE_ART_NONE = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
@@ -65,6 +66,8 @@ def _char_strip_as_lyric_overlay(ch: str) -> bool:
         return True
     if cat == "Nd":
         return True
+    if cat == "No":
+        return True  # 다른 숫자(원문자 숫자·분수표기 등 일부 OCR)
     if cat == "Zs":
         return True
     if cat == "Nl":
@@ -212,8 +215,42 @@ def _add_lyric_glyph_redaction(
         raise
 
 
-# (rect, fontsize, span_font_raw, pdf_color_int) — 선택 가사 1글자.
-LyricGlyph = tuple[fitz.Rect, float, str | None, int]
+def _rect_area(r: fitz.Rect) -> float:
+    rn = r.normalize()
+    if rn.is_empty:
+        return 0.0
+    try:
+        return float(rn.get_area())
+    except Exception:
+        w, h = rn.width, rn.height
+        return float(max(0.0, w * h))
+
+
+def _lyric_blocked_by_music_rect(lyric: fitz.Rect, music: fitz.Rect, *, min_overlap_ratio: float) -> bool:
+    """
+    가사 글림(보통 패드 없음)과 확장된 음표 글림 bbox의 겹침이 충분할 때만
+    「음표까지 지울 수 있음 → 가사 리덕 생략」으로 간주한다.
+
+    과거처럼 intersect만 보면 가로로만 스친 깃발·플래그와도 겹치는 것처럼 잡혀
+    가사가 많이 남고, 반대로 리덕용으로 부풀린 bbox는 음표 머리까지 덮어버린다.
+
+    최소값 ~0.06 = 매우 예민한 보호 ~0.30 = 깃발 수준 가로 겹침은 무시하고 가사 제거 허용.
+    """
+    lyr = lyric.normalize()
+    mus = music.normalize()
+    if lyr.is_empty or mus.is_empty:
+        return False
+    inter = lyr & mus
+    if inter.is_empty:
+        return False
+    ia = _rect_area(inter)
+    la = max(_rect_area(lyr), 1e-12)
+    ma = max(_rect_area(mus), 1e-12)
+    return max(ia / la, ia / ma) >= float(min_overlap_ratio)
+
+
+# overlap_rect는 음표 겹침 판별용(tight bbox), redact_rect는 리덕 annot에 적용.
+LyricGlyph = tuple[fitz.Rect, fitz.Rect, float, str | None, int]
 
 
 def _collect_lyric_glyphs_and_music_rects(
@@ -249,9 +286,20 @@ def _collect_lyric_glyphs_and_music_rects(
                             music_rects.append(_rect_expand(r, music_pad_pt))
                             continue
                         if _char_strip_as_lyric_overlay(s):
+                            overlap_r = r.normalize()
                             rx = _rect_expand(r, lyric_pad_pt).normalize()
+                            if overlap_r.is_empty:
+                                continue
                             if not rx.is_empty:
-                                lyric_glyphs.append((rx, fsize, sfont, pdf_color_i if pdf_color_i is not None else 0))
+                                lyric_glyphs.append(
+                                    (
+                                        overlap_r,
+                                        rx,
+                                        fsize,
+                                        sfont,
+                                        pdf_color_i if pdf_color_i is not None else 0,
+                                    )
+                                )
                 else:
                     txt = sp.get("text") or ""
                     bb = sp.get("bbox")
@@ -271,23 +319,43 @@ def _collect_lyric_glyphs_and_music_rects(
                             music_rects.append(_rect_expand(cr, music_pad_pt))
                             continue
                         if _char_strip_as_lyric_overlay(cu):
+                            overlap_cr = cr.normalize()
                             rx = _rect_expand(cr, lyric_pad_pt).normalize()
+                            if overlap_cr.is_empty:
+                                continue
                             if not rx.is_empty:
-                                lyric_glyphs.append((rx, fsize, sfont, pdf_color_i))
+                                lyric_glyphs.append((overlap_cr, rx, fsize, sfont, pdf_color_i))
 
     return lyric_glyphs, music_rects
 
 
-def _lyric_glyphs_skip_music_overlap(items: list[LyricGlyph], music_rects: list[fitz.Rect]) -> list[LyricGlyph]:
+def _lyric_glyphs_skip_music_overlap(
+    items: list[LyricGlyph],
+    music_rects: list[fitz.Rect],
+    *,
+    legacy_intersect: bool,
+    min_overlap_ratio: float,
+) -> list[LyricGlyph]:
     if not items or not music_rects:
         return list(items)
     out: list[LyricGlyph] = []
-    for r, fs, sf, ci in items:
-        if r.normalize().is_empty:
+    mor = float(min_overlap_ratio)
+    mor = max(1e-4, mor)
+    for overlap_r, redact_r, fs, sf, ci in items:
+        rd = redact_r.normalize()
+        if rd.is_empty:
             continue
-        if any(r.intersects(m) for m in music_rects):
+        blocked = False
+        for music_r in music_rects:
+            if legacy_intersect:
+                blocked = rd.intersects(music_r)
+            else:
+                blocked = _lyric_blocked_by_music_rect(overlap_r, music_r, min_overlap_ratio=mor)
+            if blocked:
+                break
+        if blocked:
             continue
-        out.append((r, fs, sf, ci))
+        out.append((overlap_r, rd, fs, sf, ci))
     return out
 
 
@@ -323,9 +391,19 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         except ValueError:
             lyric_pad = 0
         try:
-            music_pad = float(os.environ.get("MASK_PDF_LYRIC_MUSIC_PAD_PT", "0.35") or 0.35)
+            music_pad = float(os.environ.get("MASK_PDF_LYRIC_MUSIC_PAD_PT", "0.28") or 0.28)
         except ValueError:
-            music_pad = 0.35
+            music_pad = 0.28
+        music_overlap_legacy_intersect = _env_truthy("MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT")
+        raw_mor = os.environ.get("MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP", "").strip()
+        if raw_mor:
+            try:
+                music_overlap_min = float(raw_mor)
+            except ValueError:
+                music_overlap_min = 0.13
+        else:
+            music_overlap_min = 0.13
+        music_overlap_min = max(1e-4, min(0.95, music_overlap_min))
         try:
             staff_scan = float(os.environ.get("MASK_PDF_LYRIC_STAFF_SCAN_PAD_PT", "40") or 40)
         except ValueError:
@@ -358,7 +436,12 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                 scan = _clip_vertical_grow_into_page(rect, page, staff_scan)
                 lyric_glyphs, music_rects = _collect_lyric_glyphs_and_music_rects(page, scan, lyric_pad, music_pad)
                 if music_safe_overlap and music_rects:
-                    lyric_glyphs = _lyric_glyphs_skip_music_overlap(lyric_glyphs, music_rects)
+                    lyric_glyphs = _lyric_glyphs_skip_music_overlap(
+                        lyric_glyphs,
+                        music_rects,
+                        legacy_intersect=music_overlap_legacy_intersect,
+                        min_overlap_ratio=music_overlap_min,
+                    )
                 if lyric_glyphs:
                     lyric_glyphs_by_page.setdefault(page_idx, []).extend(lyric_glyphs)
                     continue
@@ -374,7 +457,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         pages_with_redact = sorted(set(redact_rects.keys()) | set(lyric_glyphs_by_page.keys()))
         for page_idx in pages_with_redact:
             page = doc[page_idx]
-            for r2, fsize, span_font, color_i in lyric_glyphs_by_page.get(page_idx, []):
+            for _ov, r2, fsize, span_font, color_i in lyric_glyphs_by_page.get(page_idx, []):
                 _add_lyric_glyph_redaction(
                     page,
                     r2,
@@ -400,7 +483,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                     if annot.type[1] == "Redact":
                         page.delete_annot(annot)
                 lyric_fb = lyric_glyphs_by_page.get(page_idx, [])
-                for r2, _fs, _sf, _ci in lyric_fb:
+                for _ov, r2, _fs, _sf, _ci in lyric_fb:
                     page.draw_rect(r2, color=(1, 1, 1), fill=(1, 1, 1))
                 for r in rects_fallback:
                     page.draw_rect(r, color=(1, 1, 1), fill=(1, 1, 1))

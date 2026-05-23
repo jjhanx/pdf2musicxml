@@ -7,8 +7,9 @@ import fitz
 
 # PyMuPDF 리덕으로 텍스트를 지웁니다. 선택 **가사** 는:
 # • `rawdict` 플래그(기본: ACCURATE_BBOXES + SIDE_BEARINGS + ASCENDERS)로 과대 bbox를 줄입니다.
-# • **`fill=False` + 블랭크 치환**: 벡터 fill 없이 표시 문자를 공백 등으로 두는 동작입니다
-# (그대로 CID/CMap을 파일에 직접 고치는 것과 목적은 같고, 여기선 MuPDF 레벨로 처리합니다).
+# • **`fill=False` + 블랭크 치환**: 벡터 fill 없이 표시 문자를 공백 등으로 두는 동작입니다.
+# 리덕 사각형 최소 높이 보강은 **위로 패딩하지 않고**(아래로만); 세로 과대 bbox 는 **아래쪽 띠**로 줄여 같은 리덕에 SMuFL(머리·온쉼표) 텍스트가 같이 들어가는 현상을 완화합니다.
+# (그대로 CID/CMap을 파일에 직접 고치는 것과 목적은 같고, 여기선 MuPDF 레벨로 처리합니다.)
 # `add_redact_annot(rect)` 만(기본 흰 fill) 쓰면 오선 등 벡터가 칠해져 음표가 사라진 것처럼 보일 수 있습니다.
 #
 # 음표·SMuFL **텍스트 글림**과 가사의 **면적 비율**로 리덕 생략 여부를 정합니다(`MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP`).
@@ -221,9 +222,10 @@ def _redact_fontname_candidates(span_font: str | None) -> list[str | None]:
 
 def _lyric_redact_rect_min_height(r: fitz.Rect, min_h_pt: float) -> fitz.Rect:
     """
-    CID/세로폭이 극히 작은 글림은 리덕 박스가 얇아 엔진이 한 겹만 지우고 동일 위치의
-    중복 텍스트 레이어가 남는 사례가 있습니다. 최소 높이보다 낮으면 주로 **아래쪽**으로
-    늘립니다(가사는 음표 머리보다 아래에 오는 경우가 많음).
+    CID/세로폭이 극히 작은 글림은 리덕 박스가 얇아 엔진이 한 겹만 지우는 경우가 있습니다.
+
+    **`y0` 를 줄이며 위로 늘리지 않음** — 위로 패딩하면 오선·음표머리·온쉼표(SMuFL 텍스트)와 겹친
+    리덕에 같이 들어가 머리까지 지워지는 현상이 납니다.
     """
     if min_h_pt <= 0:
         return r.normalize()
@@ -234,9 +236,35 @@ def _lyric_redact_rect_min_height(r: fitz.Rect, min_h_pt: float) -> fitz.Rect:
     if h >= min_h_pt:
         return rr
     deficit = min_h_pt - h
-    up = deficit * 0.25
-    down = deficit * 0.75
-    return fitz.Rect(rr.x0, rr.y0 - up, rr.x1, rr.y1 + down).normalize()
+    return fitz.Rect(rr.x0, rr.y0, rr.x1, rr.y1 + deficit).normalize()
+
+
+def _finalize_lyric_redact_markup_rect(
+    redact_rect: fitz.Rect,
+    fontsize: float,
+    min_h_pt: float,
+    *,
+    tall_bbox_cap_em: float,
+    tall_trim_tail_em: float,
+) -> fitz.Rect:
+    """
+    rawdict bbox 한 줄치가 오선·음표 높이만큼 비정상적으로 길면 리덕이 SMuFL(머리·온쉼표 등)까지 겹침.
+    높이가 cap 초과 시 **아래쪽 띠**만 남깁니다(`tall_trim_tail_em` × font).
+
+    tall_bbox_cap_em≤0 이면 이 단계 생략.
+    """
+    rr = redact_rect.normalize()
+    if rr.is_empty:
+        return rr
+    fs = float(max(fontsize, 6.0))
+    if tall_bbox_cap_em > 1e-6 and rr.height > fs * tall_bbox_cap_em:
+        tail = tall_trim_tail_em if tall_trim_tail_em > 1e-6 else 1.12
+        nh = min(rr.height, fs * tail)
+        rr = fitz.Rect(rr.x0, rr.y1 - nh, rr.x1, rr.y1).normalize()
+        if rr.is_empty:
+            rr = redact_rect.normalize()
+
+    return _lyric_redact_rect_min_height(rr, min_h_pt)
 
 
 def _add_lyric_glyph_redaction(
@@ -647,6 +675,21 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             min_redact_h = 0.35
         min_redact_h = max(0.0, min(min_redact_h, 24.0))
 
+        _cap_raw = os.environ.get("MASK_PDF_LYRIC_REDACT_BBOX_HEIGHT_CAP_EM", "").strip()
+        try:
+            redact_bbox_tall_cap_em = float(_cap_raw or 1.42)
+        except ValueError:
+            redact_bbox_tall_cap_em = 1.42
+        if redact_bbox_tall_cap_em < 0:
+            redact_bbox_tall_cap_em = 0.0
+
+        try:
+            redact_tall_trim_tail_em = float(os.environ.get("MASK_PDF_LYRIC_REDACT_TALL_TAIL_EM", "1.14") or 1.14)
+        except ValueError:
+            redact_tall_trim_tail_em = 1.14
+        if redact_tall_trim_tail_em < 0:
+            redact_tall_trim_tail_em = 0.0
+
         pages_with_redact = sorted(set(redact_rects.keys()) | set(lyric_glyphs_by_page.keys()))
         pages_with_lyric_glyphs = sorted(lyric_glyphs_by_page.keys())
 
@@ -658,7 +701,13 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             first_pass: bool,
         ) -> None:
             for _ov, r2, fsize, span_font, color_i, _gh in glyph_rows:
-                r_adj = _lyric_redact_rect_min_height(r2, min_redact_h)
+                r_adj = _finalize_lyric_redact_markup_rect(
+                    r2,
+                    fsize,
+                    min_redact_h,
+                    tall_bbox_cap_em=redact_bbox_tall_cap_em,
+                    tall_trim_tail_em=redact_tall_trim_tail_em,
+                )
                 _add_lyric_glyph_redaction(
                     page,
                     r_adj,
@@ -686,7 +735,17 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                         page.delete_annot(annot)
                 if first_pass:
                     for _ov, r2, _fs, _sf, _ci, _gh in glyph_rows:
-                        page.draw_rect(_lyric_redact_rect_min_height(r2, min_redact_h), color=(1, 1, 1), fill=(1, 1, 1))
+                        page.draw_rect(
+                            _finalize_lyric_redact_markup_rect(
+                                r2,
+                                _fs,
+                                min_redact_h,
+                                tall_bbox_cap_em=redact_bbox_tall_cap_em,
+                                tall_trim_tail_em=redact_tall_trim_tail_em,
+                            ),
+                            color=(1, 1, 1),
+                            fill=(1, 1, 1),
+                        )
                     for r in rects_fallback:
                         page.draw_rect(r, color=(1, 1, 1), fill=(1, 1, 1))
 

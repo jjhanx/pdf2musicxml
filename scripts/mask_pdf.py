@@ -5,19 +5,37 @@ import unicodedata
 
 import fitz
 
-# PyMuPDF 리독: 선택한 사각형과 MuPDF가 잡은 “글자 bbox”가 겹치면 해당 텍스트를 제거할 수 있습니다.
-# 가사(lyrics) 글림별 처리: 기본은 **흰 박스 fill 없이**(fill=False) **공백 치환**으로 글림만 빼려 시도함.
-# 예전처럼 add_redact_annot(rect) 단독 호출 시 MuPDF 기본 흰 fill이 오선 같은 **벡터 위를 덮어**
-# 비텍스트 음표가 “사라진 것처럼” 보일 수 있어, 선택 가사 경로에서는 이를 피함.
-# 음표·SMuFL **텍스트** 글림과의 **면적 비율 기준** 차단(기본)·또는 레거시 교차만으로
-# 가사 리덕을 생략할 수 있음. 가로로만 스친 겹침은 가사 제거를 허용하고,
-# 실제 음표 글림 bbox와 가사 글림이 겹치면 생략하여 머리·깃발을 보호.
-# 그 외(title 등): bbox 흰 박스 또는 (옵션) 리덕 — 가사 선택 경로와 별개.
+# PyMuPDF 리덕으로 텍스트를 지웁니다. 선택 **가사** 는:
+# • `rawdict` 플래그(기본: ACCURATE_BBOXES + SIDE_BEARINGS + ASCENDERS)로 과대 bbox를 줄입니다.
+# • **`fill=False` + 블랭크 치환**: 벡터 fill 없이 표시 문자를 공백 등으로 두는 동작입니다
+# (그대로 CID/CMap을 파일에 직접 고치는 것과 목적은 같고, 여기선 MuPDF 레벨로 처리합니다).
+# `add_redact_annot(rect)` 만(기본 흰 fill) 쓰면 오선 등 벡터가 칠해져 음표가 사라진 것처럼 보일 수 있습니다.
+#
+# 음표·SMuFL **텍스트 글림**과 가사의 **면적 비율**로 리덕 생략 여부를 정합니다(`MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP`).
+# 예전처럼 **교차만**으로 보호하면 `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT`.
+# 그 외(title 등): bbox 흰색 사각형 또는 (선택) 리덕.
 _PDF_REDACT_IMAGE_NONE = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
 _PDF_REDACT_LINE_ART_NONE = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
 _PDF_REDACT_TEXT_REMOVE = getattr(fitz, "PDF_REDACT_TEXT_REMOVE", 0)
 
-_TEXT_RAWDICT_FLAGS = int(getattr(fitz, "TEXT_ACCURATE_BBOXES", 0) or 0)
+
+def _effective_rawdict_flags() -> int:
+    """
+    선택 가사/음표 분류용 `get_text('rawdict', flags=…)`.
+
+    환경 `MASK_PDF_LYRIC_TEXT_FLAGS` 에 정수(hex `0x` 가능)가 있으면 그대로 사용.
+    없으면 ACCURATE_BBOXES | SIDE_BEARINGS | ASCENDERS (있는 항목만 OR).
+    """
+    raw = os.environ.get("MASK_PDF_LYRIC_TEXT_FLAGS", "").strip()
+    if raw:
+        try:
+            return int(raw, 0)
+        except ValueError:
+            pass
+    f = int(getattr(fitz, "TEXT_ACCURATE_BBOXES", 0) or 0)
+    f |= int(getattr(fitz, "TEXT_ACCURATE_SIDE_BEARINGS", 0) or 0)
+    f |= int(getattr(fitz, "TEXT_ACCURATE_ASCENDERS", 0) or 0)
+    return f
 
 
 def _env_truthy(name: str) -> bool:
@@ -99,12 +117,12 @@ def _clip_vertical_grow_into_page(rect: fitz.Rect, page: fitz.Page, pad_pt: floa
     return inter.normalize() if not inter.is_empty else ex
 
 
-def _rawdict_clip(page: fitz.Page, clip: fitz.Rect) -> dict:
+def _rawdict_clip(page: fitz.Page, clip: fitz.Rect, flags: int) -> dict:
     c = clip.normalize()
     if c.is_empty:
         return {}
     try:
-        return page.get_text("rawdict", clip=c, flags=_TEXT_RAWDICT_FLAGS)
+        return page.get_text("rawdict", clip=c, flags=flags)
     except TypeError:
         try:
             return page.get_text("rawdict", clip=c)
@@ -258,11 +276,12 @@ def _collect_lyric_glyphs_and_music_rects(
     clip: fitz.Rect,
     lyric_pad_pt: float,
     music_pad_pt: float,
+    rawdict_flags: int,
 ) -> tuple[list[LyricGlyph], list[fitz.Rect]]:
     """rawdict 한 번으로 가사 글림(메타 포함)·음표 후보 텍스트 글림 bbox."""
     lyric_glyphs: list[LyricGlyph] = []
     music_rects: list[fitz.Rect] = []
-    td = _rawdict_clip(page, clip)
+    td = _rawdict_clip(page, clip, rawdict_flags)
     for block in td.get("blocks") or []:
         if block.get("type") != 0:
             continue
@@ -391,9 +410,9 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         except ValueError:
             lyric_pad = 0
         try:
-            music_pad = float(os.environ.get("MASK_PDF_LYRIC_MUSIC_PAD_PT", "0.28") or 0.28)
+            music_pad = float(os.environ.get("MASK_PDF_LYRIC_MUSIC_PAD_PT", "0.32") or 0.32)
         except ValueError:
-            music_pad = 0.28
+            music_pad = 0.32
         music_overlap_legacy_intersect = _env_truthy("MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT")
         raw_mor = os.environ.get("MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP", "").strip()
         if raw_mor:
@@ -417,6 +436,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
 
         lyric_plain_redact_white = _env_truthy("MASK_PDF_LYRIC_PLAIN_REDACT")
         lyric_blank_glyph = _replacement_blank_glyph()
+        rawdict_flags = _effective_rawdict_flags()
 
         for item in data:
             item_type = item.get("type", "unknown")
@@ -434,7 +454,13 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             is_lyrics = item_type == "lyrics"
             if is_lyrics and lyric_selective and _rect_has_vector_text(page, rect):
                 scan = _clip_vertical_grow_into_page(rect, page, staff_scan)
-                lyric_glyphs, music_rects = _collect_lyric_glyphs_and_music_rects(page, scan, lyric_pad, music_pad)
+                lyric_glyphs, music_rects = _collect_lyric_glyphs_and_music_rects(
+                    page,
+                    scan,
+                    lyric_pad,
+                    music_pad,
+                    rawdict_flags,
+                )
                 if music_safe_overlap and music_rects:
                     lyric_glyphs = _lyric_glyphs_skip_music_overlap(
                         lyric_glyphs,

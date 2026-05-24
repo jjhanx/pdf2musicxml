@@ -70,6 +70,28 @@ function mergeReviewFieldsFromSaved(
   if (typeof match.lyricSkipNotes === 'number' && match.lyricSkipNotes >= 0) {
     next.lyricSkipNotes = Math.floor(match.lyricSkipNotes);
   }
+  const mb = match.bbox;
+  if (Array.isArray(mb) && mb.length >= 4) {
+    const nums = mb.map((x) => Number(x));
+    if (nums.every((x) => Number.isFinite(x))) {
+      next.bbox = nums;
+    }
+  }
+  const msp = match.spans;
+  if (Array.isArray(msp)) {
+    const spans: { text: string; bbox: number[] }[] = [];
+    for (const s of msp) {
+      if (!s || typeof s !== 'object') continue;
+      const o = s as { text?: unknown; bbox?: unknown };
+      if (typeof o.text !== 'string') continue;
+      const bb = o.bbox;
+      if (!Array.isArray(bb) || bb.length < 4) continue;
+      const bbn = bb.map((x) => Number(x));
+      if (!bbn.every((x) => Number.isFinite(x))) continue;
+      spans.push({ text: o.text, bbox: bbn });
+    }
+    if (spans.length > 0) next.spans = spans;
+  }
   return next;
 }
 
@@ -264,6 +286,9 @@ export default function App() {
   const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
   const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
   const [manualLyricRects, setManualLyricRects] = useState<ManualLyricBBox[]>([]);
+  /** 미리보기와 연동되는 검토 줄 인덱스 */
+  const [focusedReviewRowIndex, setFocusedReviewRowIndex] = useState<number | null>(null);
+  const reviewRowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [reviewOriginalFileName, setReviewOriginalFileName] = useState('');
   const [hasSavedData, setHasSavedData] = useState(false);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
@@ -515,6 +540,7 @@ export default function App() {
                     }));
 
                     setManualLyricRects(fromPayload);
+                    setFocusedReviewRowIndex(null);
                     setReviewData(initData);
                     setReviewingJobId(jobId);
                     setReviewOriginalFileName(file.name);
@@ -744,6 +770,7 @@ export default function App() {
       setReviewingJobId(null);
       setReviewData([]);
       setManualLyricRects([]);
+      setFocusedReviewRowIndex(null);
       setReviewOriginalFileName('');
       setHasSavedData(false);
     } catch (e) {
@@ -781,6 +808,23 @@ export default function App() {
       console.error(e);
       alert('Audiveris 이어하기 요청 실패');
     }
+  };
+
+  const handleReviewItemBBoxCommit = useCallback(
+    (itemIndex: number, bbox: [number, number, number, number]) => {
+      setReviewData((prev) =>
+        prev.map((item, idx) =>
+          idx === itemIndex ? { ...item, bbox: [...bbox], spans: undefined } : item,
+        ),
+      );
+    },
+    [],
+  );
+
+  const scrollReviewRowIntoView = (i: number) => {
+    requestAnimationFrame(() => {
+      reviewRowRefs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
   };
 
   const handleReviewTypeChange = (index: number, type: string) => {
@@ -1118,13 +1162,57 @@ export default function App() {
                 jobId={reviewingJobId}
                 value={manualLyricRects}
                 onChange={setManualLyricRects}
+                reviewItems={reviewData}
+                focusedReviewIndex={focusedReviewRowIndex}
+                onFocusedReviewIndexChange={setFocusedReviewRowIndex}
+                onReviewItemBBoxChange={handleReviewItemBBoxCommit}
               />
             ) : null}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
               {reviewData.map((item, i) => (
-                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--bg-color, #f5f5f5)', padding: '1rem', borderRadius: '4px', borderLeft: item.type==='lyrics'?'4px solid #1976d2':item.type==='tempo'?'4px solid #e65100':'4px solid #ccc' }}>
+                <div
+                  key={item.id}
+                  ref={(el) => {
+                    reviewRowRefs.current[i] = el;
+                  }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    background: 'var(--bg-color, #f5f5f5)',
+                    padding: '1rem',
+                    borderRadius: '4px',
+                    borderLeft:
+                      item.type === 'lyrics'
+                        ? '4px solid #1976d2'
+                        : item.type === 'tempo'
+                          ? '4px solid #e65100'
+                          : '4px solid #ccc',
+                    outline:
+                      focusedReviewRowIndex === i ? '2px solid #00897b' : 'none',
+                    outlineOffset: 2,
+                  }}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusedReviewRowIndex(i);
+                          scrollReviewRowIntoView(i);
+                        }}
+                        style={{
+                          padding: '0.35rem 0.6rem',
+                          fontSize: '0.82rem',
+                          border: '1px solid #00897b',
+                          borderRadius: '4px',
+                          background: focusedReviewRowIndex === i ? '#b2dfdb' : '#fff',
+                          cursor: 'pointer',
+                        }}
+                        title="위 미리보기에서 이 줄의 bbox를 표시·편집합니다"
+                      >
+                        미리보기
+                      </button>
                       <select 
                          value={item.type} 
                          onChange={(e) => handleReviewTypeChange(i, e.target.value)}

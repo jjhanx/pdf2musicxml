@@ -80,6 +80,16 @@ def extract_vector(pdf_path, output_json_path, doc):
             # Use original points (72 DPI) for bbox so mask_pdf.py can draw rect accurately
             original_bbox = [float(min_x0), float(min_y0), float(max_x1), float(max_y1)]
             
+            # 줄 단위 병합 bbox와 별도로, 각 PyMuPDF span의 bbox를 보존하면
+            # mask_pdf가 «추출에 쓰였던 좌표»에만 리덕하여 인접 스태프까지 덜 비칩니다.
+            span_payload = [
+                {
+                    "text": s["text"],
+                    "bbox": [float(x) for x in s["bbox"]],
+                }
+                for s in line
+                if s.get("text") and s.get("bbox") and len(s["bbox"]) >= 4
+            ]
             results.append({
                 "id": f"p{page_idx+1}_{item_idx}",
                 "page": page_idx + 1,
@@ -88,6 +98,7 @@ def extract_vector(pdf_path, output_json_path, doc):
                 "x": float(x_center * zoom), # UI might still sort or use these in 300 DPI equivalent
                 "y": float(y_center * zoom),
                 "bbox": original_bbox,
+                "spans": span_payload,
                 "type": "unknown",
             })
             item_idx += 1

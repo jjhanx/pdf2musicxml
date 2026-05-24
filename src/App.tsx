@@ -39,6 +39,8 @@ type OcrReviewItem = {
   x: number;
   y: number;
   bbox?: number[];
+  /** 벡터 추출 시 줄 단위 블록을 이루는 PyMuPDF span 들의 텍스트·bbox(마스킹 시 추출 좌표 우선) */
+  spans?: { text: string; bbox: number[] }[];
   type?: string;
   /** MusicXML에서 `part` 순서(1=첫 파트, 합창 4부면 보통 4). Audiveris 출력 part-list 순서와 동일 */
   lyricPartIndex?: number;

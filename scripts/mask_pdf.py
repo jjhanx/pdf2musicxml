@@ -1,9 +1,20 @@
 import os
+import re
 import sys
 import json
 import unicodedata
 
 import fitz
+
+# extract_text.py와 동일: SMuFL 등 PUA는 가사 좌표 매칭에서 제외(시각 기호는 건드리지 않음).
+_PUA_CHARS_RE = re.compile(
+    r"[\uE000-\uF8FF\U000F0000-\U000FFFFF\U00100000-\U0010FFFF]",
+    flags=re.UNICODE,
+)
+
+
+def _strip_pua_chars(s: str) -> str:
+    return _PUA_CHARS_RE.sub("", s or "")
 
 # PyMuPDF 리덕으로 텍스트를 지웁니다. 선택 **가사** 는:
 # • `rawdict` 플래그(기본: ACCURATE_BBOXES + SIDE_BEARINGS + ASCENDERS)로 과대 bbox를 줄입니다.
@@ -20,6 +31,9 @@ import fitz
 # 그 외(title 등): bbox 흰색 사각형 또는 (선택) 리덕.
 # 검토 원문은 JSON에 두고 Audiveris용 마스킹만 맞출 때는 **`MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK` 기본 켜짐**(`=0`으로 끔)으로
 # 페이지 전체 한글(완성형·자모·호환 자모) 텍스트를 추가 블랭크해 박스 누락 잔류를 줄입니다(SMuFL 제외).
+#
+# **`extract_text.py`가 넣어 둔 `spans[].bbox`(dict span 단위)** 가 있으면 기본적으로 그 좌표만으로 가사 후보 글림을 만들고,
+# 페이지 전체를 다시 긁어 과대 bbox를 잡지 않습니다(`MASK_PDF_LYRIC_USE_EXTRACT_SPANS=0`이면 종전처럼 rawdict 재수집).
 
 _PDF_REDACT_IMAGE_NONE = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
 _PDF_REDACT_LINE_ART_NONE = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
@@ -591,6 +605,82 @@ def _lyric_glyphs_skip_music_overlap(
     return out
 
 
+def _rect_union_normalized(rects: list[fitz.Rect]) -> fitz.Rect:
+    acc: fitz.Rect | None = None
+    for r in rects:
+        rn = r.normalize()
+        if rn.is_empty:
+            continue
+        acc = rn if acc is None else (acc | rn)
+    return acc.normalize() if acc is not None else fitz.Rect()
+
+
+def _lyric_glyphs_from_extract_spans(
+    spans: list,
+    lyric_pad_pt: float,
+) -> list[LyricGlyph]:
+    """
+    검토 JSON에 `extract_text.py`가 넣은 span bbox + 텍스트만 사용해 LyricGlyph를 만든다.
+    (페이지 전역 rawdict 재수집 없이 추출에 쓰인 가로·세로 범위에 가깝게 붙인다.)
+    """
+    out: list[LyricGlyph] = []
+    pad = float(max(lyric_pad_pt, 0.0))
+    for sp in spans:
+        if not isinstance(sp, dict):
+            continue
+        bb = sp.get("bbox")
+        raw_t = sp.get("text")
+        if (
+            not bb
+            or not isinstance(raw_t, str)
+            or not isinstance(bb, (list, tuple))
+            or len(bb) < 4
+        ):
+            continue
+        txt = _strip_pua_chars(raw_t)
+        if not txt.strip():
+            continue
+        sx0, sy0, sx1, sy1 = float(bb[0]), float(bb[1]), float(bb[2]), float(bb[3])
+        bounds = fitz.Rect(sx0, sy0, sx1, sy1).normalize()
+        if bounds.is_empty:
+            continue
+        h = bounds.height
+        fsize = max(4.0, min(float(h), 80.0))
+        sfont: str | None = None
+        pdf_color_i = 0
+        sx0, sy0, sx1, sy1 = bounds.x0, bounds.y0, bounds.x1, bounds.y1
+        dw = max((sx1 - sx0) / max(len(txt), 1), 0.001)
+        for i, cu in enumerate(txt):
+            cp = ord(cu)
+            if _char_is_music_glyph(cp):
+                continue
+            if not _char_strip_as_lyric_overlay(cu):
+                continue
+            cr = fitz.Rect(sx0 + i * dw, sy0, sx0 + (i + 1) * dw, sy1).normalize()
+            if cr.is_empty:
+                continue
+            rx = _rect_expand(cr, pad).normalize()
+            if rx.is_empty:
+                continue
+            out.append((cr, rx, fsize, sfont, pdf_color_i, cu))
+    return out
+
+
+def _item_has_extract_spans_for_mask(item: dict) -> bool:
+    spans = item.get("spans")
+    if not isinstance(spans, list) or not spans:
+        return False
+    for s in spans:
+        if not isinstance(s, dict):
+            return False
+        bb = s.get("bbox")
+        if not bb or not isinstance(bb, (list, tuple)) or len(bb) < 4:
+            return False
+        if not isinstance(s.get("text"), str):
+            return False
+    return True
+
+
 def _rect_has_vector_text(page: fitz.Page, rect: fitz.Rect) -> bool:
     r = rect.normalize()
     if r.is_empty:
@@ -655,6 +745,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
         lyric_plain_redact_white = _env_truthy("MASK_PDF_LYRIC_PLAIN_REDACT")
         lyric_blank_glyph = _replacement_blank_glyph()
         rawdict_flags = _effective_rawdict_flags()
+        lyric_use_extract_spans = not _env_falsy("MASK_PDF_LYRIC_USE_EXTRACT_SPANS")
 
         for item in data:
             item_type = item.get("type", "unknown")
@@ -671,14 +762,45 @@ def mask_pdf(pdf_in, pdf_out, json_path):
 
             is_lyrics = item_type == "lyrics"
             if is_lyrics and lyric_selective and _rect_has_vector_text(page, rect):
-                scan = _clip_vertical_grow_into_page(rect, page, staff_scan)
-                lyric_glyphs, music_rects = _collect_lyric_glyphs_and_music_rects(
-                    page,
-                    scan,
-                    lyric_pad,
-                    music_pad,
-                    rawdict_flags,
-                )
+                use_spans = lyric_use_extract_spans and _item_has_extract_spans_for_mask(item)
+                if use_spans:
+                    spans_list = item.get("spans") or []
+                    union_r = _rect_union_normalized(
+                        [
+                            fitz.Rect(s["bbox"]).normalize()
+                            for s in spans_list
+                            if isinstance(s, dict) and isinstance(s.get("bbox"), (list, tuple))
+                        ]
+                    )
+                    anchor = union_r if not union_r.is_empty else rect
+                    scan = _clip_vertical_grow_into_page(anchor, page, staff_scan)
+                    lyric_glyphs = _lyric_glyphs_from_extract_spans(spans_list, lyric_pad)
+                    _, music_rects = _collect_lyric_glyphs_and_music_rects(
+                        page,
+                        scan,
+                        0.0,
+                        music_pad,
+                        rawdict_flags,
+                        korean_overlay_only=False,
+                    )
+                    if not lyric_glyphs:
+                        scan = _clip_vertical_grow_into_page(rect, page, staff_scan)
+                        lyric_glyphs, music_rects = _collect_lyric_glyphs_and_music_rects(
+                            page,
+                            scan,
+                            lyric_pad,
+                            music_pad,
+                            rawdict_flags,
+                        )
+                else:
+                    scan = _clip_vertical_grow_into_page(rect, page, staff_scan)
+                    lyric_glyphs, music_rects = _collect_lyric_glyphs_and_music_rects(
+                        page,
+                        scan,
+                        lyric_pad,
+                        music_pad,
+                        rawdict_flags,
+                    )
                 if music_safe_overlap and music_rects:
                     lyric_glyphs = _lyric_glyphs_skip_music_overlap(
                         lyric_glyphs,

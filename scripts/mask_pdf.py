@@ -8,8 +8,10 @@ import fitz
 # PyMuPDF 리덕으로 텍스트를 지웁니다. 선택 **가사** 는:
 # • `rawdict` 플래그(기본: ACCURATE_BBOXES + SIDE_BEARINGS + ASCENDERS)로 과대 bbox를 줄입니다.
 # • **`fill=False` + 블랭크 치환**: 벡터 fill 없이 표시 문자를 공백 등으로 두는 동작입니다.
-# 리덕 사각형 최소 높이 보강은 **위로 패딩하지 않고**(아래로만); 세로 과대 bbox 는 **아래쪽 띠**로 줄여 같은 리덕에 SMuFL(머리·온쉼표) 텍스트가 같이 들어가는 현상을 완화합니다.
-# (그대로 CID/CMap을 파일에 직접 고치는 것과 목적은 같고, 여기선 MuPDF 레벨로 처리합니다.)
+# (PDF 콘텐츠 스트림에서 CID 하나만 교체하는 것과는 다르고, 여전히 리덕 **사각형**과 겹치면 그 영역 안의 표시 문자가 같이 빠질 수 있습니다.)
+# 리덕 사각형 최소 높이 보강은 **위로 패딩하지 않고**(아래로만).
+# **`MASK_PDF_LYRIC_REDACT_MAX_HEIGHT_EM`** 로 **세로 상한**(글자 줄 폰트 크기 근처)을 두어, 과대 세로 bbox가
+# 한 줄 아래 성부까지 뻗으며 머리를 깎거나, 역으로 **위 줄 가사 bbox**가 더 아래 오선까지 내려와 겹치는 현상을 줄입니다.
 # `add_redact_annot(rect)` 만(기본 흰 fill) 쓰면 오선 등 벡터가 칠해져 음표가 사라진 것처럼 보일 수 있습니다.
 #
 # 음표·SMuFL **텍스트 글림**과 가사의 **면적 비율**로 리덕 생략 여부를 정합니다(`MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP`).
@@ -116,6 +118,10 @@ HYPHENS = frozenset(
     ("-", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212", "\ufe63", "\uff0d")
 )
 
+# 메트로놈/템포 줄 근처가 가사 블록에 포함되면 `=` 등이 마스킹 대상(P*)이 되어
+# 동일 줄 SMuFL(♩ 등)·인접 수치와 같은 bbox에서 리덕이 넓게 먹는 부작용이 있어 보존.
+LYRIC_TEMPO_CHARS_NEVER_STRIP = frozenset("=")
+
 
 def _char_strip_as_lyric_overlay(ch: str) -> bool:
     """
@@ -123,6 +129,8 @@ def _char_strip_as_lyric_overlay(ch: str) -> bool:
     음표·음악 기호 블록은 어떤 범주에 있어도 False.
     """
     if len(ch) != 1:
+        return False
+    if ch in LYRIC_TEMPO_CHARS_NEVER_STRIP:
         return False
     cp = ord(ch)
     if _char_is_music_glyph(cp):
@@ -239,32 +247,97 @@ def _lyric_redact_rect_min_height(r: fitz.Rect, min_h_pt: float) -> fitz.Rect:
     return fitz.Rect(rr.x0, rr.y0, rr.x1, rr.y1 + deficit).normalize()
 
 
-def _finalize_lyric_redact_markup_rect(
+def _clamp_lyric_redact_vertical_to_font_centered(
     redact_rect: fitz.Rect,
+    overlap_rect: fitz.Rect,
     fontsize: float,
-    min_h_pt: float,
     *,
-    tall_bbox_cap_em: float,
-    tall_trim_tail_em: float,
+    max_height_em: float,
 ) -> fitz.Rect:
     """
-    rawdict bbox 한 줄치가 오선·음표 높이만큼 비정상적으로 길면 리덕이 SMuFL(머리·온쉼표 등)까지 겹침.
-    높이가 cap 초과 시 **아래쪽 띠**만 남깁니다(`tall_trim_tail_em` × font).
+    rawdict 세로 bbox가 과도하게 길면(위아래 줄·오선으로 뻗음) 같은 리덕에 인접 스태프 머리가 들어갈 수 있습니다.
+    **세로를 폰트×max_height_em 로 상한**하고, **세로 중심은 가능하면 tight overlap_rect 중앙**(실제 글림 근처)에 둔 뒤
+    redact_rect 세로 구간 안에 맞춥니다(패딩은 좁히지 않고 **세로만** 줄임).
 
-    tall_bbox_cap_em≤0 이면 이 단계 생략.
+    max_height_em≤0 이면 생략.
     """
     rr = redact_rect.normalize()
     if rr.is_empty:
         return rr
-    fs = float(max(fontsize, 6.0))
-    if tall_bbox_cap_em > 1e-6 and rr.height > fs * tall_bbox_cap_em:
-        tail = tall_trim_tail_em if tall_trim_tail_em > 1e-6 else 1.12
-        nh = min(rr.height, fs * tail)
-        rr = fitz.Rect(rr.x0, rr.y1 - nh, rr.x1, rr.y1).normalize()
-        if rr.is_empty:
-            rr = redact_rect.normalize()
+    mh = float(max_height_em)
+    if mh <= 1e-6:
+        return rr
+    fs = max(float(fontsize), 6.0)
+    cap_h = fs * mh
+    if rr.height <= cap_h + 1e-9:
+        return rr
 
-    return _lyric_redact_rect_min_height(rr, min_h_pt)
+    nh = cap_h
+    ov = overlap_rect.normalize()
+    if not ov.is_empty:
+        cy = 0.5 * (ov.y0 + ov.y1)
+        if cy < rr.y0:
+            cy = rr.y0
+        elif cy > rr.y1:
+            cy = rr.y1
+    else:
+        cy = 0.5 * (rr.y0 + rr.y1)
+
+    y0n = cy - nh * 0.5
+    y1n = cy + nh * 0.5
+    if y0n < rr.y0:
+        d = rr.y0 - y0n
+        y0n += d
+        y1n += d
+    if y1n > rr.y1:
+        d = y1n - rr.y1
+        y0n -= d
+        y1n -= d
+    y0n = max(y0n, rr.y0)
+    y1n = min(y1n, rr.y1)
+    if y1n <= y0n + 1e-6:
+        return rr
+    return fitz.Rect(rr.x0, y0n, rr.x1, y1n).normalize()
+
+
+def _keep_bottom_fraction_rect(redact_rect: fitz.Rect, keep_frac: float) -> fitz.Rect:
+    """세로로 긴 리덕 박스의 **위쪽**을 줄이고 **아래 keep_frac 높이**만 남깁니다(빈 교차 또는 비정규면 무시)."""
+    rr = redact_rect.normalize()
+    if rr.is_empty:
+        return rr
+    f = float(keep_frac)
+    if not (f > 0.0 and f < 1.0):
+        return rr
+    h = rr.height
+    if h <= 1e-6:
+        return rr
+    y_cut = rr.y1 - f * h
+    if rr.y1 - y_cut < max(0.02, min(0.12, h * 0.06)):
+        return rr
+    return fitz.Rect(rr.x0, y_cut, rr.x1, rr.y1).normalize()
+
+
+def _finalize_lyric_redact_glyph_rect(
+    overlap_rect: fitz.Rect,
+    redact_rect: fitz.Rect,
+    fontsize: float,
+    gh: str,
+    min_h_pt: float,
+    *,
+    max_height_em: float,
+    korean_bottom_keep_frac: float,
+) -> fitz.Rect:
+    """overlap 중심·폰트 em 기준 세로 상한 후, 선택적 한글 하단 비율, 마지막으로 최소 높이(아래로만)."""
+    r = redact_rect.normalize()
+    if r.is_empty:
+        return r
+    r = _clamp_lyric_redact_vertical_to_font_centered(
+        r, overlap_rect, fontsize, max_height_em=max_height_em
+    )
+    ch0 = (gh[:1] if gh else "") or ""
+    if ch0 and _is_korean_overlay_glyph(ord(ch0)):
+        r = _keep_bottom_fraction_rect(r, korean_bottom_keep_frac)
+    return _lyric_redact_rect_min_height(r, min_h_pt)
 
 
 def _add_lyric_glyph_redaction(
@@ -675,21 +748,25 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             min_redact_h = 0.35
         min_redact_h = max(0.0, min(min_redact_h, 24.0))
 
-        _cap_raw = os.environ.get("MASK_PDF_LYRIC_REDACT_BBOX_HEIGHT_CAP_EM", "").strip()
+        kr_raw = os.environ.get("MASK_PDF_LYRIC_REDACT_KOREAN_BOTTOM_KEEP_FRAC", "").strip()
+        if not kr_raw:
+            korean_bottom_keep_frac = 1.0
+        else:
+            try:
+                korean_bottom_keep_frac = float(kr_raw)
+            except ValueError:
+                korean_bottom_keep_frac = 1.0
+        if korean_bottom_keep_frac <= 0:
+            korean_bottom_keep_frac = 1.0
+        elif korean_bottom_keep_frac > 1.0:
+            korean_bottom_keep_frac = 1.0
+        mx_raw = os.environ.get("MASK_PDF_LYRIC_REDACT_MAX_HEIGHT_EM", "").strip()
         try:
-            redact_bbox_tall_cap_em = float(_cap_raw or 1.42)
+            max_redact_height_em = float(mx_raw or "1.14")
         except ValueError:
-            redact_bbox_tall_cap_em = 1.42
-        if redact_bbox_tall_cap_em < 0:
-            redact_bbox_tall_cap_em = 0.0
-
-        try:
-            redact_tall_trim_tail_em = float(os.environ.get("MASK_PDF_LYRIC_REDACT_TALL_TAIL_EM", "1.14") or 1.14)
-        except ValueError:
-            redact_tall_trim_tail_em = 1.14
-        if redact_tall_trim_tail_em < 0:
-            redact_tall_trim_tail_em = 0.0
-
+            max_redact_height_em = 1.14
+        if max_redact_height_em < 0:
+            max_redact_height_em = 0.0
         pages_with_redact = sorted(set(redact_rects.keys()) | set(lyric_glyphs_by_page.keys()))
         pages_with_lyric_glyphs = sorted(lyric_glyphs_by_page.keys())
 
@@ -701,12 +778,14 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             first_pass: bool,
         ) -> None:
             for _ov, r2, fsize, span_font, color_i, _gh in glyph_rows:
-                r_adj = _finalize_lyric_redact_markup_rect(
+                r_adj = _finalize_lyric_redact_glyph_rect(
+                    _ov,
                     r2,
                     fsize,
+                    _gh,
                     min_redact_h,
-                    tall_bbox_cap_em=redact_bbox_tall_cap_em,
-                    tall_trim_tail_em=redact_tall_trim_tail_em,
+                    max_height_em=max_redact_height_em,
+                    korean_bottom_keep_frac=korean_bottom_keep_frac,
                 )
                 _add_lyric_glyph_redaction(
                     page,
@@ -736,12 +815,14 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                 if first_pass:
                     for _ov, r2, _fs, _sf, _ci, _gh in glyph_rows:
                         page.draw_rect(
-                            _finalize_lyric_redact_markup_rect(
+                            _finalize_lyric_redact_glyph_rect(
+                                _ov,
                                 r2,
                                 _fs,
+                                _gh,
                                 min_redact_h,
-                                tall_bbox_cap_em=redact_bbox_tall_cap_em,
-                                tall_trim_tail_em=redact_tall_trim_tail_em,
+                                max_height_em=max_redact_height_em,
+                                korean_bottom_keep_frac=korean_bottom_keep_frac,
                             ),
                             color=(1, 1, 1),
                             fill=(1, 1, 1),

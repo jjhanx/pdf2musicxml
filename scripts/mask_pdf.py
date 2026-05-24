@@ -821,6 +821,65 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             else:
                 white_rects.setdefault(page_idx, []).append(rect)
 
+        # 사용자가 검토 UI에서 직사각형으로 지정한 영역: bbox 안 글림만 선택 리덕, MUSIC_SAFE 생략 없음.
+        if lyric_selective and not _env_falsy("MASK_PDF_MANUAL_LYRIC_MASK"):
+            specs: list[tuple[int, fitz.Rect]] = []
+            for item in data:
+                if item.get("type") != "_manual_lyric_mask":
+                    continue
+                mr = item.get("manualRects")
+                if not isinstance(mr, list):
+                    continue
+                for zone in mr:
+                    if not isinstance(zone, dict):
+                        continue
+                    try:
+                        p1 = int(zone.get("page", 0) or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if p1 < 1:
+                        continue
+                    bb = zone.get("bbox")
+                    if not bb or not isinstance(bb, (list, tuple)) or len(bb) < 4:
+                        continue
+                    try:
+                        r = fitz.Rect(
+                            float(bb[0]),
+                            float(bb[1]),
+                            float(bb[2]),
+                            float(bb[3]),
+                        ).normalize()
+                    except (TypeError, ValueError):
+                        continue
+                    if r.is_empty:
+                        continue
+                    specs.append((p1 - 1, r))
+            for page_idx, rr in specs:
+                if page_idx < 0 or page_idx >= len(doc):
+                    continue
+                page = doc[page_idx]
+                pr = fitz.Rect(page.rect).normalize()
+                clip = (rr.normalize() & pr).normalize()
+                if clip.is_empty:
+                    continue
+                manual_gly, _muz_ignore = _collect_lyric_glyphs_and_music_rects(
+                    page,
+                    clip,
+                    lyric_pad,
+                    music_pad,
+                    rawdict_flags,
+                )
+                if not manual_gly:
+                    continue
+                bucket = lyric_glyphs_by_page.setdefault(page_idx, [])
+                seen_keys = {_lyric_glyph_dedupe_key(x) for x in bucket}
+                for g in manual_gly:
+                    k = _lyric_glyph_dedupe_key(g)
+                    if k in seen_keys:
+                        continue
+                    seen_keys.add(k)
+                    bucket.append(g)
+
         # 검토 타입별로 원문은 이미 JSON에 있으므로, Audiveris용 마스킹 PDF에서는
         # 페이지에 남은 한글(검토 박스 누락 포함)을 추가로 지웁니다. 기본 켜짐,
         # `MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK=0` 으로 끕니다.

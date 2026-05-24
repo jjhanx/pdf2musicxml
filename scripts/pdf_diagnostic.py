@@ -7,6 +7,9 @@ Usage:
 
   pdf_diagnostic.py render <pdf_path> <page_1based> <out_png_path> [dpi]
       Rasterize one page to PNG (RGB, no alpha).
+
+  pdf_diagnostic.py pagesizes <pdf_path>
+      Print JSON: {"pageCount": N, "pages": [{"widthPt":…,"heightPt":…}, ...]}
 """
 from __future__ import annotations
 
@@ -59,6 +62,21 @@ def main() -> None:
         pix = page.get_pixmap(matrix=mat, alpha=False, colorspace="rgb")
         pix.save(out_png)
         doc.close()
+        return
+
+    if cmd == "pagesizes":
+        if len(sys.argv) < 3:
+            sys.exit(1)
+        path = sys.argv[2]
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(path)
+        pages: list[dict[str, float]] = []
+        for i in range(doc.page_count):
+            r = doc[i].rect
+            pages.append({"widthPt": float(r.width), "heightPt": float(r.height)})
+        doc.close()
+        print(json.dumps({"pageCount": len(pages), "pages": pages}))
         return
 
     sys.exit(1)

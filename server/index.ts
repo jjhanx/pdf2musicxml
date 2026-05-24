@@ -1220,6 +1220,98 @@ app.get('/api/review/:jobId', (req, res) => {
   res.json(job.reviewData);
 });
 
+/** 문자 검토(리뷰) 단계: 원본 PDF 각 페이지 크기(pt) — 수동 가사 마스킹 좌표 변환 */
+app.get('/api/review/:jobId/pdf-dimensions', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'review_needed') {
+    res.status(404).json({ error: '리뷰 준비 전이거나 작업을 찾을 수 없습니다' });
+    return;
+  }
+  const inputPdfPath = job.inputPdfPath;
+  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
+    res.status(404).json({ error: '업로드 PDF가 세션에 없습니다' });
+    return;
+  }
+  try {
+    const script = path.join(__dirname, '..', 'scripts', 'pdf_diagnostic.py');
+    const pythonBin = resolvePythonBin();
+    const { stdout } = await exec(`"${pythonBin}" "${script}" pagesizes "${inputPdfPath}"`, {
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const parsed = JSON.parse(stdout.trim()) as {
+      pageCount?: number;
+      pages?: Array<{ widthPt?: number; heightPt?: number }>;
+    };
+    res.json(parsed);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+/** 문자 검토 단계: 한 페이지 미리보기 PNG (PDF pt와 동일 세로방향 좌표) */
+app.get('/api/review/:jobId/pdf-page-png/:pageNum', async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'review_needed') {
+    res.status(404).json({ error: '리뷰 준비 전이거나 작업을 찾을 수 없습니다' });
+    return;
+  }
+  const inputPdfPath = job.inputPdfPath;
+  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
+    res.status(404).json({ error: '업로드 PDF가 세션에 없습니다' });
+    return;
+  }
+  const pageNum = parseInt(req.params.pageNum, 10);
+  const dpiRaw = parseInt(String(req.query.dpi ?? '118'), 10);
+  const dpi = Number.isFinite(dpiRaw) ? Math.min(200, Math.max(72, dpiRaw)) : 118;
+
+  try {
+    const diagScript = path.join(__dirname, '..', 'scripts', 'pdf_diagnostic.py');
+    const pythonBin = resolvePythonBin();
+    const infoOut = (
+      await exec(`"${pythonBin}" "${diagScript}" info "${inputPdfPath}"`, {
+        maxBuffer: 512 * 1024,
+      })
+    ).stdout.trim();
+    const { pageCount } = JSON.parse(infoOut || '{}') as { pageCount?: number };
+    if (
+      pageCount == null ||
+      pageCount < 1 ||
+      !Number.isFinite(pageNum) ||
+      pageNum < 1 ||
+      pageNum > pageCount
+    ) {
+      res.status(400).json({ error: '페이지 번호가 범위를 벗어났습니다' });
+      return;
+    }
+
+    const cacheDir = path.join(job.sessionRoot, '.review-ui-cache');
+    await fs.mkdir(cacheDir, { recursive: true });
+    const cacheFile = path.join(cacheDir, `p${pageNum}-dpi${dpi}-rgb-v2.png`);
+    let needRender = true;
+    try {
+      if (fsSync.existsSync(cacheFile)) {
+        const [stPdf, stPng] = await Promise.all([fs.stat(inputPdfPath), fs.stat(cacheFile)]);
+        if (stPng.mtimeMs >= stPdf.mtimeMs && stPng.size > 64) needRender = false;
+      }
+    } catch {
+      needRender = true;
+    }
+
+    if (needRender) {
+      await exec(
+        `"${pythonBin}" "${diagScript}" render "${inputPdfPath}" ${pageNum} "${cacheFile}" ${dpi}`,
+        { maxBuffer: 32 * 1024 * 1024 },
+      );
+    }
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=30');
+    res.sendFile(path.resolve(cacheFile));
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
 app.get('/api/raw-mxl/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (

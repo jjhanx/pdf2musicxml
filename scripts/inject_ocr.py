@@ -336,6 +336,12 @@ def parse_bpm_from_text(text: str):
     return None
 
 
+def _skip_inject_meta_item(item):
+    """ocr_data.json 에서 타입 이름이 '_' 로 시작하면 메타(마스킹 전용 등)로 취급."""
+    t = item.get("type", "unknown")
+    return isinstance(t, str) and t.startswith("_")
+
+
 def collect_tempo_bpm(ocr_data):
     """type==tempo 항목 중 읽기 순으로 첫 번째 유효 BPM."""
     items = [it for it in ocr_data if it.get("type") == "tempo"]
@@ -413,6 +419,8 @@ def collect_lyric_streams(ocr_data):
     """
     buckets = {}
     for item in ocr_data:
+        if _skip_inject_meta_item(item):
+            continue
         if item.get("type") != "lyrics":
             continue
         try:
@@ -499,6 +507,8 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     copyright_text = ""
 
     for item in ocr_data:
+        if _skip_inject_meta_item(item):
+            continue
         t = item.get("type", "unknown")
         text = item.get("text", "")
         if t == "title":

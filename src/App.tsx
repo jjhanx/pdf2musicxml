@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AudiverisInspectPanel } from './AudiverisInspectPanel';
+import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPanel';
 
 type Health = {
   ok: boolean;
@@ -79,6 +80,73 @@ function lyricVoicePresetKey(v: string | undefined): (typeof LYRIC_VOICE_PRESETS
   return (LYRIC_VOICE_PRESETS as readonly string[]).includes(s)
     ? (s as (typeof LYRIC_VOICE_PRESETS)[number])
     : '__custom__';
+}
+
+/** 검토 임시저장(JSON)·백업 v2 본문 */
+type StoredReviewDraftV2 = {
+  v: 2;
+  items: OcrReviewItem[];
+  manualLyricRects: ManualLyricBBox[];
+};
+
+const MANUAL_LYRIC_MASK_TYPE = '_manual_lyric_mask';
+const MANUAL_LYRIC_MASK_ID = '__manual_lyric_regions__';
+
+function parseManualRectsFromUnknown(zones: unknown): ManualLyricBBox[] {
+  if (!Array.isArray(zones)) return [];
+  const out: ManualLyricBBox[] = [];
+  for (const z of zones) {
+    if (!z || typeof z !== 'object') continue;
+    const page = Number((z as { page?: unknown }).page);
+    const bb = (z as { bbox?: unknown }).bbox;
+    if (!Number.isFinite(page) || page < 1 || !Array.isArray(bb) || bb.length < 4) continue;
+    const n0 = Number(bb[0]);
+    const n1 = Number(bb[1]);
+    const n2 = Number(bb[2]);
+    const n3 = Number(bb[3]);
+    if (![n0, n1, n2, n3].every((x) => Number.isFinite(x))) continue;
+    out.push({ page: Math.floor(page), bbox: [n0, n1, n2, n3] });
+  }
+  return out;
+}
+
+/**
+ * 서버 또는 백업에서 온 배열에서 UI용 OCR 행과 수동 마스크 좌표를 분리합니다.
+ */
+function partitionReviewPayload(rows: unknown[]): {
+  items: OcrReviewItem[];
+  manualLyricRects: ManualLyricBBox[];
+} {
+  const items: OcrReviewItem[] = [];
+  const manualLyricRects: ManualLyricBBox[] = [];
+  for (const raw of rows) {
+    const it = raw as Record<string, unknown>;
+    if (it.type === MANUAL_LYRIC_MASK_TYPE) {
+      manualLyricRects.push(...parseManualRectsFromUnknown(it.manualRects));
+      continue;
+    }
+    items.push(raw as OcrReviewItem);
+  }
+  return { items, manualLyricRects };
+}
+
+function loadReviewDraftFromLocalStorageJson(rawJson: unknown): {
+  items: unknown[];
+  manualLyricRects: ManualLyricBBox[];
+} {
+  const r = rawJson;
+  if (r && typeof r === 'object' && (r as { v?: number }).v === 2 && Array.isArray((r as StoredReviewDraftV2).items)) {
+    const d = r as StoredReviewDraftV2;
+    return {
+      items: d.items as unknown[],
+      manualLyricRects: parseManualRectsFromUnknown(d.manualLyricRects),
+    };
+  }
+  if (Array.isArray(r)) {
+    const { items, manualLyricRects } = partitionReviewPayload(r);
+    return { items: items as unknown[], manualLyricRects };
+  }
+  return { items: [], manualLyricRects: [] };
 }
 
 /** 추출 JSON은 type이 unknown인 경우가 많아, 검토 창 첫 표시 시 기본은 가사로 둔다. */
@@ -195,6 +263,7 @@ export default function App() {
   
   const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
   const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
+  const [manualLyricRects, setManualLyricRects] = useState<ManualLyricBBox[]>([]);
   const [reviewOriginalFileName, setReviewOriginalFileName] = useState('');
   const [hasSavedData, setHasSavedData] = useState(false);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
@@ -422,10 +491,12 @@ export default function App() {
                 try {
                   const r = await fetch(`/api/review/${jobId}`);
                   if (r.ok) {
-                    const data: OcrReviewItem[] = await r.json();
+                    const dataRaw = (await r.json()) as unknown[];
+                    const { items: payloadItems, manualLyricRects: fromPayload } =
+                      partitionReviewPayload(Array.isArray(dataRaw) ? dataRaw : []);
 
                     // Initialize missing fields for the UI
-                    const initData = data.map((item) => ({
+                    const initData = payloadItems.map((item) => ({
                       ...item,
                       type: defaultReviewTypeForInit(item.type),
                       lyricPartIndex:
@@ -443,6 +514,7 @@ export default function App() {
                           : 0,
                     }));
 
+                    setManualLyricRects(fromPayload);
                     setReviewData(initData);
                     setReviewingJobId(jobId);
                     setReviewOriginalFileName(file.name);
@@ -541,10 +613,19 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (reviewingJobId && reviewOriginalFileName && reviewData.length > 0) {
-      localStorage.setItem('pdf2mxl_review_' + reviewOriginalFileName, JSON.stringify(reviewData));
+    if (
+      reviewingJobId &&
+      reviewOriginalFileName &&
+      (reviewData.length > 0 || manualLyricRects.length > 0)
+    ) {
+      const draft: StoredReviewDraftV2 = {
+        v: 2,
+        items: reviewData,
+        manualLyricRects,
+      };
+      localStorage.setItem('pdf2mxl_review_' + reviewOriginalFileName, JSON.stringify(draft));
     }
-  }, [reviewData, reviewingJobId, reviewOriginalFileName]);
+  }, [reviewData, manualLyricRects, reviewingJobId, reviewOriginalFileName]);
 
   const handleLoadPrevious = () => {
     if (!reviewOriginalFileName) return;
@@ -552,11 +633,14 @@ export default function App() {
     if (saved) {
        try {
          const parsed = JSON.parse(saved);
+         const { items: restoredRows, manualLyricRects: restoredRects } =
+           loadReviewDraftFromLocalStorageJson(parsed);
          const merged = reviewData.map((item) => {
-            const match = parsed.find((p: { id?: string }) => p.id === item.id);
+            const match = restoredRows.find((p: { id?: string }) => p.id === item.id);
             return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
          });
          setReviewData(merged);
+         if (restoredRects.length > 0) setManualLyricRects(restoredRects);
        } catch (e) {
          console.error('Failed to load saved data', e);
        }
@@ -564,7 +648,12 @@ export default function App() {
   };
 
   const handleDownloadReview = () => {
-    const jsonStr = JSON.stringify(reviewData, null, 2);
+    const draft: StoredReviewDraftV2 = {
+      v: 2,
+      items: reviewData,
+      manualLyricRects,
+    };
+    const jsonStr = JSON.stringify(draft, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -581,13 +670,16 @@ export default function App() {
     reader.onload = (ev) => {
        try {
          const parsed = JSON.parse(ev.target?.result as string);
-         if (Array.isArray(parsed)) {
+         const { items: backupRows, manualLyricRects: fromFile } =
+           loadReviewDraftFromLocalStorageJson(parsed);
+         if (backupRows.length > 0) {
             const merged = reviewData.map((item) => {
-               const match = parsed.find((p: { id?: string }) => p.id === item.id);
+               const match = backupRows.find((p: { id?: string }) => p.id === item.id);
                return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
             });
             setReviewData(merged);
          }
+         if (fromFile.length > 0) setManualLyricRects(fromFile);
        } catch (err) {
          alert('올바른 백업 파일(.json)이 아닙니다.');
        }
@@ -612,11 +704,27 @@ export default function App() {
         };
       });
     try {
+      const maskMeta =
+        manualLyricRects.length > 0
+          ? [
+              {
+                id: MANUAL_LYRIC_MASK_ID,
+                type: MANUAL_LYRIC_MASK_TYPE,
+                page: 1,
+                text: '',
+                confidence: 1,
+                x: 0,
+                y: 0,
+                manualRects: manualLyricRects,
+              },
+            ]
+          : [];
+
       const res = await fetch(`/api/review/${reviewingJobId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: normalizedItems,
+          items: [...normalizedItems, ...maskMeta],
         }),
       });
       if (!res.ok) {
@@ -635,6 +743,7 @@ export default function App() {
       }
       setReviewingJobId(null);
       setReviewData([]);
+      setManualLyricRects([]);
       setReviewOriginalFileName('');
       setHasSavedData(false);
     } catch (e) {
@@ -1001,9 +1110,17 @@ export default function App() {
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
               <strong>파트·가사 절·멜로디 줄:</strong> <strong>파트 순번</strong>은 MusicXML의 몇 번째 악기/성부인지(1=첫 파트)입니다. <strong>가사 절</strong>(1절·2절…)은 같은 멜로디에 붙는 <strong>서로 다른 가사 줄</strong>이며, 병합 시 같은 음표에 <code>lyric number=&quot;1&quot;</code>, <code>&quot;2&quot;</code>…로 나뉩니다. <strong>멜로디 줄(voice)</strong>은 같은 마디에서 <strong>동시에 울리는 서로 다른 선율</strong>(성부 2줄 등)에 쓰는 MusicXML <code>&lt;voice&gt;</code>이며 <em>1절/2절과 다릅니다</em>. 한 줄만 있는 성부는 보통 멜로디 줄 1과 가사 절만 쓰면 됩니다. 피아노·2멜로디 한 파트면 <strong>전체 순서 (*)</strong> 또는 해당 <code>&lt;voice&gt;</code> 번호를 지정하세요. 가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 하이픈(<strong>-</strong>)을 쓰세요.<br/>
               <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다.<br/>
-              <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다.</em>
+              <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다. 수동 가사 지우기 영역은 백업·임시 저장에 포함됩니다.</em>
             </div>
-            
+
+            {reviewingJobId ? (
+              <ManualLyricMaskPanel
+                jobId={reviewingJobId}
+                value={manualLyricRects}
+                onChange={setManualLyricRects}
+              />
+            ) : null}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
               {reviewData.map((item, i) => (
                 <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--bg-color, #f5f5f5)', padding: '1rem', borderRadius: '4px', borderLeft: item.type==='lyrics'?'4px solid #1976d2':item.type==='tempo'?'4px solid #e65100':'4px solid #ccc' }}>

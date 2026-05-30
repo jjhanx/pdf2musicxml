@@ -68,6 +68,73 @@ def font_size_in_ranges(size: float, ranges: list[tuple[float, float]]) -> bool:
     return False
 
 
+def _multiply_matrix(m1: list[float], m2: list[float]) -> list[float]:
+    a1, b1, c1, d1, e1, f1 = m1
+    a2, b2, c2, d2, e2, f2 = m2
+    return [
+        a1 * a2 + b1 * c2,
+        a1 * b2 + b1 * d2,
+        c1 * a2 + d1 * c2,
+        c1 * b2 + d1 * d2,
+        a1 * e2 + b1 * f2 + e1,
+        c1 * e2 + d1 * f2 + f1,
+    ]
+
+
+def _effective_font_size_pt(tf_size: float, ctm: list[float], tm: list[float]) -> float:
+    """pdfplumber size ≈ Tf × |CTM| × |Tm| (악보 PDF는 대부분 축 정렬)."""
+    if tf_size <= 0:
+        return 0.0
+    ctm_scale = max(abs(ctm[0]), abs(ctm[3]))
+    tm_scale = max(abs(tm[0]), abs(tm[3]))
+    return tf_size * ctm_scale * tm_scale
+
+
+def _strip_commands_in_stream(
+    commands: list,
+    ranges: list[tuple[float, float]],
+    *,
+    initial_ctm: list[float] | None = None,
+) -> list:
+    ctm_stack: list[list[float]] = [list(initial_ctm or [1.0, 0.0, 0.0, 1.0, 0.0, 0.0])]
+    current_font_size = 0.0
+    tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    clean_commands = []
+
+    for operands, operator in commands:
+        op_name = str(operator)
+
+        if op_name == "q":
+            ctm_stack.append(list(ctm_stack[-1]))
+        elif op_name == "Q":
+            if len(ctm_stack) > 1:
+                ctm_stack.pop()
+        elif op_name == "cm" and len(operands) >= 6:
+            m2 = [float(operands[i]) for i in range(6)]
+            ctm_stack[-1] = _multiply_matrix(ctm_stack[-1], m2)
+        elif op_name == "BT":
+            tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+        elif op_name == "Tf" and len(operands) > 1:
+            try:
+                current_font_size = float(operands[1])
+            except (ValueError, TypeError):
+                current_font_size = 0.0
+        elif op_name == "Tm" and len(operands) >= 6:
+            tm = [float(operands[i]) for i in range(6)]
+
+        if op_name in ["Tj", "TJ", "'", '"']:
+            eff = _effective_font_size_pt(current_font_size, ctm_stack[-1], tm)
+            if font_size_in_ranges(eff, ranges) and operands:
+                if op_name == "TJ":
+                    operands[0] = pikepdf.Array([])
+                else:
+                    operands[0] = pikepdf.String("")
+
+        clean_commands.append((operands, operator))
+
+    return clean_commands
+
+
 def extract_layout(input_pdf_path: str, output_json_path: str) -> None:
     print("[extract] pdfplumber로 문자 레이아웃 추출 중...", file=sys.stderr)
     extracted_data = []
@@ -117,29 +184,7 @@ def strip_font_ranges(
             except Exception:
                 continue
 
-            clean_commands = []
-            current_font_size = 0.0
-
-            for operands, operator in commands:
-                op_name = str(operator)
-
-                if op_name == "Tf":
-                    if len(operands) > 1:
-                        try:
-                            current_font_size = float(operands[1])
-                        except (ValueError, TypeError):
-                            current_font_size = 0.0
-
-                if op_name in ["Tj", "TJ", "'", '"']:
-                    if font_size_in_ranges(current_font_size, ranges):
-                        if len(operands) > 0:
-                            if op_name == "TJ":
-                                operands[0] = pikepdf.Array([])
-                            else:
-                                operands[0] = pikepdf.String("")
-
-                clean_commands.append((operands, operator))
-
+            clean_commands = _strip_commands_in_stream(commands, ranges)
             page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(clean_commands))
 
         pdf.save(output_pdf_path, linearize=True)

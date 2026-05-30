@@ -88,11 +88,58 @@ function resolvePythonBin(): string {
   return 'python'; // fallback to global
 }
 
-app.get('/api/health', (_req, res) => {
+const FONT_SEPARATOR_PY_MODULES = ['pikepdf', 'pdfplumber'] as const;
+
+function fontSeparatorDepsInstallHint(pythonBin: string): string {
+  return `"${pythonBin}" -m pip install -r requirements.txt` +
+    ' (또는 pip install pikepdf pdfplumber). Linux에서 pikepdf 빌드 실패 시 libqpdf-dev 등 QPDF 개발 패키지가 필요할 수 있습니다.';
+}
+
+/** font_separator 파이프라인용 pdfplumber·pikepdf import 가능 여부 */
+async function probeFontSeparatorDeps(pythonBin: string): Promise<{
+  ok: boolean;
+  pythonBin: string;
+  missing: string[];
+}> {
+  const probeScript =
+    'import importlib.util,json;missing=[m for m in ("pikepdf","pdfplumber") if importlib.util.find_spec(m) is None];print(json.dumps({"missing":missing}))';
+  try {
+    const { stdout } = await exec(`"${pythonBin}" -c "${probeScript}"`, {
+      maxBuffer: 256 * 1024,
+    });
+    const parsed = JSON.parse(String(stdout).trim()) as { missing?: unknown };
+    const missing = Array.isArray(parsed.missing)
+      ? parsed.missing.filter((m): m is string => typeof m === 'string')
+      : [];
+    return { ok: missing.length === 0, pythonBin, missing };
+  } catch {
+    return { ok: false, pythonBin, missing: [...FONT_SEPARATOR_PY_MODULES] };
+  }
+}
+
+function isMissingPythonModuleError(msg: string, module: string): boolean {
+  return (
+    msg.includes(`No module named '${module}'`) ||
+    msg.includes(`No module named "${module}"`) ||
+    msg.includes(`ModuleNotFoundError: No module named ${module}`)
+  );
+}
+
+function formatFontSeparatorDepsError(depCheck: { missing: string[]; pythonBin: string }): JobErrorPayload {
+  return {
+    status: 503,
+    error: '폰트 분리 파이프라인 Python 패키지가 설치되어 있지 않습니다',
+    detail: `누락 모듈: ${depCheck.missing.join(', ')}. Python: ${depCheck.pythonBin}. 설치: ${fontSeparatorDepsInstallHint(depCheck.pythonBin)}`,
+  };
+}
+
+app.get('/api/health', async (_req, res) => {
   const bin = resolveAudiverisBin();
   const ocrLangEffective = resolvedAudiverisOcrLangSpec();
   const ocrLangConstantInjected = ocrLanguageConstantArgsFromEnv().length > 0;
   const extraCli = audiverisExtraCliArgsFromEnv();
+  const pythonBin = resolvePythonBin();
+  const sepDeps = await probeFontSeparatorDeps(pythonBin);
   res.json({
     ok: true,
     audiverisConfigured: Boolean(bin),
@@ -101,6 +148,10 @@ app.get('/api/health', (_req, res) => {
     audiverisCliExtraArgCount: extraCli.length,
     audiverisPauseOnWarn: audiverisPauseOnWarnFromEnv(),
     audiverisWarnPattern: process.env.AUDIVERIS_WARN_PATTERN?.trim() || null,
+    fontSeparatorDepsOk: sepDeps.ok,
+    fontSeparatorPythonBin: sepDeps.pythonBin,
+    fontSeparatorMissingModules: sepDeps.missing.length ? sepDeps.missing : undefined,
+    fontSeparatorDepsHint: sepDeps.ok ? undefined : fontSeparatorDepsInstallHint(sepDeps.pythonBin),
     hint: bin ? undefined : 'Set AUDIVERIS_BIN to Audiveris.bat or bin/Audiveris',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:
@@ -443,6 +494,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         detail: 'Audiveris 준비 중 (선행 처리 없음)…',
       });
     } else if (pipelineMode === 'font_separator') {
+      const depCheck = await probeFontSeparatorDeps(pythonBin);
+      if (!depCheck.ok) {
+        await fail(formatFontSeparatorDepsError(depCheck));
+        return;
+      }
+
       setJobProgress(job, {
         phase: 'separator',
         current: 0,
@@ -450,11 +507,21 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         detail: 'pdfplumber·pikepdf로 가사 분리 및 악보 PDF 생성 중…',
       });
       console.log(`[job ${jobId}] Running pdf_separator.py using ${pythonBin}`);
-      const { stdout: sepOut, stderr: sepErr } = await exec(
-        `"${pythonBin}" "${scriptSeparator}" "${inputPdfPath}" "${extractedJsonPath}" "${cleanScorePath}"`,
-      );
-      if (sepOut) console.log(`[job ${jobId}] pdf_separator.py Output:\n${sepOut}`);
-      if (sepErr) console.error(`[job ${jobId}] pdf_separator.py Error:\n${sepErr}`);
+      try {
+        const { stdout: sepOut, stderr: sepErr } = await exec(
+          `"${pythonBin}" "${scriptSeparator}" "${inputPdfPath}" "${extractedJsonPath}" "${cleanScorePath}"`,
+        );
+        if (sepOut) console.log(`[job ${jobId}] pdf_separator.py Output:\n${sepOut}`);
+        if (sepErr) console.error(`[job ${jobId}] pdf_separator.py Error:\n${sepErr}`);
+      } catch (sepExecErr) {
+        const msg = sepExecErr instanceof Error ? sepExecErr.message : String(sepExecErr);
+        const missing = FONT_SEPARATOR_PY_MODULES.filter((m) => isMissingPythonModuleError(msg, m));
+        if (missing.length > 0) {
+          await fail(formatFontSeparatorDepsError({ pythonBin, missing: [...missing] }));
+          return;
+        }
+        throw sepExecErr;
+      }
       if (!fsSync.existsSync(cleanScorePath)) {
         await fail({
           status: 500,

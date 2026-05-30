@@ -8,6 +8,10 @@ type Health = {
   audiverisConfigured: boolean;
   audiverisPauseOnWarn?: boolean;
   audiverisWarnPattern?: string | null;
+  fontSeparatorDepsOk?: boolean;
+  fontSeparatorPythonBin?: string;
+  fontSeparatorMissingModules?: string[];
+  fontSeparatorDepsHint?: string;
   hint?: string;
   jobRetentionHours?: number;
   jobRetentionNote?: string;
@@ -504,6 +508,12 @@ export default function App() {
         setStatus('Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.');
         return;
       }
+      if (pipelineMode === 'font_separator' && healthArg.fontSeparatorDepsOk === false) {
+        setStatus(
+          `폰트 분리용 Python 패키지(pikepdf, pdfplumber)가 없습니다. 서버에서: ${healthArg.fontSeparatorDepsHint ?? 'pip install -r requirements.txt'}`,
+        );
+        return;
+      }
 
       revokeTaskUrls(tasksRef.current);
 
@@ -953,7 +963,12 @@ export default function App() {
           </button>
           <button
             type="button"
-            disabled={!files.length || !health?.audiverisConfigured || busy}
+            disabled={
+              !files.length ||
+              !health?.audiverisConfigured ||
+              busy ||
+              (pipelineMode === 'font_separator' && health?.fontSeparatorDepsOk === false)
+            }
             onClick={() =>
               void runBatchWith(files, health, autoSave).catch((err: unknown) => {
                 console.error(err);
@@ -1071,6 +1086,18 @@ export default function App() {
           {health?.audiverisConfigured && (
             <>
               Audiveris 준비됨 (로컬 API)
+              {health.fontSeparatorDepsOk === false && (
+                <>
+                  <br />
+                  <span style={{ fontSize: '0.9em', color: '#c62828' }}>
+                    <strong>폰트 분리 패키지 없음</strong> ({health.fontSeparatorMissingModules?.join(', ') ?? 'pikepdf, pdfplumber'}).
+                    서버 venv에서{' '}
+                    <code style={{ fontSize: '0.85em' }}>
+                      {health.fontSeparatorDepsHint ?? 'pip install -r requirements.txt'}
+                    </code>
+                  </span>
+                </>
+              )}
               {health.audiverisPauseOnWarn && (
                 <>
                   <br />

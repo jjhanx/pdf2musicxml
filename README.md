@@ -39,9 +39,19 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **Python** 3.8+ (PaddleOCR·PyMuPDF·**pdfplumber·pikepdf** 가사 분리·병합·주입 파이프라인용)
 - **Audiveris** (호스트에 설치, 아래 환경 변수로 실행 파일 지정)
 
-Python 환경에서 다음 명령어로 의존성을 설치해야 완전한 후처리 기능을 사용할 수 있습니다.
+Python 환경에서 다음 명령어로 의존성을 설치해야 합니다. **폰트 분리(권장) 파이프라인**은 `pikepdf`·`pdfplumber`가 **필수**입니다.
+
 ```bash
+cd /path/to/pdf2musicxml
+source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+```
+
+Linux에서 `pikepdf` 설치가 실패하면 QPDF 개발 라이브러리가 필요할 수 있습니다.
+
+```bash
+sudo apt-get install -y libqpdf-dev   # Debian/Ubuntu
+pip install pikepdf pdfplumber
 ```
 *(참고: 리눅스 환경에서 PDF 이미지 변환 시 `sudo apt-get install poppler-utils`가 필요할 수 있습니다.)*
 

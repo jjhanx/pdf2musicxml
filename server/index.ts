@@ -100,20 +100,41 @@ async function probeFontSeparatorDeps(pythonBin: string): Promise<{
   ok: boolean;
   pythonBin: string;
   missing: string[];
+  probeExecutable?: string;
+  probeError?: string;
 }> {
-  const probeScript =
-    'import importlib.util,json;missing=[m for m in ("pikepdf","pdfplumber") if importlib.util.find_spec(m) is None];print(json.dumps({"missing":missing}))';
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'probe_font_separator_deps.py');
   try {
-    const { stdout } = await exec(`"${pythonBin}" -c "${probeScript}"`, {
+    const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptPath}"`, {
       maxBuffer: 256 * 1024,
     });
-    const parsed = JSON.parse(String(stdout).trim()) as { missing?: unknown };
+    if (stderr?.trim()) {
+      console.warn('[health] probe_font_separator_deps stderr:', stderr.trim());
+    }
+    const parsed = JSON.parse(String(stdout).trim()) as {
+      ok?: boolean;
+      missing?: unknown;
+      executable?: string;
+    };
     const missing = Array.isArray(parsed.missing)
       ? parsed.missing.filter((m): m is string => typeof m === 'string')
       : [];
-    return { ok: missing.length === 0, pythonBin, missing };
-  } catch {
-    return { ok: false, pythonBin, missing: [...FONT_SEPARATOR_PY_MODULES] };
+    const executable =
+      typeof parsed.executable === 'string' && parsed.executable ? parsed.executable : pythonBin;
+    return {
+      ok: parsed.ok === true || missing.length === 0,
+      pythonBin: executable,
+      missing,
+      probeExecutable: executable,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      pythonBin,
+      missing: [...FONT_SEPARATOR_PY_MODULES],
+      probeError: msg,
+    };
   }
 }
 
@@ -150,8 +171,10 @@ app.get('/api/health', async (_req, res) => {
     audiverisWarnPattern: process.env.AUDIVERIS_WARN_PATTERN?.trim() || null,
     fontSeparatorDepsOk: sepDeps.ok,
     fontSeparatorPythonBin: sepDeps.pythonBin,
+    fontSeparatorProbeExecutable: sepDeps.probeExecutable,
     fontSeparatorMissingModules: sepDeps.missing.length ? sepDeps.missing : undefined,
     fontSeparatorDepsHint: sepDeps.ok ? undefined : fontSeparatorDepsInstallHint(sepDeps.pythonBin),
+    fontSeparatorProbeError: sepDeps.probeError,
     hint: bin ? undefined : 'Set AUDIVERIS_BIN to Audiveris.bat or bin/Audiveris',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:

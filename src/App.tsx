@@ -11,6 +11,8 @@ type Health = {
   audiverisWarnPattern?: string | null;
   fontSeparatorDepsOk?: boolean;
   fontSeparatorPythonBin?: string;
+  fontSeparatorProbeExecutable?: string;
+  fontSeparatorProbeError?: string;
   fontSeparatorMissingModules?: string[];
   fontSeparatorDepsHint?: string;
   hint?: string;
@@ -1155,7 +1157,9 @@ bash scripts/install-font-separator-deps.sh`}
               {health.fontSeparatorDepsOk === true && (
                 <>
                   {' '}
-                  · 폰트 분리(pdfplumber/pikepdf) 준비됨
+                  · 폰트 분리 준비됨 (
+                  <code style={{ fontSize: '0.82em' }}>{health.fontSeparatorProbeExecutable ?? health.fontSeparatorPythonBin}</code>
+                  )
                 </>
               )}
               {health.fontSeparatorDepsOk === false && (

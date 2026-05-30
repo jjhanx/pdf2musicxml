@@ -1309,17 +1309,7 @@ bash scripts/install-font-separator-deps.sh`}
               zIndex: 9998,
             }}
           >
-            <div
-              style={{
-                background: 'var(--card-bg, #fff)',
-                padding: '1.5rem 2rem',
-                borderRadius: '8px',
-                maxWidth: '960px',
-                maxHeight: '88vh',
-                overflowY: 'auto',
-                width: '95%',
-              }}
-            >
+            <div className="font-strip-modal">
               <FontStripPanel jobId={fontStripJobId} onSubmitted={() => setFontStripJobId(null)} />
             </div>
           </div>,

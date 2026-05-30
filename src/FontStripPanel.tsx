@@ -183,14 +183,14 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
     <div className="font-strip-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
         <h2 style={{ margin: '0 0 0.5rem' }}>Audiveris 입력 PDF — 지울 폰트 크기</h2>
-        <p style={{ margin: 0, fontSize: '0.92rem', lineHeight: 1.5, color: 'var(--muted, #666)' }}>
+        <p className="font-strip-muted" style={{ margin: 0, fontSize: '0.92rem', lineHeight: 1.5 }}>
           <code>clean_score_only.pdf</code>에서 선택한 크기의 텍스트만 제거합니다.{' '}
           <strong>제목·작곡·가사·저작권</strong> 등은 검토 후{' '}
           <code>inject_ocr.py</code>가 MusicXML에 넣으므로 Audiveris 악보 PDF에는 남기지 않는 편이 좋습니다.{' '}
           <strong>20pt 이상</strong>은 높은음자리표 등 음표 글림과 겹칠 수 있어 주의하세요.
         </p>
         {stats?.note && (
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: '#888' }}>{stats.note}</p>
+          <p className="font-strip-muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>{stats.note}</p>
         )}
       </div>
 
@@ -216,13 +216,13 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
             ))}
           </div>
 
-          <div style={{ fontSize: '0.88rem' }}>
+          <div className="font-strip-selected-summary">
             <strong>선택된 제거 범위:</strong>{' '}
             {selected.length ? selected.map((r) => `${r.minPt}–${r.maxPt}pt`).join(', ') : '(없음)'}
           </div>
 
-          <div style={{ overflowX: 'auto', maxHeight: '40vh', border: '1px solid #444', borderRadius: 6 }}>
-            <table className="task-table" style={{ margin: 0, fontSize: '0.85rem' }}>
+          <div className="font-strip-table-wrap">
+            <table className="font-strip-table">
               <thead>
                 <tr>
                   <th>선택</th>
@@ -240,10 +240,12 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
                   return (
                     <tr
                       key={e.sizePt}
-                      style={{
-                        opacity: likelyMusic ? 0.65 : 1,
-                        background: active ? 'rgba(25, 118, 210, 0.12)' : undefined,
-                      }}
+                      className={[
+                        active ? 'font-strip-row-selected' : '',
+                        likelyMusic ? 'font-strip-row-muted' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                     >
                       <td>
                         <input
@@ -256,8 +258,8 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
                       <td>{e.sizePt}</td>
                       <td>{e.charCount}</td>
                       <td>{e.pageCount}</td>
-                      <td style={{ maxWidth: 220, wordBreak: 'break-all' }}>{e.sampleText || '—'}</td>
-                      <td style={{ maxWidth: 160, fontSize: '0.78rem' }}>{e.fontnames?.join(', ') || '—'}</td>
+                      <td className="font-strip-sample">{e.sampleText || '—'}</td>
+                      <td className="font-strip-fontname">{e.fontnames?.join(', ') || '—'}</td>
                     </tr>
                   );
                 })}

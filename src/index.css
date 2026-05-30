@@ -270,3 +270,102 @@ button.btn-muted {
     transform: translateX(320%);
   }
 }
+
+/* 폰트 크기 선택 모달 — 밝은 카드 위 밝은 글자색 상속 충돌 방지 */
+.font-strip-modal {
+  background: #1e222a;
+  border: 1px solid #3c4049;
+  color: #e8eaed;
+  padding: 1.5rem 2rem;
+  border-radius: 8px;
+  max-width: 960px;
+  max-height: 88vh;
+  overflow-y: auto;
+  width: 95%;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.font-strip-panel h2 {
+  color: #e8eaed;
+}
+
+.font-strip-panel .font-strip-muted {
+  color: #9aa0a6;
+}
+
+.font-strip-panel .font-strip-selected-summary {
+  color: #bdc1c6;
+  font-size: 0.88rem;
+}
+
+.font-strip-panel .font-strip-selected-summary strong {
+  color: #e8eaed;
+}
+
+.font-strip-table-wrap {
+  overflow: auto;
+  max-height: 40vh;
+  border: 1px solid #3c4049;
+  border-radius: 6px;
+  background: #171a21;
+}
+
+.font-strip-table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.font-strip-table th {
+  background: #252a33;
+  color: #bdc1c6;
+  font-weight: 600;
+  border-bottom: 1px solid #3c4049;
+  padding: 0.5rem 0.55rem;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.font-strip-table td {
+  background: #1e222a;
+  color: #e8eaed;
+  border-bottom: 1px solid #2e3440;
+  padding: 0.45rem 0.55rem;
+  vertical-align: top;
+}
+
+.font-strip-table tr.font-strip-row-selected td {
+  background: rgba(25, 118, 210, 0.2);
+}
+
+.font-strip-table tr.font-strip-row-muted td {
+  color: #9aa0a6;
+}
+
+.font-strip-table .font-strip-sample {
+  max-width: 280px;
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+.font-strip-table .font-strip-fontname {
+  max-width: 140px;
+  font-size: 0.78rem;
+  color: #bdc1c6;
+  word-break: break-all;
+}
+
+.font-strip-panel label {
+  color: #e8eaed;
+}
+
+.font-strip-panel input[type='number'] {
+  background: #171a21;
+  border: 1px solid #3c4049;
+  color: #e8eaed;
+  border-radius: 4px;
+  padding: 0.25rem 0.35rem;
+}

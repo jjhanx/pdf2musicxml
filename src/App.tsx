@@ -331,8 +331,8 @@ export default function App() {
     if (audiverisReviewJobId) setAudiverisModalTab('adjust');
   }, [audiverisReviewJobId]);
 
-  useEffect(() => {
-    fetch('/api/health')
+  const refreshHealth = useCallback(() => {
+    return fetch('/api/health', { cache: 'no-store' })
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json() as Promise<Health>;
@@ -340,6 +340,10 @@ export default function App() {
       .then(setHealth)
       .catch(() => setHealth({ ok: false, audiverisConfigured: false }));
   }, []);
+
+  useEffect(() => {
+    void refreshHealth();
+  }, [refreshHealth]);
 
   useEffect(() => {
     return () => {
@@ -999,11 +1003,20 @@ export default function App() {
         >
           <legend style={{ fontSize: '0.95rem', padding: '0 0.35rem' }}>변환 방식</legend>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
-            <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
+            <label
+              style={{
+                display: 'flex',
+                gap: '0.5rem',
+                alignItems: 'flex-start',
+                cursor: health?.fontSeparatorDepsOk === false ? 'not-allowed' : 'pointer',
+                opacity: health?.fontSeparatorDepsOk === false ? 0.65 : 1,
+              }}
+            >
               <input
                 type="radio"
                 name="pipelineMode"
                 checked={pipelineMode === 'font_separator'}
+                disabled={health?.fontSeparatorDepsOk === false}
                 onChange={() => setPipelineMode('font_separator')}
               />
               <span>
@@ -1094,18 +1107,62 @@ export default function App() {
               서버를 다시 실행하세요.
             </>
           )}
+          {health?.fontSeparatorDepsOk === false && (
+            <div
+              className="status err"
+              style={{ marginTop: '0.75rem', lineHeight: 1.55, fontSize: '0.9rem' }}
+            >
+              <strong>폰트 분리 패키지 없음</strong> ({health.fontSeparatorMissingModules?.join(', ') ?? 'pikepdf, pdfplumber'}
+              ). Linux 서버 SSH에서 한 번 설치하세요:
+              <pre
+                style={{
+                  margin: '0.5rem 0',
+                  padding: '0.65rem',
+                  background: 'rgba(0,0,0,0.06)',
+                  borderRadius: 4,
+                  overflowX: 'auto',
+                  fontSize: '0.82rem',
+                }}
+              >
+                {`cd /mnt/jj/pdf2musicxml
+source venv/bin/activate
+pip install -r requirements.txt
+# pikepdf 빌드 실패 시: sudo apt-get install -y libqpdf-dev && pip install pikepdf pdfplumber
+bash scripts/install-font-separator-deps.sh`}
+              </pre>
+              설치·Node(PM2) 재시작 후{' '}
+              <button type="button" className="btn-link" onClick={() => void refreshHealth()}>
+                서버 상태 새로고침
+              </button>
+              . 당장 변환하려면 아래에서{' '}
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => {
+                  setPipelineMode('pymupdf_review');
+                  setStatus('PyMuPDF 검증 + 마스킹 방식으로 전환했습니다. 변환 버튼을 눌러 주세요.');
+                }}
+              >
+                PyMuPDF 방식으로 전환
+              </button>
+              .
+            </div>
+          )}
+
           {health?.audiverisConfigured && (
             <>
               Audiveris 준비됨 (로컬 API)
+              {health.fontSeparatorDepsOk === true && (
+                <>
+                  {' '}
+                  · 폰트 분리(pdfplumber/pikepdf) 준비됨
+                </>
+              )}
               {health.fontSeparatorDepsOk === false && (
                 <>
                   <br />
                   <span style={{ fontSize: '0.9em', color: '#c62828' }}>
-                    <strong>폰트 분리 패키지 없음</strong> ({health.fontSeparatorMissingModules?.join(', ') ?? 'pikepdf, pdfplumber'}).
-                    서버 venv에서{' '}
-                    <code style={{ fontSize: '0.85em' }}>
-                      {health.fontSeparatorDepsHint ?? 'pip install -r requirements.txt'}
-                    </code>
+                    폰트 분리 모드는 Python 패키지 설치 후 사용 가능 (위 안내 참고).
                   </span>
                 </>
               )}

@@ -5,9 +5,15 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 
 - **Audiveris MXL 없음(HTTP 422)**: 출력 폴더에 `.mxl`/`.musicxml`이 없을 때입니다. 로그에 `Can't connect to X11`·`java.awt.AWTError`가 보이면 **헤드리스 Linux**에서 `DISPLAY`만 잡혀 Audiveris가 GUI 초기화에 실패한 경우입니다. 앱은 Audiveris 실행 시 `JAVA_TOOL_OPTIONS`에 `-Djava.awt.headless=true`를 붙이도록 되어 있으며, 그래도 안 되면 `unset DISPLAY` 후 PM2 재시작을 검토하세요. 로그에 `WARN [#10]`·`ERS`가 보이면 **10번째 악보 장(sheet)** 처리 문제인 경우가 많습니다. 동일 PDF를 Audiveris GUI로 열어 해당 장을 확인하세요.
 
-## 최근 변경 (Audiveris 단일 파이프라인)
+## 최근 변경 (폰트 분리 + 가사 병합 파이프라인)
 
-- **PDF 선행 처리 제거**: OCR·텍스트 마스킹·Python 가사 병합을 없애고, 업로드 PDF를 **바로 Audiveris**에 넘깁니다. 가사·글자는 Audiveris가 MusicXML에 넣을 수 있는 범위에서만 포함됩니다.
+- **변환 방식 선택(웹 UI)**: 업로드 전 **변환 방식**을 고릅니다.
+  - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): `scripts/pdf_separator.py`(pdfplumber·pikepdf)로 `extracted_music_text.json`·`clean_score_only.pdf` 생성 → (선택) **PyMuPDF 가사 검증** → `scripts/merge_lyric_sources.py`로 **v3 `lyric_manifest.json`** 병합 → **`clean_score_only.pdf`** 로 Audiveris → `inject_ocr.py`로 가사·메타 주입.
+  - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
+  - **Audiveris만**: 선행 처리·가사 주입 없음.
+- **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「PyMuPDF 가사 검증·편집」 체크를 끄면 pdfplumber 추출만으로 병합합니다.
+- **점검 UI**: 완료 후 **마스킹·인식 점검**에서 원본 vs **`clean_score_only.pdf`** PNG 비교, PDF 다운로드, Audiveris 단계별 실행(`pdfSource=clean_score`)을 지원합니다.
+- **저장 형식 v3**: `lyric_manifest.json` — `items[]`(병합 출처 `provenance`, `fontSize` 등) + `matchStats`. `inject_ocr.py`는 v2/v3 manifest와 flat 배열 모두 읽습니다.
 - **한글·ZIP 파일명**: `POST /api/convert` 멀티파트 파일명 디코딩은 그대로 유지합니다.
 - 자세한 품질·호환 대응은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md), 배포 점검은 동 문서 **「서버 배포 후 점검 체크리스트」**를 따르세요.
 
@@ -30,7 +36,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 ## 필요 조건
 
 - **Node.js** 20+ 권장
-- **Python** 3.8+ (PaddleOCR 가사 추출 및 조표 후처리, PyMuPDF 벡터 추출 파이프라인용)
+- **Python** 3.8+ (PaddleOCR·PyMuPDF·**pdfplumber·pikepdf** 가사 분리·병합·주입 파이프라인용)
 - **Audiveris** (호스트에 설치, 아래 환경 변수로 실행 파일 지정)
 
 Python 환경에서 다음 명령어로 의존성을 설치해야 완전한 후처리 기능을 사용할 수 있습니다.
@@ -163,7 +169,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 |-------------|------|
 | `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`)·**`audiverisCliExtraArgCount`**(`AUDIVERIS_CLI_EXTRA_JSON` 토큰 수)·**`audiverisPauseOnWarn`**, 선택 **`audiverisWarnPattern`**. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
 | `GET /api/audiveris-sheet-steps` | Audiveris 공식 시트 단계 이름 배열 JSON `{ "steps": [ … ] }` (단계별 디버깅 UI용). 인증 없음 |
-| `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`, 선택 **`pauseAfterAudiveris`** (`true`면 Audiveris MXL 생성 직후 파이프라인 일시 정지). **파일이 디스크에 저장된 뒤** **202 Accepted** 와 `{ "jobId", "message" }`. 헤더 `X-Pdf2Mxl-Async: 202-after-upload`, `X-Accel-Buffering: no`. 업로드·multipart 오류 시 **동일 POST**에서 4xx/5xx JSON(이 경우 `jobId` 없음). |
+| `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`, 선택 **`pauseAfterAudiveris`**, 선택 **`pipelineMode`** (`font_separator` \| `pymupdf_review` \| `audiveris_only`, 기본 `font_separator`), **`font_separator`일 때** 선택 **`enablePymupdfReview`** (`true`/`false`, 기본 `true`). **202 Accepted** + `{ "jobId" }`. |
 | `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → (`audiveris_review_needed`) → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
 | `GET /api/review/:jobId` | 상태가 `review_needed`일 때 추출된 문자 영역(좌표/텍스트) 데이터 가져오기 |
 | `GET /api/review/:jobId/pdf-dimensions` | `review_needed` 단계만. 업로드 PDF 페이지 크기(pt) JSON(`pdf_diagnostic.py pagesizes`) — 수동 가사 마스킹 좌표 변환 |

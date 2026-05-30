@@ -4,3 +4,5 @@ pdf2image
 opencv-python
 lxml
 PyMuPDF
+pdfplumber
+pikepdf

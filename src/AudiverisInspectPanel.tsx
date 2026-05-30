@@ -5,8 +5,12 @@ export type InspectSummary = {
   jobId: string;
   status: string;
   originalName: string;
+  pipelineMode?: string;
   originalPdf: { exists: boolean; pageCount: number | null };
   maskedPdf: { exists: boolean; pageCount: number | null };
+  cleanScorePdf?: { exists: boolean; pageCount: number | null };
+  audiverisInputPdf?: 'clean_score' | 'masked' | 'original' | null;
+  lyricManifestStats?: Record<string, unknown>;
   pageCountForUi: number;
   pageCountsMatch: boolean;
   scoreMusicXmlAvailable: boolean;
@@ -352,15 +356,19 @@ const AUDIVERIS_STEP_NAMES_FALLBACK = [
 function AudiverisStepProbeSection({
   jobId,
   maskedPdfExists,
+  cleanScorePdfExists,
 }: {
   jobId: string;
   maskedPdfExists: boolean;
+  cleanScorePdfExists: boolean;
 }) {
   const [steps, setSteps] = useState<string[]>([]);
   const [step, setStep] = useState('GRID');
   const [force, setForce] = useState(false);
   const [sheets, setSheets] = useState('');
-  const [pdfSource, setPdfSource] = useState<'masked' | 'original'>('masked');
+  const [pdfSource, setPdfSource] = useState<'clean_score' | 'masked' | 'original'>(
+    cleanScorePdfExists ? 'clean_score' : maskedPdfExists ? 'masked' : 'original',
+  );
   const [busy, setBusy] = useState(false);
   const [probeErr, setProbeErr] = useState<string | null>(null);
   const [last, setLast] = useState<StepProbeResponse | null>(null);
@@ -388,8 +396,12 @@ function AudiverisStepProbeSection({
   }, []);
 
   useEffect(() => {
+    if (cleanScorePdfExists) {
+      setPdfSource((prev) => (prev === 'original' && !maskedPdfExists ? 'clean_score' : prev));
+      return;
+    }
     if (!maskedPdfExists && pdfSource === 'masked') setPdfSource('original');
-  }, [maskedPdfExists, pdfSource]);
+  }, [maskedPdfExists, cleanScorePdfExists, pdfSource]);
 
   const runProbe = async () => {
     setProbeErr(null);
@@ -472,7 +484,18 @@ function AudiverisStepProbeSection({
         </label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: '0.78rem', color: '#9aa0a6' }}>입력 PDF</span>
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {cleanScorePdfExists && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name={`pdfSrc-${jobId}`}
+                  checked={pdfSource === 'clean_score'}
+                  onChange={() => setPdfSource('clean_score')}
+                />
+                <span style={{ color: '#e8eaed' }}>clean_score (Audiveris 입력)</span>
+              </label>
+            )}
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: maskedPdfExists ? 'pointer' : 'not-allowed' }}>
               <input
                 type="radio"
@@ -577,6 +600,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
   const [summaryBusy, setSummaryBusy] = useState(true);
   const [pngFailOrig, setPngFailOrig] = useState(false);
   const [pngFailMasked, setPngFailMasked] = useState(false);
+  const [pngFailClean, setPngFailClean] = useState(false);
   const [page, setPage] = useState(1);
   const [dpi, setDpi] = useState(132);
   const [rawXml, setRawXml] = useState<string | null>(null);
@@ -640,6 +664,14 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
     summary?.maskedPdf.exists && page >= 1 && page <= summary.pageCountForUi
       ? `/api/diagnostic/${jobId}/page/${page}/png?source=masked&dpi=${dpi}`
       : '';
+  const cleanScoreSrc =
+    summary?.cleanScorePdf?.exists && page >= 1 && page <= summary.pageCountForUi
+      ? `/api/diagnostic/${jobId}/page/${page}/png?source=clean_score&dpi=${dpi}`
+      : '';
+  const audiverisCompareSrc = cleanScoreSrc || maskedSrc;
+  const audiverisCompareLabel = summary?.cleanScorePdf?.exists
+    ? 'clean_score PDF (Audiveris 입력)'
+    : '마스킹 PDF';
 
   useEffect(() => {
     void refreshSummary();
@@ -648,7 +680,8 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
   useEffect(() => {
     setPngFailOrig(false);
     setPngFailMasked(false);
-  }, [origSrc, maskedSrc]);
+    setPngFailClean(false);
+  }, [origSrc, maskedSrc, cleanScoreSrc]);
 
   useEffect(() => {
     if (!summary?.scoreMusicXmlAvailable) {
@@ -674,9 +707,9 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
         <div>
           <h3 style={{ margin: '0 0 6px', color: 'var(--text-color, #e8eaed)' }}>마스킹·Audiveris 인식 점검</h3>
           <p style={{ margin: 0, fontSize: '0.9rem', color: '#bdc1c6', lineHeight: 1.45 }}>
-            같은 <strong>페이지</strong>에서 <strong>원본 PDF</strong>와 <strong>마스킹 PDF</strong>를 나란히 보고, 가사·제목 등이 과하게 지워졌는지·남았는지 확인하세요.
-            Audiveris가 읽기 <strong>직전</strong> 벡터 PDF(<code>masked_input.pdf</code>)는 아래 링크로 브라우저에서 열거나 저장해 MuseScore·Adobe 등으로 비교할 수 있습니다.
-            오른쪽은 Audiveris가 낸 악보(MusicXML) 미리보기입니다. 파트를 고르면 해당 <strong>성부 한 줄(파트)</strong>만 보기 쉽게 필터합니다(곡 전체와 페이지는 1:1이 아닐 수 있음).
+            같은 <strong>페이지</strong>에서 <strong>원본 PDF</strong>와 Audiveris에 넘긴 PDF(
+            <code>clean_score_only.pdf</code> 또는 <code>masked_input.pdf</code>)를 나란히 보고, 가사·제목 등이 과하게 지워졌는지·음표가 보존됐는지 확인하세요.
+            오른쪽은 Audiveris가 낸 악보(MusicXML) 미리보기입니다.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -709,17 +742,39 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
       {summary && (
         <div style={{ fontSize: '0.88rem', color: '#bdc1c6', lineHeight: 1.5 }}>
           <strong>파일</strong> {summary.originalName} · <strong>작업 상태</strong> {summary.status}
+          {summary.pipelineMode && (
+            <>
+              {' '}
+              · <strong>파이프라인</strong> {summary.pipelineMode}
+            </>
+          )}
           <br />
           <strong>원본</strong> 페이지 수 {summary.originalPdf.pageCount ?? '(알 수 없음)'}
+          {summary.cleanScorePdf?.exists ? (
+            <>
+              {' '}
+              · <strong>clean_score</strong> 페이지 수 {summary.cleanScorePdf.pageCount ?? '(알 수 없음)'}
+              {summary.audiverisInputPdf === 'clean_score' && ' (Audiveris 입력)'}
+            </>
+          ) : null}
           {summary.maskedPdf.exists ? (
             <>
               {' '}
               · <strong>마스킹</strong> 페이지 수 {summary.maskedPdf.pageCount ?? '(알 수 없음)'}
+              {summary.audiverisInputPdf === 'masked' && ' (Audiveris 입력)'}
             </>
-          ) : (
+          ) : !summary.cleanScorePdf?.exists ? (
             <>
               {' '}
-              · <strong>마스킹 PDF 없음</strong>(OCR 결과 없이 원본을 Audiveris에 넘긴 경우 등)
+              · <strong>Audiveris 입력 PDF 없음</strong>(선행 처리 없이 원본만 사용한 경우 등)
+            </>
+          ) : null}
+          {summary.lyricManifestStats && (
+            <>
+              <br />
+              <strong>가사 병합</strong> pdfplumber {String(summary.lyricManifestStats.pdfplumberLines ?? '?')}줄 · PyMuPDF{' '}
+              {String(summary.lyricManifestStats.pymupdfItems ?? '?')}항목 · 양쪽 매칭{' '}
+              {String(summary.lyricManifestStats.mergedFromBoth ?? '?')}
             </>
           )}
           {!summary.pageCountsMatch && (
@@ -733,6 +788,39 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
             <>악보 미리보기용 MusicXML 사용 가능.</>
           ) : (
             <span className="err">이 단계에서는 악보 XML을 아직 쓸 수 없습니다.</span>
+          )}
+          {summary.cleanScorePdf?.exists && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: '10px 12px',
+                background: '#2a2f3a',
+                borderRadius: 8,
+                border: '1px solid #3c4049',
+              }}
+            >
+              <div style={{ marginBottom: 8, color: '#e8eaed', lineHeight: 1.45 }}>
+                <strong>Audiveris 입력 PDF</strong> — <code style={{ fontSize: '0.82rem' }}>clean_score_only.pdf</code>
+                (폰트 크기로 가사만 제거). 음표·오선이 원본과 같아야 합니다.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', alignItems: 'center' }}>
+                <a
+                  href={`/api/diagnostic/${jobId}/clean-score-pdf`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: '#8ab4ff', fontWeight: 600 }}
+                >
+                  새 탭에서 PDF 열기
+                </a>
+                <a
+                  href={`/api/diagnostic/${jobId}/clean-score-pdf?download=1`}
+                  style={{ color: '#8ab4ff', fontWeight: 600 }}
+                  download
+                >
+                  clean_score PDF 다운로드
+                </a>
+              </div>
+            </div>
           )}
           {summary.maskedPdf.exists && (
             <div
@@ -784,7 +872,11 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               </a>
             </div>
           )}
-          <AudiverisStepProbeSection jobId={jobId} maskedPdfExists={summary.maskedPdf.exists} />
+          <AudiverisStepProbeSection
+            jobId={jobId}
+            maskedPdfExists={summary.maskedPdf.exists}
+            cleanScorePdfExists={Boolean(summary.cleanScorePdf?.exists)}
+          />
         </div>
       )}
 
@@ -901,9 +993,11 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-color, #e8eaed)' }}>마스킹 PDF (페이지 {page})</div>
-          {!summary?.maskedPdf.exists && <div className="sub">마스킹 파일 없음 — 비교 불가</div>}
-          {summary?.maskedPdf.exists && maskedSrc && (
+          <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-color, #e8eaed)' }}>
+            {audiverisCompareLabel} (페이지 {page})
+          </div>
+          {!audiverisCompareSrc && <div className="sub">Audiveris 입력 PDF 없음 — 비교 불가</div>}
+          {audiverisCompareSrc && (
             <>
               <div
                 style={{
@@ -915,9 +1009,9 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
                 }}
               >
                 <img
-                  key={maskedSrc}
-                  src={maskedSrc}
-                  alt={`마스킹 ${page}p`}
+                  key={audiverisCompareSrc}
+                  src={audiverisCompareSrc}
+                  alt={`Audiveris 입력 ${page}p`}
                   decoding="async"
                   loading="eager"
                   style={{
@@ -926,13 +1020,19 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
                     height: 'auto',
                     minHeight: 60,
                   }}
-                  onLoad={() => setPngFailMasked(false)}
-                  onError={() => setPngFailMasked(true)}
+                  onLoad={() => {
+                    if (cleanScoreSrc) setPngFailClean(false);
+                    else setPngFailMasked(false);
+                  }}
+                  onError={() => {
+                    if (cleanScoreSrc) setPngFailClean(true);
+                    else setPngFailMasked(true);
+                  }}
                 />
               </div>
-              {pngFailMasked && (
+              {(cleanScoreSrc ? pngFailClean : pngFailMasked) && (
                 <div className="err" style={{ fontSize: '0.82rem', lineHeight: 1.35 }}>
-                  마스킹 페이지 PNG 미리보기 로드 실패. 마스킹 PDF 저장이 깨졌거나 래스터화에 실패했을 수 있습니다. 위쪽「요약 새로고침」 후 DPI를 바꿔 보거나, 마스킹 PDF 링크로 직접 열어 확인하세요.
+                  Audiveris 입력 PDF PNG 미리보기 로드 실패. 위쪽 PDF 링크로 직접 열어 확인하세요.
                 </div>
               )}
             </>

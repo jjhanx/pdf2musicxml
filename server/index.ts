@@ -121,7 +121,9 @@ type JobStatus =
   | 'completed'
   | 'failed';
 
-type JobProgressPhase = 'upload' | 'audiveris';
+type JobProgressPhase = 'upload' | 'separator' | 'audiveris';
+
+type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator';
 
 type JobProgress = {
   phase: JobProgressPhase;
@@ -179,6 +181,10 @@ type JobRecord = {
   preInjectMxlPaths?: string[];
   audiverisReviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   injectMxlPathsOverride?: string[];
+  /** 변환 파이프라인: 폰트 분리(권장) · PyMuPDF 마스킹 · Audiveris만 */
+  pipelineMode?: PipelineMode;
+  /** font_separator 모드에서 PyMuPDF 가사 검증 UI 사용 */
+  enablePymupdfReview?: boolean;
 };
 
 const jobs = new Map<string, JobRecord>();
@@ -308,9 +314,36 @@ function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
   return null;
 }
 
-function diagnosticPdfDownloadBaseName(job: JobRecord, kind: 'masked' | 'original'): string {
+function diagnosticPdfDownloadBaseName(
+  job: JobRecord,
+  kind: 'masked' | 'original' | 'clean_score',
+): string {
   const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
-  return kind === 'masked' ? `${base}-masked-audiveris-input` : `${base}-upload-original`;
+  if (kind === 'masked') return `${base}-masked-audiveris-input`;
+  if (kind === 'clean_score') return `${base}-clean-score-only`;
+  return `${base}-upload-original`;
+}
+
+function sessionCleanScorePdfPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'clean_score_only.pdf');
+}
+
+function sessionMaskedPdfPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'masked_input.pdf');
+}
+
+/** Audiveris·점검 UI에 넘길 PDF — clean_score > masked > 원본 순 */
+function resolveAudiverisInputPdfPath(job: JobRecord): {
+  path: string;
+  kind: 'clean_score' | 'masked' | 'original';
+} | null {
+  const orig = job.inputPdfPath;
+  if (!orig || !fsSync.existsSync(orig)) return null;
+  const clean = sessionCleanScorePdfPath(job.sessionRoot);
+  if (fsSync.existsSync(clean)) return { path: clean, kind: 'clean_score' };
+  const masked = sessionMaskedPdfPath(job.sessionRoot);
+  if (fsSync.existsSync(masked)) return { path: masked, kind: 'masked' };
+  return { path: orig, kind: 'original' };
 }
 
 function sendDiagnosticSessionPdf(
@@ -369,6 +402,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   if (!job || !job.inputPdfPath) return;
 
   const { sessionRoot, inputPdfPath, originalName, isDebug } = job;
+  const pipelineMode: PipelineMode = job.pipelineMode ?? 'font_separator';
+  const enablePymupdfReview =
+    pipelineMode === 'font_separator' ? job.enablePymupdfReview !== false : true;
   const outBase = path.join(sessionRoot, 'audiveris-out');
   const wipeSession = () => fs.rm(sessionRoot, { recursive: true, force: true }).catch(() => {});
 
@@ -382,70 +418,156 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
   job.status = 'processing';
 
+  const pythonBin = resolvePythonBin();
+  const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
+  const scriptMask = path.join(__dirname, '..', 'scripts', 'mask_pdf.py');
+  const scriptSeparator = path.join(__dirname, '..', 'scripts', 'pdf_separator.py');
+  const scriptMergeLyrics = path.join(__dirname, '..', 'scripts', 'merge_lyric_sources.py');
+  const ocrJsonPath = path.join(sessionRoot, 'ocr_data.json');
+  const pymupdfReviewPath = path.join(sessionRoot, 'ocr_data_pymupdf.json');
+  const extractedJsonPath = path.join(sessionRoot, 'extracted_music_text.json');
+  const lyricManifestPath = path.join(sessionRoot, 'lyric_manifest.json');
+  const cleanScorePath = sessionCleanScorePdfPath(sessionRoot);
+  const maskedPdfPath = sessionMaskedPdfPath(sessionRoot);
+
   try {
     await fs.mkdir(outBase, { recursive: true });
 
     const pageHint = job.pdfPageCount && job.pdfPageCount > 0 ? job.pdfPageCount : 1;
-    const pythonBin = resolvePythonBin();
 
-    // Phase 1: Text Extraction (Pre-Audiveris)
-    setJobProgress(job, {
-      phase: 'upload',
-      current: 1,
-      total: 1,
-      detail: 'PDF에서 문자 추출 중 (PyMuPDF / PaddleOCR)…',
-    });
-
-    const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
-    const ocrJsonPath = path.join(sessionRoot, 'ocr_data.json');
-    
-    console.log(`[job ${jobId}] Running extract_text.py using ${pythonBin}`);
-    const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${ocrJsonPath}"`);
-    if (stdout) console.log(`[job ${jobId}] extract_text.py Output:\n${stdout}`);
-    if (stderr) console.error(`[job ${jobId}] extract_text.py Error:\n${stderr}`);
-
-    // Phase 2: UI Review
-    if (fsSync.existsSync(ocrJsonPath)) {
-      const ocrData = JSON.parse(await fs.readFile(ocrJsonPath, 'utf8'));
-      
-      console.log(`[job ${jobId}] Pausing for UI review...`);
-      job.status = 'review_needed';
-      job.reviewData = ocrData;
-      
-      await new Promise<void>((resolve, reject) => {
-        job.reviewDeferred = { resolve, reject };
+    if (pipelineMode === 'audiveris_only') {
+      setJobProgress(job, {
+        phase: 'upload',
+        current: 1,
+        total: 1,
+        detail: 'Audiveris 준비 중 (선행 처리 없음)…',
       });
-      
-      console.log(`[job ${jobId}] Review completed, resuming...`);
-      job.status = 'processing';
+    } else if (pipelineMode === 'font_separator') {
+      setJobProgress(job, {
+        phase: 'separator',
+        current: 0,
+        total: 1,
+        detail: 'pdfplumber·pikepdf로 가사 분리 및 악보 PDF 생성 중…',
+      });
+      console.log(`[job ${jobId}] Running pdf_separator.py using ${pythonBin}`);
+      const { stdout: sepOut, stderr: sepErr } = await exec(
+        `"${pythonBin}" "${scriptSeparator}" "${inputPdfPath}" "${extractedJsonPath}" "${cleanScorePath}"`,
+      );
+      if (sepOut) console.log(`[job ${jobId}] pdf_separator.py Output:\n${sepOut}`);
+      if (sepErr) console.error(`[job ${jobId}] pdf_separator.py Error:\n${sepErr}`);
+      if (!fsSync.existsSync(cleanScorePath)) {
+        await fail({
+          status: 500,
+          error: 'clean_score_only.pdf 생성 실패',
+          detail: 'pdf_separator.py가 악보 PDF를 만들지 못했습니다.',
+        });
+        return;
+      }
+
+      if (enablePymupdfReview) {
+        setJobProgress(job, {
+          phase: 'upload',
+          current: 1,
+          total: 1,
+          detail: 'PyMuPDF로 가사·메타 문자 추출 중 (검토용)…',
+        });
+        console.log(`[job ${jobId}] Running extract_text.py (font_separator review) using ${pythonBin}`);
+        const { stdout, stderr } = await exec(
+          `"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${pymupdfReviewPath}"`,
+        );
+        if (stdout) console.log(`[job ${jobId}] extract_text.py Output:\n${stdout}`);
+        if (stderr) console.error(`[job ${jobId}] extract_text.py Error:\n${stderr}`);
+
+        if (fsSync.existsSync(pymupdfReviewPath)) {
+          const ocrData = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8'));
+          console.log(`[job ${jobId}] Pausing for PyMuPDF lyric review (font_separator)…`);
+          job.status = 'review_needed';
+          job.reviewData = ocrData;
+          await new Promise<void>((resolve, reject) => {
+            job.reviewDeferred = { resolve, reject };
+          });
+          console.log(`[job ${jobId}] PyMuPDF review completed, merging lyric sources…`);
+          job.status = 'processing';
+        }
+      }
+
+      setJobProgress(job, {
+        phase: 'separator',
+        current: 1,
+        total: 1,
+        detail: 'pdfplumber·PyMuPDF 검토 결과 병합 중…',
+      });
+      const mergeArgs = [
+        `"${pythonBin}"`,
+        `"${scriptMergeLyrics}"`,
+        `"${extractedJsonPath}"`,
+        `"${lyricManifestPath}"`,
+        `--output-flat "${ocrJsonPath}"`,
+      ];
+      if (fsSync.existsSync(pymupdfReviewPath)) {
+        mergeArgs.push(`--pymupdf-review "${pymupdfReviewPath}"`);
+      }
+      console.log(`[job ${jobId}] Running merge_lyric_sources.py`);
+      const { stdout: mOut, stderr: mErr } = await exec(mergeArgs.join(' '));
+      if (mOut) console.log(`[job ${jobId}] merge_lyric_sources.py Output:\n${mOut}`);
+      if (mErr) console.error(`[job ${jobId}] merge_lyric_sources.py Error:\n${mErr}`);
+    } else {
+      // pymupdf_review — 기존 마스킹 파이프라인
+      setJobProgress(job, {
+        phase: 'upload',
+        current: 1,
+        total: 1,
+        detail: 'PDF에서 문자 추출 중 (PyMuPDF / PaddleOCR)…',
+      });
+
+      console.log(`[job ${jobId}] Running extract_text.py using ${pythonBin}`);
+      const { stdout, stderr } = await exec(
+        `"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${ocrJsonPath}"`,
+      );
+      if (stdout) console.log(`[job ${jobId}] extract_text.py Output:\n${stdout}`);
+      if (stderr) console.error(`[job ${jobId}] extract_text.py Error:\n${stderr}`);
+
+      if (fsSync.existsSync(ocrJsonPath)) {
+        const ocrData = JSON.parse(await fs.readFile(ocrJsonPath, 'utf8'));
+        console.log(`[job ${jobId}] Pausing for UI review…`);
+        job.status = 'review_needed';
+        job.reviewData = ocrData;
+        await new Promise<void>((resolve, reject) => {
+          job.reviewDeferred = { resolve, reject };
+        });
+        console.log(`[job ${jobId}] Review completed, resuming…`);
+        job.status = 'processing';
+      }
+
+      setJobProgress(job, {
+        phase: 'audiveris',
+        current: 0,
+        total: pageHint,
+        detail: 'PDF 마스킹 및 Audiveris 준비 중…',
+      });
+
+      if (fsSync.existsSync(ocrJsonPath)) {
+        console.log(`[job ${jobId}] Running mask_pdf.py using ${pythonBin}`);
+        await exec(
+          `"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${maskedPdfPath}" "${ocrJsonPath}"`,
+        );
+      }
     }
 
-    // Phase 3: Masking
+    const audiverisInput = resolveAudiverisInputPdfPath(job);
+    const pdfToProcess = audiverisInput?.path ?? inputPdfPath;
+
     setJobProgress(job, {
       phase: 'audiveris',
       current: 0,
       total: pageHint,
-      detail: 'PDF 마스킹 및 Audiveris 준비 중…',
+      detail:
+        audiverisInput?.kind === 'clean_score'
+          ? 'clean_score_only.pdf → Audiveris 악보 인식 중…'
+          : 'Audiveris 악보 인식 중…',
     });
-    
-    const scriptMask = path.join(__dirname, '..', 'scripts', 'mask_pdf.py');
-    const maskedPdfPath = path.join(sessionRoot, 'masked_input.pdf');
-    if (fsSync.existsSync(ocrJsonPath)) {
-       console.log(`[job ${jobId}] Running mask_pdf.py using ${pythonBin}`);
-       await exec(`"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${maskedPdfPath}" "${ocrJsonPath}"`);
-    }
 
-    // Use masked pdf if it exists, otherwise use original
-    const pdfToProcess = fsSync.existsSync(maskedPdfPath) ? maskedPdfPath : inputPdfPath;
-
-    // Phase 4: Audiveris
-    console.log(`[job ${jobId}] Running Audiveris on ${pdfToProcess}...`);
-    setJobProgress(job, {
-      phase: 'audiveris',
-      current: 0,
-      total: pageHint,
-      detail: 'Audiveris 악보 인식 중…',
-    });
+    console.log(`[job ${jobId}] Running Audiveris on ${pdfToProcess} (pipeline=${pipelineMode})…`);
 
     const result = await runAudiveris({
       audiverisBin,
@@ -499,8 +621,13 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       console.log(`[job ${jobId}] Audiveris 보정 단계 이후 주입 재개...`);
     }
 
-    // Phase 5: Inject
-    if (mxlForInject.length > 0 && fsSync.existsSync(ocrJsonPath)) {
+    const injectJsonPath = fsSync.existsSync(lyricManifestPath)
+      ? lyricManifestPath
+      : fsSync.existsSync(ocrJsonPath)
+        ? ocrJsonPath
+        : null;
+
+    if (mxlForInject.length > 0 && injectJsonPath && pipelineMode !== 'audiveris_only') {
       setJobProgress(job, {
         phase: 'audiveris',
         current: pageHint,
@@ -513,7 +640,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         if (p.toLowerCase().endsWith('.mxl')) {
           console.log(`[job ${jobId}] Running inject_ocr.py for ${p} using ${pythonBin}`);
           const { stdout: stdoutInj, stderr: stderrInj } = await exec(
-            `"${pythonBin}" "${scriptInject}" "${p}" "${p}" "${ocrJsonPath}"`,
+            `"${pythonBin}" "${scriptInject}" "${p}" "${p}" "${injectJsonPath}"`,
           );
           if (stdoutInj) console.log(`[job ${jobId}] inject_ocr.py Output:\n${stdoutInj}`);
           if (stderrInj) console.error(`[job ${jobId}] inject_ocr.py Error:\n${stderrInj}`);
@@ -629,6 +756,8 @@ app.post('/api/convert', (req, res) => {
 
   let debugField = false;
   let pauseAfterAudiverisField = false;
+  let pipelineModeField: PipelineMode = 'font_separator';
+  let enablePymupdfReviewField = true;
   let sawPdfField = false;
   let pdfWriteChain: Promise<void> = Promise.resolve();
 
@@ -641,6 +770,15 @@ app.post('/api/convert', (req, res) => {
   bb.on('field', (name, val) => {
     if (name === 'debug' && val === 'true') debugField = true;
     if (name === 'pauseAfterAudiveris' && val === 'true') pauseAfterAudiverisField = true;
+    if (name === 'pipelineMode') {
+      const v = String(val).trim();
+      if (v === 'audiveris_only' || v === 'pymupdf_review' || v === 'font_separator') {
+        pipelineModeField = v;
+      }
+    }
+    if (name === 'enablePymupdfReview') {
+      enablePymupdfReviewField = val === 'true' || val === '1';
+    }
   });
 
   bb.on('file', (name, file, info) => {
@@ -734,6 +872,8 @@ app.post('/api/convert', (req, res) => {
       }
       job.isDebug = debugField;
       job.pauseAfterAudiveris = pauseAfterAudiverisField;
+      job.pipelineMode = pipelineModeField;
+      job.enablePymupdfReview = enablePymupdfReviewField;
       if (!res.headersSent) {
         res.setHeader('X-Accel-Buffering', 'no');
         res.setHeader('X-Pdf2Mxl-Async', '202-after-upload');
@@ -862,26 +1002,47 @@ app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
     res.status(404).json({ error: '업로드 원본 PDF가 세션에 없습니다' });
     return;
   }
-  const maskedPdfPath = path.join(job.sessionRoot, 'masked_input.pdf');
+  const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
   const maskedExists = fsSync.existsSync(maskedPdfPath);
-  const [origCount, maskedCount] = await Promise.all([
+  const cleanScoreExists = fsSync.existsSync(cleanScorePath);
+  const audiverisInput = resolveAudiverisInputPdfPath(job);
+  const [origCount, maskedCount, cleanCount] = await Promise.all([
     pdfPageCountViaPython(inputPdfPath),
     maskedExists ? pdfPageCountViaPython(maskedPdfPath) : Promise.resolve(null),
+    cleanScoreExists ? pdfPageCountViaPython(cleanScorePath) : Promise.resolve(null),
   ]);
-  const pageCountForUi = origCount ?? maskedCount ?? job.pdfPageCount ?? 1;
+  const pageCountForUi = origCount ?? cleanCount ?? maskedCount ?? job.pdfPageCount ?? 1;
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  let lyricManifestStats: Record<string, unknown> | undefined;
+  const manifestPath = path.join(job.sessionRoot, 'lyric_manifest.json');
+  if (fsSync.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as {
+        matchStats?: Record<string, unknown>;
+        v?: number;
+      };
+      lyricManifestStats = manifest.matchStats;
+    } catch {
+      /* ignore */
+    }
+  }
   res.json({
     jobId: req.params.jobId,
     status: job.status,
     originalName: job.originalName,
+    pipelineMode: job.pipelineMode ?? 'font_separator',
     originalPdf: { exists: true, pageCount: origCount },
     maskedPdf: { exists: maskedExists, pageCount: maskedExists ? maskedCount : null },
+    cleanScorePdf: { exists: cleanScoreExists, pageCount: cleanScoreExists ? cleanCount : null },
+    audiverisInputPdf: audiverisInput?.kind ?? null,
+    lyricManifestStats,
     pageCountForUi: Math.max(1, pageCountForUi),
     pageCountsMatch:
-      !maskedExists ||
+      (!maskedExists && !cleanScoreExists) ||
       origCount == null ||
-      maskedCount == null ||
-      origCount === maskedCount,
+      (maskedExists && maskedCount != null && origCount === maskedCount) ||
+      (cleanScoreExists && cleanCount != null && origCount === cleanCount),
     scoreMusicXmlAvailable: Boolean(mxlPath),
   });
 });
@@ -892,7 +1053,9 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
     res.status(404).end();
     return;
   }
-  const source = (req.query.source as string) === 'masked' ? 'masked' : 'original';
+  const sourceRaw = String(req.query.source ?? 'original');
+  const source =
+    sourceRaw === 'masked' ? 'masked' : sourceRaw === 'clean_score' ? 'clean_score' : 'original';
   const page = parseInt(req.params.pageNum, 10);
   const dpiRaw = parseInt(String(req.query.dpi ?? '132'), 10);
   const dpi = Number.isFinite(dpiRaw) ? Math.min(240, Math.max(72, dpiRaw)) : 132;
@@ -902,11 +1065,14 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
     res.status(404).end();
     return;
   }
-  const maskedPdfPath = path.join(job.sessionRoot, 'masked_input.pdf');
+  const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
   const pdfPath =
     source === 'masked'
       ? maskedPdfPath
-      : inputPdfPath;
+      : source === 'clean_score'
+        ? cleanScorePath
+        : inputPdfPath;
   if (!fsSync.existsSync(pdfPath)) {
     res.status(404).end();
     return;
@@ -993,7 +1159,7 @@ app.get('/api/diagnostic/:jobId/masked-pdf', (req, res) => {
     res.status(404).json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
     return;
   }
-  const maskedPdfPath = path.join(job.sessionRoot, 'masked_input.pdf');
+  const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
   if (!fsSync.existsSync(maskedPdfPath)) {
     res.status(404).json({
       error:
@@ -1032,6 +1198,32 @@ app.get('/api/diagnostic/:jobId/original-pdf', (req, res) => {
     res,
     inputPdfPath,
     diagnosticPdfDownloadBaseName(job, 'original'),
+    attachment,
+  );
+});
+
+app.get('/api/diagnostic/:jobId/clean-score-pdf', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
+    return;
+  }
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  if (!fsSync.existsSync(cleanScorePath)) {
+    res.status(404).json({
+      error:
+        'clean_score_only.pdf가 없습니다. 폰트 분리(font_separator) 파이프라인을 사용하지 않았거나 아직 생성되지 않았을 수 있습니다.',
+    });
+    return;
+  }
+  const attachment =
+    req.query.download === '1' ||
+    req.query.download === 'true' ||
+    String(req.query.disposition ?? '').toLowerCase() === 'attachment';
+  sendDiagnosticSessionPdf(
+    res,
+    cleanScorePath,
+    diagnosticPdfDownloadBaseName(job, 'clean_score'),
     attachment,
   );
 });
@@ -1077,37 +1269,67 @@ app.post('/api/diagnostic/:jobId/audiveris-step-probe', express.json({ limit: '4
   }
 
   const force = body.force === true || body.force === 'true';
-  const pdfRequested = body.pdfSource === 'original' ? 'original' : 'masked';
+  const pdfSourceRaw = typeof body.pdfSource === 'string' ? body.pdfSource.trim() : '';
+  const pdfRequested: 'clean_score' | 'masked' | 'original' =
+    pdfSourceRaw === 'original'
+      ? 'original'
+      : pdfSourceRaw === 'masked'
+        ? 'masked'
+        : pdfSourceRaw === 'clean_score'
+          ? 'clean_score'
+          : 'clean_score';
 
-  const maskedPdfPath = path.join(job.sessionRoot, 'masked_input.pdf');
+  const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
   const origPath = job.inputPdfPath;
 
   let pdfPath: string | null = null;
-  let pdfUsed: 'masked' | 'original' = 'original';
+  let pdfUsed: 'clean_score' | 'masked' | 'original' = 'original';
   let note: string | undefined;
 
-  if (pdfRequested === 'masked') {
+  const tryClean = () => {
+    if (fsSync.existsSync(cleanScorePath)) {
+      pdfPath = cleanScorePath;
+      pdfUsed = 'clean_score';
+      return true;
+    }
+    return false;
+  };
+  const tryMasked = () => {
     if (fsSync.existsSync(maskedPdfPath)) {
       pdfPath = maskedPdfPath;
       pdfUsed = 'masked';
-    } else if (origPath && fsSync.existsSync(origPath)) {
-      pdfPath = origPath;
-      pdfUsed = 'original';
-      note = '마스킹 PDF가 없어 업로드 원본 PDF로 실행했습니다.';
+      return true;
     }
-  } else {
+    return false;
+  };
+  const tryOrig = () => {
     if (origPath && fsSync.existsSync(origPath)) {
       pdfPath = origPath;
       pdfUsed = 'original';
+      return true;
     }
+    return false;
+  };
+
+  if (pdfRequested === 'clean_score') {
+    if (!tryClean()) {
+      if (tryMasked()) note = 'clean_score_only.pdf가 없어 masked_input.pdf로 실행했습니다.';
+      else if (tryOrig()) note = 'clean_score_only.pdf가 없어 업로드 원본 PDF로 실행했습니다.';
+    }
+  } else if (pdfRequested === 'masked') {
+    if (!tryMasked()) {
+      if (tryClean()) note = 'masked_input.pdf가 없어 clean_score_only.pdf로 실행했습니다.';
+      else if (tryOrig()) note = '마스킹 PDF가 없어 업로드 원본 PDF로 실행했습니다.';
+    }
+  } else if (!tryOrig()) {
+    if (tryClean()) note = '원본 PDF를 찾지 못해 clean_score_only.pdf로 실행했습니다.';
+    else tryMasked();
   }
 
   if (!pdfPath) {
     res.status(404).json({
-      error:
-        pdfRequested === 'masked'
-          ? '마스킹 PDF와 원본 PDF를 찾을 수 없습니다.'
-          : '업로드 원본 PDF를 찾을 수 없습니다.',
+      error: 'Audiveris에 넘길 PDF(clean_score·masked·original)를 찾을 수 없습니다.',
     });
     return;
   }
@@ -1461,8 +1683,11 @@ app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res)
       return;
     }
 
-    const ocrJsonPath = path.join(job.sessionRoot, 'ocr_data.json');
-    await fs.writeFile(ocrJsonPath, JSON.stringify(items, null, 2), 'utf8');
+    const reviewSavePath =
+      job.pipelineMode === 'font_separator'
+        ? path.join(job.sessionRoot, 'ocr_data_pymupdf.json')
+        : path.join(job.sessionRoot, 'ocr_data.json');
+    await fs.writeFile(reviewSavePath, JSON.stringify(items, null, 2), 'utf8');
     await mergeOcrMetaTranspose(job.sessionRoot, transposeSemitones);
 
     job.reviewDeferred.resolve();

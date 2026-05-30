@@ -452,11 +452,36 @@ def collect_lyric_streams(ocr_data):
     return by_part
 
 
-def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
+def load_ocr_items(json_in_path):
+    """flat 배열 또는 v2/v3 manifest에서 inject 대상 항목 배열을 반환."""
     with open(json_in_path, "r", encoding="utf-8") as f:
-        ocr_data = json.load(f)
-    if not isinstance(ocr_data, list):
-        print("inject_ocr: ocr_data.json은 항목 배열이어야 합니다.", file=sys.stderr)
+        data = json.load(f)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        v = data.get("v")
+        if v in (2, 3) and isinstance(data.get("items"), list):
+            rows = list(data["items"])
+            manual = data.get("manualLyricRects") or []
+            if manual:
+                rows.append(
+                    {
+                        "id": "__manual_lyric_regions__",
+                        "type": "_manual_lyric_mask",
+                        "manualRects": manual,
+                    }
+                )
+            return rows
+    print(
+        "inject_ocr: ocr_data는 항목 배열이거나 v2/v3 manifest { items: [...] } 여야 합니다.",
+        file=sys.stderr,
+    )
+    return None
+
+
+def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
+    ocr_data = load_ocr_items(json_in_path)
+    if ocr_data is None:
         return
 
     meta_path = Path(json_in_path).parent / "ocr_meta.json"

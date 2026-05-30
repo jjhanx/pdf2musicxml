@@ -32,6 +32,8 @@ type ConvertTask = {
   progress?: TaskProgress;
 };
 
+type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator';
+
 type OcrReviewItem = {
   id: string;
   page: number;
@@ -164,6 +166,18 @@ function loadReviewDraftFromLocalStorageJson(rawJson: unknown): {
       manualLyricRects: parseManualRectsFromUnknown(d.manualLyricRects),
     };
   }
+  if (
+    r &&
+    typeof r === 'object' &&
+    (r as { v?: number }).v === 3 &&
+    Array.isArray((r as { items?: unknown[] }).items)
+  ) {
+    const d = r as { items: unknown[]; manualLyricRects?: unknown };
+    return {
+      items: d.items as unknown[],
+      manualLyricRects: parseManualRectsFromUnknown(d.manualLyricRects),
+    };
+  }
   if (Array.isArray(r)) {
     const { items, manualLyricRects } = partitionReviewPayload(r);
     return { items: items as unknown[], manualLyricRects };
@@ -251,6 +265,7 @@ function sleep(ms: number): Promise<void> {
 
 function taskProgressPhaseLabel(phase: string): string {
   if (phase === 'upload') return 'PDF 업로드';
+  if (phase === 'separator') return '가사·악보 분리';
   if (phase === 'audiveris') return '악보 인식(Audiveris)';
   return phase;
 }
@@ -292,6 +307,8 @@ export default function App() {
   const [reviewOriginalFileName, setReviewOriginalFileName] = useState('');
   const [hasSavedData, setHasSavedData] = useState(false);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
+  const [pipelineMode, setPipelineMode] = useState<PipelineMode>('font_separator');
+  const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
   const [audiverisReviewJobId, setAudiverisReviewJobId] = useState<string | null>(null);
   const [audiverisModalTab, setAudiverisModalTab] = useState<'adjust' | 'inspect'>('adjust');
   const [inspectJobId, setInspectJobId] = useState<string | null>(null);
@@ -356,11 +373,15 @@ export default function App() {
       onProgress?: (p: TaskProgress | undefined) => void,
       onReviewNeeded?: (jobId: string) => void,
       onAudiverisReviewNeeded?: (jobId: string) => void,
-      opts?: { pauseAfterAudiveris?: boolean },
+      opts?: { pauseAfterAudiveris?: boolean; pipelineMode?: PipelineMode; enablePymupdfReview?: boolean },
     ): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
     const fd = new FormData();
     fd.append('pdf', file);
     fd.append('debug', 'false');
+    fd.append('pipelineMode', opts?.pipelineMode ?? 'font_separator');
+    if (opts?.pipelineMode === 'font_separator') {
+      fd.append('enablePymupdfReview', opts?.enablePymupdfReview !== false ? 'true' : 'false');
+    }
     if (opts?.pauseAfterAudiveris) {
       fd.append('pauseAfterAudiveris', 'true');
     }
@@ -556,7 +577,7 @@ export default function App() {
                 setAudiverisTranspose(0);
                 setAudiverisReviewJobId(jobId);
               },
-              { pauseAfterAudiveris },
+              { pauseAfterAudiveris, pipelineMode, enablePymupdfReview },
             );
             setTasks((prev) =>
               prev.map((t) => {
@@ -605,7 +626,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [convertOne, pauseAfterAudiveris],
+    [convertOne, pauseAfterAudiveris, pipelineMode, enablePymupdfReview],
   );
 
   const onDragEnter = (e: React.DragEvent) => {
@@ -945,6 +966,63 @@ export default function App() {
           </button>
         </div>
 
+        <fieldset
+          className="pipeline-fieldset"
+          style={{ marginTop: '0.75rem', border: '1px solid var(--border-color, #444)', borderRadius: 6, padding: '0.75rem 1rem' }}
+          disabled={busy}
+        >
+          <legend style={{ fontSize: '0.95rem', padding: '0 0.35rem' }}>변환 방식</legend>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
+            <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="pipelineMode"
+                checked={pipelineMode === 'font_separator'}
+                onChange={() => setPipelineMode('font_separator')}
+              />
+              <span>
+                <strong>폰트 크기 분리 + Audiveris + 가사 병합</strong> (권장) — pdfplumber·pikepdf로 가사만 제거한{' '}
+                <code>clean_score_only.pdf</code>를 Audiveris에 넣고, 추출 JSON과 검토 결과를 병합해 MusicXML에 주입합니다.
+              </span>
+            </label>
+            <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="pipelineMode"
+                checked={pipelineMode === 'pymupdf_review'}
+                onChange={() => setPipelineMode('pymupdf_review')}
+              />
+              <span>
+                <strong>PyMuPDF 검증 + 마스킹</strong> — 기존 방식. OCR 검토 후 영역 마스킹 → Audiveris → 가사 주입.
+              </span>
+            </label>
+            <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="pipelineMode"
+                checked={pipelineMode === 'audiveris_only'}
+                onChange={() => setPipelineMode('audiveris_only')}
+              />
+              <span>
+                <strong>Audiveris만</strong> — 선행 처리·가사 주입 없이 업로드 PDF를 바로 MusicXML로 변환합니다.
+              </span>
+            </label>
+            {pipelineMode === 'font_separator' && (
+              <label
+                className="checkbox-label"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginLeft: '1.5rem' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={enablePymupdfReview}
+                  onChange={(e) => setEnablePymupdfReview(e.target.checked)}
+                />
+                PyMuPDF 가사 검증·편집 (카테고리·파트·절·voice·음표 건너뛰기) — 끄면 pdfplumber 추출만으로 병합합니다.
+              </label>
+            )}
+          </div>
+        </fieldset>
+
         <div className="row" style={{ marginTop: '0.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
             <input
@@ -1148,7 +1226,24 @@ export default function App() {
                   </label>
                </div>
             </div>
-            <p style={{ marginTop: '0.5rem' }}>인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요. 지정된 영역은 Audiveris에 넘어가기 전 하얗게 마스킹되는 항목(제목·작곡·가사·<strong>템포</strong> 등)과, 마스킹하지 않는 <strong>악보 기호</strong>를 구분해 주세요. 템포는 숫자만(예: 75) 또는 ♩= 75 형태로 편집하면 MusicXML에 <code>sound tempo</code>로 들어가 재생 속도에 반영되기 쉽습니다.</p>
+            <p style={{ marginTop: '0.5rem' }}>
+              인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요.
+              {pipelineMode === 'font_separator' ? (
+                <>
+                  {' '}
+                  제출하면 pdfplumber 추출(<code>extracted_music_text.json</code>)과 병합되어{' '}
+                  <code>lyric_manifest.json</code>(v3)으로 저장된 뒤, <code>clean_score_only.pdf</code>로 Audiveris가
+                  실행되고 MusicXML에 가사가 주입됩니다.
+                </>
+              ) : (
+                <>
+                  {' '}
+                  지정된 영역은 Audiveris에 넘어가기 전 하얗게 마스킹됩니다.
+                </>
+              )}
+              {' '}
+              템포는 숫자만(예: 75) 또는 ♩= 75 형태로 편집하면 MusicXML에 <code>sound tempo</code>로 들어갑니다.
+            </p>
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
@@ -1374,7 +1469,9 @@ export default function App() {
             </div>
 
             <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={submitReview} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', background: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Audiveris 실행 (악보 인식 시작)</button>
+              <button onClick={submitReview} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', background: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                {pipelineMode === 'font_separator' ? '병합 후 Audiveris 실행' : 'Audiveris 실행 (악보 인식 시작)'}
+              </button>
             </div>
           </div>
         </div>

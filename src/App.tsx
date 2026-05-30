@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { FontStripPanel } from './FontStripPanel';
 import { AudiverisInspectPanel } from './AudiverisInspectPanel';
 import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPanel';
 
@@ -313,6 +314,7 @@ export default function App() {
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>('font_separator');
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
+  const [fontStripJobId, setFontStripJobId] = useState<string | null>(null);
   const [audiverisReviewJobId, setAudiverisReviewJobId] = useState<string | null>(null);
   const [audiverisModalTab, setAudiverisModalTab] = useState<'adjust' | 'inspect'>('adjust');
   const [inspectJobId, setInspectJobId] = useState<string | null>(null);
@@ -376,6 +378,7 @@ export default function App() {
       file: File,
       onProgress?: (p: TaskProgress | undefined) => void,
       onReviewNeeded?: (jobId: string) => void,
+      onFontStripNeeded?: (jobId: string) => void,
       onAudiverisReviewNeeded?: (jobId: string) => void,
       opts?: { pauseAfterAudiveris?: boolean; pipelineMode?: PipelineMode; enablePymupdfReview?: boolean },
     ): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
@@ -409,6 +412,7 @@ export default function App() {
     }
     const { jobId } = accepted;
     let reviewTriggered = false;
+    let fontStripTriggered = false;
     let audiverisReviewTriggered = false;
 
     for (;;) {
@@ -435,6 +439,11 @@ export default function App() {
 
       if (j.progress) {
         onProgress?.(j.progress);
+      }
+
+      if (j.status === 'font_strip_needed' && !fontStripTriggered) {
+        fontStripTriggered = true;
+        onFontStripNeeded?.(jobId);
       }
 
       if (j.status === 'review_needed' && !reviewTriggered) {
@@ -551,7 +560,6 @@ export default function App() {
                     const { items: payloadItems, manualLyricRects: fromPayload } =
                       partitionReviewPayload(Array.isArray(dataRaw) ? dataRaw : []);
 
-                    // Initialize missing fields for the UI
                     const initData = payloadItems.map((item) => ({
                       ...item,
                       type: defaultReviewTypeForInit(item.type),
@@ -582,6 +590,9 @@ export default function App() {
                 } catch (e) {
                   console.error('Failed to fetch review data', e);
                 }
+              },
+              (jobId) => {
+                setFontStripJobId(jobId);
               },
               (jobId) => {
                 setAudiverisTranspose(0);
@@ -1221,6 +1232,39 @@ export default function App() {
         </p>
       </div>
 
+      {fontStripJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9998,
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--card-bg, #fff)',
+                padding: '1.5rem 2rem',
+                borderRadius: '8px',
+                maxWidth: '960px',
+                maxHeight: '88vh',
+                overflowY: 'auto',
+                width: '95%',
+              }}
+            >
+              <FontStripPanel jobId={fontStripJobId} onSubmitted={() => setFontStripJobId(null)} />
+            </div>
+          </div>,
+          document.body,
+        )}
+
       {reviewingJobId && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -1258,9 +1302,8 @@ export default function App() {
               {pipelineMode === 'font_separator' ? (
                 <>
                   {' '}
-                  제출하면 pdfplumber 추출(<code>extracted_music_text.json</code>)과 병합되어{' '}
-                  <code>lyric_manifest.json</code>(v3)으로 저장된 뒤, <code>clean_score_only.pdf</code>로 Audiveris가
-                  실행되고 MusicXML에 가사가 주입됩니다.
+                  (앞 단계에서 선택한 폰트 크기로 <code>clean_score_only.pdf</code>가 만들어진 뒤) pdfplumber·검토
+                  결과가 <code>lyric_manifest.json</code>(v3)으로 병합되고 MusicXML에 주입됩니다.
                 </>
               ) : (
                 <>

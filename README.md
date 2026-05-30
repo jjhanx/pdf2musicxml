@@ -8,7 +8,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 ## 최근 변경 (폰트 분리 + 가사 병합 파이프라인)
 
 - **변환 방식 선택(웹 UI)**: 업로드 전 **변환 방식**을 고릅니다.
-  - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): `scripts/pdf_separator.py`(pdfplumber·pikepdf)로 `extracted_music_text.json`·`clean_score_only.pdf` 생성 → (선택) **PyMuPDF 가사 검증** → `scripts/merge_lyric_sources.py`로 **v3 `lyric_manifest.json`** 병합 → **`clean_score_only.pdf`** 로 Audiveris → `inject_ocr.py`로 가사·메타 주입.
+  - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI**(표·프리셋·사용자 범위) → pikepdf로 `clean_score_only.pdf` 생성 → (선택) PyMuPDF 가사 검증 → 병합·Audiveris·주입.
   - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
   - **Audiveris만**: 선행 처리·가사 주입 없음.
 - **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「PyMuPDF 가사 검증·편집」 체크를 끄면 pdfplumber 추출만으로 병합합니다.

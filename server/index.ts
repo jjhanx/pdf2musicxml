@@ -167,6 +167,7 @@ app.get('/api/audiveris-sheet-steps', (_req, res) => {
 type JobStatus =
   | 'pending'
   | 'processing'
+  | 'font_strip_needed'
   | 'review_needed'
   | 'audiveris_review_needed'
   | 'completed'
@@ -236,6 +237,8 @@ type JobRecord = {
   pipelineMode?: PipelineMode;
   /** font_separator 모드에서 PyMuPDF 가사 검증 UI 사용 */
   enablePymupdfReview?: boolean;
+  fontStripDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  fontStripStats?: Record<string, unknown>;
 };
 
 const jobs = new Map<string, JobRecord>();
@@ -448,6 +451,52 @@ async function mergeOcrMetaTranspose(sessionRoot: string, semitones: number): Pr
   await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
 }
 
+type FontStripRangeDto = { minPt: number; maxPt: number; label?: string };
+
+function fontStripConfigPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'font_strip_config.json');
+}
+
+function fontStripStatsPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'font_strip_stats.json');
+}
+
+function rangesToCliSpec(ranges: FontStripRangeDto[]): string {
+  return ranges.map((r) => `${r.minPt}-${r.maxPt}`).join(',');
+}
+
+function parseFontStripRangesBody(body: unknown): FontStripRangeDto[] | null {
+  if (!body || typeof body !== 'object') return null;
+  const raw = (body as { ranges?: unknown }).ranges;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: FontStripRangeDto[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as { minPt?: unknown; maxPt?: unknown; label?: unknown };
+    const minPt = Number(o.minPt);
+    const maxPt = Number(o.maxPt);
+    if (!Number.isFinite(minPt) || !Number.isFinite(maxPt)) continue;
+    out.push({
+      minPt: Math.min(minPt, maxPt),
+      maxPt: Math.max(minPt, maxPt),
+      label: typeof o.label === 'string' ? o.label : undefined,
+    });
+  }
+  return out.length ? out : null;
+}
+
+async function analyzeFontSizesFromExtracted(
+  pythonBin: string,
+  scriptSeparator: string,
+  extractedJsonPath: string,
+): Promise<Record<string, unknown>> {
+  const { stdout } = await exec(
+    `"${pythonBin}" "${scriptSeparator}" analyze "${extractedJsonPath}"`,
+    { maxBuffer: 16 * 1024 * 1024 },
+  );
+  return JSON.parse(String(stdout).trim()) as Record<string, unknown>;
+}
+
 async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   const job = jobs.get(jobId);
   if (!job || !job.inputPdfPath) return;
@@ -503,16 +552,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       setJobProgress(job, {
         phase: 'separator',
         current: 0,
-        total: 1,
-        detail: 'pdfplumber·pikepdf로 가사 분리 및 악보 PDF 생성 중…',
+        total: 2,
+        detail: 'pdfplumber로 문자 레이아웃 추출 중…',
       });
-      console.log(`[job ${jobId}] Running pdf_separator.py using ${pythonBin}`);
+      console.log(`[job ${jobId}] pdf_separator extract using ${pythonBin}`);
       try {
-        const { stdout: sepOut, stderr: sepErr } = await exec(
-          `"${pythonBin}" "${scriptSeparator}" "${inputPdfPath}" "${extractedJsonPath}" "${cleanScorePath}"`,
+        await exec(
+          `"${pythonBin}" "${scriptSeparator}" extract "${inputPdfPath}" "${extractedJsonPath}"`,
         );
-        if (sepOut) console.log(`[job ${jobId}] pdf_separator.py Output:\n${sepOut}`);
-        if (sepErr) console.error(`[job ${jobId}] pdf_separator.py Error:\n${sepErr}`);
       } catch (sepExecErr) {
         const msg = sepExecErr instanceof Error ? sepExecErr.message : String(sepExecErr);
         const missing = FONT_SEPARATOR_PY_MODULES.filter((m) => isMissingPythonModuleError(msg, m));
@@ -521,6 +568,56 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           return;
         }
         throw sepExecErr;
+      }
+      if (!fsSync.existsSync(extractedJsonPath)) {
+        await fail({
+          status: 500,
+          error: 'extracted_music_text.json 생성 실패',
+          detail: 'pdfplumber 추출 결과가 없습니다.',
+        });
+        return;
+      }
+
+      const fontStats = await analyzeFontSizesFromExtracted(
+        pythonBin,
+        scriptSeparator,
+        extractedJsonPath,
+      );
+      await fs.writeFile(fontStripStatsPath(sessionRoot), JSON.stringify(fontStats, null, 2), 'utf8');
+      job.fontStripStats = fontStats;
+      console.log(`[job ${jobId}] Pausing for font size strip selection…`);
+      job.status = 'font_strip_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.fontStripDeferred = { resolve, reject };
+      });
+      delete job.fontStripDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Font strip selection completed`);
+
+      const stripConfigRaw = await fs.readFile(fontStripConfigPath(sessionRoot), 'utf8');
+      const stripConfig = JSON.parse(stripConfigRaw) as { ranges?: FontStripRangeDto[] };
+      const stripRanges = stripConfig.ranges ?? [{ minPt: 7, maxPt: 17 }];
+      const rangeSpec = rangesToCliSpec(stripRanges);
+
+      setJobProgress(job, {
+        phase: 'separator',
+        current: 1,
+        total: 2,
+        detail: `pikepdf 텍스트 제거 (${rangeSpec})…`,
+      });
+      console.log(`[job ${jobId}] pdf_separator strip ranges=${rangeSpec}`);
+      try {
+        await exec(
+          `"${pythonBin}" "${scriptSeparator}" strip "${inputPdfPath}" "${cleanScorePath}" --ranges "${rangeSpec}"`,
+        );
+      } catch (stripErr) {
+        const msg = stripErr instanceof Error ? stripErr.message : String(stripErr);
+        await fail({
+          status: 500,
+          error: 'clean_score_only.pdf 생성 실패',
+          detail: msg,
+        });
+        return;
       }
       if (!fsSync.existsSync(cleanScorePath)) {
         await fail({
@@ -578,6 +675,16 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       const { stdout: mOut, stderr: mErr } = await exec(mergeArgs.join(' '));
       if (mOut) console.log(`[job ${jobId}] merge_lyric_sources.py Output:\n${mOut}`);
       if (mErr) console.error(`[job ${jobId}] merge_lyric_sources.py Error:\n${mErr}`);
+      const stripCfgPath = fontStripConfigPath(sessionRoot);
+      if (fsSync.existsSync(lyricManifestPath) && fsSync.existsSync(stripCfgPath)) {
+        try {
+          const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as Record<string, unknown>;
+          manifest.fontStrip = JSON.parse(await fs.readFile(stripCfgPath, 'utf8'));
+          await fs.writeFile(lyricManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+        } catch {
+          /* optional metadata */
+        }
+      }
     } else {
       // pymupdf_review — 기존 마스킹 파이프라인
       setJobProgress(job, {
@@ -1493,6 +1600,64 @@ app.use('/api/crops', (req, res, next) => {
   if (!job) return res.status(404).end();
   const filePath = path.join(job.sessionRoot, 'crops', filename);
   res.sendFile(filePath);
+});
+
+app.get('/api/font-strip/:jobId', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  if (job.status !== 'font_strip_needed') {
+    res.status(400).json({ error: '폰트 크기 선택 단계가 아닙니다' });
+    return;
+  }
+  try {
+    const statsPath = fontStripStatsPath(job.sessionRoot);
+    if (fsSync.existsSync(statsPath)) {
+      const stats = JSON.parse(await fs.readFile(statsPath, 'utf8'));
+      res.json(stats);
+      return;
+    }
+    if (job.fontStripStats) {
+      res.json(job.fontStripStats);
+      return;
+    }
+    res.status(404).json({ error: '폰트 통계가 준비되지 않았습니다' });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/font-strip/:jobId', express.json({ limit: '256kb' }), async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  if (job.status !== 'font_strip_needed' || !job.fontStripDeferred) {
+    res.status(400).json({ error: '폰트 크기 선택 대기 상태가 아닙니다' });
+    return;
+  }
+  const ranges = parseFontStripRangesBody(req.body);
+  if (!ranges) {
+    res.status(400).json({ error: '{ "ranges": [{ "minPt": number, "maxPt": number }] } 형식이 필요합니다' });
+    return;
+  }
+  try {
+    await fs.writeFile(
+      fontStripConfigPath(job.sessionRoot),
+      JSON.stringify({ ranges, savedAt: new Date().toISOString() }, null, 2),
+      'utf8',
+    );
+    job.fontStripDeferred.resolve();
+    delete job.fontStripDeferred;
+    delete job.fontStripStats;
+    res.json({ ok: true, ranges });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 app.get('/api/review/:jobId', (req, res) => {

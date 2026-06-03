@@ -451,7 +451,8 @@ function AudiverisStepProbeSection({
       </summary>
       <p style={{ margin: '10px 0 12px', fontSize: '0.86rem', color: '#bdc1c6', lineHeight: 1.5 }}>
         서버에서 Audiveris CLI로 <code>-batch -save -step …</code> 를 실행합니다(<strong>-export 없음</strong>). SCALE→GRID→… 순으로 단계를 올려 가며 로그와 생성된{' '}
-        <code>.omr</code>·로그 파일을 받아 GitHub 이슈 재현에 쓸 수 있습니다. 서버 부하가 크므로 필요할 때만 실행하세요.
+        <code>.omr</code>·로그 파일을 받아 GitHub 이슈 재현에 쓸 수 있습니다. 단계별 의미·디버깅 순서는 저장소{' '}
+        <code>docs/Audiveris_단계별_디버깅.md</code> 를 참고하세요. 서버 부하가 크므로 필요할 때만 실행하세요.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 16px', alignItems: 'flex-end', marginBottom: 10 }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

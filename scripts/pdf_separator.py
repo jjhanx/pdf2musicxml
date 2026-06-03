@@ -16,6 +16,12 @@ DEFAULT_MAX_LYRICS_SIZE = 17.0
 DEFAULT_LEGACY_RANGES = [(DEFAULT_MIN_LYRICS_SIZE, DEFAULT_MAX_LYRICS_SIZE)]
 SIZE_MATCH_EPS = 0.35
 
+# MuseScore 등: 왼쪽 SMuFL 성부 약어(S/A/T/B, PR/PL) — Audiveris SYMBOLS·TEXTS와 세잇단·마디선 간섭
+DEFAULT_LEFT_MARGIN_MAX_X_PT = 100.0
+PART_LABEL_SIZE_MIN_PT = 17.5
+PART_LABEL_SIZE_MAX_PT = 28.0
+LEFT_MARGIN_SMALL_TEXT_MAX_PT = 14.0
+
 _HANGUL_RE = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3131-\u318E]")
 _LATIN_RE = re.compile(r"[A-Za-z\u00C0-\u024F]")
 
@@ -90,11 +96,33 @@ def _effective_font_size_pt(tf_size: float, ctm: list[float], tm: list[float]) -
     return tf_size * ctm_scale * tm_scale
 
 
+def _text_x_pt(tm: list[float]) -> float:
+    return float(tm[4])
+
+
+def _should_strip_text(
+    eff: float,
+    tm: list[float],
+    ranges: list[tuple[float, float]],
+    *,
+    strip_left_margin: bool,
+) -> bool:
+    if strip_left_margin:
+        x = _text_x_pt(tm)
+        if x <= DEFAULT_LEFT_MARGIN_MAX_X_PT:
+            if PART_LABEL_SIZE_MIN_PT <= eff <= PART_LABEL_SIZE_MAX_PT:
+                return True
+            if 0 < eff <= LEFT_MARGIN_SMALL_TEXT_MAX_PT:
+                return True
+    return font_size_in_ranges(eff, ranges)
+
+
 def _strip_commands_in_stream(
     commands: list,
     ranges: list[tuple[float, float]],
     *,
     initial_ctm: list[float] | None = None,
+    strip_left_margin: bool = True,
 ) -> list:
     ctm_stack: list[list[float]] = [list(initial_ctm or [1.0, 0.0, 0.0, 1.0, 0.0, 0.0])]
     current_font_size = 0.0
@@ -124,7 +152,10 @@ def _strip_commands_in_stream(
 
         if op_name in ["Tj", "TJ", "'", '"']:
             eff = _effective_font_size_pt(current_font_size, ctm_stack[-1], tm)
-            if font_size_in_ranges(eff, ranges) and operands:
+            if (
+                _should_strip_text(eff, tm, ranges, strip_left_margin=strip_left_margin)
+                and operands
+            ):
                 if op_name == "TJ":
                     operands[0] = pikepdf.Array([])
                 else:
@@ -168,12 +199,19 @@ def strip_font_ranges(
     input_pdf_path: str,
     output_pdf_path: str,
     ranges: list[tuple[float, float]],
+    *,
+    strip_left_margin: bool = True,
 ) -> None:
     if not ranges:
         raise ValueError("제거할 폰트 크기 범위가 비어 있습니다.")
     ranges = merge_ranges(ranges)
     desc = ", ".join(f"{lo:g}–{hi:g}pt" for lo, hi in ranges)
-    print(f"[strip] pikepdf로 {desc} 텍스트 제거 중...", file=sys.stderr)
+    margin_note = (
+        f", 왼쪽 여백 x≤{DEFAULT_LEFT_MARGIN_MAX_X_PT:g}pt 성부약어·소형숫자"
+        if strip_left_margin
+        else ""
+    )
+    print(f"[strip] pikepdf로 {desc}{margin_note} 텍스트 제거 중...", file=sys.stderr)
 
     with pikepdf.open(input_pdf_path) as pdf:
         for page in pdf.pages:
@@ -184,7 +222,11 @@ def strip_font_ranges(
             except Exception:
                 continue
 
-            clean_commands = _strip_commands_in_stream(commands, ranges)
+            clean_commands = _strip_commands_in_stream(
+                commands,
+                ranges,
+                strip_left_margin=strip_left_margin,
+            )
             page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(clean_commands))
 
         pdf.save(output_pdf_path, linearize=True)
@@ -305,7 +347,11 @@ def analyze_font_sizes(extracted_pages: list[dict[str, Any]]) -> dict[str, Any]:
         "defaultRanges": default_ranges,
         "suggestedRanges": suggested_ranges,
         "presets": presets,
-        "note": "20pt 이상 SMuFL 음표 글림이 같은 크기로 잡히면 제외하세요. Audiveris 입력에는 가사·제목·작곡 등 inject_ocr로 넣을 텍스트만 지우는 것이 좋습니다.",
+        "note": (
+            "20pt 이상 SMuFL(예: 22.8pt)은 음표 글림과 같을 수 있으나, 왼쪽 x≤90pt 성부 약어(S/A/T/B·PR/PL)는 "
+            "strip 시 자동 제거됩니다(세잇단 숫자에 P가 겹치는 Audiveris 오인식 방지). "
+            "가사·제목·작곡 등 inject_ocr로 넣을 텍스트만 UI에서 고르세요."
+        ),
     }
 
 
@@ -327,7 +373,12 @@ def cmd_strip(args: argparse.Namespace) -> int:
     if args.sizes:
         extra = sizes_to_ranges([float(x) for x in args.sizes.split(",") if x.strip()])
         ranges = merge_ranges(ranges + extra)
-    strip_font_ranges(args.input_pdf, args.output_pdf, ranges)
+    strip_font_ranges(
+        args.input_pdf,
+        args.output_pdf,
+        ranges,
+        strip_left_margin=not getattr(args, "no_strip_left_margin", False),
+    )
     return 0
 
 
@@ -345,7 +396,12 @@ def cmd_all(args: argparse.Namespace) -> int:
         extra = sizes_to_ranges([float(x) for x in args.sizes.split(",") if x.strip()])
         ranges = merge_ranges(ranges + extra)
     extract_layout(args.input_pdf, args.output_json)
-    strip_font_ranges(args.input_pdf, args.output_pdf, ranges)
+    strip_font_ranges(
+        args.input_pdf,
+        args.output_pdf,
+        ranges,
+        strip_left_margin=not getattr(args, "no_strip_left_margin", False),
+    )
     return 0
 
 
@@ -363,6 +419,11 @@ def main() -> int:
     p_strip.add_argument("output_pdf")
     p_strip.add_argument("--ranges", default="7-17", help="예: 7-17,18-24")
     p_strip.add_argument("--sizes", help="개별 pt, 쉼표 구분. 예: 12,18,24")
+    p_strip.add_argument(
+        "--no-strip-left-margin",
+        action="store_true",
+        help="왼쪽 SMuFL 성부 약어(PR/PL 등) 자동 제거 끔",
+    )
     p_strip.set_defaults(func=cmd_strip)
 
     p_analyze = sub.add_parser("analyze", help="extracted JSON에서 폰트 크기 통계(JSON stdout)")

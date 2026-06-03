@@ -1,3 +1,4 @@
+import os
 import sys
 import zipfile
 import io
@@ -479,10 +480,32 @@ def load_ocr_items(json_in_path):
     return None
 
 
+def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path):
+    """Audiveris MXL → 잔여 P/2P direction·이중 staccato-natural 등 완화."""
+    try:
+        from fix_audiveris_mxl import fix_mxl_file
+    except ImportError:
+        return
+    try:
+        fix_mxl_file(mxl_in_path, mxl_work_path)
+    except Exception as e:
+        print(f"inject_ocr: fix_audiveris_mxl 경고: {e}", file=sys.stderr)
+
+
 def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     ocr_data = load_ocr_items(json_in_path)
     if ocr_data is None:
         return
+
+    mxl_source = mxl_in_path
+    mxl_tmp: str | None = None
+    if os.environ.get("AUDIVERIS_MXL_FIX", "1").strip().lower() not in ("0", "false", "no"):
+        import tempfile
+
+        fd, mxl_tmp = tempfile.mkstemp(suffix=".mxl")
+        os.close(fd)
+        _run_audiveris_mxl_fix(mxl_in_path, mxl_tmp)
+        mxl_source = mxl_tmp
 
     meta_path = Path(json_in_path).parent / "ocr_meta.json"
     transpose = 0
@@ -494,7 +517,7 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
             transpose = 0
     transpose = max(-24, min(24, transpose))
 
-    with zipfile.ZipFile(mxl_in_path, "r") as z:
+    with zipfile.ZipFile(mxl_source, "r") as z:
         files = {name: z.read(name) for name in z.namelist()}
 
     container_xml = files.get("META-INF/container.xml")
@@ -604,9 +627,16 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     out_xml_bytes = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     files[root_file_path] = out_xml_bytes
 
-    with zipfile.ZipFile(mxl_out_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        for name, data in files.items():
-            z.writestr(name, data)
+    try:
+        with zipfile.ZipFile(mxl_out_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            for name, data in files.items():
+                z.writestr(name, data)
+    finally:
+        if mxl_tmp and os.path.isfile(mxl_tmp):
+            try:
+                os.remove(mxl_tmp)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

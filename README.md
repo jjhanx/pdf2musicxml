@@ -12,7 +12,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
   - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
   - **Audiveris만**: 선행 처리·가사 주입 없음.
 - **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「PyMuPDF 가사 검증·편집」 체크를 끄면 pdfplumber 추출만으로 병합합니다.
-- **점검 UI**: 완료 후 **마스킹·인식 점검**에서 원본 vs **`clean_score_only.pdf`** PNG 비교, PDF 다운로드, Audiveris 단계별 실행(`pdfSource=clean_score`)을 지원합니다.
+- **점검 UI**: 완료 후 **마스킹·인식 점검**에서 원본 vs **`clean_score_only.pdf`** PNG 비교, PDF 다운로드, Audiveris 단계별 실행(`pdfSource=clean_score`)을 지원합니다. 단계 의미·디버깅: [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md).
 - **저장 형식 v3**: `lyric_manifest.json` — `items[]`(병합 출처 `provenance`, `fontSize` 등) + `matchStats`. `inject_ocr.py`는 v2/v3 manifest와 flat 배열 모두 읽습니다.
 - **한글·ZIP 파일명**: `POST /api/convert` 멀티파트 파일명 디코딩은 그대로 유지합니다.
 - 자세한 품질·호환 대응은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md), 배포 점검은 동 문서 **「서버 배포 후 점검 체크리스트」**를 따르세요.
@@ -28,7 +28,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **결과 자동 저장**: UI에서 "결과 저장하기"를 체크하면 변환이 완료된 후 별도로 저장 버튼을 누르지 않아도 **자동으로 `.mxl` 파일이 다운로드**됩니다. (이전의 디버그 ZIP 다운로드 기능은 제거되었습니다.)
 - **비동기 변환(폴링)**: 변환(Audiveris)은 시간이 오래 걸리므로 **완료 후 곧바로 파일을 응답하지 않습니다.** `POST /api/convert`는 **PDF 수신·저장이 끝난 뒤** **HTTP 202** 와 `jobId`를 돌려주고, 실제 변환은 서버 백그라운드에서 돌아갑니다. 클라이언트는 **상태 API를 주기적으로 조회**한 뒤, 완료 시 **다운로드 API**로 결과를 받습니다. (과거에는 업로드 도중 202를 보내 일부 환경에서 본문 전송이 멈추는 문제가 있어, 202 시점을 저장 완료 후로 옮겼습니다.)
 - **결과 보관 기간(TTL)**: 변환이 **완료되었거나 최종 실패로 판정된 시점**부터 **24시간**이 지나면 서버 메모리의 작업 기록과 임시 결과 파일을 자동으로 삭제합니다. **`GET /api/download`로 받은 뒤에도** 같은 `jobId`로 **마스킹·인식 점검**(진단 API·웹 점검 패널)을 쓸 수 있습니다(TTL 전까지). UI와 `GET /api/health` 응답에 동일 안내가 포함됩니다.
-- **마스킹·Audiveris 인식 점검 UI**: 변환 완료·실패 행에서 **마스킹·인식 점검**으로, **페이지별** 원본 PDF와 마스킹 PDF를 나란히 PNG로 비교합니다. Audiveris **MusicXML**은 OpenSheetMusicDisplay로 미리보며, **파트(성부)** 단위로 필터해 한 줄씩 보기 쉽게 할 수 있습니다. 같은 패널에서 **Audiveris 단계별 실행**(예: `-step GRID`)으로 로그·`.omr`을 받아 이슈 재현에 쓸 수 있습니다. **Audiveris 결과 보정** 모달에서도 **마스킹·인식 점검** 탭을 열 수 있습니다.
+- **마스킹·Audiveris 인식 점검 UI**: 변환 완료·실패 행에서 **마스킹·인식 점검**으로, **페이지별** 원본 PDF와 마스킹 PDF를 나란히 PNG로 비교합니다. Audiveris **MusicXML**은 OpenSheetMusicDisplay로 미리보며, **파트(성부)** 단위로 필터해 한 줄씩 보기 쉽게 할 수 있습니다. 같은 패널에서 **Audiveris 단계별 실행**(예: `-step GRID`)으로 로그·`.omr`을 받아 이슈 재현에 쓸 수 있습니다 — 단계별 의미·디버깅 순서는 [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md). **Audiveris 결과 보정** 모달에서도 **마스킹·인식 점검** 탭을 열 수 있습니다.
 - **REST API**: `POST /api/convert`, `GET /api/status/:jobId`, `GET /api/download/:jobId`, 진단용 `GET /api/diagnostic/...`, `GET /api/health` (아래 [REST API (비동기)](#rest-api-비동기) 참고)
 - **CLI**: `npm run convert -- <파일.pdf>` → 기본 저장 `~/Downloads`(Linux) 등
 - **운영 모드**: `npm run build` 후 `dist`를 Express가 같은 포트에서 서빙 (`npm run start:prod`)
@@ -77,6 +77,8 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `LISTEN_HOST` | 바인딩 주소 (기본 `0.0.0.0`). `127.0.0.1`만 열려면 nginx 뒤에 둘 때 사용 |
 | `AUDIVERIS_NO_FLAT_OUTPUT` | `1`이면 `-option …useSeparateBookFolders=false` 비활성화 |
 | `AUDIVERIS_CLI_EXTRA_JSON` | (고급) Audiveris CLI에 추가로 붙일 인자를 **JSON 문자열 배열**로 지정. 예: `["-constant","org.audiveris.omr.sheet.Scale.defaultBeamSpecification=10"]`. 잘못된 JSON은 무시됩니다. `GET /api/health`의 `audiverisCliExtraArgCount`로 개수만 확인. |
+| `AUDIVERIS_KEEP_DEFAULT_SWITCHES` | `1`/`true`이면 가사·코드네임 OCR 끄기·피아노 마디선 완화 등 **기본 Audiveris 스위치**를 넣지 않음. |
+| `AUDIVERIS_MXL_FIX` | 기본 켜짐. `0`/`false`이면 `inject_ocr.py` 직전 `fix_audiveris_mxl.py`(잔여 P/2P direction 등) 생략. |
 | `MASK_PDF_TEXT_REDACT` | (선택) `1`/`true`/`yes`일 때 **제목·작곡가 등 비-가사** 구역에 벡터 텍스트가 있으면 **전체 bbox** 텍스트 리독을 시도합니다. **가사**는 기본이 **글자별 선택 리독**(아래)이라 이 옵션과 별개입니다. |
 | `MASK_PDF_LYRIC_SELECTIVE` | (선택) `0`/`false`면 끔. **기본(설정 없음)**: 타입 **`lyrics`** 만 가사처럼 보이는 유니코드를 **글리프 단위** 리덕. **`MASK_PDF_LYRIC_MUSIC_SAFE`(기본 켜짐)** 는 **면적 비율**로 음표·SMuFL 텍스트와 실제 겹침이 클 때만 가사 리덕 생략(레거시는 **`MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT=1`**). 가사 블록 전체를 흰 사각형으로만 덮으려면 이 옵션을 끕니다. |
 | `MASK_PDF_LYRIC_USE_EXTRACT_SPANS` | **기본 켜짐**(`0`/`false`로 끔). 벡터 `extract_text.py`가 `ocr_data.json` 줄마다 넣은 **`spans[].bbox`(PyMuPDF dict span 단위)** 가 있으면, 가사 블록 마스킹 시 **추출한 그 세그먼트 좌표**만 써 블랭크하고(폴백: `spans` 없으면 페이지에서 rawdict 재수집). **이미지 PDF(OCR만)** 줄에는 보통 `spans`가 없음. |
@@ -193,7 +195,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/diagnostic/:jobId/score-musicxml` | Audiveris MXL에서 평문 MusicXML(미리보기용). 완료 결과가 ZIP이면 출력 목록 중 첫 `.mxl` 기준 |
 | `GET /api/diagnostic/:jobId/masked-pdf` | Audiveris에 넣기 직전 **`masked_input.pdf`** (`application/pdf`). 기본 `inline`(새 탭), `?download=1`이면 다운로드 |
 | `GET /api/diagnostic/:jobId/original-pdf` | 세션에 남은 **업로드 원본 PDF**. 동일하게 `?download=1` 지원 |
-| `POST /api/diagnostic/:jobId/audiveris-step-probe` | **`completed` / `audiveris_review_needed` / `failed`** 작업만. 본문 JSON: `step`(필수, 예: `GRID`), `force?`, `sheets?`(예: `"1 4-7"`), `pdfSource?`(`masked`\|`original`). 서버가 Audiveris `-batch -save -step …`( **`-export` 없음** ) 실행 후 `exitCode`, `stdout`/`stderr`(길면 잘림), `argv`, `artifacts`(생성 파일 상대 경로·크기), `runId` 반환. 서버 부하가 크므로 필요 시만 호출 |
+| `POST /api/diagnostic/:jobId/audiveris-step-probe` | **`completed` / `audiveris_review_needed` / `failed`** 작업만. 본문 JSON: `step`(필수, 예: `GRID`), `force?`, `sheets?`(예: `"1 4-7"`), `pdfSource?`(`clean_score`\|`masked`\|`original`). 서버가 Audiveris `-batch -save -step …`( **`-export` 없음** ) 실행 후 `exitCode`, `stdout`/`stderr`(길면 잘림), `argv`, `artifacts`, `runId` 반환. **단계 설명·사용법:** [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md) |
 | `GET /api/diagnostic/:jobId/audiveris-step-probe/:runId/download` | 위 실행 결과물 다운로드. 쿼리 **`rel`** = 해당 실행 폴더 기준 상대 경로 (예: `piece/book.omr`). 경로 탈출 차단 |
 
 프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, `review_needed`이면 Pre-Audiveris 검토 모달, **`audiveris_review_needed`**이면 Audiveris 결과 보정 모달을 띄웩니다. 제출은 각각 `/api/review/:jobId`, `/api/continue-audiveris/:jobId`로 이어집니다. 완료 행의 **마스킹·인식 점검**은 동일 `jobId`로 진단 API를 사용합니다. **변환 실패** 행에서도 세션이 남아 있으면 동일 버튼으로 점검·**Audiveris 단계별 실행** GUI를 열 수 있습니다.

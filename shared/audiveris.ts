@@ -133,6 +133,31 @@ export function audiverisExtraCliArgsFromEnv(): string[] {
   }
 }
 
+/**
+ * 가사·제목은 inject_ocr로 넣고 Audiveris는 악보만 인식할 때 쓰는 처리 스위치.
+ * `AUDIVERIS_KEEP_DEFAULT_SWITCHES=1` 이면 비활성.
+ */
+export function audiverisCleanScoreConstantArgsFromEnv(): string[] {
+  const keep =
+    process.env.AUDIVERIS_KEEP_DEFAULT_SWITCHES === '1' ||
+    process.env.AUDIVERIS_KEEP_DEFAULT_SWITCHES === 'true';
+  if (keep) return [];
+  return [
+    '-constant',
+    'org.audiveris.omr.sheet.ProcessingSwitches.constants.lyrics=false',
+    '-constant',
+    'org.audiveris.omr.sheet.ProcessingSwitches.constants.lyricsAboveStaff=false',
+    '-constant',
+    'org.audiveris.omr.sheet.ProcessingSwitches.constants.chordNames=false',
+    '-constant',
+    'org.audiveris.omr.sheet.ProcessingSwitches.constants.pluckings=false',
+    '-constant',
+    'org.audiveris.omr.sheet.ProcessingSwitches.constants.fingerings=false',
+    '-constant',
+    'org.audiveris.omr.sheet.ProcessingSwitches.constants.disconnectedBracedParts=true',
+  ];
+}
+
 /** 단일 폴더에 .mxl 모으기 (여러 악보 책 폴더 방지) — 필요 시 환경변수로 끔 */
 export function defaultExtraArgsFromEnv(): string[] {
   const flat =
@@ -142,7 +167,12 @@ export function defaultExtraArgsFromEnv(): string[] {
           '-option',
           'org.audiveris.omr.sheet.BookManager.useSeparateBookFolders=false',
         ];
-  return [...ocrLanguageConstantArgsFromEnv(), ...flat, ...audiverisExtraCliArgsFromEnv()];
+  return [
+    ...ocrLanguageConstantArgsFromEnv(),
+    ...flat,
+    ...audiverisCleanScoreConstantArgsFromEnv(),
+    ...audiverisExtraCliArgsFromEnv(),
+  ];
 }
 
 export function resolveAudiverisBin(): string | undefined {

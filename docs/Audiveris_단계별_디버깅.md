@@ -170,7 +170,7 @@ flowchart LR
 - **하는 일:** 악보 위 **문자 영역에 OCR(Tesseract)** 을 돌립니다.
 - **의미:** 가사·템포 숫자·지시어 등이 **입력 PDF에 남아 있으면** 여기서 다시 글자로 잡힙니다.
 - **이 저장소와의 관계:** 가사·제목·작곡 등은 보통 PDF에서 지운 뒤 `inject_ocr.py`로 MusicXML에 넣습니다. `clean_score_only.pdf`에 한글이 남으면 TEXTS·최종 MXL 모두에 영향을 줄 수 있습니다.
-- **합창+피아노(S/A/T/B·PR/PL):** MuseScore SMuFL **성부 약어**(약 22.8pt, x≤76pt)만 `strip`이 제거합니다. **음자리표**는 같은 pt·x≥79pt라 보존됩니다.
+- **합창+피아노(S/A/T/B·PR/PL):** `strip`은 UI 선택 크기만 제거합니다. SYMBOLS `P` 겹침은 Audiveris 상수·OCR 설정을 참고하세요.
 
 ### MEASURES
 

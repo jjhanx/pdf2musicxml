@@ -16,16 +16,6 @@ DEFAULT_MAX_LYRICS_SIZE = 17.0
 DEFAULT_LEGACY_RANGES = [(DEFAULT_MIN_LYRICS_SIZE, DEFAULT_MAX_LYRICS_SIZE)]
 SIZE_MATCH_EPS = 0.35
 
-# MuseScore 등: 왼쪽 SMuFL 성부 약어(S/A/T/B, PR/PL) — x≈50–73pt, 22.8pt
-# 음자리표·조표는 같은 22.8pt이나 x≈79pt~ — x 한계를 76pt로 두어 약어 열만 텍스트 제거
-DEFAULT_LEFT_MARGIN_PART_LABEL_MAX_X_PT = 76.0
-# 선택: 성부 약어 열만 흰색 덮기(0이면 픽셀 마스킹 안 함). 기본 0 — 악보 왼쪽 기호 보존.
-DEFAULT_LEFT_MARGIN_VISUAL_WIPE_PT = 0.0
-PART_LABEL_SIZE_MIN_PT = 17.5
-PART_LABEL_SIZE_MAX_PT = 28.0
-LEFT_MARGIN_SMALL_TEXT_MAX_PT = 14.0
-LEFT_MARGIN_SMALL_TEXT_MAX_X_PT = 50.0
-
 _HANGUL_RE = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3131-\u318E]")
 _LATIN_RE = re.compile(r"[A-Za-z\u00C0-\u024F]")
 
@@ -100,41 +90,11 @@ def _effective_font_size_pt(tf_size: float, ctm: list[float], tm: list[float]) -
     return tf_size * ctm_scale * tm_scale
 
 
-def _text_x_pt(tm: list[float]) -> float:
-    return float(tm[4])
-
-
-def _should_strip_text(
-    eff: float,
-    tm: list[float],
-    ranges: list[tuple[float, float]],
-    *,
-    strip_left_margin: bool,
-) -> bool:
-    if strip_left_margin:
-        x = _text_x_pt(tm)
-        if x <= DEFAULT_LEFT_MARGIN_PART_LABEL_MAX_X_PT:
-            if PART_LABEL_SIZE_MIN_PT <= eff <= PART_LABEL_SIZE_MAX_PT:
-                return True
-        if x <= LEFT_MARGIN_SMALL_TEXT_MAX_X_PT and 0 < eff <= LEFT_MARGIN_SMALL_TEXT_MAX_PT:
-            return True
-    if font_size_in_ranges(eff, ranges):
-        # UI에서 22.8pt 등을 고르면 음자리표(x≈79pt~)까지 지워지는 것 방지
-        if (
-            PART_LABEL_SIZE_MIN_PT <= eff <= PART_LABEL_SIZE_MAX_PT
-            and x > DEFAULT_LEFT_MARGIN_PART_LABEL_MAX_X_PT
-        ):
-            return False
-        return True
-    return False
-
-
 def _strip_commands_in_stream(
     commands: list,
     ranges: list[tuple[float, float]],
     *,
     initial_ctm: list[float] | None = None,
-    strip_left_margin: bool = True,
 ) -> list:
     ctm_stack: list[list[float]] = [list(initial_ctm or [1.0, 0.0, 0.0, 1.0, 0.0, 0.0])]
     current_font_size = 0.0
@@ -164,10 +124,7 @@ def _strip_commands_in_stream(
 
         if op_name in ["Tj", "TJ", "'", '"']:
             eff = _effective_font_size_pt(current_font_size, ctm_stack[-1], tm)
-            if (
-                _should_strip_text(eff, tm, ranges, strip_left_margin=strip_left_margin)
-                and operands
-            ):
+            if font_size_in_ranges(eff, ranges) and operands:
                 if op_name == "TJ":
                     operands[0] = pikepdf.Array([])
                 else:
@@ -211,20 +168,12 @@ def strip_font_ranges(
     input_pdf_path: str,
     output_pdf_path: str,
     ranges: list[tuple[float, float]],
-    *,
-    strip_left_margin: bool = True,
-    left_margin_visual_wipe_pt: float | None = None,
 ) -> None:
     if not ranges:
         raise ValueError("제거할 폰트 크기 범위가 비어 있습니다.")
     ranges = merge_ranges(ranges)
     desc = ", ".join(f"{lo:g}–{hi:g}pt" for lo, hi in ranges)
-    margin_note = (
-        f", 왼쪽 x≤{DEFAULT_LEFT_MARGIN_PART_LABEL_MAX_X_PT:g}pt 성부약어(텍스트)"
-        if strip_left_margin
-        else ""
-    )
-    print(f"[strip] pikepdf로 {desc}{margin_note} 텍스트 제거 중...", file=sys.stderr)
+    print(f"[strip] pikepdf로 {desc} 텍스트 제거 중...", file=sys.stderr)
 
     with pikepdf.open(input_pdf_path) as pdf:
         for page in pdf.pages:
@@ -235,57 +184,12 @@ def strip_font_ranges(
             except Exception:
                 continue
 
-            clean_commands = _strip_commands_in_stream(
-                commands,
-                ranges,
-                strip_left_margin=strip_left_margin,
-            )
+            clean_commands = _strip_commands_in_stream(commands, ranges)
             page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(clean_commands))
 
         pdf.save(output_pdf_path, linearize=True)
 
-    wipe_pt = (
-        DEFAULT_LEFT_MARGIN_VISUAL_WIPE_PT
-        if left_margin_visual_wipe_pt is None
-        else float(left_margin_visual_wipe_pt)
-    )
-    if strip_left_margin and wipe_pt > 0:
-        _wipe_left_margin_visual(output_pdf_path, wipe_pt)
-
     print(f" -> {output_pdf_path}", file=sys.stderr)
-
-
-def _wipe_left_margin_visual(pdf_path: str, margin_pt: float) -> None:
-    """SMuFL 성부 약어가 텍스트 연산자만 지워져도 픽셀에 남는 경우 — Audiveris 이진화 입력에서 제거."""
-    try:
-        import fitz
-    except ImportError as e:
-        print(f"[strip] PyMuPDF 없음, 왼쪽 여백 픽셀 마스킹 생략: {e}", file=sys.stderr)
-        return
-
-    img_none = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
-    line_none = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
-    tmp_path = f"{pdf_path}.margin-wipe.pdf"
-
-    doc = fitz.open(pdf_path)
-    for page in doc:
-        rect = fitz.Rect(0, 0, margin_pt, page.rect.height)
-        page.add_redact_annot(rect, fill=(1, 1, 1))
-        try:
-            page.apply_redactions(images=img_none, graphics=line_none)
-        except TypeError:
-            page.apply_redactions()
-    doc.save(tmp_path, garbage=4, deflate=True)
-    doc.close()
-
-    import os
-    import shutil
-
-    shutil.move(tmp_path, pdf_path)
-    print(
-        f"[strip] 왼쪽 x≤{margin_pt:g}pt 픽셀 마스킹(PyMuPDF) — Audiveris TEXTS/SYMBOLS 간섭 완화",
-        file=sys.stderr,
-    )
 
 
 def _sample_text(chars: list[str], max_len: int = 48) -> str:
@@ -403,10 +307,9 @@ def analyze_font_sizes(extracted_pages: list[dict[str, Any]]) -> dict[str, Any]:
         "suggestedRanges": suggested_ranges,
         "presets": presets,
         "note": (
-            "20pt 이상 SMuFL(예: 22.8pt)은 음표·음자리표와 같을 수 있으나, 왼쪽 x≤76pt 성부 약어(S/A/T/B·PR/PL)만 "
-            "strip 시 자동 제거합니다(음자리표 x≥79pt·조표·첫 마디 보존). UI에서 22.8pt를 선택하면 "
-            "악보 전역의 음자리표까지 지워질 수 있으니 선택하지 마세요. "
-            "가사·제목·작곡 등 inject_ocr로 넣을 텍스트만 UI에서 고르세요."
+            "UI에서 고른 pt 범위의 텍스트만 제거합니다(CTM 반영 표시 pt). "
+            "22.8pt 등 SMuFL은 음자리표·성부 약어와 같을 수 있으니 선택하지 마세요. "
+            "가사·제목·작곡 등 inject_ocr로 넣을 텍스트만 고르세요."
         ),
     }
 
@@ -429,13 +332,7 @@ def cmd_strip(args: argparse.Namespace) -> int:
     if args.sizes:
         extra = sizes_to_ranges([float(x) for x in args.sizes.split(",") if x.strip()])
         ranges = merge_ranges(ranges + extra)
-    strip_font_ranges(
-        args.input_pdf,
-        args.output_pdf,
-        ranges,
-        strip_left_margin=not getattr(args, "no_strip_left_margin", False),
-        left_margin_visual_wipe_pt=getattr(args, "left_margin_wipe_pt", None),
-    )
+    strip_font_ranges(args.input_pdf, args.output_pdf, ranges)
     return 0
 
 
@@ -453,13 +350,7 @@ def cmd_all(args: argparse.Namespace) -> int:
         extra = sizes_to_ranges([float(x) for x in args.sizes.split(",") if x.strip()])
         ranges = merge_ranges(ranges + extra)
     extract_layout(args.input_pdf, args.output_json)
-    strip_font_ranges(
-        args.input_pdf,
-        args.output_pdf,
-        ranges,
-        strip_left_margin=not getattr(args, "no_strip_left_margin", False),
-        left_margin_visual_wipe_pt=getattr(args, "left_margin_wipe_pt", None),
-    )
+    strip_font_ranges(args.input_pdf, args.output_pdf, ranges)
     return 0
 
 
@@ -477,21 +368,6 @@ def main() -> int:
     p_strip.add_argument("output_pdf")
     p_strip.add_argument("--ranges", default="7-17", help="예: 7-17,18-24")
     p_strip.add_argument("--sizes", help="개별 pt, 쉼표 구분. 예: 12,18,24")
-    p_strip.add_argument(
-        "--no-strip-left-margin",
-        action="store_true",
-        help="왼쪽 SMuFL 성부 약어(PR/PL 등) 자동 제거 끔",
-    )
-    p_strip.add_argument(
-        "--left-margin-wipe-pt",
-        type=float,
-        default=None,
-        metavar="PT",
-        help=(
-            "왼쪽 세로 띠 픽셀 흰색 마스킹(기본 0=안 함). "
-            "큰 값은 음자리표·조표·첫 마디까지 지울 수 있음"
-        ),
-    )
     p_strip.set_defaults(func=cmd_strip)
 
     p_analyze = sub.add_parser("analyze", help="extracted JSON에서 폰트 크기 통계(JSON stdout)")

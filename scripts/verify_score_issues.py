@@ -20,6 +20,18 @@ from pathlib import Path
 _STAFF_ORDER_6 = ("S", "A", "T", "B", "PR", "PL")
 _SPURIOUS_WORDS = frozenset({"P", "p", "2P", "2p", "PR", "PL", "R", "L", "9"})
 
+# 인쇄 마디·페이지 기준 사용자 보고 위치 (docs/합창_피아노_SYMBOLS_오인식_대조.md)
+_REGRESSION_SPOTS: list[dict] = [
+    {"page": 3, "staff": "PL", "measurePrinted": "15", "expectTuplet": True},
+    {"page": 4, "staff": "PR", "measurePrinted": "22"},
+    {"page": 4, "staff": "PR", "measurePrinted": "23"},
+    {"page": 5, "staff": "PL", "measurePrinted": "29", "expectTuplet": True},
+    {"page": 7, "staff": "PL", "measurePrinted": "40", "expectTuplet": True},
+    {"page": 7, "staff": "PL", "measurePrinted": "41", "expectTuplet": True},
+    {"page": 7, "staff": "PL", "measurePrinted": "45", "expectTuplet": True, "suspectQuarter": True},
+    {"page": 10, "staff": "PR", "measurePrinted": "61", "expectTuplet": True},
+]
+
 
 def _ns(root: ET.Element) -> str:
     t = root.tag
@@ -69,7 +81,65 @@ def _printed_measure(mxl_number: str, offset: int) -> str | None:
         return None
 
 
-def scan_mxl(mxl_path: Path, *, measure_offset_printed: int = 1) -> dict:
+def _mxl_measure_from_printed(printed: str, offset: int) -> str | None:
+    try:
+        return str(int(printed) - offset)
+    except (TypeError, ValueError):
+        return None
+
+
+def _measure_key(staff: str, printed: str | None) -> str | None:
+    if not printed:
+        return None
+    return f"{staff}:{printed}"
+
+
+def _run_regression_checks(
+    measure_stats: dict[str, dict],
+    spurious_by_measure: dict[str, int],
+    *,
+    measure_offset_printed: int,
+) -> list[dict]:
+    out: list[dict] = []
+    for spot in _REGRESSION_SPOTS:
+        staff = spot["staff"]
+        printed = spot["measurePrinted"]
+        key = _measure_key(staff, printed)
+        mxl = _mxl_measure_from_printed(printed, measure_offset_printed)
+        st = measure_stats.get(key or "", {})
+        issues: list[str] = []
+        if spot.get("expectTuplet") and st.get("tupletStarts", 0) == 0:
+            issues.append("missingTupletInMxl")
+        if spot.get("suspectQuarter"):
+            q = st.get("quarterNotes", 0)
+            if q >= 4 and st.get("tupletStarts", 0) == 0:
+                issues.append("possibleTripletAsQuarter")
+        if key and spurious_by_measure.get(key, 0) > 0:
+            issues.append("spuriousPInMxl")
+        out.append(
+            {
+                "page": spot.get("page"),
+                "staff": staff,
+                "measurePrinted": printed,
+                "measureMxl": mxl,
+                "pitchNotes": st.get("pitchNotes", 0),
+                "tupletStarts": st.get("tupletStarts", 0),
+                "quarterNotes": st.get("quarterNotes", 0),
+                "eighthNotes": st.get("eighthNotes", 0),
+                "spuriousP": spurious_by_measure.get(key or "", 0),
+                "issues": issues,
+                "ok": len(issues) == 0,
+            }
+        )
+    return out
+
+
+def scan_mxl(
+    mxl_path: Path,
+    *,
+    measure_offset_printed: int = 1,
+    regression: bool = False,
+) -> dict:
     root = ET.parse(io.BytesIO(_load_score_xml(mxl_path))).getroot()
     ns = _ns(root)
 
@@ -95,6 +165,8 @@ def scan_mxl(mxl_path: Path, *, measure_offset_printed: int = 1) -> dict:
     tie_start = 0
     tie_stop = 0
     measure_numbers: list[str] = []
+    measure_stats: dict[str, dict] = {}
+    spurious_by_measure: dict[str, int] = {}
 
     for part_index, part in enumerate(root.findall(_q(ns, "part"))):
         pid = part.get("id", "")
@@ -109,6 +181,17 @@ def scan_mxl(mxl_path: Path, *, measure_offset_printed: int = 1) -> dict:
             mnum = measure.get("number", "?")
             measure_numbers.append(mnum)
             printed = _printed_measure(mnum, measure_offset_printed)
+            mkey = _measure_key(staff, printed)
+            if mkey:
+                measure_stats.setdefault(
+                    mkey,
+                    {
+                        "pitchNotes": 0,
+                        "tupletStarts": 0,
+                        "quarterNotes": 0,
+                        "eighthNotes": 0,
+                    },
+                )
 
             for direction in measure.findall(_q(ns, "direction")):
                 texts: list[str] = []
@@ -129,10 +212,20 @@ def scan_mxl(mxl_path: Path, *, measure_offset_printed: int = 1) -> dict:
                             "text": compact,
                         }
                     )
+                    if mkey:
+                        spurious_by_measure[mkey] = spurious_by_measure.get(mkey, 0) + 1
 
             for note in measure.findall(_q(ns, "note")):
                 if note.find(_q(ns, "rest")) is not None:
                     continue
+                if mkey:
+                    measure_stats[mkey]["pitchNotes"] += 1
+                dur = note.find(_q(ns, "type"))
+                if mkey and dur is not None and dur.text:
+                    if dur.text == "quarter":
+                        measure_stats[mkey]["quarterNotes"] += 1
+                    elif dur.text == "eighth":
+                        measure_stats[mkey]["eighthNotes"] += 1
                 acc = note.find(_q(ns, "accidental"))
                 if acc is not None and (acc.text or "").strip() in (
                     "natural",
@@ -170,6 +263,8 @@ def scan_mxl(mxl_path: Path, *, measure_offset_printed: int = 1) -> dict:
                             tuplet_stop += 1
                         else:
                             tuplet_start += 1
+                            if mkey:
+                                measure_stats[mkey]["tupletStarts"] += 1
                     tied = note.find(_q(ns, "tie"))
                     if tied is not None:
                         t = tied.get("type", "start")
@@ -183,7 +278,7 @@ def scan_mxl(mxl_path: Path, *, measure_offset_printed: int = 1) -> dict:
         key=lambda x: int(x),
     )
 
-    return {
+    report: dict = {
         "mxl": str(mxl_path),
         "parts": parts_meta,
         "staffOrderHint": list(_STAFF_ORDER_6) if part_count == 6 else None,
@@ -202,9 +297,17 @@ def scan_mxl(mxl_path: Path, *, measure_offset_printed: int = 1) -> dict:
         "hints": [
             "spuriousDirections>0: fix_audiveris_mxl·AUDIVERIS OCR eng·TextWord 상수 확인",
             "SYMBOLS에만 P가 보이고 MXL에 없으면 Audiveris 패치/development 빌드",
-            "이음줄·순서·세잇단 괄호선은 MXL 후처리로 복구 어려움",
+            "이음줄·순서·세잇단 괄호선·PR/PL 3 공유는 MXL 후처리로 복구 어려움",
+            "보고 마디 대조: --regression",
         ],
     }
+    if regression:
+        checks = _run_regression_checks(
+            measure_stats, spurious_by_measure, measure_offset_printed=measure_offset_printed
+        )
+        report["regressionChecks"] = checks
+        report["regressionFailed"] = sum(1 for c in checks if not c["ok"])
+    return report
 
 
 def main() -> int:
@@ -217,11 +320,20 @@ def main() -> int:
         help="인쇄 마디 = MXL measure number + 이 값 (기본 1)",
     )
     ap.add_argument("--json", type=Path, help="JSON 보고서 저장")
+    ap.add_argument(
+        "--regression",
+        action="store_true",
+        help="docs 합창·피아노 보고 마디(15,29,40,41,45,61 등) MXL 자동 대조",
+    )
     args = ap.parse_args()
     if not args.mxl.is_file():
         print(f"파일 없음: {args.mxl}", file=sys.stderr)
         return 2
-    report = scan_mxl(args.mxl, measure_offset_printed=args.measure_offset)
+    report = scan_mxl(
+        args.mxl,
+        measure_offset_printed=args.measure_offset,
+        regression=args.regression,
+    )
     if args.json:
         args.json.write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"

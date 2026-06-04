@@ -14,58 +14,59 @@
 | 5 | PR | Piano (오른손) / Piano RH |
 | 6 | PL | Piano (왼손) / Piano LH |
 
-`python scripts/verify_score_issues.py score.mxl --measure-offset 1` 로 성부 라벨·인쇄 마디 추정치를 봅니다.
+```bash
+python scripts/verify_score_issues.py score.mxl --measure-offset 1
+python scripts/verify_score_issues.py score.mxl --measure-offset 1 --regression
+```
 
 ## 층별로 고칠 수 있는 것
 
 | 현상 | SYMBOLS UI | MXL `fix_audiveris_mxl` | 근본 |
 |------|------------|-------------------------|------|
-| 세잇단 `3`→`P` | 보임 | direction `P` 등 **일부** 제거 | TextWord·OCR·패치 |
-| 세잇단 괄호선 소실 | 보임 | **불가** | SYMBOLS 곡선 |
-| 이음줄 소실·순서 바뀜 | 보임 | **불가**(휴리스틱 어려움) | LINKS·RHYTHMS |
-| 제자리표/늘임 혼동 | 보임 | staccato+natural 등 **일부** | HEADS·SYMBOLS |
-| 마디 번호 -1 | — | **불가**(수동 대조) | GRID·pickup |
+| 세잇단 `3`→`P` | 보임 | direction/words `P` **일부** 제거 | TEXTS·TextWord·OCR |
+| 세잇단 **숫자·괄호선 소실** | 보임 | **불가** | SYMBOLS·CURVES |
+| **PR·PL 세로 정렬** `3` 하나만 PR에 붙음 | 보임 | **불가** | SYMBOLS·다성부 간섭 |
+| 세잇단 → **4분음표**로 인식 | 보임 | **불가**(duration 복구 어려움) | RHYTHMS·BEAMS |
+| 세잇단 **일부만 연결**(4–5만 묶임) | 보임 | **불가** | BEAMS·SYMBOLS |
+| 이음줄 소실·음표 **순서 바뀜** | 보임 | **불가** | LINKS·RHYTHMS |
+| 마디 번호 -1 | — | 수동 대조 | GRID·pickup |
 
 ## 보고된 위치 (인쇄 마디·원본 페이지 기준)
 
-아래는 사용자 보고를 **원본 PDF 페이지·인쇄 마디** 기준으로 정리한 것입니다. MXL 대조 시 **마디 +1 보정**을 적용하세요.
+MXL·SYMBOLS 점검 시 **마디 번호 +1 보정**. (`--regression`가 아래 마디를 자동 스캔)
 
 ### 3페이지 · PL · 15마디
-- 7~9번째 음: 세잇단 `3` → `P`
+- 7~9번 음: 세잇단 `3` → **`P`**
 - 9번·10번 음: **순서 바뀜**
 
 ### 4페이지 · PR · 22–23마디
 - 22마디 3번 화음 ↔ 23마디 1번 화음 **이음줄** 소실
 
 ### 5페이지 · PL · 29마디
-- 8분 쉼표 + 3~4번 음: 세잇단 `3`→`P`, **세잇단 괄호선** 소실
+- 8분 쉼표 + 3~4번 음: `3`→**`P`**, **세잇단 괄호선** 소실
 
-### 6페이지
-- **PR 39마디**: 1번 화음 제자리표(세로) 자리에 **다른 기호 겹침**; 1~3·4~6번 세잇단 `3`→`P`
-- **PL 38마디**: 4~6·7~9·10~12번 세잇단 `3`→`P`
-- **PL 39마디**: 1~3·4~6·7~9·10~12번 세잇단 `3`→`P`
+### 7페이지 · PL · 40마디
+- **세잇단 전체 소실** — PR 쪽과 비슷한 높이의 `3` **하나만** 인식되어 PR에만 붙은 듯
+- 3번·4번 음: **순서 바뀜**
 
-### 7페이지
-- **PR 40마디**: 1~3·4~6·7~9번 세잇단 `3`→`P`
-- **PR 41마디**: 1~3·4~6번 세잇단 `3`→`P`
-- **PL 40마디**: 4~6·7~9·10~12번 세잇단 `3`→`P`
-- **PL 41마디**: 4~6번 세잇단 `3`→`P`
-- **PL 42마디**: 1~3·4~6·7~9·10~12번 세잇단 `3`→`P`
-- **PR 43마디**: 윗음 이음줄→늘임; 아랫음 이음줄에 **`9` 겹침**
-- **PL 43–45마디**: 다수 세잇단 `3`→`P`
+### 7페이지 · PL · 41마디
+- 4~6번 음: 세잇단 **4–5만 연결**, 6번 따로; `3`→**`P`**
 
-### 8페이지
-- **PL 46–48마디**: 세잇단 `3`→`P`
-- **PR 50마디**: 4분 늘임 **점 4개** 가운데 2개→제자리표
-- **PR 51마디**: `#` → 제자리표
-- **PL 49마디**: 세잇단 `3`→`P`
+### 7페이지 · PL · 45마디
+- 1~3·4~6번 음: 세잇단이 **4분음표**로 인식
 
 ### 10페이지 · PR · 61마디
-- 1~3·4~6번 세잇단 `3`→`P`
+- 1~3·4~6번 음: 세잇단 `3`에 **`P` 겹침**
+
+## PR·PL 세잇단 간섭 (7p 40마디)
+
+양손 악보에서 **같은 x·비슷한 y**에 있는 세잇단 `3`을 OMR이 **한 줄(PR)에만** 붙이면, PL 쪽 세잇단·빔·괄호가 통째로 빠집니다.  
+`fix_audiveris_mxl`·`strip`으로는 복구되지 않습니다. SYMBOLS·BEAMS 단계에서 **수동 보정** 또는 Audiveris **development 패치**가 필요합니다.
 
 ## 검증 순서
 
-1. Audiveris **TEXTS** 직후 OCR 잔여 삭제 → **SYMBOLS**에서 `P` 밀도 확인  
+1. **TEXTS** 직후 OCR 잔여 삭제 → **SYMBOLS**에서 위 마디 직접 확인  
 2. `GET /api/health` → OCR **`eng`**  
-3. 변환 후: `python scripts/verify_score_issues.py <job.mxl> --measure-offset 1`  
-4. SYMBOLS만 남으면 [scripts/audiveris-patches/README.md](../scripts/audiveris-patches/README.md) development 빌드
+3. 변환 후 MXL: `verify_score_issues.py … --measure-offset 1 --regression`  
+4. `spuriousDirectionCount`·`regressionChecks`에서 PL/PR 40·45·15·29·61마디 **tuplet 유무** 확인  
+5. SYMBOLS만 남으면 [scripts/audiveris-patches/README.md](../scripts/audiveris-patches/README.md)

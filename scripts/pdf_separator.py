@@ -16,9 +16,9 @@ DEFAULT_MAX_LYRICS_SIZE = 17.0
 DEFAULT_LEGACY_RANGES = [(DEFAULT_MIN_LYRICS_SIZE, DEFAULT_MAX_LYRICS_SIZE)]
 SIZE_MATCH_EPS = 0.35
 
-# MuseScore 등: 왼쪽 SMuFL 성부 약어(S/A/T/B, PR/PL) — Audiveris SYMBOLS·TEXTS 간섭
-# x≤85pt·22.8pt 대만 텍스트 제거. 100pt 전체 픽셀 마스킹은 음자리표·조표·첫 마디(≈47pt~)까지 지움.
-DEFAULT_LEFT_MARGIN_TEXT_MAX_X_PT = 85.0
+# MuseScore 등: 왼쪽 SMuFL 성부 약어(S/A/T/B, PR/PL) — x≈50–73pt, 22.8pt
+# 음자리표·조표는 같은 22.8pt이나 x≈79pt~ — x 한계를 76pt로 두어 약어 열만 텍스트 제거
+DEFAULT_LEFT_MARGIN_PART_LABEL_MAX_X_PT = 76.0
 # 선택: 성부 약어 열만 흰색 덮기(0이면 픽셀 마스킹 안 함). 기본 0 — 악보 왼쪽 기호 보존.
 DEFAULT_LEFT_MARGIN_VISUAL_WIPE_PT = 0.0
 PART_LABEL_SIZE_MIN_PT = 17.5
@@ -113,12 +113,20 @@ def _should_strip_text(
 ) -> bool:
     if strip_left_margin:
         x = _text_x_pt(tm)
-        if x <= DEFAULT_LEFT_MARGIN_TEXT_MAX_X_PT:
+        if x <= DEFAULT_LEFT_MARGIN_PART_LABEL_MAX_X_PT:
             if PART_LABEL_SIZE_MIN_PT <= eff <= PART_LABEL_SIZE_MAX_PT:
                 return True
         if x <= LEFT_MARGIN_SMALL_TEXT_MAX_X_PT and 0 < eff <= LEFT_MARGIN_SMALL_TEXT_MAX_PT:
             return True
-    return font_size_in_ranges(eff, ranges)
+    if font_size_in_ranges(eff, ranges):
+        # UI에서 22.8pt 등을 고르면 음자리표(x≈79pt~)까지 지워지는 것 방지
+        if (
+            PART_LABEL_SIZE_MIN_PT <= eff <= PART_LABEL_SIZE_MAX_PT
+            and x > DEFAULT_LEFT_MARGIN_PART_LABEL_MAX_X_PT
+        ):
+            return False
+        return True
+    return False
 
 
 def _strip_commands_in_stream(
@@ -212,7 +220,7 @@ def strip_font_ranges(
     ranges = merge_ranges(ranges)
     desc = ", ".join(f"{lo:g}–{hi:g}pt" for lo, hi in ranges)
     margin_note = (
-        f", 왼쪽 x≤{DEFAULT_LEFT_MARGIN_TEXT_MAX_X_PT:g}pt 성부약어(텍스트)"
+        f", 왼쪽 x≤{DEFAULT_LEFT_MARGIN_PART_LABEL_MAX_X_PT:g}pt 성부약어(텍스트)"
         if strip_left_margin
         else ""
     )
@@ -395,8 +403,9 @@ def analyze_font_sizes(extracted_pages: list[dict[str, Any]]) -> dict[str, Any]:
         "suggestedRanges": suggested_ranges,
         "presets": presets,
         "note": (
-            "20pt 이상 SMuFL(예: 22.8pt)은 음표 글림과 같을 수 있으나, 왼쪽 x≤85pt 성부 약어(S/A/T/B·PR/PL) 텍스트는 "
-            "strip 시 자동 제거됩니다(음자리표·조표는 보존 — 전체 왼쪽 픽셀 마스킹은 기본 끔). "
+            "20pt 이상 SMuFL(예: 22.8pt)은 음표·음자리표와 같을 수 있으나, 왼쪽 x≤76pt 성부 약어(S/A/T/B·PR/PL)만 "
+            "strip 시 자동 제거합니다(음자리표 x≥79pt·조표·첫 마디 보존). UI에서 22.8pt를 선택하면 "
+            "악보 전역의 음자리표까지 지워질 수 있으니 선택하지 마세요. "
             "가사·제목·작곡 등 inject_ocr로 넣을 텍스트만 UI에서 고르세요."
         ),
     }

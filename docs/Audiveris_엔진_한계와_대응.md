@@ -20,9 +20,9 @@
 
 ## 이 악보(합창+피아노 PR/PL)에서 흔한 원인
 
-1. **왼쪽 SMuFL 성부 약어** (S/A/T/B, PR/PL, 약 22.8pt, x≤85pt)  
-   - pdfplumber 표에는 «음표 22.8pt»로만 보여 UI에서 선택을 안 하는 경우가 많음.  
-   - `strip`은 **텍스트 연산자만** 제거(음자리표·조표·첫 마디 픽셀은 보존).
+1. **왼쪽 SMuFL 성부 약어** (S/A/T/B, PR/PL, 약 22.8pt, x≤76pt)  
+   - pdfplumber 표에는 «음표 22.8pt»로 보이나 **음자리표도 22.8pt·x≥79pt** — UI에서 22.8pt 선택 금지.  
+   - `strip`은 **x≤76pt 약어 텍스트만** 제거.
 
 2. **세잇단 `3` + `P`**  
    - OCR이 `3`을 `P`로 읽거나, 한 글자 `P`가 **PartName/Direction** 으로 남음 (`TextRole`·`TextWord` 쪽).  
@@ -41,7 +41,7 @@
 
 ### 1. PDF — 픽셀까지 제거 (`pdf_separator.py`)
 
-- pikepdf: 선택 pt + **왼쪽 x≤85pt** 성부 약어(18–28pt) 텍스트·x≤50pt 소형 숫자 제거.  
+- pikepdf: 선택 pt + **왼쪽 x≤76pt** 성부 약어(18–28pt) 텍스트·x≤50pt 소형 숫자 제거.  
 - (선택) `--left-margin-wipe-pt` 픽셀 마스킹 — 기본 **끔**. 큰 값은 음자리표·조표까지 지움.
 
 ### 2. Audiveris CLI 상수 (기본, `shared/audiveris.ts`)

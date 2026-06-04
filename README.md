@@ -78,7 +78,10 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `AUDIVERIS_NO_FLAT_OUTPUT` | `1`이면 `-option …useSeparateBookFolders=false` 비활성화 |
 | `AUDIVERIS_CLI_EXTRA_JSON` | (고급) Audiveris CLI에 추가로 붙일 인자를 **JSON 문자열 배열**로 지정. 예: `["-constant","org.audiveris.omr.sheet.Scale.defaultBeamSpecification=10"]`. 잘못된 JSON은 무시됩니다. `GET /api/health`의 `audiverisCliExtraArgCount`로 개수만 확인. |
 | `AUDIVERIS_KEEP_DEFAULT_SWITCHES` | `1`/`true`이면 가사·코드네임 OCR 끄기·피아노 마디선 완화 등 **기본 Audiveris 스위치**를 넣지 않음. |
-| `AUDIVERIS_MXL_FIX` | 기본 켜짐. `0`/`false`이면 `inject_ocr.py` 직전 `fix_audiveris_mxl.py`(잔여 P/2P direction 등) 생략. |
+| `AUDIVERIS_KEEP_TEXT_CONSTANTS` | `1`/`true`이면 `TextWord` tuplet/abnormal regexp 튜닝 상수를 넣지 않음. |
+| `AUDIVERIS_CLEAN_SCORE_OCR_LANG` | `AUDIVERIS_OCR_LANG` 미설정 시 Audiveris OCR 언어(기본 **`eng`**). clean_score에 한글 없을 때 세잇단 `3`→`P` OCR 완화. |
+| `AUDIVERIS_MXL_FIX` | 기본 켜짐. `0`/`false`이면 `inject_ocr.py` 직전 `fix_audiveris_mxl.py`(잔여 P/2P direction 등) 생략. **SYMBOLS UI에는 영향 없음.** |
+| (문서) | SYMBOLS 단계 오인식·Audiveris 소스 패치: [docs/Audiveris_엔진_한계와_대응.md](docs/Audiveris_엔진_한계와_대응.md) |
 | `MASK_PDF_TEXT_REDACT` | (선택) `1`/`true`/`yes`일 때 **제목·작곡가 등 비-가사** 구역에 벡터 텍스트가 있으면 **전체 bbox** 텍스트 리독을 시도합니다. **가사**는 기본이 **글자별 선택 리독**(아래)이라 이 옵션과 별개입니다. |
 | `MASK_PDF_LYRIC_SELECTIVE` | (선택) `0`/`false`면 끔. **기본(설정 없음)**: 타입 **`lyrics`** 만 가사처럼 보이는 유니코드를 **글리프 단위** 리덕. **`MASK_PDF_LYRIC_MUSIC_SAFE`(기본 켜짐)** 는 **면적 비율**로 음표·SMuFL 텍스트와 실제 겹침이 클 때만 가사 리덕 생략(레거시는 **`MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT=1`**). 가사 블록 전체를 흰 사각형으로만 덮으려면 이 옵션을 끕니다. |
 | `MASK_PDF_LYRIC_USE_EXTRACT_SPANS` | **기본 켜짐**(`0`/`false`로 끔). 벡터 `extract_text.py`가 `ocr_data.json` 줄마다 넣은 **`spans[].bbox`(PyMuPDF dict span 단위)** 가 있으면, 가사 블록 마스킹 시 **추출한 그 세그먼트 좌표**만 써 블랭크하고(폴백: `spans` 없으면 페이지에서 rawdict 재수집). **이미지 PDF(OCR만)** 줄에는 보통 `spans`가 없음. |

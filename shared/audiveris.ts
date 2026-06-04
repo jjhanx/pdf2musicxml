@@ -111,9 +111,29 @@ function buildArgs(opts: AudiverisRunOptions): string[] {
 export function ocrLanguageConstantArgsFromEnv(): string[] {
   const raw = process.env.AUDIVERIS_OCR_LANG;
   if (raw === '') return [];
-  const spec = (raw ?? 'kor+eng').trim();
+  // clean_score PDF에는 한글 가사가 없고 inject_ocr로 넣음 → OCR은 eng만이 세잇단·기호 오인식이 적음
+  const spec = (raw ?? process.env.AUDIVERIS_CLEAN_SCORE_OCR_LANG ?? 'eng').trim();
   if (!spec) return [];
   return ['-constant', `org.audiveris.omr.text.Language.defaultSpecification=${spec}`];
+}
+
+/**
+ * TEXTS 단계: OCR 단어가 SYMBOLS(세잇단 3 등) 글리프를 가로채지 않도록 Audiveris 상수 조정.
+ * @see https://github.com/Audiveris/audiveris/issues/46
+ */
+export function audiverisTextEngineConstantArgsFromEnv(): string[] {
+  if (
+    process.env.AUDIVERIS_KEEP_TEXT_CONSTANTS === '1' ||
+    process.env.AUDIVERIS_KEEP_TEXT_CONSTANTS === 'true'
+  ) {
+    return [];
+  }
+  return [
+    '-constant',
+    'org.audiveris.omr.text.TextWord.constants.abnormalWordRegexp=^[<>{}\\[\\]PpRrLl]+$',
+    '-constant',
+    String.raw`org.audiveris.omr.text.TextWord.constants.tupletWordRegexp=^(?:[36]|[36][\-_\u2014]+|[\-_\u2014]*[36][\-_\u2014]*)$`,
+  ];
 }
 
 /**
@@ -155,6 +175,7 @@ export function audiverisCleanScoreConstantArgsFromEnv(): string[] {
     'org.audiveris.omr.sheet.ProcessingSwitches.constants.fingerings=false',
     '-constant',
     'org.audiveris.omr.sheet.ProcessingSwitches.constants.disconnectedBracedParts=true',
+    ...audiverisTextEngineConstantArgsFromEnv(),
   ];
 }
 

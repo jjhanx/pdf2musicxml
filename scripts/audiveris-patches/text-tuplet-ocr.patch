@@ -1,0 +1,14 @@
+--- a/app/src/main/java/org/audiveris/omr/text/TextWord.java
++++ b/app/src/main/java/org/audiveris/omr/text/TextWord.java
+@@ -724,11 +724,11 @@ public class TextWord
+         private final Constant.String abnormalWordRegexp = new Constant.String(
+-            "^[<>\\{\\}\\[\\]]+$",
++            "^[<>\\{\\}\\[\\]PpRrLl]+$",
+             "Regular expression to detect abnormal words");
+ 
+         private final Constant.String tupletWordRegexp = new Constant.String(
+-            "^.*[-_\u2014][36][-_\u2014].*$",
++            "^(?:[36]|[36][\\-_\\u2014]+|[\\-_\\u2014]*[36][\\-_\\u2014]*)$",
+             "Regular expression to detect tuplet-like words");
+ 
+         private final Constant.String longDashWordRegexp = new Constant.String(

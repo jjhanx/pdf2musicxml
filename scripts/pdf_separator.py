@@ -230,7 +230,44 @@ def strip_font_ranges(
             page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(clean_commands))
 
         pdf.save(output_pdf_path, linearize=True)
+
+    if strip_left_margin:
+        _wipe_left_margin_visual(output_pdf_path, DEFAULT_LEFT_MARGIN_MAX_X_PT)
+
     print(f" -> {output_pdf_path}", file=sys.stderr)
+
+
+def _wipe_left_margin_visual(pdf_path: str, margin_pt: float) -> None:
+    """SMuFL 성부 약어가 텍스트 연산자만 지워져도 픽셀에 남는 경우 — Audiveris 이진화 입력에서 제거."""
+    try:
+        import fitz
+    except ImportError as e:
+        print(f"[strip] PyMuPDF 없음, 왼쪽 여백 픽셀 마스킹 생략: {e}", file=sys.stderr)
+        return
+
+    img_none = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
+    line_none = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
+    tmp_path = f"{pdf_path}.margin-wipe.pdf"
+
+    doc = fitz.open(pdf_path)
+    for page in doc:
+        rect = fitz.Rect(0, 0, margin_pt, page.rect.height)
+        page.add_redact_annot(rect, fill=(1, 1, 1))
+        try:
+            page.apply_redactions(images=img_none, graphics=line_none)
+        except TypeError:
+            page.apply_redactions()
+    doc.save(tmp_path, garbage=4, deflate=True)
+    doc.close()
+
+    import os
+    import shutil
+
+    shutil.move(tmp_path, pdf_path)
+    print(
+        f"[strip] 왼쪽 x≤{margin_pt:g}pt 픽셀 마스킹(PyMuPDF) — Audiveris TEXTS/SYMBOLS 간섭 완화",
+        file=sys.stderr,
+    )
 
 
 def _sample_text(chars: list[str], max_len: int = 48) -> str:

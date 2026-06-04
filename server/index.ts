@@ -24,6 +24,7 @@ import {
   isAudiverisSheetStep,
   ocrLanguageConstantArgsFromEnv,
   parseAudiverisSheetsSpec,
+  resolvedAudiverisOcrLangSpec,
   resolveAudiverisBin,
   runAudiveris,
   runAudiverisArgv,
@@ -61,13 +62,6 @@ function safeUploadBasename(originalHeaderName: string): string {
   const decoded = decodeMultipartFilename(originalHeaderName);
   const safe = path.basename(decoded).replace(/[^\w.\-\uAC00-\uD7A3\s]+/g, '_');
   return safe || 'input.pdf';
-}
-
-function resolvedAudiverisOcrLangSpec(): string | null {
-  const raw = process.env.AUDIVERIS_OCR_LANG;
-  if (raw === '') return null;
-  const spec = (raw ?? 'kor+eng').trim();
-  return spec || null;
 }
 
 function audiverisPauseOnWarnFromEnv(): boolean {

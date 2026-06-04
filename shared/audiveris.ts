@@ -103,16 +103,25 @@ function buildArgs(opts: AudiverisRunOptions): string[] {
 }
 
 /**
- * Tesseract OCR 언어 사양 (예: kor+eng).
- * - 미설정: 기본 `kor+eng` (한글 가사·제목 + 라틴 기호 병행 악보에 맞춤)
- * - 빈 문자열 `AUDIVERIS_OCR_LANG=`: 상수를 넣지 않음 → Audiveris 기본(보통 eng만)
+ * Audiveris에 넣을 OCR 언어 사양(health·로그 표시용).
+ * - `AUDIVERIS_OCR_LANG` 미설정: `AUDIVERIS_CLEAN_SCORE_OCR_LANG` 또는 **`eng`**
+ * - `AUDIVERIS_OCR_LANG=`(빈 문자열): `null` (CLI에 Language 상수 없음)
+ */
+export function resolvedAudiverisOcrLangSpec(): string | null {
+  const raw = process.env.AUDIVERIS_OCR_LANG;
+  if (raw === '') return null;
+  const spec = (raw ?? process.env.AUDIVERIS_CLEAN_SCORE_OCR_LANG ?? 'eng').trim();
+  return spec || null;
+}
+
+/**
+ * Tesseract OCR 언어 사양 (예: eng, kor+eng).
+ * - 미설정: `resolvedAudiverisOcrLangSpec()` → 기본 **`eng`**
+ * - 빈 문자열 `AUDIVERIS_OCR_LANG=`: 상수를 넣지 않음 → Audiveris 기본
  * @see https://audiveris.github.io/audiveris/_pages/guides/main/languages/
  */
 export function ocrLanguageConstantArgsFromEnv(): string[] {
-  const raw = process.env.AUDIVERIS_OCR_LANG;
-  if (raw === '') return [];
-  // clean_score PDF에는 한글 가사가 없고 inject_ocr로 넣음 → OCR은 eng만이 세잇단·기호 오인식이 적음
-  const spec = (raw ?? process.env.AUDIVERIS_CLEAN_SCORE_OCR_LANG ?? 'eng').trim();
+  const spec = resolvedAudiverisOcrLangSpec();
   if (!spec) return [];
   return ['-constant', `org.audiveris.omr.text.Language.defaultSpecification=${spec}`];
 }

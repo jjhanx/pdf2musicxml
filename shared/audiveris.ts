@@ -139,7 +139,7 @@ export function audiverisTextEngineConstantArgsFromEnv(): string[] {
   }
   return [
     '-constant',
-    'org.audiveris.omr.text.TextWord.constants.abnormalWordRegexp=^[<>{}\\[\\]PpRrLl]+$',
+    'org.audiveris.omr.text.TextWord.constants.abnormalWordRegexp=^[<>{}\\[\\]PpRrLl9]+$',
     '-constant',
     String.raw`org.audiveris.omr.text.TextWord.constants.tupletWordRegexp=^(?:[36]|[36][\-_\u2014]+|[\-_\u2014]*[36][\-_\u2014]*)$`,
   ];

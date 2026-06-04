@@ -3,7 +3,7 @@
 @@ -724,11 +724,11 @@ public class TextWord
          private final Constant.String abnormalWordRegexp = new Constant.String(
 -            "^[<>\\{\\}\\[\\]]+$",
-+            "^[<>\\{\\}\\[\\]PpRrLl]+$",
++            "^[<>\\{\\}\\[\\]PpRrLl9]+$",
              "Regular expression to detect abnormal words");
  
          private final Constant.String tupletWordRegexp = new Constant.String(

@@ -49,7 +49,7 @@
 |-------------|------|
 | `ProcessingSwitches` lyrics/chordNames/pluckings/fingerings **off** | 가사·코드·플럭킹 OCR 간섭 감소 |
 | `disconnectedBracedParts=true` | PR/PL 마디선 |
-| `TextWord.abnormalWordRegexp`에 **PpRrLl** | OCR 한 글자 잔여를 «비정상 단어»로 제거 → SYMBOLS에 글리프 복원 |
+| `TextWord.abnormalWordRegexp`에 **PpRrLl9** | OCR 한 글자 잔여(P·단독 9 등) 제거 → SYMBOLS에 글리프 복원 |
 | `TextWord.tupletWordRegexp` 확장 | 단독 `3`/`6` 등도 TEXTS에서 제거 |
 | OCR 언어 기본 **`eng`** (`AUDIVERIS_CLEAN_SCORE_OCR_LANG`, `AUDIVERIS_OCR_LANG` 미설정 시) | clean_score에 한글 없음 — `kor+eng` OCR이 `3`→`P`로 읽는 경우 완화 |
 

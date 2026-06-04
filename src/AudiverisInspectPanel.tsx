@@ -1,5 +1,83 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ErrorInfo,
+  type MutableRefObject,
+  type ReactNode,
+} from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+
+type InspectErrorBoundaryProps = {
+  children: ReactNode;
+  onBack?: () => void;
+};
+
+type InspectErrorBoundaryState = { error: Error | null };
+
+/** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
+export class InspectPanelErrorBoundary extends Component<
+  InspectErrorBoundaryProps,
+  InspectErrorBoundaryState
+> {
+  state: InspectErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): InspectErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[inspect-panel]', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div
+          style={{
+            padding: '1rem 1.1rem',
+            borderRadius: 8,
+            background: '#3a1f1f',
+            border: '1px solid #8b3a3a',
+            color: '#f28b82',
+            lineHeight: 1.5,
+            fontSize: '0.9rem',
+          }}
+        >
+          <p style={{ margin: '0 0 8px', fontWeight: 600 }}>
+            마스킹·인식 점검 화면을 표시하지 못했습니다.
+          </p>
+          <p style={{ margin: '0 0 10px', color: '#e8eaed' }}>
+            아래 「보정·이어하기」로 돌아가거나, 작업 목록에서 점검을 다시 열어 보세요. PNG 비교만 필요하면
+            브라우저에서 <code>/api/diagnostic/…/page/1/png?source=original</code> URL을 직접 열 수 있습니다.
+          </p>
+          <pre
+            style={{
+              margin: '0 0 12px',
+              padding: 8,
+              background: '#1a1d24',
+              borderRadius: 6,
+              fontSize: '0.78rem',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              color: '#f28b82',
+            }}
+          >
+            {this.state.error.message}
+          </pre>
+          {this.props.onBack ? (
+            <button type="button" onClick={this.props.onBack}>
+              보정·이어하기로 돌아가기
+            </button>
+          ) : null}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export type InspectSummary = {
   jobId: string;
@@ -270,7 +348,11 @@ function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
     return () => {
       cancelled = true;
       disconnectRo();
-      osmd.clear();
+      try {
+        osmd.clear();
+      } catch {
+        /* tab 전환·Strict Mode 이중 마운트 시 clear 실패 무시 */
+      }
       osmdRef.current = null;
     };
   }, [xml]);
@@ -607,6 +689,14 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
   const [rawXml, setRawXml] = useState<string | null>(null);
   const [partId, setPartId] = useState<string>('');
   const [scoreZoom, setScoreZoom] = useState(0.6);
+  /** 기본 끔 — 탭 전환 직후 OSMD가 멈추거나 빈 검은 영역처럼 보이는 경우 방지 */
+  const [showOsmdPreview, setShowOsmdPreview] = useState(false);
+  const [pngBust, setPngBust] = useState(0);
+
+  useEffect(() => {
+    setShowOsmdPreview(false);
+    setPngBust(0);
+  }, [jobId]);
 
   const refreshSummary = useCallback(async () => {
     setSummaryBusy(true);
@@ -657,17 +747,18 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
   const parts = rawXml ? parseScoreParts(rawXml) : [];
   const filteredXml = rawXml ? filterMusicXmlToPart(rawXml, partId || null) : '';
 
+  const pngQuery = `dpi=${dpi}&cb=${pngBust}`;
   const origSrc =
     summary && page >= 1 && page <= summary.pageCountForUi
-      ? `/api/diagnostic/${jobId}/page/${page}/png?source=original&dpi=${dpi}`
+      ? `/api/diagnostic/${jobId}/page/${page}/png?source=original&${pngQuery}`
       : '';
   const maskedSrc =
     summary?.maskedPdf.exists && page >= 1 && page <= summary.pageCountForUi
-      ? `/api/diagnostic/${jobId}/page/${page}/png?source=masked&dpi=${dpi}`
+      ? `/api/diagnostic/${jobId}/page/${page}/png?source=masked&${pngQuery}`
       : '';
   const cleanScoreSrc =
     summary?.cleanScorePdf?.exists && page >= 1 && page <= summary.pageCountForUi
-      ? `/api/diagnostic/${jobId}/page/${page}/png?source=clean_score&dpi=${dpi}`
+      ? `/api/diagnostic/${jobId}/page/${page}/png?source=clean_score&${pngQuery}`
       : '';
   const audiverisCompareSrc = cleanScoreSrc || maskedSrc;
   const audiverisCompareLabel = summary?.cleanScorePdf?.exists
@@ -682,7 +773,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
     setPngFailOrig(false);
     setPngFailMasked(false);
     setPngFailClean(false);
-  }, [origSrc, maskedSrc, cleanScoreSrc]);
+  }, [origSrc, maskedSrc, cleanScoreSrc, page, dpi]);
 
   useEffect(() => {
     if (!summary?.scoreMusicXmlAvailable) {
@@ -906,7 +997,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               <option value={200}>200</option>
             </select>
           </label>
-          {summary.scoreMusicXmlAvailable && (
+          {summary.scoreMusicXmlAvailable && showOsmdPreview && (
             <>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 파트(성부)
@@ -937,15 +1028,26 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               </label>
             </>
           )}
+          {summary.scoreMusicXmlAvailable && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={showOsmdPreview}
+                onChange={(e) => setShowOsmdPreview(e.target.checked)}
+              />
+              악보 미리보기 (MusicXML·무거울 수 있음)
+            </label>
+          )}
         </div>
       )}
 
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: summary?.scoreMusicXmlAvailable
-            ? 'repeat(auto-fit, minmax(220px, 1fr))'
-            : 'repeat(auto-fit, minmax(200px, 1fr))',
+          gridTemplateColumns:
+            summary?.scoreMusicXmlAvailable && showOsmdPreview
+              ? 'repeat(auto-fit, minmax(220px, 1fr))'
+              : 'repeat(auto-fit, minmax(240px, 1fr))',
           gap: 12,
           flex: 1,
           minHeight: 280,
@@ -985,7 +1087,10 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               {pngFailOrig && (
                 <div className="err" style={{ fontSize: '0.82rem', lineHeight: 1.35 }}>
                   원본 페이지 PNG 미리보기 로드 실패. 서버의 <code style={{ fontSize: '0.76rem' }}>pdf_diagnostic.py</code>·Python 실행 경로·캐시(
-                  <code style={{ fontSize: '0.76rem' }}>.diag-cache/</code>)를 확인하거나 DPI를 바꿔 다시 불러오세요.
+                  <code style={{ fontSize: '0.76rem' }}>.diag-cache/</code>)를 확인하거나 DPI를 바꿔 다시 불러오세요.{' '}
+                  <button type="button" className="btn-muted" style={{ marginTop: 6 }} onClick={() => setPngBust((n) => n + 1)}>
+                    PNG 다시 불러오기
+                  </button>
                 </div>
               )}
             </>
@@ -1033,13 +1138,16 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               </div>
               {(cleanScoreSrc ? pngFailClean : pngFailMasked) && (
                 <div className="err" style={{ fontSize: '0.82rem', lineHeight: 1.35 }}>
-                  Audiveris 입력 PDF PNG 미리보기 로드 실패. 위쪽 PDF 링크로 직접 열어 확인하세요.
+                  Audiveris 입력 PDF PNG 미리보기 로드 실패. 위쪽 PDF 링크로 직접 열어 확인하세요.{' '}
+                  <button type="button" className="btn-muted" style={{ marginTop: 6 }} onClick={() => setPngBust((n) => n + 1)}>
+                    PNG 다시 불러오기
+                  </button>
                 </div>
               )}
             </>
           )}
         </div>
-        {summary?.scoreMusicXmlAvailable && (
+        {summary?.scoreMusicXmlAvailable && showOsmdPreview && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, maxHeight: '70vh' }}>
             <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-color, #e8eaed)' }}>Audiveris 악보(파트 필터)</div>
             {filteredXml ? (

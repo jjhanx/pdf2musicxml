@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FontStripPanel } from './FontStripPanel';
-import { AudiverisInspectPanel } from './AudiverisInspectPanel';
+import { AudiverisInspectPanel, InspectPanelErrorBoundary } from './AudiverisInspectPanel';
 import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPanel';
 
 type Health = {
@@ -1628,7 +1628,10 @@ bash scripts/install-font-separator-deps.sh`}
                 maxWidth: audiverisModalTab === 'inspect' ? '96vw' : '520px',
                 width: audiverisModalTab === 'inspect' ? '96%' : '92%',
                 maxHeight: '92vh',
-                overflow: 'auto',
+                minHeight: audiverisModalTab === 'inspect' ? 'min(56vh, 92vh)' : undefined,
+                overflow: audiverisModalTab === 'inspect' ? 'hidden' : 'auto',
+                display: audiverisModalTab === 'inspect' ? 'flex' : 'block',
+                flexDirection: audiverisModalTab === 'inspect' ? 'column' : undefined,
                 boxShadow:
                   '0 0 0 1px rgba(255,255,255,0.08), 0 24px 64px rgba(0,0,0,0.55)',
                 border: audiverisModalTab === 'inspect' ? '1px solid #3d4453' : undefined,
@@ -1636,7 +1639,15 @@ bash scripts/install-font-separator-deps.sh`}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-            <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                marginBottom: '1rem',
+                flexWrap: 'wrap',
+                flexShrink: 0,
+              }}
+            >
               <button
                 type="button"
                 className={audiverisModalTab === 'adjust' ? '' : 'btn-muted'}
@@ -1654,10 +1665,14 @@ bash scripts/install-font-separator-deps.sh`}
             </div>
 
             {audiverisModalTab === 'inspect' ? (
-              <AudiverisInspectPanel
-                jobId={audiverisReviewJobId}
-                onClose={() => setAudiverisModalTab('adjust')}
-              />
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                <InspectPanelErrorBoundary onBack={() => setAudiverisModalTab('adjust')}>
+                  <AudiverisInspectPanel
+                    jobId={audiverisReviewJobId}
+                    onClose={() => setAudiverisModalTab('adjust')}
+                  />
+                </InspectPanelErrorBoundary>
+              </div>
             ) : (
               <>
                 <h2 style={{ margin: '0 0 0.75rem' }}>Audiveris 결과 보정</h2>
@@ -1765,7 +1780,9 @@ bash scripts/install-font-separator-deps.sh`}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-              <AudiverisInspectPanel jobId={inspectJobId} onClose={() => setInspectJobId(null)} />
+              <InspectPanelErrorBoundary onBack={() => setInspectJobId(null)}>
+                <AudiverisInspectPanel jobId={inspectJobId} onClose={() => setInspectJobId(null)} />
+              </InspectPanelErrorBoundary>
             </div>
           </div>,
           document.body,

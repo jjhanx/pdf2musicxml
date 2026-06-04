@@ -16,11 +16,15 @@ DEFAULT_MAX_LYRICS_SIZE = 17.0
 DEFAULT_LEGACY_RANGES = [(DEFAULT_MIN_LYRICS_SIZE, DEFAULT_MAX_LYRICS_SIZE)]
 SIZE_MATCH_EPS = 0.35
 
-# MuseScore 등: 왼쪽 SMuFL 성부 약어(S/A/T/B, PR/PL) — Audiveris SYMBOLS·TEXTS와 세잇단·마디선 간섭
-DEFAULT_LEFT_MARGIN_MAX_X_PT = 100.0
+# MuseScore 등: 왼쪽 SMuFL 성부 약어(S/A/T/B, PR/PL) — Audiveris SYMBOLS·TEXTS 간섭
+# x≤85pt·22.8pt 대만 텍스트 제거. 100pt 전체 픽셀 마스킹은 음자리표·조표·첫 마디(≈47pt~)까지 지움.
+DEFAULT_LEFT_MARGIN_TEXT_MAX_X_PT = 85.0
+# 선택: 성부 약어 열만 흰색 덮기(0이면 픽셀 마스킹 안 함). 기본 0 — 악보 왼쪽 기호 보존.
+DEFAULT_LEFT_MARGIN_VISUAL_WIPE_PT = 0.0
 PART_LABEL_SIZE_MIN_PT = 17.5
 PART_LABEL_SIZE_MAX_PT = 28.0
 LEFT_MARGIN_SMALL_TEXT_MAX_PT = 14.0
+LEFT_MARGIN_SMALL_TEXT_MAX_X_PT = 50.0
 
 _HANGUL_RE = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3131-\u318E]")
 _LATIN_RE = re.compile(r"[A-Za-z\u00C0-\u024F]")
@@ -109,11 +113,11 @@ def _should_strip_text(
 ) -> bool:
     if strip_left_margin:
         x = _text_x_pt(tm)
-        if x <= DEFAULT_LEFT_MARGIN_MAX_X_PT:
+        if x <= DEFAULT_LEFT_MARGIN_TEXT_MAX_X_PT:
             if PART_LABEL_SIZE_MIN_PT <= eff <= PART_LABEL_SIZE_MAX_PT:
                 return True
-            if 0 < eff <= LEFT_MARGIN_SMALL_TEXT_MAX_PT:
-                return True
+        if x <= LEFT_MARGIN_SMALL_TEXT_MAX_X_PT and 0 < eff <= LEFT_MARGIN_SMALL_TEXT_MAX_PT:
+            return True
     return font_size_in_ranges(eff, ranges)
 
 
@@ -201,13 +205,14 @@ def strip_font_ranges(
     ranges: list[tuple[float, float]],
     *,
     strip_left_margin: bool = True,
+    left_margin_visual_wipe_pt: float | None = None,
 ) -> None:
     if not ranges:
         raise ValueError("제거할 폰트 크기 범위가 비어 있습니다.")
     ranges = merge_ranges(ranges)
     desc = ", ".join(f"{lo:g}–{hi:g}pt" for lo, hi in ranges)
     margin_note = (
-        f", 왼쪽 여백 x≤{DEFAULT_LEFT_MARGIN_MAX_X_PT:g}pt 성부약어·소형숫자"
+        f", 왼쪽 x≤{DEFAULT_LEFT_MARGIN_TEXT_MAX_X_PT:g}pt 성부약어(텍스트)"
         if strip_left_margin
         else ""
     )
@@ -231,8 +236,13 @@ def strip_font_ranges(
 
         pdf.save(output_pdf_path, linearize=True)
 
-    if strip_left_margin:
-        _wipe_left_margin_visual(output_pdf_path, DEFAULT_LEFT_MARGIN_MAX_X_PT)
+    wipe_pt = (
+        DEFAULT_LEFT_MARGIN_VISUAL_WIPE_PT
+        if left_margin_visual_wipe_pt is None
+        else float(left_margin_visual_wipe_pt)
+    )
+    if strip_left_margin and wipe_pt > 0:
+        _wipe_left_margin_visual(output_pdf_path, wipe_pt)
 
     print(f" -> {output_pdf_path}", file=sys.stderr)
 
@@ -385,8 +395,8 @@ def analyze_font_sizes(extracted_pages: list[dict[str, Any]]) -> dict[str, Any]:
         "suggestedRanges": suggested_ranges,
         "presets": presets,
         "note": (
-            "20pt 이상 SMuFL(예: 22.8pt)은 음표 글림과 같을 수 있으나, 왼쪽 x≤90pt 성부 약어(S/A/T/B·PR/PL)는 "
-            "strip 시 자동 제거됩니다(세잇단 숫자에 P가 겹치는 Audiveris 오인식 방지). "
+            "20pt 이상 SMuFL(예: 22.8pt)은 음표 글림과 같을 수 있으나, 왼쪽 x≤85pt 성부 약어(S/A/T/B·PR/PL) 텍스트는 "
+            "strip 시 자동 제거됩니다(음자리표·조표는 보존 — 전체 왼쪽 픽셀 마스킹은 기본 끔). "
             "가사·제목·작곡 등 inject_ocr로 넣을 텍스트만 UI에서 고르세요."
         ),
     }
@@ -415,6 +425,7 @@ def cmd_strip(args: argparse.Namespace) -> int:
         args.output_pdf,
         ranges,
         strip_left_margin=not getattr(args, "no_strip_left_margin", False),
+        left_margin_visual_wipe_pt=getattr(args, "left_margin_wipe_pt", None),
     )
     return 0
 
@@ -438,6 +449,7 @@ def cmd_all(args: argparse.Namespace) -> int:
         args.output_pdf,
         ranges,
         strip_left_margin=not getattr(args, "no_strip_left_margin", False),
+        left_margin_visual_wipe_pt=getattr(args, "left_margin_wipe_pt", None),
     )
     return 0
 
@@ -460,6 +472,16 @@ def main() -> int:
         "--no-strip-left-margin",
         action="store_true",
         help="왼쪽 SMuFL 성부 약어(PR/PL 등) 자동 제거 끔",
+    )
+    p_strip.add_argument(
+        "--left-margin-wipe-pt",
+        type=float,
+        default=None,
+        metavar="PT",
+        help=(
+            "왼쪽 세로 띠 픽셀 흰색 마스킹(기본 0=안 함). "
+            "큰 값은 음자리표·조표·첫 마디까지 지울 수 있음"
+        ),
     )
     p_strip.set_defaults(func=cmd_strip)
 

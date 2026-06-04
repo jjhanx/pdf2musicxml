@@ -20,9 +20,9 @@
 
 ## 이 악보(합창+피아노 PR/PL)에서 흔한 원인
 
-1. **왼쪽 SMuFL 성부 약어** (S/A/T/B, PR/PL, 약 22.8pt, x≤100pt)  
+1. **왼쪽 SMuFL 성부 약어** (S/A/T/B, PR/PL, 약 22.8pt, x≤85pt)  
    - pdfplumber 표에는 «음표 22.8pt»로만 보여 UI에서 선택을 안 하는 경우가 많음.  
-   - **픽셀**에는 남아 TEXTS·SYMBOLS에 간섭.
+   - `strip`은 **텍스트 연산자만** 제거(음자리표·조표·첫 마디 픽셀은 보존).
 
 2. **세잇단 `3` + `P`**  
    - OCR이 `3`을 `P`로 읽거나, 한 글자 `P`가 **PartName/Direction** 으로 남음 (`TextRole`·`TextWord` 쪽).  
@@ -41,8 +41,8 @@
 
 ### 1. PDF — 픽셀까지 제거 (`pdf_separator.py`)
 
-- pikepdf: 선택 pt + **왼쪽 x≤100pt** SMuFL·소형 숫자 텍스트 연산자 제거.  
-- **PyMuPDF 리덕**: 같은 영역을 **흰색으로 덮어** Audiveris 이진화 입력에서 성부 약어 제거.
+- pikepdf: 선택 pt + **왼쪽 x≤85pt** 성부 약어(18–28pt) 텍스트·x≤50pt 소형 숫자 제거.  
+- (선택) `--left-margin-wipe-pt` 픽셀 마스킹 — 기본 **끔**. 큰 값은 음자리표·조표까지 지움.
 
 ### 2. Audiveris CLI 상수 (기본, `shared/audiveris.ts`)
 
@@ -73,7 +73,7 @@
 1. 서버 `git pull` · `npm run build` · **PM2 재시작** (Node가 새 `audiveris.ts` 상수를 써야 함).  
 2. **같은 PDF로 변환을 처음부터** 다시 (기존 job의 `clean_score_only.pdf`는 옛 설정).  
 3. `GET /api/health` — `audiverisOcrLangEffective`가 **`eng`** 인지 확인.  
-4. `clean_score` PNG 점검: **왼쪽 100pt 안에 S/A/T/B·PR/PL 글자가 없는지**.  
+4. `clean_score` PNG 점검: **음자리표·조표·첫 마디가 잘리지 않았는지**, 성부 약어만 사라졌는지.  
 5. Audiveris **TEXTS 직후** OCR 잔여 삭제(공식 권장) 또는 **SYMBOLS**에서 `P`가 줄었는지 확인.  
 6. (선택) `python scripts/verify_score_issues.py <job.mxl>` — 보고서 형식 이슈 스캔.
 

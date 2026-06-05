@@ -7,7 +7,7 @@ type MxlLintIssue = {
   measureMxl?: string;
   measurePrintedA?: string | null;
   measurePrintedB?: string | null;
-  pageEstimate?: number;
+  pageEstimate?: number | string;
   detail?: string;
 };
 
@@ -18,6 +18,8 @@ type MxlLintReport = {
   measureOffsetPrinted?: number;
   pageCount?: number;
   staffOrderHint?: string[] | null;
+  staffsInIssues?: string[];
+  byPageStaff?: { key: string; count: number }[];
   lintUnavailable?: boolean;
   lintError?: string;
 };
@@ -35,7 +37,7 @@ type InspectSummary = {
   audiverisInputPdf?: string | null;
 };
 
-const STAFF_ORDER = ['S', 'A', 'T', 'B', 'PR', 'PL'] as const;
+const STAFF_FALLBACK = ['S', 'A', 'T', 'B', 'PR', 'PL'] as const;
 
 const CODE_LABEL: Record<string, string> = {
   spuriousDirection: 'P·9 등',
@@ -43,13 +45,18 @@ const CODE_LABEL: Record<string, string> = {
   measureBoundaryOrderSuspect: '마디 경계 순서',
 };
 
+function issuePage(iss: MxlLintIssue): number {
+  const n = Number(iss.pageEstimate ?? 1);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+}
+
 function issueChipClass(code: string): string {
   if (code === 'measureBoundaryOrderSuspect') return 'omr-issue-chip omr-issue-chip--order';
   if (code === 'trailingPhantomRest') return 'omr-issue-chip omr-issue-chip--rest';
   return 'omr-issue-chip';
 }
 
-function formatIssueShort(iss: MxlLintIssue): string {
+function formatIssueShort(iss: MxlLintIssue, showPage = false): string {
   const label = CODE_LABEL[iss.code] ?? iss.code;
   const measure =
     iss.measurePrinted != null
@@ -58,7 +65,8 @@ function formatIssueShort(iss: MxlLintIssue): string {
         ? `m.${iss.measurePrintedA}↔${iss.measurePrintedB}`
         : '';
   const detail = iss.detail ? ` ${iss.detail}` : '';
-  return `${label}${measure ? ` · ${measure}` : ''}${detail}`;
+  const pageTag = showPage ? `p.${issuePage(iss)} · ` : '';
+  return `${pageTag}${label}${measure ? ` · ${measure}` : ''}${detail}`;
 }
 
 type Props = {
@@ -75,6 +83,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [staffFilter, setStaffFilter] = useState('');
   const [loadErr, setLoadErr] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showAllIssues, setShowAllIssues] = useState(false);
 
   const pageCount = Math.max(
     1,
@@ -88,17 +97,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const fetchFullLint = useCallback(async () => {
     const r = await fetch(`/api/diagnostic/${jobId}/mxl-lint`, { cache: 'no-store' });
+    const body = (await r.json()) as MxlLintReport & { error?: string; lintError?: string };
+    if (body.lintUnavailable) return body;
     if (!r.ok) {
-      let msg = `HTTP ${r.status}`;
-      try {
-        const j = (await r.json()) as { error?: string; lintError?: string };
-        msg = j.lintError ?? j.error ?? msg;
-      } catch {
-        /* ignore */
-      }
-      throw new Error(msg);
+      throw new Error(body.lintError ?? body.error ?? `HTTP ${r.status}`);
     }
-    return (await r.json()) as MxlLintReport;
+    return body;
   }, [jobId]);
 
   useEffect(() => {
@@ -130,35 +134,62 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     };
   }, [jobId, fetchFullLint]);
 
-  const staffList = useMemo(() => {
-    const hint = fullReport?.staffOrderHint;
-    if (Array.isArray(hint) && hint.length > 0) return hint;
-    return [...STAFF_ORDER];
-  }, [fullReport?.staffOrderHint]);
+  const allIssues = fullReport?.issues ?? [];
+  const totalIssueCount = fullReport?.issueCount ?? allIssues.length;
 
-  const pageIssues = useMemo(() => {
-    const all = fullReport?.issues ?? [];
-    return all.filter((i) => (i.pageEstimate ?? 1) === page);
-  }, [fullReport?.issues, page]);
+  const staffList = useMemo(() => {
+    const fromReport = fullReport?.staffsInIssues ?? [];
+    const fromIssues = [...new Set(allIssues.map((i) => i.staff).filter(Boolean))] as string[];
+    const hint = fullReport?.staffOrderHint;
+    const merged: string[] = [];
+    const push = (s: string) => {
+      if (s && !merged.includes(s)) merged.push(s);
+    };
+    if (hint?.length) hint.forEach(push);
+    fromReport.forEach(push);
+    fromIssues.forEach(push);
+    if (merged.length) return merged;
+    return [...STAFF_FALLBACK];
+  }, [fullReport?.staffOrderHint, fullReport?.staffsInIssues, allIssues]);
+
+  const pageIssues = useMemo(
+    () => allIssues.filter((i) => issuePage(i) === page),
+    [allIssues, page],
+  );
+
+  const useAllIssues =
+    showAllIssues || (totalIssueCount > 0 && pageIssues.length === 0 && !staffFilter);
+
+  const displayIssues = useMemo(() => {
+    const base = useAllIssues ? allIssues : pageIssues;
+    if (!staffFilter) return base;
+    return base.filter((i) => i.staff === staffFilter);
+  }, [useAllIssues, allIssues, pageIssues, staffFilter]);
 
   const issuesByStaff = useMemo(() => {
     const map = new Map<string, MxlLintIssue[]>();
     for (const s of staffList) map.set(s, []);
-    for (const iss of pageIssues) {
+    for (const iss of displayIssues) {
       const key = iss.staff ?? '?';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(iss);
     }
     return map;
-  }, [pageIssues, staffList]);
+  }, [displayIssues, staffList]);
 
-  const visibleStaffs = staffFilter
-    ? staffList.filter((s) => s === staffFilter)
-    : staffList;
+  const visibleStaffs = useMemo(() => {
+    if (staffFilter) return staffList.filter((s) => s === staffFilter);
+    const withIssues = staffList.filter((s) => (issuesByStaff.get(s)?.length ?? 0) > 0);
+    if (withIssues.length > 0) return withIssues;
+    return staffList;
+  }, [staffFilter, staffList, issuesByStaff]);
 
   const offset = fullReport?.measureOffsetPrinted ?? policy?.measureOffsetPrinted ?? 1;
   const lintFailed = Boolean(fullReport?.lintUnavailable);
   const lintFailDetail = fullReport?.lintError ?? loadErr;
+
+  const distributionText =
+    fullReport?.byPageStaff?.map((x) => `${x.key}(${x.count})`).join(', ') ?? '';
 
   return (
     <div className="modal-light" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
@@ -174,9 +205,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       {policy?.audiverisOcrLangEffective != null && (
         <p style={{ margin: 0, fontSize: '0.85rem', color: '#444' }}>
           서버 OCR: <code>{policy.audiverisOcrLangEffective}</code>
-          {policy.audiverisOcrLangEffective !== 'eng' && (
-            <> — clean_score에 한글이 없을 때는 <code>eng</code> 권장(세잇단 3→P 완화).</>
-          )}
         </p>
       )}
 
@@ -184,14 +212,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         <div className="omr-lint-warn" role="alert">
           <strong>MXL 자동 점검을 불러오지 못했습니다.</strong>
           <br />
-          {lintFailed ? (
-            <>
-              서버에서 <code>scripts/mxl_quality_lint.py</code> 실행이 실패했거나 결과 JSON이 없습니다.
-              아래 PDF만 보고 검토한 뒤 이어하기를 눌러 계속할 수 있습니다.
-            </>
-          ) : (
-            <>요약·정책 API 조회 중 오류가 났습니다.</>
-          )}
+          아래 PDF만 보고 검토한 뒤 이어하기를 눌러 계속할 수 있습니다.
           {lintFailDetail ? (
             <pre
               style={{
@@ -234,7 +255,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           className={staffFilter === '' ? '' : 'btn-muted'}
           onClick={() => setStaffFilter('')}
         >
-          전체(6줄)
+          전체
         </button>
         {staffList.map((s) => (
           <button
@@ -264,18 +285,67 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       </div>
 
       <div>
-        <div style={{ fontSize: '0.9rem', marginBottom: 8, fontWeight: 600, color: '#222' }}>
-          이 페이지 · 성부별 lint ({pageIssues.length}건
-          {fullReport?.summary && !lintFailed ? (
-            <span style={{ fontWeight: 400, color: '#555', marginLeft: 6 }}>
-              — 전체 P류 {fullReport.summary.spuriousDirection ?? 0}, 쉼표{' '}
-              {fullReport.summary.trailingPhantomRest ?? 0}, 경계{' '}
-              {fullReport.summary.measureBoundaryOrderSuspect ?? 0})
-            </span>
-          ) : null}
-          )
+        {!lintFailed && totalIssueCount > 0 && pageIssues.length === 0 && !showAllIssues && (
+          <div className="omr-lint-warn" style={{ marginBottom: '0.75rem' }}>
+            <strong>악보 전체 {totalIssueCount}건</strong>이 있으나, 마디 기준 <strong>추정 p.{page}</strong>에는
+            0건입니다. (페이지 추정은 마디÷쪽수 근사치라 PDF와 어긋날 수 있습니다.)
+            {distributionText ? (
+              <>
+                <br />
+                <span style={{ fontSize: '0.85rem' }}>분포: {distributionText}</span>
+              </>
+            ) : null}
+            <br />
+            <button
+              type="button"
+              style={{ marginTop: '0.5rem', padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+              onClick={() => setShowAllIssues(true)}
+            >
+              악보 전체 lint 보기 ({totalIssueCount}건)
+            </button>
+          </div>
+        )}
+
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '0.5rem',
+            marginBottom: 8,
+          }}
+        >
+          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#222' }}>
+            {useAllIssues ? '악보 전체' : `이 페이지(p.${page})`} · 성부별 lint ({displayIssues.length}건
+            {fullReport?.summary && !lintFailed ? (
+              <span style={{ fontWeight: 400, color: '#555', marginLeft: 6 }}>
+                / 전체 P류 {fullReport.summary.spuriousDirection ?? 0}, 쉼표{' '}
+                {fullReport.summary.trailingPhantomRest ?? 0}, 경계{' '}
+                {fullReport.summary.measureBoundaryOrderSuspect ?? 0}
+              </span>
+            ) : null}
+            )
+          </span>
+          {showAllIssues && (
+            <button
+              type="button"
+              className="btn-muted"
+              style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
+              onClick={() => setShowAllIssues(false)}
+            >
+              이 페이지만 보기
+            </button>
+          )}
         </div>
+
         {loading && !fullReport && <p style={{ color: '#555' }}>lint 불러오는 중…</p>}
+
+        {!loading && totalIssueCount === 0 && !lintFailed && (
+          <p style={{ color: '#2e7d32', fontWeight: 600, fontSize: '0.9rem' }}>
+            자동 점검에서 의심 항목이 없습니다. PDF만 훑고 이어하기를 눌러도 됩니다.
+          </p>
+        )}
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
           {visibleStaffs.map((staffId) => {
             const staffIssues = issuesByStaff.get(staffId) ?? [];
@@ -284,7 +354,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 <div className="omr-staff-label">{staffId}</div>
                 <div className="omr-staff-issues">
                   {staffIssues.length === 0 ? (
-                    <span className="omr-staff-empty">이 페이지에서 lint 항목 없음</span>
+                    <span className="omr-staff-empty">
+                      {useAllIssues ? '이 성부에 lint 항목 없음' : '이 페이지·성부에 lint 항목 없음'}
+                    </span>
                   ) : (
                     staffIssues.map((iss, idx) => (
                       <span
@@ -292,7 +364,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                         className={issueChipClass(iss.code)}
                         title={CODE_LABEL[iss.code] ?? iss.code}
                       >
-                        {formatIssueShort(iss)}
+                        {formatIssueShort(iss, useAllIssues)}
                       </span>
                     ))
                   )}
@@ -301,6 +373,19 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             );
           })}
         </div>
+
+        {displayIssues.some((i) => (i.staff ?? '?') === '?') && (
+          <div className="omr-staff-row" style={{ marginTop: '0.35rem' }}>
+            <div className="omr-staff-label">?</div>
+            <div className="omr-staff-issues">
+              {(issuesByStaff.get('?') ?? []).map((iss, idx) => (
+                <span key={idx} className={issueChipClass(iss.code)}>
+                  {formatIssueShort(iss, useAllIssues)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {policy?.pCauses && policy.pCauses.length > 0 && (
@@ -332,9 +417,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         >
           {continuing ? '이어가는 중…' : '이어하기 (가사·메타 주입)'}
         </button>
-        <span style={{ fontSize: '0.82rem', color: '#555' }}>
-          MuseScore 등에서 고친 MXL은 다음 「Audiveris 결과 보정」 단계에서 교체할 수 있습니다.
-        </span>
       </div>
     </div>
   );

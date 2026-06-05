@@ -154,11 +154,19 @@ def lint_score_xml(
         )
     part_count = len(parts_meta)
 
+    max_mxl_measure = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            mnum = measure.get("number", "?")
+            if mnum.isdigit():
+                max_mxl_measure = max(max_mxl_measure, int(mnum))
+    if max_mxl_measure < 1:
+        max_mxl_measure = 1
+
     spurious_directions: list[dict] = []
     trailing_phantom_rests: list[dict] = []
     boundary_order_suspects: list[dict] = []
     tuplet_starts = 0
-    max_mxl_measure = 0
 
     per_part_measures: list[list[tuple[str, list[str]]]] = []
 
@@ -170,8 +178,6 @@ def lint_score_xml(
 
         for measure in part.findall(_q(ns, "measure")):
             mnum = measure.get("number", "?")
-            if mnum.isdigit():
-                max_mxl_measure = max(max_mxl_measure, int(mnum))
             printed = printed_measure(mnum, measure_offset_printed)
             page_est = (
                 estimate_page(int(mnum), page_count, max_mxl_measure)
@@ -273,6 +279,9 @@ def lint_score_xml(
         "maxMeasureMxl": max_mxl_measure,
         "parts": parts_meta,
         "staffOrderHint": list(_STAFF_ORDER_6) if part_count == 6 else None,
+        "staffsInIssues": sorted(
+            {str(iss.get("staff")) for iss in issues if iss.get("staff")}
+        ),
         "issueCount": len(issues),
         "issues": issues,
         "summary": {

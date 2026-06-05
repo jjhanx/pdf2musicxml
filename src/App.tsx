@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FontStripPanel } from './FontStripPanel';
 import { AudiverisInspectPanel, InspectPanelErrorBoundary } from './AudiverisInspectPanel';
+import { OmrStaffReviewPanel } from './OmrStaffReviewPanel';
 import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPanel';
 
 type Health = {
@@ -316,7 +317,10 @@ export default function App() {
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>('font_separator');
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
+  const [enableOmrStaffReview, setEnableOmrStaffReview] = useState(true);
   const [fontStripJobId, setFontStripJobId] = useState<string | null>(null);
+  const [omrStaffReviewJobId, setOmrStaffReviewJobId] = useState<string | null>(null);
+  const [omrStaffContinueBusy, setOmrStaffContinueBusy] = useState(false);
   const [audiverisReviewJobId, setAudiverisReviewJobId] = useState<string | null>(null);
   const [audiverisModalTab, setAudiverisModalTab] = useState<'adjust' | 'inspect'>('adjust');
   const [inspectJobId, setInspectJobId] = useState<string | null>(null);
@@ -386,7 +390,13 @@ export default function App() {
       onReviewNeeded?: (jobId: string) => void,
       onFontStripNeeded?: (jobId: string) => void,
       onAudiverisReviewNeeded?: (jobId: string) => void,
-      opts?: { pauseAfterAudiveris?: boolean; pipelineMode?: PipelineMode; enablePymupdfReview?: boolean },
+      onOmrStaffReviewNeeded?: (jobId: string) => void,
+      opts?: {
+        pauseAfterAudiveris?: boolean;
+        pipelineMode?: PipelineMode;
+        enablePymupdfReview?: boolean;
+        enableOmrStaffReview?: boolean;
+      },
     ): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
     const fd = new FormData();
     fd.append('pdf', file);
@@ -395,6 +405,7 @@ export default function App() {
     if (opts?.pipelineMode === 'font_separator') {
       fd.append('enablePymupdfReview', opts?.enablePymupdfReview !== false ? 'true' : 'false');
     }
+    fd.append('enableOmrStaffReview', opts?.enableOmrStaffReview !== false ? 'true' : 'false');
     if (opts?.pauseAfterAudiveris) {
       fd.append('pauseAfterAudiveris', 'true');
     }
@@ -420,6 +431,7 @@ export default function App() {
     let reviewTriggered = false;
     let fontStripTriggered = false;
     let audiverisReviewTriggered = false;
+    let omrStaffReviewTriggered = false;
 
     for (;;) {
       const st = await fetch(`/api/status/${jobId}`, { cache: 'no-store' });
@@ -455,6 +467,11 @@ export default function App() {
       if (j.status === 'review_needed' && !reviewTriggered) {
         reviewTriggered = true;
         onReviewNeeded?.(jobId);
+      }
+
+      if (j.status === 'omr_staff_review_needed' && !omrStaffReviewTriggered) {
+        omrStaffReviewTriggered = true;
+        onOmrStaffReviewNeeded?.(jobId);
       }
 
       if (j.status === 'audiveris_review_needed' && !audiverisReviewTriggered) {
@@ -604,7 +621,15 @@ export default function App() {
                 setAudiverisTranspose(0);
                 setAudiverisReviewJobId(jobId);
               },
-              { pauseAfterAudiveris, pipelineMode, enablePymupdfReview },
+              (jobId) => {
+                setOmrStaffReviewJobId(jobId);
+              },
+              {
+                pauseAfterAudiveris,
+                pipelineMode,
+                enablePymupdfReview,
+                enableOmrStaffReview,
+              },
             );
             setTasks((prev) =>
               prev.map((t) => {
@@ -653,7 +678,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [convertOne, pauseAfterAudiveris, pipelineMode, enablePymupdfReview],
+    [convertOne, pauseAfterAudiveris, pipelineMode, enablePymupdfReview, enableOmrStaffReview],
   );
 
   const onDragEnter = (e: React.DragEvent) => {
@@ -824,6 +849,33 @@ export default function App() {
     } catch (e) {
       console.error(e);
       alert('리뷰 제출 실패');
+    }
+  };
+
+  const submitContinueOmrStaffReview = async () => {
+    if (!omrStaffReviewJobId) return;
+    setOmrStaffContinueBusy(true);
+    try {
+      const r = await fetch(`/api/continue-omr-staff-review/${omrStaffReviewJobId}`, {
+        method: 'POST',
+      });
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try {
+          const j = (await r.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch {
+          msg = await r.text();
+        }
+        alert(msg);
+        return;
+      }
+      setOmrStaffReviewJobId(null);
+    } catch (e) {
+      console.error(e);
+      alert('OMR 검토 이어하기 요청 실패');
+    } finally {
+      setOmrStaffContinueBusy(false);
     }
   };
 
@@ -1082,6 +1134,15 @@ export default function App() {
               disabled={busy}
             />
             Audiveris 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)
+          </label>
+          <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
+            <input
+              type="checkbox"
+              checked={enableOmrStaffReview}
+              onChange={(e) => setEnableOmrStaffReview(e.target.checked)}
+              disabled={busy}
+            />
+            Audiveris 직후 OMR 품질 검토 (페이지×성부 lint, 기본 켜짐)
           </label>
         </div>
 
@@ -1597,6 +1658,47 @@ bash scripts/install-font-separator-deps.sh`}
           </div>
         </div>
       )}
+
+      {omrStaffReviewJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100005,
+              padding: '2vh 2vw',
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="OMR 페이지·성부 품질 검토"
+              style={{
+                background: '#fff',
+                padding: '1.5rem',
+                borderRadius: '8px',
+                maxWidth: 'min(960px, 96vw)',
+                width: '100%',
+                maxHeight: '92vh',
+                overflow: 'auto',
+                boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <OmrStaffReviewPanel
+                jobId={omrStaffReviewJobId}
+                onContinue={submitContinueOmrStaffReview}
+                continuing={omrStaffContinueBusy}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {audiverisReviewJobId &&
         createPortal(

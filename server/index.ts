@@ -18,7 +18,9 @@ const exec = promisify(execCallback);
 import {
   AUDIVERIS_SHEET_STEPS,
   audiverisExtraCliArgsFromEnv,
+  audiverisCleanScoreConstantArgsFromEnv,
   audiverisLogSuggestsHumanReview,
+  audiverisTextEngineConstantArgsFromEnv,
   buildAudiverisStepProbeArgv,
   collectMusicXmlOutputs,
   isAudiverisSheetStep,
@@ -186,6 +188,7 @@ type JobStatus =
   | 'processing'
   | 'font_strip_needed'
   | 'review_needed'
+  | 'omr_staff_review_needed'
   | 'audiveris_review_needed'
   | 'completed'
   | 'failed';
@@ -254,6 +257,9 @@ type JobRecord = {
   pipelineMode?: PipelineMode;
   /** font_separator 모드에서 PyMuPDF 가사 검증 UI 사용 */
   enablePymupdfReview?: boolean;
+  /** Audiveris 직후 페이지×staff MXL lint HITL (기본 켜짐) */
+  enableOmrStaffReview?: boolean;
+  omrStaffReviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripStats?: Record<string, unknown>;
 };
@@ -288,6 +294,7 @@ function diagnosticJobsAllowed(job: JobRecord | undefined): job is JobRecord {
   return Boolean(
     job &&
       (job.status === 'completed' ||
+        job.status === 'omr_staff_review_needed' ||
         job.status === 'audiveris_review_needed' ||
         job.status === 'failed'),
   );
@@ -298,6 +305,7 @@ function audiverisStepProbeJobsAllowed(job: JobRecord | undefined): job is JobRe
   if (!job?.sessionRoot || !fsSync.existsSync(job.sessionRoot)) return false;
   return (
     job.status === 'completed' ||
+    job.status === 'omr_staff_review_needed' ||
     job.status === 'audiveris_review_needed' ||
     job.status === 'failed'
   );
@@ -364,8 +372,34 @@ async function pdfPageCountViaPython(pdfPath: string): Promise<number | null> {
   }
 }
 
+async function runMxlQualityLintForJob(
+  job: JobRecord,
+  mxlPath: string,
+  pythonBin: string,
+): Promise<Record<string, unknown>> {
+  const script = path.join(__dirname, '..', 'scripts', 'mxl_quality_lint.py');
+  const outJson = path.join(job.sessionRoot, 'mxl_lint.json');
+  const pageCount = Math.max(
+    1,
+    job.pdfPageCount ??
+      (await pdfPageCountViaPython(job.inputPdfPath ?? '')) ??
+      1,
+  );
+  const offset = Number(process.env.MXL_MEASURE_OFFSET_PRINTED ?? '1') || 1;
+  await exec(
+    `"${pythonBin}" "${script}" "${mxlPath}" --measure-offset ${offset} --page-count ${pageCount} --json "${outJson}"`,
+    { maxBuffer: 16 * 1024 * 1024 },
+  );
+  const raw = await fs.readFile(outJson, 'utf8');
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
 function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
-  if (job.status === 'audiveris_review_needed' && job.preInjectMxlPaths?.length) {
+  if (
+    (job.status === 'audiveris_review_needed' ||
+      job.status === 'omr_staff_review_needed') &&
+    job.preInjectMxlPaths?.length
+  ) {
     const p = job.preInjectMxlPaths[0];
     if (p && fsSync.existsSync(p)) return p;
     return null;
@@ -792,6 +826,26 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     }
     const pauseForAudiverisReview = job.pauseAfterAudiveris || autoPauseFromAudiverisLog;
 
+    const useOmrStaffHitl = job.enableOmrStaffReview !== false;
+    if (outputs.length > 0 && useOmrStaffHitl && mxlForInject.length > 0) {
+      job.preInjectMxlPaths = [...mxlForInject];
+      try {
+        await runMxlQualityLintForJob(job, mxlForInject[0], pythonBin);
+        console.log(`[job ${jobId}] MXL lint saved (omr staff HITL)`);
+      } catch (lintErr) {
+        const msg = lintErr instanceof Error ? lintErr.message : String(lintErr);
+        console.warn(`[job ${jobId}] mxl_quality_lint failed (continuing): ${msg}`);
+      }
+      console.log(`[job ${jobId}] Pausing for OMR staff·page review (HITL)…`);
+      job.status = 'omr_staff_review_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.omrStaffReviewDeferred = { resolve, reject };
+      });
+      delete job.omrStaffReviewDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] OMR staff review done, continuing pipeline…`);
+    }
+
     if (outputs.length > 0 && pauseForAudiverisReview && mxlForInject.length > 0) {
       job.preInjectMxlPaths = [...mxlForInject];
       console.log(`[job ${jobId}] Pausing for Audiveris 결과 보정…`);
@@ -949,6 +1003,7 @@ app.post('/api/convert', (req, res) => {
   let pauseAfterAudiverisField = false;
   let pipelineModeField: PipelineMode = 'font_separator';
   let enablePymupdfReviewField = true;
+  let enableOmrStaffReviewField = true;
   let sawPdfField = false;
   let pdfWriteChain: Promise<void> = Promise.resolve();
 
@@ -969,6 +1024,9 @@ app.post('/api/convert', (req, res) => {
     }
     if (name === 'enablePymupdfReview') {
       enablePymupdfReviewField = val === 'true' || val === '1';
+    }
+    if (name === 'enableOmrStaffReview') {
+      enableOmrStaffReviewField = val === 'true' || val === '1';
     }
   });
 
@@ -1065,6 +1123,7 @@ app.post('/api/convert', (req, res) => {
       job.pauseAfterAudiveris = pauseAfterAudiverisField;
       job.pipelineMode = pipelineModeField;
       job.enablePymupdfReview = enablePymupdfReviewField;
+      job.enableOmrStaffReview = enableOmrStaffReviewField;
       if (!res.headersSent) {
         res.setHeader('X-Accel-Buffering', 'no');
         res.setHeader('X-Pdf2Mxl-Async', '202-after-upload');
@@ -1783,11 +1842,124 @@ app.get('/api/review/:jobId/pdf-page-png/:pageNum', async (req, res) => {
   }
 });
 
+function filterMxlLintReport(
+  report: Record<string, unknown>,
+  page: number | undefined,
+  staff: string | undefined,
+): Record<string, unknown> {
+  let issues = Array.isArray(report.issues) ? [...report.issues] : [];
+  if (page !== undefined && Number.isFinite(page)) {
+    issues = issues.filter(
+      (i) =>
+        i &&
+        typeof i === 'object' &&
+        (i as { pageEstimate?: unknown }).pageEstimate === page,
+    );
+  }
+  if (staff) {
+    issues = issues.filter(
+      (i) => i && typeof i === 'object' && (i as { staff?: unknown }).staff === staff,
+    );
+  }
+  return { ...report, issues, issueCount: issues.length };
+}
+
+app.get('/api/diagnostic/:jobId/mxl-lint', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: 'MXL lint를 조회할 수 있는 작업이 아닙니다' });
+    return;
+  }
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  if (!mxlPath) {
+    res.status(404).json({ error: 'MXL/MusicXML 파일을 찾을 수 없습니다' });
+    return;
+  }
+  const lintPath = path.join(job.sessionRoot, 'mxl_lint.json');
+  const pageRaw = req.query.page;
+  const staffRaw = typeof req.query.staff === 'string' ? req.query.staff.trim() : '';
+  const page =
+    pageRaw !== undefined && pageRaw !== ''
+      ? parseInt(String(pageRaw), 10)
+      : undefined;
+  const staff = staffRaw || undefined;
+  try {
+    let report: Record<string, unknown>;
+    if (fsSync.existsSync(lintPath)) {
+      report = JSON.parse(await fs.readFile(lintPath, 'utf8')) as Record<string, unknown>;
+    } else {
+      const pythonBin = resolvePythonBin();
+      report = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
+    }
+    if (page !== undefined || staff) {
+      report = filterMxlLintReport(
+        report,
+        Number.isFinite(page) ? page : undefined,
+        staff,
+      );
+    }
+    res.json(report);
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/diagnostic/:jobId/omr-policy', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: 'OMR 정책을 조회할 수 있는 작업이 아닙니다' });
+    return;
+  }
+  const measureOffsetPrinted =
+    Number(process.env.MXL_MEASURE_OFFSET_PRINTED ?? '1') || 1;
+  const lintPath = path.join(job.sessionRoot, 'mxl_lint.json');
+  let lintSummary: Record<string, unknown> | undefined;
+  let pCauses: string[] | undefined;
+  if (fsSync.existsSync(lintPath)) {
+    try {
+      const lint = JSON.parse(await fs.readFile(lintPath, 'utf8')) as {
+        summary?: Record<string, unknown>;
+        pCauses?: string[];
+      };
+      lintSummary = lint.summary;
+      pCauses = Array.isArray(lint.pCauses) ? lint.pCauses : undefined;
+    } catch {
+      /* ignore */
+    }
+  }
+  const ocrSpec = resolvedAudiverisOcrLangSpec();
+  res.json({
+    jobId: req.params.jobId,
+    status: job.status,
+    measureOffsetPrinted,
+    audiverisOcrLangEffective: ocrSpec,
+    audiverisOcrLangConstantInjected: ocrLanguageConstantArgsFromEnv().length > 0,
+    textEngineConstantsActive: audiverisTextEngineConstantArgsFromEnv().length > 0,
+    cleanScoreConstantsActive: audiverisCleanScoreConstantArgsFromEnv().length > 0,
+    audiverisCliExtraArgsCount: audiverisExtraCliArgsFromEnv().length,
+    pCauses: pCauses ?? [
+      'TEXTS(OCR)가 SYMBOLS 글리프를 선점 — Audiveris TextWord·OCR eng',
+      '다성부 세로 정렬로 tuplet 숫자가 한 staff에만 붙음 — SYMBOLS/BEAMS',
+      '마디 끝 8분 쉼표 — RHYTHMS 마디 채우기(heuristic)',
+      '마디 경계 음 순서 — LINKS/RHYTHMS(heuristic)',
+    ],
+    lintSummary,
+    hints: {
+      printedMeasureFormula: '인쇄 마디 ≈ MusicXML measure@number + measureOffsetPrinted',
+      symbolsUi: 'SYMBOLS 탭 오인식은 MXL 후처리만으로는 제거되지 않음 — Audiveris GUI·엔진',
+      fixMxlScript: 'scripts/fix_audiveris_mxl.py — direction words P/9 등 일부',
+    },
+  });
+});
+
 app.get('/api/raw-mxl/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (
     !job ||
-    job.status !== 'audiveris_review_needed' ||
+    (job.status !== 'audiveris_review_needed' &&
+      job.status !== 'omr_staff_review_needed') ||
     !job.preInjectMxlPaths?.length
   ) {
     res.status(404).json({ error: '원본 MXL을 내려받을 수 없는 상태입니다' });
@@ -1808,6 +1980,17 @@ app.get('/api/raw-mxl/:jobId', (req, res) => {
   res.sendFile(path.resolve(p), (err) => {
     if (err && !res.headersSent) res.status(500).json({ error: String(err) });
   });
+});
+
+app.post('/api/continue-omr-staff-review/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'omr_staff_review_needed' || !job.omrStaffReviewDeferred) {
+    res.status(400).json({ error: 'OMR 페이지·성부 검토 대기 상태가 아닙니다' });
+    return;
+  }
+  job.omrStaffReviewDeferred.resolve();
+  delete job.omrStaffReviewDeferred;
+  res.json({ ok: true });
 });
 
 app.post('/api/continue-audiveris/:jobId', (req, res) => {

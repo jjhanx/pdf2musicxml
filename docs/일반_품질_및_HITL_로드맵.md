@@ -1,0 +1,92 @@
+# 일반 악보 품질·HITL 로드맵
+
+예제 PDF용 pt/x 하드코딩은 쓰지 않습니다. 품질은 **환경·UI 선택·Audiveris 엔진·MXL lint·사람 검토(HITL)** 로 단계적으로 다룹니다.
+
+## 구현 순서 (권장)
+
+| 단계 | 내용 | 저장소 |
+|------|------|--------|
+| 1 | **폰트 strip**: UI에서 고른 pt만 제거 (`clean_score_only.pdf`) | `scripts/pdf_separator.py` |
+| 2 | **OMR 정책 노출**: OCR `eng`, TextWord 상수, P 유발 경로 | `GET /api/diagnostic/:jobId/omr-policy`, `shared/audiveris.ts` |
+| 3 | **MXL lint**: 악보 무관 휴리스틱 (P direction, 마디 끝 쉼표, 마디 경계 순서) | `scripts/mxl_quality_lint.py`, `GET …/mxl-lint` |
+| 4 | **페이지×staff HITL**: Audiveris 직후 lint UI → 이어하기 | `omr_staff_review_needed`, `OmrStaffReviewPanel` |
+| 5 | (선택) Audiveris 보정·마스킹 점검 | `audiveris_review_needed`, `AudiverisInspectPanel` |
+| 6 | (장기) SYMBOLS/BEAMS 단계별 HITL | Audiveris GUI·패치·별도 도구 |
+
+## 사용자가 할 일 (단계별)
+
+### A. 서버·UI 반영 (변경 후마다)
+
+```bash
+cd /path/to/pdf2musicxml   # Windows: D:\pdf2musicxml
+git pull origin main
+npm install
+npm run build
+# pm2 등으로 API 재시작
+pm2 restart <앱이름>
+```
+
+브라우저에서 **강력 새로고침**(캐시 비우기) 후 변환을 다시 시작합니다. **같은 jobId·옛 `clean_score` PDF를 재사용하지 마세요.**
+
+### B. 1단계 — clean_score 만들 때 (폰트 strip)
+
+1. 변환 시작 → **폰트 크기 선택** UI가 뜨면:
+   - **제목·가사**에 해당하는 **큰 pt만** 선택 (예: 20pt대 제목).
+   - **음자리표·음표·조표**(보통 ~22.8pt 등)는 **선택하지 않음**.
+2. `clean_score_only.pdf`를 **마스킹·인식 점검** 또는 다운로드로 열어, 왼쪽 음자리표·첫 마디가 잘리지 않았는지 확인.
+3. strip 확정 후 Audiveris가 이 PDF만 사용합니다.
+
+### C. 2단계 — OCR·P 유발 (서버 설정)
+
+1. `GET /api/health` → `audiverisOcrLangEffective`가 **`"eng"`** 인지 확인 (한글을 Audiveris OCR에 맡기지 않을 때 권장).
+2. `.env`에 `AUDIVERIS_OCR_LANG=kor+eng`가 있으면 세잇단 `3`→`P` OCR이 늘 수 있음 → 제거 후 재시작.
+3. 변환 job 중 **OMR 품질 검토** 모달 또는 `GET /api/diagnostic/{jobId}/omr-policy`에서 `pCauses`·OCR 값 확인.
+
+### D. 3단계 — MXL lint (CLI·API)
+
+```bash
+python scripts/mxl_quality_lint.py path/to/score.mxl --measure-offset 1 --page-count 10 --json report.json
+python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
+```
+
+- **인쇄 마디** ≈ MXL `measure@number` + **`MXL_MEASURE_OFFSET_PRINTED`**(기본 1, pickup 가정).
+- 페이지는 마디 수를 페이지 수로 **균등 분할 추정**(`pageEstimate`) — 정확한 판면 매핑이 아님.
+
+### E. 4단계 — OMR HITL (웹 UI)
+
+1. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
+2. Audiveris 종료 후 **OMR 페이지·성부 품질 검토** 모달:
+   - 페이지·성부(S/A/T/B/PR/PL) 필터로 lint 목록 확인.
+   - PDF 미리보기와 대조 (의심만; 자동 수정 없음).
+   - **이어하기** → 가사·메타 `inject_ocr` 단계로 진행.
+3. 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
+
+### F. 5단계 — Audiveris 보정 (선택)
+
+1. 「Audiveris 직후 멈춤」체크 시 **Audiveris 결과 보정** 모달:
+   - 원본 MXL 다운로드 → MuseScore 등에서 수정 → 교체 업로드 또는 조옮김(곡 전체에만).
+   - **마스킹·인식 점검** 탭으로 `clean_score` vs 원본 PNG 비교.
+2. MXL의 direction `P` 등 일부는 `scripts/fix_audiveris_mxl.py`로 후처리 가능 — **SYMBOLS UI는 그대로**일 수 있음.
+
+### G. SYMBOLS·엔진 한계 (사람이 할 일)
+
+| 현상 | 웹/스크립트로 | 사용자 |
+|------|----------------|--------|
+| 세잇단 괄호·PL 마디 세잇단 소실 | 자동 복구 어려움 | Audiveris GUI SYMBOLS/BEAMS, HITL 계획 |
+| 이음줄·순서 대량 오류 | lint만 | PDF 품질·스캔, Audiveris 단계 디버깅 |
+| 합창 예제 회귀 | `python scripts/verify_score_issues.py --regression` | [합창_피아노_SYMBOLS_오인식_대조.md](합창_피아노_SYMBOLS_오인식_대조.md) |
+
+## API 요약
+
+| 메서드 | 경로 | 용도 |
+|--------|------|------|
+| GET | `/api/diagnostic/:jobId/omr-policy` | OCR·상수·P 유발 경로 |
+| GET | `/api/diagnostic/:jobId/mxl-lint?page=&staff=` | job별 lint (`mxl_lint.json` 또는 즉시 생성) |
+| POST | `/api/continue-omr-staff-review/:jobId` | OMR HITL 이어하기 |
+| GET | `/api/raw-mxl/:jobId` | `omr_staff_review_needed`·`audiveris_review_needed` 시 원본 MXL |
+
+## 관련 문서
+
+- [악보_변환_품질_가이드.md](악보_변환_품질_가이드.md)
+- [Audiveris_엔진_한계와_대응.md](Audiveris_엔진_한계와_대응.md)
+- [합창_피아노_SYMBOLS_오인식_대조.md](합창_피아노_SYMBOLS_오인식_대조.md)

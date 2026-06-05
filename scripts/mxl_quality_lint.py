@@ -80,14 +80,15 @@ def estimate_page(measure_mxl: int, page_count: int, max_measure: int) -> int:
 def _pitch_id(note: ET.Element, ns: str) -> str | None:
     if note.find(_q(ns, "rest")) is not None:
         typ = note.find(_q(ns, "type"))
-        return f"rest:{(typ.text or '?').strip()}"
+        rest_type = (typ.text or "?").strip() if typ is not None else "?"
+        return f"rest:{rest_type}"
     pitch = note.find(_q(ns, "pitch"))
     if pitch is None:
         return None
     step = pitch.find(_q(ns, "step"))
     oct_el = pitch.find(_q(ns, "octave"))
     alt = pitch.find(_q(ns, "alter"))
-    if step is None or oct_el is None:
+    if step is None or oct_el is None or not step.text or not oct_el.text:
         return None
     alter = int(alt.text) if alt is not None and alt.text else 0
     return f"{step.text}{alter}:{oct_el.text}"

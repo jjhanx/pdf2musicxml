@@ -57,7 +57,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 1. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
 2. Audiveris 종료 후 **OMR 페이지·성부 품질 검토** 모달:
    - 상단 **PDF 미리보기**(156 DPI, 페이지 너비)와 대조.
-   - 아래 **성부별 한 줄**에 lint **칩**(주황=P류, 초록=쉼표, 분홍=경계)이 표시됨. 이 페이지에 0건이어도 악보 전체에 건수가 있으면 **자동으로 전체 목록**을 펼치거나 「악보 전체 lint 보기」를 누름(페이지 추정은 마디÷쪽수 근사).
+   - **Lint 칩은 PDF 이미지 위가 아님** — PDF 바로 아래 **파란 테두리 박스**「Lint 결과」에 표시. 성부별 회색 줄은 같은 내용을 성부로 나눈 보기.
    - `mxl-lint` 실패 시 노란 안내에 **Python 오류 요약**이 표시됨 — PDF만 보고 **이어하기** 가능.
    - **이어하기** → 가사·메타 `inject_ocr` 단계로 진행.
 3. 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.

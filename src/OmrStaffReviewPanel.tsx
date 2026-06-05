@@ -50,13 +50,19 @@ function issuePage(iss: MxlLintIssue): number {
   return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
 }
 
+function staffKey(iss: MxlLintIssue): string {
+  const s = iss.staff;
+  if (s == null || String(s).trim() === '') return '?';
+  return String(s).trim();
+}
+
 function issueChipClass(code: string): string {
   if (code === 'measureBoundaryOrderSuspect') return 'omr-issue-chip omr-issue-chip--order';
   if (code === 'trailingPhantomRest') return 'omr-issue-chip omr-issue-chip--rest';
   return 'omr-issue-chip';
 }
 
-function formatIssueShort(iss: MxlLintIssue, showPage = false): string {
+function formatIssueShort(iss: MxlLintIssue, opts?: { showPage?: boolean; showStaff?: boolean }): string {
   const label = CODE_LABEL[iss.code] ?? iss.code;
   const measure =
     iss.measurePrinted != null
@@ -65,8 +71,9 @@ function formatIssueShort(iss: MxlLintIssue, showPage = false): string {
         ? `m.${iss.measurePrintedA}↔${iss.measurePrintedB}`
         : '';
   const detail = iss.detail ? ` ${iss.detail}` : '';
-  const pageTag = showPage ? `p.${issuePage(iss)} · ` : '';
-  return `${pageTag}${label}${measure ? ` · ${measure}` : ''}${detail}`;
+  const pageTag = opts?.showPage ? `p.${issuePage(iss)} · ` : '';
+  const staffTag = opts?.showStaff ? `[${staffKey(iss)}] ` : '';
+  return `${staffTag}${pageTag}${label}${measure ? ` · ${measure}` : ''}${detail}`;
 }
 
 type Props = {
@@ -168,21 +175,22 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const issuesByStaff = useMemo(() => {
     const map = new Map<string, MxlLintIssue[]>();
-    for (const s of staffList) map.set(s, []);
     for (const iss of displayIssues) {
-      const key = iss.staff ?? '?';
+      const key = staffKey(iss);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(iss);
     }
     return map;
-  }, [displayIssues, staffList]);
+  }, [displayIssues]);
 
   const visibleStaffs = useMemo(() => {
-    if (staffFilter) return staffList.filter((s) => s === staffFilter);
-    const withIssues = staffList.filter((s) => (issuesByStaff.get(s)?.length ?? 0) > 0);
-    if (withIssues.length > 0) return withIssues;
-    return staffList;
-  }, [staffFilter, staffList, issuesByStaff]);
+    if (staffFilter) return [staffFilter];
+    const keys = [...issuesByStaff.entries()]
+      .filter(([, list]) => list.length > 0)
+      .map(([k]) => k);
+    if (keys.length > 0) return keys;
+    return displayIssues.length === 0 ? staffList : [];
+  }, [staffFilter, issuesByStaff, staffList, displayIssues.length]);
 
   const offset = fullReport?.measureOffsetPrinted ?? policy?.measureOffsetPrinted ?? 1;
   const lintFailed = Boolean(fullReport?.lintUnavailable);
@@ -196,9 +204,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       <div>
         <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.2rem' }}>OMR 품질 검토 (페이지×성부)</h2>
         <p style={{ margin: 0, lineHeight: 1.55, fontSize: '0.92rem' }}>
-          Audiveris 직후 MXL을 자동 점검합니다. 아래는 <strong>휴리스틱</strong>이며 SYMBOLS 탭의 모든
-          오류를 잡지는 않습니다. 인쇄 마디 ≈ MXL <code>measure@number</code> + {offset}. PDF와 성부별
-          한 줄 목록을 대조한 뒤 「이어하기」로 넘어가세요.
+          Audiveris 직후 MXL을 자동 점검합니다. <strong>Lint 칩은 PDF 이미지 위가 아니라 PDF 바로 아래
+          파란 박스</strong>에 표시됩니다. 인쇄 마디 ≈ MXL <code>measure@number</code> + {offset}.
         </p>
       </div>
 
@@ -284,6 +291,40 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         </a>
       </div>
 
+      {!lintFailed && displayIssues.length > 0 && (
+        <div className="omr-lint-results-panel">
+          <div className="omr-lint-results-title">
+            Lint 결과 {useAllIssues ? '(악보 전체)' : `(이 PDF p.${page})`} — {displayIssues.length}건
+          </div>
+          <p className="omr-lint-results-hint">
+            아래 색 칩이 자동 점검 힌트입니다. PDF 악보 그림과 겹쳐 표시되지 않습니다. 마디 번호로 PDF와
+            대조하세요.
+          </p>
+          <div className="omr-lint-results-legend">
+            <span>
+              <span className="omr-issue-chip">예</span> P·9 등
+            </span>
+            <span>
+              <span className="omr-issue-chip omr-issue-chip--rest">예</span> 마디 끝 쉼표
+            </span>
+            <span>
+              <span className="omr-issue-chip omr-issue-chip--order">예</span> 마디 경계 순서
+            </span>
+          </div>
+          <div className="omr-lint-results-chips">
+            {displayIssues.map((iss, idx) => (
+              <span
+                key={`chip-${idx}`}
+                className={issueChipClass(iss.code)}
+                title={CODE_LABEL[iss.code] ?? iss.code}
+              >
+                {formatIssueShort(iss, { showPage: useAllIssues, showStaff: true })}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div>
         {!lintFailed && totalIssueCount > 0 && pageIssues.length === 0 && !showAllIssues && (
           <div className="omr-lint-warn" style={{ marginBottom: '0.75rem' }}>
@@ -346,45 +387,41 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           </p>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-          {visibleStaffs.map((staffId) => {
-            const staffIssues = issuesByStaff.get(staffId) ?? [];
-            return (
-              <div key={staffId} className="omr-staff-row">
-                <div className="omr-staff-label">{staffId}</div>
-                <div className="omr-staff-issues">
-                  {staffIssues.length === 0 ? (
-                    <span className="omr-staff-empty">
-                      {useAllIssues ? '이 성부에 lint 항목 없음' : '이 페이지·성부에 lint 항목 없음'}
-                    </span>
-                  ) : (
-                    staffIssues.map((iss, idx) => (
-                      <span
-                        key={`${iss.code}-${idx}`}
-                        className={issueChipClass(iss.code)}
-                        title={CODE_LABEL[iss.code] ?? iss.code}
-                      >
-                        {formatIssueShort(iss, useAllIssues)}
-                      </span>
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {displayIssues.some((i) => (i.staff ?? '?') === '?') && (
-          <div className="omr-staff-row" style={{ marginTop: '0.35rem' }}>
-            <div className="omr-staff-label">?</div>
-            <div className="omr-staff-issues">
-              {(issuesByStaff.get('?') ?? []).map((iss, idx) => (
-                <span key={idx} className={issueChipClass(iss.code)}>
-                  {formatIssueShort(iss, useAllIssues)}
-                </span>
-              ))}
+        {displayIssues.length > 0 && visibleStaffs.length > 0 && (
+          <>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#444', marginBottom: 6 }}>
+              성부별로 보기 (위 파란 박스와 동일 내용)
             </div>
-          </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+              {visibleStaffs.map((staffId) => {
+                const staffIssues = issuesByStaff.get(staffId) ?? [];
+                return (
+                  <div key={staffId} className="omr-staff-row">
+                    <div className="omr-staff-label">{staffId}</div>
+                    <div className="omr-staff-issues">
+                      {staffIssues.map((iss, idx) => (
+                        <span
+                          key={`${iss.code}-${idx}`}
+                          className={issueChipClass(iss.code)}
+                          title={CODE_LABEL[iss.code] ?? iss.code}
+                        >
+                          {formatIssueShort(iss, { showPage: useAllIssues })}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {displayIssues.length === 0 && !loading && !lintFailed && totalIssueCount > 0 && (
+          <p className="omr-staff-empty" style={{ margin: 0 }}>
+            {useAllIssues
+              ? '표시할 lint 항목이 없습니다.'
+              : `이 PDF p.${page}에는 lint 항목이 없습니다. 다른 페이지를 넘기거나 「악보 전체 lint 보기」를 사용하세요.`}
+          </p>
         )}
       </div>
 

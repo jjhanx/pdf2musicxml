@@ -1383,15 +1383,18 @@ bash scripts/install-font-separator-deps.sh`}
           backgroundColor: 'rgba(0,0,0,0.5)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
         }}>
-          <div style={{
-            background: 'var(--card-bg, #fff)',
-            padding: '2rem',
-            borderRadius: '8px',
-            maxWidth: '900px',
-            maxHeight: '80vh',
-            overflowY: 'auto',
-            width: '95%'
-          }}>
+          <div
+            className="modal-light"
+            style={{
+              padding: '2rem',
+              borderRadius: '8px',
+              maxWidth: 'min(1120px, 96vw)',
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              width: '95%',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.35)',
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 0 }}>
                <h2 style={{ margin: 0 }}>문자 검토 및 매핑 (Audiveris 실행 전)</h2>
                <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -1409,7 +1412,7 @@ bash scripts/install-font-separator-deps.sh`}
                   </label>
                </div>
             </div>
-            <p style={{ marginTop: '0.5rem' }}>
+            <p style={{ marginTop: '0.5rem', color: '#333' }}>
               인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요.
               {pipelineMode === 'font_separator' ? (
                 <>
@@ -1453,25 +1456,25 @@ bash scripts/install-font-separator-deps.sh`}
                   ref={(el) => {
                     reviewRowRefs.current[i] = el;
                   }}
+                  className={`review-row-card${
+                    item.type === 'lyrics'
+                      ? ' review-row-card--lyrics'
+                      : item.type === 'tempo'
+                        ? ' review-row-card--tempo'
+                        : ''
+                  }`}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.5rem',
-                    background: 'var(--bg-color, #f5f5f5)',
                     padding: '1rem',
                     borderRadius: '4px',
-                    borderLeft:
-                      item.type === 'lyrics'
-                        ? '4px solid #1976d2'
-                        : item.type === 'tempo'
-                          ? '4px solid #e65100'
-                          : '4px solid #ccc',
                     outline:
                       focusedReviewRowIndex === i ? '2px solid #00897b' : 'none',
                     outlineOffset: 2,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                  <div className="review-controls-row">
                       <button
                         type="button"
                         onClick={() => {
@@ -1484,16 +1487,20 @@ bash scripts/install-font-separator-deps.sh`}
                           border: '1px solid #00897b',
                           borderRadius: '4px',
                           background: focusedReviewRowIndex === i ? '#b2dfdb' : '#fff',
+                          color: '#004d40',
                           cursor: 'pointer',
+                          alignSelf: 'flex-end',
                         }}
                         title="위 미리보기에서 이 줄의 bbox를 표시·편집합니다"
                       >
                         미리보기
                       </button>
-                      <select 
+                      <label className="review-field">
+                        <span className="review-field-label">구분</span>
+                        <select
                          value={item.type} 
                          onChange={(e) => handleReviewTypeChange(i, e.target.value)}
-                         style={{ padding: '0.5rem', fontSize: '1rem', minWidth: '120px' }}
+                         style={{ padding: '0.45rem', fontSize: '0.95rem', minWidth: '9.5rem' }}
                       >
                          <option value="unknown">악보 기호 (마스킹 X)</option>
                          <option value="title">제목</option>
@@ -1503,120 +1510,116 @@ bash scripts/install-font-separator-deps.sh`}
                          <option value="tempo">템포(BPM)</option>
                          <option value="lyrics">가사</option>
                       </select>
+                      </label>
+                      {item.type === 'lyrics' && (
+                        <>
+                          <label className="review-field">
+                            <span className="review-field-label">파트 순번</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={32}
+                              value={item.lyricPartIndex ?? 1}
+                              onChange={(e) =>
+                                handleLyricPartIndexChange(i, parseInt(e.target.value, 10))
+                              }
+                              style={{ width: '3.5rem', padding: '0.4rem' }}
+                            />
+                          </label>
+                          <label className="review-field">
+                            <span className="review-field-label">가사 절</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={32}
+                              title="1절=1, 2절=2 … MusicXML lyric number"
+                              value={item.lyricVerseIndex ?? 1}
+                              onChange={(e) =>
+                                handleLyricVerseIndexChange(i, parseInt(e.target.value, 10))
+                              }
+                              style={{ width: '3.5rem', padding: '0.4rem' }}
+                            />
+                          </label>
+                          <label className="review-field">
+                            <span className="review-field-label">멜로디 줄</span>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              <select
+                                value={lyricVoicePresetKey(item.lyricVoice)}
+                                onChange={(e) => handleLyricVoicePresetChange(i, e.target.value)}
+                                style={{ padding: '0.4rem', minWidth: '7.5rem' }}
+                                title="MusicXML &lt;voice&gt;: 동시에 울리는 다른 선율. 1절/2절과 무관."
+                              >
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="*">전체 (*)</option>
+                                <option value="__custom__">직접</option>
+                              </select>
+                              {lyricVoicePresetKey(item.lyricVoice) === '__custom__' && (
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  title="MusicXML voice 번호"
+                                  value={item.lyricVoice ?? ''}
+                                  onChange={(e) => handleLyricVoiceCustomInputChange(i, e.target.value)}
+                                  style={{ width: '2.75rem', padding: '0.4rem' }}
+                                />
+                              )}
+                            </div>
+                          </label>
+                          <label className="review-field">
+                            <span className="review-field-label">앞쪽 음표 생략</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={999}
+                              value={item.lyricSkipNotes ?? 0}
+                              onChange={(e) =>
+                                handleLyricSkipNotesChange(i, parseInt(e.target.value, 10))
+                              }
+                              style={{ width: '3.5rem', padding: '0.4rem' }}
+                            />
+                          </label>
+                        </>
+                      )}
+                      <label className="review-field review-field-grow">
+                        <span className="review-field-label">텍스트</span>
+                        <input
+                          type="text"
+                          value={item.text}
+                          onChange={(e) => handleReviewTextChange(i, e.target.value)}
+                          style={{ padding: '0.45rem', fontSize: '0.95rem', width: '100%', fontFamily: 'monospace' }}
+                        />
+                      </label>
                       {typeof item.confidence === 'number' && Number.isFinite(item.confidence) && (
                         <span
                           title="OCR 엔진이 준 글자 인식 신뢰도(참고용)"
                           style={{
-                            fontSize: '0.85rem',
-                            color: item.confidence < 0.8 ? '#b71c1c' : '#555',
-                            fontWeight: item.confidence < 0.8 ? 600 : 400,
+                            fontSize: '0.82rem',
+                            color: item.confidence < 0.8 ? '#b71c1c' : '#444',
+                            fontWeight: item.confidence < 0.8 ? 600 : 500,
+                            alignSelf: 'flex-end',
+                            paddingBottom: '0.35rem',
+                            whiteSpace: 'nowrap',
                           }}
                         >
                           신뢰도 {Math.round(Math.max(0, Math.min(1, item.confidence)) * 100)}%
-                          {item.confidence < 0.8 ? ' · 확인 권장' : ''}
+                          {item.confidence < 0.8 ? ' · 확인' : ''}
                         </span>
                       )}
-                      
-                      <input 
-                        type="text" 
-                        value={item.text} 
-                        onChange={(e) => handleReviewTextChange(i, e.target.value)}
-                        style={{ padding: '0.5rem', fontSize: '1rem', flex: 1, fontFamily: 'monospace' }}
-                      />
                   </div>
                   
                   {item.type === 'lyrics' && (
                     <>
                       <div
-                        style={{
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: '12px',
-                          alignItems: 'center',
-                          marginTop: '0.5rem',
-                          marginLeft: '136px',
-                          padding: '0.5rem',
-                          background: '#f5f5f5',
-                          borderRadius: '4px',
-                          fontSize: '0.9rem',
-                        }}
-                      >
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          파트 순번
-                          <input
-                            type="number"
-                            min={1}
-                            max={32}
-                            value={item.lyricPartIndex ?? 1}
-                            onChange={(e) =>
-                              handleLyricPartIndexChange(i, parseInt(e.target.value, 10))
-                            }
-                            style={{ width: '4rem', padding: '0.35rem' }}
-                          />
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          가사 절
-                          <input
-                            type="number"
-                            min={1}
-                            max={32}
-                            title="1절=1, 2절=2 … MusicXML lyric number"
-                            value={item.lyricVerseIndex ?? 1}
-                            onChange={(e) =>
-                              handleLyricVerseIndexChange(i, parseInt(e.target.value, 10))
-                            }
-                            style={{ width: '4rem', padding: '0.35rem' }}
-                          />
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          멜로디 줄
-                          <select
-                            value={lyricVoicePresetKey(item.lyricVoice)}
-                            onChange={(e) => handleLyricVoicePresetChange(i, e.target.value)}
-                            style={{ padding: '0.35rem', minWidth: '9rem' }}
-                            title="MusicXML &lt;voice&gt;: 동시에 울리는 다른 선율. 1절/2절과 무관."
-                          >
-                            <option value="1">1</option>
-                            <option value="2">2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="*">전체 순서 (*)</option>
-                            <option value="__custom__">기타 (직접)</option>
-                          </select>
-                          {lyricVoicePresetKey(item.lyricVoice) === '__custom__' && (
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              title="MusicXML voice 번호"
-                              value={item.lyricVoice ?? ''}
-                              onChange={(e) => handleLyricVoiceCustomInputChange(i, e.target.value)}
-                              style={{ width: '3rem', padding: '0.35rem' }}
-                            />
-                          )}
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          앞쪽 음표 생략
-                          <input
-                            type="number"
-                            min={0}
-                            max={999}
-                            value={item.lyricSkipNotes ?? 0}
-                            onChange={(e) =>
-                              handleLyricSkipNotesChange(i, parseInt(e.target.value, 10))
-                            }
-                            style={{ width: '4rem', padding: '0.35rem' }}
-                          />
-                        </label>
-                      </div>
-                      <div
+                        className="review-char-strip"
                         style={{
                           display: 'flex',
                           flexWrap: 'wrap',
                           gap: '8px',
-                          marginTop: '0.5rem',
-                          marginLeft: '136px',
+                          marginTop: '0.25rem',
                           padding: '0.5rem',
-                          background: '#e3f2fd',
                           borderRadius: '4px',
                         }}
                       >
@@ -1677,13 +1680,13 @@ bash scripts/install-font-separator-deps.sh`}
               role="dialog"
               aria-modal="true"
               aria-label="OMR 페이지·성부 품질 검토"
+              className="modal-light"
               style={{
-                background: '#fff',
-                padding: '1.5rem',
+                padding: '1.25rem 1.5rem',
                 borderRadius: '8px',
-                maxWidth: 'min(960px, 96vw)',
+                maxWidth: 'min(1400px, 98vw)',
                 width: '100%',
-                maxHeight: '92vh',
+                maxHeight: '94vh',
                 overflow: 'auto',
                 boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
               }}

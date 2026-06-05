@@ -386,10 +386,24 @@ async function runMxlQualityLintForJob(
       1,
   );
   const offset = Number(process.env.MXL_MEASURE_OFFSET_PRINTED ?? '1') || 1;
-  await exec(
-    `"${pythonBin}" "${script}" "${mxlPath}" --measure-offset ${offset} --page-count ${pageCount} --json "${outJson}"`,
-    { maxBuffer: 16 * 1024 * 1024 },
-  );
+  if (!fsSync.existsSync(script)) {
+    throw new Error(`mxl_quality_lint.py 없음: ${script}`);
+  }
+  try {
+    await exec(
+      `"${pythonBin}" "${script}" "${mxlPath}" --measure-offset ${offset} --page-count ${pageCount} --json "${outJson}"`,
+      { maxBuffer: 16 * 1024 * 1024 },
+    );
+  } catch (err) {
+    const e = err as { message?: string; stderr?: string; stdout?: string };
+    const tail = [e.stderr, e.stdout].filter(Boolean).join('\n').trim();
+    throw new Error(
+      tail ? `${e.message ?? 'mxl_quality_lint 실패'}\n${tail.slice(-1200)}` : (e.message ?? String(err)),
+    );
+  }
+  if (!fsSync.existsSync(outJson)) {
+    throw new Error('mxl_lint.json이 생성되지 않았습니다');
+  }
   const raw = await fs.readFile(outJson, 'utf8');
   return JSON.parse(raw) as Record<string, unknown>;
 }
@@ -1884,10 +1898,18 @@ app.get('/api/diagnostic/:jobId/mxl-lint', async (req, res) => {
       ? parseInt(String(pageRaw), 10)
       : undefined;
   const staff = staffRaw || undefined;
+  const measureOffsetPrinted =
+    Number(process.env.MXL_MEASURE_OFFSET_PRINTED ?? '1') || 1;
+  const pageCountHint = Math.max(1, job.pdfPageCount ?? 1);
   try {
     let report: Record<string, unknown>;
     if (fsSync.existsSync(lintPath)) {
-      report = JSON.parse(await fs.readFile(lintPath, 'utf8')) as Record<string, unknown>;
+      try {
+        report = JSON.parse(await fs.readFile(lintPath, 'utf8')) as Record<string, unknown>;
+      } catch {
+        const pythonBin = resolvePythonBin();
+        report = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
+      }
     } else {
       const pythonBin = resolvePythonBin();
       report = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
@@ -1901,7 +1923,18 @@ app.get('/api/diagnostic/:jobId/mxl-lint', async (req, res) => {
     }
     res.json(report);
   } catch (e) {
-    if (!res.headersSent) res.status(500).json({ error: String(e) });
+    const detail = e instanceof Error ? e.message : String(e);
+    if (!res.headersSent) {
+      res.status(200).json({
+        issueCount: 0,
+        issues: [],
+        lintUnavailable: true,
+        lintError: detail,
+        measureOffsetPrinted,
+        pageCount: pageCountHint,
+        staffOrderHint: ['S', 'A', 'T', 'B', 'PR', 'PL'],
+      });
+    }
   }
 });
 

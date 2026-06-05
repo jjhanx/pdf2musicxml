@@ -369,3 +369,187 @@ button.btn-muted {
   border-radius: 4px;
   padding: 0.25rem 0.35rem;
 }
+
+/* 밝은 배경 모달 — :root 밝은 글자색 상속 방지 */
+.modal-light {
+  color: #1a1a1a;
+  background: #fff;
+}
+
+.modal-light h2 {
+  color: #111;
+  font-weight: 700;
+}
+
+.modal-light h3 {
+  color: #222;
+  font-weight: 600;
+}
+
+.modal-light p {
+  color: #333;
+}
+
+.modal-light label {
+  color: #222;
+}
+
+.modal-light code {
+  color: #0d47a1;
+  background: #e8f0fe;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+.modal-light select,
+.modal-light input[type='text'],
+.modal-light input[type='number'],
+.modal-light input:not([type]) {
+  color: #111;
+  background: #fff;
+  border: 1px solid #888;
+  border-radius: 4px;
+}
+
+.modal-light a {
+  color: #1565c0;
+  font-weight: 600;
+}
+
+.modal-light button.btn-muted {
+  background: #e8eaed;
+  color: #202124;
+  border: 1px solid #9aa0a6;
+}
+
+.modal-light .review-field-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #0d47a1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.modal-light .review-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.55rem 0.85rem;
+}
+
+.modal-light .review-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.modal-light .review-field-grow {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+}
+
+.modal-light .review-row-card {
+  background: #f3f4f6;
+  border-left: 4px solid #9aa0a6;
+}
+
+.modal-light .review-row-card--lyrics {
+  border-left-color: #1976d2;
+}
+
+.modal-light .review-row-card--tempo {
+  border-left-color: #e65100;
+}
+
+.modal-light .review-char-strip {
+  background: #e3f2fd;
+}
+
+.modal-light .omr-staff-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  border: 1px solid #c5c9d0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fafafa;
+  min-height: 2.4rem;
+}
+
+.modal-light .omr-staff-label {
+  flex: 0 0 3.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: #fff;
+  background: #37474f;
+}
+
+.modal-light .omr-staff-issues {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  padding: 0.45rem 0.65rem;
+  min-height: 2.4rem;
+}
+
+.modal-light .omr-issue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  background: #fff3e0;
+  border: 1px solid #ffcc80;
+  color: #4e342e;
+}
+
+.modal-light .omr-issue-chip--order {
+  background: #fce4ec;
+  border-color: #f48fb1;
+  color: #880e4f;
+}
+
+.modal-light .omr-issue-chip--rest {
+  background: #e8f5e9;
+  border-color: #a5d6a7;
+  color: #1b5e20;
+}
+
+.modal-light .omr-staff-empty {
+  color: #666;
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.modal-light .omr-lint-warn {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: #fff8e1;
+  border: 1px solid #ffcc02;
+  color: #5d4037;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.modal-light .omr-pdf-frame {
+  width: 100%;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  background: #eceff1;
+  overflow: auto;
+  max-height: min(68vh, 900px);
+}
+
+.modal-light .omr-pdf-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}

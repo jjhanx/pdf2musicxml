@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { FontStripPanel } from './FontStripPanel';
 import { AudiverisInspectPanel, InspectPanelErrorBoundary } from './AudiverisInspectPanel';
 import { OmrStaffReviewPanel } from './OmrStaffReviewPanel';
+import { PartLabelsPanel } from './PartLabelsPanel';
+import { defaultPartLabels } from './partLabelOptions';
 import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPanel';
 
 type Health = {
@@ -319,6 +321,9 @@ export default function App() {
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
   const [enableOmrStaffReview, setEnableOmrStaffReview] = useState(true);
   const [fontStripJobId, setFontStripJobId] = useState<string | null>(null);
+  const [partLabelsJobId, setPartLabelsJobId] = useState<string | null>(null);
+  const [partLabelCount, setPartLabelCount] = useState(6);
+  const [partLabelsPreset, setPartLabelsPreset] = useState<string[]>(() => defaultPartLabels(6));
   const [omrStaffReviewJobId, setOmrStaffReviewJobId] = useState<string | null>(null);
   const [omrStaffContinueBusy, setOmrStaffContinueBusy] = useState(false);
   const [audiverisReviewJobId, setAudiverisReviewJobId] = useState<string | null>(null);
@@ -391,6 +396,7 @@ export default function App() {
       onFontStripNeeded?: (jobId: string) => void,
       onAudiverisReviewNeeded?: (jobId: string) => void,
       onOmrStaffReviewNeeded?: (jobId: string) => void,
+      onPartLabelsNeeded?: (jobId: string) => void,
       opts?: {
         pauseAfterAudiveris?: boolean;
         pipelineMode?: PipelineMode;
@@ -432,6 +438,7 @@ export default function App() {
     let fontStripTriggered = false;
     let audiverisReviewTriggered = false;
     let omrStaffReviewTriggered = false;
+    let partLabelsTriggered = false;
 
     for (;;) {
       const st = await fetch(`/api/status/${jobId}`, { cache: 'no-store' });
@@ -467,6 +474,11 @@ export default function App() {
       if (j.status === 'review_needed' && !reviewTriggered) {
         reviewTriggered = true;
         onReviewNeeded?.(jobId);
+      }
+
+      if (j.status === 'part_labels_needed' && !partLabelsTriggered) {
+        partLabelsTriggered = true;
+        onPartLabelsNeeded?.(jobId);
       }
 
       if (j.status === 'omr_staff_review_needed' && !omrStaffReviewTriggered) {
@@ -620,6 +632,9 @@ export default function App() {
               (jobId) => {
                 setAudiverisTranspose(0);
                 setAudiverisReviewJobId(jobId);
+              },
+              (jobId) => {
+                setPartLabelsJobId(jobId);
               },
               (jobId) => {
                 setOmrStaffReviewJobId(jobId);
@@ -824,6 +839,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: [...normalizedItems, ...maskMeta],
+          partLabelsPreset: partLabelsPreset.slice(0, partLabelCount),
         }),
       });
       if (!res.ok) {
@@ -1429,6 +1445,72 @@ bash scripts/install-font-separator-deps.sh`}
               {' '}
               템포는 숫자만(예: 75) 또는 ♩= 75 형태로 편집하면 MusicXML에 <code>sound tempo</code>로 들어갑니다.
             </p>
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '1rem',
+                borderRadius: '6px',
+                background: '#f5f5f5',
+                border: '1px solid #ccc',
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: '0.5rem', color: '#111' }}>
+                성부 라벨 (PDF 페이지 번호와 구분)
+              </div>
+              <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: '#444', lineHeight: 1.45 }}>
+                가사를 붙일 <strong>성부</strong>를 S/A/T/B/PR/PL 등으로 미리 정합니다. Audiveris 이후 OMR
+                lint에서도 동일 라벨을 씁니다.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <button type="button" className="btn-muted" onClick={() => {
+                  setPartLabelCount(6);
+                  setPartLabelsPreset(defaultPartLabels(6));
+                }}>
+                  합창+피아노 6
+                </button>
+                <button type="button" className="btn-muted" onClick={() => {
+                  setPartLabelCount(4);
+                  setPartLabelsPreset(['S', 'A', 'T', 'B']);
+                }}>
+                  SATB 4
+                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88rem' }}>
+                  파트 수
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={partLabelCount}
+                    onChange={(e) => {
+                      const n = Math.max(1, Math.min(12, parseInt(e.target.value, 10) || 1));
+                      setPartLabelCount(n);
+                      setPartLabelsPreset((prev) => defaultPartLabels(n).map((d, i) => prev[i] ?? d));
+                    }}
+                    style={{ width: '3rem', padding: '0.3rem' }}
+                  />
+                </label>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem' }}>
+                {partLabelsPreset.slice(0, partLabelCount).map((lab, i) => (
+                  <label key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.78rem' }}>
+                    <span style={{ fontWeight: 700, color: '#0d47a1' }}>파트 {i + 1}</span>
+                    <input
+                      type="text"
+                      value={lab}
+                      onChange={(e) =>
+                        setPartLabelsPreset((prev) => {
+                          const next = [...prev];
+                          next[i] = e.target.value.trim();
+                          return next;
+                        })
+                      }
+                      style={{ width: '3.25rem', padding: '0.35rem', textAlign: 'center' }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
@@ -1514,17 +1596,21 @@ bash scripts/install-font-separator-deps.sh`}
                       {item.type === 'lyrics' && (
                         <>
                           <label className="review-field">
-                            <span className="review-field-label">파트 순번</span>
-                            <input
-                              type="number"
-                              min={1}
-                              max={32}
+                            <span className="review-field-label">성부</span>
+                            <select
                               value={item.lyricPartIndex ?? 1}
                               onChange={(e) =>
                                 handleLyricPartIndexChange(i, parseInt(e.target.value, 10))
                               }
-                              style={{ width: '3.5rem', padding: '0.4rem' }}
-                            />
+                              style={{ padding: '0.4rem', minWidth: '6.5rem' }}
+                              title="MusicXML part 순서 — 위 성부 라벨과 동일"
+                            >
+                              {partLabelsPreset.slice(0, partLabelCount).map((lab, idx) => (
+                                <option key={idx} value={idx + 1}>
+                                  {lab} (파트 {idx + 1})
+                                </option>
+                              ))}
+                            </select>
                           </label>
                           <label className="review-field">
                             <span className="review-field-label">가사 절</span>
@@ -1661,6 +1747,43 @@ bash scripts/install-font-separator-deps.sh`}
           </div>
         </div>
       )}
+
+      {partLabelsJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100004,
+              padding: '2vh 2vw',
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="성부 라벨 지정"
+              style={{
+                background: '#fff',
+                padding: '1.5rem 2rem',
+                borderRadius: '8px',
+                maxWidth: 'min(720px, 96vw)',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
+              }}
+            >
+              <PartLabelsPanel
+                jobId={partLabelsJobId}
+                onSubmitted={() => setPartLabelsJobId(null)}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {omrStaffReviewJobId &&
         createPortal(

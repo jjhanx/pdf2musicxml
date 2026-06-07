@@ -188,6 +188,7 @@ type JobStatus =
   | 'processing'
   | 'font_strip_needed'
   | 'review_needed'
+  | 'part_labels_needed'
   | 'omr_staff_review_needed'
   | 'audiveris_review_needed'
   | 'completed'
@@ -260,6 +261,7 @@ type JobRecord = {
   /** Audiveris 직후 페이지×staff MXL lint HITL (기본 켜짐) */
   enableOmrStaffReview?: boolean;
   omrStaffReviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  partLabelsDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripStats?: Record<string, unknown>;
 };
@@ -294,10 +296,19 @@ function diagnosticJobsAllowed(job: JobRecord | undefined): job is JobRecord {
   return Boolean(
     job &&
       (job.status === 'completed' ||
+        job.status === 'part_labels_needed' ||
         job.status === 'omr_staff_review_needed' ||
         job.status === 'audiveris_review_needed' ||
         job.status === 'failed'),
   );
+}
+
+function sessionPartLabelsPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'part_labels.json');
+}
+
+function sessionPartLabelsPresetPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'part_labels_preset.json');
 }
 
 /** 완료·보정 대기·실패 작업만 — 세션 폴더에 PDF가 남아 단계 디버깅을 돌릴 수 있는 경우 */
@@ -305,6 +316,7 @@ function audiverisStepProbeJobsAllowed(job: JobRecord | undefined): job is JobRe
   if (!job?.sessionRoot || !fsSync.existsSync(job.sessionRoot)) return false;
   return (
     job.status === 'completed' ||
+    job.status === 'part_labels_needed' ||
     job.status === 'omr_staff_review_needed' ||
     job.status === 'audiveris_review_needed' ||
     job.status === 'failed'
@@ -389,9 +401,11 @@ async function runMxlQualityLintForJob(
   if (!fsSync.existsSync(script)) {
     throw new Error(`mxl_quality_lint.py 없음: ${script}`);
   }
+  const labelsPath = sessionPartLabelsPath(job.sessionRoot);
+  const labelsArg = fsSync.existsSync(labelsPath) ? ` --part-labels-json "${labelsPath}"` : '';
   try {
     await exec(
-      `"${pythonBin}" "${script}" "${mxlPath}" --measure-offset ${offset} --page-count ${pageCount} --json "${outJson}"`,
+      `"${pythonBin}" "${script}" "${mxlPath}" --measure-offset ${offset} --page-count ${pageCount}${labelsArg} --json "${outJson}"`,
       { maxBuffer: 16 * 1024 * 1024 },
     );
   } catch (err) {
@@ -408,10 +422,22 @@ async function runMxlQualityLintForJob(
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
+async function listScorePartsFromMxl(
+  mxlPath: string,
+  pythonBin: string,
+): Promise<{ parts: Array<Record<string, unknown>> }> {
+  const script = path.join(__dirname, '..', 'scripts', 'mxl_quality_lint.py');
+  const { stdout } = await exec(`"${pythonBin}" "${script}" "${mxlPath}" --list-parts`, {
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return JSON.parse(String(stdout).trim()) as { parts: Array<Record<string, unknown>> };
+}
+
 function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
   if (
     (job.status === 'audiveris_review_needed' ||
-      job.status === 'omr_staff_review_needed') &&
+      job.status === 'omr_staff_review_needed' ||
+      job.status === 'part_labels_needed') &&
     job.preInjectMxlPaths?.length
   ) {
     const p = job.preInjectMxlPaths[0];
@@ -843,6 +869,17 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     const useOmrStaffHitl = job.enableOmrStaffReview !== false;
     if (outputs.length > 0 && useOmrStaffHitl && mxlForInject.length > 0) {
       job.preInjectMxlPaths = [...mxlForInject];
+      const labelsPath = sessionPartLabelsPath(job.sessionRoot);
+      if (!fsSync.existsSync(labelsPath)) {
+        console.log(`[job ${jobId}] Pausing for part label setup (성부 S/A/T/B…)…`);
+        job.status = 'part_labels_needed';
+        await new Promise<void>((resolve, reject) => {
+          job.partLabelsDeferred = { resolve, reject };
+        });
+        delete job.partLabelsDeferred;
+        job.status = 'processing';
+        console.log(`[job ${jobId}] Part labels saved, continuing…`);
+      }
       try {
         await runMxlQualityLintForJob(job, mxlForInject[0], pythonBin);
         console.log(`[job ${jobId}] MXL lint saved (omr staff HITL)`);
@@ -1987,12 +2024,97 @@ app.get('/api/diagnostic/:jobId/omr-policy', async (req, res) => {
   });
 });
 
+app.get('/api/diagnostic/:jobId/score-parts', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: '파트 목록을 조회할 수 있는 작업이 아닙니다' });
+    return;
+  }
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  if (!mxlPath) {
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
+    return;
+  }
+  try {
+    const pythonBin = resolvePythonBin();
+    const listed = await listScorePartsFromMxl(mxlPath, pythonBin);
+    let preset: string[] | undefined;
+    const presetPath = sessionPartLabelsPresetPath(job.sessionRoot);
+    if (fsSync.existsSync(presetPath)) {
+      try {
+        const p = JSON.parse(await fs.readFile(presetPath, 'utf8')) as {
+          labelsByIndex?: unknown;
+        };
+        if (Array.isArray(p.labelsByIndex)) {
+          preset = p.labelsByIndex.map((x) => String(x).trim());
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    let saved: string[] | undefined;
+    const labelsPath = sessionPartLabelsPath(job.sessionRoot);
+    if (fsSync.existsSync(labelsPath)) {
+      try {
+        const s = JSON.parse(await fs.readFile(labelsPath, 'utf8')) as {
+          labelsByIndex?: unknown;
+        };
+        if (Array.isArray(s.labelsByIndex)) {
+          saved = s.labelsByIndex.map((x) => String(x).trim());
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    res.json({
+      parts: listed.parts,
+      presetLabelsByIndex: preset,
+      savedLabelsByIndex: saved,
+    });
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/part-labels/:jobId', express.json({ limit: '64kb' }), async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'part_labels_needed' || !job.partLabelsDeferred) {
+    res.status(400).json({ error: '성부 라벨 지정 대기 상태가 아닙니다' });
+    return;
+  }
+  const body = req.body as { labelsByIndex?: unknown };
+  if (!Array.isArray(body.labelsByIndex) || body.labelsByIndex.length < 1) {
+    res.status(400).json({ error: 'labelsByIndex 문자열 배열이 필요합니다' });
+    return;
+  }
+  const labelsByIndex = body.labelsByIndex.map((x) => String(x ?? '').trim());
+  if (labelsByIndex.some((l) => !l)) {
+    res.status(400).json({ error: '모든 파트에 라벨을 지정해 주세요' });
+    return;
+  }
+  try {
+    const out = {
+      version: 1,
+      labelsByIndex,
+      savedAt: new Date().toISOString(),
+    };
+    await fs.writeFile(sessionPartLabelsPath(job.sessionRoot), JSON.stringify(out, null, 2), 'utf8');
+    job.partLabelsDeferred.resolve();
+    delete job.partLabelsDeferred;
+    res.json({ ok: true });
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
 app.get('/api/raw-mxl/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (
     !job ||
     (job.status !== 'audiveris_review_needed' &&
-      job.status !== 'omr_staff_review_needed') ||
+      job.status !== 'omr_staff_review_needed' &&
+      job.status !== 'part_labels_needed') ||
     !job.preInjectMxlPaths?.length
   ) {
     res.status(404).json({ error: '원본 MXL을 내려받을 수 없는 상태입니다' });
@@ -2154,6 +2276,23 @@ app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res)
         : path.join(job.sessionRoot, 'ocr_data.json');
     await fs.writeFile(reviewSavePath, JSON.stringify(items, null, 2), 'utf8');
     await mergeOcrMetaTranspose(job.sessionRoot, transposeSemitones);
+
+    if (
+      body &&
+      typeof body === 'object' &&
+      Array.isArray((body as { partLabelsPreset?: unknown }).partLabelsPreset)
+    ) {
+      const preset = (body as { partLabelsPreset: unknown[] }).partLabelsPreset.map((x) =>
+        String(x ?? '').trim(),
+      );
+      if (preset.length > 0 && preset.every((l) => l.length > 0)) {
+        await fs.writeFile(
+          sessionPartLabelsPresetPath(job.sessionRoot),
+          JSON.stringify({ version: 1, labelsByIndex: preset }, null, 2),
+          'utf8',
+        );
+      }
+    }
 
     job.reviewDeferred.resolve();
     delete job.reviewDeferred;

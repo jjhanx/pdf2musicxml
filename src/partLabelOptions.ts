@@ -1,0 +1,24 @@
+/** 성부 라벨 — PDF **페이지(p.)** 번호와 구분 */
+export const STANDARD_PART_LABELS = ['S', 'A', 'T', 'B', 'PR', 'PL'] as const;
+
+export const PART_LABEL_PICKLIST = [
+  ...STANDARD_PART_LABELS,
+  'P1',
+  'P2',
+  'P3',
+  'P4',
+  'P5',
+  'P6',
+  'P7',
+  'P8',
+] as const;
+
+export function defaultPartLabels(count: number): string[] {
+  const n = Math.max(1, Math.min(12, count));
+  const base = [...STANDARD_PART_LABELS];
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push(base[i] ?? `P${i + 1}`);
+  }
+  return out;
+}

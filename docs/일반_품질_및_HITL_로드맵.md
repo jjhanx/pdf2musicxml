@@ -9,7 +9,8 @@
 | 1 | **폰트 strip**: UI에서 고른 pt만 제거 (`clean_score_only.pdf`) | `scripts/pdf_separator.py` |
 | 2 | **OMR 정책 노출**: OCR `eng`, TextWord 상수, P 유발 경로 | `GET /api/diagnostic/:jobId/omr-policy`, `shared/audiveris.ts` |
 | 3 | **MXL lint**: 악보 무관 휴리스틱 (P direction, 마디 끝 쉼표, 마디 경계 순서) | `scripts/mxl_quality_lint.py`, `GET …/mxl-lint` |
-| 4 | **페이지×staff HITL**: Audiveris 직후 lint UI → 이어하기 | `omr_staff_review_needed`, `OmrStaffReviewPanel` |
+| 4a | **성부 라벨 지정**: Audiveris MXL part-list → S/A/T/B/PR/PL 등 (PDF **p.** 와 구분) | `part_labels_needed`, `part_labels.json` |
+| 4b | **페이지×staff HITL**: lint UI → 이어하기 | `omr_staff_review_needed`, `OmrStaffReviewPanel` |
 | 5 | (선택) Audiveris 보정·마스킹 점검 | `audiveris_review_needed`, `AudiverisInspectPanel` |
 | 6 | (장기) SYMBOLS/BEAMS 단계별 HITL | Audiveris GUI·패치·별도 도구 |
 
@@ -52,10 +53,12 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 - **인쇄 마디** ≈ MXL `measure@number` + **`MXL_MEASURE_OFFSET_PRINTED`**(기본 1, pickup 가정).
 - 페이지는 마디 수를 페이지 수로 **균등 분할 추정**(`pageEstimate`) — 정확한 판면 매핑이 아님.
 
-### E. 4단계 — OMR HITL (웹 UI)
+### E. 4단계 — 성부 라벨 + OMR HITL (웹 UI)
 
-1. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
-2. Audiveris 종료 후 **OMR 페이지·성부 품질 검토** 모달:
+1. (선택) **문자 검토** 화면 상단에서 성부 라벨(S A T B PR PL)을 미리 적어 두면 Audiveris 이후에 초안으로 쓰입니다.
+2. Audiveris 종료 후 **성부 라벨 지정** 모달 — MXL의 각 파트에 라벨 확정 → `part_labels.json`.
+3. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
+4. **OMR 페이지·성부 품질 검토** 모달:
    - 상단 **PDF 미리보기**(156 DPI, 페이지 너비)와 대조.
    - **Lint 칩은 PDF 이미지 위가 아님** — PDF 바로 아래 **파란 테두리 박스**「Lint 결과」에 표시. 성부별 회색 줄은 같은 내용을 성부로 나눈 보기.
    - `mxl-lint` 실패 시 노란 안내에 **Python 오류 요약**이 표시됨 — PDF만 보고 **이어하기** 가능.

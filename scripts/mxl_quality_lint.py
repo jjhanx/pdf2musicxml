@@ -46,7 +46,16 @@ def load_score_xml_from_mxl(mxl_path: Path) -> bytes:
         return z.read(m.group(1))
 
 
-def staff_label(part_index: int, part_count: int, part_name: str) -> str:
+def staff_label(
+    part_index: int,
+    part_count: int,
+    part_name: str,
+    labels_by_index: list[str] | None = None,
+) -> str:
+    if labels_by_index and 0 <= part_index < len(labels_by_index):
+        custom = (labels_by_index[part_index] or "").strip()
+        if custom:
+            return custom
     if part_count == 6 and 0 <= part_index < 6:
         return _STAFF_ORDER_6[part_index]
     name = (part_name or "").upper()
@@ -61,6 +70,47 @@ def staff_label(part_index: int, part_count: int, part_name: str) -> str:
         if token in name:
             return label
     return f"P{part_index + 1}"
+
+
+def load_part_labels_json(path: Path | None) -> list[str] | None:
+    if path is None or not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get("labelsByIndex"), list):
+        return [str(x).strip() for x in data["labelsByIndex"]]
+    return None
+
+
+def list_score_parts_from_xml(xml_bytes: bytes) -> list[dict[str, Any]]:
+    root = ET.parse(io.BytesIO(xml_bytes)).getroot()
+    ns = _ns(root)
+    parts_meta: list[dict[str, str]] = []
+    for sp in root.findall(f".//{_q(ns, 'score-part')}"):
+        pid = sp.get("id", "")
+        pn = sp.find(_q(ns, "part-name"))
+        parts_meta.append(
+            {
+                "id": pid,
+                "name": (pn.text or "").strip() if pn is not None else "",
+            }
+        )
+    part_count = len(parts_meta)
+    out: list[dict[str, Any]] = []
+    for i, meta in enumerate(parts_meta):
+        suggested = staff_label(i, part_count, meta["name"])
+        out.append(
+            {
+                "index": i,
+                "partIndex": i + 1,
+                "id": meta["id"],
+                "name": meta["name"],
+                "suggestedLabel": suggested,
+            }
+        )
+    return out
 
 
 def printed_measure(mxl_number: str, offset: int) -> str | None:
@@ -138,6 +188,7 @@ def lint_score_xml(
     *,
     measure_offset_printed: int = 1,
     page_count: int = 1,
+    labels_by_index: list[str] | None = None,
 ) -> dict[str, Any]:
     root = ET.parse(io.BytesIO(xml_bytes)).getroot()
     ns = _ns(root)
@@ -173,7 +224,7 @@ def lint_score_xml(
     for part_index, part in enumerate(root.findall(_q(ns, "part"))):
         pid = part.get("id", "")
         pname = parts_meta[part_index]["name"] if part_index < len(parts_meta) else ""
-        staff = staff_label(part_index, part_count, pname)
+        staff = staff_label(part_index, part_count, pname, labels_by_index)
         seq_by_measure: list[tuple[str, list[str]]] = []
 
         for measure in part.findall(_q(ns, "measure")):
@@ -278,7 +329,10 @@ def lint_score_xml(
         "pageCount": page_count,
         "maxMeasureMxl": max_mxl_measure,
         "parts": parts_meta,
-        "staffOrderHint": list(_STAFF_ORDER_6) if part_count == 6 else None,
+        "staffOrderHint": labels_by_index
+        if labels_by_index
+        else (list(_STAFF_ORDER_6) if part_count == 6 else None),
+        "partLabelsByIndex": labels_by_index,
         "staffsInIssues": sorted(
             {str(iss.get("staff")) for iss in issues if iss.get("staff")}
         ),
@@ -307,12 +361,14 @@ def lint_mxl_file(
     *,
     measure_offset_printed: int = 1,
     page_count: int = 1,
+    labels_by_index: list[str] | None = None,
 ) -> dict[str, Any]:
     xml = load_score_xml_from_mxl(mxl_path)
     report = lint_score_xml(
         xml,
         measure_offset_printed=measure_offset_printed,
         page_count=page_count,
+        labels_by_index=labels_by_index,
     )
     report["mxl"] = str(mxl_path)
     return report
@@ -343,14 +399,26 @@ def main() -> int:
     ap.add_argument("--page", type=int, default=None)
     ap.add_argument("--staff", type=str, default=None)
     ap.add_argument("--json", type=Path, default=None)
+    ap.add_argument("--part-labels-json", type=Path, default=None)
+    ap.add_argument(
+        "--list-parts",
+        action="store_true",
+        help="MXL part-list만 JSON으로 stdout 출력 후 종료",
+    )
     args = ap.parse_args()
     if not args.mxl.is_file():
         print(f"파일 없음: {args.mxl}", file=sys.stderr)
         return 2
+    if args.list_parts:
+        xml = load_score_xml_from_mxl(args.mxl)
+        print(json.dumps({"parts": list_score_parts_from_xml(xml)}, ensure_ascii=False))
+        return 0
+    labels = load_part_labels_json(args.part_labels_json)
     report = lint_mxl_file(
         args.mxl,
         measure_offset_printed=args.measure_offset,
         page_count=max(1, args.page_count),
+        labels_by_index=labels,
     )
     if args.page is not None or args.staff:
         report = filter_report(report, page=args.page, staff=args.staff)

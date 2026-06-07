@@ -204,8 +204,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       <div>
         <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.2rem' }}>OMR 품질 검토 (페이지×성부)</h2>
         <p style={{ margin: 0, lineHeight: 1.55, fontSize: '0.92rem' }}>
-          Audiveris 직후 MXL을 자동 점검합니다. <strong>Lint 칩은 PDF 이미지 위가 아니라 PDF 바로 아래
-          파란 박스</strong>에 표시됩니다. 인쇄 마디 ≈ MXL <code>measure@number</code> + {offset}.
+          Audiveris 직후 MXL을 자동 점검합니다. 성부는 <strong>S/A/T/B/PR/PL</strong> 등 사용자가
+          지정한 라벨로 표시됩니다(PDF <strong>페이지 p.</strong>와 다름). Lint 칩은 PDF 아래{' '}
+          <strong>파란 박스</strong>에 있습니다. 인쇄 마디 ≈ MXL <code>measure@number</code> + {offset}.
         </p>
       </div>
 

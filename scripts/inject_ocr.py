@@ -541,6 +541,9 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     labels_path = Path(json_in_path).parent / "part_labels.json"
     if labels_path.is_file():
         try:
+            _scripts_dir = Path(__file__).resolve().parent
+            if str(_scripts_dir) not in sys.path:
+                sys.path.insert(0, str(_scripts_dir))
             from apply_part_labels import (
                 apply_part_labels_to_root,
                 load_part_labels_json,

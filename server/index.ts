@@ -1077,14 +1077,6 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         ? ocrJsonPath
         : null;
 
-    if (mxlForInject.length > 0) {
-      for (const p of mxlForInject) {
-        if (p.toLowerCase().endsWith('.mxl')) {
-          await applyPartLabelsToMxl(job.sessionRoot, p, pythonBin);
-        }
-      }
-    }
-
     if (mxlForInject.length > 0 && injectJsonPath && pipelineMode !== 'audiveris_only') {
       setJobProgress(job, {
         phase: 'audiveris',
@@ -1103,6 +1095,13 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           if (stdoutInj) console.log(`[job ${jobId}] inject_ocr.py Output:\n${stdoutInj}`);
           if (stderrInj) console.error(`[job ${jobId}] inject_ocr.py Error:\n${stderrInj}`);
         }
+      }
+    }
+
+    const mxlOutputPaths = outputs.filter((p) => p.toLowerCase().endsWith('.mxl'));
+    if (mxlOutputPaths.length > 0) {
+      for (const p of mxlOutputPaths) {
+        await applyPartLabelsToMxl(job.sessionRoot, p, pythonBin);
       }
     }
 

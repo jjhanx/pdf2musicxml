@@ -14,6 +14,8 @@ from typing import Any
 
 # mxl_quality_lint와 동일 규칙
 _PIANO_LABELS = frozenset({"PR", "PL"})
+_DISPLAY_NAME_TAGS = frozenset({"part-name", "instrument-name", "midi-name"})
+_ABBREV_TAGS = frozenset({"part-abbreviation", "instrument-abbreviation"})
 
 
 def _ns(root: ET.Element) -> str:
@@ -23,6 +25,15 @@ def _ns(root: ET.Element) -> str:
 
 def _q(ns: str, local: str) -> str:
     return f"{{{ns}}}{local}" if ns else local
+
+
+def _local(el: ET.Element) -> str:
+    t = el.tag
+    return t[t.index("}") + 1 :] if t.startswith("{") else t
+
+
+def _parent_map(root: ET.Element) -> dict[ET.Element, ET.Element]:
+    return {child: parent for parent in root.iter() for child in parent}
 
 
 def load_part_labels_json(path: Path | None) -> list[str] | None:
@@ -57,41 +68,69 @@ def label_to_part_abbrev(label: str, display_name: str) -> str:
     return display_name[:4]
 
 
+def _set_text(el: ET.Element, text: str) -> bool:
+    cur = (el.text or "").strip()
+    if cur == text:
+        return False
+    el.text = text
+    return True
+
+
+def _apply_names_to_score_part(
+    sp: ET.Element,
+    display: str,
+    abbrev: str,
+    parents: dict[ET.Element, ET.Element],
+) -> int:
+    """Audiveris·MuseScore가 읽는 part-name / display-text / midi-name 등 전부 갱신."""
+    changed = 0
+    for el in sp.iter():
+        loc = _local(el)
+        if loc in _DISPLAY_NAME_TAGS:
+            if _set_text(el, display):
+                changed += 1
+        elif loc in _ABBREV_TAGS:
+            if _set_text(el, abbrev):
+                changed += 1
+        elif loc == "display-text":
+            ctx: str | None = None
+            p: ET.Element | None = el
+            while p is not None and p is not sp:
+                pl = _local(p)
+                if pl == "part-name-display":
+                    ctx = "display"
+                    break
+                if pl == "part-abbreviation-display":
+                    ctx = "abbrev"
+                    break
+                p = parents.get(p)
+            if ctx == "display" and _set_text(el, display):
+                changed += 1
+            elif ctx == "abbrev" and _set_text(el, abbrev):
+                changed += 1
+    return changed
+
+
 def apply_part_labels_to_root(root: ET.Element, labels_by_index: list[str]) -> int:
-    """score-part 순서대로 part-name·abbrev·instrument-name 갱신. 변경 건수 반환."""
+    """score-part 순서대로 표시 이름 갱신. 변경 건수 반환."""
     ns = _ns(root)
     part_list = root.find(_q(ns, "part-list"))
     if part_list is None:
         return 0
-    score_parts = part_list.findall(_q(ns, "score-part"))
+
+    score_parts: list[ET.Element] = []
+    for child in part_list:
+        if _local(child) == "score-part":
+            score_parts.append(child)
+
+    parents = _parent_map(root)
     changed = 0
     for i, sp in enumerate(score_parts):
         if i >= len(labels_by_index):
             break
         display = label_to_part_name(labels_by_index[i])
         abbrev = label_to_part_abbrev(labels_by_index[i], display)
-
-        pn = sp.find(_q(ns, "part-name"))
-        if pn is None:
-            pn = ET.SubElement(sp, _q(ns, "part-name"))
-        if (pn.text or "").strip() != display:
-            pn.text = display
-            changed += 1
-
-        pa = sp.find(_q(ns, "part-abbreviation"))
-        if pa is None:
-            pa = ET.SubElement(sp, _q(ns, "part-abbreviation"))
-        if (pa.text or "").strip() != abbrev:
-            pa.text = abbrev
-            changed += 1
-
-        for inst in sp.iter():
-            if inst.tag == _q(ns, "instrument-name") or (
-                inst.tag.endswith("instrument-name") and "instrument-name" in inst.tag
-            ):
-                if (inst.text or "").strip() != display:
-                    inst.text = display
-                    changed += 1
+        changed += _apply_names_to_score_part(sp, display, abbrev, parents)
     return changed
 
 

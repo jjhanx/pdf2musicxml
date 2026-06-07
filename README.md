@@ -197,7 +197,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/download/:jobId` | `completed` 일 때만 단일 MXL/MusicXML 또는 ZIP 스트림. 완료 전·실패 후는 409. 다운로드 후에도 작업·임시 파일은 **24시간 TTL** 전까지 유지되며, 진단 API·재다운로드 가능 |
 | `GET /api/diagnostic/:jobId/summary` | **`completed`**, **`omr_staff_review_needed`**, **`audiveris_review_needed`**, 또는 **`failed`** 일 때. 원본/마스킹 PDF 존재·페이지 수·MusicXML 미리보기 가능 여부 JSON (`Cache-Control: no-store`) |
 | `GET /api/diagnostic/:jobId/omr-policy` | job별 OCR·TextWord 상수·P 유발 경로·lint 요약 |
-| `GET /api/diagnostic/:jobId/mxl-lint` | Audiveris 직후 MXL lint JSON. 쿼리 `page`, `staff`(S/A/T/B/PR/PL) |
+| `GET /api/diagnostic/:jobId/mxl-lint` | Audiveris 직후 MXL lint JSON. `part_labels.json` 저장·갱신 시 캐시를 무효화하고 성부 라벨을 반영합니다. 쿼리 `page`, `staff`(S/A/T/B/PR/PL), 강제 재생성 `regen=1` |
 | `GET /api/diagnostic/:jobId/score-parts` | Audiveris MXL part-list + 저장·초안 라벨 |
 | `POST /api/part-labels/:jobId` | **`part_labels_needed`** 일 때 `{ "labelsByIndex": ["S","A",…] }` 저장 후 계속 |
 | `POST /api/continue-omr-staff-review/:jobId` | **`omr_staff_review_needed`** 일 때 OMR HITL 이어하기 |

@@ -60,7 +60,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 3. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
 4. **OMR 페이지·성부 품질 검토** 모달:
    - 상단 **PDF 미리보기**(156 DPI, 페이지 너비)와 대조.
-   - **Lint 칩은 PDF 이미지 위가 아님** — PDF 바로 아래 **파란 테두리 박스**「Lint 결과」에 표시. 성부별 회색 줄은 같은 내용을 성부로 나눈 보기.
+   - **Lint 칩은 PDF 이미지 위가 아님** — PDF 바로 아래 **파란 테두리 박스**「Lint 결과」에 표시. 성부별 회색 줄은 같은 내용을 성부로 나눈 보기. 칩·성부 이름은 **`part_labels.json` 라벨**(S/A/T/B 등)을 쓰며 MusicXML `P1`·`P3` id와 다릅니다.
    - `mxl-lint` 실패 시 노란 안내에 **Python 오류 요약**이 표시됨 — PDF만 보고 **이어하기** 가능.
    - **이어하기** → 가사·메타 `inject_ocr` 단계로 진행.
 3. 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
@@ -85,7 +85,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
 | GET | `/api/diagnostic/:jobId/omr-policy` | OCR·상수·P 유발 경로 |
-| GET | `/api/diagnostic/:jobId/mxl-lint?page=&staff=` | job별 lint (`mxl_lint.json` 또는 즉시 생성) |
+| GET | `/api/diagnostic/:jobId/mxl-lint?page=&staff=` | job별 lint. `part_labels.json`이 lint보다 최신이면 재생성·라벨 반영. `regen=1` 강제 재생성 |
 | POST | `/api/continue-omr-staff-review/:jobId` | OMR HITL 이어하기 |
 | GET | `/api/raw-mxl/:jobId` | `omr_staff_review_needed`·`audiveris_review_needed` 시 원본 MXL |
 

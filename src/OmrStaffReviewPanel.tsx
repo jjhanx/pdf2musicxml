@@ -18,6 +18,7 @@ type MxlLintReport = {
   measureOffsetPrinted?: number;
   pageCount?: number;
   staffOrderHint?: string[] | null;
+  partLabelsByIndex?: string[] | null;
   staffsInIssues?: string[];
   byPageStaff?: { key: string; count: number }[];
   lintUnavailable?: boolean;
@@ -199,13 +200,23 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const distributionText =
     fullReport?.byPageStaff?.map((x) => `${x.key}(${x.count})`).join(', ') ?? '';
 
+  const activePartLabels =
+    fullReport?.partLabelsByIndex?.filter((l) => l && String(l).trim()) ??
+    fullReport?.staffOrderHint?.filter((l) => l && String(l).trim()) ??
+    [];
+
   return (
     <div className="modal-light" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
       <div>
         <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.2rem' }}>OMR 품질 검토 (페이지×성부)</h2>
         <p style={{ margin: 0, lineHeight: 1.55, fontSize: '0.92rem' }}>
-          Audiveris 직후 MXL을 자동 점검합니다. 성부는 <strong>S/A/T/B/PR/PL</strong> 등 사용자가
-          지정한 라벨로 표시됩니다(PDF <strong>페이지 p.</strong>와 다름). Lint 칩은 PDF 아래{' '}
+          Audiveris 직후 MXL을 자동 점검합니다. 성부는 사용자가 지정한 라벨(
+          {activePartLabels.length > 0 ? (
+            <strong>{activePartLabels.join(' / ')}</strong>
+          ) : (
+            <strong>S/A/T/B/PR/PL</strong>
+          )}
+          )로 표시됩니다(PDF <strong>페이지 p.</strong>와 다름). Lint 칩은 PDF 아래{' '}
           <strong>파란 박스</strong>에 있습니다. 인쇄 마디 ≈ MXL <code>measure@number</code> + {offset}.
         </p>
       </div>

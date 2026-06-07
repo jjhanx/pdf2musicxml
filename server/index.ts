@@ -311,6 +311,104 @@ function sessionPartLabelsPresetPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'part_labels_preset.json');
 }
 
+function sessionMxlLintPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'mxl_lint.json');
+}
+
+async function loadPartLabelsByIndex(sessionRoot: string): Promise<string[] | null> {
+  const labelsPath = sessionPartLabelsPath(sessionRoot);
+  if (!fsSync.existsSync(labelsPath)) return null;
+  try {
+    const raw = JSON.parse(await fs.readFile(labelsPath, 'utf8')) as {
+      labelsByIndex?: unknown;
+    };
+    if (!Array.isArray(raw.labelsByIndex)) return null;
+    const labels = raw.labelsByIndex.map((x) => String(x ?? '').trim());
+    return labels.every((l) => l.length > 0) ? labels : null;
+  } catch {
+    return null;
+  }
+}
+
+function mxlLintNeedsRegeneration(sessionRoot: string): boolean {
+  const lintPath = sessionMxlLintPath(sessionRoot);
+  const labelsPath = sessionPartLabelsPath(sessionRoot);
+  if (!fsSync.existsSync(lintPath)) return true;
+  if (!fsSync.existsSync(labelsPath)) return false;
+  try {
+    const stLint = fsSync.statSync(lintPath);
+    const stLabels = fsSync.statSync(labelsPath);
+    return stLabels.mtimeMs > stLint.mtimeMs;
+  } catch {
+    return true;
+  }
+}
+
+function relabelLintReportStaff(
+  report: Record<string, unknown>,
+  labelsByIndex: string[],
+): Record<string, unknown> {
+  const parts = report.parts as Array<{ id?: string }> | undefined;
+  if (!parts?.length || !labelsByIndex.length) return report;
+
+  const idToLabel = new Map<string, string>();
+  parts.forEach((p, i) => {
+    const id = p.id;
+    if (id && i < labelsByIndex.length) idToLabel.set(id, labelsByIndex[i]);
+  });
+
+  const labelFromStaffToken = (staff: unknown): string | undefined => {
+    if (typeof staff !== 'string') return undefined;
+    const m = /^P(\d+)$/i.exec(staff.trim());
+    if (!m) return undefined;
+    const idx = Number.parseInt(m[1], 10) - 1;
+    if (idx >= 0 && idx < labelsByIndex.length) return labelsByIndex[idx];
+    return undefined;
+  };
+
+  const issues = Array.isArray(report.issues) ? [...report.issues] : [];
+  const relabeled = issues.map((raw) => {
+    if (!raw || typeof raw !== 'object') return raw;
+    const iss = { ...(raw as Record<string, unknown>) };
+    const pid = iss.partId;
+    if (typeof pid === 'string' && idToLabel.has(pid)) {
+      iss.staff = idToLabel.get(pid);
+    } else {
+      const fromToken = labelFromStaffToken(iss.staff);
+      if (fromToken) iss.staff = fromToken;
+    }
+    return iss;
+  });
+
+  const byPageStaff: Record<string, number> = {};
+  for (const raw of relabeled) {
+    if (!raw || typeof raw !== 'object') continue;
+    const iss = raw as { pageEstimate?: unknown; staff?: unknown };
+    const key = `p${iss.pageEstimate ?? 1}:${iss.staff ?? '?'}`;
+    byPageStaff[key] = (byPageStaff[key] ?? 0) + 1;
+  }
+
+  return {
+    ...report,
+    issues: relabeled,
+    issueCount: relabeled.length,
+    partLabelsByIndex: labelsByIndex,
+    staffOrderHint: labelsByIndex,
+    staffsInIssues: [
+      ...new Set(
+        relabeled
+          .map((i) =>
+            i && typeof i === 'object' ? (i as { staff?: unknown }).staff : undefined,
+          )
+          .filter((s): s is string => typeof s === 'string' && s.length > 0),
+      ),
+    ].sort(),
+    byPageStaff: Object.entries(byPageStaff)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, count]) => ({ key, count })),
+  };
+}
+
 /** 완료·보정 대기·실패 작업만 — 세션 폴더에 PDF가 남아 단계 디버깅을 돌릴 수 있는 경우 */
 function audiverisStepProbeJobsAllowed(job: JobRecord | undefined): job is JobRecord {
   if (!job?.sessionRoot || !fsSync.existsSync(job.sessionRoot)) return false;
@@ -881,6 +979,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         console.log(`[job ${jobId}] Part labels saved, continuing…`);
       }
       try {
+        const lintCache = sessionMxlLintPath(job.sessionRoot);
+        if (fsSync.existsSync(lintCache)) {
+          await fs.unlink(lintCache).catch(() => {});
+        }
         await runMxlQualityLintForJob(job, mxlForInject[0], pythonBin);
         console.log(`[job ${jobId}] MXL lint saved (omr staff HITL)`);
       } catch (lintErr) {
@@ -1927,7 +2029,11 @@ app.get('/api/diagnostic/:jobId/mxl-lint', async (req, res) => {
     res.status(404).json({ error: 'MXL/MusicXML 파일을 찾을 수 없습니다' });
     return;
   }
-  const lintPath = path.join(job.sessionRoot, 'mxl_lint.json');
+  const lintPath = sessionMxlLintPath(job.sessionRoot);
+  const forceRegen =
+    req.query.regen === '1' ||
+    req.query.regen === 'true' ||
+    String(req.query.refresh ?? '') === '1';
   const pageRaw = req.query.page;
   const staffRaw = typeof req.query.staff === 'string' ? req.query.staff.trim() : '';
   const page =
@@ -1939,17 +2045,20 @@ app.get('/api/diagnostic/:jobId/mxl-lint', async (req, res) => {
     Number(process.env.MXL_MEASURE_OFFSET_PRINTED ?? '1') || 1;
   const pageCountHint = Math.max(1, job.pdfPageCount ?? 1);
   try {
+    const pythonBin = resolvePythonBin();
+    const labelsByIndex = await loadPartLabelsByIndex(job.sessionRoot);
     let report: Record<string, unknown>;
-    if (fsSync.existsSync(lintPath)) {
+    if (forceRegen || mxlLintNeedsRegeneration(job.sessionRoot) || !fsSync.existsSync(lintPath)) {
+      report = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
+    } else {
       try {
         report = JSON.parse(await fs.readFile(lintPath, 'utf8')) as Record<string, unknown>;
       } catch {
-        const pythonBin = resolvePythonBin();
         report = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
       }
-    } else {
-      const pythonBin = resolvePythonBin();
-      report = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
+    }
+    if (labelsByIndex?.length) {
+      report = relabelLintReportStaff(report, labelsByIndex);
     }
     if (page !== undefined || staff) {
       report = filterMxlLintReport(
@@ -2100,6 +2209,10 @@ app.post('/api/part-labels/:jobId', express.json({ limit: '64kb' }), async (req,
       savedAt: new Date().toISOString(),
     };
     await fs.writeFile(sessionPartLabelsPath(job.sessionRoot), JSON.stringify(out, null, 2), 'utf8');
+    const lintCache = sessionMxlLintPath(job.sessionRoot);
+    if (fsSync.existsSync(lintCache)) {
+      await fs.unlink(lintCache).catch(() => {});
+    }
     job.partLabelsDeferred.resolve();
     delete job.partLabelsDeferred;
     res.json({ ok: true });

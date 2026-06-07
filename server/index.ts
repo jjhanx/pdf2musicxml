@@ -564,6 +564,28 @@ async function listScorePartsFromMxl(
   return JSON.parse(String(stdout).trim()) as { parts: Array<Record<string, unknown>> };
 }
 
+async function applyPartLabelsToMxl(
+  sessionRoot: string,
+  mxlPath: string,
+  pythonBin: string,
+): Promise<void> {
+  const labelsPath = sessionPartLabelsPath(sessionRoot);
+  if (!fsSync.existsSync(labelsPath)) return;
+  const script = path.join(__dirname, '..', 'scripts', 'apply_part_labels.py');
+  if (!fsSync.existsSync(script)) return;
+  try {
+    const { stdout } = await exec(
+      `"${pythonBin}" "${script}" "${mxlPath}" "${mxlPath}" --part-labels-json "${labelsPath}"`,
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    const line = String(stdout).trim();
+    if (line) console.log(`apply_part_labels: ${mxlPath} → ${line}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`apply_part_labels failed (${mxlPath}): ${msg}`);
+  }
+}
+
 function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
   if (
     (job.status === 'audiveris_review_needed' ||
@@ -1054,6 +1076,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       : fsSync.existsSync(ocrJsonPath)
         ? ocrJsonPath
         : null;
+
+    if (mxlForInject.length > 0) {
+      for (const p of mxlForInject) {
+        if (p.toLowerCase().endsWith('.mxl')) {
+          await applyPartLabelsToMxl(job.sessionRoot, p, pythonBin);
+        }
+      }
+    }
 
     if (mxlForInject.length > 0 && injectJsonPath && pipelineMode !== 'audiveris_only') {
       setJobProgress(job, {

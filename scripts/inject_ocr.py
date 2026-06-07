@@ -538,6 +538,22 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     root = tree.getroot()
     ns = mxl_ns_uri(root)
 
+    labels_path = Path(json_in_path).parent / "part_labels.json"
+    if labels_path.is_file():
+        try:
+            from apply_part_labels import (
+                apply_part_labels_to_root,
+                load_part_labels_json,
+            )
+
+            labels = load_part_labels_json(labels_path)
+            if labels:
+                n = apply_part_labels_to_root(root, labels)
+                if n:
+                    print(f"inject_ocr: part-name {n}건 갱신 ({labels_path.name})")
+        except Exception as e:
+            print(f"inject_ocr: apply_part_labels 경고: {e}", file=sys.stderr)
+
     parts = find_parts(root, ns)
     for part_el in parts:
         fix_key_signatures_part(part_el, ns)

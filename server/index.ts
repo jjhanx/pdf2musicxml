@@ -346,6 +346,33 @@ async function resolvePartLabelsByIndex(
   return readLabelsByIndexFromPath(sessionPartLabelsPresetPath(sessionRoot));
 }
 
+function resolvePartLabelsJsonPath(sessionRoot: string): string | null {
+  const saved = sessionPartLabelsPath(sessionRoot);
+  if (fsSync.existsSync(saved)) return saved;
+  const preset = sessionPartLabelsPresetPath(sessionRoot);
+  if (fsSync.existsSync(preset)) return preset;
+  return null;
+}
+
+/** 문자 검토 초안만 있을 때 MXL·lint가 preset을 쓰도록 part_labels.json으로 복사 */
+async function ensurePartLabelsJsonFromPreset(sessionRoot: string): Promise<string | null> {
+  const savedPath = sessionPartLabelsPath(sessionRoot);
+  if (fsSync.existsSync(savedPath)) return savedPath;
+  const presetPath = sessionPartLabelsPresetPath(sessionRoot);
+  if (!fsSync.existsSync(presetPath)) return null;
+  const labels = await readLabelsByIndexFromPath(presetPath);
+  if (!labels?.length) return null;
+  const out = {
+    version: 1,
+    labelsByIndex: labels,
+    savedAt: new Date().toISOString(),
+    source: 'part_labels_preset',
+  };
+  await fs.writeFile(savedPath, JSON.stringify(out, null, 2), 'utf8');
+  console.log(`part_labels: preset → part_labels.json (${labels.join(', ')})`);
+  return savedPath;
+}
+
 function mxlLintNeedsRegeneration(sessionRoot: string): boolean {
   const lintPath = sessionMxlLintPath(sessionRoot);
   const labelsPath = sessionPartLabelsPath(sessionRoot);
@@ -526,8 +553,9 @@ async function runMxlQualityLintForJob(
   if (!fsSync.existsSync(script)) {
     throw new Error(`mxl_quality_lint.py 없음: ${script}`);
   }
-  const labelsPath = sessionPartLabelsPath(job.sessionRoot);
-  const labelsArg = fsSync.existsSync(labelsPath) ? ` --part-labels-json "${labelsPath}"` : '';
+  await ensurePartLabelsJsonFromPreset(job.sessionRoot);
+  const labelsPath = resolvePartLabelsJsonPath(job.sessionRoot);
+  const labelsArg = labelsPath ? ` --part-labels-json "${labelsPath}"` : '';
   try {
     await exec(
       `"${pythonBin}" "${script}" "${mxlPath}" --measure-offset ${offset} --page-count ${pageCount}${labelsArg} --json "${outJson}"`,
@@ -569,8 +597,9 @@ async function applyPartLabelsToMxl(
   mxlPath: string,
   pythonBin: string,
 ): Promise<void> {
-  const labelsPath = sessionPartLabelsPath(sessionRoot);
-  if (!fsSync.existsSync(labelsPath)) return;
+  await ensurePartLabelsJsonFromPreset(sessionRoot);
+  const labelsPath = resolvePartLabelsJsonPath(sessionRoot);
+  if (!labelsPath) return;
   const script = path.join(__dirname, '..', 'scripts', 'apply_part_labels.py');
   if (!fsSync.existsSync(script)) return;
   try {

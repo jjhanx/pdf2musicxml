@@ -538,7 +538,12 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     root = tree.getroot()
     ns = mxl_ns_uri(root)
 
-    labels_path = Path(json_in_path).parent / "part_labels.json"
+    session_dir = Path(json_in_path).parent
+    labels_path = session_dir / "part_labels.json"
+    if not labels_path.is_file():
+        preset_path = session_dir / "part_labels_preset.json"
+        if preset_path.is_file():
+            labels_path = preset_path
     if labels_path.is_file():
         try:
             _scripts_dir = Path(__file__).resolve().parent

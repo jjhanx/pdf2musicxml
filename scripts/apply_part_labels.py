@@ -178,6 +178,18 @@ def apply_part_labels_mxl(
     }
 
 
+def resolve_labels_json_path(session_dir: Path, explicit: Path | None) -> Path | None:
+    if explicit is not None and explicit.is_file():
+        return explicit
+    saved = session_dir / "part_labels.json"
+    if saved.is_file():
+        return saved
+    preset = session_dir / "part_labels_preset.json"
+    if preset.is_file():
+        return preset
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="MXL part-name에 성부 라벨 반영 (PR/PL → Piano)")
     ap.add_argument("mxl_in", type=Path)
@@ -185,9 +197,7 @@ def main() -> int:
     ap.add_argument("--part-labels-json", type=Path, default=None)
     args = ap.parse_args()
     out = args.mxl_out or args.mxl_in
-    labels_path = args.part_labels_json
-    if labels_path is None:
-        labels_path = args.mxl_in.parent / "part_labels.json"
+    labels_path = resolve_labels_json_path(args.mxl_in.parent, args.part_labels_json)
     try:
         result = apply_part_labels_mxl(args.mxl_in, out, labels_path)
         print(json.dumps(result, ensure_ascii=False))

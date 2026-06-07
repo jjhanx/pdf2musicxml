@@ -56,7 +56,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 ### E. 4단계 — 성부 라벨 + OMR HITL (웹 UI)
 
 1. (선택) **문자 검토** 화면 상단에서 성부 라벨(S A T B PR PL)을 미리 적어 두면 Audiveris 이후에 초안으로 쓰입니다.
-2. Audiveris 종료 후 **성부 라벨 지정** 모달 — MXL의 각 파트에 라벨 확정 → `part_labels.json`.
+2. Audiveris 종료 후 **성부 라벨 지정** 모달(매 변환마다 표시) — MXL의 각 파트에 라벨 확정 → `part_labels.json`. 문자 검토 초안(`part_labels_preset.json`)만으로는 lint에 반영되지 않으며, 여기서 **확정**해야 합니다.
 3. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
 4. **OMR 페이지·성부 품질 검토** 모달:
    - 상단 **PDF 미리보기**(156 DPI, 페이지 너비)와 대조.

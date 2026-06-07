@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { relabelLintReport } from './partLabelRelabel';
 
 type MxlLintIssue = {
   code: string;
@@ -104,11 +105,34 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const pngDpi = 156;
 
   const fetchFullLint = useCallback(async () => {
-    const r = await fetch(`/api/diagnostic/${jobId}/mxl-lint`, { cache: 'no-store' });
-    const body = (await r.json()) as MxlLintReport & { error?: string; lintError?: string };
+    const [lintRes, partsRes] = await Promise.all([
+      fetch(`/api/diagnostic/${jobId}/mxl-lint`, { cache: 'no-store' }),
+      fetch(`/api/diagnostic/${jobId}/score-parts`, { cache: 'no-store' }),
+    ]);
+    const body = (await lintRes.json()) as MxlLintReport & { error?: string; lintError?: string };
     if (body.lintUnavailable) return body;
-    if (!r.ok) {
-      throw new Error(body.lintError ?? body.error ?? `HTTP ${r.status}`);
+    if (!lintRes.ok) {
+      throw new Error(body.lintError ?? body.error ?? `HTTP ${lintRes.status}`);
+    }
+    let labels: string[] | undefined;
+    let parts: Array<{ id?: string; index?: number }> | undefined;
+    if (partsRes.ok) {
+      const pj = (await partsRes.json()) as {
+        parts?: Array<{ id?: string; index?: number }>;
+        savedLabelsByIndex?: string[];
+        presetLabelsByIndex?: string[];
+      };
+      parts = pj.parts;
+      labels = pj.savedLabelsByIndex?.length
+        ? pj.savedLabelsByIndex
+        : pj.presetLabelsByIndex?.length
+          ? pj.presetLabelsByIndex
+          : body.partLabelsByIndex ?? undefined;
+    } else {
+      labels = body.partLabelsByIndex ?? undefined;
+    }
+    if (labels?.length && labels.every((l) => l.trim())) {
+      return relabelLintReport(body, labels, parts);
     }
     return body;
   }, [jobId]);

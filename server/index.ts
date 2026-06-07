@@ -262,6 +262,8 @@ type JobRecord = {
   enableOmrStaffReview?: boolean;
   omrStaffReviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   partLabelsDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  /** 성부 라벨 확정 직후 메모리 보관(파일 읽기 실패 시 lint relabel용) */
+  partLabelsByIndex?: string[];
   fontStripDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripStats?: Record<string, unknown>;
 };
@@ -315,19 +317,33 @@ function sessionMxlLintPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'mxl_lint.json');
 }
 
-async function loadPartLabelsByIndex(sessionRoot: string): Promise<string[] | null> {
-  const labelsPath = sessionPartLabelsPath(sessionRoot);
-  if (!fsSync.existsSync(labelsPath)) return null;
+function parseLabelsByIndexFile(raw: unknown): string[] | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const labelsByIndex = (raw as { labelsByIndex?: unknown }).labelsByIndex;
+  if (!Array.isArray(labelsByIndex)) return null;
+  const labels = labelsByIndex.map((x) => String(x ?? '').trim());
+  return labels.length > 0 && labels.every((l) => l.length > 0) ? labels : null;
+}
+
+async function readLabelsByIndexFromPath(filePath: string): Promise<string[] | null> {
+  if (!fsSync.existsSync(filePath)) return null;
   try {
-    const raw = JSON.parse(await fs.readFile(labelsPath, 'utf8')) as {
-      labelsByIndex?: unknown;
-    };
-    if (!Array.isArray(raw.labelsByIndex)) return null;
-    const labels = raw.labelsByIndex.map((x) => String(x ?? '').trim());
-    return labels.every((l) => l.length > 0) ? labels : null;
+    return parseLabelsByIndexFile(JSON.parse(await fs.readFile(filePath, 'utf8')));
   } catch {
     return null;
   }
+}
+
+async function resolvePartLabelsByIndex(
+  sessionRoot: string,
+  job?: JobRecord,
+): Promise<string[] | null> {
+  if (job?.partLabelsByIndex?.length && job.partLabelsByIndex.every((l) => l.trim())) {
+    return job.partLabelsByIndex.map((x) => x.trim());
+  }
+  const saved = await readLabelsByIndexFromPath(sessionPartLabelsPath(sessionRoot));
+  if (saved?.length) return saved;
+  return readLabelsByIndexFromPath(sessionPartLabelsPresetPath(sessionRoot));
 }
 
 function mxlLintNeedsRegeneration(sessionRoot: string): boolean {
@@ -348,22 +364,27 @@ function relabelLintReportStaff(
   report: Record<string, unknown>,
   labelsByIndex: string[],
 ): Record<string, unknown> {
-  const parts = report.parts as Array<{ id?: string }> | undefined;
-  if (!parts?.length || !labelsByIndex.length) return report;
+  if (!labelsByIndex.length) return report;
 
+  const parts = report.parts as Array<{ id?: string; index?: number }> | undefined;
   const idToLabel = new Map<string, string>();
-  parts.forEach((p, i) => {
+  parts?.forEach((p, i) => {
     const id = p.id;
-    if (id && i < labelsByIndex.length) idToLabel.set(id, labelsByIndex[i]);
+    const idx = typeof p.index === 'number' && Number.isFinite(p.index) ? p.index : i;
+    if (id && idx >= 0 && idx < labelsByIndex.length) idToLabel.set(id, labelsByIndex[idx]);
   });
 
-  const labelFromStaffToken = (staff: unknown): string | undefined => {
-    if (typeof staff !== 'string') return undefined;
-    const m = /^P(\d+)$/i.exec(staff.trim());
+  const labelFromPartToken = (token: string): string | undefined => {
+    const m = /^P(\d+)$/i.exec(token.trim());
     if (!m) return undefined;
     const idx = Number.parseInt(m[1], 10) - 1;
     if (idx >= 0 && idx < labelsByIndex.length) return labelsByIndex[idx];
     return undefined;
+  };
+
+  const labelFromStaffToken = (staff: unknown): string | undefined => {
+    if (typeof staff !== 'string') return undefined;
+    return labelFromPartToken(staff);
   };
 
   const issues = Array.isArray(report.issues) ? [...report.issues] : [];
@@ -371,9 +392,15 @@ function relabelLintReportStaff(
     if (!raw || typeof raw !== 'object') return raw;
     const iss = { ...(raw as Record<string, unknown>) };
     const pid = iss.partId;
-    if (typeof pid === 'string' && idToLabel.has(pid)) {
-      iss.staff = idToLabel.get(pid);
-    } else {
+    if (typeof pid === 'string') {
+      if (idToLabel.has(pid)) {
+        iss.staff = idToLabel.get(pid);
+      } else {
+        const fromId = labelFromPartToken(pid);
+        if (fromId) iss.staff = fromId;
+      }
+    }
+    if (typeof iss.staff === 'string' && /^P\d+$/i.test(iss.staff.trim())) {
       const fromToken = labelFromStaffToken(iss.staff);
       if (fromToken) iss.staff = fromToken;
     }
@@ -517,7 +544,13 @@ async function runMxlQualityLintForJob(
     throw new Error('mxl_lint.json이 생성되지 않았습니다');
   }
   const raw = await fs.readFile(outJson, 'utf8');
-  return JSON.parse(raw) as Record<string, unknown>;
+  let report = JSON.parse(raw) as Record<string, unknown>;
+  const labelsByIndex = await resolvePartLabelsByIndex(job.sessionRoot, job);
+  if (labelsByIndex?.length) {
+    report = relabelLintReportStaff(report, labelsByIndex);
+    await fs.writeFile(outJson, JSON.stringify(report, null, 2), 'utf8');
+  }
+  return report;
 }
 
 async function listScorePartsFromMxl(
@@ -967,17 +1000,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     const useOmrStaffHitl = job.enableOmrStaffReview !== false;
     if (outputs.length > 0 && useOmrStaffHitl && mxlForInject.length > 0) {
       job.preInjectMxlPaths = [...mxlForInject];
-      const labelsPath = sessionPartLabelsPath(job.sessionRoot);
-      if (!fsSync.existsSync(labelsPath)) {
-        console.log(`[job ${jobId}] Pausing for part label setup (성부 S/A/T/B…)…`);
-        job.status = 'part_labels_needed';
-        await new Promise<void>((resolve, reject) => {
-          job.partLabelsDeferred = { resolve, reject };
-        });
-        delete job.partLabelsDeferred;
-        job.status = 'processing';
-        console.log(`[job ${jobId}] Part labels saved, continuing…`);
-      }
+      console.log(`[job ${jobId}] Pausing for part label setup (성부 S/A/T/B…)…`);
+      job.status = 'part_labels_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.partLabelsDeferred = { resolve, reject };
+      });
+      delete job.partLabelsDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Part labels saved, continuing…`);
       try {
         const lintCache = sessionMxlLintPath(job.sessionRoot);
         if (fsSync.existsSync(lintCache)) {
@@ -2046,7 +2076,7 @@ app.get('/api/diagnostic/:jobId/mxl-lint', async (req, res) => {
   const pageCountHint = Math.max(1, job.pdfPageCount ?? 1);
   try {
     const pythonBin = resolvePythonBin();
-    const labelsByIndex = await loadPartLabelsByIndex(job.sessionRoot);
+    const labelsByIndex = await resolvePartLabelsByIndex(job.sessionRoot, job);
     let report: Record<string, unknown>;
     if (forceRegen || mxlLintNeedsRegeneration(job.sessionRoot) || !fsSync.existsSync(lintPath)) {
       report = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
@@ -2209,6 +2239,7 @@ app.post('/api/part-labels/:jobId', express.json({ limit: '64kb' }), async (req,
       savedAt: new Date().toISOString(),
     };
     await fs.writeFile(sessionPartLabelsPath(job.sessionRoot), JSON.stringify(out, null, 2), 'utf8');
+    job.partLabelsByIndex = labelsByIndex;
     const lintCache = sessionMxlLintPath(job.sessionRoot);
     if (fsSync.existsSync(lintCache)) {
       await fs.unlink(lintCache).catch(() => {});

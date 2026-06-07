@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""part_labels.json 라벨을 MusicXML score-part 이름에 반영 (PR·PL → Piano)."""
+"""part_labels.json / preset 라벨을 MusicXML score-part 이름에 반영 (PR·PL → Piano)."""
 from __future__ import annotations
 
 import argparse
@@ -12,10 +12,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-# mxl_quality_lint와 동일 규칙
 _PIANO_LABELS = frozenset({"PR", "PL"})
 _DISPLAY_NAME_TAGS = frozenset({"part-name", "instrument-name", "midi-name"})
 _ABBREV_TAGS = frozenset({"part-abbreviation", "instrument-abbreviation"})
+_NAME_CONTAINER_TAGS = frozenset({"part-name", "part-abbreviation"})
 
 
 def _ns(root: ET.Element) -> str:
@@ -50,8 +50,19 @@ def load_part_labels_json(path: Path | None) -> list[str] | None:
     return None
 
 
+def resolve_labels_json_path(session_dir: Path, explicit: Path | None) -> Path | None:
+    if explicit is not None and explicit.is_file():
+        return explicit
+    saved = session_dir / "part_labels.json"
+    if saved.is_file():
+        return saved
+    preset = session_dir / "part_labels_preset.json"
+    if preset.is_file():
+        return preset
+    return None
+
+
 def label_to_part_name(label: str) -> str:
-    """lint/UI 라벨 → MusicXML part-name (PR·PL은 Piano)."""
     text = (label or "").strip()
     if not text:
         return "Part"
@@ -76,34 +87,55 @@ def _set_text(el: ET.Element, text: str) -> bool:
     return True
 
 
+def _flatten_name_element(el: ET.Element, text: str) -> bool:
+    """Audiveris: <part-name><display-text>Voice</display-text></part-name> → 단순 텍스트."""
+    changed = False
+    for child in list(el):
+        el.remove(child)
+    if _set_text(el, text):
+        changed = True
+    return changed
+
+
+def _display_text_context(
+    el: ET.Element,
+    score_part: ET.Element,
+    parents: dict[ET.Element, ET.Element],
+) -> str | None:
+    p: ET.Element | None = el
+    while p is not None and p is not score_part:
+        pl = _local(p)
+        if pl in ("part-name-display", "part-name"):
+            return "display"
+        if pl in ("part-abbreviation-display", "part-abbreviation"):
+            return "abbrev"
+        p = parents.get(p)
+    return None
+
+
 def _apply_names_to_score_part(
     sp: ET.Element,
     display: str,
     abbrev: str,
     parents: dict[ET.Element, ET.Element],
 ) -> int:
-    """Audiveris·MuseScore가 읽는 part-name / display-text / midi-name 등 전부 갱신."""
     changed = 0
     for el in sp.iter():
         loc = _local(el)
-        if loc in _DISPLAY_NAME_TAGS:
+        if loc == "part-name":
+            if _flatten_name_element(el, display):
+                changed += 1
+        elif loc == "part-abbreviation":
+            if _flatten_name_element(el, abbrev):
+                changed += 1
+        elif loc in _DISPLAY_NAME_TAGS - _NAME_CONTAINER_TAGS:
             if _set_text(el, display):
                 changed += 1
-        elif loc in _ABBREV_TAGS:
+        elif loc in _ABBREV_TAGS - _NAME_CONTAINER_TAGS:
             if _set_text(el, abbrev):
                 changed += 1
         elif loc == "display-text":
-            ctx: str | None = None
-            p: ET.Element | None = el
-            while p is not None and p is not sp:
-                pl = _local(p)
-                if pl == "part-name-display":
-                    ctx = "display"
-                    break
-                if pl == "part-abbreviation-display":
-                    ctx = "abbrev"
-                    break
-                p = parents.get(p)
+            ctx = _display_text_context(el, sp, parents)
             if ctx == "display" and _set_text(el, display):
                 changed += 1
             elif ctx == "abbrev" and _set_text(el, abbrev):
@@ -112,7 +144,6 @@ def _apply_names_to_score_part(
 
 
 def apply_part_labels_to_root(root: ET.Element, labels_by_index: list[str]) -> int:
-    """score-part 순서대로 표시 이름 갱신. 변경 건수 반환."""
     ns = _ns(root)
     part_list = root.find(_q(ns, "part-list"))
     if part_list is None:
@@ -158,7 +189,7 @@ def apply_part_labels_mxl(
     if not labels:
         if mxl_in.resolve() != mxl_out.resolve():
             mxl_out.write_bytes(mxl_in.read_bytes())
-        return {"applied": False, "reason": "no_labels", "changed": 0}
+        return {"applied": False, "reason": "no_labels", "changed": 0, "path": str(mxl_in)}
 
     files, root_path = _load_mxl_score_xml(mxl_in)
     root = ET.parse(io.BytesIO(files[root_path])).getroot()
@@ -175,31 +206,60 @@ def apply_part_labels_mxl(
         "changed": changed,
         "labelsByIndex": labels,
         "partNames": [label_to_part_name(l) for l in labels],
+        "path": str(mxl_out),
+        "format": "mxl",
     }
 
 
-def resolve_labels_json_path(session_dir: Path, explicit: Path | None) -> Path | None:
-    if explicit is not None and explicit.is_file():
-        return explicit
-    saved = session_dir / "part_labels.json"
-    if saved.is_file():
-        return saved
-    preset = session_dir / "part_labels_preset.json"
-    if preset.is_file():
-        return preset
-    return None
+def apply_part_labels_musicxml(
+    xml_in: Path,
+    xml_out: Path,
+    labels_path: Path | None,
+) -> dict[str, Any]:
+    labels = load_part_labels_json(labels_path)
+    if not labels:
+        if xml_in.resolve() != xml_out.resolve():
+            xml_out.write_bytes(xml_in.read_bytes())
+        return {"applied": False, "reason": "no_labels", "changed": 0, "path": str(xml_in)}
+
+    root = ET.parse(xml_in).getroot()
+    changed = apply_part_labels_to_root(root, labels)
+    xml_out.parent.mkdir(parents=True, exist_ok=True)
+    xml_out.write_bytes(ET.tostring(root, encoding="UTF-8", xml_declaration=True))
+
+    return {
+        "applied": True,
+        "changed": changed,
+        "labelsByIndex": labels,
+        "partNames": [label_to_part_name(l) for l in labels],
+        "path": str(xml_out),
+        "format": "musicxml",
+    }
+
+
+def apply_part_labels_file(
+    score_in: Path,
+    score_out: Path,
+    labels_path: Path | None,
+) -> dict[str, Any]:
+    low = score_in.suffix.lower()
+    if low == ".mxl":
+        return apply_part_labels_mxl(score_in, score_out, labels_path)
+    if low in (".musicxml", ".xml"):
+        return apply_part_labels_musicxml(score_in, score_out, labels_path)
+    raise ValueError(f"지원하지 않는 확장자: {score_in.suffix}")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="MXL part-name에 성부 라벨 반영 (PR/PL → Piano)")
-    ap.add_argument("mxl_in", type=Path)
-    ap.add_argument("mxl_out", type=Path, nargs="?", default=None)
+    ap = argparse.ArgumentParser(description="MXL/MusicXML part-name에 성부 라벨 반영 (PR/PL → Piano)")
+    ap.add_argument("score_in", type=Path)
+    ap.add_argument("score_out", type=Path, nargs="?", default=None)
     ap.add_argument("--part-labels-json", type=Path, default=None)
     args = ap.parse_args()
-    out = args.mxl_out or args.mxl_in
-    labels_path = resolve_labels_json_path(args.mxl_in.parent, args.part_labels_json)
+    out = args.score_out or args.score_in
+    labels_path = resolve_labels_json_path(args.score_in.parent, args.part_labels_json)
     try:
-        result = apply_part_labels_mxl(args.mxl_in, out, labels_path)
+        result = apply_part_labels_file(args.score_in, out, labels_path)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (OSError, ValueError, zipfile.BadZipFile) as e:

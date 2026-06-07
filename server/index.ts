@@ -592,26 +592,53 @@ async function listScorePartsFromMxl(
   return JSON.parse(String(stdout).trim()) as { parts: Array<Record<string, unknown>> };
 }
 
-async function applyPartLabelsToMxl(
+function isScoreOutputPath(filePath: string): boolean {
+  const low = filePath.toLowerCase();
+  return low.endsWith('.mxl') || low.endsWith('.musicxml');
+}
+
+function collectScorePathsForLabeling(outputs: string[], extra: string[]): string[] {
+  const seen = new Set<string>();
+  for (const p of [...outputs, ...extra]) {
+    if (isScoreOutputPath(p) && fsSync.existsSync(p)) seen.add(p);
+  }
+  return [...seen];
+}
+
+async function applyPartLabelsToScoreFile(
   sessionRoot: string,
-  mxlPath: string,
+  scorePath: string,
   pythonBin: string,
 ): Promise<void> {
   await ensurePartLabelsJsonFromPreset(sessionRoot);
   const labelsPath = resolvePartLabelsJsonPath(sessionRoot);
-  if (!labelsPath) return;
+  if (!labelsPath) {
+    console.warn(`apply_part_labels skipped (no labels): ${scorePath}`);
+    return;
+  }
   const script = path.join(__dirname, '..', 'scripts', 'apply_part_labels.py');
   if (!fsSync.existsSync(script)) return;
   try {
-    const { stdout } = await exec(
-      `"${pythonBin}" "${script}" "${mxlPath}" "${mxlPath}" --part-labels-json "${labelsPath}"`,
+    const { stdout, stderr } = await exec(
+      `"${pythonBin}" "${script}" "${scorePath}" "${scorePath}" --part-labels-json "${labelsPath}"`,
       { maxBuffer: 8 * 1024 * 1024 },
     );
     const line = String(stdout).trim();
-    if (line) console.log(`apply_part_labels: ${mxlPath} → ${line}`);
+    if (line) {
+      console.log(`apply_part_labels: ${line}`);
+      try {
+        const parsed = JSON.parse(line) as { applied?: boolean; reason?: string; changed?: number };
+        if (!parsed.applied) {
+          console.warn(`apply_part_labels not applied for ${scorePath}: ${parsed.reason ?? 'unknown'}`);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (stderr?.trim()) console.warn(`apply_part_labels stderr (${scorePath}): ${stderr.trim()}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`apply_part_labels failed (${mxlPath}): ${msg}`);
+    console.warn(`apply_part_labels failed (${scorePath}): ${msg}`);
   }
 }
 
@@ -1127,10 +1154,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       }
     }
 
-    const mxlOutputPaths = outputs.filter((p) => p.toLowerCase().endsWith('.mxl'));
-    if (mxlOutputPaths.length > 0) {
-      for (const p of mxlOutputPaths) {
-        await applyPartLabelsToMxl(job.sessionRoot, p, pythonBin);
+    const scorePathsForLabels = collectScorePathsForLabeling(outputs, mxlForInject);
+    if (scorePathsForLabels.length > 0) {
+      for (const p of scorePathsForLabels) {
+        await applyPartLabelsToScoreFile(job.sessionRoot, p, pythonBin);
       }
     }
 

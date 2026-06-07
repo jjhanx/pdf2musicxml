@@ -492,10 +492,43 @@ def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path):
         print(f"inject_ocr: fix_audiveris_mxl 경고: {e}", file=sys.stderr)
 
 
+def _apply_part_labels_from_session(root, json_in_path):
+    session_dir = Path(json_in_path).parent
+    labels_path = session_dir / "part_labels.json"
+    if not labels_path.is_file():
+        preset_path = session_dir / "part_labels_preset.json"
+        if preset_path.is_file():
+            labels_path = preset_path
+        else:
+            return 0
+    try:
+        _scripts_dir = Path(__file__).resolve().parent
+        if str(_scripts_dir) not in sys.path:
+            sys.path.insert(0, str(_scripts_dir))
+        from apply_part_labels import apply_part_labels_to_root, load_part_labels_json
+
+        labels = load_part_labels_json(labels_path)
+        if not labels:
+            return 0
+        n = apply_part_labels_to_root(root, labels)
+        if n:
+            print(
+                f"inject_ocr: part-name {n}건 갱신 ({labels_path.name})",
+                file=sys.stderr,
+            )
+        return n
+    except Exception as e:
+        print(f"inject_ocr: apply_part_labels 경고: {e}", file=sys.stderr)
+        return 0
+
+
 def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     ocr_data = load_ocr_items(json_in_path)
     if ocr_data is None:
-        return
+        print(
+            "inject_ocr: OCR 항목 없음 — part-name 라벨만 적용합니다.",
+            file=sys.stderr,
+        )
 
     mxl_source = mxl_in_path
     mxl_tmp: str | None = None
@@ -538,30 +571,6 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     root = tree.getroot()
     ns = mxl_ns_uri(root)
 
-    session_dir = Path(json_in_path).parent
-    labels_path = session_dir / "part_labels.json"
-    if not labels_path.is_file():
-        preset_path = session_dir / "part_labels_preset.json"
-        if preset_path.is_file():
-            labels_path = preset_path
-    if labels_path.is_file():
-        try:
-            _scripts_dir = Path(__file__).resolve().parent
-            if str(_scripts_dir) not in sys.path:
-                sys.path.insert(0, str(_scripts_dir))
-            from apply_part_labels import (
-                apply_part_labels_to_root,
-                load_part_labels_json,
-            )
-
-            labels = load_part_labels_json(labels_path)
-            if labels:
-                n = apply_part_labels_to_root(root, labels)
-                if n:
-                    print(f"inject_ocr: part-name {n}건 갱신 ({labels_path.name})")
-        except Exception as e:
-            print(f"inject_ocr: apply_part_labels 경고: {e}", file=sys.stderr)
-
     parts = find_parts(root, ns)
     for part_el in parts:
         fix_key_signatures_part(part_el, ns)
@@ -578,19 +587,20 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     lyricist_text = ""
     copyright_text = ""
 
-    for item in ocr_data:
-        if _skip_inject_meta_item(item):
-            continue
-        t = item.get("type", "unknown")
-        text = item.get("text", "")
-        if t == "title":
-            title_text += text + " "
-        elif t == "composer":
-            composer_text += text + " "
-        elif t == "lyricist":
-            lyricist_text += text + " "
-        elif t == "copyright":
-            copyright_text += text + " "
+    if ocr_data:
+        for item in ocr_data:
+            if _skip_inject_meta_item(item):
+                continue
+            t = item.get("type", "unknown")
+            text = item.get("text", "")
+            if t == "title":
+                title_text += text + " "
+            elif t == "composer":
+                composer_text += text + " "
+            elif t == "lyricist":
+                lyricist_text += text + " "
+            elif t == "copyright":
+                copyright_text += text + " "
 
     if title_text:
         work = root.find(qname(ns, "work"))
@@ -627,7 +637,7 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                 rights = ET.SubElement(idf, qname(ns, "rights"))
             rights.text = copyright_text.strip()
 
-    streams_by_part = collect_lyric_streams(ocr_data)
+    streams_by_part = collect_lyric_streams(ocr_data) if ocr_data else {}
     if streams_by_part and parts:
         for part_index in sorted(streams_by_part.keys()):
             stream_list = streams_by_part[part_index]
@@ -647,6 +657,8 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                     items, part_el, ns, melody_voice_override=mv
                 )
                 apply_lyric_events(part_el, ns, events, lyric_number=verse_n)
+
+    _apply_part_labels_from_session(root, json_in_path)
 
     out_xml_bytes = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     files[root_file_path] = out_xml_bytes

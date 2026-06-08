@@ -2368,10 +2368,29 @@ app.get('/api/raw-mxl/:jobId', (req, res) => {
 
 app.post('/api/continue-omr-staff-review/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
-  if (!job || job.status !== 'omr_staff_review_needed' || !job.omrStaffReviewDeferred) {
-    res.status(400).json({ error: 'OMR 페이지·성부 검토 대기 상태가 아닙니다' });
+  if (!job) {
+    res.status(404).json({
+      error: '작업을 찾을 수 없습니다. 서버 재시작(pm2 restart) 후에는 변환을 처음부터 다시 시작하세요.',
+    });
     return;
   }
+  if (
+    job.status === 'processing' ||
+    job.status === 'audiveris_review_needed' ||
+    job.status === 'completed'
+  ) {
+    res.json({ ok: true, alreadyContinued: true });
+    return;
+  }
+  if (job.status !== 'omr_staff_review_needed' || !job.omrStaffReviewDeferred) {
+    const hint =
+      job.status === 'part_labels_needed'
+        ? '성부 라벨 지정 모달에서 확정한 뒤 OMR 검토 단계로 넘어가세요.'
+        : `현재 상태: ${job.status}`;
+    res.status(400).json({ error: 'OMR 페이지·성부 검토 대기 상태가 아닙니다', detail: hint });
+    return;
+  }
+  job.status = 'processing';
   job.omrStaffReviewDeferred.resolve();
   delete job.omrStaffReviewDeferred;
   res.json({ ok: true });

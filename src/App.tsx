@@ -560,6 +560,11 @@ export default function App() {
       }
 
       revokeTaskUrls(tasksRef.current);
+      setPartLabelsJobId(null);
+      setOmrStaffReviewJobId(null);
+      setAudiverisReviewJobId(null);
+      setFontStripJobId(null);
+      setReviewingJobId(null);
 
       const initialTasks: ConvertTask[] = list.map((f) => ({
         id: newTaskId(),
@@ -634,10 +639,10 @@ export default function App() {
                 setAudiverisReviewJobId(jobId);
               },
               (jobId) => {
-                setPartLabelsJobId(jobId);
+                setOmrStaffReviewJobId(jobId);
               },
               (jobId) => {
-                setOmrStaffReviewJobId(jobId);
+                setPartLabelsJobId(jobId);
               },
               {
                 pauseAfterAudiveris,

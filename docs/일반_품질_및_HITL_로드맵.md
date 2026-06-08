@@ -70,13 +70,14 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 1. (선택) **문자 검토** 화면 상단에서 성부 라벨(S A T B PR PL)을 미리 적어 두면 Audiveris 이후에 초안으로 쓰입니다.
 2. Audiveris 종료 후 **성부 라벨 지정** 모달(OMR HITL 켜짐 시, 매 변환마다) — 확정 시 `part_labels.json`. 문자 검토만 끝낸 경우 `part_labels_preset.json`만 있어도 MXL·lint에 초안이 쓰이며, 완료 직전 서버가 `part_labels.json`으로 복사할 수 있습니다. 확정·초안 라벨은 **최종 MXL/MusicXML**의 `<part-name>`(내부 `<display-text>` 포함)·`instrument-name`·`midi-name` 등에 쓰입니다. Audiveris 기본 **Voice**는 `scripts/apply_part_labels.py`와 `inject_ocr.py` 마지막 단계에서 덮어씁니다. `PR`·`PL` → **Piano**(`Pno.`).
 3. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
-4. **OMR 페이지·성부 품질 검토** 모달:
+4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
+5. **OMR 페이지·성부 품질 검토** 모달:
    - 상단 **PDF 미리보기**(156 DPI, 페이지 너비)와 대조.
    - **Lint 칩은 PDF 이미지 위가 아님** — PDF 바로 아래 **파란 테두리 박스**「Lint 결과」에 표시. 성부별 회색 줄은 같은 내용을 성부로 나눈 보기. 칩·성부 이름은 **`part_labels.json` 라벨**(S/A/T/B 등)을 쓰며 MusicXML `P1`·`P3` id와 다릅니다.
    - `mxl-lint` 실패 시 노란 안내에 **Python 오류 요약**이 표시됨 — PDF만 보고 **이어하기** 가능.
    - **이어하기** → 가사·메타 `inject_ocr` 단계로 진행.
-5. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요.
-6. OMR HITL을 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
+6. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요.
+7. OMR HITL을 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
 
 ### F. 5단계 — Audiveris 보정 (선택)
 

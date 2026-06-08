@@ -5,77 +5,41 @@ export type OmrHitlFix = {
   measureMxl: string;
   detail?: string;
   noteIndex?: number;
+  directionIndex?: number;
   staff?: number;
   restType?: string;
+  noteType?: string;
   lineDelta?: number;
   displayStep?: string;
   displayOctave?: number;
+  pitchStep?: string;
+  pitchOctave?: number;
+  pitchAlter?: number;
+  stem?: 'up' | 'down';
+  tieEnd?: 'start' | 'stop' | 'both';
+  fromNoteIndex?: number;
+  toNoteIndex?: number;
+  afterNoteIndex?: number;
   source?: string;
   lintCode?: string;
 };
 
-export type MxlLintIssueForFix = {
-  code: string;
-  partId?: string;
-  measureMxl?: string;
-  detail?: string;
-  noteIndex?: number;
-  suggestedStaff?: number;
-  suggestedLineDelta?: number;
+export const FIX_KIND_LABEL: Record<string, string> = {
+  removeSpuriousDirection: 'P·9 direction 제거',
+  removeDirection: 'direction 제거',
+  removeTrailingPhantomRest: '마디 끝 쉼표 제거',
+  setNoteStaff: '스태프 지정',
+  nudgeRestDisplay: '쉼표 줄 이동',
+  removeNote: '음·쉼표 삭제',
+  removeNoteDot: '점(·) 제거',
+  setNotePitch: '음높이 변경',
+  setNoteType: '박자(음표 종류) 변경',
+  setNoteStem: '줄기 방향 변경',
+  removeTie: '이음줄 제거',
+  addTie: '이음줄 연결',
+  insertRest: '쉼표 추가',
+  insertNote: '음표 추가',
 };
-
-const ACTIONABLE_LINT = new Set([
-  'spuriousDirection',
-  'trailingPhantomRest',
-  'restMissingStaff',
-  'restDisplayHigh',
-]);
-
-export function isActionableLintCode(code: string): boolean {
-  return ACTIONABLE_LINT.has(code);
-}
-
-export function lintIssueToFix(issue: MxlLintIssueForFix): OmrHitlFix | null {
-  const partId = issue.partId;
-  const measureMxl = issue.measureMxl;
-  if (!partId || !measureMxl) return null;
-  const base = {
-    id: crypto.randomUUID(),
-    partId,
-    measureMxl: String(measureMxl),
-    source: 'lint' as const,
-    lintCode: issue.code,
-  };
-  if (issue.code === 'spuriousDirection') {
-    return { ...base, kind: 'removeSpuriousDirection', detail: issue.detail };
-  }
-  if (issue.code === 'trailingPhantomRest') {
-    return {
-      ...base,
-      kind: 'removeTrailingPhantomRest',
-      detail: issue.detail,
-      restType: issue.detail,
-      noteIndex: issue.noteIndex,
-    };
-  }
-  if (issue.code === 'restMissingStaff') {
-    return {
-      ...base,
-      kind: 'setNoteStaff',
-      noteIndex: issue.noteIndex,
-      staff: issue.suggestedStaff ?? 2,
-    };
-  }
-  if (issue.code === 'restDisplayHigh') {
-    return {
-      ...base,
-      kind: 'nudgeRestDisplay',
-      noteIndex: issue.noteIndex,
-      lineDelta: issue.suggestedLineDelta ?? 1,
-    };
-  }
-  return null;
-}
 
 export function fixDedupeKey(fix: OmrHitlFix): string {
   return [
@@ -83,9 +47,17 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.partId,
     fix.measureMxl,
     fix.noteIndex ?? '',
+    fix.directionIndex ?? '',
     fix.detail ?? '',
     fix.staff ?? '',
     fix.lineDelta ?? '',
+    fix.noteType ?? '',
+    fix.pitchStep ?? '',
+    fix.pitchOctave ?? '',
+    fix.fromNoteIndex ?? '',
+    fix.toNoteIndex ?? '',
+    fix.afterNoteIndex ?? '',
+    fix.tieEnd ?? '',
   ].join('|');
 }
 
@@ -95,10 +67,13 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
   return [...fixes, next];
 }
 
-export const LINT_CODE_LABEL: Record<string, string> = {
-  spuriousDirection: 'P·9 등 제거',
-  trailingPhantomRest: '마디 끝 쉼표 제거',
-  restMissingStaff: '쉼표 스태프 지정',
-  restDisplayHigh: '쉼표 한 줄 아래',
-  measureBoundaryOrderSuspect: '마디 경계 순서(수동)',
-};
+export function formatFixSummary(fix: OmrHitlFix): string {
+  const label = FIX_KIND_LABEL[fix.kind] ?? fix.kind;
+  const parts = [label, fix.partId, `m.${fix.measureMxl}`];
+  if (fix.noteIndex != null) parts.push(`#${fix.noteIndex}`);
+  if (fix.directionIndex != null) parts.push(`dir#${fix.directionIndex}`);
+  if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
+    parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);
+  }
+  return parts.join(' · ');
+}

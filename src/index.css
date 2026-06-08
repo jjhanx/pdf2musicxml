@@ -627,6 +627,138 @@ button.btn-muted {
   line-height: 1.4;
 }
 
+.modal-light .omr-osmd-clickable {
+  cursor: crosshair;
+}
+
+.modal-light .omr-measure-editor-prompt {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  background: #f5f5f5;
+  border: 1px dashed #bbb;
+  font-size: 0.88rem;
+  color: #444;
+  line-height: 1.45;
+}
+
+.modal-light .omr-measure-editor {
+  border: 2px solid #2e7d32;
+  border-radius: 8px;
+  background: #f1f8e9;
+  padding: 0.9rem 1rem;
+}
+
+.modal-light .omr-measure-editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.modal-light .omr-measure-editor-sub {
+  font-weight: 400;
+  color: #555;
+  margin-left: 0.35rem;
+  font-size: 0.88rem;
+}
+
+.modal-light .omr-measure-editor-hint,
+.modal-light .omr-measure-editor-loading,
+.modal-light .omr-measure-editor-empty {
+  margin: 0.35rem 0 0.65rem;
+  font-size: 0.84rem;
+  color: #444;
+  line-height: 1.45;
+}
+
+.modal-light .omr-measure-editor-err {
+  margin: 0.35rem 0;
+  color: #b71c1c;
+  font-size: 0.86rem;
+}
+
+.modal-light .omr-measure-element-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modal-light .omr-measure-element-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: #1b5e20;
+  margin-bottom: 0.35rem;
+}
+
+.modal-light .omr-measure-element-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+  align-items: center;
+}
+
+.modal-light .omr-measure-inline-field {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: #333;
+}
+
+.modal-light .omr-measure-note-pitch,
+.modal-light .omr-measure-tie-row,
+.modal-light .omr-measure-stem-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.modal-light .omr-measure-insert-row {
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+  color: #666;
+}
+
+.modal-light .omr-measure-insert-btn {
+  margin-left: 0.35rem;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.76rem;
+}
+
+.modal-light .omr-measure-insert-form {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #c5e1a5;
+}
+
+.modal-light .omr-measure-insert-form-title {
+  font-weight: 600;
+  font-size: 0.86rem;
+  margin-bottom: 0.45rem;
+  color: #33691e;
+}
+
+.modal-light .omr-measure-insert-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+  font-size: 0.82rem;
+}
+
+.modal-light .omr-hitl-fix-btn--danger {
+  border-color: #e57373;
+  color: #b71c1c;
+}
+
 /* PDF 아래 lint 칩 — 악보 이미지와 별도 영역 */
 .modal-light .omr-lint-results-panel {
   border: 2px solid #1565c0;

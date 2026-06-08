@@ -72,12 +72,39 @@ def list_note_elements(measure: ET.Element, ns: str) -> list[ET.Element]:
     return [el for el in measure if _local(el) == "note"]
 
 
+def _note_tie_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
+    tie_start = False
+    tie_stop = False
+    notations = note.find(_q(ns, "notations"))
+    if notations is None:
+        return tie_start, tie_stop
+    for tied in notations.findall(_q(ns, "tied")):
+        t = (tied.get("type") or "").strip()
+        if t == "start":
+            tie_start = True
+        elif t == "stop":
+            tie_stop = True
+    return tie_start, tie_stop
+
+
+def _note_beams(note: ET.Element, ns: str) -> list[str]:
+    notations = note.find(_q(ns, "notations"))
+    if notations is None:
+        return []
+    out: list[str] = []
+    for beam in notations.findall(_q(ns, "beam")):
+        if beam.text and beam.text.strip():
+            out.append(beam.text.strip())
+    return out
+
+
 def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
     rest_el = note.find(_q(ns, "rest"))
     pitch_el = note.find(_q(ns, "pitch"))
     staff_el = note.find(_q(ns, "staff"))
     voice_el = note.find(_q(ns, "voice"))
     type_el = note.find(_q(ns, "type"))
+    stem_el = note.find(_q(ns, "stem"))
     chord = note.find(_q(ns, "chord")) is not None
     display_step = None
     display_octave = None
@@ -89,23 +116,59 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         if do is not None and do.text:
             display_octave = do.text.strip()
     pitch = None
+    pitch_alter = None
     if pitch_el is not None:
         step = pitch_el.find(_q(ns, "step"))
         oct_el = pitch_el.find(_q(ns, "octave"))
+        alter_el = pitch_el.find(_q(ns, "alter"))
         if step is not None and oct_el is not None and step.text and oct_el.text:
             pitch = f"{step.text.strip()}{oct_el.text.strip()}"
+        if alter_el is not None and alter_el.text:
+            try:
+                pitch_alter = int(float(alter_el.text.strip()))
+            except ValueError:
+                pitch_alter = None
+    tie_start, tie_stop = _note_tie_flags(note, ns)
     return {
         "index": index,
+        "elementKind": "note",
         "kind": "rest" if rest_el is not None else "note",
         "type": (type_el.text or "").strip() if type_el is not None and type_el.text else None,
         "staff": int(staff_el.text) if staff_el is not None and staff_el.text and staff_el.text.isdigit() else None,
         "voice": (voice_el.text or "").strip() if voice_el is not None and voice_el.text else None,
         "chord": chord,
         "pitch": pitch,
+        "pitchAlter": pitch_alter,
         "displayStep": display_step,
         "displayOctave": display_octave,
         "measureRest": rest_el is not None and rest_el.get("measure") == "yes",
+        "dotCount": len(note.findall(_q(ns, "dot"))),
+        "tieStart": tie_start,
+        "tieStop": tie_stop,
+        "beams": _note_beams(note, ns),
+        "stem": (stem_el.text or "").strip() if stem_el is not None and stem_el.text else None,
     }
+
+
+def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
+    elements: list[dict[str, Any]] = []
+    direction_index = 0
+    note_index = 0
+    for child in measure:
+        local = _local(child)
+        if local == "direction":
+            elements.append(
+                {
+                    "elementKind": "direction",
+                    "directionIndex": direction_index,
+                    "text": _direction_text(child),
+                }
+            )
+            direction_index += 1
+        elif local == "note":
+            elements.append(note_snapshot(child, ns, note_index))
+            note_index += 1
+    return elements
 
 
 def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) -> dict[str, Any] | None:
@@ -116,10 +179,12 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
     if measure is None:
         return None
     notes = list_note_elements(measure, ns)
+    elements = measure_elements_snapshot(measure, ns)
     return {
         "partId": part_id,
         "measureMxl": str(measure_mxl),
         "notes": [note_snapshot(n, ns, i) for i, n in enumerate(notes)],
+        "elements": elements,
     }
 
 
@@ -134,6 +199,35 @@ def _from_diatonic_index(idx: int) -> tuple[str, int]:
     octave = idx // 7
     step = _STEPS[idx % 7]
     return step, octave
+
+
+def _insert_note_element(measure: ET.Element, ns: str, new_note: ET.Element, after_note_index: int) -> None:
+    """after_note_index=-1 이면 첫 note 앞, 그 외에는 해당 note 바로 뒤."""
+    children = list(measure)
+    if after_note_index < 0:
+        for child in children:
+            if _local(child) == "note":
+                measure.insert(children.index(child), new_note)
+                return
+        measure.append(new_note)
+        return
+    seen = -1
+    for child in children:
+        if _local(child) != "note":
+            continue
+        seen += 1
+        if seen == after_note_index:
+            pos = children.index(child) + 1
+            measure.insert(pos, new_note)
+            return
+    measure.append(new_note)
+
+
+def _ensure_notations(note: ET.Element, ns: str) -> ET.Element:
+    notations = note.find(_q(ns, "notations"))
+    if notations is None:
+        notations = ET.SubElement(note, _q(ns, "notations"))
+    return notations
 
 
 def nudge_display_step(step: str, octave: int, line_delta: int) -> tuple[str, int]:
@@ -272,6 +366,208 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             measure.remove(notes[idx])
             return True
         return False
+
+    if kind == "removeNoteDot":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        removed = False
+        for dot in list(note.findall(_q(ns, "dot"))):
+            note.remove(dot)
+            removed = True
+        return removed
+
+    if kind == "removeDirection":
+        try:
+            direction_index = int(fix.get("directionIndex"))
+        except (TypeError, ValueError):
+            return False
+        directions = measure.findall(_q(ns, "direction"))
+        if 0 <= direction_index < len(directions):
+            measure.remove(directions[direction_index])
+            return True
+        return False
+
+    if kind == "setNotePitch":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        pitch_el = note.find(_q(ns, "pitch"))
+        if pitch_el is None:
+            return False
+        step = str(fix.get("pitchStep") or "").strip()
+        if not step:
+            return False
+        try:
+            octave = int(fix.get("pitchOctave"))
+        except (TypeError, ValueError):
+            return False
+        step_el = pitch_el.find(_q(ns, "step"))
+        oct_el = pitch_el.find(_q(ns, "octave"))
+        if step_el is None:
+            step_el = ET.SubElement(pitch_el, _q(ns, "step"))
+        if oct_el is None:
+            oct_el = ET.SubElement(pitch_el, _q(ns, "octave"))
+        step_el.text = step
+        oct_el.text = str(octave)
+        alter = fix.get("pitchAlter")
+        alter_el = pitch_el.find(_q(ns, "alter"))
+        if alter is None or alter == "":
+            if alter_el is not None:
+                pitch_el.remove(alter_el)
+        else:
+            try:
+                alter_n = int(alter)
+            except (TypeError, ValueError):
+                return False
+            if alter_el is None:
+                alter_el = ET.SubElement(pitch_el, _q(ns, "alter"))
+            alter_el.text = str(alter_n)
+        return True
+
+    if kind == "setNoteType":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        note_type = str(fix.get("noteType") or "").strip()
+        if not note_type:
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        type_el = note.find(_q(ns, "type"))
+        if type_el is None:
+            type_el = ET.SubElement(note, _q(ns, "type"))
+        type_el.text = note_type
+        return True
+
+    if kind == "setNoteStem":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        stem_val = str(fix.get("stem") or "").strip().lower()
+        if stem_val not in ("up", "down"):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        stem_el = note.find(_q(ns, "stem"))
+        if stem_el is None:
+            stem_el = ET.SubElement(note, _q(ns, "stem"))
+        stem_el.text = stem_val
+        return True
+
+    if kind == "removeTie":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        which = str(fix.get("tieEnd") or "both").strip().lower()
+        note = notes[idx]
+        notations = note.find(_q(ns, "notations"))
+        if notations is None:
+            return False
+        removed = False
+        for tied in list(notations.findall(_q(ns, "tied"))):
+            t = (tied.get("type") or "").strip()
+            if which == "both" or which == t:
+                notations.remove(tied)
+                removed = True
+        if not list(notations):
+            note.remove(notations)
+        return removed
+
+    if kind == "addTie":
+        try:
+            from_idx = int(fix.get("fromNoteIndex"))
+            to_idx = int(fix.get("toNoteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if from_idx < 0 or to_idx < 0 or from_idx >= len(notes) or to_idx >= len(notes):
+            return False
+        from_note = notes[from_idx]
+        to_note = notes[to_idx]
+        from_not = _ensure_notations(from_note, ns)
+        to_not = _ensure_notations(to_note, ns)
+        has_start = any((t.get("type") or "") == "start" for t in from_not.findall(_q(ns, "tied")))
+        has_stop = any((t.get("type") or "") == "stop" for t in to_not.findall(_q(ns, "tied")))
+        if not has_start:
+            start = ET.SubElement(from_not, _q(ns, "tied"))
+            start.set("type", "start")
+        if not has_stop:
+            stop = ET.SubElement(to_not, _q(ns, "tied"))
+            stop.set("type", "stop")
+        return True
+
+    if kind == "insertRest":
+        rest_type = str(fix.get("noteType") or fix.get("restType") or "quarter").strip()
+        try:
+            staff_n = int(fix.get("staff", 1))
+            after_idx = int(fix.get("afterNoteIndex", -1))
+        except (TypeError, ValueError):
+            return False
+        new_note = ET.Element(_q(ns, "note"))
+        ET.SubElement(new_note, _q(ns, "rest"))
+        type_el = ET.SubElement(new_note, _q(ns, "type"))
+        type_el.text = rest_type
+        staff_el = ET.SubElement(new_note, _q(ns, "staff"))
+        staff_el.text = str(staff_n)
+        if rest_type in ("whole", "half"):
+            rest_el = new_note.find(_q(ns, "rest"))
+            if rest_el is not None:
+                step = str(fix.get("displayStep") or "B").strip()
+                try:
+                    octave = int(fix.get("displayOctave", 4))
+                except (TypeError, ValueError):
+                    octave = 4
+                ET.SubElement(rest_el, _q(ns, "display-step")).text = step
+                ET.SubElement(rest_el, _q(ns, "display-octave")).text = str(octave)
+        _insert_note_element(measure, ns, new_note, after_idx)
+        return True
+
+    if kind == "insertNote":
+        step = str(fix.get("pitchStep") or "").strip()
+        if not step:
+            return False
+        try:
+            octave = int(fix.get("pitchOctave"))
+            staff_n = int(fix.get("staff", 1))
+            after_idx = int(fix.get("afterNoteIndex", -1))
+        except (TypeError, ValueError):
+            return False
+        note_type = str(fix.get("noteType") or "quarter").strip()
+        new_note = ET.Element(_q(ns, "note"))
+        pitch_el = ET.SubElement(new_note, _q(ns, "pitch"))
+        ET.SubElement(pitch_el, _q(ns, "step")).text = step
+        ET.SubElement(pitch_el, _q(ns, "octave")).text = str(octave)
+        alter = fix.get("pitchAlter")
+        if alter is not None and alter != "":
+            try:
+                ET.SubElement(pitch_el, _q(ns, "alter")).text = str(int(alter))
+            except (TypeError, ValueError):
+                pass
+        ET.SubElement(new_note, _q(ns, "type")).text = note_type
+        ET.SubElement(new_note, _q(ns, "staff")).text = str(staff_n)
+        duration = fix.get("duration")
+        if duration is not None:
+            try:
+                ET.SubElement(new_note, _q(ns, "duration")).text = str(int(duration))
+            except (TypeError, ValueError):
+                pass
+        _insert_note_element(measure, ns, new_note, after_idx)
+        return True
 
     return False
 

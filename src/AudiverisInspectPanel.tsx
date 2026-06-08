@@ -9,6 +9,11 @@ import {
   type ReactNode,
 } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import {
+  drawOsmdMeasureHighlight,
+  hitTestOsmdMeasure,
+  type OsmdMeasureClickInfo,
+} from './osmdMeasureClick';
 
 type InspectErrorBoundaryProps = {
   children: ReactNode;
@@ -203,8 +208,9 @@ function scheduleOsmdRender(opts: {
   isStale: () => boolean;
   onPaintFailure: () => void;
   roRef: MutableRefObject<ResizeObserver | null>;
+  onAfterRender?: () => void;
 }) {
-  const { host, osmd, zoom, isStale, onPaintFailure, roRef } = opts;
+  const { host, osmd, zoom, isStale, onPaintFailure, roRef, onAfterRender } = opts;
 
   const disconnectRo = () => {
     roRef.current?.disconnect();
@@ -217,6 +223,7 @@ function scheduleOsmdRender(opts: {
       osmd.zoom = zoom;
       osmd.render();
       host.querySelector('[data-osmd-warn="width"]')?.remove();
+      onAfterRender?.();
     } catch (e) {
       try {
         osmd.clear();
@@ -265,7 +272,17 @@ function scheduleOsmdRender(opts: {
   requestAnimationFrame(tick);
 }
 
-export function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
+export function OsmdBlock({
+  xml,
+  zoom,
+  onMeasureClick,
+  highlightMeasureMxl,
+}: {
+  xml: string;
+  zoom: number;
+  onMeasureClick?: (info: OsmdMeasureClickInfo) => void;
+  highlightMeasureMxl?: number | null;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const zoomRef = useRef(zoom);
@@ -273,10 +290,32 @@ export function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
   /** Invalidates overlapping RAF/resize paint attempts (load-complete vs zoom). */
   const paintSeqRef = useRef(0);
   const roRef = useRef<ResizeObserver | null>(null);
+  const onMeasureClickRef = useRef(onMeasureClick);
+  const highlightMeasureMxlRef = useRef(highlightMeasureMxl);
+
+  useEffect(() => {
+    onMeasureClickRef.current = onMeasureClick;
+  }, [onMeasureClick]);
+
+  useEffect(() => {
+    highlightMeasureMxlRef.current = highlightMeasureMxl;
+    const host = hostRef.current;
+    const osmd = osmdRef.current;
+    if (host && osmd?.IsReadyToRender()) {
+      drawOsmdMeasureHighlight(host, osmd, highlightMeasureMxl ?? null);
+    }
+  }, [highlightMeasureMxl, xml, zoom]);
 
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
+
+  const afterOsmdRender = useCallback(() => {
+    const host = hostRef.current;
+    const osmd = osmdRef.current;
+    if (!host || !osmd) return;
+    drawOsmdMeasureHighlight(host, osmd, highlightMeasureMxlRef.current ?? null);
+  }, []);
 
   useEffect(() => {
     const disconnectRo = () => {
@@ -325,6 +364,7 @@ export function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
             osmdRef.current = null;
           },
           roRef,
+          onAfterRender: afterOsmdRender,
         });
       })
       .catch((loadErr: unknown) => {
@@ -378,13 +418,27 @@ export function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
         osmdRef.current = null;
       },
       roRef,
+      onAfterRender: afterOsmdRender,
     });
-  }, [zoom]);
+  }, [zoom, afterOsmdRender]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const onClick = (evt: MouseEvent) => {
+      const osmd = osmdRef.current;
+      if (!osmd?.IsReadyToRender() || !onMeasureClickRef.current) return;
+      const hit = hitTestOsmdMeasure(osmd, host, evt);
+      if (hit) onMeasureClickRef.current(hit);
+    };
+    host.addEventListener('click', onClick);
+    return () => host.removeEventListener('click', onClick);
+  }, [xml]);
 
   return (
     <div
       ref={hostRef}
-      className="audiveris-inspect-osmd"
+      className="audiveris-inspect-osmd omr-osmd-clickable"
       style={{
         minHeight: 160,
         minWidth: 'min(100%, 260px)',
@@ -392,6 +446,7 @@ export function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
         border: '1px solid #ddd',
         borderRadius: 6,
         background: '#fff',
+        cursor: onMeasureClick ? 'pointer' : undefined,
       }}
     />
   );

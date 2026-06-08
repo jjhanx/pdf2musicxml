@@ -974,7 +974,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       console.log(`[job ${jobId}] Running merge_lyric_sources.py`);
       const { stdout: mOut, stderr: mErr } = await exec(mergeArgs.join(' '));
       if (mOut) console.log(`[job ${jobId}] merge_lyric_sources.py Output:\n${mOut}`);
-      if (mErr) console.error(`[job ${jobId}] merge_lyric_sources.py Error:\n${mErr}`);
+      if (mErr?.trim()) console.warn(`[job ${jobId}] merge_lyric_sources.py stderr:\n${mErr}`);
       const stripCfgPath = fontStripConfigPath(sessionRoot);
       if (fsSync.existsSync(lyricManifestPath) && fsSync.existsSync(stripCfgPath)) {
         try {

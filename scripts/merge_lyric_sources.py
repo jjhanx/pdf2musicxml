@@ -390,7 +390,6 @@ def main() -> int:
         f"merge_lyric_sources: pdfplumber {stats.get('pdfplumberLines', 0)}줄, "
         f"pymupdf {stats.get('pymupdfItems', 0)}항목, "
         f"병합 {stats.get('mergedFromBoth', 0)}",
-        file=sys.stderr,
     )
     return 0
 

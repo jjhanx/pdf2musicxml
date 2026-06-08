@@ -602,3 +602,120 @@ button.btn-muted {
   padding: 0.35rem 0.65rem;
   font-weight: 600;
 }
+
+.modal-light .omr-hitl-issue-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+}
+
+.modal-light .omr-hitl-fix-btn {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #2e7d32;
+  background: #e8f5e9;
+  color: #1b5e20;
+  cursor: pointer;
+}
+
+.modal-light .omr-hitl-panel {
+  border: 1px solid #c8e6c9;
+  background: #f1f8f4;
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+}
+
+.modal-light .omr-hitl-panel-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 0.35rem;
+}
+
+.modal-light .omr-hitl-panel-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.85rem;
+  color: #444;
+  line-height: 1.5;
+}
+
+.modal-light .omr-hitl-fix-list {
+  margin: 0 0 0.65rem;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.modal-light .omr-hitl-fix-list li {
+  margin-bottom: 0.35rem;
+}
+
+.modal-light .omr-hitl-remove {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.modal-light .omr-hitl-empty {
+  margin: 0 0 0.65rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.modal-light .omr-hitl-actions button:not(.btn-muted) {
+  background: #1565c0;
+  color: #fff;
+  border: none;
+  padding: 0.45rem 0.9rem;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.modal-light .omr-hitl-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.modal-light .omr-hitl-apply-msg {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #1b5e20;
+}
+
+.modal-light .omr-hitl-measure-details {
+  margin-top: 0.75rem;
+  font-size: 0.88rem;
+}
+
+.modal-light .omr-hitl-measure-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  align-items: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.modal-light .omr-hitl-measure-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.modal-light .omr-hitl-measure-err {
+  color: #c62828;
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+
+.modal-light .omr-hitl-note-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.84rem;
+}
+
+.modal-light .omr-hitl-note-list li {
+  margin-bottom: 0.35rem;
+}

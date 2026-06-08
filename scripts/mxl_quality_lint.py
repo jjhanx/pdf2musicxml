@@ -216,6 +216,8 @@ def lint_score_xml(
 
     spurious_directions: list[dict] = []
     trailing_phantom_rests: list[dict] = []
+    rest_staff_issues: list[dict] = []
+    rest_display_high_issues: list[dict] = []
     boundary_order_suspects: list[dict] = []
     tuplet_starts = 0
 
@@ -261,11 +263,22 @@ def lint_score_xml(
             events = _measure_events(measure, ns)
             seq_by_measure.append((mnum, events))
 
+            note_els = [el for el in measure if _local(el) == "note"]
             if len(events) >= 2 and events[-1].startswith("rest:"):
                 rest_type = events[-1].split(":", 1)[1]
                 if rest_type in _TRAILING_REST_TYPES and any(
                     not e.startswith("rest:") for e in events[:-1]
                 ):
+                    trail_idx = None
+                    for ri in range(len(note_els) - 1, -1, -1):
+                        n = note_els[ri]
+                        if n.find(_q(ns, "rest")) is None:
+                            continue
+                        typ = n.find(_q(ns, "type"))
+                        tval = (typ.text or "").strip() if typ is not None and typ.text else ""
+                        if tval == rest_type:
+                            trail_idx = ri
+                            break
                     trailing_phantom_rests.append(
                         {
                             "code": "trailingPhantomRest",
@@ -275,6 +288,55 @@ def lint_score_xml(
                             "measurePrinted": printed,
                             "pageEstimate": page_est,
                             "detail": rest_type,
+                            "noteIndex": trail_idx,
+                        }
+                    )
+
+            staffs_in_measure: set[int] = set()
+            for note in note_els:
+                st_el = note.find(_q(ns, "staff"))
+                if st_el is not None and st_el.text and st_el.text.isdigit():
+                    staffs_in_measure.add(int(st_el.text))
+            max_staff = max(staffs_in_measure) if staffs_in_measure else 1
+
+            for ni, note in enumerate(note_els):
+                rest_el = note.find(_q(ns, "rest"))
+                if rest_el is None:
+                    continue
+                st_el = note.find(_q(ns, "staff"))
+                has_staff = (
+                    st_el is not None and st_el.text and st_el.text.strip().isdigit()
+                )
+                if max_staff >= 2 and not has_staff:
+                    rest_staff_issues.append(
+                        {
+                            "code": "restMissingStaff",
+                            "staff": staff,
+                            "partId": pid,
+                            "measureMxl": mnum,
+                            "measurePrinted": printed,
+                            "pageEstimate": page_est,
+                            "detail": f"staff→{max_staff}",
+                            "noteIndex": ni,
+                            "suggestedStaff": max_staff,
+                        }
+                    )
+                typ = note.find(_q(ns, "type"))
+                tval = (typ.text or "").strip() if typ is not None and typ.text else ""
+                ds = rest_el.find(_q(ns, "display-step"))
+                step = (ds.text or "").strip().upper() if ds is not None and ds.text else ""
+                if tval in ("whole", "half") and step in ("C", "D", "E"):
+                    rest_display_high_issues.append(
+                        {
+                            "code": "restDisplayHigh",
+                            "staff": staff,
+                            "partId": pid,
+                            "measureMxl": mnum,
+                            "measurePrinted": printed,
+                            "pageEstimate": page_est,
+                            "detail": f"{tval}:{step}",
+                            "noteIndex": ni,
+                            "suggestedLineDelta": 1,
                         }
                     )
 
@@ -316,6 +378,8 @@ def lint_score_xml(
     issues = (
         spurious_directions
         + trailing_phantom_rests
+        + rest_staff_issues
+        + rest_display_high_issues
         + boundary_order_suspects
     )
 
@@ -341,6 +405,8 @@ def lint_score_xml(
         "summary": {
             "spuriousDirection": len(spurious_directions),
             "trailingPhantomRest": len(trailing_phantom_rests),
+            "restMissingStaff": len(rest_staff_issues),
+            "restDisplayHigh": len(rest_display_high_issues),
             "measureBoundaryOrderSuspect": len(boundary_order_suspects),
             "tupletStartTags": tuplet_starts,
         },

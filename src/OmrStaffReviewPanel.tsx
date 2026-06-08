@@ -1,15 +1,41 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { relabelLintReport } from './partLabelRelabel';
+import {
+  isActionableLintCode,
+  lintIssueToFix,
+  LINT_CODE_LABEL,
+  mergeFix,
+  type OmrHitlFix,
+} from './omrHitlFixes';
 
 type MxlLintIssue = {
   code: string;
   staff?: string;
+  partId?: string;
   measurePrinted?: string | null;
   measureMxl?: string;
   measurePrintedA?: string | null;
   measurePrintedB?: string | null;
   pageEstimate?: number | string;
   detail?: string;
+  noteIndex?: number;
+  suggestedStaff?: number;
+  suggestedLineDelta?: number;
+};
+
+type ScorePartRow = {
+  id: string;
+  index: number;
+  suggestedLabel: string;
+};
+
+type MeasureNoteRow = {
+  index: number;
+  kind: string;
+  type?: string | null;
+  staff?: number | null;
+  displayStep?: string | null;
+  displayOctave?: string | null;
 };
 
 type MxlLintReport = {
@@ -45,6 +71,8 @@ const CODE_LABEL: Record<string, string> = {
   spuriousDirection: 'P·9 등',
   trailingPhantomRest: '마디 끝 쉼표',
   measureBoundaryOrderSuspect: '마디 경계 순서',
+  restMissingStaff: '쉼표 스태프 누락',
+  restDisplayHigh: '쉼표 줄 높음',
 };
 
 function issuePage(iss: MxlLintIssue): number {
@@ -60,7 +88,13 @@ function staffKey(iss: MxlLintIssue): string {
 
 function issueChipClass(code: string): string {
   if (code === 'measureBoundaryOrderSuspect') return 'omr-issue-chip omr-issue-chip--order';
-  if (code === 'trailingPhantomRest') return 'omr-issue-chip omr-issue-chip--rest';
+  if (
+    code === 'trailingPhantomRest' ||
+    code === 'restMissingStaff' ||
+    code === 'restDisplayHigh'
+  ) {
+    return 'omr-issue-chip omr-issue-chip--rest';
+  }
   return 'omr-issue-chip';
 }
 
@@ -93,6 +127,15 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [loadErr, setLoadErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [showAllIssues, setShowAllIssues] = useState(false);
+  const [pendingFixes, setPendingFixes] = useState<OmrHitlFix[]>([]);
+  const [scoreParts, setScoreParts] = useState<ScorePartRow[]>([]);
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [applyMsg, setApplyMsg] = useState('');
+  const [measureStaff, setMeasureStaff] = useState('');
+  const [measurePrinted, setMeasurePrinted] = useState('');
+  const [measureNotes, setMeasureNotes] = useState<MeasureNoteRow[]>([]);
+  const [measureLoadErr, setMeasureLoadErr] = useState('');
+  const [measureBusy, setMeasureBusy] = useState(false);
 
   const pageCount = Math.max(
     1,
@@ -137,21 +180,59 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return body;
   }, [jobId]);
 
+  const persistFixes = useCallback(
+    async (fixes: OmrHitlFix[]) => {
+      const r = await fetch(`/api/omr-hitl/${jobId}/fixes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fixes }),
+      });
+      if (!r.ok) {
+        const j = (await r.json()) as { error?: string };
+        throw new Error(j.error ?? `HTTP ${r.status}`);
+      }
+    },
+    [jobId],
+  );
+
+  const reloadLint = useCallback(async () => {
+    const lint = await fetchFullLint();
+    setFullReport(lint);
+    return lint;
+  }, [fetchFullLint]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setLoadErr('');
     void (async () => {
       try {
-        const [sumRes, polRes, lint] = await Promise.all([
+        const [sumRes, polRes, lint, fixesRes, partsRes] = await Promise.all([
           fetch(`/api/diagnostic/${jobId}/summary`, { cache: 'no-store' }),
           fetch(`/api/diagnostic/${jobId}/omr-policy`, { cache: 'no-store' }),
           fetchFullLint(),
+          fetch(`/api/omr-hitl/${jobId}/fixes`, { cache: 'no-store' }),
+          fetch(`/api/diagnostic/${jobId}/score-parts`, { cache: 'no-store' }),
         ]);
         if (cancelled) return;
         if (sumRes.ok) setSummary((await sumRes.json()) as InspectSummary);
         if (polRes.ok) setPolicy((await polRes.json()) as OmrPolicy);
         setFullReport(lint);
+        if (fixesRes.ok) {
+          const fj = (await fixesRes.json()) as { fixes?: OmrHitlFix[] };
+          if (Array.isArray(fj.fixes)) setPendingFixes(fj.fixes);
+        }
+        if (partsRes.ok) {
+          const pj = (await partsRes.json()) as { parts?: ScorePartRow[] };
+          const list = Array.isArray(pj.parts) ? pj.parts : [];
+          setScoreParts(
+            list.map((p) => ({
+              id: p.id,
+              index: p.index,
+              suggestedLabel: p.suggestedLabel,
+            })),
+          );
+        }
         if (lint.lintUnavailable && lint.lintError) {
           setLoadErr('');
         }
@@ -165,6 +246,112 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       cancelled = true;
     };
   }, [jobId, fetchFullLint]);
+
+  const partIdForStaff = useCallback(
+    (staffLabel: string): string | null => {
+      const labels =
+        fullReport?.partLabelsByIndex?.filter((l) => l && String(l).trim()) ??
+        fullReport?.staffOrderHint ??
+        [];
+      const idx = labels.indexOf(staffLabel);
+      if (idx >= 0 && scoreParts[idx]) return scoreParts[idx].id;
+      const hit = scoreParts.find((p) => p.suggestedLabel === staffLabel);
+      return hit?.id ?? null;
+    },
+    [fullReport?.partLabelsByIndex, fullReport?.staffOrderHint, scoreParts],
+  );
+
+  const addFix = useCallback(
+    (fix: OmrHitlFix) => {
+      setPendingFixes((prev) => {
+        const next = mergeFix(prev, fix);
+        void persistFixes(next).catch((e) => {
+          console.error(e);
+          alert(e instanceof Error ? e.message : String(e));
+        });
+        return next;
+      });
+    },
+    [persistFixes],
+  );
+
+  const removeFix = useCallback(
+    (id: string) => {
+      setPendingFixes((prev) => {
+        const next = prev.filter((f) => f.id !== id);
+        void persistFixes(next).catch(console.error);
+        return next;
+      });
+    },
+    [persistFixes],
+  );
+
+  const applyFixesToMxl = useCallback(async () => {
+    setApplyBusy(true);
+    setApplyMsg('');
+    try {
+      await persistFixes(pendingFixes);
+      const r = await fetch(`/api/omr-hitl/${jobId}/apply`, { method: 'POST' });
+      if (!r.ok) {
+        const j = (await r.json()) as { error?: string };
+        throw new Error(j.error ?? `HTTP ${r.status}`);
+      }
+      const j = (await r.json()) as {
+        stats?: { applied?: number; skipped?: number };
+        lint?: MxlLintReport;
+      };
+      if (j.lint) setFullReport(j.lint);
+      else await reloadLint();
+      const applied = j.stats?.applied ?? 0;
+      const skipped = j.stats?.skipped ?? 0;
+      setPendingFixes([]);
+      await persistFixes([]);
+      setApplyMsg(`MXL에 보정 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 아래 lint가 갱신되었습니다.`);
+    } catch (e) {
+      setApplyMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setApplyBusy(false);
+    }
+  }, [jobId, pendingFixes, persistFixes, reloadLint]);
+
+  const loadMeasureNotes = useCallback(async () => {
+    const staff = measureStaff.trim();
+    const printed = measurePrinted.trim();
+    if (!staff || !printed) {
+      setMeasureLoadErr('성부와 인쇄 마디 번호를 입력하세요.');
+      return;
+    }
+    const offset = fullReport?.measureOffsetPrinted ?? policy?.measureOffsetPrinted ?? 1;
+    const measureMxl = String(Math.max(1, parseInt(printed, 10) - offset));
+    const partId = partIdForStaff(staff);
+    if (!partId) {
+      setMeasureLoadErr(`성부 ${staff}에 해당하는 partId를 찾지 못했습니다.`);
+      return;
+    }
+    setMeasureBusy(true);
+    setMeasureLoadErr('');
+    try {
+      const r = await fetch(
+        `/api/omr-hitl/${jobId}/measure?partId=${encodeURIComponent(partId)}&measureMxl=${encodeURIComponent(measureMxl)}`,
+        { cache: 'no-store' },
+      );
+      const j = (await r.json()) as { notes?: MeasureNoteRow[]; error?: string };
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      setMeasureNotes(Array.isArray(j.notes) ? j.notes : []);
+    } catch (e) {
+      setMeasureLoadErr(e instanceof Error ? e.message : String(e));
+      setMeasureNotes([]);
+    } finally {
+      setMeasureBusy(false);
+    }
+  }, [
+    measureStaff,
+    measurePrinted,
+    fullReport?.measureOffsetPrinted,
+    policy?.measureOffsetPrinted,
+    partIdForStaff,
+    jobId,
+  ]);
 
   const allIssues = fullReport?.issues ?? [];
   const totalIssueCount = fullReport?.issueCount ?? allIssues.length;
@@ -234,7 +421,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       <div>
         <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.2rem' }}>OMR 품질 검토 (페이지×성부)</h2>
         <p style={{ margin: 0, lineHeight: 1.55, fontSize: '0.92rem' }}>
-          Audiveris 직후 MXL을 자동 점검합니다. 성부는 사용자가 지정한 라벨(
+          Audiveris 직후 MXL을 자동 점검합니다. <strong>앱 안에서</strong> lint 항목·쉼표 위치를
+          보정한 뒤 「보정 MXL에 적용」→「이어하기」를 누르면 최종 MXL에 반영됩니다(MuseScore
+          불필요). 성부 라벨(
           {activePartLabels.length > 0 ? (
             <strong>{activePartLabels.join(' / ')}</strong>
           ) : (
@@ -322,9 +511,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             src={`/api/diagnostic/${jobId}/page/${page}/png?source=${pngSource}&dpi=${pngDpi}`}
           />
         </div>
-        <a href={`/api/raw-mxl/${jobId}`} download style={{ display: 'inline-block', marginTop: 8, fontSize: '0.88rem' }}>
-          Audiveris 원본 MXL 다운로드
-        </a>
       </div>
 
       {!lintFailed && displayIssues.length > 0 && (
@@ -346,20 +532,159 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             <span>
               <span className="omr-issue-chip omr-issue-chip--order">예</span> 마디 경계 순서
             </span>
+            <span>
+              <span className="omr-issue-chip omr-issue-chip--rest">예</span> 쉼표 줄·스태프
+            </span>
           </div>
           <div className="omr-lint-results-chips">
             {displayIssues.map((iss, idx) => (
-              <span
-                key={`chip-${idx}`}
-                className={issueChipClass(iss.code)}
-                title={CODE_LABEL[iss.code] ?? iss.code}
-              >
-                {formatIssueShort(iss, { showPage: useAllIssues, showStaff: true })}
-              </span>
+              <div key={`chip-${idx}`} className="omr-hitl-issue-row">
+                <span
+                  className={issueChipClass(iss.code)}
+                  title={CODE_LABEL[iss.code] ?? iss.code}
+                >
+                  {formatIssueShort(iss, { showPage: useAllIssues, showStaff: true })}
+                </span>
+                {isActionableLintCode(iss.code) && (
+                  <button
+                    type="button"
+                    className="omr-hitl-fix-btn"
+                    onClick={() => {
+                      const fix = lintIssueToFix(iss);
+                      if (fix) addFix(fix);
+                    }}
+                  >
+                    + {LINT_CODE_LABEL[iss.code] ?? '보정 추가'}
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>
       )}
+
+      <div className="omr-hitl-panel">
+        <div className="omr-hitl-panel-title">앱 내 MXL 보정 (대기 {pendingFixes.length}건)</div>
+        <p className="omr-hitl-panel-hint">
+          보정을 추가한 뒤 「보정 MXL에 적용」으로 Audiveris MXL을 갱신하세요. 이어하기 시에도
+          자동 적용됩니다.
+        </p>
+        {pendingFixes.length > 0 ? (
+          <ul className="omr-hitl-fix-list">
+            {pendingFixes.map((f) => (
+              <li key={f.id}>
+                <code>{f.kind}</code> · {f.partId} · m.{f.measureMxl}
+                {f.noteIndex != null ? ` · note#${f.noteIndex}` : ''}
+                <button type="button" className="btn-muted omr-hitl-remove" onClick={() => removeFix(f.id)}>
+                  삭제
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="omr-hitl-empty">대기 중인 보정 없음 — lint 칩의 「+ 보정」 또는 아래 수동 쉼표 조정을 사용하세요.</p>
+        )}
+        <div className="omr-hitl-actions">
+          <button type="button" disabled={applyBusy || pendingFixes.length === 0} onClick={() => void applyFixesToMxl()}>
+            {applyBusy ? '적용 중…' : '보정 MXL에 적용'}
+          </button>
+        </div>
+        {applyMsg ? <p className="omr-hitl-apply-msg">{applyMsg}</p> : null}
+
+        <details className="omr-hitl-measure-details">
+          <summary>수동 — 마디별 쉼표 줄 조정</summary>
+          <p style={{ fontSize: '0.85rem', margin: '0.5rem 0', color: '#444' }}>
+            인쇄 마디 번호(악보에 인쇄된 번호)와 성부를 넣고 불러온 뒤, 쉼표에 「한 줄 아래」를
+            누르세요.
+          </p>
+          <div className="omr-hitl-measure-form">
+            <label>
+              성부
+              <select value={measureStaff} onChange={(e) => setMeasureStaff(e.target.value)}>
+                <option value="">선택</option>
+                {staffList.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              인쇄 마디
+              <input
+                type="number"
+                min={1}
+                value={measurePrinted}
+                onChange={(e) => setMeasurePrinted(e.target.value)}
+                style={{ width: 72 }}
+              />
+            </label>
+            <button type="button" disabled={measureBusy} onClick={() => void loadMeasureNotes()}>
+              {measureBusy ? '불러오는 중…' : '마디 불러오기'}
+            </button>
+          </div>
+          {measureLoadErr ? <p className="omr-hitl-measure-err">{measureLoadErr}</p> : null}
+          {measureNotes.length > 0 && (
+            <ul className="omr-hitl-note-list">
+              {measureNotes
+                .filter((n) => n.kind === 'rest')
+                .map((n) => (
+                  <li key={n.index}>
+                    쉼표 #{n.index} {n.type ?? ''}{' '}
+                    {n.displayStep ? `(${n.displayStep}${n.displayOctave ?? ''})` : ''}
+                    {n.staff != null ? ` staff=${n.staff}` : ''}
+                    <button
+                      type="button"
+                      className="omr-hitl-fix-btn"
+                      onClick={() => {
+                        const partId = partIdForStaff(measureStaff);
+                        if (!partId) return;
+                        const offset = fullReport?.measureOffsetPrinted ?? 1;
+                        const measureMxl = String(
+                          Math.max(1, parseInt(measurePrinted, 10) - offset),
+                        );
+                        addFix({
+                          id: crypto.randomUUID(),
+                          kind: 'nudgeRestDisplay',
+                          partId,
+                          measureMxl,
+                          noteIndex: n.index,
+                          lineDelta: 1,
+                          source: 'manual',
+                        });
+                      }}
+                    >
+                      한 줄 아래
+                    </button>
+                    <button
+                      type="button"
+                      className="omr-hitl-fix-btn"
+                      onClick={() => {
+                        const partId = partIdForStaff(measureStaff);
+                        if (!partId) return;
+                        const offset = fullReport?.measureOffsetPrinted ?? 1;
+                        const measureMxl = String(
+                          Math.max(1, parseInt(measurePrinted, 10) - offset),
+                        );
+                        addFix({
+                          id: crypto.randomUUID(),
+                          kind: 'nudgeRestDisplay',
+                          partId,
+                          measureMxl,
+                          noteIndex: n.index,
+                          lineDelta: -1,
+                          source: 'manual',
+                        });
+                      }}
+                    >
+                      한 줄 위
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </details>
+      </div>
 
       <div>
         {!lintFailed && totalIssueCount > 0 && pageIssues.length === 0 && !showAllIssues && (

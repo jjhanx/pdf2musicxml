@@ -317,6 +317,10 @@ function sessionMxlLintPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'mxl_lint.json');
 }
 
+function sessionOmrHitlFixesPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'omr_hitl_fixes.json');
+}
+
 function parseLabelsByIndexFile(raw: unknown): string[] | null {
   if (!raw || typeof raw !== 'object') return null;
   const labelsByIndex = (raw as { labelsByIndex?: unknown }).labelsByIndex;
@@ -603,6 +607,50 @@ function collectScorePathsForLabeling(outputs: string[], extra: string[]): strin
     if (isScoreOutputPath(p) && fsSync.existsSync(p)) seen.add(p);
   }
   return [...seen];
+}
+
+async function applyOmrHitlFixesToScoreFile(
+  sessionRoot: string,
+  scorePath: string,
+  pythonBin: string,
+): Promise<{ applied: number; skipped: number } | null> {
+  const fixesPath = sessionOmrHitlFixesPath(sessionRoot);
+  if (!fsSync.existsSync(fixesPath)) return null;
+  const script = path.join(__dirname, '..', 'scripts', 'apply_omr_hitl_fixes.py');
+  if (!fsSync.existsSync(script)) return null;
+  try {
+    const { stdout, stderr } = await exec(
+      `"${pythonBin}" "${script}" "${scorePath}" --fixes-json "${fixesPath}"`,
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    const line = String(stdout).trim();
+    if (stderr?.trim()) console.warn(`apply_omr_hitl_fixes stderr (${scorePath}): ${stderr.trim()}`);
+    if (!line) return { applied: 0, skipped: 0 };
+    const parsed = JSON.parse(line) as { applied?: number; skipped?: number };
+    console.log(
+      `apply_omr_hitl_fixes (${scorePath}): applied=${parsed.applied ?? 0} skipped=${parsed.skipped ?? 0}`,
+    );
+    return { applied: parsed.applied ?? 0, skipped: parsed.skipped ?? 0 };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`apply_omr_hitl_fixes failed (${scorePath}): ${msg}`);
+    return null;
+  }
+}
+
+async function applyOmrHitlFixesForJob(job: JobRecord, pythonBin: string): Promise<void> {
+  const paths = job.preInjectMxlPaths?.filter((p) => p && fsSync.existsSync(p)) ?? [];
+  for (const p of paths) {
+    await applyOmrHitlFixesToScoreFile(job.sessionRoot, p, pythonBin);
+  }
+  const lintCache = sessionMxlLintPath(job.sessionRoot);
+  if (fsSync.existsSync(lintCache)) {
+    await fs.unlink(lintCache).catch(() => {});
+  }
+  const inspectXml = path.join(job.sessionRoot, '.diag-cache', 'inspect-score.musicxml');
+  if (fsSync.existsSync(inspectXml)) {
+    await fs.unlink(inspectXml).catch(() => {});
+  }
 }
 
 async function applyPartLabelsToScoreFile(
@@ -2366,34 +2414,150 @@ app.get('/api/raw-mxl/:jobId', (req, res) => {
   });
 });
 
-app.post('/api/continue-omr-staff-review/:jobId', (req, res) => {
+app.get('/api/omr-hitl/:jobId/fixes', async (req, res) => {
+  noCacheJson(res);
   const job = jobs.get(req.params.jobId);
-  if (!job) {
-    res.status(404).json({
-      error: '작업을 찾을 수 없습니다. 서버 재시작(pm2 restart) 후에는 변환을 처음부터 다시 시작하세요.',
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: 'OMR HITL 보정을 조회할 수 있는 작업이 아닙니다' });
+    return;
+  }
+  const fixesPath = sessionOmrHitlFixesPath(job.sessionRoot);
+  try {
+    if (!fsSync.existsSync(fixesPath)) {
+      res.json({ version: 1, fixes: [] });
+      return;
+    }
+    const raw = JSON.parse(await fs.readFile(fixesPath, 'utf8')) as { fixes?: unknown };
+    res.json({
+      version: 1,
+      fixes: Array.isArray(raw.fixes) ? raw.fixes : [],
     });
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/omr-hitl/:jobId/fixes', express.json({ limit: '512kb' }), async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'omr_staff_review_needed') {
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 보정을 저장할 수 있습니다' });
     return;
   }
-  if (
-    job.status === 'processing' ||
-    job.status === 'audiveris_review_needed' ||
-    job.status === 'completed'
-  ) {
-    res.json({ ok: true, alreadyContinued: true });
+  const body = req.body as { fixes?: unknown };
+  if (!Array.isArray(body.fixes)) {
+    res.status(400).json({ error: 'fixes 배열이 필요합니다' });
     return;
   }
-  if (job.status !== 'omr_staff_review_needed' || !job.omrStaffReviewDeferred) {
-    const hint =
-      job.status === 'part_labels_needed'
-        ? '성부 라벨 지정 모달에서 확정한 뒤 OMR 검토 단계로 넘어가세요.'
-        : `현재 상태: ${job.status}`;
-    res.status(400).json({ error: 'OMR 페이지·성부 검토 대기 상태가 아닙니다', detail: hint });
+  try {
+    const payload = {
+      version: 1,
+      fixes: body.fixes,
+      savedAt: new Date().toISOString(),
+    };
+    await fs.writeFile(sessionOmrHitlFixesPath(job.sessionRoot), JSON.stringify(payload, null, 2), 'utf8');
+    res.json({ ok: true, count: body.fixes.length });
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/omr-hitl/:jobId/measure', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!diagnosticJobsAllowed(job)) {
+    res.status(404).json({ error: '마디 조회를 할 수 있는 작업이 아닙니다' });
     return;
   }
-  job.status = 'processing';
-  job.omrStaffReviewDeferred.resolve();
-  delete job.omrStaffReviewDeferred;
-  res.json({ ok: true });
+  const partId = typeof req.query.partId === 'string' ? req.query.partId.trim() : '';
+  const measureMxl = typeof req.query.measureMxl === 'string' ? req.query.measureMxl.trim() : '';
+  if (!partId || !measureMxl) {
+    res.status(400).json({ error: 'partId, measureMxl 쿼리가 필요합니다' });
+    return;
+  }
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  if (!mxlPath) {
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
+    return;
+  }
+  const script = path.join(__dirname, '..', 'scripts', 'omr_hitl_measure_cli.py');
+  const pythonBin = resolvePythonBin();
+  try {
+    const { stdout } = await exec(
+      `"${pythonBin}" "${script}" "${mxlPath}" --part-id "${partId}" --measure "${measureMxl}"`,
+      { maxBuffer: 4 * 1024 * 1024 },
+    );
+    res.json(JSON.parse(String(stdout).trim()));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!res.headersSent) res.status(500).json({ error: msg });
+  }
+});
+
+app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'omr_staff_review_needed') {
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 보정을 적용할 수 있습니다' });
+    return;
+  }
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  if (!mxlPath) {
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
+    return;
+  }
+  const pythonBin = resolvePythonBin();
+  try {
+    const stats = await applyOmrHitlFixesToScoreFile(job.sessionRoot, mxlPath, pythonBin);
+    const lintCache = sessionMxlLintPath(job.sessionRoot);
+    if (fsSync.existsSync(lintCache)) await fs.unlink(lintCache).catch(() => {});
+    const inspectXml = path.join(job.sessionRoot, '.diag-cache', 'inspect-score.musicxml');
+    if (fsSync.existsSync(inspectXml)) await fs.unlink(inspectXml).catch(() => {});
+    let lintReport: Record<string, unknown> | null = null;
+    try {
+      lintReport = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
+    } catch (lintErr) {
+      const msg = lintErr instanceof Error ? lintErr.message : String(lintErr);
+      console.warn(`[job ${req.params.jobId}] mxl lint after HITL apply: ${msg}`);
+    }
+    res.json({ ok: true, stats, lint: lintReport });
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/continue-omr-staff-review/:jobId', (req, res) => {
+  void (async () => {
+    const job = jobs.get(req.params.jobId);
+    if (!job) {
+      res.status(404).json({
+        error: '작업을 찾을 수 없습니다. 서버 재시작(pm2 restart) 후에는 변환을 처음부터 다시 시작하세요.',
+      });
+      return;
+    }
+    if (
+      job.status === 'processing' ||
+      job.status === 'audiveris_review_needed' ||
+      job.status === 'completed'
+    ) {
+      res.json({ ok: true, alreadyContinued: true });
+      return;
+    }
+    if (job.status !== 'omr_staff_review_needed' || !job.omrStaffReviewDeferred) {
+      const hint =
+        job.status === 'part_labels_needed'
+          ? '성부 라벨 지정 모달에서 확정한 뒤 OMR 검토 단계로 넘어가세요.'
+          : `현재 상태: ${job.status}`;
+      res.status(400).json({ error: 'OMR 페이지·성부 검토 대기 상태가 아닙니다', detail: hint });
+      return;
+    }
+    const pythonBin = resolvePythonBin();
+    await applyOmrHitlFixesForJob(job, pythonBin);
+    job.status = 'processing';
+    job.omrStaffReviewDeferred.resolve();
+    delete job.omrStaffReviewDeferred;
+    res.json({ ok: true });
+  })();
 });
 
 app.post('/api/continue-audiveris/:jobId', (req, res) => {

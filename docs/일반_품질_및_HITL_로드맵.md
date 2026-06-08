@@ -10,7 +10,7 @@
 | 2 | **OMR 정책 노출**: OCR `eng`, TextWord 상수, P 유발 경로 | `GET /api/diagnostic/:jobId/omr-policy`, `shared/audiveris.ts` |
 | 3 | **MXL lint**: 악보 무관 휴리스틱 (P direction, 마디 끝 쉼표, 마디 경계 순서) | `scripts/mxl_quality_lint.py`, `GET …/mxl-lint` |
 | 4a | **성부 라벨 지정**: Audiveris MXL part-list → S/A/T/B/PR/PL 등 (PDF **p.** 와 구분) | `part_labels_needed`, `part_labels.json` |
-| 4b | **페이지×staff HITL**: lint UI → 이어하기 | `omr_staff_review_needed`, `OmrStaffReviewPanel` |
+| 4b | **페이지×staff HITL**: lint → **앱 내 MXL 보정** → 이어하기 | `omr_staff_review_needed`, `omr_hitl_fixes.json`, `apply_omr_hitl_fixes.py` |
 | 5 | (선택) Audiveris 보정·마스킹 점검 | `audiveris_review_needed`, `AudiverisInspectPanel` |
 | 6 | (장기) SYMBOLS/BEAMS 단계별 HITL | Audiveris GUI·패치·별도 도구 |
 
@@ -71,11 +71,12 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 2. Audiveris 종료 후 **성부 라벨 지정** 모달(OMR HITL 켜짐 시, 매 변환마다) — 확정 시 `part_labels.json`. 문자 검토만 끝낸 경우 `part_labels_preset.json`만 있어도 MXL·lint에 초안이 쓰이며, 완료 직전 서버가 `part_labels.json`으로 복사할 수 있습니다. 확정·초안 라벨은 **최종 MXL/MusicXML**의 `<part-name>`(내부 `<display-text>` 포함)·`instrument-name`·`midi-name` 등에 쓰입니다. Audiveris 기본 **Voice**는 `scripts/apply_part_labels.py`와 `inject_ocr.py` 마지막 단계에서 덮어씁니다. `PR`·`PL` → **Piano**(`Pno.`).
 3. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
 4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
-5. **OMR 페이지·성부 품질 검토** 모달:
-   - 상단 **PDF 미리보기**(156 DPI, 페이지 너비)와 대조.
-   - **Lint 칩은 PDF 이미지 위가 아님** — PDF 바로 아래 **파란 테두리 박스**「Lint 결과」에 표시. 성부별 회색 줄은 같은 내용을 성부로 나눈 보기. 칩·성부 이름은 **`part_labels.json` 라벨**(S/A/T/B 등)을 쓰며 MusicXML `P1`·`P3` id와 다릅니다.
-   - `mxl-lint` 실패 시 노란 안내에 **Python 오류 요약**이 표시됨 — PDF만 보고 **이어하기** 가능.
-   - **이어하기** → 가사·메타 `inject_ocr` 단계로 진행.
+5. **OMR 페이지·성부 품질 검토** 모달 (MuseScore **불필요**):
+   - 상단 **PDF 미리보기**(156 DPI)와 대조.
+   - **Lint** 칩 옆 **「+ 보정」** — P·9 direction 제거, 마디 끝 쉼표 제거, 쉼표 스태프·줄 높이 등을 `omr_hitl_fixes.json`에 쌓음.
+   - **「보정 MXL에 적용」** — Audiveris MXL(`preInject`)에 `apply_omr_hitl_fixes.py` 반영 후 lint 재생성.
+   - **수동 — 마디별 쉼표 줄 조정**: 인쇄 마디·성부로 쉼표를 불러와 「한 줄 아래/위」.
+   - **이어하기** — 대기 보정을 MXL에 적용한 뒤 `inject_ocr`·최종 MXL로 진행.
 6. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요.
 7. OMR HITL을 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
 
@@ -100,7 +101,10 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 |--------|------|------|
 | GET | `/api/diagnostic/:jobId/omr-policy` | OCR·상수·P 유발 경로 |
 | GET | `/api/diagnostic/:jobId/mxl-lint?page=&staff=` | job별 lint. `part_labels.json`이 lint보다 최신이면 재생성·라벨 반영. `regen=1` 강제 재생성 |
-| POST | `/api/continue-omr-staff-review/:jobId` | OMR HITL 이어하기 |
+| GET/POST | `/api/omr-hitl/:jobId/fixes` | 대기 중 OMR 보정 목록 |
+| POST | `/api/omr-hitl/:jobId/apply` | 보정을 MXL에 적용·lint 재생성 |
+| GET | `/api/omr-hitl/:jobId/measure?partId=&measureMxl=` | 마디 내 음·쉼 목록 |
+| POST | `/api/continue-omr-staff-review/:jobId` | OMR HITL 이어하기(보정 자동 적용) |
 | GET | `/api/raw-mxl/:jobId` | `omr_staff_review_needed`·`audiveris_review_needed` 시 원본 MXL |
 
 ## 관련 문서

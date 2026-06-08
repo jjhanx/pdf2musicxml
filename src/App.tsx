@@ -1812,7 +1812,7 @@ bash scripts/install-font-separator-deps.sh`}
               style={{
                 padding: '1.25rem 1.5rem',
                 borderRadius: '8px',
-                maxWidth: 'min(1400px, 98vw)',
+                maxWidth: 'min(1680px, 98vw)',
                 width: '100%',
                 maxHeight: '94vh',
                 overflow: 'auto',

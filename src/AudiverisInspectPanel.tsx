@@ -94,7 +94,7 @@ export type InspectSummary = {
   scoreMusicXmlAvailable: boolean;
 };
 
-function parseScoreParts(xml: string): { id: string; name: string }[] {
+export function parseScoreParts(xml: string): { id: string; name: string }[] {
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return [];
@@ -113,7 +113,7 @@ function parseScoreParts(xml: string): { id: string; name: string }[] {
   }
 }
 
-function filterMusicXmlToPart(xml: string, partId: string | null): string {
+export function filterMusicXmlToPart(xml: string, partId: string | null): string {
   if (!partId) return xml;
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -265,7 +265,7 @@ function scheduleOsmdRender(opts: {
   requestAnimationFrame(tick);
 }
 
-function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
+export function OsmdBlock({ xml, zoom }: { xml: string; zoom: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const zoomRef = useRef(zoom);

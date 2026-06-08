@@ -554,6 +554,79 @@ button.btn-muted {
   height: auto;
 }
 
+.modal-light .omr-compare-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem 1rem;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .modal-light .omr-compare-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.modal-light .omr-compare-col--mxl {
+  min-width: 0;
+}
+
+.modal-light .omr-mxl-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 0.75rem;
+  margin-bottom: 6px;
+}
+
+.modal-light .omr-mxl-preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.modal-light .omr-zoom-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: #444;
+}
+
+.modal-light .omr-zoom-label input[type='range'] {
+  width: 88px;
+}
+
+.modal-light .omr-mxl-osmd-frame {
+  width: 100%;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  background: #fff;
+  overflow: auto;
+  max-height: min(68vh, 900px);
+  min-height: 180px;
+}
+
+.modal-light .omr-mxl-osmd-placeholder {
+  padding: 1rem;
+  font-size: 0.86rem;
+  color: #555;
+  margin: 0;
+}
+
+.modal-light .omr-mxl-osmd-err {
+  color: #b71c1c;
+}
+
+.modal-light .omr-mxl-preview-hint {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  color: #666;
+  line-height: 1.4;
+}
+
 /* PDF 아래 lint 칩 — 악보 이미지와 별도 영역 */
 .modal-light .omr-lint-results-panel {
   border: 2px solid #1565c0;

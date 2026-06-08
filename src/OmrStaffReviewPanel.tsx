@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  filterMusicXmlToPart,
+  InspectPanelErrorBoundary,
+  OsmdBlock,
+} from './AudiverisInspectPanel';
 import { relabelLintReport } from './partLabelRelabel';
 import {
   isActionableLintCode,
@@ -136,6 +141,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [measureNotes, setMeasureNotes] = useState<MeasureNoteRow[]>([]);
   const [measureLoadErr, setMeasureLoadErr] = useState('');
   const [measureBusy, setMeasureBusy] = useState(false);
+  const [rawXml, setRawXml] = useState<string | null>(null);
+  const [xmlLoading, setXmlLoading] = useState(false);
+  const [xmlLoadErr, setXmlLoadErr] = useState('');
+  const [osmdPartId, setOsmdPartId] = useState('');
+  const [scoreZoom, setScoreZoom] = useState(0.55);
 
   const pageCount = Math.max(
     1,
@@ -201,6 +211,24 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return lint;
   }, [fetchFullLint]);
 
+  const refreshScoreXml = useCallback(async () => {
+    setXmlLoading(true);
+    setXmlLoadErr('');
+    try {
+      const r = await fetch(`/api/diagnostic/${jobId}/score-musicxml`, { cache: 'no-store' });
+      if (!r.ok) {
+        const j = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `HTTP ${r.status}`);
+      }
+      setRawXml(await r.text());
+    } catch (e) {
+      setRawXml(null);
+      setXmlLoadErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setXmlLoading(false);
+    }
+  }, [jobId]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -236,6 +264,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         if (lint.lintUnavailable && lint.lintError) {
           setLoadErr('');
         }
+        if (!cancelled) void refreshScoreXml();
       } catch (e) {
         if (!cancelled) setLoadErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -245,7 +274,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [jobId, fetchFullLint]);
+  }, [jobId, fetchFullLint, refreshScoreXml]);
 
   const partIdForStaff = useCallback(
     (staffLabel: string): string | null => {
@@ -260,6 +289,15 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     },
     [fullReport?.partLabelsByIndex, fullReport?.staffOrderHint, scoreParts],
   );
+
+  useEffect(() => {
+    if (staffFilter) {
+      const pid = partIdForStaff(staffFilter);
+      setOsmdPartId(pid ?? '');
+    } else {
+      setOsmdPartId('');
+    }
+  }, [staffFilter, partIdForStaff]);
 
   const addFix = useCallback(
     (fix: OmrHitlFix) => {
@@ -302,6 +340,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       };
       if (j.lint) setFullReport(j.lint);
       else await reloadLint();
+      await refreshScoreXml();
       const applied = j.stats?.applied ?? 0;
       const skipped = j.stats?.skipped ?? 0;
       setPendingFixes([]);
@@ -312,7 +351,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     } finally {
       setApplyBusy(false);
     }
-  }, [jobId, pendingFixes, persistFixes, reloadLint]);
+  }, [jobId, pendingFixes, persistFixes, reloadLint, refreshScoreXml]);
 
   const loadMeasureNotes = useCallback(async () => {
     const staff = measureStaff.trim();
@@ -416,6 +455,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     fullReport?.staffOrderHint?.filter((l) => l && String(l).trim()) ??
     [];
 
+  const filteredXml = rawXml ? filterMusicXmlToPart(rawXml, osmdPartId || null) : '';
+
   return (
     <div className="modal-light" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
       <div>
@@ -429,8 +470,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ) : (
             <strong>S/A/T/B/PR/PL</strong>
           )}
-          )로 표시됩니다(PDF <strong>페이지 p.</strong>와 다름). Lint 칩은 PDF 아래{' '}
-          <strong>파란 박스</strong>에 있습니다. 인쇄 마디 ≈ MXL <code>measure@number</code> + {offset}.
+          )로 표시됩니다(PDF <strong>페이지 p.</strong>와 다름). <strong>오른쪽 MusicXML 미리보기</strong>로
+          Audiveris MXL을 PDF와 나란히 대조하세요. 성부 필터를 쓰면 MXL도 해당 파트만 표시됩니다. 인쇄 마디 ≈
+          MXL <code>measure@number</code> + {offset}.
         </p>
       </div>
 
@@ -501,15 +543,57 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         ))}
       </div>
 
-      <div>
-        <div style={{ fontSize: '0.88rem', marginBottom: 6, fontWeight: 600, color: '#333' }}>
-          PDF 미리보기 ({pngSource === 'clean_score' ? 'clean_score' : '원본'}) · p.{page} · {pngDpi} DPI
+      <div className="omr-compare-row">
+        <div className="omr-compare-col">
+          <div style={{ fontSize: '0.88rem', marginBottom: 6, fontWeight: 600, color: '#333' }}>
+            PDF ({pngSource === 'clean_score' ? 'clean_score' : '원본'}) · p.{page} · {pngDpi} DPI
+          </div>
+          <div className="omr-pdf-frame">
+            <img
+              alt={`페이지 ${page}`}
+              src={`/api/diagnostic/${jobId}/page/${page}/png?source=${pngSource}&dpi=${pngDpi}`}
+            />
+          </div>
         </div>
-        <div className="omr-pdf-frame">
-          <img
-            alt={`페이지 ${page}`}
-            src={`/api/diagnostic/${jobId}/page/${page}/png?source=${pngSource}&dpi=${pngDpi}`}
-          />
+        <div className="omr-compare-col omr-compare-col--mxl">
+          <div className="omr-mxl-preview-head">
+            <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#333' }}>
+              MusicXML (Audiveris MXL)
+              {osmdPartId && staffFilter ? ` · ${staffFilter}` : ' · 전체 파트'}
+            </span>
+            <div className="omr-mxl-preview-controls">
+              <label className="omr-zoom-label">
+                확대
+                <input
+                  type="range"
+                  min={0.35}
+                  max={1.1}
+                  step={0.05}
+                  value={scoreZoom}
+                  onChange={(e) => setScoreZoom(Number(e.target.value))}
+                />
+              </label>
+              <button type="button" className="btn-muted" disabled={xmlLoading} onClick={() => void refreshScoreXml()}>
+                {xmlLoading ? '불러오는 중…' : 'MXL 새로고침'}
+              </button>
+            </div>
+          </div>
+          <div className="omr-mxl-osmd-frame">
+            <InspectPanelErrorBoundary>
+              {xmlLoading && !rawXml ? (
+                <p className="omr-mxl-osmd-placeholder">MusicXML 불러오는 중…</p>
+              ) : xmlLoadErr ? (
+                <p className="omr-mxl-osmd-placeholder omr-mxl-osmd-err">{xmlLoadErr}</p>
+              ) : filteredXml ? (
+                <OsmdBlock xml={filteredXml} zoom={scoreZoom} />
+              ) : (
+                <p className="omr-mxl-osmd-placeholder">표시할 MusicXML이 없습니다.</p>
+              )}
+            </InspectPanelErrorBoundary>
+          </div>
+          <p className="omr-mxl-preview-hint">
+            「보정 MXL에 적용」 시 미리보기가 자동 갱신됩니다. 필요하면 <strong>MXL 새로고침</strong>을 누르세요.
+          </p>
         </div>
       </div>
 

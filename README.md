@@ -117,10 +117,18 @@ export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
 ### 서버 배포 요약 (운영)
 
 1. **코드 반영**: `git pull origin main` (또는 배포 브랜치).
-2. **의존성**: `npm ci` 또는 `npm install`, 파이썬의 경우 `pip install -r requirements.txt` 실행하여 `PyMuPDF` 등 갱신.
+2. **의존성**: venv 활성화 후 `pip install -r requirements.txt`, Node는 `npm ci` 또는 `npm install`.
 3. **프론트 빌드**: `npm run build` — `start:prod`는 `dist`를 서빙합니다.
-4. **환경 변수**: `AUDIVERIS_BIN` — PM2/systemd에 반영 후 **프로세스 재시작**.
+4. **환경 변수**: `AUDIVERIS_BIN` — PM2/systemd에 반영 후 **프로세스 재시작** (진행 중 변환·HITL 대기 job이 없을 때만).
 5. **동작 확인**: `GET /api/health`, 한글 파일명 PDF + 디버그 ZIP으로 샘플 변환 — 단계별 세부 항목은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
+
+한 줄 점검 (Linux 예):
+
+```bash
+cd /path/to/pdf2musicxml && git pull && source venv/bin/activate && pip install -r requirements.txt && npm run build && pm2 restart pdf2mxl
+```
+
+OMR HITL 사용 시 변환 1회는 **성부 라벨 확정 → OMR 이어하기 → 완료**까지 기다립니다. 로그: `pm2 logs pdf2mxl --lines 100 --nostream | grep -E "Part labels saved|inject_ocr|apply_part_labels|Completed"` — [docs/일반_품질_및_HITL_로드맵.md](docs/일반_품질_및_HITL_로드맵.md) §A 참고.
 
 ## 설치·실행
 
@@ -167,8 +175,10 @@ pm2 startup
 pm2 save
 
 # 로그 확인: pm2 logs pdf2mxl
-# 재시작: pm2 restart pdf2mxl
+# 재시작: pm2 restart pdf2mxl  (변환·HITL 대기 중이면 job이 끊김 — 유휴 시에만)
 ```
+
+`pm2 logs`의 **error** 스트림에 `merge_lyric_sources.py` 통계(`Output:`, `stats`)가 보여도 대부분 **실패가 아닙니다**. MXL 성부명이 **Voice**로만 나오면 성부 라벨·OMR 단계를 끝까지 진행했는지와 `apply_part_labels` 로그를 확인하세요.
 
 ### CLI만
 

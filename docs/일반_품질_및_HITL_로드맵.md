@@ -21,13 +21,25 @@
 ```bash
 cd /path/to/pdf2musicxml   # Windows: D:\pdf2musicxml
 git pull origin main
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 npm install
 npm run build
-# pm2 등으로 API 재시작
-pm2 restart <앱이름>
+# 변환·HITL 대기 job이 없을 때만 재시작 (진행 중이면 job이 끊김)
+pm2 restart pdf2mxl
 ```
 
 브라우저에서 **강력 새로고침**(캐시 비우기) 후 변환을 다시 시작합니다. **같은 jobId·옛 `clean_score` PDF를 재사용하지 마세요.**
+
+**완료 여부 확인** (OMR HITL 켜짐 시 한 job이 끝까지 갔는지):
+
+```bash
+pm2 logs pdf2mxl --lines 200 --nostream | grep -E "Part labels saved|inject_ocr|apply_part_labels|Completed"
+```
+
+정상 완료 흐름 예: `Part labels saved` → `Running inject_ocr.py` → `apply_part_labels: {"applied":true}` → `Completed`. `Pausing for part label setup` 이후 위 로그가 없으면 **성부 라벨 미확정**, **OMR 이어하기 미클릭**, **pm2 재시작·동시 업로드**로 job이 중단된 경우가 많습니다.
+
+`merge_lyric_sources.py`의 `Output:`·`stats` 줄은 **stderr가 아니라 통계**이며 실패가 아닙니다. `mxl_quality_lint.py`의 `AttributeError`(예: 83번 줄)는 **옛 스크립트** — `git pull` 후 재시작하세요.
 
 ### B. 1단계 — clean_score 만들 때 (폰트 strip)
 
@@ -63,7 +75,8 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
    - **Lint 칩은 PDF 이미지 위가 아님** — PDF 바로 아래 **파란 테두리 박스**「Lint 결과」에 표시. 성부별 회색 줄은 같은 내용을 성부로 나눈 보기. 칩·성부 이름은 **`part_labels.json` 라벨**(S/A/T/B 등)을 쓰며 MusicXML `P1`·`P3` id와 다릅니다.
    - `mxl-lint` 실패 시 노란 안내에 **Python 오류 요약**이 표시됨 — PDF만 보고 **이어하기** 가능.
    - **이어하기** → 가사·메타 `inject_ocr` 단계로 진행.
-3. 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
+5. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요.
+6. OMR HITL을 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
 
 ### F. 5단계 — Audiveris 보정 (선택)
 

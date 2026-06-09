@@ -285,22 +285,21 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo) => {
       setSelectedMeasure(info);
-      const printed =
-        info.measurePrinted != null && info.measurePrinted > 0
-          ? info.measurePrinted
-          : info.measureMxl + measureOffset;
+      const printed = info.measureMxl + measureOffset;
       setManualMeasurePrinted(String(printed));
       const staffLabel =
-        scoreParts[info.staffIndex]?.suggestedLabel ?? `staff ${info.staffIndex + 1}`;
+        staffList[info.staffIndex] ??
+        scoreParts[info.staffIndex]?.suggestedLabel ??
+        `줄 ${info.staffIndex + 1}`;
       setMeasureClickMsg(
-        `마디 선택됨 · 인쇄 ${printed} · MXL ${info.measureMxl}${staffFilter ? '' : ` · ${staffLabel}`}`,
+        `마디 선택됨 · 인쇄 ${printed} · MXL ${info.measureMxl} · ${staffLabel}`,
       );
       if (!staffFilter) {
         setEditPartId(resolvePartIdForStaffIndex(info.staffIndex));
       }
       setEditorKey((k) => k + 1);
     },
-    [staffFilter, measureOffset, resolvePartIdForStaffIndex, scoreParts],
+    [staffFilter, measureOffset, resolvePartIdForStaffIndex, scoreParts, staffList],
   );
 
   const openManualMeasure = useCallback(() => {
@@ -325,11 +324,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   ]);
 
   const filteredXml = rawXml ? filterMusicXmlToPart(rawXml, osmdPartId || null) : '';
-  const selectedPrinted = selectedMeasure
-    ? selectedMeasure.measurePrinted != null && selectedMeasure.measurePrinted > 0
-      ? selectedMeasure.measurePrinted
-      : selectedMeasure.measureMxl + measureOffset
-    : null;
+  const selectedPrinted = selectedMeasure ? selectedMeasure.measureMxl + measureOffset : null;
 
   const activePartLabels = scoreParts.map((p) => p.suggestedLabel).filter(Boolean);
 
@@ -497,7 +492,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 ))}
               </select>
               <span className="omr-measure-part-picker-hint">
-                (클릭한 줄: {scoreParts[selectedMeasure.staffIndex]?.suggestedLabel ?? `staff ${selectedMeasure.staffIndex + 1}`})
+                (클릭한 줄: {staffList[selectedMeasure.staffIndex] ?? scoreParts[selectedMeasure.staffIndex]?.suggestedLabel ?? `줄 ${selectedMeasure.staffIndex + 1}`})
               </span>
             </label>
           )}

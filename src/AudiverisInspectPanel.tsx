@@ -13,6 +13,8 @@ import {
   drawOsmdMeasureHighlight,
   drawOsmdMeasureHover,
   hitTestOsmdMeasure,
+  installMeasureClickOverlays,
+  invalidateMeasureTargetCache,
   type OsmdMeasureClickInfo,
   removeMeasureClickOverlays,
   removeMeasureHover,
@@ -335,7 +337,10 @@ export function OsmdBlock({
       highlightMeasureMxlRef.current ?? null,
       highlightMeasureStaffIndexRef.current ?? null,
     );
-    if (!onMeasureClickRef.current) {
+    invalidateMeasureTargetCache(host);
+    if (onMeasureClickRef.current) {
+      installMeasureClickOverlays(host, osmd);
+    } else {
       removeMeasureClickOverlays(host);
       removeMeasureHover(host);
     }

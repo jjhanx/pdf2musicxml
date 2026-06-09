@@ -73,7 +73,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
 5. **OMR 페이지·성부 품질 검토** 모달 (MuseScore **불필요**):
    - **PDF**(156 DPI)와 **MusicXML(OSMD)** 를 나란히 표시. 성부 필터를 쓰면 MXL도 해당 파트만 표시.
-   - **MusicXML(OSMD) 악보에서 마디 클릭**으로 마디를 열고 direction·쉼표·음표·점(·)·이음줄 등을 요소별로 보정(덧점 없애기, 쉼표 줄 이동, 삭제·추가 등) → `omr_hitl_fixes.json`에 쌓음. 인쇄 마디 번호 입력은 보조 수단. 구현: `src/osmdMeasureClick.ts`가 `graphicalMeasures` **성부 줄 × 마디 열** 셀과 SVG DOM bbox로 클릭 영역을 만들고, **클릭한 줄만** 하이라이트합니다. 스크롤·확대 후 캐시를 다시 맞춥니다.
+   - **MusicXML(OSMD) 악보에서 마디 클릭**으로 마디를 열고 direction·쉼표·음표·점(·)·이음줄 등을 요소별로 보정 → `omr_hitl_fixes.json`에 쌓음. **쉼표 옆 점(·)** 은 마디 편집의 `clearRestDots`(XML `<dot>`·duration·쉼표 뒤 잘못된 짧은 음표). 클릭 영역: `osmdMeasureClick.ts`가 성부 줄×마디 열 그리드(쉼표만 있는 마디 포함)·**클릭한 줄만** 하이라이트.
    - **「MXL에 반영·미리보기」** — 마디 편집 패널 하단 또는 대기 목록 위 버튼. Audiveris MXL(`preInject`)에 보정 반영 후 **오른쪽 OSMD**에서 결과 확인(마디 편집 패널도 갱신). 반영 중이 아니면 보정 건수와 무관하게 누를 수 있으며, 서버에 저장된 보정도 함께 적용합니다.
    - **이어하기** — 대기 보정을 MXL에 적용한 뒤 `inject_ocr`·최종 MXL로 진행.
    - 예전 **mxl-lint 자동 힌트 UI**는 제거됨. PDF·MXL 직접 대조와 마디 편집이 기준.

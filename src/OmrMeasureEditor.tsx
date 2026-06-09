@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { newFixId, type OmrHitlFix } from './omrHitlFixes';
 
+type FixPartial = Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>;
+
 const NOTE_TYPES = ['whole', 'half', 'quarter', 'eighth', '16th', '32nd'] as const;
 const PITCH_STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'] as const;
 
@@ -26,6 +28,8 @@ export type MeasureNoteEl = {
   duration?: number | null;
   isDotted?: boolean;
   dotCount?: number;
+  hasGrace?: boolean;
+  isCue?: boolean;
   tieStart?: boolean;
   tieStop?: boolean;
   beams?: string[];
@@ -137,7 +141,7 @@ export function OmrMeasureEditor({
     [elements],
   );
 
-  const pushFix = (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => {
+  const pushFix = (partial: FixPartial) => {
     onAddFix({
       id: newFixId(),
       partId,
@@ -285,45 +289,54 @@ function MeasureNoteEditor({
   }, [el.index, el.pitch, el.type, el.staff]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
-
-  const showDotFix =
+  const nextNote = noteEls.find((n) => n.index === el.index + 1);
+  const spuriousAfterRest =
     el.kind === 'rest' &&
-    ((el.dotCount ?? 0) > 0 || el.isDotted || el.type === 'whole' || el.type === 'half');
-  const prev = noteEls.find((n) => n.index === el.index - 1);
-  const trailingAfterRest =
-    el.index > 0 &&
-    prev?.kind === 'rest' &&
-    (prev.type === 'whole' || prev.type === 'half');
+    nextNote &&
+    (nextNote.hasGrace ||
+      nextNote.isCue ||
+      nextNote.chord ||
+      ['128th', '256th', '64th', '32nd'].includes(nextNote.type ?? '') ||
+      (nextNote.dotCount ?? 0) > 0);
 
   return (
     <div className="omr-measure-element-actions">
-      {showDotFix && (
+      {el.kind === 'rest' && (
         <>
           <button
             type="button"
-            className="omr-hitl-fix-btn"
-            onClick={() => onFix({ kind: 'removeNoteDot', noteIndex: el.index })}
+            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+            onClick={() =>
+              onFix({
+                kind: 'clearRestDots',
+                noteIndex: el.index,
+                removeFollowingNote: Boolean(spuriousAfterRest),
+              })
+            }
           >
-            점(·) XML 제거
+            쉼표 옆 점(·) 없애기
+            {spuriousAfterRest ? ' (+뒤 잘못된 음표)' : ''}
           </button>
-          <button
-            type="button"
-            className="omr-hitl-fix-btn"
-            onClick={() => onFix({ kind: 'setNoteUndotted', noteIndex: el.index })}
-          >
-            덧점 없애기 (점·긴 duration)
-          </button>
+          {(el.dotCount ?? 0) > 0 || el.isDotted ? (
+            <button
+              type="button"
+              className="omr-hitl-fix-btn"
+              onClick={() => onFix({ kind: 'removeNoteDot', noteIndex: el.index })}
+            >
+              &lt;dot&gt;만 제거
+            </button>
+          ) : null}
         </>
       )}
-      {trailingAfterRest && (
+      {spuriousAfterRest && nextNote ? (
         <button
           type="button"
           className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
-          onClick={() => onFix({ kind: 'removeNote', noteIndex: el.index })}
+          onClick={() => onFix({ kind: 'removeNote', noteIndex: nextNote.index })}
         >
-          쉼표 뒤 의심 요소 삭제
+          쉼표 뒤 잘못된 음표 #{nextNote.index} 삭제
         </button>
-      )}
+      ) : null}
       {el.kind === 'rest' && (el.type === 'whole' || el.type === 'half') && (
         <>
           <button

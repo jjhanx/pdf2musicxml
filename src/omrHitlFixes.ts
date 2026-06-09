@@ -31,6 +31,7 @@ export type OmrHitlFix = {
   fromNoteIndex?: number;
   toNoteIndex?: number;
   afterNoteIndex?: number;
+  removeFollowingNote?: boolean;
   source?: string;
   lintCode?: string;
 };
@@ -44,6 +45,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   removeNote: '음·쉼표 삭제',
   removeNoteDot: '점(·) 제거',
   setNoteUndotted: '덧점·점(·) 제거',
+  clearRestDots: '쉼표 옆 점(·) 없애기',
   setNotePitch: '음높이 변경',
   setNoteType: '박자(음표 종류) 변경',
   setNoteStem: '줄기 방향 변경',

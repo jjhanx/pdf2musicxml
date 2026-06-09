@@ -160,6 +160,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         duration = int(dur_el.text.strip())
     dot_count = len(note.findall(_q(ns, "dot")))
     note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else None
+    grace_el = note.find(_q(ns, "grace"))
     return {
         "index": index,
         "elementKind": "note",
@@ -167,6 +168,8 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "type": note_type,
         "duration": duration,
         "isDotted": dot_count > 0,
+        "hasGrace": grace_el is not None,
+        "isCue": note.get("cue") == "yes",
         "staff": int(staff_el.text) if staff_el is not None and staff_el.text and staff_el.text.isdigit() else None,
         "voice": (voice_el.text or "").strip() if voice_el is not None and voice_el.text else None,
         "chord": chord,
@@ -276,6 +279,30 @@ def _direction_text(direction: ET.Element) -> str:
             if el.text and el.text.strip():
                 parts.append(el.text.strip())
     return " ".join(parts).strip()
+
+
+def _looks_like_spurious_rest_dot_note(note: ET.Element, ns: str) -> bool:
+    """쉼표 뒤에 붙은 잘못된 점·짧은 음표(OMR 오인식) 여부."""
+    if note.find(_q(ns, "grace")) is not None:
+        return True
+    if note.get("cue") == "yes":
+        return True
+    if note.find(_q(ns, "chord")) is not None:
+        return True
+    type_el = note.find(_q(ns, "type"))
+    note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+    if note_type in ("128th", "256th", "32nd", "64th"):
+        return True
+    if len(note.findall(_q(ns, "dot"))) > 0 and note.find(_q(ns, "rest")) is None:
+        return True
+    dur_el = note.find(_q(ns, "duration"))
+    if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
+        try:
+            if int(dur_el.text.strip()) <= 8:
+                return True
+        except ValueError:
+            pass
+    return False
 
 
 def _is_spurious_detail(text: str, detail: str | None) -> bool:
@@ -400,7 +427,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return True
         return False
 
-    if kind in ("removeNoteDot", "setNoteUndotted"):
+    if kind in ("removeNoteDot", "setNoteUndotted", "clearRestDots"):
         try:
             idx = int(fix.get("noteIndex"))
         except (TypeError, ValueError):
@@ -412,7 +439,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         for dot in list(note.findall(_q(ns, "dot"))):
             note.remove(dot)
             changed = True
-        if kind == "setNoteUndotted" or fix.get("clearDottedDuration"):
+        if kind in ("setNoteUndotted", "clearRestDots") or fix.get("clearDottedDuration"):
             divisions = _measure_divisions(measure, ns)
             type_el = note.find(_q(ns, "type"))
             dur_el = note.find(_q(ns, "duration"))
@@ -425,6 +452,13 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                     current = 0
                 if current > target:
                     dur_el.text = str(target)
+                    changed = True
+        if kind == "clearRestDots" and fix.get("removeFollowingNote"):
+            notes_after = list_note_elements(measure, ns)
+            if idx + 1 < len(notes_after):
+                nxt = notes_after[idx + 1]
+                if _looks_like_spurious_rest_dot_note(nxt, ns):
+                    measure.remove(nxt)
                     changed = True
         return changed
 

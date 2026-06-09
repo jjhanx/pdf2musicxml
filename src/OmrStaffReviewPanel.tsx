@@ -284,7 +284,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo) => {
       setSelectedMeasure(info);
-      const printed = info.measureMxl + measureOffset;
+      const printed =
+        info.measurePrinted != null && info.measurePrinted > 0
+          ? info.measurePrinted
+          : info.measureMxl + measureOffset;
       setManualMeasurePrinted(String(printed));
       if (!staffFilter) {
         setEditPartId(resolvePartIdForStaffIndex(info.staffIndex));
@@ -317,7 +320,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const filteredXml = rawXml ? filterMusicXmlToPart(rawXml, osmdPartId || null) : '';
   const selectedPrinted = selectedMeasure
-    ? selectedMeasure.measureMxl + measureOffset
+    ? selectedMeasure.measurePrinted != null && selectedMeasure.measurePrinted > 0
+      ? selectedMeasure.measurePrinted
+      : selectedMeasure.measureMxl + measureOffset
     : null;
 
   const activePartLabels = scoreParts.map((p) => p.suggestedLabel).filter(Boolean);
@@ -435,6 +440,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   embeddedInOmrFrame
                   onMeasureClick={openMeasure}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}
+                  highlightMeasureStaffIndex={selectedMeasure?.staffIndex ?? null}
                 />
               ) : (
                 <p className="omr-mxl-osmd-placeholder">표시할 MusicXML이 없습니다.</p>

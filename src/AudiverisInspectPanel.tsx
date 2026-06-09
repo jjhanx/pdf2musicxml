@@ -279,12 +279,14 @@ export function OsmdBlock({
   zoom,
   onMeasureClick,
   highlightMeasureMxl,
+  highlightMeasureStaffIndex,
   embeddedInOmrFrame,
 }: {
   xml: string;
   zoom: number;
   onMeasureClick?: (info: OsmdMeasureClickInfo) => void;
   highlightMeasureMxl?: number | null;
+  highlightMeasureStaffIndex?: number | null;
   /** OMR 검토 패널처럼 바깥 .omr-mxl-osmd-frame이 스크롤할 때 내부 overflow 제거 */
   embeddedInOmrFrame?: boolean;
 }) {
@@ -297,6 +299,7 @@ export function OsmdBlock({
   const roRef = useRef<ResizeObserver | null>(null);
   const onMeasureClickRef = useRef(onMeasureClick);
   const highlightMeasureMxlRef = useRef(highlightMeasureMxl);
+  const highlightMeasureStaffIndexRef = useRef(highlightMeasureStaffIndex);
 
   useEffect(() => {
     onMeasureClickRef.current = onMeasureClick;
@@ -304,12 +307,18 @@ export function OsmdBlock({
 
   useEffect(() => {
     highlightMeasureMxlRef.current = highlightMeasureMxl;
+    highlightMeasureStaffIndexRef.current = highlightMeasureStaffIndex;
     const host = hostRef.current;
     const osmd = osmdRef.current;
     if (host && osmd?.IsReadyToRender()) {
-      drawOsmdMeasureHighlight(host, osmd, highlightMeasureMxl ?? null);
+      drawOsmdMeasureHighlight(
+        host,
+        osmd,
+        highlightMeasureMxl ?? null,
+        highlightMeasureStaffIndex ?? null,
+      );
     }
-  }, [highlightMeasureMxl, xml, zoom]);
+  }, [highlightMeasureMxl, highlightMeasureStaffIndex, xml, zoom]);
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -319,7 +328,12 @@ export function OsmdBlock({
     const host = hostRef.current;
     const osmd = osmdRef.current;
     if (!host || !osmd?.IsReadyToRender()) return;
-    drawOsmdMeasureHighlight(host, osmd, highlightMeasureMxlRef.current ?? null);
+    drawOsmdMeasureHighlight(
+      host,
+      osmd,
+      highlightMeasureMxlRef.current ?? null,
+      highlightMeasureStaffIndexRef.current ?? null,
+    );
     const onClick = onMeasureClickRef.current;
     if (onClick) {
       installMeasureClickOverlays(host, osmd, (info) => onClick(info));

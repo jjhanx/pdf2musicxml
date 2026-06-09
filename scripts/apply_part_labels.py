@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-_PIANO_LABELS = frozenset({"PR", "PL"})
+_PIANO_LABELS = frozenset({"P", "PR", "PL"})
 _DISPLAY_NAME_TAGS = frozenset({"part-name", "instrument-name", "midi-name"})
 _ABBREV_TAGS = frozenset({"part-abbreviation", "instrument-abbreviation"})
 _NAME_CONTAINER_TAGS = frozenset({"part-name", "part-abbreviation"})

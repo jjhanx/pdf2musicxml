@@ -331,12 +331,6 @@ export function OsmdBlock({
     const host = hostRef.current;
     const osmd = osmdRef.current;
     if (!host || !osmd?.IsReadyToRender()) return;
-    drawOsmdMeasureHighlight(
-      host,
-      osmd,
-      highlightMeasureMxlRef.current ?? null,
-      highlightMeasureStaffIndexRef.current ?? null,
-    );
     invalidateMeasureTargetCache(host);
     if (onMeasureClickRef.current) {
       installMeasureClickOverlays(host, osmd);
@@ -344,6 +338,12 @@ export function OsmdBlock({
       removeMeasureClickOverlays(host);
       removeMeasureHover(host);
     }
+    drawOsmdMeasureHighlight(
+      host,
+      osmd,
+      highlightMeasureMxlRef.current ?? null,
+      highlightMeasureStaffIndexRef.current ?? null,
+    );
   }, []);
 
   const afterOsmdRender = useCallback(() => {

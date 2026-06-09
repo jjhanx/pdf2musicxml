@@ -90,8 +90,9 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
       <h2 style={{ margin: '0 0 0.5rem' }}>성부 라벨 지정</h2>
       <p style={{ margin: '0 0 1rem', lineHeight: 1.55, fontSize: '0.92rem', color: '#333' }}>
         Audiveris가 인식한 <strong>파트(성부)</strong>마다 짧은 이름을 붙입니다. 확정한 라벨은 OMR
-        lint·검토와 <strong>최종 MXL part-name</strong>에 반영됩니다. <strong>PR</strong>·
-        <strong>PL</strong>은 MusicXML에서 <strong>Piano</strong>(약어 Pno.)로 표기됩니다. PDF{' '}
+        lint·검토와 <strong>최종 MXL part-name</strong>에 반영됩니다. <strong>P</strong>·
+        <strong>PR</strong>·<strong>PL</strong>은 MusicXML에서 <strong>Piano</strong>(약어 Pno.)로
+        표기됩니다. 단일 피아노 파트는 기본 <strong>P</strong>를 권장합니다. PDF{' '}
         <strong>페이지(p.)</strong> 번호와 혼동하지 않도록 합니다.
       </p>
 

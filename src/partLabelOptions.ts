@@ -2,7 +2,13 @@
 export const STANDARD_PART_LABELS = ['S', 'A', 'T', 'B', 'PR', 'PL'] as const;
 
 export const PART_LABEL_PICKLIST = [
-  ...STANDARD_PART_LABELS,
+  'S',
+  'A',
+  'T',
+  'B',
+  'P',
+  'PR',
+  'PL',
   'P1',
   'P2',
   'P3',

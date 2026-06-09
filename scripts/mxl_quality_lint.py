@@ -56,16 +56,20 @@ def staff_label(
         custom = (labels_by_index[part_index] or "").strip()
         if custom:
             return custom
+    name = (part_name or "").upper()
+    if "LEFT" in name or " LH" in name or name.endswith(" LH"):
+        return "PL"
+    if "RIGHT" in name or " RH" in name or name.endswith(" RH"):
+        return "PR"
+    if "PIANO" in name or name in ("PNO", "PNO."):
+        return "P"
     if part_count == 6 and 0 <= part_index < 6:
         return _STAFF_ORDER_6[part_index]
-    name = (part_name or "").upper()
     for token, label in (
         ("SOPRANO", "S"),
         ("ALTO", "A"),
         ("TENOR", "T"),
         ("BASS", "B"),
-        ("RIGHT", "PR"),
-        ("LEFT", "PL"),
     ):
         if token in name:
             return label

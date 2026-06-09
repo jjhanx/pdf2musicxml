@@ -11,8 +11,9 @@ import {
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
   drawOsmdMeasureHighlight,
-  hitTestOsmdMeasure,
   type OsmdMeasureClickInfo,
+  installMeasureClickOverlays,
+  removeMeasureClickOverlays,
 } from './osmdMeasureClick';
 
 type InspectErrorBoundaryProps = {
@@ -318,6 +319,12 @@ export function OsmdBlock({
     const osmd = osmdRef.current;
     if (!host || !osmd) return;
     drawOsmdMeasureHighlight(host, osmd, highlightMeasureMxlRef.current ?? null);
+    const onClick = onMeasureClickRef.current;
+    if (onClick) {
+      installMeasureClickOverlays(host, osmd, (info) => onClick(info));
+    } else {
+      removeMeasureClickOverlays(host);
+    }
   }, []);
 
   useEffect(() => {
@@ -427,26 +434,14 @@ export function OsmdBlock({
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !onMeasureClick) return;
-    const onPointerDown = (evt: MouseEvent) => {
-      if (evt.button !== 0) return;
-      evt.preventDefault();
-    };
-    const onClick = (evt: MouseEvent) => {
-      const osmd = osmdRef.current;
-      if (!osmd?.IsReadyToRender() || !onMeasureClickRef.current) return;
-      evt.preventDefault();
-      evt.stopPropagation();
-      const hit = hitTestOsmdMeasure(osmd, host, evt);
-      if (hit) onMeasureClickRef.current(hit);
-    };
-    host.addEventListener('mousedown', onPointerDown);
-    host.addEventListener('click', onClick, true);
-    return () => {
-      host.removeEventListener('mousedown', onPointerDown);
-      host.removeEventListener('click', onClick, true);
-    };
-  }, [xml, onMeasureClick]);
+    const osmd = osmdRef.current;
+    if (!host || !osmd?.IsReadyToRender()) return;
+    if (onMeasureClick) {
+      installMeasureClickOverlays(host, osmd, (info) => onMeasureClickRef.current?.(info));
+    } else {
+      removeMeasureClickOverlays(host);
+    }
+  }, [xml, onMeasureClick, zoom]);
 
   return (
     <div

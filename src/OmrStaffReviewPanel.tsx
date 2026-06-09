@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   filterMusicXmlToPart,
   InspectPanelErrorBoundary,
@@ -57,6 +57,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [editorKey, setEditorKey] = useState(0);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [lastPreviewMsg, setLastPreviewMsg] = useState('');
+  const fixesHydratedRef = useRef(false);
+  const pendingFixesRef = useRef<OmrHitlFix[]>([]);
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
   const pngSource =
@@ -90,6 +92,19 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     }
   }, [jobId]);
 
+  useEffect(() => {
+    pendingFixesRef.current = pendingFixes;
+  }, [pendingFixes]);
+
+  const loadFixesFromServer = useCallback(async (): Promise<OmrHitlFix[]> => {
+    const r = await fetch(`/api/omr-hitl/${jobId}/fixes`, { cache: 'no-store' });
+    if (!r.ok) return pendingFixesRef.current;
+    const j = (await r.json()) as { fixes?: OmrHitlFix[] };
+    const list = Array.isArray(j.fixes) ? j.fixes : [];
+    setPendingFixes((prev) => (prev.length >= list.length ? prev : list));
+    return list.length > 0 ? list : pendingFixesRef.current;
+  }, [jobId]);
+
   const persistFixes = useCallback(
     async (fixes: OmrHitlFix[]) => {
       const r = await fetch(`/api/omr-hitl/${jobId}/fixes`, {
@@ -120,9 +135,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         if (cancelled) return;
         if (sumRes.ok) setSummary((await sumRes.json()) as InspectSummary);
         if (polRes.ok) setPolicy((await polRes.json()) as OmrPolicy);
-        if (fixesRes.ok) {
+        if (fixesRes.ok && !fixesHydratedRef.current) {
+          fixesHydratedRef.current = true;
           const fj = (await fixesRes.json()) as { fixes?: OmrHitlFix[] };
-          if (Array.isArray(fj.fixes)) setPendingFixes(fj.fixes);
+          if (Array.isArray(fj.fixes)) {
+            setPendingFixes((prev) => (prev.length > 0 ? prev : fj.fixes!));
+          }
         }
         if (partsRes.ok) {
           const pj = (await partsRes.json()) as { parts?: ScorePartRow[] };
@@ -203,14 +221,17 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     (fix: OmrHitlFix) => {
       setPendingFixes((prev) => {
         const next = mergeFix(prev, fix);
-        void persistFixes(next).catch((e) => {
-          console.error(e);
-          alert(e instanceof Error ? e.message : String(e));
-        });
+        if (next.length === prev.length) return prev;
+        void persistFixes(next)
+          .then(() => loadFixesFromServer())
+          .catch((e) => {
+            console.error(e);
+            alert(e instanceof Error ? e.message : String(e));
+          });
         return next;
       });
     },
-    [persistFixes],
+    [persistFixes, loadFixesFromServer],
   );
 
   const removeFix = useCallback(
@@ -225,15 +246,20 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   );
 
   const applyFixesToMxl = useCallback(async () => {
-    if (pendingFixes.length === 0) {
-      setApplyMsg('반영할 보정이 없습니다.');
-      return;
-    }
     setApplyBusy(true);
     setApplyMsg('');
     setLastPreviewMsg('');
     try {
-      await persistFixes(pendingFixes);
+      let fixes = pendingFixesRef.current;
+      if (fixes.length === 0) {
+        fixes = await loadFixesFromServer();
+      }
+      if (fixes.length === 0) {
+        setApplyMsg('반영할 보정이 없습니다. 마디 편집에서 삭제·추가 버튼을 먼저 누르세요.');
+        return;
+      }
+      await persistFixes(fixes);
+      setPendingFixes(fixes);
       const r = await fetch(`/api/omr-hitl/${jobId}/apply`, { method: 'POST' });
       if (!r.ok) {
         const j = (await r.json()) as { error?: string };
@@ -253,24 +279,19 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     } finally {
       setApplyBusy(false);
     }
-  }, [jobId, pendingFixes, persistFixes, refreshScoreXml]);
+  }, [jobId, persistFixes, refreshScoreXml, loadFixesFromServer]);
 
   const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo) => {
       setSelectedMeasure(info);
-      if (!staffFilter && !osmdPartId) {
+      const printed = info.measureMxl + measureOffset;
+      setManualMeasurePrinted(String(printed));
+      if (!staffFilter) {
         setEditPartId(resolvePartIdForStaffIndex(info.staffIndex));
       }
       setEditorKey((k) => k + 1);
     },
-    [staffFilter, osmdPartId, resolvePartIdForStaffIndex],
-  );
-
-  const handleMeasureClick = useCallback(
-    (info: OsmdMeasureClickInfo) => {
-      openMeasure(info);
-    },
-    [openMeasure],
+    [staffFilter, measureOffset, resolvePartIdForStaffIndex],
   );
 
   const openManualMeasure = useCallback(() => {
@@ -306,7 +327,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       <div>
         <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.2rem' }}>OMR 품질 검토 (페이지×성부)</h2>
         <p style={{ margin: 0, lineHeight: 1.55, fontSize: '0.92rem' }}>
-          PDF와 MusicXML을 나란히 대조하세요. <strong>인쇄 마디 번호</strong>로 마디를 열어 쉼표·음표·점 등을
+          PDF와 MusicXML을 나란히 대조하세요. 오른쪽 악보에서 <strong>마디를 클릭</strong>해 쉼표·음표·점 등을
           조정하고, 「MXL에 반영·미리보기」로 오른쪽 악보에서 확인한 뒤 「이어하기」로
           최종 MXL에 반영됩니다(MuseScore 불필요). 성부(
           {activePartLabels.length > 0 ? (
@@ -412,7 +433,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   xml={filteredXml}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
-                  onMeasureClick={handleMeasureClick}
+                  onMeasureClick={openMeasure}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}
                 />
               ) : (
@@ -421,7 +442,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             </InspectPanelErrorBoundary>
           </div>
           <p className="omr-mxl-preview-hint">
-            <strong>오선·음표 영역</strong>을 클릭해 편집 패널을 엽니다(제목·성부명 클릭은 무시됩니다).
+            마디는 아래 <strong>인쇄 마디 번호</strong>로 여세요(악보 클릭은 지원하지 않습니다).
           </p>
           <div className="omr-manual-measure-open">
             <label>
@@ -477,6 +498,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               }
               previewRevision={previewRevision}
               lastPreviewMsg={lastPreviewMsg}
+              pendingFixCount={pendingFixes.length}
+              previewBusy={applyBusy}
+              onPreview={() => void applyFixesToMxl()}
               onAddFix={addFix}
             />
           ) : (
@@ -485,8 +509,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         </div>
       ) : (
         <p className="omr-measure-editor-prompt">
-          PDF와 MXL이 다른 마디가 있으면 <strong>오른쪽 악보에서 해당 마디를 클릭</strong>하세요.
-          {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 파트가 자동 선택됩니다.' : ''}
+          PDF와 MXL이 다른 마디가 있으면 오른쪽 악보에서 <strong>해당 마디를 클릭</strong>하세요.
+          {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 성부가 자동 선택됩니다.' : ''}
         </p>
       )}
 
@@ -511,8 +535,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           <p className="omr-hitl-empty">대기 중인 보정 없음</p>
         )}
         <div className="omr-hitl-actions">
-          <button type="button" disabled={applyBusy || pendingFixes.length === 0} onClick={() => void applyFixesToMxl()}>
-            {applyBusy ? '반영 중…' : 'MXL에 반영·미리보기'}
+          <button type="button" disabled={applyBusy} onClick={() => void applyFixesToMxl()}>
+            {applyBusy ? '반영 중…' : `MXL에 반영·미리보기${pendingFixes.length > 0 ? ` (${pendingFixes.length}건)` : ''}`}
           </button>
         </div>
         {applyMsg ? <p className="omr-hitl-apply-msg">{applyMsg}</p> : null}

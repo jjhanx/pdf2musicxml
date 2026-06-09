@@ -651,6 +651,20 @@ button.btn-muted {
 .modal-light .omr-mxl-osmd-frame svg {
   user-select: none;
   -webkit-user-select: none;
+  pointer-events: none;
+}
+
+.modal-light .omr-osmd-clickable [data-omr-measure-click-layer] button {
+  touch-action: manipulation;
+}
+
+.modal-light .omr-osmd-clickable [data-omr-measure-click-layer] button:focus {
+  outline: none;
+}
+
+.modal-light .omr-osmd-clickable [data-omr-measure-click-layer] button:focus-visible {
+  outline: 2px solid #1565c0;
+  outline-offset: 1px;
 }
 
 .modal-light .omr-measure-editor-wrap {
@@ -740,6 +754,37 @@ button.btn-muted {
   border-radius: 6px;
   font-size: 0.84rem;
   color: #0d47a1;
+}
+
+.modal-light .omr-measure-editor-preview-row {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #c5e1a5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.85rem;
+}
+
+.modal-light .omr-measure-preview-btn {
+  background: #1565c0;
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.modal-light .omr-measure-preview-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.modal-light .omr-measure-editor-preview-hint {
+  font-size: 0.8rem;
+  color: #555;
 }
 
 .modal-light .omr-measure-element-list {

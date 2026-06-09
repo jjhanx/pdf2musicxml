@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { OmrHitlFix } from './omrHitlFixes';
+import { newFixId, type OmrHitlFix } from './omrHitlFixes';
 
 const NOTE_TYPES = ['whole', 'half', 'quarter', 'eighth', '16th', '32nd'] as const;
 const PITCH_STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'] as const;
@@ -49,7 +49,11 @@ type Props = {
   measureOffset: number;
   staffLabel?: string;
   onAddFix: (fix: OmrHitlFix) => void;
-  onReloadScore?: () => void;
+  previewRevision?: number;
+  lastPreviewMsg?: string;
+  pendingFixCount?: number;
+  previewBusy?: boolean;
+  onPreview?: () => void;
 };
 
 function parsePitch(pitch: string | null | undefined): { step: string; octave: number } {
@@ -89,6 +93,9 @@ export function OmrMeasureEditor({
   onAddFix,
   previewRevision = 0,
   lastPreviewMsg = '',
+  pendingFixCount = 0,
+  previewBusy = false,
+  onPreview,
 }: Props) {
   const [snapshot, setSnapshot] = useState<MeasureSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -132,13 +139,13 @@ export function OmrMeasureEditor({
 
   const pushFix = (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => {
     onAddFix({
-      id: crypto.randomUUID(),
+      id: newFixId(),
       partId,
       measureMxl: String(measureMxl),
       source: 'manual',
       ...partial,
     });
-    setFixMsg('대기 목록에 추가됨 → 「MXL에 반영·미리보기」로 오른쪽 악보를 확인하세요.');
+    setFixMsg('대기 목록에 추가됨 → 아래 「MXL에 반영·미리보기」로 오른쪽 악보를 확인하세요.');
   };
 
   return (
@@ -156,8 +163,7 @@ export function OmrMeasureEditor({
         </button>
       </div>
       <p className="omr-measure-editor-hint">
-        요소를 고친 뒤 아래 「대기 목록에 추가」가 되면, 상단의 <strong>「MXL에 반영·미리보기」</strong>를 눌러
-        오른쪽 MusicXML에서 결과를 확인하세요. 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset}.
+        요소를 고친 뒤 아래 <strong>「MXL에 반영·미리보기」</strong>를 눌러 오른쪽 MusicXML에서 결과를 확인하세요. 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset}.
       </p>
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
@@ -236,6 +242,20 @@ export function OmrMeasureEditor({
       {!loading && elements.length === 0 && !loadErr ? (
         <p className="omr-measure-editor-empty">이 마디에 편집할 요소가 없습니다.</p>
       ) : null}
+
+      <div className="omr-measure-editor-preview-row">
+        <button
+          type="button"
+          className="omr-measure-preview-btn"
+          disabled={previewBusy}
+          onClick={() => onPreview?.()}
+        >
+          {previewBusy ? '반영 중…' : `MXL에 반영·미리보기${pendingFixCount > 0 ? ` (${pendingFixCount}건)` : ''}`}
+        </button>
+        <span className="omr-measure-editor-preview-hint">
+          반영 후 오른쪽 MusicXML에서 삭제·추가 결과를 확인하세요.
+        </span>
+      </div>
     </div>
   );
 }

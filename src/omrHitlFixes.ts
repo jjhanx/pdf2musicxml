@@ -1,3 +1,14 @@
+export function newFixId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      /* secure context 외 HTTP 등 */
+    }
+  }
+  return `fix-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export type OmrHitlFix = {
   id: string;
   kind: string;
@@ -65,7 +76,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
 export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
   const key = fixDedupeKey(next);
   if (fixes.some((f) => fixDedupeKey(f) === key)) return fixes;
-  return [...fixes, next];
+  return [...fixes, { ...next, id: next.id || newFixId() }];
 }
 
 export function formatFixSummary(fix: OmrHitlFix): string {

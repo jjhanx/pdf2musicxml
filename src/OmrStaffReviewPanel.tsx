@@ -57,6 +57,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [editorKey, setEditorKey] = useState(0);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [lastPreviewMsg, setLastPreviewMsg] = useState('');
+  const [measureClickMsg, setMeasureClickMsg] = useState('');
   const fixesHydratedRef = useRef(false);
   const pendingFixesRef = useRef<OmrHitlFix[]>([]);
 
@@ -289,12 +290,17 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ? info.measurePrinted
           : info.measureMxl + measureOffset;
       setManualMeasurePrinted(String(printed));
+      const staffLabel =
+        scoreParts[info.staffIndex]?.suggestedLabel ?? `staff ${info.staffIndex + 1}`;
+      setMeasureClickMsg(
+        `마디 선택됨 · 인쇄 ${printed} · MXL ${info.measureMxl}${staffFilter ? '' : ` · ${staffLabel}`}`,
+      );
       if (!staffFilter) {
         setEditPartId(resolvePartIdForStaffIndex(info.staffIndex));
       }
       setEditorKey((k) => k + 1);
     },
-    [staffFilter, measureOffset, resolvePartIdForStaffIndex],
+    [staffFilter, measureOffset, resolvePartIdForStaffIndex, scoreParts],
   );
 
   const openManualMeasure = useCallback(() => {
@@ -448,9 +454,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             </InspectPanelErrorBoundary>
           </div>
           <p className="omr-mxl-preview-hint">
-            <strong>오선·음표가 있는 마디</strong>를 클릭하면 편집 패널이 열립니다(마우스를 올리면 파란 표시).
+            <strong>오선·음표</strong> 위에 마우스를 올리면 마디가 하늘색으로 표시되고, 클릭하면 편집 패널이 열립니다.
             {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 성부가 자동 선택됩니다.' : ''}
           </p>
+          {measureClickMsg ? (
+            <p className="omr-mxl-preview-hint" style={{ color: '#1565c0', fontWeight: 600 }}>
+              {measureClickMsg}
+            </p>
+          ) : null}
           <div className="omr-manual-measure-open">
             <label>
               인쇄 마디로 열기(보조)
@@ -459,7 +470,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 min={1}
                 value={manualMeasurePrinted}
                 onChange={(e) => setManualMeasurePrinted(e.target.value)}
-                placeholder="예: 12"
+                placeholder="인쇄 마디"
                 style={{ width: 72, marginLeft: 6 }}
               />
             </label>

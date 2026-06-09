@@ -11,10 +11,11 @@ import {
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
   drawOsmdMeasureHighlight,
+  drawOsmdMeasureHover,
   hitTestOsmdMeasure,
   type OsmdMeasureClickInfo,
-  installMeasureClickOverlays,
   removeMeasureClickOverlays,
+  removeMeasureHover,
 } from './osmdMeasureClick';
 
 type InspectErrorBoundaryProps = {
@@ -334,11 +335,9 @@ export function OsmdBlock({
       highlightMeasureMxlRef.current ?? null,
       highlightMeasureStaffIndexRef.current ?? null,
     );
-    const onClick = onMeasureClickRef.current;
-    if (onClick) {
-      installMeasureClickOverlays(host, osmd, (info) => onClick(info));
-    } else {
+    if (!onMeasureClickRef.current) {
       removeMeasureClickOverlays(host);
+      removeMeasureHover(host);
     }
   }, []);
 
@@ -470,7 +469,21 @@ export function OsmdBlock({
       onMeasureClickRef.current(hit);
     };
 
+    const onHostMove = (evt: MouseEvent) => {
+      if (!onMeasureClickRef.current) return;
+      const osmd = osmdRef.current;
+      if (!osmd?.IsReadyToRender()) return;
+      const hit = hitTestOsmdMeasure(osmd, host, evt);
+      drawOsmdMeasureHover(host, osmd, hit);
+    };
+
+    const onHostLeave = () => {
+      removeMeasureHover(host);
+    };
+
     host.addEventListener('click', onHostClick, true);
+    host.addEventListener('mousemove', onHostMove, { passive: true });
+    host.addEventListener('mouseleave', onHostLeave);
 
     const scrollParent = host.closest('.omr-mxl-osmd-frame');
     const onScroll = () => syncMeasureClickUi();
@@ -481,10 +494,13 @@ export function OsmdBlock({
       syncMeasureClickUi();
     } else {
       removeMeasureClickOverlays(host);
+      removeMeasureHover(host);
     }
 
     return () => {
       host.removeEventListener('click', onHostClick, true);
+      host.removeEventListener('mousemove', onHostMove);
+      host.removeEventListener('mouseleave', onHostLeave);
       scrollParent?.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
     };

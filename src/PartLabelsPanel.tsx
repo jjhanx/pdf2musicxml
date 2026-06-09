@@ -6,6 +6,7 @@ type ScorePart = {
   partIndex: number;
   id: string;
   name: string;
+  instrumentName?: string;
   suggestedLabel: string;
 };
 
@@ -39,13 +40,14 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
       for (let i = 0; i < n; i++) {
         const saved = j.savedLabelsByIndex?.[i];
         const preset = j.presetLabelsByIndex?.[i];
-        initial[i] = (
-          saved ||
-          preset ||
-          suggestedPartLabel(list[i]?.name ?? '', i, n, list[i]?.suggestedLabel) ||
-          initial[i] ||
-          `P${i + 1}`
-        ).trim();
+        const inferred = suggestedPartLabel(
+          list[i]?.name ?? '',
+          i,
+          n,
+          list[i]?.suggestedLabel,
+          list[i]?.instrumentName,
+        );
+        initial[i] = (saved || inferred || preset || initial[i] || `P${i + 1}`).trim();
       }
       setLabels(initial);
     } catch (e) {
@@ -150,6 +152,7 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
                   <td style={{ padding: '0.45rem 0.5rem', color: '#444' }}>
                     <code>{p.id}</code>
                     {p.name ? ` · ${p.name}` : ''}
+                    {p.instrumentName ? ` · ${p.instrumentName}` : ''}
                   </td>
                   <td style={{ padding: '0.45rem 0.5rem' }}>
                     <select

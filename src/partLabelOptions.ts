@@ -29,14 +29,23 @@ export function defaultPartLabels(count: number): string[] {
   return out;
 }
 
-/** Audiveris part-name·API 제안보다 우선 — 단일 Piano는 P, 양손만 PR/PL */
+function combinedPartText(partName: string, instrumentName?: string): string {
+  return `${partName || ''} ${instrumentName || ''}`.toUpperCase();
+}
+
+export function isPianoPart(partName: string, instrumentName?: string): boolean {
+  return /PIANO|PNO\.?/.test(combinedPartText(partName, instrumentName));
+}
+
+/** Piano(악기명·part-name)는 preset/API PR보다 P 우선. 양손 표기만 PR/PL */
 export function suggestedPartLabel(
   partName: string,
   partIndex: number,
   partCount: number,
   apiSuggestion?: string,
+  instrumentName?: string,
 ): string {
-  const upper = (partName || '').toUpperCase();
+  const upper = combinedPartText(partName, instrumentName);
   if (/PIANO|PNO\.?/.test(upper)) {
     if (/LEFT|\bLH\b|LEFT\s*HAND/.test(upper)) return 'PL';
     if (/RIGHT|\bRH\b|RIGHT\s*HAND/.test(upper)) return 'PR';

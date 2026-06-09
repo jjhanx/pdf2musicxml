@@ -67,8 +67,8 @@ function readSourceMeasure(gm: GraphicalMeasureLike): Record<string, unknown> | 
 function readNumberField(obj: Record<string, unknown> | null, keys: string[]): number | null {
   if (!obj) return null;
   for (const key of keys) {
-    const v = obj[key];
-    if (typeof v === 'number' && Number.isFinite(v)) return Math.floor(v);
+    const n = coordNum(obj[key]);
+    if (n != null && Number.isFinite(n)) return Math.floor(n);
   }
   return null;
 }
@@ -88,11 +88,23 @@ export function measureMxlFromGraphic(gm: GraphicalMeasureLike): number | null {
   for (const keys of [
     ['MeasureNumberXML', 'measureNumberXML'],
     ['MeasureNumber', 'measureNumber'],
+    ['absoluteMeasureNumber', 'AbsoluteMeasureNumber'],
   ]) {
     const v = readNumberField(gm, keys);
     if (v != null) return v;
   }
   return null;
+}
+
+function findMeasureGraphicAnyStaff(
+  osmd: OpenSheetMusicDisplay,
+  measureMxl: number,
+): { gm: GraphicalMeasureLike; staffIndex: number } | null {
+  let hit: { gm: GraphicalMeasureLike; staffIndex: number } | null = null;
+  forEachGraphicalMeasure(osmd, (gm, si) => {
+    if (measureMxlFromGraphic(gm) === measureMxl) hit = { gm, staffIndex: si };
+  });
+  return hit;
 }
 
 function resolveMeasureMxlForCell(
@@ -747,30 +759,46 @@ function boundsForMeasureInfo(
   );
   if (cached) return cached.bounds;
 
-  const gm = findMeasureGraphic(osmd, info.measureMxl, info.staffIndex);
-  if (!gm) return null;
-
-  const dom = domBoundsForMeasure(gm, host);
-  const gridMatch = targetCache
-    .get(host)
-    ?.find((t) => t.measureMxl === info.measureMxl && t.staffIndex === info.staffIndex);
-  if (gridMatch) return gridMatch.bounds;
-  if (dom) {
-    const staffBand = targetCache.get(host)?.find((t) => t.staffIndex === info.staffIndex);
-    if (staffBand) {
-      return {
-        left: dom.left,
-        right: dom.right,
-        top: staffBand.bounds.top,
-        bottom: staffBand.bounds.bottom,
-      };
-    }
-    return dom;
+  let gm = findMeasureGraphic(osmd, info.measureMxl, info.staffIndex);
+  if (!gm) {
+    const any = findMeasureGraphicAnyStaff(osmd, info.measureMxl);
+    gm = any?.gm ?? null;
+  }
+  if (!gm) {
+    const anyTarget = targetCache.get(host)?.find((t) => t.measureMxl === info.measureMxl);
+    return anyTarget?.bounds ?? null;
   }
 
+  const dom = domBoundsForMeasure(gm, host);
+  const staffBand = targetCache.get(host)?.find((t) => t.staffIndex === info.staffIndex);
+  const colPeer = targetCache.get(host)?.find((t) => t.measureMxl === info.measureMxl);
+  if (staffBand && colPeer) {
+    return {
+      left: colPeer.bounds.left,
+      right: colPeer.bounds.right,
+      top: staffBand.bounds.top,
+      bottom: staffBand.bounds.bottom,
+    };
+  }
+  if (dom && staffBand) {
+    return {
+      left: dom.left,
+      right: dom.right,
+      top: staffBand.bounds.top,
+      bottom: staffBand.bounds.bottom,
+    };
+  }
+  if (dom) return dom;
+
   const g = graphicOsmdBounds(gm);
-  if (g) return osmdBoundsToHost(g, host, osmd);
-  return null;
+  if (g) {
+    const hb = osmdBoundsToHost(g, host, osmd);
+    if (staffBand) {
+      return { left: hb.left, right: hb.right, top: staffBand.bounds.top, bottom: staffBand.bounds.bottom };
+    }
+    return hb;
+  }
+  return staffBand?.bounds ?? colPeer?.bounds ?? null;
 }
 
 function paintBounds(host: HTMLElement, bounds: HostBounds, layerAttr: string, style: string): void {

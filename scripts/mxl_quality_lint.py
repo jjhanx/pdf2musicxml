@@ -51,17 +51,18 @@ def staff_label(
     part_count: int,
     part_name: str,
     labels_by_index: list[str] | None = None,
+    instrument_name: str = "",
 ) -> str:
     if labels_by_index and 0 <= part_index < len(labels_by_index):
         custom = (labels_by_index[part_index] or "").strip()
         if custom:
             return custom
-    name = (part_name or "").upper()
+    name = f"{part_name or ''} {instrument_name or ''}".upper()
     if "LEFT" in name or " LH" in name or name.endswith(" LH"):
         return "PL"
     if "RIGHT" in name or " RH" in name or name.endswith(" RH"):
         return "PR"
-    if "PIANO" in name or name in ("PNO", "PNO."):
+    if "PIANO" in name or "PNO" in name:
         return "P"
     if part_count == 6 and 0 <= part_index < 6 and "PIANO" not in name and "PNO" not in name:
         return _STAFF_ORDER_6[part_index]
@@ -95,22 +96,30 @@ def list_score_parts_from_xml(xml_bytes: bytes) -> list[dict[str, Any]]:
     for sp in root.findall(f".//{_q(ns, 'score-part')}"):
         pid = sp.get("id", "")
         pn = sp.find(_q(ns, "part-name"))
+        instrument = ""
+        for si in sp.findall(_q(ns, "score-instrument")):
+            in_el = si.find(_q(ns, "instrument-name"))
+            if in_el is not None and in_el.text and in_el.text.strip():
+                instrument = in_el.text.strip()
+                break
         parts_meta.append(
             {
                 "id": pid,
                 "name": (pn.text or "").strip() if pn is not None else "",
+                "instrumentName": instrument,
             }
         )
     part_count = len(parts_meta)
     out: list[dict[str, Any]] = []
     for i, meta in enumerate(parts_meta):
-        suggested = staff_label(i, part_count, meta["name"])
+        suggested = staff_label(i, part_count, meta["name"], instrument_name=meta["instrumentName"])
         out.append(
             {
                 "index": i,
                 "partIndex": i + 1,
                 "id": meta["id"],
                 "name": meta["name"],
+                "instrumentName": meta["instrumentName"],
                 "suggestedLabel": suggested,
             }
         )

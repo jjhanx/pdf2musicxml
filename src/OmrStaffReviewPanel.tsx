@@ -53,6 +53,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [scoreZoom, setScoreZoom] = useState(0.55);
   const [selectedMeasure, setSelectedMeasure] = useState<OsmdMeasureClickInfo | null>(null);
   const [editPartId, setEditPartId] = useState('');
+  const [manualMeasurePrinted, setManualMeasurePrinted] = useState('');
   const [editorKey, setEditorKey] = useState(0);
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
@@ -246,7 +247,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     }
   }, [jobId, pendingFixes, persistFixes, refreshScoreXml]);
 
-  const handleMeasureClick = useCallback(
+  const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo) => {
       setSelectedMeasure(info);
       if (!staffFilter && !osmdPartId) {
@@ -256,6 +257,34 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     },
     [staffFilter, osmdPartId, resolvePartIdForStaffIndex],
   );
+
+  const handleMeasureClick = useCallback(
+    (info: OsmdMeasureClickInfo) => {
+      openMeasure(info);
+    },
+    [openMeasure],
+  );
+
+  const openManualMeasure = useCallback(() => {
+    const printed = parseInt(manualMeasurePrinted.trim(), 10);
+    if (!Number.isFinite(printed) || printed < 1) return;
+    const measureMxl = Math.max(1, printed - measureOffset);
+    const staffIndex = staffFilter
+      ? Math.max(0, staffList.indexOf(staffFilter))
+      : 0;
+    openMeasure({ measureMxl, staffIndex });
+    if (!staffFilter && !editPartId) {
+      setEditPartId(resolvePartIdForStaffIndex(staffIndex));
+    }
+  }, [
+    manualMeasurePrinted,
+    measureOffset,
+    staffFilter,
+    staffList,
+    openMeasure,
+    editPartId,
+    resolvePartIdForStaffIndex,
+  ]);
 
   const filteredXml = rawXml ? filterMusicXmlToPart(rawXml, osmdPartId || null) : '';
   const selectedPrinted = selectedMeasure
@@ -383,8 +412,24 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             </InspectPanelErrorBoundary>
           </div>
           <p className="omr-mxl-preview-hint">
-            <strong>마디를 클릭</strong>해 편집 패널을 엽니다. 「보정 MXL에 적용」 시 미리보기가 자동 갱신됩니다.
+            <strong>오선·음표 영역</strong>을 클릭해 편집 패널을 엽니다(제목·성부명 클릭은 무시됩니다).
           </p>
+          <div className="omr-manual-measure-open">
+            <label>
+              인쇄 마디로 열기
+              <input
+                type="number"
+                min={1}
+                value={manualMeasurePrinted}
+                onChange={(e) => setManualMeasurePrinted(e.target.value)}
+                placeholder="예: 12"
+                style={{ width: 72, marginLeft: 6 }}
+              />
+            </label>
+            <button type="button" className="btn-muted" onClick={() => openManualMeasure()}>
+              마디 편집 열기
+            </button>
+          </div>
         </div>
       </div>
 

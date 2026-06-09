@@ -627,8 +627,30 @@ button.btn-muted {
   line-height: 1.4;
 }
 
+.modal-light .omr-manual-measure-open {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: #444;
+}
+
 .modal-light .omr-osmd-clickable {
   cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.modal-light .omr-mxl-osmd-frame {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.modal-light .omr-mxl-osmd-frame svg {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .modal-light .omr-measure-editor-wrap {

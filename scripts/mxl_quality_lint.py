@@ -63,7 +63,7 @@ def staff_label(
         return "PR"
     if "PIANO" in name or name in ("PNO", "PNO."):
         return "P"
-    if part_count == 6 and 0 <= part_index < 6:
+    if part_count == 6 and 0 <= part_index < 6 and "PIANO" not in name and "PNO" not in name:
         return _STAFF_ORDER_6[part_index]
     for token, label in (
         ("SOPRANO", "S"),

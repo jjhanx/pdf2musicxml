@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { defaultPartLabels, PART_LABEL_PICKLIST } from './partLabelOptions';
+import { defaultPartLabels, PART_LABEL_PICKLIST, suggestedPartLabel } from './partLabelOptions';
 
 type ScorePart = {
   index: number;
@@ -39,8 +39,13 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
       for (let i = 0; i < n; i++) {
         const saved = j.savedLabelsByIndex?.[i];
         const preset = j.presetLabelsByIndex?.[i];
-        const sug = list[i]?.suggestedLabel;
-        initial[i] = (saved || preset || sug || initial[i] || `P${i + 1}`).trim();
+        initial[i] = (
+          saved ||
+          preset ||
+          suggestedPartLabel(list[i]?.name ?? '', i, n, list[i]?.suggestedLabel) ||
+          initial[i] ||
+          `P${i + 1}`
+        ).trim();
       }
       setLabels(initial);
     } catch (e) {

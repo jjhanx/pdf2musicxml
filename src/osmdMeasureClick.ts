@@ -73,11 +73,72 @@ function readNumberField(obj: Record<string, unknown> | null, keys: string[]): n
   return null;
 }
 
-export function measureMxlFromGraphic(gm: GraphicalMeasureLike): number {
+/** MusicXML measure@number. null이면 미확정(0은 pickup 등 유효 번호). */
+export function measureMxlFromGraphic(gm: GraphicalMeasureLike): number | null {
   const sm = readSourceMeasure(gm);
-  const xml = readNumberField(sm, ['MeasureNumberXML', 'measureNumberXML']);
-  if (xml != null) return xml;
-  return readNumberField(gm, ['MeasureNumberXML', 'measureNumberXML', 'MeasureNumber', 'measureNumber']) ?? 0;
+  if (sm) {
+    for (const keys of [
+      ['MeasureNumberXML', 'measureNumberXML'],
+      ['MeasureNumber', 'measureNumber'],
+    ]) {
+      const v = readNumberField(sm, keys);
+      if (v != null) return v;
+    }
+  }
+  for (const keys of [
+    ['MeasureNumberXML', 'measureNumberXML'],
+    ['MeasureNumber', 'measureNumber'],
+  ]) {
+    const v = readNumberField(gm, keys);
+    if (v != null) return v;
+  }
+  return null;
+}
+
+function resolveMeasureMxlForCell(
+  allRows: GraphicalMeasureLike[][],
+  mi: number,
+  gm: GraphicalMeasureLike,
+): number | null {
+  const direct = measureMxlFromGraphic(gm);
+  if (direct != null) return direct;
+  for (const row of allRows) {
+    const other = row[mi];
+    if (!other) continue;
+    const n = measureMxlFromGraphic(other);
+    if (n != null) return n;
+  }
+  for (const row of allRows) {
+    for (const other of row) {
+      if (!other || isExtraMeasure(other)) continue;
+      const n = measureMxlFromGraphic(other);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
+
+function countStaffRows(osmd: OpenSheetMusicDisplay): number {
+  let n = 0;
+  const sheet = readGraphicSheet(osmd);
+  if (!sheet) return 0;
+  for (const page of (sheet.MusicPages ?? sheet.musicPages) as unknown[]) {
+    const pageRec = asRecord(page);
+    if (!pageRec) continue;
+    for (const system of (pageRec.MusicSystems ?? pageRec.musicSystems) as unknown[]) {
+      const sysRec = asRecord(system);
+      if (!sysRec) continue;
+      const rows = (sysRec.GraphicalMeasures ?? sysRec.graphicalMeasures) as GraphicalMeasureLike[][] | undefined;
+      n = Math.max(n, rows?.length ?? 0);
+    }
+  }
+  return n;
+}
+
+function normalizeStaffIndex(osmd: OpenSheetMusicDisplay, staffIndex: number): number {
+  const rows = countStaffRows(osmd);
+  if (rows <= 1) return 0;
+  return staffIndex;
 }
 
 function isExtraMeasure(gm: GraphicalMeasureLike | null | undefined): boolean {
@@ -228,11 +289,15 @@ function staffIndexForMeasureGraphic(osmd: OpenSheetMusicDisplay, gm: GraphicalM
   return found;
 }
 
-function measureInfoFromGraphic(gm: GraphicalMeasureLike, staffIndex: number): OsmdMeasureClickInfo | null {
+function measureInfoFromGraphic(
+  osmd: OpenSheetMusicDisplay,
+  gm: GraphicalMeasureLike,
+  staffIndex: number,
+): OsmdMeasureClickInfo | null {
   if (isExtraMeasure(gm)) return null;
   const measureMxl = measureMxlFromGraphic(gm);
-  if (!measureMxl) return null;
-  return { measureMxl, staffIndex };
+  if (measureMxl == null) return null;
+  return { measureMxl, staffIndex: normalizeStaffIndex(osmd, staffIndex) };
 }
 
 function domRectsFromStaffEntry(entry: unknown): DOMRect[] {
@@ -448,34 +513,41 @@ function buildStaffBandsInHost(
   return bands;
 }
 
-function buildMeasureColumnsInHost(
+function horizontalBoundsForGraphic(
+  gm: GraphicalMeasureLike,
+  nextGm: GraphicalMeasureLike | undefined,
+  row: GraphicalMeasureLike[],
+  host: HTMLElement,
+  osmd: OpenSheetMusicDisplay,
+): { left: number; right: number } | null {
+  const layout = getOsmdHostLayout(host, osmd);
+  const dom = domHorizontalForMeasure(gm, host);
+  if (dom) return dom;
+  const gH = graphicHorizontalOsmd(gm, nextGm, medianMeasureWidthOsmd(row));
+  if (!gH) return null;
+  const left = layout.offsetX + gH.left * layout.scale;
+  const right = layout.offsetX + gH.right * layout.scale;
+  return right - left >= 3 ? { left, right } : null;
+}
+
+/** 성부마다 배열 인덱스가 어긋나도 MusicXML 마디 번호로 X 범위를 공유 */
+function buildColumnBoundsByMeasureMxl(
   rows: GraphicalMeasureLike[][],
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
-): ({ left: number; right: number } | null)[] {
-  const layout = getOsmdHostLayout(host, osmd);
-  const maxLen = rows.reduce((m, r) => Math.max(m, r.length), 0);
-  const cols: ({ left: number; right: number } | null)[] = new Array(maxLen).fill(null);
-  let fallbackW = 28;
+): Map<number, { left: number; right: number }> {
+  const map = new Map<number, { left: number; right: number }>();
   for (const row of rows) {
-    fallbackW = medianMeasureWidthOsmd(row);
-    break;
-  }
-  for (let mi = 0; mi < maxLen; mi += 1) {
-    for (const row of rows) {
+    for (let mi = 0; mi < row.length; mi += 1) {
       const gm = row[mi];
       if (!gm || isExtraMeasure(gm)) continue;
-      const gH = graphicHorizontalOsmd(gm, row[mi + 1], fallbackW);
-      if (!gH) continue;
-      const left = layout.offsetX + gH.left * layout.scale;
-      const right = layout.offsetX + gH.right * layout.scale;
-      if (right - left >= 3) {
-        cols[mi] = { left, right };
-        break;
-      }
+      const mxl = resolveMeasureMxlForCell(rows, mi, gm);
+      if (mxl == null || map.has(mxl)) continue;
+      const h = horizontalBoundsForGraphic(gm, row[mi + 1], row, host, osmd);
+      if (h) map.set(mxl, h);
     }
   }
-  return cols;
+  return map;
 }
 
 function mergeBoundsVertical(staffBand: HostBounds | null, inner: HostBounds): HostBounds {
@@ -543,16 +615,24 @@ function collectFromSystem(
   if (!rows?.length) return;
 
   const staffBands = buildStaffBandsInHost(system, rows, host, osmd);
-  const columns = buildMeasureColumnsInHost(rows, host, osmd);
+  const colByMxl = buildColumnBoundsByMeasureMxl(rows, host, osmd);
 
   for (let si = 0; si < rows.length; si += 1) {
     const row = rows[si] ?? [];
     for (let mi = 0; mi < row.length; mi += 1) {
       const gm = row[mi];
       if (!gm || isExtraMeasure(gm)) continue;
-      const measureMxl = measureMxlFromGraphic(gm);
-      if (!measureMxl) continue;
-      const bounds = cellBoundsInHost(staffBands[si], columns[mi] ?? null, gm, row[mi + 1], row, host, osmd);
+      const measureMxl = resolveMeasureMxlForCell(rows, mi, gm);
+      if (measureMxl == null) continue;
+      let col = colByMxl.get(measureMxl) ?? null;
+      if (!col) {
+        const h = horizontalBoundsForGraphic(gm, row[mi + 1], row, host, osmd);
+        if (h) {
+          col = h;
+          colByMxl.set(measureMxl, h);
+        }
+      }
+      const bounds = cellBoundsInHost(staffBands[si], col, gm, row[mi + 1], row, host, osmd);
       if (!bounds || bounds.right - bounds.left < 3 || bounds.bottom - bounds.top < 3) continue;
       const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
       if (seen.has(key)) continue;
@@ -589,7 +669,7 @@ export function collectMeasureHitTargets(
   if (!out.length) {
     forEachGraphicalMeasure(osmd, (gm, si, mi, row) => {
       const measureMxl = measureMxlFromGraphic(gm);
-      if (!measureMxl) return;
+      if (measureMxl == null) return;
       const bounds = cellBoundsInHost(null, null, gm, row[mi + 1], row, host, osmd);
       if (!bounds) return;
       const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
@@ -648,7 +728,7 @@ function hitViaNearestStaffEntry(
       const e = asRecord(entry);
       const pm = asRecord(e?.parentMeasure ?? e?.ParentMeasure);
       if (pm && !isExtraMeasure(pm)) {
-        return measureInfoFromGraphic(pm, staffIndexForMeasureGraphic(osmd, pm));
+        return measureInfoFromGraphic(osmd, pm, staffIndexForMeasureGraphic(osmd, pm));
       }
     } catch {
       /* ignore */
@@ -671,14 +751,18 @@ function boundsForMeasureInfo(
   if (!gm) return null;
 
   const dom = domBoundsForMeasure(gm, host);
+  const gridMatch = targetCache
+    .get(host)
+    ?.find((t) => t.measureMxl === info.measureMxl && t.staffIndex === info.staffIndex);
+  if (gridMatch) return gridMatch.bounds;
   if (dom) {
-    const grid = targetCache.get(host)?.find((t) => t.staffIndex === info.staffIndex);
-    if (grid) {
+    const staffBand = targetCache.get(host)?.find((t) => t.staffIndex === info.staffIndex);
+    if (staffBand) {
       return {
         left: dom.left,
         right: dom.right,
-        top: grid.bounds.top,
-        bottom: grid.bounds.bottom,
+        top: staffBand.bounds.top,
+        bottom: staffBand.bounds.bottom,
       };
     }
     return dom;
@@ -741,7 +825,7 @@ export function drawOsmdMeasureHighlight(
   staffIndex?: number | null,
 ): void {
   host.querySelectorAll(`[${HIGHLIGHT_LAYER_ATTR}]`).forEach((el) => el.remove());
-  if (!measureMxl || measureMxl < 1 || !osmd.IsReadyToRender()) return;
+  if (measureMxl == null || measureMxl < 0 || !osmd.IsReadyToRender()) return;
   const bounds = boundsForMeasureInfo(osmd, host, {
     measureMxl,
     staffIndex: staffIndex ?? 0,
@@ -766,8 +850,15 @@ export function hitTestOsmdMeasure(
 ): OsmdMeasureClickInfo | null {
   if (!osmd.IsReadyToRender()) return null;
   const t = pickTargetAt(host, osmd, evt);
-  if (t) return { measureMxl: t.measureMxl, staffIndex: t.staffIndex };
-  return hitViaNearestStaffEntry(osmd, host, evt);
+  if (t) {
+    return {
+      measureMxl: t.measureMxl,
+      staffIndex: normalizeStaffIndex(osmd, t.staffIndex),
+    };
+  }
+  const near = hitViaNearestStaffEntry(osmd, host, evt);
+  if (!near) return null;
+  return { ...near, staffIndex: normalizeStaffIndex(osmd, near.staffIndex) };
 }
 
 export function invalidateMeasureTargetCache(host: HTMLElement): void {

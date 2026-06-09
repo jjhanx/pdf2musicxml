@@ -28,3 +28,21 @@ export function defaultPartLabels(count: number): string[] {
   }
   return out;
 }
+
+/** Audiveris part-name·API 제안보다 우선 — 단일 Piano는 P, 양손만 PR/PL */
+export function suggestedPartLabel(
+  partName: string,
+  partIndex: number,
+  partCount: number,
+  apiSuggestion?: string,
+): string {
+  const upper = (partName || '').toUpperCase();
+  if (/PIANO|PNO\.?/.test(upper)) {
+    if (/LEFT|\bLH\b|LEFT\s*HAND/.test(upper)) return 'PL';
+    if (/RIGHT|\bRH\b|RIGHT\s*HAND/.test(upper)) return 'PR';
+    return 'P';
+  }
+  const sug = (apiSuggestion || '').trim();
+  if (sug) return sug;
+  return defaultPartLabels(partCount)[partIndex] ?? `P${partIndex + 1}`;
+}

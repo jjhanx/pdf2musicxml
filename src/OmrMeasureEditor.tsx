@@ -23,6 +23,8 @@ export type MeasureNoteEl = {
   displayStep?: string | null;
   displayOctave?: string | null;
   measureRest?: boolean;
+  duration?: number | null;
+  isDotted?: boolean;
   dotCount?: number;
   tieStart?: boolean;
   tieStop?: boolean;
@@ -85,11 +87,14 @@ export function OmrMeasureEditor({
   measureOffset,
   staffLabel,
   onAddFix,
+  previewRevision = 0,
+  lastPreviewMsg = '',
 }: Props) {
   const [snapshot, setSnapshot] = useState<MeasureSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState('');
   const [insertAfter, setInsertAfter] = useState(-1);
+  const [fixMsg, setFixMsg] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,6 +138,7 @@ export function OmrMeasureEditor({
       source: 'manual',
       ...partial,
     });
+    setFixMsg('대기 목록에 추가됨 → 「MXL에 반영·미리보기」로 오른쪽 악보를 확인하세요.');
   };
 
   return (
@@ -150,9 +156,11 @@ export function OmrMeasureEditor({
         </button>
       </div>
       <p className="omr-measure-editor-hint">
-        PDF와 다르게 보이는 요소마다 아래에서 조정한 뒤 「보정 MXL에 적용」을 누르세요. 인쇄 마디 ≈ MXL{' '}
-        <code>measure@number</code> + {measureOffset}.
+        요소를 고친 뒤 아래 「대기 목록에 추가」가 되면, 상단의 <strong>「MXL에 반영·미리보기」</strong>를 눌러
+        오른쪽 MusicXML에서 결과를 확인하세요. 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset}.
       </p>
+      {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
+      {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
       {loadErr ? <p className="omr-measure-editor-err">{loadErr}</p> : null}
       {loading && !snapshot ? <p className="omr-measure-editor-loading">마디 요소 불러오는 중…</p> : null}
 
@@ -258,11 +266,42 @@ function MeasureNoteEditor({
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
 
+  const showDotFix =
+    el.kind === 'rest' &&
+    ((el.dotCount ?? 0) > 0 || el.isDotted || el.type === 'whole' || el.type === 'half');
+  const prev = noteEls.find((n) => n.index === el.index - 1);
+  const trailingAfterRest =
+    el.index > 0 &&
+    prev?.kind === 'rest' &&
+    (prev.type === 'whole' || prev.type === 'half');
+
   return (
     <div className="omr-measure-element-actions">
-      {(el.dotCount ?? 0) > 0 && (
-        <button type="button" className="omr-hitl-fix-btn" onClick={() => onFix({ kind: 'removeNoteDot', noteIndex: el.index })}>
-          점(·) 제거
+      {showDotFix && (
+        <>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn"
+            onClick={() => onFix({ kind: 'removeNoteDot', noteIndex: el.index })}
+          >
+            점(·) XML 제거
+          </button>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn"
+            onClick={() => onFix({ kind: 'setNoteUndotted', noteIndex: el.index })}
+          >
+            덧점 없애기 (점·긴 duration)
+          </button>
+        </>
+      )}
+      {trailingAfterRest && (
+        <button
+          type="button"
+          className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
+          onClick={() => onFix({ kind: 'removeNote', noteIndex: el.index })}
+        >
+          쉼표 뒤 의심 요소 삭제
         </button>
       )}
       {el.kind === 'rest' && (el.type === 'whole' || el.type === 'half') && (

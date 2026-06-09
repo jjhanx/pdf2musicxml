@@ -8,12 +8,10 @@ export type OsmdMeasureClickInfo = {
 type GraphicalMeasureLike = {
   IsExtraGraphicalMeasure?: boolean;
   MeasureNumber?: number;
-  staffEntries?: unknown[];
   parentSourceMeasure?: {
     MeasureNumberXML?: number;
     MeasureNumber?: number;
   };
-  parentMeasure?: GraphicalMeasureLike;
   PositionAndShape?: {
     AbsolutePosition?: { x: number; y: number };
     Size?: { width: number; height: number };
@@ -22,14 +20,24 @@ type GraphicalMeasureLike = {
   };
 };
 
+type StaffLineLike = {
+  PositionAndShape?: GraphicalMeasureLike['PositionAndShape'];
+};
+
+type MusicSystemLike = {
+  StaffLines?: StaffLineLike[];
+  GraphicalMeasures?: GraphicalMeasureLike[][];
+};
+
+type MusicPageLike = {
+  MusicSystems?: MusicSystemLike[];
+};
+
 type OsmdGraphicLike = {
   MeasureList?: GraphicalMeasureLike[][];
   NumberOfStaves?: number;
+  MusicPages?: MusicPageLike[];
   getClickedObject?: <T>(pt: PointF2D) => T;
-  findGraphicalMeasureByMeasureNumber?: (
-    measureNumber: number,
-    staffIndex: number,
-  ) => GraphicalMeasureLike | undefined;
 };
 
 function sheetPointFromEvent(
@@ -61,17 +69,16 @@ function measureMxlFromGraphic(gm: GraphicalMeasureLike): number {
 
 function isStaffGraphicalMeasure(gm: GraphicalMeasureLike | null | undefined): gm is GraphicalMeasureLike {
   if (!gm || gm.IsExtraGraphicalMeasure) return false;
-  if (!Array.isArray(gm.staffEntries) || gm.staffEntries.length < 1) return false;
   return measureMxlFromGraphic(gm) > 0;
 }
 
 function measureBounds(
-  gm: GraphicalMeasureLike,
+  obj: { PositionAndShape?: GraphicalMeasureLike['PositionAndShape'] },
 ): { left: number; top: number; right: number; bottom: number } | null {
-  const bb = gm.PositionAndShape;
+  const bb = obj.PositionAndShape;
   if (!bb) return null;
   const rect = bb.BoundingRectangle ?? bb.BoundingMarginRectangle;
-  if (rect && rect.width > 2 && rect.height > 2) {
+  if (rect && rect.width > 1 && rect.height > 1) {
     return {
       left: rect.x,
       top: rect.y,
@@ -81,7 +88,7 @@ function measureBounds(
   }
   const pos = bb.AbsolutePosition;
   const size = bb.Size;
-  if (pos && size && size.width > 2 && size.height > 2) {
+  if (pos && size && size.width > 1 && size.height > 1) {
     return {
       left: pos.x,
       top: pos.y,
@@ -92,7 +99,14 @@ function measureBounds(
   return null;
 }
 
-/** OSMD MeasureList는 [measureIndex][staffIndex] (첫 축=마디, 둘째=스태프). */
+function pointInBounds(
+  x: number,
+  y: number,
+  bounds: { left: number; top: number; right: number; bottom: number },
+): boolean {
+  return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+}
+
 function forEachStaffMeasure(
   graphic: OsmdGraphicLike,
   fn: (gm: GraphicalMeasureLike, staffIndex: number) => void,
@@ -103,7 +117,6 @@ function forEachStaffMeasure(
   const dim0 = list.length;
   const dim1 = list[0]?.length ?? 0;
   const numStaves = graphic.NumberOfStaves ?? 0;
-
   const measureMajor =
     numStaves > 0
       ? dim1 === numStaves || (dim1 <= numStaves + 1 && dim0 > dim1)
@@ -125,31 +138,6 @@ function forEachStaffMeasure(
       if (isStaffGraphicalMeasure(gm)) fn(gm, si);
     }
   }
-}
-
-function measureFromClickedObject(clicked: unknown): GraphicalMeasureLike | null {
-  let cur: unknown = clicked;
-  const seen = new Set<unknown>();
-  for (let depth = 0; depth < 16 && cur && !seen.has(cur); depth += 1) {
-    seen.add(cur);
-    if (isStaffGraphicalMeasure(cur as GraphicalMeasureLike)) {
-      return cur as GraphicalMeasureLike;
-    }
-    if (typeof cur === 'object' && cur !== null) {
-      if ('parentMeasure' in cur) {
-        const pm = (cur as { parentMeasure?: unknown }).parentMeasure;
-        if (pm && isStaffGraphicalMeasure(pm as GraphicalMeasureLike)) {
-          return pm as GraphicalMeasureLike;
-        }
-        if (pm) {
-          cur = pm;
-          continue;
-        }
-      }
-    }
-    break;
-  }
-  return null;
 }
 
 function staffIndexForMeasure(graphic: OsmdGraphicLike, gm: GraphicalMeasureLike): number {
@@ -180,23 +168,60 @@ function staffIndexForMeasure(graphic: OsmdGraphicLike, gm: GraphicalMeasureLike
   return 0;
 }
 
-function hitTestByBounds(
-  graphic: OsmdGraphicLike,
-  x: number,
-  y: number,
-): OsmdMeasureClickInfo | null {
+function hitTestViaMusicPages(graphic: OsmdGraphicLike, x: number, y: number): OsmdMeasureClickInfo | null {
+  const pages = graphic.MusicPages;
+  if (!pages?.length) return null;
+
+  let best: OsmdMeasureClickInfo | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+
+  for (const page of pages) {
+    for (const system of page.MusicSystems ?? []) {
+      const staffLines = system.StaffLines ?? [];
+      let staffIndex = -1;
+      for (let si = 0; si < staffLines.length; si += 1) {
+        const bounds = measureBounds(staffLines[si] ?? {});
+        if (bounds && pointInBounds(x, y, bounds)) {
+          staffIndex = si;
+          break;
+        }
+      }
+
+      const rows = system.GraphicalMeasures ?? [];
+      const staffIndices =
+        staffIndex >= 0 ? [staffIndex] : rows.map((_, i) => i);
+
+      for (const si of staffIndices) {
+        for (const gm of rows[si] ?? []) {
+          if (!isStaffGraphicalMeasure(gm)) continue;
+          const bounds = measureBounds(gm);
+          if (!bounds || !pointInBounds(x, y, bounds)) continue;
+          const measureMxl = measureMxlFromGraphic(gm);
+          if (!measureMxl) continue;
+          const area = (bounds.right - bounds.left) * (bounds.bottom - bounds.top);
+          if (area < bestArea) {
+            bestArea = area;
+            best = { measureMxl, staffIndex: si };
+          }
+        }
+      }
+    }
+  }
+  return best;
+}
+
+function hitTestByMeasureList(graphic: OsmdGraphicLike, x: number, y: number): OsmdMeasureClickInfo | null {
   let best: OsmdMeasureClickInfo | null = null;
   let bestArea = Number.POSITIVE_INFINITY;
 
   forEachStaffMeasure(graphic, (gm, staffIndex) => {
     const bounds = measureBounds(gm);
-    if (!bounds) return;
-    if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return;
+    if (!bounds || !pointInBounds(x, y, bounds)) return;
     const measureMxl = measureMxlFromGraphic(gm);
     if (!measureMxl) return;
     const w = bounds.right - bounds.left;
     const h = bounds.bottom - bounds.top;
-    if (h > 400 || w > 1200) return;
+    if (h > 500 || w > 1400) return;
     const area = w * h;
     if (area < bestArea) {
       bestArea = area;
@@ -207,13 +232,36 @@ function hitTestByBounds(
   return best;
 }
 
+function measureFromClickedObject(clicked: unknown): GraphicalMeasureLike | null {
+  let cur: unknown = clicked;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < 16 && cur && !seen.has(cur); depth += 1) {
+    seen.add(cur);
+    if (isStaffGraphicalMeasure(cur as GraphicalMeasureLike)) {
+      return cur as GraphicalMeasureLike;
+    }
+    if (typeof cur === 'object' && cur !== null && 'parentMeasure' in cur) {
+      const pm = (cur as { parentMeasure?: unknown }).parentMeasure;
+      if (pm && isStaffGraphicalMeasure(pm as GraphicalMeasureLike)) {
+        return pm as GraphicalMeasureLike;
+      }
+      if (pm) {
+        cur = pm;
+        continue;
+      }
+    }
+    break;
+  }
+  return null;
+}
+
 export function hitTestOsmdMeasure(
   osmd: OpenSheetMusicDisplay,
   host: HTMLElement,
   evt: MouseEvent,
 ): OsmdMeasureClickInfo | null {
   const graphic = (osmd as { graphic?: OsmdGraphicLike }).graphic;
-  if (!graphic?.MeasureList?.length) return null;
+  if (!graphic) return null;
 
   const pt = sheetPointFromEvent(host, osmd, evt);
 
@@ -228,11 +276,14 @@ export function hitTestOsmdMeasure(
         }
       }
     } catch {
-      /* bounds fallback */
+      /* fall through */
     }
   }
 
-  return hitTestByBounds(graphic, pt.x, pt.y);
+  return (
+    hitTestViaMusicPages(graphic, pt.x, pt.y) ??
+    hitTestByMeasureList(graphic, pt.x, pt.y)
+  );
 }
 
 export function drawOsmdMeasureHighlight(
@@ -244,7 +295,7 @@ export function drawOsmdMeasureHighlight(
   if (!measureMxl || measureMxl < 1) return;
 
   const graphic = (osmd as { graphic?: OsmdGraphicLike }).graphic;
-  if (!graphic?.MeasureList?.length) return;
+  if (!graphic) return;
 
   const zoom = osmd.zoom || 1;
   const svg = host.querySelector('svg');
@@ -259,7 +310,7 @@ export function drawOsmdMeasureHighlight(
     'position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none;z-index:4;';
   host.style.position = host.style.position || 'relative';
 
-  forEachStaffMeasure(graphic, (gm, _staffIndex) => {
+  const paint = (gm: GraphicalMeasureLike) => {
     if (measureMxlFromGraphic(gm) !== measureMxl) return;
     const bounds = measureBounds(gm);
     if (!bounds) return;
@@ -276,7 +327,20 @@ export function drawOsmdMeasureHighlight(
       'box-sizing:border-box',
     ].join(';');
     overlay.appendChild(rect);
-  });
+  };
+
+  for (const page of graphic.MusicPages ?? []) {
+    for (const system of page.MusicSystems ?? []) {
+      for (const row of system.GraphicalMeasures ?? []) {
+        for (const gm of row ?? []) {
+          if (isStaffGraphicalMeasure(gm)) paint(gm);
+        }
+      }
+    }
+  }
+  if (overlay.childElementCount === 0) {
+    forEachStaffMeasure(graphic, paint);
+  }
 
   if (overlay.childElementCount > 0) {
     host.appendChild(overlay);

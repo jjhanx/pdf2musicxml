@@ -73,8 +73,8 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
 5. **OMR 페이지·성부 품질 검토** 모달 (MuseScore **불필요**):
    - **PDF**(156 DPI)와 **MusicXML(OSMD)** 를 나란히 표시. 성부 필터를 쓰면 MXL도 해당 파트만 표시.
-   - **MXL 악보에서 마디 클릭** → 그 마디의 direction·쉼표·음표·점·이음줄 등을 순서대로 나열하고 요소별 보정(점 제거, 쉼표 줄 이동, 음높이·박자, 이음줄 연결/제거, 삭제·추가)을 `omr_hitl_fixes.json`에 쌓음.
-   - **「보정 MXL에 적용」** — Audiveris MXL(`preInject`)에 `apply_omr_hitl_fixes.py` 반영 후 OSMD 미리보기 갱신.
+   - **인쇄 마디 번호**로 마디를 열고 direction·쉼표·음표·점(·)·이음줄 등을 요소별로 보정(덧점 없애기, 쉼표 줄 이동, 삭제·추가 등) → `omr_hitl_fixes.json`에 쌓음.
+   - **「MXL에 반영·미리보기」** — Audiveris MXL(`preInject`)에 보정 반영 후 **오른쪽 OSMD**에서 결과 확인(마디 편집 패널도 갱신).
    - **이어하기** — 대기 보정을 MXL에 적용한 뒤 `inject_ocr`·최종 MXL로 진행.
    - 예전 **mxl-lint 자동 힌트 UI**는 제거됨. PDF·MXL 직접 대조와 마디 편집이 기준.
 6. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요.

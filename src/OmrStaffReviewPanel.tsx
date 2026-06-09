@@ -55,6 +55,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [editPartId, setEditPartId] = useState('');
   const [manualMeasurePrinted, setManualMeasurePrinted] = useState('');
   const [editorKey, setEditorKey] = useState(0);
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const [lastPreviewMsg, setLastPreviewMsg] = useState('');
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
   const pngSource =
@@ -223,8 +225,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   );
 
   const applyFixesToMxl = useCallback(async () => {
+    if (pendingFixes.length === 0) {
+      setApplyMsg('반영할 보정이 없습니다.');
+      return;
+    }
     setApplyBusy(true);
     setApplyMsg('');
+    setLastPreviewMsg('');
     try {
       await persistFixes(pendingFixes);
       const r = await fetch(`/api/omr-hitl/${jobId}/apply`, { method: 'POST' });
@@ -234,12 +241,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       }
       const j = (await r.json()) as { stats?: { applied?: number; skipped?: number } };
       await refreshScoreXml();
+      setPreviewRevision((n) => n + 1);
       setEditorKey((k) => k + 1);
       const applied = j.stats?.applied ?? 0;
       const skipped = j.stats?.skipped ?? 0;
-      setPendingFixes([]);
-      await persistFixes([]);
-      setApplyMsg(`MXL에 보정 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 미리보기가 갱신되었습니다.`);
+      const msg = `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 오른쪽 MusicXML에서 확인하세요.`;
+      setApplyMsg(msg);
+      setLastPreviewMsg(msg);
     } catch (e) {
       setApplyMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -298,8 +306,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       <div>
         <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.2rem' }}>OMR 품질 검토 (페이지×성부)</h2>
         <p style={{ margin: 0, lineHeight: 1.55, fontSize: '0.92rem' }}>
-          PDF와 MusicXML을 나란히 대조하세요. <strong>오른쪽 악보에서 마디를 클릭</strong>하면 그 마디의
-          쉼표·음표·점·이음줄 등을 하나씩 조정할 수 있습니다. 보정을 모은 뒤 「보정 MXL에 적용」→「이어하기」로
+          PDF와 MusicXML을 나란히 대조하세요. <strong>인쇄 마디 번호</strong>로 마디를 열어 쉼표·음표·점 등을
+          조정하고, 「MXL에 반영·미리보기」로 오른쪽 악보에서 확인한 뒤 「이어하기」로
           최종 MXL에 반영됩니다(MuseScore 불필요). 성부(
           {activePartLabels.length > 0 ? (
             <strong>{activePartLabels.join(' / ')}</strong>
@@ -400,6 +408,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 <p className="omr-mxl-osmd-placeholder omr-mxl-osmd-err">{xmlLoadErr}</p>
               ) : filteredXml ? (
                 <OsmdBlock
+                  key={`osmd-preview-${previewRevision}`}
                   xml={filteredXml}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
@@ -455,7 +464,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           )}
           {editorPartId ? (
             <OmrMeasureEditor
-              key={`${editorPartId}-${selectedMeasure.measureMxl}-${editorKey}`}
+              key={`${editorPartId}-${selectedMeasure.measureMxl}-${editorKey}-${previewRevision}`}
               jobId={jobId}
               partId={editorPartId}
               measureMxl={selectedMeasure.measureMxl}
@@ -466,6 +475,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 scoreParts.find((p) => p.id === editorPartId)?.suggestedLabel ||
                 undefined
               }
+              previewRevision={previewRevision}
+              lastPreviewMsg={lastPreviewMsg}
               onAddFix={addFix}
             />
           ) : (
@@ -482,8 +493,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       <div className="omr-hitl-panel">
         <div className="omr-hitl-panel-title">대기 중인 MXL 보정 ({pendingFixes.length}건)</div>
         <p className="omr-hitl-panel-hint">
-          마디 편집에서 추가한 보정이 여기 쌓입니다. 「보정 MXL에 적용」으로 Audiveris MXL을 갱신하세요.
-          이어하기 시에도 자동 적용됩니다.
+          마디 편집에서 추가한 보정이 여기 쌓입니다. <strong>「MXL에 반영·미리보기」</strong>로 Audiveris MXL을
+          갱신하고 오른쪽 악보에서 확인하세요. 이어하기 시에도 자동 적용됩니다.
         </p>
         {pendingFixes.length > 0 ? (
           <ul className="omr-hitl-fix-list">
@@ -501,7 +512,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         )}
         <div className="omr-hitl-actions">
           <button type="button" disabled={applyBusy || pendingFixes.length === 0} onClick={() => void applyFixesToMxl()}>
-            {applyBusy ? '적용 중…' : '보정 MXL에 적용'}
+            {applyBusy ? '반영 중…' : 'MXL에 반영·미리보기'}
           </button>
         </div>
         {applyMsg ? <p className="omr-hitl-apply-msg">{applyMsg}</p> : null}

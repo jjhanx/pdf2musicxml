@@ -60,6 +60,31 @@ def find_part(root: ET.Element, ns: str, part_id: str) -> ET.Element | None:
     return None
 
 
+def _measure_divisions(measure: ET.Element, ns: str) -> int:
+    for attr in measure.findall(_q(ns, "attributes")):
+        div_el = attr.find(_q(ns, "divisions"))
+        if div_el is not None and div_el.text and div_el.text.strip().isdigit():
+            return max(1, int(div_el.text.strip()))
+    return 1
+
+
+def _undotted_duration_for_type(note_type: str, divisions: int) -> int | None:
+    base = {
+        "whole": 4,
+        "half": 2,
+        "quarter": 1,
+        "eighth": 1,
+        "16th": 1,
+        "32nd": 1,
+    }.get(note_type)
+    if base is None:
+        return None
+    if note_type in ("eighth", "16th", "32nd"):
+        factor = {"eighth": 2, "16th": 4, "32nd": 8}[note_type]
+        return max(1, divisions // factor)
+    return base * divisions
+
+
 def find_measure(part: ET.Element, ns: str, measure_mxl: str) -> ET.Element | None:
     target = str(measure_mxl).strip()
     for measure in part.findall(_q(ns, "measure")):
@@ -129,11 +154,19 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
             except ValueError:
                 pitch_alter = None
     tie_start, tie_stop = _note_tie_flags(note, ns)
+    duration = None
+    dur_el = note.find(_q(ns, "duration"))
+    if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
+        duration = int(dur_el.text.strip())
+    dot_count = len(note.findall(_q(ns, "dot")))
+    note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else None
     return {
         "index": index,
         "elementKind": "note",
         "kind": "rest" if rest_el is not None else "note",
-        "type": (type_el.text or "").strip() if type_el is not None and type_el.text else None,
+        "type": note_type,
+        "duration": duration,
+        "isDotted": dot_count > 0,
         "staff": int(staff_el.text) if staff_el is not None and staff_el.text and staff_el.text.isdigit() else None,
         "voice": (voice_el.text or "").strip() if voice_el is not None and voice_el.text else None,
         "chord": chord,
@@ -142,7 +175,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "displayStep": display_step,
         "displayOctave": display_octave,
         "measureRest": rest_el is not None and rest_el.get("measure") == "yes",
-        "dotCount": len(note.findall(_q(ns, "dot"))),
+        "dotCount": dot_count,
         "tieStart": tie_start,
         "tieStop": tie_stop,
         "beams": _note_beams(note, ns),
@@ -367,7 +400,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return True
         return False
 
-    if kind == "removeNoteDot":
+    if kind in ("removeNoteDot", "setNoteUndotted"):
         try:
             idx = int(fix.get("noteIndex"))
         except (TypeError, ValueError):
@@ -375,11 +408,25 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if idx < 0 or idx >= len(notes):
             return False
         note = notes[idx]
-        removed = False
+        changed = False
         for dot in list(note.findall(_q(ns, "dot"))):
             note.remove(dot)
-            removed = True
-        return removed
+            changed = True
+        if kind == "setNoteUndotted" or fix.get("clearDottedDuration"):
+            divisions = _measure_divisions(measure, ns)
+            type_el = note.find(_q(ns, "type"))
+            dur_el = note.find(_q(ns, "duration"))
+            note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+            target = _undotted_duration_for_type(note_type, divisions)
+            if target is not None and dur_el is not None and dur_el.text:
+                try:
+                    current = int(dur_el.text.strip())
+                except ValueError:
+                    current = 0
+                if current > target:
+                    dur_el.text = str(target)
+                    changed = True
+        return changed
 
     if kind == "removeDirection":
         try:

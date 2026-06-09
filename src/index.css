@@ -722,6 +722,26 @@ button.btn-muted {
   font-size: 0.86rem;
 }
 
+.modal-light .omr-measure-fix-msg {
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.65rem;
+  background: #fff8e1;
+  border: 1px solid #ffcc02;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  color: #5d4037;
+}
+
+.modal-light .omr-measure-preview-msg {
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.65rem;
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  color: #0d47a1;
+}
+
 .modal-light .omr-measure-element-list {
   margin: 0;
   padding-left: 1.25rem;

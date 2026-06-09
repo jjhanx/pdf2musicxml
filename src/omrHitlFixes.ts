@@ -32,6 +32,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   nudgeRestDisplay: '쉼표 줄 이동',
   removeNote: '음·쉼표 삭제',
   removeNoteDot: '점(·) 제거',
+  setNoteUndotted: '덧점·점(·) 제거',
   setNotePitch: '음높이 변경',
   setNoteType: '박자(음표 종류) 변경',
   setNoteStem: '줄기 방향 변경',

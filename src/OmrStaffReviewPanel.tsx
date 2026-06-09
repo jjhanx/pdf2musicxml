@@ -3,6 +3,7 @@ import {
   filterMusicXmlToPart,
   InspectPanelErrorBoundary,
   OsmdBlock,
+  parseScoreParts,
 } from './AudiverisInspectPanel';
 import { OmrMeasureEditor } from './OmrMeasureEditor';
 import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
@@ -51,6 +52,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [osmdPartId, setOsmdPartId] = useState('');
   const [scoreZoom, setScoreZoom] = useState(0.55);
   const [selectedMeasure, setSelectedMeasure] = useState<OsmdMeasureClickInfo | null>(null);
+  const [editPartId, setEditPartId] = useState('');
   const [editorKey, setEditorKey] = useState(0);
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
@@ -152,18 +154,45 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [staffList, scoreParts],
   );
 
-  const activePartId = useMemo(() => {
+  const xmlPartIds = useMemo(() => {
+    if (!rawXml) return [] as { id: string; name: string }[];
+    return parseScoreParts(rawXml);
+  }, [rawXml]);
+
+  const resolvePartIdForStaffIndex = useCallback(
+    (staffIndex: number): string => {
+      if (scoreParts[staffIndex]?.id) return scoreParts[staffIndex].id;
+      if (xmlPartIds[staffIndex]?.id) return xmlPartIds[staffIndex].id;
+      return scoreParts[0]?.id ?? xmlPartIds[0]?.id ?? '';
+    },
+    [scoreParts, xmlPartIds],
+  );
+
+  const editorPartId = useMemo(() => {
+    if (editPartId) return editPartId;
     if (osmdPartId) return osmdPartId;
-    if (staffFilter) return partIdForStaff(staffFilter);
-    return scoreParts[0]?.id ?? '';
-  }, [osmdPartId, staffFilter, partIdForStaff, scoreParts]);
+    if (staffFilter) return partIdForStaff(staffFilter) ?? '';
+    if (selectedMeasure) return resolvePartIdForStaffIndex(selectedMeasure.staffIndex);
+    return scoreParts[0]?.id ?? xmlPartIds[0]?.id ?? '';
+  }, [
+    editPartId,
+    osmdPartId,
+    staffFilter,
+    partIdForStaff,
+    selectedMeasure,
+    resolvePartIdForStaffIndex,
+    scoreParts,
+    xmlPartIds,
+  ]);
 
   useEffect(() => {
     if (staffFilter) {
       const pid = partIdForStaff(staffFilter);
       setOsmdPartId(pid ?? '');
+      setEditPartId(pid ?? '');
     } else {
       setOsmdPartId('');
+      setEditPartId('');
     }
   }, [staffFilter, partIdForStaff]);
 
@@ -220,9 +249,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const handleMeasureClick = useCallback(
     (info: OsmdMeasureClickInfo) => {
       setSelectedMeasure(info);
+      if (!staffFilter && !osmdPartId) {
+        setEditPartId(resolvePartIdForStaffIndex(info.staffIndex));
+      }
       setEditorKey((k) => k + 1);
     },
-    [],
+    [staffFilter, osmdPartId, resolvePartIdForStaffIndex],
   );
 
   const filteredXml = rawXml ? filterMusicXmlToPart(rawXml, osmdPartId || null) : '';
@@ -341,6 +373,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 <OsmdBlock
                   xml={filteredXml}
                   zoom={scoreZoom}
+                  embeddedInOmrFrame
                   onMeasureClick={handleMeasureClick}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}
                 />
@@ -355,20 +388,49 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         </div>
       </div>
 
-      {selectedMeasure && activePartId && selectedPrinted != null ? (
-        <OmrMeasureEditor
-          key={`${selectedMeasure.measureMxl}-${editorKey}`}
-          jobId={jobId}
-          partId={activePartId}
-          measureMxl={selectedMeasure.measureMxl}
-          measurePrinted={selectedPrinted}
-          measureOffset={measureOffset}
-          staffLabel={staffFilter || undefined}
-          onAddFix={addFix}
-        />
+      {selectedMeasure && selectedPrinted != null ? (
+        <div className="omr-measure-editor-wrap">
+          {!staffFilter && scoreParts.length > 1 && (
+            <label className="omr-measure-part-picker">
+              편집할 파트
+              <select
+                value={editorPartId}
+                onChange={(e) => setEditPartId(e.target.value)}
+              >
+                {scoreParts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.suggestedLabel || p.id}
+                  </option>
+                ))}
+              </select>
+              <span className="omr-measure-part-picker-hint">
+                (클릭한 줄: {scoreParts[selectedMeasure.staffIndex]?.suggestedLabel ?? `staff ${selectedMeasure.staffIndex + 1}`})
+              </span>
+            </label>
+          )}
+          {editorPartId ? (
+            <OmrMeasureEditor
+              key={`${editorPartId}-${selectedMeasure.measureMxl}-${editorKey}`}
+              jobId={jobId}
+              partId={editorPartId}
+              measureMxl={selectedMeasure.measureMxl}
+              measurePrinted={selectedPrinted}
+              measureOffset={measureOffset}
+              staffLabel={
+                staffFilter ||
+                scoreParts.find((p) => p.id === editorPartId)?.suggestedLabel ||
+                undefined
+              }
+              onAddFix={addFix}
+            />
+          ) : (
+            <p className="omr-measure-editor-err">파트 ID를 찾지 못했습니다. MXL 새로고침 후 다시 클릭하세요.</p>
+          )}
+        </div>
       ) : (
         <p className="omr-measure-editor-prompt">
           PDF와 MXL이 다른 마디가 있으면 <strong>오른쪽 악보에서 해당 마디를 클릭</strong>하세요.
+          {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 파트가 자동 선택됩니다.' : ''}
         </p>
       )}
 

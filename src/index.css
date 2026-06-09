@@ -631,6 +631,26 @@ button.btn-muted {
   cursor: crosshair;
 }
 
+.modal-light .omr-measure-editor-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.modal-light .omr-measure-part-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  font-size: 0.86rem;
+  color: #333;
+}
+
+.modal-light .omr-measure-part-picker-hint {
+  font-size: 0.78rem;
+  color: #666;
+}
+
 .modal-light .omr-measure-editor-prompt {
   margin: 0;
   padding: 0.85rem 1rem;

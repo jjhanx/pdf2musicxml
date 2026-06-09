@@ -277,11 +277,14 @@ export function OsmdBlock({
   zoom,
   onMeasureClick,
   highlightMeasureMxl,
+  embeddedInOmrFrame,
 }: {
   xml: string;
   zoom: number;
   onMeasureClick?: (info: OsmdMeasureClickInfo) => void;
   highlightMeasureMxl?: number | null;
+  /** OMR 검토 패널처럼 바깥 .omr-mxl-osmd-frame이 스크롤할 때 내부 overflow 제거 */
+  embeddedInOmrFrame?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
@@ -431,8 +434,8 @@ export function OsmdBlock({
       const hit = hitTestOsmdMeasure(osmd, host, evt);
       if (hit) onMeasureClickRef.current(hit);
     };
-    host.addEventListener('click', onClick);
-    return () => host.removeEventListener('click', onClick);
+    host.addEventListener('click', onClick, true);
+    return () => host.removeEventListener('click', onClick, true);
   }, [xml]);
 
   return (
@@ -442,9 +445,9 @@ export function OsmdBlock({
       style={{
         minHeight: 160,
         minWidth: 'min(100%, 260px)',
-        overflow: 'auto',
-        border: '1px solid #ddd',
-        borderRadius: 6,
+        overflow: embeddedInOmrFrame ? 'visible' : 'auto',
+        border: embeddedInOmrFrame ? 'none' : '1px solid #ddd',
+        borderRadius: embeddedInOmrFrame ? 0 : 6,
         background: '#fff',
         cursor: onMeasureClick ? 'pointer' : undefined,
       }}

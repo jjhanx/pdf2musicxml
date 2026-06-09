@@ -14,7 +14,6 @@ import {
   drawOsmdMeasureHover,
   hitTestOsmdMeasure,
   installMeasureClickOverlays,
-  invalidateMeasureTargetCache,
   type OsmdMeasureClickInfo,
   removeMeasureClickOverlays,
   removeMeasureHover,
@@ -331,7 +330,6 @@ export function OsmdBlock({
     const host = hostRef.current;
     const osmd = osmdRef.current;
     if (!host || !osmd?.IsReadyToRender()) return;
-    invalidateMeasureTargetCache(host);
     if (onMeasureClickRef.current) {
       installMeasureClickOverlays(host, osmd);
     } else {
@@ -479,7 +477,7 @@ export function OsmdBlock({
       const osmd = osmdRef.current;
       if (!osmd?.IsReadyToRender()) return;
       const hit = hitTestOsmdMeasure(osmd, host, evt);
-      drawOsmdMeasureHover(host, osmd, hit);
+      drawOsmdMeasureHover(host, osmd, hit, evt);
     };
 
     const onHostLeave = () => {

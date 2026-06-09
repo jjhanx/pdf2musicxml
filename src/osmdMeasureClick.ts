@@ -20,6 +20,33 @@ const HIGHLIGHT_LAYER_ATTR = 'data-omr-measure-highlight';
 const HOVER_LAYER_ATTR = 'data-omr-measure-hover';
 
 const targetCache = new WeakMap<HTMLElement, MeasureHitTarget[]>();
+const selectionBoundsCache = new WeakMap<HTMLElement, Map<string, HostBounds>>();
+
+function selectionKey(info: OsmdMeasureClickInfo): string {
+  return `${info.staffIndex}|${info.measureMxl}`;
+}
+
+function rememberSelectionBounds(host: HTMLElement, info: OsmdMeasureClickInfo, bounds: HostBounds): void {
+  if (!isValidHostBounds(bounds)) return;
+  let map = selectionBoundsCache.get(host);
+  if (!map) {
+    map = new Map();
+    selectionBoundsCache.set(host, map);
+  }
+  map.set(selectionKey(info), bounds);
+}
+
+function getRememberedSelectionBounds(host: HTMLElement, info: OsmdMeasureClickInfo): HostBounds | null {
+  return selectionBoundsCache.get(host)?.get(selectionKey(info)) ?? null;
+}
+
+function isValidHostBounds(b: HostBounds): boolean {
+  const w = b.right - b.left;
+  const h = b.bottom - b.top;
+  if (w < 8 || h < 4) return false;
+  if (w > 900 && b.left < 12) return false;
+  return true;
+}
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
@@ -604,7 +631,10 @@ function cellBoundsInHost(
     right = layout.offsetX + gH.right * layout.scale;
   }
 
-  if (staffBand) {
+  if (staffBand && col && col.right - col.left >= 8) {
+    return { left, top: staffBand.top, right, bottom: staffBand.bottom };
+  }
+  if (staffBand && !col && left > 8 && right - left >= 8) {
     return { left, top: staffBand.top, right, bottom: staffBand.bottom };
   }
 
@@ -645,7 +675,7 @@ function collectFromSystem(
         }
       }
       const bounds = cellBoundsInHost(staffBands[si], col, gm, row[mi + 1], row, host, osmd);
-      if (!bounds || bounds.right - bounds.left < 3 || bounds.bottom - bounds.top < 3) continue;
+      if (!bounds || !isValidHostBounds(bounds)) continue;
       const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -749,56 +779,68 @@ function hitViaNearestStaffEntry(
   return null;
 }
 
+function boundsFromGraphicMeasure(
+  osmd: OpenSheetMusicDisplay,
+  host: HTMLElement,
+  info: OsmdMeasureClickInfo,
+): HostBounds | null {
+  let gm = findMeasureGraphic(osmd, info.measureMxl, info.staffIndex);
+  let staffIndex = info.staffIndex;
+  if (!gm) {
+    const any = findMeasureGraphicAnyStaff(osmd, info.measureMxl);
+    if (any) {
+      gm = any.gm;
+      staffIndex = any.staffIndex;
+    }
+  }
+  if (!gm) return null;
+
+  const dom = domBoundsForMeasure(gm, host);
+  if (dom && isValidHostBounds(dom)) return dom;
+
+  const targets = targetCache.get(host) ?? [];
+  const staffBand = targets.find((t) => t.staffIndex === staffIndex);
+  const colPeers = targets.filter((t) => t.measureMxl === info.measureMxl && isValidHostBounds(t.bounds));
+  if (staffBand && colPeers.length) {
+    const left = Math.min(...colPeers.map((t) => t.bounds.left));
+    const right = Math.max(...colPeers.map((t) => t.bounds.right));
+    const merged = {
+      left,
+      right,
+      top: staffBand.bounds.top,
+      bottom: staffBand.bounds.bottom,
+    };
+    if (isValidHostBounds(merged)) return merged;
+  }
+
+  const g = graphicOsmdBounds(gm);
+  if (!g) return null;
+  const hb = osmdBoundsToHost(g, host, osmd);
+  if (staffBand && isValidHostBounds(hb)) {
+    return {
+      left: hb.left,
+      right: hb.right,
+      top: staffBand.bounds.top,
+      bottom: staffBand.bounds.bottom,
+    };
+  }
+  return isValidHostBounds(hb) ? hb : null;
+}
+
 function boundsForMeasureInfo(
   osmd: OpenSheetMusicDisplay,
   host: HTMLElement,
   info: OsmdMeasureClickInfo,
 ): HostBounds | null {
+  const remembered = getRememberedSelectionBounds(host, info);
+  if (remembered) return remembered;
+
   const cached = targetCache.get(host)?.find(
-    (t) => t.measureMxl === info.measureMxl && t.staffIndex === info.staffIndex,
+    (t) => t.measureMxl === info.measureMxl && t.staffIndex === info.staffIndex && isValidHostBounds(t.bounds),
   );
   if (cached) return cached.bounds;
 
-  let gm = findMeasureGraphic(osmd, info.measureMxl, info.staffIndex);
-  if (!gm) {
-    const any = findMeasureGraphicAnyStaff(osmd, info.measureMxl);
-    gm = any?.gm ?? null;
-  }
-  if (!gm) {
-    const anyTarget = targetCache.get(host)?.find((t) => t.measureMxl === info.measureMxl);
-    return anyTarget?.bounds ?? null;
-  }
-
-  const dom = domBoundsForMeasure(gm, host);
-  const staffBand = targetCache.get(host)?.find((t) => t.staffIndex === info.staffIndex);
-  const colPeer = targetCache.get(host)?.find((t) => t.measureMxl === info.measureMxl);
-  if (staffBand && colPeer) {
-    return {
-      left: colPeer.bounds.left,
-      right: colPeer.bounds.right,
-      top: staffBand.bounds.top,
-      bottom: staffBand.bounds.bottom,
-    };
-  }
-  if (dom && staffBand) {
-    return {
-      left: dom.left,
-      right: dom.right,
-      top: staffBand.bounds.top,
-      bottom: staffBand.bounds.bottom,
-    };
-  }
-  if (dom) return dom;
-
-  const g = graphicOsmdBounds(gm);
-  if (g) {
-    const hb = osmdBoundsToHost(g, host, osmd);
-    if (staffBand) {
-      return { left: hb.left, right: hb.right, top: staffBand.bounds.top, bottom: staffBand.bounds.bottom };
-    }
-    return hb;
-  }
-  return staffBand?.bounds ?? colPeer?.bounds ?? null;
+  return boundsFromGraphicMeasure(osmd, host, info);
 }
 
 function paintBounds(host: HTMLElement, bounds: HostBounds, layerAttr: string, style: string): void {
@@ -833,10 +875,24 @@ export function drawOsmdMeasureHover(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
   info: OsmdMeasureClickInfo | null,
+  evt?: MouseEvent,
 ): void {
   removeMeasureHover(host);
   if (!info || !osmd.IsReadyToRender()) return;
-  const bounds = boundsForMeasureInfo(osmd, host, info);
+
+  let bounds: HostBounds | null = null;
+  if (evt) {
+    const t = pickTargetAt(host, osmd, evt);
+    if (
+      t &&
+      t.measureMxl === info.measureMxl &&
+      normalizeStaffIndex(osmd, t.staffIndex) === info.staffIndex &&
+      isValidHostBounds(t.bounds)
+    ) {
+      bounds = t.bounds;
+    }
+  }
+  if (!bounds) bounds = boundsForMeasureInfo(osmd, host, info);
   if (!bounds) return;
   paintBounds(
     host,
@@ -879,16 +935,28 @@ export function hitTestOsmdMeasure(
   if (!osmd.IsReadyToRender()) return null;
   const t = pickTargetAt(host, osmd, evt);
   if (t) {
-    return {
+    const info: OsmdMeasureClickInfo = {
       measureMxl: t.measureMxl,
       staffIndex: normalizeStaffIndex(osmd, t.staffIndex),
     };
+    rememberSelectionBounds(host, info, t.bounds);
+    return info;
   }
   const near = hitViaNearestStaffEntry(osmd, host, evt);
   if (!near) return null;
-  return { ...near, staffIndex: normalizeStaffIndex(osmd, near.staffIndex) };
+  const info: OsmdMeasureClickInfo = {
+    ...near,
+    staffIndex: normalizeStaffIndex(osmd, near.staffIndex),
+  };
+  const domBounds = boundsFromGraphicMeasure(osmd, host, info);
+  if (domBounds) rememberSelectionBounds(host, info, domBounds);
+  return info;
 }
 
 export function invalidateMeasureTargetCache(host: HTMLElement): void {
   targetCache.delete(host);
+}
+
+export function clearMeasureSelectionBounds(host: HTMLElement): void {
+  selectionBoundsCache.delete(host);
 }

@@ -5,53 +5,49 @@ export type OsmdMeasureClickInfo = {
   staffIndex: number;
 };
 
-type MeasureBounds = { left: number; top: number; right: number; bottom: number };
+/** host 기준 CSS 픽셀 */
+type HostBounds = { left: number; top: number; right: number; bottom: number };
 
 type MeasureHitTarget = {
   measureMxl: number;
   staffIndex: number;
-  bounds: MeasureBounds;
+  bounds: HostBounds;
 };
 
-type GraphicalMeasureLike = {
-  IsExtraGraphicalMeasure?: boolean;
-  MeasureNumber?: number;
-  parentSourceMeasure?: {
-    MeasureNumberXML?: number;
-    MeasureNumber?: number;
-  };
-  PositionAndShape?: {
-    AbsolutePosition?: { x: number; y: number };
-    Size?: { width: number; height: number };
-    BoundingRectangle?: { x: number; y: number; width: number; height: number };
-    BoundingMarginRectangle?: { x: number; y: number; width: number; height: number };
-  };
-};
-
-type MusicSystemLike = {
-  StaffLines?: { PositionAndShape?: GraphicalMeasureLike['PositionAndShape'] }[];
-  GraphicalMeasures?: GraphicalMeasureLike[][];
-};
-
-type MusicPageLike = {
-  MusicSystems?: MusicSystemLike[];
-};
+type GraphicalMeasureLike = Record<string, unknown>;
 
 type OsmdGraphicLike = {
   MeasureList?: GraphicalMeasureLike[][];
   NumberOfStaves?: number;
-  MusicPages?: MusicPageLike[];
+  MusicPages?: unknown[];
   getClickedObject?: <T>(pt: PointF2D) => T;
   domToSvg?: (pt: PointF2D) => PointF2D;
 };
 
+const CLICK_LAYER_ATTR = 'data-omr-measure-click-layer';
+const HIGHLIGHT_LAYER_ATTR = 'data-omr-measure-highlight';
+const OSMD_DEFAULT_UNIT_IN_PIXELS = 10;
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+}
+
+export function getOsmdUnitInPixels(osmd: OpenSheetMusicDisplay): number {
+  const raw = osmd as unknown as Record<string, unknown>;
+  const graphic = asRecord(raw.graphic ?? raw.GraphicSheet);
+  const rules = asRecord(raw.rules ?? raw.engravingRules ?? raw.EngravingRules ?? graphic?.rules);
+  const uip = rules?.unitInPixels;
+  if (typeof uip === 'number' && uip > 0) return uip;
+  return OSMD_DEFAULT_UNIT_IN_PIXELS;
+}
+
 function readGraphic(osmd: OpenSheetMusicDisplay): OsmdGraphicLike | null {
   const raw = osmd as unknown as Record<string, unknown>;
-  const sheet = (raw.graphic ?? raw.GraphicSheet) as Record<string, unknown> | undefined;
-  if (!sheet || typeof sheet !== 'object') return null;
+  const sheet = asRecord(raw.graphic ?? raw.GraphicSheet);
+  if (!sheet) return null;
 
   const measureList = (sheet.MeasureList ?? sheet.measureList) as GraphicalMeasureLike[][] | undefined;
-  const musicPages = (sheet.MusicPages ?? sheet.musicPages) as MusicPageLike[] | undefined;
+  const musicPages = (sheet.MusicPages ?? sheet.musicPages) as unknown[] | undefined;
   const numberOfStaves = (sheet.NumberOfStaves ?? sheet.numberOfStaves) as number | undefined;
   const getClickedObject = sheet.getClickedObject;
   const domToSvg = sheet.domToSvg;
@@ -71,92 +67,215 @@ function readGraphic(osmd: OpenSheetMusicDisplay): OsmdGraphicLike | null {
   };
 }
 
-const CLICK_LAYER_ATTR = 'data-omr-measure-click-layer';
-const HIGHLIGHT_LAYER_ATTR = 'data-omr-measure-highlight';
+function isExtraMeasure(gm: GraphicalMeasureLike | null | undefined): boolean {
+  if (!gm) return true;
+  return Boolean(gm.IsExtraGraphicalMeasure ?? gm.isExtraGraphicalMeasure);
+}
 
-function measureMxlFromGraphic(gm: GraphicalMeasureLike): number {
-  if (typeof gm.MeasureNumber === 'number' && gm.MeasureNumber > 0) {
-    return Math.floor(gm.MeasureNumber);
+function readSourceMeasure(gm: GraphicalMeasureLike): Record<string, unknown> | null {
+  return asRecord(gm.parentSourceMeasure ?? gm.ParentSourceMeasure);
+}
+
+function measureMxlFromGraphic(gm: GraphicalMeasureLike, listIndex?: number): number {
+  const sm = readSourceMeasure(gm);
+  if (sm) {
+    for (const key of ['MeasureNumberXML', 'measureNumberXML', 'MeasureNumber', 'measureNumber']) {
+      const v = sm[key];
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        return Math.floor(v);
+      }
+    }
   }
-  const sm = gm.parentSourceMeasure;
-  if (!sm) return 0;
-  if (typeof sm.MeasureNumberXML === 'number' && sm.MeasureNumberXML > 0) {
-    return Math.floor(sm.MeasureNumberXML);
+  for (const key of ['MeasureNumber', 'measureNumber']) {
+    const v = gm[key];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return Math.floor(v);
+    }
   }
-  if (typeof sm.MeasureNumber === 'number' && sm.MeasureNumber > 0) {
-    return Math.floor(sm.MeasureNumber);
+  if (typeof listIndex === 'number' && listIndex >= 0) {
+    return listIndex + 1;
   }
   return 0;
 }
 
-function isStaffGraphicalMeasure(gm: GraphicalMeasureLike | null | undefined): gm is GraphicalMeasureLike {
-  if (!gm || gm.IsExtraGraphicalMeasure) return false;
-  return measureMxlFromGraphic(gm) > 0;
+function readPositionAndShape(obj: unknown): Record<string, unknown> | null {
+  const rec = asRecord(obj);
+  if (!rec) return null;
+  return asRecord(rec.PositionAndShape ?? rec.positionAndShape);
 }
 
-function readPositionAndShape(obj: unknown): GraphicalMeasureLike['PositionAndShape'] | null {
-  if (!obj || typeof obj !== 'object') return null;
-  const rec = obj as Record<string, unknown>;
-  const ps = rec.PositionAndShape ?? rec.positionAndShape;
-  return (ps as GraphicalMeasureLike['PositionAndShape']) ?? null;
-}
-
-export function measureBounds(
-  obj: { PositionAndShape?: GraphicalMeasureLike['PositionAndShape'] },
-): MeasureBounds | null {
+function osmdGraphicBounds(obj: unknown): HostBounds | null {
   const bb = readPositionAndShape(obj);
   if (!bb) return null;
-  const rect =
+  const rect = asRecord(
     bb.BoundingRectangle ??
-    (bb as { boundingRectangle?: typeof bb.BoundingRectangle }).boundingRectangle ??
-    bb.BoundingMarginRectangle ??
-    (bb as { boundingMarginRectangle?: typeof bb.BoundingMarginRectangle }).boundingMarginRectangle;
-  if (rect && rect.width > 0.5 && rect.height > 0.5) {
-    return {
-      left: rect.x,
-      top: rect.y,
-      right: rect.x + rect.width,
-      bottom: rect.y + rect.height,
-    };
+      bb.boundingRectangle ??
+      bb.BoundingMarginRectangle ??
+      bb.boundingMarginRectangle,
+  );
+  if (rect) {
+    const x = Number(rect.x);
+    const y = Number(rect.y);
+    const w = Number(rect.width);
+    const h = Number(rect.height);
+    if (Number.isFinite(x) && Number.isFinite(y) && w > 0.5 && h > 0.5) {
+      return { left: x, top: y, right: x + w, bottom: y + h };
+    }
   }
-  const pos = bb.AbsolutePosition ?? (bb as { absolutePosition?: { x: number; y: number } }).absolutePosition;
-  const size = bb.Size ?? (bb as { size?: { width: number; height: number } }).size;
-  if (pos && size && size.width > 0.5 && size.height > 0.5) {
-    return {
-      left: pos.x,
-      top: pos.y,
-      right: pos.x + size.width,
-      bottom: pos.y + size.height,
-    };
+  const pos = asRecord(bb.AbsolutePosition ?? bb.absolutePosition);
+  const size = asRecord(bb.Size ?? bb.size);
+  if (pos && size) {
+    const x = Number(pos.x);
+    const y = Number(pos.y);
+    const w = Number(size.width);
+    const h = Number(size.height);
+    if (Number.isFinite(x) && Number.isFinite(y) && w > 0.5 && h > 0.5) {
+      return { left: x, top: y, right: x + w, bottom: y + h };
+    }
   }
   return null;
 }
 
-function measureBoundsFromGraphicMeasure(gm: GraphicalMeasureLike): MeasureBounds | null {
-  const direct = measureBounds(gm);
-  if (direct) return direct;
-  const entries = (gm as { staffEntries?: unknown[] }).staffEntries;
-  if (!Array.isArray(entries)) return null;
+function graphicBoundsToHost(
+  bounds: HostBounds,
+  host: HTMLElement,
+  osmd: OpenSheetMusicDisplay,
+): HostBounds {
+  const unit = getOsmdUnitInPixels(osmd);
+  const zoom = osmd.zoom || 1;
+  const scale = unit * zoom;
+  const { offsetX, offsetY } = getOsmdHostLayout(host, osmd);
+  return {
+    left: offsetX + bounds.left * scale,
+    top: offsetY + bounds.top * scale,
+    right: offsetX + bounds.right * scale,
+    bottom: offsetY + bounds.bottom * scale,
+  };
+}
+
+function unionBounds(a: HostBounds, b: HostBounds): HostBounds {
+  return {
+    left: Math.min(a.left, b.left),
+    top: Math.min(a.top, b.top),
+    right: Math.max(a.right, b.right),
+    bottom: Math.max(a.bottom, b.bottom),
+  };
+}
+
+function domRectsFromGraph(gm: unknown): DOMRect[] {
+  const rects: DOMRect[] = [];
+  const seen = new Set<unknown>();
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    const o = node as Record<string, unknown>;
+    if (typeof o.getSVGGElement === 'function') {
+      try {
+        const el = (o.getSVGGElement as () => SVGGraphicsElement | null | undefined)();
+        if (el && typeof el.getBoundingClientRect === 'function') {
+          const r = el.getBoundingClientRect();
+          if (r.width >= 0.5 && r.height >= 0.5) rects.push(r);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    const childKeys = [
+      'staffEntries',
+      'StaffEntries',
+      'graphicalVoiceEntries',
+      'GraphicalVoiceEntries',
+      'notes',
+      'Notes',
+      'graphicalNotes',
+      'GraphicalNotes',
+      'parentVoiceEntry',
+      'parentStaffEntry',
+      'ParentVoiceEntry',
+      'ParentStaffEntry',
+    ];
+    for (const key of childKeys) {
+      const child = o[key];
+      if (Array.isArray(child)) {
+        child.forEach(walk);
+      } else if (child) {
+        walk(child);
+      }
+    }
+  };
+  walk(gm);
+  return rects;
+}
+
+function domBoundsInHost(gm: unknown, host: HTMLElement): HostBounds | null {
+  const hostRect = host.getBoundingClientRect();
+  const rects = domRectsFromGraph(gm);
+  if (!rects.length) return null;
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
-  for (const entry of entries) {
-    const b = measureBounds(entry as { PositionAndShape?: GraphicalMeasureLike['PositionAndShape'] });
-    if (!b) continue;
-    left = Math.min(left, b.left);
-    top = Math.min(top, b.top);
-    right = Math.max(right, b.right);
-    bottom = Math.max(bottom, b.bottom);
+  for (const r of rects) {
+    left = Math.min(left, r.left - hostRect.left);
+    top = Math.min(top, r.top - hostRect.top);
+    right = Math.max(right, r.right - hostRect.left);
+    bottom = Math.max(bottom, r.bottom - hostRect.top);
   }
   if (!Number.isFinite(left)) return null;
   return { left, top, right, bottom };
 }
 
-function forEachStaffMeasure(
-  graphic: OsmdGraphicLike,
-  fn: (gm: GraphicalMeasureLike, staffIndex: number) => void,
+function measureBoundsInHost(gm: GraphicalMeasureLike, host: HTMLElement, osmd: OpenSheetMusicDisplay): HostBounds | null {
+  const dom = domBoundsInHost(gm, host);
+  const graphic = osmdGraphicBounds(gm);
+  let graphicHost = graphic ? graphicBoundsToHost(graphic, host, osmd) : null;
+
+  const entries = (gm.staffEntries ?? gm.StaffEntries) as unknown[] | undefined;
+  if (Array.isArray(entries)) {
+    for (const entry of entries) {
+      const eb = osmdGraphicBounds(entry);
+      if (eb) {
+        const hb = graphicBoundsToHost(eb, host, osmd);
+        graphicHost = graphicHost ? unionBounds(graphicHost, hb) : hb;
+      }
+    }
+  }
+
+  if (dom && graphicHost) {
+    return unionBounds(dom, graphicHost);
+  }
+  return dom ?? graphicHost;
+}
+
+function forEachGraphicalMeasure(
+  osmd: OpenSheetMusicDisplay,
+  fn: (gm: GraphicalMeasureLike, staffIndex: number, measureIndex: number) => void,
 ): void {
+  const graphic = readGraphic(osmd);
+  if (!graphic) return;
+
+  let fromPages = 0;
+  for (const page of graphic.MusicPages ?? []) {
+    const pageRec = asRecord(page);
+    if (!pageRec) continue;
+    const systems = (pageRec.MusicSystems ?? pageRec.musicSystems) as unknown[] | undefined;
+    for (const system of systems ?? []) {
+      const sysRec = asRecord(system);
+      if (!sysRec) continue;
+      const rows = (sysRec.GraphicalMeasures ?? sysRec.graphicalMeasures) as GraphicalMeasureLike[][] | undefined;
+      for (let staffIndex = 0; staffIndex < (rows?.length ?? 0); staffIndex += 1) {
+        const row = rows?.[staffIndex] ?? [];
+        for (let measureIndex = 0; measureIndex < row.length; measureIndex += 1) {
+          const gm = row[measureIndex];
+          if (!gm || isExtraMeasure(gm)) continue;
+          fn(gm, staffIndex, measureIndex);
+          fromPages += 1;
+        }
+      }
+    }
+  }
+  if (fromPages > 0) return;
+
   const list = graphic.MeasureList;
   if (!list?.length) return;
 
@@ -172,7 +291,8 @@ function forEachStaffMeasure(
     for (let mi = 0; mi < dim0; mi += 1) {
       for (let si = 0; si < dim1; si += 1) {
         const gm = list[mi]?.[si];
-        if (isStaffGraphicalMeasure(gm)) fn(gm, si);
+        if (!gm || isExtraMeasure(gm)) continue;
+        fn(gm, si, mi);
       }
     }
     return;
@@ -181,84 +301,50 @@ function forEachStaffMeasure(
   for (let si = 0; si < dim0; si += 1) {
     for (let mi = 0; mi < dim1; mi += 1) {
       const gm = list[si]?.[mi];
-      if (isStaffGraphicalMeasure(gm)) fn(gm, si);
+      if (!gm || isExtraMeasure(gm)) continue;
+      fn(gm, si, mi);
     }
   }
 }
 
-function collectFromMusicPages(graphic: OsmdGraphicLike): MeasureHitTarget[] {
-  const out: MeasureHitTarget[] = [];
-  const seen = new Set<string>();
-
-  for (const page of graphic.MusicPages ?? []) {
-    for (const system of page.MusicSystems ?? []) {
-      const rows = system.GraphicalMeasures ?? [];
-      for (let staffIndex = 0; staffIndex < rows.length; staffIndex += 1) {
-        for (const gm of rows[staffIndex] ?? []) {
-          if (!isStaffGraphicalMeasure(gm)) continue;
-          const measureMxl = measureMxlFromGraphic(gm);
-          const bounds = measureBoundsFromGraphicMeasure(gm);
-          if (!measureMxl || !bounds) continue;
-          const key = `${measureMxl}|${staffIndex}|${bounds.left}|${bounds.top}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          out.push({ measureMxl, staffIndex, bounds });
-        }
-      }
-    }
-  }
-  return out;
-}
-
-export function collectMeasureHitTargets(osmd: OpenSheetMusicDisplay): MeasureHitTarget[] {
-  const graphic = readGraphic(osmd);
-  if (!graphic) return [];
-
-  const fromPages = collectFromMusicPages(graphic);
-  if (fromPages.length > 0) return fromPages;
+export function collectMeasureHitTargets(
+  osmd: OpenSheetMusicDisplay,
+  host: HTMLElement,
+): MeasureHitTarget[] {
+  if (!osmd.IsReadyToRender()) return [];
 
   const out: MeasureHitTarget[] = [];
   const seen = new Set<string>();
-  forEachStaffMeasure(graphic, (gm, staffIndex) => {
-    const measureMxl = measureMxlFromGraphic(gm);
-    const bounds = measureBoundsFromGraphicMeasure(gm);
-    if (!measureMxl || !bounds) return;
+
+  forEachGraphicalMeasure(osmd, (gm, staffIndex, measureIndex) => {
+    const measureMxl = measureMxlFromGraphic(gm, measureIndex);
+    if (!measureMxl) return;
+    const bounds = measureBoundsInHost(gm, host, osmd);
+    if (!bounds) return;
     const w = bounds.right - bounds.left;
     const h = bounds.bottom - bounds.top;
-    if (h > 800 || w > 2000) return;
-    const key = `${measureMxl}|${staffIndex}|${bounds.left}|${bounds.top}`;
+    if (w < 3 || h < 3) return;
+    const key = `${measureMxl}|${staffIndex}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
     if (seen.has(key)) return;
     seen.add(key);
     out.push({ measureMxl, staffIndex, bounds });
   });
+
   return out;
 }
 
-export function getOsmdHostLayout(host: HTMLElement, osmd: OpenSheetMusicDisplay): {
+export function getOsmdHostLayout(host: HTMLElement, _osmd: OpenSheetMusicDisplay): {
   offsetX: number;
   offsetY: number;
   zoom: number;
 } {
-  const zoom = osmd.zoom || 1;
   const svg = host.querySelector('svg');
   const origin = svg?.getBoundingClientRect() ?? host.getBoundingClientRect();
   const hostRect = host.getBoundingClientRect();
   return {
     offsetX: origin.left - hostRect.left,
     offsetY: origin.top - hostRect.top,
-    zoom,
-  };
-}
-
-function boundsToCss(
-  bounds: MeasureBounds,
-  layout: { offsetX: number; offsetY: number; zoom: number },
-): { left: number; top: number; width: number; height: number } {
-  return {
-    left: layout.offsetX + bounds.left * layout.zoom,
-    top: layout.offsetY + bounds.top * layout.zoom,
-    width: (bounds.right - bounds.left) * layout.zoom,
-    height: (bounds.bottom - bounds.top) * layout.zoom,
+    zoom: _osmd.zoom || 1,
   };
 }
 
@@ -274,19 +360,30 @@ export function installMeasureClickOverlays(
   removeMeasureClickOverlays(host);
   if (!osmd.IsReadyToRender()) return 0;
 
-  const targets = collectMeasureHitTargets(osmd);
+  const targets = collectMeasureHitTargets(osmd, host);
   if (!targets.length) return 0;
 
-  const layout = getOsmdHostLayout(host, osmd);
   host.style.position = host.style.position || 'relative';
 
   const layer = document.createElement('div');
   layer.setAttribute(CLICK_LAYER_ATTR, '1');
-  layer.style.cssText = 'position:absolute;left:0;top:0;right:0;bottom:0;z-index:5;pointer-events:none;';
+  const layerHeight = Math.max(host.scrollHeight, host.clientHeight, host.offsetHeight);
+  layer.style.cssText = [
+    'position:absolute',
+    'left:0',
+    'top:0',
+    'width:100%',
+    `height:${layerHeight}px`,
+    'z-index:6',
+    'pointer-events:none',
+  ].join(';');
 
   for (const target of targets) {
-    const box = boundsToCss(target.bounds, layout);
-    if (box.width < 2 || box.height < 2) continue;
+    const left = target.bounds.left;
+    const top = target.bounds.top;
+    const width = target.bounds.right - target.bounds.left;
+    const height = target.bounds.bottom - target.bounds.top;
+    if (width < 3 || height < 3) continue;
 
     const hit = document.createElement('button');
     hit.type = 'button';
@@ -298,20 +395,21 @@ export function installMeasureClickOverlays(
       'border:none',
       'padding:0',
       'margin:0',
-      `left:${box.left}px`,
-      `top:${box.top}px`,
-      `width:${box.width}px`,
-      `height:${box.height}px`,
+      `left:${left}px`,
+      `top:${top}px`,
+      `width:${width}px`,
+      `height:${height}px`,
       'pointer-events:auto',
       'cursor:pointer',
       'background:transparent',
       'border-radius:2px',
       'box-sizing:border-box',
+      'z-index:6',
     ].join(';');
 
     hit.addEventListener('mouseenter', () => {
-      hit.style.background = 'rgba(21,101,192,0.14)';
-      hit.style.outline = '1px solid rgba(21,101,192,0.45)';
+      hit.style.background = 'rgba(21,101,192,0.16)';
+      hit.style.outline = '1px solid rgba(21,101,192,0.5)';
     });
     hit.addEventListener('mouseleave', () => {
       hit.style.background = 'transparent';
@@ -339,8 +437,10 @@ function sheetPointFromEvent(
 ): PointF2D {
   const layout = getOsmdHostLayout(host, osmd);
   const hostRect = host.getBoundingClientRect();
-  const x = (evt.clientX - hostRect.left - layout.offsetX) / layout.zoom;
-  const y = (evt.clientY - hostRect.top - layout.offsetY) / layout.zoom;
+  const unit = getOsmdUnitInPixels(osmd);
+  const scale = unit * layout.zoom;
+  const x = (evt.clientX - hostRect.left - layout.offsetX) / scale;
+  const y = (evt.clientY - hostRect.top - layout.offsetY) / scale;
   const pt = new PointF2D(x, y);
   if (graphic?.domToSvg) {
     try {
@@ -352,7 +452,7 @@ function sheetPointFromEvent(
   return pt;
 }
 
-function pointInBounds(x: number, y: number, bounds: MeasureBounds): boolean {
+function pointInHostBounds(x: number, y: number, bounds: HostBounds): boolean {
   return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
 }
 
@@ -361,18 +461,16 @@ function measureFromClickedObject(clicked: unknown): GraphicalMeasureLike | null
   const seen = new Set<unknown>();
   for (let depth = 0; depth < 16 && cur && !seen.has(cur); depth += 1) {
     seen.add(cur);
-    if (isStaffGraphicalMeasure(cur as GraphicalMeasureLike)) {
-      return cur as GraphicalMeasureLike;
+    const rec = asRecord(cur);
+    if (!rec || isExtraMeasure(rec)) {
+      /* continue walking */
+    } else if (measureMxlFromGraphic(rec) > 0 || readSourceMeasure(rec)) {
+      return rec;
     }
-    if (typeof cur === 'object' && cur !== null && 'parentMeasure' in cur) {
-      const pm = (cur as { parentMeasure?: unknown }).parentMeasure;
-      if (pm && isStaffGraphicalMeasure(pm as GraphicalMeasureLike)) {
-        return pm as GraphicalMeasureLike;
-      }
-      if (pm) {
-        cur = pm;
-        continue;
-      }
+    const pm = rec.parentMeasure ?? rec.ParentMeasure;
+    if (pm) {
+      cur = pm;
+      continue;
     }
     break;
   }
@@ -407,15 +505,31 @@ function staffIndexForMeasure(graphic: OsmdGraphicLike, gm: GraphicalMeasureLike
   return 0;
 }
 
-/** 좌표 기반 폴백(오버레이가 비었을 때). */
+/** 좌표·DOM 폴백 클릭 판정 */
 export function hitTestOsmdMeasure(
   osmd: OpenSheetMusicDisplay,
   host: HTMLElement,
   evt: MouseEvent,
 ): OsmdMeasureClickInfo | null {
+  const hostRect = host.getBoundingClientRect();
+  const clickX = evt.clientX - hostRect.left;
+  const clickY = evt.clientY - hostRect.top;
+
+  const targets = collectMeasureHitTargets(osmd, host);
+  let best: OsmdMeasureClickInfo | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (const t of targets) {
+    if (!pointInHostBounds(clickX, clickY, t.bounds)) continue;
+    const area = (t.bounds.right - t.bounds.left) * (t.bounds.bottom - t.bounds.top);
+    if (area < bestArea) {
+      bestArea = area;
+      best = { measureMxl: t.measureMxl, staffIndex: t.staffIndex };
+    }
+  }
+  if (best) return best;
+
   const graphic = readGraphic(osmd);
   if (!graphic) return null;
-
   const pt = sheetPointFromEvent(host, osmd, evt, graphic);
 
   if (typeof graphic.getClickedObject === 'function') {
@@ -433,18 +547,7 @@ export function hitTestOsmdMeasure(
     }
   }
 
-  const targets = collectMeasureHitTargets(osmd);
-  let best: OsmdMeasureClickInfo | null = null;
-  let bestArea = Number.POSITIVE_INFINITY;
-  for (const t of targets) {
-    if (!pointInBounds(pt.x, pt.y, t.bounds)) continue;
-    const area = (t.bounds.right - t.bounds.left) * (t.bounds.bottom - t.bounds.top);
-    if (area < bestArea) {
-      bestArea = area;
-      best = { measureMxl: t.measureMxl, staffIndex: t.staffIndex };
-    }
-  }
-  return best;
+  return null;
 }
 
 export function drawOsmdMeasureHighlight(
@@ -455,26 +558,24 @@ export function drawOsmdMeasureHighlight(
   host.querySelectorAll(`[${HIGHLIGHT_LAYER_ATTR}]`).forEach((el) => el.remove());
   if (!measureMxl || measureMxl < 1) return;
 
-  const targets = collectMeasureHitTargets(osmd).filter((t) => t.measureMxl === measureMxl);
+  const targets = collectMeasureHitTargets(osmd, host).filter((t) => t.measureMxl === measureMxl);
   if (!targets.length) return;
 
-  const layout = getOsmdHostLayout(host, osmd);
   host.style.position = host.style.position || 'relative';
 
   const overlay = document.createElement('div');
   overlay.setAttribute(HIGHLIGHT_LAYER_ATTR, '1');
   overlay.style.cssText =
-    'position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none;z-index:4;';
+    'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:5;';
 
   for (const target of targets) {
-    const box = boundsToCss(target.bounds, layout);
     const rect = document.createElement('div');
     rect.style.cssText = [
       'position:absolute',
-      `left:${box.left}px`,
-      `top:${box.top}px`,
-      `width:${box.width}px`,
-      `height:${box.height}px`,
+      `left:${target.bounds.left}px`,
+      `top:${target.bounds.top}px`,
+      `width:${target.bounds.right - target.bounds.left}px`,
+      `height:${target.bounds.bottom - target.bounds.top}px`,
       'border:2px solid #1565c0',
       'background:rgba(21,101,192,0.12)',
       'border-radius:2px',

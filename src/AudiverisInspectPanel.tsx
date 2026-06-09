@@ -11,6 +11,7 @@ import {
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
   drawOsmdMeasureHighlight,
+  hitTestOsmdMeasure,
   type OsmdMeasureClickInfo,
   installMeasureClickOverlays,
   removeMeasureClickOverlays,
@@ -314,10 +315,10 @@ export function OsmdBlock({
     zoomRef.current = zoom;
   }, [zoom]);
 
-  const afterOsmdRender = useCallback(() => {
+  const syncMeasureClickUi = useCallback(() => {
     const host = hostRef.current;
     const osmd = osmdRef.current;
-    if (!host || !osmd) return;
+    if (!host || !osmd?.IsReadyToRender()) return;
     drawOsmdMeasureHighlight(host, osmd, highlightMeasureMxlRef.current ?? null);
     const onClick = onMeasureClickRef.current;
     if (onClick) {
@@ -326,6 +327,14 @@ export function OsmdBlock({
       removeMeasureClickOverlays(host);
     }
   }, []);
+
+  const afterOsmdRender = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        syncMeasureClickUi();
+      });
+    });
+  }, [syncMeasureClickUi]);
 
   useEffect(() => {
     const disconnectRo = () => {
@@ -434,14 +443,38 @@ export function OsmdBlock({
 
   useEffect(() => {
     const host = hostRef.current;
-    const osmd = osmdRef.current;
-    if (!host || !osmd?.IsReadyToRender()) return;
+    if (!host) return;
+
+    const onHostClick = (evt: MouseEvent) => {
+      if (evt.button !== 0 || !onMeasureClickRef.current) return;
+      const osmd = osmdRef.current;
+      if (!osmd?.IsReadyToRender()) return;
+      const hit = hitTestOsmdMeasure(osmd, host, evt);
+      if (!hit) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      onMeasureClickRef.current(hit);
+    };
+
+    host.addEventListener('click', onHostClick, true);
+
+    const scrollParent = host.closest('.omr-mxl-osmd-frame');
+    const onScroll = () => syncMeasureClickUi();
+    scrollParent?.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+
     if (onMeasureClick) {
-      installMeasureClickOverlays(host, osmd, (info) => onMeasureClickRef.current?.(info));
+      syncMeasureClickUi();
     } else {
       removeMeasureClickOverlays(host);
     }
-  }, [xml, onMeasureClick, zoom]);
+
+    return () => {
+      host.removeEventListener('click', onHostClick, true);
+      scrollParent?.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [xml, onMeasureClick, zoom, syncMeasureClickUi]);
 
   return (
     <div

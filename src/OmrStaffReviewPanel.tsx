@@ -442,11 +442,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             </InspectPanelErrorBoundary>
           </div>
           <p className="omr-mxl-preview-hint">
-            마디는 아래 <strong>인쇄 마디 번호</strong>로 여세요(악보 클릭은 지원하지 않습니다).
+            <strong>오선·음표가 있는 마디</strong>를 클릭하면 편집 패널이 열립니다(마우스를 올리면 파란 표시).
+            {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 성부가 자동 선택됩니다.' : ''}
           </p>
           <div className="omr-manual-measure-open">
             <label>
-              인쇄 마디로 열기
+              인쇄 마디로 열기(보조)
               <input
                 type="number"
                 min={1}

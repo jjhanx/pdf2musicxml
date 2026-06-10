@@ -294,7 +294,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setEditorKey((k) => k + 1);
       const applied = j.stats?.applied ?? 0;
       const skipped = j.stats?.skipped ?? 0;
-      const msg = `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 오른쪽 MusicXML에서 확인하세요.`;
+      const msg =
+        applied === 0 && skipped > 0
+          ? `반영된 보정이 없습니다 (건너뜀 ${skipped}). 이미 반영됐거나 대상 요소를 찾지 못한 보정입니다 — 마디 편집을 다시 열어 현재 상태를 확인하세요.`
+          : `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 오른쪽 MusicXML에서 확인하세요.`;
       setApplyMsg(msg);
       setLastPreviewMsg(msg);
     } catch (e) {

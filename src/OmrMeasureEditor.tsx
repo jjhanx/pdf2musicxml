@@ -78,7 +78,8 @@ function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
       el.displayStep && el.type && ['whole', 'half'].includes(el.type)
         ? ` (${el.displayStep}${el.displayOctave ?? ''})`
         : '';
-    return `#${idx} ${el.type ?? 'rest'}쉼표${dots}${pos}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+    const dur = el.duration != null ? ` dur=${el.duration}` : '';
+    return `#${idx} ${el.type ?? 'rest'}쉼표${dots}${pos}${dur}${el.staff != null ? ` staff=${el.staff}` : ''}`;
   }
   const tie =
     el.tieStart && el.tieStop ? ' tie↔' : el.tieStart ? ' tie→' : el.tieStop ? ' tie←' : '';

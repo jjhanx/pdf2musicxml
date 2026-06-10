@@ -60,12 +60,61 @@ def find_part(root: ET.Element, ns: str, part_id: str) -> ET.Element | None:
     return None
 
 
-def _measure_divisions(measure: ET.Element, ns: str) -> int:
-    for attr in measure.findall(_q(ns, "attributes")):
-        div_el = attr.find(_q(ns, "divisions"))
-        if div_el is not None and div_el.text and div_el.text.strip().isdigit():
-            return max(1, int(div_el.text.strip()))
-    return 1
+def _effective_divisions_and_time(
+    part: ET.Element, ns: str, target_measure: ET.Element
+) -> tuple[int, int, int]:
+    """divisions·박자표는 보통 1번 마디에만 선언되므로 파트 처음부터 누적 추적한다."""
+    divisions = 1
+    beats = 4
+    beat_type = 4
+    for measure in part.findall(_q(ns, "measure")):
+        for attr in measure.findall(_q(ns, "attributes")):
+            div_el = attr.find(_q(ns, "divisions"))
+            if div_el is not None and div_el.text and div_el.text.strip().isdigit():
+                divisions = max(1, int(div_el.text.strip()))
+            time_el = attr.find(_q(ns, "time"))
+            if time_el is not None:
+                b_el = time_el.find(_q(ns, "beats"))
+                bt_el = time_el.find(_q(ns, "beat-type"))
+                try:
+                    if b_el is not None and b_el.text and b_el.text.strip():
+                        beats = max(1, int(b_el.text.strip()))
+                    if bt_el is not None and bt_el.text and bt_el.text.strip():
+                        beat_type = max(1, int(bt_el.text.strip()))
+                except ValueError:
+                    pass
+        if measure is target_measure:
+            break
+    return divisions, beats, beat_type
+
+
+def _measure_length_units(divisions: int, beats: int, beat_type: int) -> int:
+    return max(1, round(divisions * beats * 4 / beat_type))
+
+
+def _undot_duration_guess(current: int, divisions: int, measure_len: int) -> int | None:
+    """<type> 없는 쉼표: duration이 표준 길이의 1.5배(점)·1.75배(겹점)이면 기본 길이로 줄인다.
+
+    Audiveris가 점을 <dot> 없이 duration에만 반영해 내보내는 경우,
+    OSMD는 duration에서 점을 추론해 그리므로 duration을 고쳐야 점이 사라진다.
+    """
+    if current <= 0:
+        return None
+    bases = [measure_len, 4 * divisions, 2 * divisions, divisions]
+    for sub in (2, 4, 8):
+        if divisions % sub == 0 and divisions // sub > 0:
+            bases.append(divisions // sub)
+    for base in bases:
+        if base > 0 and current == base:
+            return None  # 이미 점 없는 표준 길이
+    for base in bases:
+        if base <= 0:
+            continue
+        if current * 2 == base * 3 or current * 4 == base * 7:
+            return base
+    if current > measure_len:
+        return measure_len
+    return None
 
 
 def _undotted_duration_for_type(note_type: str, divisions: int) -> int | None:
@@ -440,19 +489,31 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             note.remove(dot)
             changed = True
         if kind in ("setNoteUndotted", "clearRestDots") or fix.get("clearDottedDuration"):
-            divisions = _measure_divisions(measure, ns)
+            divisions, beats, beat_type = _effective_divisions_and_time(part, ns, measure)
+            measure_len = _measure_length_units(divisions, beats, beat_type)
             type_el = note.find(_q(ns, "type"))
             dur_el = note.find(_q(ns, "duration"))
             note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
-            target = _undotted_duration_for_type(note_type, divisions)
-            if target is not None and dur_el is not None and dur_el.text:
+            is_rest = note.find(_q(ns, "rest")) is not None
+            current = 0
+            if dur_el is not None and dur_el.text:
                 try:
                     current = int(dur_el.text.strip())
                 except ValueError:
                     current = 0
-                if current > target:
-                    dur_el.text = str(target)
-                    changed = True
+            target = _undotted_duration_for_type(note_type, divisions) if note_type else None
+            if is_rest and note_type in ("whole", ""):
+                # 온쉼표(또는 type 없는 마디 쉼표)는 박자표 기준 마디 길이가 정답
+                target = min(target, measure_len) if target is not None else None
+                if target is None:
+                    target = _undot_duration_guess(current, divisions, measure_len)
+                    if target is None and current > measure_len:
+                        target = measure_len
+            elif target is None and is_rest:
+                target = _undot_duration_guess(current, divisions, measure_len)
+            if target is not None and dur_el is not None and 0 < target < current:
+                dur_el.text = str(target)
+                changed = True
         if kind == "clearRestDots" and fix.get("removeFollowingNote"):
             notes_after = list_note_elements(measure, ns)
             if idx + 1 < len(notes_after):

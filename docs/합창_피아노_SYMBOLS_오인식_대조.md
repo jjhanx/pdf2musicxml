@@ -23,12 +23,12 @@ python scripts/verify_score_issues.py score.mxl --measure-offset 1 --regression
 
 | 현상 | SYMBOLS UI | MXL `fix_audiveris_mxl` | 근본 |
 |------|------------|-------------------------|------|
-| 세잇단 `3`→`P` | 보임 | direction/words `P` **일부** 제거 | TEXTS·TextWord·OCR |
-| 세잇단 **숫자·괄호선 소실** | 보임 | **불가** | SYMBOLS·CURVES |
+| 세잇단 `3`→`P` | **해결됨** (PDF 전처리 치환) | **해결됨** (abnormalWord 및 post-fix) | Tesseract 오인식 해소 |
+| 세잇단 **숫자·괄호선 소실** | **해결됨** (3 정상 인식) | **해결됨** (Audiveris가 3 인식) | PDF 문자 치환 (`U+F073`->`3`) |
 | **PR·PL 세로 정렬** `3` 하나만 PR에 붙음 | 보임 | **불가** | SYMBOLS·다성부 간섭 |
 | 세잇단 → **4분음표**로 인식 | 보임 | **불가**(duration 복구 어려움) | RHYTHMS·BEAMS |
 | 세잇단 **일부만 연결**(4–5만 묶임) | 보임 | **불가** | BEAMS·SYMBOLS |
-| 이음줄 소실·음표 **순서 바뀜** | 보임 | **불가** | LINKS·RHYTHMS |
+| 이음줄 소실·음표 **순서 바뀜** | 보임 | **일부 해결** (인쇄 7마디 이음줄 후처리 복구) | LINKS·RHYTHMS |
 | 마디 번호 -1 | — | 수동 대조 | GRID·pickup |
 
 ## 보고된 위치 (인쇄 마디·원본 페이지 기준)

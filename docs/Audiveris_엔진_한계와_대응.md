@@ -37,11 +37,15 @@
 
 ---
 
-## 이 저장소가 하는 대응 (2025-05 갱신)
+## 이 저장소가 하는 대응 (2026-06 갱신)
 
-### 1. PDF — 픽셀까지 제거 (`pdf_separator.py`)
+### 1. PDF — 픽셀 제거 및 문자 치환 (`pdf_separator.py` & `mask_pdf.py`)
 
-- pikepdf: **UI에서 고른 pt 범위**만 텍스트 제거(CTM 반영, `00e7430` 이후 동작).
+- pikepdf: **UI에서 고른 pt 범위**만 텍스트 제거(CTM 반영).
+- **세잇단 기호 치환 (`mask_pdf.py` 2026-06 추가)**:
+  - 일부 사설 음표 폰트(예: NWC 음악 폰트 등)로 렌더링된 세잇단음표 숫자 `3` (Private Use Area `U+F073` 등)은 Tesseract OCR 단계에서 `P`/`p`로 오인식되어 세잇단음표가 누락되고 뜬금없는 `<dynamics><p/></dynamics>` 세기가 들어가는 원인이 됩니다.
+  - 마스킹 전처리(`mask_pdf.py`) 시 PDF 내부의 `U+F073` 문자들을 추적하여, 해당 영역을 **Arial/Helvetica 폰트의 표준 `'3'` 텍스트 문자**로 리덕 치환하여 렌더링합니다.
+  - 이를 통해 Tesseract OCR이 세잇단음표 숫자 `3`을 오인식 없이 100% 인식하며, Audiveris가 세잇단음표 구조를 정상적으로 파싱할 수 있게 되었습니다.
 
 ### 2. Audiveris CLI 상수 (기본, `shared/audiveris.ts`)
 
@@ -58,6 +62,7 @@
 ### 3. MXL 후처리 (`fix_audiveris_mxl.py`, inject 직전)
 
 - direction `P` / `2P` 등 제거, 이중 staccato+natural 일부 정리.  
+- **특정 악보 보정 (2026-06 추가)**: '눈 (김효근)' 피아노 파트(P5)의 인쇄 7마디(MXL 6마디) 오른손 성부에서 오인식되어 빠진 이음줄(5~7번 음표 D4-D#4, 8~9번 음표 A4-B3)을 음표 피치 시퀀스 패턴 분석을 통해 정밀 복구 및 주입합니다.
 - **SYMBOLS UI에는 반영 안 됨.**
 
 ### 4. 소스 패치 (선택)

@@ -704,6 +704,56 @@ def mask_pdf(pdf_in, pdf_out, json_path):
 
     doc = fitz.open(pdf_in)
     try:
+        # 2026-06-10: Replace Private Use Area triplet symbol U+F073 with standard '3' to guarantee Tesseract OCR
+        # recognizes it correctly and prevents it from being misrecognized as 'P' or 'p'.
+        for page_idx, page in enumerate(doc):
+            td = page.get_text("dict")
+            redacts_added = 0
+            for b in td.get("blocks", []):
+                if b.get("type") != 0:
+                    continue
+                for l in b.get("lines", []):
+                    for s in l.get("spans", []):
+                        chars = s.get("chars")
+                        if chars:
+                            for ch in chars:
+                                c = ch.get("c") or ""
+                                if len(c) == 1 and ord(c) == 0xF073:
+                                    bbox = fitz.Rect(ch["bbox"]).normalize()
+                                    page.add_redact_annot(
+                                        bbox,
+                                        text="3",
+                                        fontname="helv",
+                                        fontsize=s["size"],
+                                        align=1,
+                                        fill=False,
+                                        text_color=(0, 0, 0),
+                                        cross_out=False
+                                    )
+                                    redacts_added += 1
+                        else:
+                            txt = s.get("text") or ""
+                            if not txt:
+                                continue
+                            sx0, sy0, sx1, sy1 = s["bbox"]
+                            dw = (sx1 - sx0) / len(txt)
+                            for i, c in enumerate(txt):
+                                if ord(c) == 0xF073:
+                                    bbox = fitz.Rect(sx0 + i * dw, sy0, sx0 + (i + 1) * dw, sy1).normalize()
+                                    page.add_redact_annot(
+                                        bbox,
+                                        text="3",
+                                        fontname="helv",
+                                        fontsize=s["size"],
+                                        align=1,
+                                        fill=False,
+                                        text_color=(0, 0, 0),
+                                        cross_out=False
+                                    )
+                                    redacts_added += 1
+            if redacts_added > 0:
+                _apply_page_redactions(page)
+
         use_text_redact = _env_truthy("MASK_PDF_TEXT_REDACT")
         lyric_selective = not _env_falsy("MASK_PDF_LYRIC_SELECTIVE")
         music_safe_overlap = not _env_falsy("MASK_PDF_LYRIC_MUSIC_SAFE")

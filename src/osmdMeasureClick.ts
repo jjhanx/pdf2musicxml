@@ -642,21 +642,30 @@ export function collectMeasureHitTargets(
   const out: MeasureHitTarget[] = [];
   const seen = new Set<string>();
   forEachSystem(osmd, (system, rows, pageIndex) => {
-    collectFromSystem(system, rows, pageIndex, host, osmd, out, seen);
+    try {
+      collectFromSystem(system, rows, pageIndex, host, osmd, out, seen);
+    } catch (e) {
+      // 한 시스템의 기하 계산이 실패해도 나머지 시스템 클릭은 살린다
+      console.warn('[omr-measure-click] system collect 실패', e);
+    }
   });
 
   if (!out.length) {
     // 마지막 폴백: 마디별 DOM 음표 영역
-    forEachGraphicalMeasure(osmd, (gm, si) => {
-      const measureMxl = measureMxlFromGraphic(gm);
-      if (measureMxl == null) return;
-      const bounds = domBoundsForMeasure(gm, host);
-      if (!bounds || !isValidHostBounds(bounds)) return;
-      const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({ measureMxl, staffIndex: si, partId: partIdFromGraphic(gm), bounds, gm });
-    });
+    try {
+      forEachGraphicalMeasure(osmd, (gm, si) => {
+        const measureMxl = measureMxlFromGraphic(gm);
+        if (measureMxl == null) return;
+        const bounds = domBoundsForMeasure(gm, host);
+        if (!bounds || !isValidHostBounds(bounds)) return;
+        const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ measureMxl, staffIndex: si, partId: partIdFromGraphic(gm), bounds, gm });
+      });
+    } catch (e) {
+      console.warn('[omr-measure-click] DOM 폴백 collect 실패', e);
+    }
   }
 
   targetCache.set(host, out);
@@ -824,26 +833,30 @@ export function drawOsmdMeasureHover(
   removeMeasureHover(host);
   if (!info || !osmd.IsReadyToRender()) return;
 
-  let bounds: HostBounds | null = null;
-  if (evt) {
-    const t = pickTargetAt(host, osmd, evt);
-    if (
-      t &&
-      t.measureMxl === info.measureMxl &&
-      normalizeStaffIndex(osmd, t.staffIndex) === info.staffIndex &&
-      isValidHostBounds(t.bounds)
-    ) {
-      bounds = t.bounds;
+  try {
+    let bounds: HostBounds | null = null;
+    if (evt) {
+      const t = pickTargetAt(host, osmd, evt);
+      if (
+        t &&
+        t.measureMxl === info.measureMxl &&
+        normalizeStaffIndex(osmd, t.staffIndex) === info.staffIndex &&
+        isValidHostBounds(t.bounds)
+      ) {
+        bounds = t.bounds;
+      }
     }
+    if (!bounds) bounds = boundsForMeasureInfo(osmd, host, info);
+    if (!bounds) return;
+    paintBounds(
+      host,
+      bounds,
+      HOVER_LAYER_ATTR,
+      'border:2px solid #42a5f5;background:rgba(66,165,245,0.28);border-radius:2px;box-sizing:border-box;',
+    );
+  } catch (e) {
+    console.warn('[omr-measure-click] hover 실패', e);
   }
-  if (!bounds) bounds = boundsForMeasureInfo(osmd, host, info);
-  if (!bounds) return;
-  paintBounds(
-    host,
-    bounds,
-    HOVER_LAYER_ATTR,
-    'border:2px solid #42a5f5;background:rgba(66,165,245,0.28);border-radius:2px;box-sizing:border-box;',
-  );
 }
 
 export function drawOsmdMeasureHighlight(
@@ -854,17 +867,21 @@ export function drawOsmdMeasureHighlight(
 ): void {
   host.querySelectorAll(`[${HIGHLIGHT_LAYER_ATTR}]`).forEach((el) => el.remove());
   if (measureMxl == null || measureMxl < 0 || !osmd.IsReadyToRender()) return;
-  const bounds = boundsForMeasureInfo(osmd, host, {
-    measureMxl,
-    staffIndex: staffIndex ?? 0,
-  });
-  if (!bounds) return;
-  paintBounds(
-    host,
-    bounds,
-    HIGHLIGHT_LAYER_ATTR,
-    'border:2px solid #1565c0;background:rgba(21,101,192,0.2);border-radius:2px;box-sizing:border-box;',
-  );
+  try {
+    const bounds = boundsForMeasureInfo(osmd, host, {
+      measureMxl,
+      staffIndex: staffIndex ?? 0,
+    });
+    if (!bounds) return;
+    paintBounds(
+      host,
+      bounds,
+      HIGHLIGHT_LAYER_ATTR,
+      'border:2px solid #1565c0;background:rgba(21,101,192,0.2);border-radius:2px;box-sizing:border-box;',
+    );
+  } catch (e) {
+    console.warn('[omr-measure-click] highlight 실패', e);
+  }
 }
 
 export function installMeasureClickOverlays(host: HTMLElement, osmd: OpenSheetMusicDisplay): number {
@@ -877,25 +894,30 @@ export function hitTestOsmdMeasure(
   evt: MouseEvent,
 ): OsmdMeasureClickInfo | null {
   if (!osmd.IsReadyToRender()) return null;
-  const t = pickTargetAt(host, osmd, evt);
-  if (t) {
+  try {
+    const t = pickTargetAt(host, osmd, evt);
+    if (t) {
+      const info: OsmdMeasureClickInfo = {
+        measureMxl: t.measureMxl,
+        staffIndex: normalizeStaffIndex(osmd, t.staffIndex),
+        partId: t.partId,
+      };
+      rememberSelectionBounds(host, info, t.bounds);
+      return info;
+    }
+    const near = hitViaNearestStaffEntry(osmd, host, evt);
+    if (!near) return null;
     const info: OsmdMeasureClickInfo = {
-      measureMxl: t.measureMxl,
-      staffIndex: normalizeStaffIndex(osmd, t.staffIndex),
-      partId: t.partId,
+      ...near,
+      staffIndex: normalizeStaffIndex(osmd, near.staffIndex),
     };
-    rememberSelectionBounds(host, info, t.bounds);
+    const domBounds = boundsFromGraphicMeasure(osmd, host, info);
+    if (domBounds) rememberSelectionBounds(host, info, domBounds);
     return info;
+  } catch (e) {
+    console.warn('[omr-measure-click] hit test 실패', e);
+    return null;
   }
-  const near = hitViaNearestStaffEntry(osmd, host, evt);
-  if (!near) return null;
-  const info: OsmdMeasureClickInfo = {
-    ...near,
-    staffIndex: normalizeStaffIndex(osmd, near.staffIndex),
-  };
-  const domBounds = boundsFromGraphicMeasure(osmd, host, info);
-  if (domBounds) rememberSelectionBounds(host, info, domBounds);
-  return info;
 }
 
 export function invalidateMeasureTargetCache(host: HTMLElement): void {

@@ -268,6 +268,34 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [persistFixes],
   );
 
+  const normalizeRests = useCallback(async () => {
+    setApplyBusy(true);
+    setApplyMsg('');
+    setLastPreviewMsg('');
+    try {
+      const r = await fetch(`/api/omr-hitl/${jobId}/normalize-rests`, { method: 'POST' });
+      if (!r.ok) {
+        const j = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `HTTP ${r.status}`);
+      }
+      const j = (await r.json()) as { stats?: { restsFixed?: number; measuresChanged?: number } };
+      await refreshScoreXml();
+      setPreviewRevision((n) => n + 1);
+      setEditorKey((k) => k + 1);
+      const fixed = j.stats?.restsFixed ?? 0;
+      const msg =
+        fixed > 0
+          ? `쉼표 길이 자동 정리됨 — 전체 성부에서 ${fixed}건 (마디 ${j.stats?.measuresChanged ?? 0}곳). 오른쪽 악보에서 확인하세요.`
+          : '자동 정리 대상 쉼표가 없습니다 (마디 길이를 넘는 점 없는 쉼표가 없음).';
+      setApplyMsg(msg);
+      setLastPreviewMsg(msg);
+    } catch (e) {
+      setApplyMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setApplyBusy(false);
+    }
+  }, [jobId, refreshScoreXml]);
+
   const applyFixesToMxl = useCallback(async () => {
     setApplyBusy(true);
     setApplyMsg('');
@@ -579,8 +607,19 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           <p className="omr-hitl-empty">대기 중인 보정 없음</p>
         )}
         <div className="omr-hitl-actions">
-          <button type="button" disabled={applyBusy} onClick={() => void applyFixesToMxl()}>
-            {applyBusy ? '반영 중…' : `MXL에 반영·미리보기${pendingFixes.length > 0 ? ` (${pendingFixes.length}건)` : ''}`}
+          {!selectedMeasure && (
+            <button type="button" disabled={applyBusy} onClick={() => void applyFixesToMxl()}>
+              {applyBusy ? '반영 중…' : `MXL에 반영·미리보기${pendingFixes.length > 0 ? ` (${pendingFixes.length}건)` : ''}`}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-muted"
+            disabled={applyBusy}
+            onClick={() => void normalizeRests()}
+            title="점 없는 쉼표인데 duration이 마디 길이를 넘는 경우(미리보기에 없던 점이 보이는 원인)를 전체 성부에서 한 번에 정리합니다"
+          >
+            {applyBusy ? '정리 중…' : '쉼표 길이 자동 정리 (전체 성부)'}
           </button>
         </div>
         {applyMsg ? <p className="omr-hitl-apply-msg">{applyMsg}</p> : null}

@@ -638,6 +638,31 @@ async function applyOmrHitlFixesToScoreFile(
   }
 }
 
+async function normalizeOmrRestsInScoreFile(
+  scorePath: string,
+  pythonBin: string,
+): Promise<{ restsFixed: number; measuresChanged: number } | null> {
+  const script = path.join(__dirname, '..', 'scripts', 'normalize_omr_rests.py');
+  if (!fsSync.existsSync(script) || !fsSync.existsSync(scorePath)) return null;
+  try {
+    const { stdout, stderr } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    if (stderr?.trim()) console.warn(`normalize_omr_rests stderr (${scorePath}): ${stderr.trim()}`);
+    const line = String(stdout).trim();
+    if (!line) return { restsFixed: 0, measuresChanged: 0 };
+    const parsed = JSON.parse(line) as { restsFixed?: number; measuresChanged?: number };
+    console.log(
+      `normalize_omr_rests (${scorePath}): restsFixed=${parsed.restsFixed ?? 0} measuresChanged=${parsed.measuresChanged ?? 0}`,
+    );
+    return { restsFixed: parsed.restsFixed ?? 0, measuresChanged: parsed.measuresChanged ?? 0 };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`normalize_omr_rests failed (${scorePath}): ${msg}`);
+    return null;
+  }
+}
+
 async function applyOmrHitlFixesForJob(job: JobRecord, pythonBin: string): Promise<void> {
   const paths = job.preInjectMxlPaths?.filter((p) => p && fsSync.existsSync(p)) ?? [];
   for (const p of paths) {
@@ -1122,6 +1147,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       );
     }
     const pauseForAudiverisReview = job.pauseAfterAudiveris || autoPauseFromAudiverisLog;
+
+    // Audiveris가 점을 <dot> 없이 duration에만 반영해 내보내는 경우(미리보기에 "없던 점")를
+    // 검토 전에 자동 정규화 — 마디 길이 초과분만 보수적으로 줄인다.
+    for (const p of mxlForInject) {
+      await normalizeOmrRestsInScoreFile(p, pythonBin);
+    }
 
     const useOmrStaffHitl = job.enableOmrStaffReview !== false;
     if (outputs.length > 0 && useOmrStaffHitl && mxlForInject.length > 0) {
@@ -2521,6 +2552,31 @@ app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
       console.warn(`[job ${req.params.jobId}] mxl lint after HITL apply: ${msg}`);
     }
     res.json({ ok: true, stats, lint: lintReport });
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/omr-hitl/:jobId/normalize-rests', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'omr_staff_review_needed') {
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 자동 정리를 실행할 수 있습니다' });
+    return;
+  }
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  if (!mxlPath) {
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
+    return;
+  }
+  const pythonBin = resolvePythonBin();
+  try {
+    const stats = await normalizeOmrRestsInScoreFile(mxlPath, pythonBin);
+    const lintCache = sessionMxlLintPath(job.sessionRoot);
+    if (fsSync.existsSync(lintCache)) await fs.unlink(lintCache).catch(() => {});
+    const inspectXml = path.join(job.sessionRoot, '.diag-cache', 'inspect-score.musicxml');
+    if (fsSync.existsSync(inspectXml)) await fs.unlink(inspectXml).catch(() => {});
+    res.json({ ok: true, stats: stats ?? { restsFixed: 0, measuresChanged: 0 } });
   } catch (e) {
     if (!res.headersSent) res.status(500).json({ error: String(e) });
   }

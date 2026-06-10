@@ -714,6 +714,116 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     return False
 
 
+def _note_duration(note: ET.Element, ns: str) -> int:
+    dur_el = note.find(_q(ns, "duration"))
+    if dur_el is None or not dur_el.text:
+        return 0
+    try:
+        return max(0, int(dur_el.text.strip()))
+    except ValueError:
+        return 0
+
+
+def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
+    """Audiveris가 점·길이를 잘못 내보낸 쉼표 duration을 보수적으로 정규화.
+
+    원리: 마디(보이스) 총 길이가 박자표 기준 마디 길이를 **초과**할 때만,
+    `<dot>` 없는 쉼표 중 duration이 표준 길이의 1.5/1.75배(점이 duration에만
+    반영된 OMR 오류)인 것을 기본 길이로 줄인다. 초과분 이상으로 줄이지 않으므로
+    정상 악보는 건드리지 않는다. OSMD가 duration에서 점을 추론해 그리는
+    "없던 점" 증상의 근본 대응.
+    """
+    ns = _ns(root)
+    stats = {"restsFixed": 0, "measuresChanged": 0, "measuresOverfullLeft": 0}
+    for part in root.findall(_q(ns, "part")):
+        divisions = 1
+        beats = 4
+        beat_type = 4
+        for measure in part.findall(_q(ns, "measure")):
+            for attr in measure.findall(_q(ns, "attributes")):
+                div_el = attr.find(_q(ns, "divisions"))
+                if div_el is not None and div_el.text and div_el.text.strip().isdigit():
+                    divisions = max(1, int(div_el.text.strip()))
+                time_el = attr.find(_q(ns, "time"))
+                if time_el is not None:
+                    b_el = time_el.find(_q(ns, "beats"))
+                    bt_el = time_el.find(_q(ns, "beat-type"))
+                    try:
+                        if b_el is not None and b_el.text and b_el.text.strip():
+                            beats = max(1, int(b_el.text.strip()))
+                        if bt_el is not None and bt_el.text and bt_el.text.strip():
+                            beat_type = max(1, int(bt_el.text.strip()))
+                    except ValueError:
+                        pass
+            measure_len = _measure_length_units(divisions, beats, beat_type)
+
+            # 보이스별 길이 합 (화음 후속음·grace는 시간을 차지하지 않음)
+            by_voice: dict[str, list[ET.Element]] = {}
+            for note in list_note_elements(measure, ns):
+                if note.find(_q(ns, "grace")) is not None:
+                    continue
+                if note.find(_q(ns, "chord")) is not None:
+                    continue
+                voice_el = note.find(_q(ns, "voice"))
+                voice = (voice_el.text or "1").strip() if voice_el is not None and voice_el.text else "1"
+                by_voice.setdefault(voice, []).append(note)
+
+            measure_changed = False
+            for notes in by_voice.values():
+                total = sum(_note_duration(n, ns) for n in notes)
+                excess = total - measure_len
+                if excess <= 0:
+                    continue
+                for note in notes:
+                    if excess <= 0:
+                        break
+                    if note.find(_q(ns, "rest")) is None:
+                        continue
+                    if note.findall(_q(ns, "dot")):
+                        continue  # 명시적 점은 실제 인쇄된 점일 수 있어 보존
+                    current = _note_duration(note, ns)
+                    if current <= 0:
+                        continue
+                    type_el = note.find(_q(ns, "type"))
+                    note_type = (
+                        (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+                    )
+                    target: int | None = None
+                    if note_type in ("whole", ""):
+                        target = _undot_duration_guess(current, divisions, measure_len)
+                        if target is None and current > measure_len:
+                            target = measure_len
+                    elif note_type:
+                        base = _undotted_duration_for_type(note_type, divisions)
+                        if base is not None and 0 < base < current:
+                            target = base
+                    if target is None or target >= current:
+                        continue
+                    reduction = current - target
+                    if reduction > excess:
+                        continue  # 초과분보다 크게 줄이면 마디가 모자라짐 — 건너뜀
+                    dur_el = note.find(_q(ns, "duration"))
+                    if dur_el is None:
+                        continue
+                    dur_el.text = str(target)
+                    excess -= reduction
+                    stats["restsFixed"] += 1
+                    measure_changed = True
+                if excess > 0:
+                    stats["measuresOverfullLeft"] += 1
+            if measure_changed:
+                stats["measuresChanged"] += 1
+    return stats
+
+
+def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
+    files, root_path, root = load_mxl_root(mxl_path)
+    stats = normalize_rest_durations_root(root)
+    if stats["restsFixed"] > 0:
+        write_mxl_root(mxl_path, files, root_path, root)
+    return {"path": str(mxl_path), **stats}
+
+
 def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[str, int]:
     ns = _ns(root)
     stats = {"applied": 0, "skipped": 0}

@@ -641,7 +641,12 @@ async function applyOmrHitlFixesToScoreFile(
 async function normalizeOmrRestsInScoreFile(
   scorePath: string,
   pythonBin: string,
-): Promise<{ restsFixed: number; measuresChanged: number; restDisplayCleared: number } | null> {
+): Promise<{
+  restsFixed: number;
+  measuresChanged: number;
+  restDisplayCleared: number;
+  tupletStaccatoRemoved: number;
+} | null> {
   const script = path.join(__dirname, '..', 'scripts', 'normalize_omr_rests.py');
   if (!fsSync.existsSync(script) || !fsSync.existsSync(scorePath)) return null;
   try {
@@ -650,19 +655,22 @@ async function normalizeOmrRestsInScoreFile(
     });
     if (stderr?.trim()) console.warn(`normalize_omr_rests stderr (${scorePath}): ${stderr.trim()}`);
     const line = String(stdout).trim();
-    if (!line) return { restsFixed: 0, measuresChanged: 0, restDisplayCleared: 0 };
+    if (!line)
+      return { restsFixed: 0, measuresChanged: 0, restDisplayCleared: 0, tupletStaccatoRemoved: 0 };
     const parsed = JSON.parse(line) as {
       restsFixed?: number;
       measuresChanged?: number;
       restDisplayCleared?: number;
+      tupletStaccatoRemoved?: number;
     };
     console.log(
-      `normalize_omr_rests (${scorePath}): restsFixed=${parsed.restsFixed ?? 0} measuresChanged=${parsed.measuresChanged ?? 0} restDisplayCleared=${parsed.restDisplayCleared ?? 0}`,
+      `normalize_omr_rests (${scorePath}): restsFixed=${parsed.restsFixed ?? 0} measuresChanged=${parsed.measuresChanged ?? 0} restDisplayCleared=${parsed.restDisplayCleared ?? 0} tupletStaccatoRemoved=${parsed.tupletStaccatoRemoved ?? 0}`,
     );
     return {
       restsFixed: parsed.restsFixed ?? 0,
       measuresChanged: parsed.measuresChanged ?? 0,
       restDisplayCleared: parsed.restDisplayCleared ?? 0,
+      tupletStaccatoRemoved: parsed.tupletStaccatoRemoved ?? 0,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -2586,7 +2594,12 @@ app.post('/api/omr-hitl/:jobId/normalize-rests', async (req, res) => {
     if (fsSync.existsSync(inspectXml)) await fs.unlink(inspectXml).catch(() => {});
     res.json({
       ok: true,
-      stats: stats ?? { restsFixed: 0, measuresChanged: 0, restDisplayCleared: 0 },
+      stats: stats ?? {
+        restsFixed: 0,
+        measuresChanged: 0,
+        restDisplayCleared: 0,
+        tupletStaccatoRemoved: 0,
+      },
     });
   } catch (e) {
     if (!res.headersSent) res.status(500).json({ error: String(e) });

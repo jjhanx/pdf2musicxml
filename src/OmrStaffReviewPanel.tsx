@@ -279,17 +279,23 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
       const j = (await r.json()) as {
-        stats?: { restsFixed?: number; measuresChanged?: number; restDisplayCleared?: number };
+        stats?: {
+          restsFixed?: number;
+          measuresChanged?: number;
+          restDisplayCleared?: number;
+          tupletStaccatoRemoved?: number;
+        };
       };
       await refreshScoreXml();
       setPreviewRevision((n) => n + 1);
       setEditorKey((k) => k + 1);
       const fixed = j.stats?.restsFixed ?? 0;
       const displayCleared = j.stats?.restDisplayCleared ?? 0;
+      const staccatoRemoved = j.stats?.tupletStaccatoRemoved ?? 0;
       const msg =
-        fixed > 0 || displayCleared > 0
-          ? `쉼표 자동 정리됨 — 길이 ${fixed}건, 표시 위치 ${displayCleared}건. 오른쪽 악보에서 확인하세요.`
-          : '자동 정리 대상 쉼표가 없습니다 (마디 길이를 넘거나 위치 힌트가 있는 쉼표가 없음).';
+        fixed > 0 || displayCleared > 0 || staccatoRemoved > 0
+          ? `자동 정리됨 — 쉼표 길이 ${fixed}건, 쉼표 위치 ${displayCleared}건, 잇단 숫자 가린 점 ${staccatoRemoved}건. 오른쪽 악보에서 확인하세요.`
+          : '자동 정리 대상이 없습니다 (마디 길이 초과 쉼표·위치 힌트·잇단 숫자 가린 점 없음).';
       setApplyMsg(msg);
       setLastPreviewMsg(msg);
     } catch (e) {

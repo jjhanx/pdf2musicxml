@@ -210,6 +210,23 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
     dot_count = len(note.findall(_q(ns, "dot")))
     note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else None
     grace_el = note.find(_q(ns, "grace"))
+    time_mod = None
+    tm_el = note.find(_q(ns, "time-modification"))
+    if tm_el is not None:
+        an = tm_el.find(_q(ns, "actual-notes"))
+        nn = tm_el.find(_q(ns, "normal-notes"))
+        if an is not None and an.text and nn is not None and nn.text:
+            time_mod = f"{an.text.strip()}:{nn.text.strip()}"
+    tuplet = None
+    articulations: list[str] = []
+    for notations in note.findall(_q(ns, "notations")):
+        for tup in notations.findall(_q(ns, "tuplet")):
+            tuplet = tup.get("type") or tuplet
+        for arts in notations.findall(_q(ns, "articulations")):
+            for art in arts:
+                name = _local(art)
+                placement = art.get("placement")
+                articulations.append(f"{name}({placement})" if placement else name)
     return {
         "index": index,
         "elementKind": "note",
@@ -232,6 +249,9 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "tieStop": tie_stop,
         "beams": _note_beams(note, ns),
         "stem": (stem_el.text or "").strip() if stem_el is not None and stem_el.text else None,
+        "timeMod": time_mod,
+        "tuplet": tuplet,
+        "articulations": articulations,
     }
 
 
@@ -475,6 +495,29 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             measure.remove(notes[idx])
             return True
         return False
+
+    if kind == "removeArticulation":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        # articulation 이름이 주어지면 그것만, 없으면 articulations 전부 제거
+        target = str(fix.get("articulation") or "").strip().split("(")[0] or None
+        removed = False
+        for notations in list(note.findall(_q(ns, "notations"))):
+            for arts in list(notations.findall(_q(ns, "articulations"))):
+                for art in list(arts):
+                    if target is None or _local(art) == target:
+                        arts.remove(art)
+                        removed = True
+                if len(arts) == 0:
+                    notations.remove(arts)
+            if len(notations) == 0:
+                note.remove(notations)
+        return removed
 
     if kind in ("removeNoteDot", "setNoteUndotted", "clearRestDots"):
         try:
@@ -739,6 +782,7 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
         "measuresChanged": 0,
         "measuresOverfullLeft": 0,
         "restDisplayCleared": 0,
+        "tupletStaccatoRemoved": 0,
     }
     for part in root.findall(_q(ns, "part")):
         divisions = 1
@@ -761,6 +805,28 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                     except ValueError:
                         pass
             measure_len = _measure_length_units(divisions, beats, beat_type)
+
+            # 잇단음표 음에 붙은 "빔 쪽" 스타카토 제거 — Audiveris가 잇단 숫자(3)를
+            # 스타카토 점으로도 오인하는 사례. 정상 스타카토는 음표 머리 쪽
+            # (stem=up이면 below)에 붙으므로, stem과 같은 쪽 placement만 제거한다.
+            for note in list_note_elements(measure, ns):
+                if note.find(_q(ns, "time-modification")) is None:
+                    continue
+                stem_el = note.find(_q(ns, "stem"))
+                stem = (stem_el.text or "").strip() if stem_el is not None and stem_el.text else ""
+                if stem not in ("up", "down"):
+                    continue
+                beam_side = "above" if stem == "up" else "below"
+                for notations in list(note.findall(_q(ns, "notations"))):
+                    for arts in list(notations.findall(_q(ns, "articulations"))):
+                        for art in list(arts):
+                            if _local(art) == "staccato" and art.get("placement") == beam_side:
+                                arts.remove(art)
+                                stats["tupletStaccatoRemoved"] += 1
+                        if len(arts) == 0:
+                            notations.remove(arts)
+                    if len(notations) == 0:
+                        note.remove(notations)
 
             # 보이스별 길이 합 (화음 후속음·grace는 시간을 차지하지 않음)
             by_voice: dict[str, list[ET.Element]] = {}
@@ -851,7 +917,7 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
 def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
     files, root_path, root = load_mxl_root(mxl_path)
     stats = normalize_rest_durations_root(root)
-    if stats["restsFixed"] > 0 or stats["restDisplayCleared"] > 0:
+    if stats["restsFixed"] > 0 or stats["restDisplayCleared"] > 0 or stats["tupletStaccatoRemoved"] > 0:
         write_mxl_root(mxl_path, files, root_path, root)
     return {"path": str(mxl_path), **stats}
 

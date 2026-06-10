@@ -34,6 +34,12 @@ export type MeasureNoteEl = {
   tieStop?: boolean;
   beams?: string[];
   stem?: string | null;
+  /** 잇단음표 비율 (예: "3:2" = 세잇단) */
+  timeMod?: string | null;
+  /** 잇단 괄호 시작/끝 ("start" | "stop") */
+  tuplet?: string | null;
+  /** 붙어 있는 articulation 목록 (예: "staccato(above)") */
+  articulations?: string[];
 };
 
 export type MeasureElement = MeasureDirectionEl | MeasureNoteEl;
@@ -85,7 +91,11 @@ function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
     el.tieStart && el.tieStop ? ' tie↔' : el.tieStart ? ' tie→' : el.tieStop ? ' tie←' : '';
   const dots = el.dotCount ? ` ·×${el.dotCount}` : '';
   const chord = el.chord ? ' (화음)' : '';
-  return `#${idx} ${el.pitch ?? '?'} ${el.type ?? ''}${dots}${tie}${chord}${el.stem ? ` stem=${el.stem}` : ''}`;
+  const tuplet = el.timeMod
+    ? ` ${el.timeMod === '3:2' ? '세잇단' : `잇단 ${el.timeMod}`}${el.tuplet === 'start' ? '▸' : el.tuplet === 'stop' ? '◂' : ''}`
+    : '';
+  const arts = el.articulations?.length ? ` [${el.articulations.join(', ')}]` : '';
+  return `#${idx} ${el.pitch ?? '?'} ${el.type ?? ''}${dots}${tie}${chord}${tuplet}${arts}${el.stem ? ` stem=${el.stem}` : ''}`;
 }
 
 export function OmrMeasureEditor({
@@ -329,6 +339,27 @@ function MeasureNoteEditor({
           ) : null}
         </>
       )}
+      {(el.articulations ?? []).map((art) => {
+        const name = art.split('(')[0];
+        const beamSide = el.stem === 'up' ? 'above' : el.stem === 'down' ? 'below' : null;
+        const likelyTupletDigit =
+          el.timeMod != null && name === 'staccato' && beamSide != null && art.includes(beamSide);
+        return (
+          <button
+            key={art}
+            type="button"
+            className={`omr-hitl-fix-btn${likelyTupletDigit ? ' omr-hitl-fix-btn--primary' : ''}`}
+            title={
+              likelyTupletDigit
+                ? '잇단 숫자(3)를 가리는 점 — Audiveris가 숫자를 스타카토로 오인한 것일 가능성이 높습니다'
+                : `이 음표의 ${name} 표를 제거합니다`
+            }
+            onClick={() => onFix({ kind: 'removeArticulation', noteIndex: el.index, articulation: name })}
+          >
+            {likelyTupletDigit ? `세잇단 숫자 가린 점(${name}) 제거` : `${name} 제거`}
+          </button>
+        );
+      })}
       {spuriousAfterRest && nextNote ? (
         <button
           type="button"

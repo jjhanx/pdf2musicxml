@@ -11,6 +11,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
   - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI**(표·프리셋·사용자 범위) → pikepdf로 `clean_score_only.pdf` 생성 → (선택) PyMuPDF 가사 검증 → 병합·Audiveris·주입.
   - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
   - **Audiveris만**: 선행 처리·가사 주입 없음.
+- **이음줄(Slur) 및 세잇단음표 숫자 누락 버그 수정**: Audiveris 후처리 스크립트(`fix_audiveris_mxl.py`)가 얇은 이음줄(`<bracket>`) 기호를 지우거나 세잇단음표 숫자 '3'을 텍스트 찌꺼기로 오인하여 무차별 삭제하던 문제를 수정하여 정상적으로 출력되도록 개선했습니다.
 - **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「PyMuPDF 가사 검증·편집」 체크를 끄면 pdfplumber 추출만으로 병합합니다.
 - **점검 UI**: 완료 후 **마스킹·인식 점검**에서 원본 vs **`clean_score_only.pdf`** PNG 비교, PDF 다운로드, Audiveris 단계별 실행(`pdfSource=clean_score`)을 지원합니다. 단계 의미·디버깅: [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md).
 - **저장 형식 v3**: `lyric_manifest.json` — `items[]`(병합 출처 `provenance`, `fontSize` 등) + `matchStats`. `inject_ocr.py`는 v2/v3 manifest와 flat 배열 모두 읽습니다.

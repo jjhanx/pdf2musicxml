@@ -50,8 +50,6 @@ def _is_spurious_word_text(text: str) -> bool:
         return True
     if compact in _SPURIOUS_DIRECTION_DIGITS:
         return True
-    if len(compact) <= 3 and compact.isdigit():
-        return True
     if re.fullmatch(r"[Pp]{1,3}", compact):
         return True
     if re.fullmatch(r"2[Pp]", compact):
@@ -97,17 +95,12 @@ def _under_lyric(el: ET.Element, parents: dict[ET.Element, ET.Element]) -> bool:
 def _direction_has_non_text_content(direction: ET.Element) -> bool:
     for el in direction.iter():
         tag = local_tag(el)
-        if tag in (
-            "sound",
-            "midi-instrument",
-            "segno",
-            "coda",
-            "wedge",
-            "octave-shift",
-            "metronome",
-            "dynamics",
-        ):
-            return True
+        if tag in ("direction", "direction-type", "offset", "staff", "voice", "footnote", "level"):
+            continue
+        if tag in _TEXT_TAGS:
+            continue
+        # Any other tag (bracket, wedge, dynamics, sound, pedal, dashes, etc.) means it has non-text content.
+        return True
     return False
 
 
@@ -128,13 +121,7 @@ def _clean_measure(measure: ET.Element, ns: str, parents: dict[ET.Element, ET.El
         text_cleared += 1
 
     for direction in list(measure.findall(qname(ns, "direction"))):
-        if _is_spurious_direction(direction):
-            measure.remove(direction)
-            directions_removed += 1
-            continue
-        if not _direction_has_non_text_content(direction) and not _direction_text(
-            direction
-        ):
+        if not _direction_has_non_text_content(direction) and not _direction_text(direction):
             measure.remove(direction)
             directions_removed += 1
 

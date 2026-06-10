@@ -59,7 +59,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [lastPreviewMsg, setLastPreviewMsg] = useState('');
   const [measureClickMsg, setMeasureClickMsg] = useState('');
   const fixesHydratedRef = useRef(false);
+  const previewSyncedRef = useRef(false);
   const pendingFixesRef = useRef<OmrHitlFix[]>([]);
+  const [workMsg, setWorkMsg] = useState('');
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
   const pngSource =
@@ -309,6 +311,68 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setApplyBusy(false);
     }
   }, [jobId, refreshScoreXml]);
+
+  useEffect(() => {
+    if (loading || previewSyncedRef.current) return;
+    previewSyncedRef.current = true;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/omr-hitl/${jobId}/sync-preview`, { method: 'POST' });
+        if (r.ok) await refreshScoreXml();
+      } catch {
+        /* 첫 동기화 실패는 무시 */
+      }
+    })();
+  }, [loading, jobId, refreshScoreXml]);
+
+  const exportWork = useCallback(async () => {
+    setWorkMsg('');
+    try {
+      const r = await fetch(`/api/omr-hitl/${jobId}/export-work`);
+      if (!r.ok) {
+        const j = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `HTTP ${r.status}`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `omr-work-${jobId.slice(0, 8)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setWorkMsg('검토 진행 ZIP을 저장했습니다. 나중에 같은 변환 작업에서 「작업 불러오기」로 복원하세요.');
+    } catch (e) {
+      setWorkMsg(e instanceof Error ? e.message : String(e));
+    }
+  }, [jobId]);
+
+  const importWork = useCallback(
+    async (file: File) => {
+      setWorkMsg('');
+      setApplyBusy(true);
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch(`/api/omr-hitl/${jobId}/import-work`, { method: 'POST', body: fd });
+        const j = (await r.json()) as { error?: string; fixCount?: number };
+        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+        const fixesRes = await fetch(`/api/omr-hitl/${jobId}/fixes`, { cache: 'no-store' });
+        if (fixesRes.ok) {
+          const fj = (await fixesRes.json()) as { fixes?: OmrHitlFix[] };
+          if (Array.isArray(fj.fixes)) setPendingFixes(fj.fixes);
+        }
+        await refreshScoreXml();
+        setPreviewRevision((n) => n + 1);
+        setEditorKey((k) => k + 1);
+        setWorkMsg(`작업 불러옴 — 보정 ${j.fixCount ?? 0}건, 미리보기 동기화 완료.`);
+      } catch (e) {
+        setWorkMsg(e instanceof Error ? e.message : String(e));
+      } finally {
+        setApplyBusy(false);
+      }
+    },
+    [jobId, refreshScoreXml],
+  );
 
   const applyFixesToMxl = useCallback(async () => {
     setApplyBusy(true);
@@ -604,7 +668,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         <div className="omr-hitl-panel-title">대기 중인 MXL 보정 ({pendingFixes.length}건)</div>
         <p className="omr-hitl-panel-hint">
           마디 편집에서 추가한 보정이 여기 쌓입니다. <strong>「MXL에 반영·미리보기」</strong>로 Audiveris MXL을
-          갱신하고 오른쪽 악보에서 확인하세요. 이어하기 시에도 자동 적용됩니다.
+          갱신하고 오른쪽 악보에서 확인하세요. 패널을 열면 원본 MXL에서 후처리·보정을 자동 동기화합니다.
+          중단 후 이어하려면 <strong>「작업 저장(ZIP)」</strong> → 나중에 <strong>「작업 불러오기」</strong>.
         </p>
         {pendingFixes.length > 0 ? (
           <ul className="omr-hitl-fix-list">
@@ -635,7 +700,25 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           >
             {applyBusy ? '정리 중…' : 'OMR 자동 정리 (전체 성부)'}
           </button>
+          <button type="button" className="btn-muted" disabled={applyBusy} onClick={() => void exportWork()}>
+            작업 저장(ZIP)
+          </button>
+          <label className="btn-muted" style={{ cursor: applyBusy ? 'not-allowed' : 'pointer', margin: 0 }}>
+            작업 불러오기
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              disabled={applyBusy}
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) void importWork(f);
+              }}
+            />
+          </label>
         </div>
+        {workMsg ? <p className="omr-hitl-apply-msg">{workMsg}</p> : null}
         {applyMsg ? <p className="omr-hitl-apply-msg">{applyMsg}</p> : null}
       </div>
 

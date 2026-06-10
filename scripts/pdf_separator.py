@@ -164,6 +164,103 @@ def extract_layout(input_pdf_path: str, output_json_path: str) -> None:
     print(f" -> {output_json_path}", file=sys.stderr)
 
 
+def replace_f073_triplets(pdf_path: str) -> None:
+    import fitz
+    import os
+
+    prev_glyph_h = fitz.TOOLS.set_small_glyph_heights(None)
+    fitz.TOOLS.set_small_glyph_heights(True)
+
+    img = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
+    gra = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
+    txt = getattr(fitz, "PDF_REDACT_TEXT_REMOVE", 0)
+
+    doc = fitz.open(pdf_path)
+    temp_pdf_path = pdf_path + ".tmp"
+    saved = False
+    try:
+        redacts_total = 0
+        for page_idx in range(len(doc)):
+            page = doc[page_idx]
+            td = page.get_text("dict")
+            redacts_added = 0
+            for b in td.get("blocks", []):
+                if b.get("type") != 0:
+                    continue
+                for l in b.get("lines", []):
+                    for s in l.get("spans", []):
+                        chars = s.get("chars")
+                        if chars:
+                            for ch in chars:
+                                c = ch.get("c") or ""
+                                if len(c) == 1 and ord(c) == 0xF073:
+                                    bbox = fitz.Rect(ch["bbox"]).normalize()
+                                    page.add_redact_annot(
+                                        bbox,
+                                        text="3",
+                                        fontname="helv",
+                                        fontsize=s["size"],
+                                        align=1,
+                                        fill=False,
+                                        text_color=(0, 0, 0),
+                                        cross_out=False
+                                    )
+                                    redacts_added += 1
+                        else:
+                            txt_val = s.get("text") or ""
+                            if not txt_val:
+                                continue
+                            sx0, sy0, sx1, sy1 = s["bbox"]
+                            dw = (sx1 - sx0) / len(txt_val)
+                            for i, c in enumerate(txt_val):
+                                if ord(c) == 0xF073:
+                                    bbox = fitz.Rect(sx0 + i * dw, sy0, sx0 + (i + 1) * dw, sy1).normalize()
+                                    page.add_redact_annot(
+                                        bbox,
+                                        text="3",
+                                        fontname="helv",
+                                        fontsize=s["size"],
+                                        align=1,
+                                        fill=False,
+                                        text_color=(0, 0, 0),
+                                        cross_out=False
+                                    )
+                                    redacts_added += 1
+            if redacts_added > 0:
+                applied = False
+                safe_kw = {"images": img, "graphics": gra, "text": txt}
+                try:
+                    page.apply_redactions(**safe_kw)
+                    applied = True
+                except (TypeError, ValueError):
+                    pass
+                if not applied:
+                    try:
+                        page.apply_redactions(img, gra, txt)
+                        applied = True
+                    except (TypeError, ValueError):
+                        pass
+                if applied:
+                    redacts_total += redacts_added
+                else:
+                    print(f"[pdf_separator] apply_redactions failed on page {page_idx+1}", file=sys.stderr)
+
+        if redacts_total > 0:
+            doc.save(temp_pdf_path, deflate=True, garbage=3)
+            saved = True
+            print(f"[pdf_separator] Replaced {redacts_total} PUA triplet characters with standard '3'", file=sys.stderr)
+    finally:
+        doc.close()
+        fitz.TOOLS.set_small_glyph_heights(prev_glyph_h)
+        if saved:
+            if os.path.exists(pdf_path):
+                try:
+                    os.remove(pdf_path)
+                except Exception:
+                    pass
+            os.replace(temp_pdf_path, pdf_path)
+
+
 def strip_font_ranges(
     input_pdf_path: str,
     output_pdf_path: str,
@@ -188,6 +285,12 @@ def strip_font_ranges(
             page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(clean_commands))
 
         pdf.save(output_pdf_path, linearize=True)
+
+    # Replace PUA triplet symbol U+F073 with standard '3' using PyMuPDF
+    try:
+        replace_f073_triplets(output_pdf_path)
+    except Exception as e:
+        print(f"[pdf_separator] Triplet replacement failed: {e}", file=sys.stderr)
 
     print(f" -> {output_pdf_path}", file=sys.stderr)
 

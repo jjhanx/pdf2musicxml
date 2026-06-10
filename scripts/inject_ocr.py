@@ -483,8 +483,12 @@ def load_ocr_items(json_in_path):
 def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path):
     """Audiveris MXL → 잔여 P/2P direction·이중 staccato-natural 등 완화."""
     try:
+        _scripts_dir = Path(__file__).resolve().parent
+        if str(_scripts_dir) not in sys.path:
+            sys.path.insert(0, str(_scripts_dir))
         from fix_audiveris_mxl import fix_mxl_file
-    except ImportError:
+    except ImportError as e:
+        print(f"inject_ocr: fix_audiveris_mxl 임포트 실패: {e}", file=sys.stderr)
         return
     try:
         fix_mxl_file(mxl_in_path, mxl_work_path)

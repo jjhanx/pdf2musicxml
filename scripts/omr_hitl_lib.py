@@ -92,6 +92,25 @@ def _measure_length_units(divisions: int, beats: int, beat_type: int) -> int:
     return max(1, round(divisions * beats * 4 / beat_type))
 
 
+def _duration_for_type_dots(note_type: str, divisions: int, dot_count: int) -> int:
+    beats = {
+        "whole": 4.0,
+        "half": 2.0,
+        "quarter": 1.0,
+        "eighth": 0.5,
+        "16th": 0.25,
+        "32nd": 0.125,
+    }.get(note_type)
+    if beats is None:
+        return 0
+    mult = 1.0
+    if dot_count == 1:
+        mult = 1.5
+    elif dot_count >= 2:
+        mult = 1.75
+    return max(1, int(round(beats * divisions * mult)))
+
+
 def _undot_duration_guess(current: int, divisions: int, measure_len: int) -> int | None:
     """<type> 없는 쉼표: duration이 표준 길이의 1.5배(점)·1.75배(겹점)이면 기본 길이로 줄인다.
 
@@ -629,10 +648,27 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if idx < 0 or idx >= len(notes):
             return False
         note = notes[idx]
+        dot_count = 0
+        if fix.get("dotCount") is not None:
+            try:
+                dot_count = max(0, min(2, int(fix.get("dotCount"))))
+            except (TypeError, ValueError):
+                dot_count = 0
         type_el = note.find(_q(ns, "type"))
         if type_el is None:
             type_el = ET.SubElement(note, _q(ns, "type"))
         type_el.text = note_type
+        for dot in list(note.findall(_q(ns, "dot"))):
+            note.remove(dot)
+        for _ in range(dot_count):
+            ET.SubElement(note, _q(ns, "dot"))
+        divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
+        target_dur = _duration_for_type_dots(note_type, divisions, dot_count)
+        if target_dur > 0:
+            dur_el = note.find(_q(ns, "duration"))
+            if dur_el is None:
+                dur_el = ET.SubElement(note, _q(ns, "duration"))
+            dur_el.text = str(target_dur)
         return True
 
     if kind == "setNoteStem":

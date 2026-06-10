@@ -6,6 +6,39 @@ type FixPartial = Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>;
 const NOTE_TYPES = ['whole', 'half', 'quarter', 'eighth', '16th', '32nd'] as const;
 const PITCH_STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'] as const;
 
+type NoteTypeOption = { value: string; type: string; dots: number; label: string };
+
+const NOTE_TYPE_LABELS: Record<string, string> = {
+  whole: '온음표',
+  half: '2분음표',
+  quarter: '4분음표',
+  eighth: '8분음표',
+  '16th': '16분음표',
+  '32nd': '32분음표',
+};
+
+const NOTE_TYPE_OPTIONS: NoteTypeOption[] = [
+  ...NOTE_TYPES.flatMap((t) => [
+    { value: `${t}:0`, type: t, dots: 0, label: NOTE_TYPE_LABELS[t] ?? t },
+    {
+      value: `${t}:1`,
+      type: t,
+      dots: 1,
+      label: `${NOTE_TYPE_LABELS[t] ?? t} · (점)`,
+    },
+  ]),
+];
+
+function noteTypeValue(type: string, dots: number): string {
+  return `${type}:${dots}`;
+}
+
+function parseNoteTypeValue(value: string): { type: string; dots: number } {
+  const [type, dotsRaw] = value.split(':');
+  const dots = dotsRaw === '1' ? 1 : 0;
+  return { type: type || 'quarter', dots };
+}
+
 export type MeasureDirectionEl = {
   elementKind: 'direction';
   directionIndex: number;
@@ -287,7 +320,9 @@ function MeasureNoteEditor({
   const parsed = parsePitch(el.pitch);
   const [pitchStep, setPitchStep] = useState(parsed.step);
   const [pitchOctave, setPitchOctave] = useState(parsed.octave);
-  const [noteType, setNoteType] = useState(el.type ?? 'quarter');
+  const [noteTypeValueSel, setNoteTypeValueSel] = useState(
+    noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
+  );
   const [staffN, setStaffN] = useState(el.staff ?? 1);
   const [tieTo, setTieTo] = useState('');
 
@@ -295,7 +330,9 @@ function MeasureNoteEditor({
     const p = parsePitch(el.pitch);
     setPitchStep(p.step);
     setPitchOctave(p.octave);
-    setNoteType(el.type ?? 'quarter');
+    setNoteTypeValueSel(
+      noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
+    );
     setStaffN(el.staff ?? 1);
   }, [el.index, el.pitch, el.type, el.staff]);
 
@@ -445,17 +482,20 @@ function MeasureNoteEditor({
       )}
       <label className="omr-measure-inline-field">
         박자(종류)
-        <select value={noteType} onChange={(e) => setNoteType(e.target.value)}>
-          {NOTE_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
+        <select value={noteTypeValueSel} onChange={(e) => setNoteTypeValueSel(e.target.value)}>
+          {NOTE_TYPE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
             </option>
           ))}
         </select>
         <button
           type="button"
           className="omr-hitl-fix-btn"
-          onClick={() => onFix({ kind: 'setNoteType', noteIndex: el.index, noteType })}
+          onClick={() => {
+            const { type, dots } = parseNoteTypeValue(noteTypeValueSel);
+            onFix({ kind: 'setNoteType', noteIndex: el.index, noteType: type, dotCount: dots });
+          }}
         >
           박자 적용
         </button>

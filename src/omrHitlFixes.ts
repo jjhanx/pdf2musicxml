@@ -20,6 +20,7 @@ export type OmrHitlFix = {
   staff?: number;
   restType?: string;
   noteType?: string;
+  dotCount?: number;
   lineDelta?: number;
   displayStep?: string;
   displayOctave?: number;
@@ -68,6 +69,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.staff ?? '',
     fix.lineDelta ?? '',
     fix.noteType ?? '',
+    fix.dotCount ?? '',
     fix.pitchStep ?? '',
     fix.pitchOctave ?? '',
     fix.fromNoteIndex ?? '',

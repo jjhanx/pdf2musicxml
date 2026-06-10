@@ -187,10 +187,31 @@ def _has_slur(note: ET.Element, ns: str, slur_num: int, slur_type: str) -> bool:
     return False
 
 
-def _measure_has_slurs(measure: ET.Element, ns: str) -> bool:
-    for note in measure.findall(qname(ns, "note")):
-        for notations in note.findall(qname(ns, "notations")):
-            if notations.findall(qname(ns, "slur")):
+def _target_slurs_missing(heads: list[tuple[ET.Element, str]], ns: str) -> bool:
+    labels = [label for _, label in heads]
+    try:
+        ds_i = labels.index("D#4")
+        d4_i = max(i for i in range(ds_i) if labels[i] == "D4")
+        b3_i = next(i for i in range(ds_i + 1, len(labels)) if labels[i] == "B3")
+        a3_i = b3_i + 1
+        if a3_i >= len(labels) or labels[a3_i] != "A3":
+            return False
+    except (ValueError, StopIteration):
+        return False
+    pairs = [
+        (heads[d4_i][0], 1, "start"),
+        (heads[ds_i][0], 1, "stop"),
+        (heads[b3_i][0], 2, "start"),
+        (heads[a3_i][0], 2, "stop"),
+    ]
+    return any(not _has_slur(n, ns, num, typ) for n, num, typ in pairs)
+
+
+def _part_has_two_staves(part: ET.Element, ns: str) -> bool:
+    for measure in part.findall(qname(ns, "measure")):
+        for attr in measure.findall(qname(ns, "attributes")):
+            staves_el = attr.find(qname(ns, "staves"))
+            if staves_el is not None and (staves_el.text or "").strip() == "2":
                 return True
     return False
 
@@ -235,40 +256,36 @@ def _inject_missing_slurs_piano_m6(part: ET.Element, ns: str) -> int:
     for measure in part.findall(qname(ns, "measure")):
         if measure.get("number") != "6":
             continue
-        if _measure_has_slurs(measure, ns):
-            continue
         heads: list[tuple[ET.Element, str]] = []
         for note in measure.findall(qname(ns, "note")):
             voice, staff = _note_voice_staff(note, ns)
-            if voice != "1" or staff != "1":
+            if voice not in (None, "1") and voice != "1":
+                continue
+            if staff not in (None, "1") and staff != "1":
                 continue
             if _is_chord_note(note, ns):
                 continue
             label = _pitch_label(note, ns)
             if label:
                 heads.append((note, label))
+        if not _target_slurs_missing(heads, ns):
+            continue
         labels = [label for _, label in heads]
         try:
             ds_i = labels.index("D#4")
-        except ValueError:
-            continue
-        d4_candidates = [i for i in range(ds_i) if labels[i] == "D4"]
-        if not d4_candidates:
-            continue
-        d4_i = d4_candidates[-1]
-        try:
+            d4_i = max(i for i in range(ds_i) if labels[i] == "D4")
             b3_i = next(i for i in range(ds_i + 1, len(labels)) if labels[i] == "B3")
-            a3_i = next(i for i in range(b3_i + 1, len(labels)) if labels[i] == "A3")
-        except StopIteration:
-            b3_i = a3_i = -1
-        if _add_slur_to_note(heads[d4_i][0], ns, "start", 1):
-            injected += 1
-        if _add_slur_to_note(heads[ds_i][0], ns, "stop", 1):
-            injected += 1
-        if b3_i >= 0 and a3_i == b3_i + 1:
-            if _add_slur_to_note(heads[b3_i][0], ns, "start", 2):
-                injected += 1
-            if _add_slur_to_note(heads[a3_i][0], ns, "stop", 2):
+            a3_i = b3_i + 1
+        except (ValueError, StopIteration):
+            continue
+        pairs = [
+            (heads[d4_i][0], "start", 1),
+            (heads[ds_i][0], "stop", 1),
+            (heads[b3_i][0], "start", 2),
+            (heads[a3_i][0], "stop", 2),
+        ]
+        for note_el, slur_type, slur_num in pairs:
+            if _add_slur_to_note(note_el, ns, slur_type, slur_num):
                 injected += 1
     return injected // 2 if injected else 0
 
@@ -314,9 +331,8 @@ def _fix_tuplet_show_numbers(note: ET.Element, ns: str) -> bool:
         for tuplet in notations.findall(qname(ns, "tuplet")):
             if tuplet.get("type") != "start":
                 continue
-            if tuplet.get("show-number") == "actual":
-                continue
-            tuplet.set("show-number", "actual")
+            if tuplet.get("show-number") not in ("actual", "both"):
+                tuplet.set("show-number", "both")
             if actual == 3 and not tuplet.get("placement"):
                 tuplet.set("placement", "above")
             changed = True
@@ -351,7 +367,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             if _fix_tuplet_show_numbers(note, ns):
                 stats["tuplet_show_number_fixed"] += 1
 
-        if _part_is_piano(part.get("id"), root, ns):
+        if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
             stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)

@@ -73,11 +73,14 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
 5. **OMR 페이지·성부 품질 검토** 모달 (MuseScore **불필요**):
    - **PDF**(156 DPI)와 **MusicXML(OSMD)** 를 나란히 표시. 성부 필터를 쓰면 MXL도 해당 파트만 표시.
-   - **MusicXML(OSMD) 악보에서 마디 클릭**으로 마디를 열고 direction·쉼표·음표·점(·)·이음줄 등을 요소별로 보정 → `omr_hitl_fixes.json`에 쌓음. **쉼표 옆 점(·)** 은 마디 편집의 `clearRestDots`(XML `<dot>`·duration·쉼표 뒤 잘못된 짧은 음표). 클릭 영역: `osmdMeasureClick.ts`가 성부 줄×마디 열 그리드(쉼표만 있는 마디 포함)·**클릭한 줄만** 하이라이트.
-   - **「MXL에 반영·미리보기」** — 마디 편집 패널 하단 또는 대기 목록 위 버튼. Audiveris MXL(`preInject`)에 보정 반영 후 **오른쪽 OSMD**에서 결과 확인(마디 편집 패널도 갱신). 반영 중이 아니면 보정 건수와 무관하게 누를 수 있으며, 서버에 저장된 보정도 함께 적용합니다.
+   - 패널을 열면 **`audiveris_raw.mxl` 백업 → `fix_audiveris_mxl` 후처리 → HITL 보정 재적용**으로 미리보기 MXL을 자동 동기화합니다(`POST …/sync-preview`).
+   - **MusicXML(OSMD) 악보에서 마디 클릭**으로 마디를 열고 direction·쉼표·음표·점(·)·이음줄 등을 요소별로 보정 → `omr_hitl_fixes.json`에 쌓음. 음표 **길이** 메뉴에 **「4분음표 · (점)」** 등 점 붙은 길이 선택 지원. **쉼표 옆 점(·)** 은 마디 편집의 `clearRestDots`(XML `<dot>`·duration·쉼표 뒤 잘못된 짧은 음표). 클릭 영역: `osmdMeasureClick.ts`가 성부 줄×마디 열 그리드(쉼표만 있는 마디 포함)·**클릭한 줄만** 하이라이트.
+   - **「MXL에 반영·미리보기」** — 마디 편집 패널 하단 또는 대기 목록 위 버튼. 위 재합성 경로로 Audiveris MXL(`preInject`)에 보정 반영 후 **오른쪽 OSMD**에서 결과 확인.
+   - **「OMR 자동 정리 (전체 성부)」** — 쉼표·피아노 m6 이음줄·세잇단 `show-number="both"`·가짜 staccato·P direction 일괄 정리.
+   - **작업 저장(ZIP) / 작업 불러오기** — 검토 중단·재개용(`review.mxl`, `audiveris_raw.mxl`, `omr_hitl_fixes.json` 등). **서버 재시작 후 job이 사라지면** ZIP만 복구 수단이므로 중단 전 저장 권장.
    - **이어하기** — 대기 보정을 MXL에 적용한 뒤 `inject_ocr`·최종 MXL로 진행.
    - 예전 **mxl-lint 자동 힌트 UI**는 제거됨. PDF·MXL 직접 대조와 마디 편집이 기준.
-6. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요.
+6. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요. OMR 검토 중 **`pm2 restart` 전에는 「작업 저장(ZIP)」** 으로 진행을 백업하세요.
 7. OMR HITL을 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
 
 ### F. 5단계 — Audiveris 보정 (선택)
@@ -102,7 +105,11 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 | GET | `/api/diagnostic/:jobId/omr-policy` | OCR·상수·P 유발 경로 |
 | GET | `/api/diagnostic/:jobId/mxl-lint?page=&staff=` | job별 lint. `part_labels.json`이 lint보다 최신이면 재생성·라벨 반영. `regen=1` 강제 재생성 |
 | GET/POST | `/api/omr-hitl/:jobId/fixes` | 대기 중 OMR 보정 목록 |
-| POST | `/api/omr-hitl/:jobId/apply` | 보정을 MXL에 적용·lint 재생성 |
+| POST | `/api/omr-hitl/:jobId/apply` | 보정을 MXL에 적용·lint 재생성 (원본 백업에서 후처리·보정 재합성) |
+| POST | `/api/omr-hitl/:jobId/sync-preview` | OMR 검토 미리보기 MXL 재빌드 |
+| POST | `/api/omr-hitl/:jobId/normalize-rests` | 전체 성부 OMR 자동 정리 |
+| GET | `/api/omr-hitl/:jobId/export-work` | OMR 검토 진행 ZIP 내보내기 |
+| POST | `/api/omr-hitl/:jobId/import-work` | OMR 검토 진행 ZIP 불러오기 |
 | GET | `/api/omr-hitl/:jobId/measure?partId=&measureMxl=` | 마디 내 음·쉼 목록 |
 | POST | `/api/continue-omr-staff-review/:jobId` | OMR HITL 이어하기(보정 자동 적용) |
 | GET | `/api/raw-mxl/:jobId` | `omr_staff_review_needed`·`audiveris_review_needed` 시 원본 MXL |

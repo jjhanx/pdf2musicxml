@@ -80,7 +80,7 @@ def main() -> int:
     print(f"{'PASS' if ok_slur else 'FAIL'} m6 slurs: {slurs}")
 
     starts14 = tuplet_starts(WORK, "14")
-    ok_tup = len(starts14) >= 4 and all(s == "actual" for s in starts14)
+    ok_tup = len(starts14) >= 4 and all(s == "both" for s in starts14)
     print(f"{'PASS' if ok_tup else 'FAIL'} m14 tuplet show-number: {starts14[:6]}")
 
     ok_stats = stats.get("slurs_injected", 0) >= 2 and stats.get("tuplet_show_number_fixed", 0) > 0

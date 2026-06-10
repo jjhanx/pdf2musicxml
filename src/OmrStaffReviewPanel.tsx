@@ -190,11 +190,33 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [scoreParts, xmlPartIds],
   );
 
+  /** 클릭 정보의 partId(OSMD가 확정한 MusicXML part id)를 우선 사용. 줄 인덱스 추측은 폴백. */
+  const resolvePartIdForMeasure = useCallback(
+    (info: OsmdMeasureClickInfo): string => {
+      const pid = info.partId?.trim();
+      if (pid && (scoreParts.some((p) => p.id === pid) || xmlPartIds.some((p) => p.id === pid))) {
+        return pid;
+      }
+      return resolvePartIdForStaffIndex(info.staffIndex);
+    },
+    [scoreParts, xmlPartIds, resolvePartIdForStaffIndex],
+  );
+
+  const labelForPartId = useCallback(
+    (partId: string): string | null => {
+      const hit = scoreParts.find((p) => p.id === partId);
+      if (hit?.suggestedLabel) return hit.suggestedLabel;
+      const xmlHit = xmlPartIds.find((p) => p.id === partId);
+      return xmlHit?.name ?? null;
+    },
+    [scoreParts, xmlPartIds],
+  );
+
   const editorPartId = useMemo(() => {
     if (editPartId) return editPartId;
     if (osmdPartId) return osmdPartId;
     if (staffFilter) return partIdForStaff(staffFilter) ?? '';
-    if (selectedMeasure) return resolvePartIdForStaffIndex(selectedMeasure.staffIndex);
+    if (selectedMeasure) return resolvePartIdForMeasure(selectedMeasure);
     return scoreParts[0]?.id ?? xmlPartIds[0]?.id ?? '';
   }, [
     editPartId,
@@ -202,7 +224,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     staffFilter,
     partIdForStaff,
     selectedMeasure,
-    resolvePartIdForStaffIndex,
+    resolvePartIdForMeasure,
     scoreParts,
     xmlPartIds,
   ]);
@@ -287,19 +309,20 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setSelectedMeasure(info);
       const printed = info.measureMxl + measureOffset;
       setManualMeasurePrinted(String(printed));
+      const partId = resolvePartIdForMeasure(info);
       const staffLabel =
+        labelForPartId(partId) ??
         staffList[info.staffIndex] ??
-        scoreParts[info.staffIndex]?.suggestedLabel ??
         `줄 ${info.staffIndex + 1}`;
       setMeasureClickMsg(
         `마디 선택됨 · 인쇄 ${printed} · MXL ${info.measureMxl} · ${staffLabel}`,
       );
       if (!staffFilter) {
-        setEditPartId(resolvePartIdForStaffIndex(info.staffIndex));
+        setEditPartId(partId);
       }
       setEditorKey((k) => k + 1);
     },
-    [staffFilter, measureOffset, resolvePartIdForStaffIndex, scoreParts, staffList],
+    [staffFilter, measureOffset, resolvePartIdForMeasure, labelForPartId, staffList],
   );
 
   const openManualMeasure = useCallback(() => {
@@ -309,7 +332,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     const staffIndex = staffFilter
       ? Math.max(0, staffList.indexOf(staffFilter))
       : 0;
-    openMeasure({ measureMxl, staffIndex });
+    openMeasure({
+      measureMxl,
+      staffIndex,
+      partId: staffFilter ? partIdForStaff(staffFilter) : null,
+    });
     if (!staffFilter && !editPartId) {
       setEditPartId(resolvePartIdForStaffIndex(staffIndex));
     }
@@ -320,6 +347,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     staffList,
     openMeasure,
     editPartId,
+    partIdForStaff,
     resolvePartIdForStaffIndex,
   ]);
 
@@ -492,7 +520,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 ))}
               </select>
               <span className="omr-measure-part-picker-hint">
-                (클릭한 줄: {staffList[selectedMeasure.staffIndex] ?? scoreParts[selectedMeasure.staffIndex]?.suggestedLabel ?? `줄 ${selectedMeasure.staffIndex + 1}`})
+                (클릭한 줄: {labelForPartId(resolvePartIdForMeasure(selectedMeasure)) ?? staffList[selectedMeasure.staffIndex] ?? `줄 ${selectedMeasure.staffIndex + 1}`})
               </span>
             </label>
           )}

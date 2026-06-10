@@ -144,6 +144,185 @@ def _remove_duplicate_staccato_as_natural(note: ET.Element, ns: str) -> bool:
     return True
 
 
+def _pitch_label(note: ET.Element, ns: str) -> str | None:
+    pitch_el = note.find(qname(ns, "pitch"))
+    if pitch_el is None:
+        return None
+    step_el = pitch_el.find(qname(ns, "step"))
+    oct_el = pitch_el.find(qname(ns, "octave"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return None
+    step = step_el.text.strip()
+    octave = oct_el.text.strip()
+    alter_el = pitch_el.find(qname(ns, "alter"))
+    if alter_el is not None and alter_el.text:
+        try:
+            alter = int(float(alter_el.text.strip()))
+            if alter == 1:
+                step += "#"
+            elif alter == -1:
+                step += "b"
+        except ValueError:
+            pass
+    return f"{step}{octave}"
+
+
+def _is_chord_note(note: ET.Element, ns: str) -> bool:
+    return note.find(qname(ns, "chord")) is not None
+
+
+def _note_voice_staff(note: ET.Element, ns: str) -> tuple[str | None, str | None]:
+    voice_el = note.find(qname(ns, "voice"))
+    staff_el = note.find(qname(ns, "staff"))
+    voice = (voice_el.text or "").strip() if voice_el is not None and voice_el.text else None
+    staff = (staff_el.text or "").strip() if staff_el is not None and staff_el.text else None
+    return voice, staff
+
+
+def _has_slur(note: ET.Element, ns: str, slur_num: int, slur_type: str) -> bool:
+    for notations in note.findall(qname(ns, "notations")):
+        for slur in notations.findall(qname(ns, "slur")):
+            if slur.get("number") == str(slur_num) and slur.get("type") == slur_type:
+                return True
+    return False
+
+
+def _measure_has_slurs(measure: ET.Element, ns: str) -> bool:
+    for note in measure.findall(qname(ns, "note")):
+        for notations in note.findall(qname(ns, "notations")):
+            if notations.findall(qname(ns, "slur")):
+                return True
+    return False
+
+
+def _add_slur_to_note(note_el: ET.Element, ns: str, slur_type: str, slur_num: int) -> bool:
+    if _has_slur(note_el, ns, slur_num, slur_type):
+        return False
+    notations = note_el.find(qname(ns, "notations"))
+    if notations is None:
+        notations = ET.Element(qname(ns, "notations"))
+        lyric_idx = None
+        for idx, child in enumerate(note_el):
+            if local_tag(child) == "lyric":
+                lyric_idx = idx
+                break
+        if lyric_idx is not None:
+            note_el.insert(lyric_idx, notations)
+        else:
+            note_el.append(notations)
+    slur = ET.Element(qname(ns, "slur"), attrib={"number": str(slur_num), "type": slur_type})
+    notations.append(slur)
+    return True
+
+
+def _part_is_piano(part_id: str | None, root: ET.Element, ns: str) -> bool:
+    if part_id in ("P5", "P6", "P", "Piano"):
+        return True
+    for sp in root.findall(f".//{qname(ns, 'score-part')}"):
+        if sp.get("id") != part_id:
+            continue
+        name_el = sp.find(qname(ns, "part-name"))
+        if name_el is None or not name_el.text:
+            return False
+        name_lower = name_el.text.lower().strip()
+        return name_lower in ("p", "pr", "pl", "piano", "pno") or "piano" in name_lower
+    return False
+
+
+def _inject_missing_slurs_piano_m6(part: ET.Element, ns: str) -> int:
+    """피아노 오른손 6마디: Audiveris가 빠뜨린 D4–D#4, B3–A3 이음줄(slur) 복원."""
+    injected = 0
+    for measure in part.findall(qname(ns, "measure")):
+        if measure.get("number") != "6":
+            continue
+        if _measure_has_slurs(measure, ns):
+            continue
+        heads: list[tuple[ET.Element, str]] = []
+        for note in measure.findall(qname(ns, "note")):
+            voice, staff = _note_voice_staff(note, ns)
+            if voice != "1" or staff != "1":
+                continue
+            if _is_chord_note(note, ns):
+                continue
+            label = _pitch_label(note, ns)
+            if label:
+                heads.append((note, label))
+        labels = [label for _, label in heads]
+        try:
+            ds_i = labels.index("D#4")
+        except ValueError:
+            continue
+        d4_candidates = [i for i in range(ds_i) if labels[i] == "D4"]
+        if not d4_candidates:
+            continue
+        d4_i = d4_candidates[-1]
+        try:
+            b3_i = next(i for i in range(ds_i + 1, len(labels)) if labels[i] == "B3")
+            a3_i = next(i for i in range(b3_i + 1, len(labels)) if labels[i] == "A3")
+        except StopIteration:
+            b3_i = a3_i = -1
+        if _add_slur_to_note(heads[d4_i][0], ns, "start", 1):
+            injected += 1
+        if _add_slur_to_note(heads[ds_i][0], ns, "stop", 1):
+            injected += 1
+        if b3_i >= 0 and a3_i == b3_i + 1:
+            if _add_slur_to_note(heads[b3_i][0], ns, "start", 2):
+                injected += 1
+            if _add_slur_to_note(heads[a3_i][0], ns, "stop", 2):
+                injected += 1
+    return injected // 2 if injected else 0
+
+
+def _tuplet_actual_notes(note: ET.Element, ns: str) -> int | None:
+    tm = note.find(qname(ns, "time-modification"))
+    if tm is None:
+        return None
+    an = tm.find(qname(ns, "actual-notes"))
+    if an is None or not an.text or not an.text.strip().isdigit():
+        return None
+    return int(an.text.strip())
+
+
+def _remove_beam_side_staccato_on_tuplet(note: ET.Element, ns: str) -> bool:
+    if _tuplet_actual_notes(note, ns) is None:
+        return False
+    stem_el = note.find(qname(ns, "stem"))
+    stem = (stem_el.text or "").strip() if stem_el is not None and stem_el.text else ""
+    if stem not in ("up", "down"):
+        return False
+    beam_side = "above" if stem == "up" else "below"
+    removed = False
+    for notations in list(note.findall(qname(ns, "notations"))):
+        for arts in list(notations.findall(qname(ns, "articulations"))):
+            for art in list(arts):
+                if local_tag(art) == "staccato" and art.get("placement") == beam_side:
+                    arts.remove(art)
+                    removed = True
+            if len(arts) == 0:
+                notations.remove(arts)
+        if len(notations) == 0:
+            note.remove(notations)
+    return removed
+
+
+def _fix_tuplet_show_numbers(note: ET.Element, ns: str) -> bool:
+    actual = _tuplet_actual_notes(note, ns)
+    if actual is None:
+        return False
+    changed = False
+    for notations in note.findall(qname(ns, "notations")):
+        for tuplet in notations.findall(qname(ns, "tuplet")):
+            if tuplet.get("type") != "start":
+                continue
+            if tuplet.get("show-number") == "actual":
+                continue
+            tuplet.set("show-number", "actual")
+            if actual == 3 and not tuplet.get("placement"):
+                tuplet.set("placement", "above")
+            changed = True
+    return changed
+
+
 def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     tree = ET.parse(io.BytesIO(xml_bytes))
     root = tree.getroot()
@@ -154,6 +333,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "directions_removed": 0,
         "natural_from_staccato_removed": 0,
         "slurs_injected": 0,
+        "tuplet_show_number_fixed": 0,
+        "tuplet_staccato_removed": 0,
     }
 
     for part in root.findall(qname(ns, "part")):
@@ -161,74 +342,17 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             tc, dr = _clean_measure(measure, ns, parents)
             stats["text_nodes_cleared"] += tc
             stats["directions_removed"] += dr
+
         for note in part.iter(qname(ns, "note")):
             if _remove_duplicate_staccato_as_natural(note, ns):
                 stats["natural_from_staccato_removed"] += 1
+            if _remove_beam_side_staccato_on_tuplet(note, ns):
+                stats["tuplet_staccato_removed"] += 1
+            if _fix_tuplet_show_numbers(note, ns):
+                stats["tuplet_show_number_fixed"] += 1
 
-        # 2026-06-10: Inject missing slurs in Measure 6 for Piano treble part (Part P5 / "Piano").
-        # Notes in Voice 1 should match: G4, B4, D4, B3, D4, B4, D#4, A4, B3, A3, D#4, A4
-        part_id = part.get("id")
-        is_piano = (part_id == "P5")
-        if not is_piano:
-            score_parts = root.findall(f".//{qname(ns, 'score-part')}")
-            for sp in score_parts:
-                if sp.get("id") == part_id:
-                    name_el = sp.find(qname(ns, "part-name"))
-                    if name_el is not None and "piano" in (name_el.text or "").lower():
-                        is_piano = True
-                        break
-        
-        if is_piano:
-            for measure in part.findall(qname(ns, "measure")):
-                if measure.get("number") == "6":
-                    voice1_notes = []
-                    for note in measure.findall(qname(ns, "note")):
-                        voice = note.find(qname(ns, "voice"))
-                        if voice is not None and voice.text == "1":
-                            voice1_notes.append(note)
-                    
-                    pitches = []
-                    for note in voice1_notes:
-                        pitch_el = note.find(qname(ns, "pitch"))
-                        if pitch_el is not None:
-                            step = pitch_el.find(qname(ns, "step")).text
-                            octave = pitch_el.find(qname(ns, "octave")).text
-                            alter_el = pitch_el.find(qname(ns, "alter"))
-                            alter = f"({alter_el.text})" if alter_el is not None else ""
-                            pitches.append(f"{step}{alter}{octave}")
-                        else:
-                            pitches.append("Rest")
-                    
-                    target_pitches = ["G4", "B4", "D4", "B3", "D4", "B4", "D(1)4", "A4", "B3", "A3", "D(1)4", "A4"]
-                    if pitches == target_pitches:
-                        def add_slur_to_note(note_el, slur_type, slur_num):
-                            notations = note_el.find(qname(ns, "notations"))
-                            if notations is None:
-                                notations = ET.Element(qname(ns, "notations"))
-                                lyric_idx = None
-                                for idx, child in enumerate(note_el):
-                                    if local_tag(child) == "lyric":
-                                        lyric_idx = idx
-                                        break
-                                if lyric_idx is not None:
-                                    note_el.insert(lyric_idx, notations)
-                                else:
-                                    note_el.append(notations)
-                            
-                            existing = False
-                            for s in notations.findall(qname(ns, "slur")):
-                                if s.get("number") == str(slur_num) and s.get("type") == slur_type:
-                                    existing = True
-                                    break
-                            if not existing:
-                                slur = ET.Element(qname(ns, "slur"), attrib={"number": str(slur_num), "type": slur_type})
-                                notations.append(slur)
-                        
-                        add_slur_to_note(voice1_notes[4], "start", 1)
-                        add_slur_to_note(voice1_notes[6], "stop", 1)
-                        add_slur_to_note(voice1_notes[7], "start", 2)
-                        add_slur_to_note(voice1_notes[8], "stop", 2)
-                        stats["slurs_injected"] += 2
+        if _part_is_piano(part.get("id"), root, ns):
+            stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats
@@ -242,6 +366,8 @@ def fix_mxl_file(mxl_in: str | Path, mxl_out: str | Path) -> dict[str, int]:
         "directions_removed": 0,
         "natural_from_staccato_removed": 0,
         "slurs_injected": 0,
+        "tuplet_show_number_fixed": 0,
+        "tuplet_staccato_removed": 0,
     }
 
     with zipfile.ZipFile(mxl_in, "r") as zin:
@@ -258,10 +384,7 @@ def fix_mxl_file(mxl_in: str | Path, mxl_out: str | Path) -> dict[str, int]:
 
     fixed_xml, stats = fix_score_xml(files[root_path])
     for k, v in stats.items():
-        if k in totals:
-            totals[k] += v
-        else:
-            totals[k] = v
+        totals[k] = totals.get(k, 0) + v
     files[root_path] = fixed_xml
 
     with zipfile.ZipFile(mxl_out, "w", compression=zipfile.ZIP_DEFLATED) as zout:
@@ -271,17 +394,43 @@ def fix_mxl_file(mxl_in: str | Path, mxl_out: str | Path) -> dict[str, int]:
     return totals
 
 
+def fix_mxl_path_inplace(mxl_path: str | Path) -> dict[str, int]:
+    """MXL 파일을 제자리에서 후처리 (Audiveris 직후·OMR 검토용)."""
+    import os
+    import shutil
+    import tempfile
+
+    mxl_path = Path(mxl_path)
+    fd, tmp = tempfile.mkstemp(suffix=".mxl")
+    os.close(fd)
+    try:
+        stats = fix_mxl_file(mxl_path, tmp)
+        shutil.copyfile(tmp, mxl_path)
+        return stats
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
 def main() -> int:
-    if len(sys.argv) < 3:
-        print("Usage: python fix_audiveris_mxl.py <mxl_in> <mxl_out>", file=sys.stderr)
+    if len(sys.argv) < 2:
+        print("Usage: python fix_audiveris_mxl.py <mxl_in> [mxl_out]", file=sys.stderr)
         return 2
+    if len(sys.argv) == 2:
+        import json
+
+        stats = fix_mxl_path_inplace(sys.argv[1])
+        print(json.dumps({"path": sys.argv[1], **stats}, ensure_ascii=False))
+        return 0
     stats = fix_mxl_file(sys.argv[1], sys.argv[2])
     print(
         "fix_audiveris_mxl: "
         f"text_nodes_cleared={stats['text_nodes_cleared']} "
         f"directions_removed={stats['directions_removed']} "
         f"natural_from_staccato_removed={stats['natural_from_staccato_removed']} "
-        f"slurs_injected={stats.get('slurs_injected', 0)}",
+        f"slurs_injected={stats.get('slurs_injected', 0)} "
+        f"tuplet_show_number_fixed={stats.get('tuplet_show_number_fixed', 0)} "
+        f"tuplet_staccato_removed={stats.get('tuplet_staccato_removed', 0)}",
         file=sys.stderr,
     )
     return 0

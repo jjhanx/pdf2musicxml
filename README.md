@@ -213,7 +213,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `POST /api/part-labels/:jobId` | **`part_labels_needed`** 일 때 `{ "labelsByIndex": ["S","A",…] }` 저장 후 계속 |
 | `GET` / `POST /api/omr-hitl/:jobId/fixes` | OMR HITL 대기 보정 목록 저장 |
 | `POST /api/omr-hitl/:jobId/apply` | 보정을 Audiveris MXL에 반영·lint 재생성 |
-| `POST /api/omr-hitl/:jobId/normalize-rests` | 전체 성부 자동 정리 — 쉼표 duration(점이 duration에만 반영된 OMR 오류)·쉼표 위치 힌트·잇단음표 숫자를 가리는 빔 쪽 스타카토 제거 |
+| `POST /api/omr-hitl/:jobId/normalize-rests` | 전체 성부 OMR 자동 정리 — 쉼표·이음줄(slur)·세잇단 숫자·가짜 staccato (`fix_audiveris_mxl` + `normalize_omr_rests`, **Audiveris 직후·검토 MXL**) |
 | `GET /api/omr-hitl/:jobId/measure` | 마디별 음·쉼 목록 (`partId`, `measureMxl`) |
 | `POST /api/continue-omr-staff-review/:jobId` | **`omr_staff_review_needed`** 일 때 OMR HITL 이어하기(보정 자동 적용 후 inject) |
 | `GET /api/diagnostic/:jobId/page/:pageNum/png` | 쿼리 `source=original` 또는 `masked`, 선택 `dpi`(72–240, 기본 132). PyMuPDF로 해당 페이지 PNG |

@@ -284,6 +284,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           measuresChanged?: number;
           restDisplayCleared?: number;
           tupletStaccatoRemoved?: number;
+          slursInjected?: number;
+          tupletShowNumberFixed?: number;
         };
       };
       await refreshScoreXml();
@@ -292,10 +294,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       const fixed = j.stats?.restsFixed ?? 0;
       const displayCleared = j.stats?.restDisplayCleared ?? 0;
       const staccatoRemoved = j.stats?.tupletStaccatoRemoved ?? 0;
-      const msg =
-        fixed > 0 || displayCleared > 0 || staccatoRemoved > 0
-          ? `자동 정리됨 — 쉼표 길이 ${fixed}건, 쉼표 위치 ${displayCleared}건, 잇단 숫자 가린 점 ${staccatoRemoved}건. 오른쪽 악보에서 확인하세요.`
-          : '자동 정리 대상이 없습니다 (마디 길이 초과 쉼표·위치 힌트·잇단 숫자 가린 점 없음).';
+      const slurs = j.stats?.slursInjected ?? 0;
+      const tupletShow = j.stats?.tupletShowNumberFixed ?? 0;
+      const any =
+        fixed > 0 || displayCleared > 0 || staccatoRemoved > 0 || slurs > 0 || tupletShow > 0;
+      const msg = any
+        ? `자동 정리됨 — 쉼표 ${fixed}건, 쉼표 위치 ${displayCleared}건, 이음줄 ${slurs}쌍, 세잇단 숫자 ${tupletShow}건, 가짜 점 ${staccatoRemoved}건. 오른쪽 악보에서 확인하세요.`
+        : '자동 정리 대상이 없습니다.';
       setApplyMsg(msg);
       setLastPreviewMsg(msg);
     } catch (e) {
@@ -626,9 +631,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             className="btn-muted"
             disabled={applyBusy}
             onClick={() => void normalizeRests()}
-            title="점 없는 쉼표인데 duration이 마디 길이를 넘는 경우(미리보기에 없던 점이 보이는 원인)를 전체 성부에서 한 번에 정리합니다"
+            title="쉼표·이음줄·세잇단 숫자 등 Audiveris OMR 오류를 전체 성부에서 한 번에 정리합니다"
           >
-            {applyBusy ? '정리 중…' : '쉼표 길이 자동 정리 (전체 성부)'}
+            {applyBusy ? '정리 중…' : 'OMR 자동 정리 (전체 성부)'}
           </button>
         </div>
         {applyMsg ? <p className="omr-hitl-apply-msg">{applyMsg}</p> : null}

@@ -638,6 +638,88 @@ async function applyOmrHitlFixesToScoreFile(
   }
 }
 
+async function fixAudiverisMxlInScoreFile(
+  scorePath: string,
+  pythonBin: string,
+): Promise<{
+  slursInjected: number;
+  tupletShowNumberFixed: number;
+  tupletStaccatoRemoved: number;
+  directionsRemoved: number;
+} | null> {
+  const script = path.join(__dirname, '..', 'scripts', 'fix_audiveris_mxl.py');
+  if (!fsSync.existsSync(script) || !fsSync.existsSync(scorePath)) return null;
+  try {
+    const { stdout, stderr } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    if (stderr?.trim()) console.warn(`fix_audiveris_mxl stderr (${scorePath}): ${stderr.trim()}`);
+    const line = String(stdout).trim();
+    if (!line) {
+      return {
+        slursInjected: 0,
+        tupletShowNumberFixed: 0,
+        tupletStaccatoRemoved: 0,
+        directionsRemoved: 0,
+      };
+    }
+    const parsed = JSON.parse(line) as {
+      slurs_injected?: number;
+      tuplet_show_number_fixed?: number;
+      tuplet_staccato_removed?: number;
+      directions_removed?: number;
+    };
+    console.log(
+      `fix_audiveris_mxl (${scorePath}): slurs=${parsed.slurs_injected ?? 0} tupletShow=${parsed.tuplet_show_number_fixed ?? 0} tupletStaccato=${parsed.tuplet_staccato_removed ?? 0}`,
+    );
+    return {
+      slursInjected: parsed.slurs_injected ?? 0,
+      tupletShowNumberFixed: parsed.tuplet_show_number_fixed ?? 0,
+      tupletStaccatoRemoved: parsed.tuplet_staccato_removed ?? 0,
+      directionsRemoved: parsed.directions_removed ?? 0,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`fix_audiveris_mxl failed (${scorePath}): ${msg}`);
+    return null;
+  }
+}
+
+async function postprocessAudiverisMxlInScoreFile(
+  scorePath: string,
+  pythonBin: string,
+): Promise<{
+  restsFixed: number;
+  measuresChanged: number;
+  restDisplayCleared: number;
+  tupletStaccatoRemoved: number;
+  slursInjected: number;
+  tupletShowNumberFixed: number;
+  directionsRemoved: number;
+}> {
+  const restStats = (await normalizeOmrRestsInScoreFile(scorePath, pythonBin)) ?? {
+    restsFixed: 0,
+    measuresChanged: 0,
+    restDisplayCleared: 0,
+    tupletStaccatoRemoved: 0,
+  };
+  const fixStats = (await fixAudiverisMxlInScoreFile(scorePath, pythonBin)) ?? {
+    slursInjected: 0,
+    tupletShowNumberFixed: 0,
+    tupletStaccatoRemoved: 0,
+    directionsRemoved: 0,
+  };
+  return {
+    restsFixed: restStats.restsFixed,
+    measuresChanged: restStats.measuresChanged,
+    restDisplayCleared: restStats.restDisplayCleared,
+    tupletStaccatoRemoved: restStats.tupletStaccatoRemoved + fixStats.tupletStaccatoRemoved,
+    slursInjected: fixStats.slursInjected,
+    tupletShowNumberFixed: fixStats.tupletShowNumberFixed,
+    directionsRemoved: fixStats.directionsRemoved,
+  };
+}
+
 async function normalizeOmrRestsInScoreFile(
   scorePath: string,
   pythonBin: string,
@@ -1167,7 +1249,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     // Audiveris가 점을 <dot> 없이 duration에만 반영해 내보내는 경우(미리보기에 "없던 점")를
     // 검토 전에 자동 정규화 — 마디 길이 초과분만 보수적으로 줄인다.
     for (const p of mxlForInject) {
-      await normalizeOmrRestsInScoreFile(p, pythonBin);
+      await postprocessAudiverisMxlInScoreFile(p, pythonBin);
     }
 
     const useOmrStaffHitl = job.enableOmrStaffReview !== false;
@@ -2587,20 +2669,12 @@ app.post('/api/omr-hitl/:jobId/normalize-rests', async (req, res) => {
   }
   const pythonBin = resolvePythonBin();
   try {
-    const stats = await normalizeOmrRestsInScoreFile(mxlPath, pythonBin);
+    const stats = await postprocessAudiverisMxlInScoreFile(mxlPath, pythonBin);
     const lintCache = sessionMxlLintPath(job.sessionRoot);
     if (fsSync.existsSync(lintCache)) await fs.unlink(lintCache).catch(() => {});
     const inspectXml = path.join(job.sessionRoot, '.diag-cache', 'inspect-score.musicxml');
     if (fsSync.existsSync(inspectXml)) await fs.unlink(inspectXml).catch(() => {});
-    res.json({
-      ok: true,
-      stats: stats ?? {
-        restsFixed: 0,
-        measuresChanged: 0,
-        restDisplayCleared: 0,
-        tupletStaccatoRemoved: 0,
-      },
-    });
+    res.json({ ok: true, stats });
   } catch (e) {
     if (!res.headersSent) res.status(500).json({ error: String(e) });
   }

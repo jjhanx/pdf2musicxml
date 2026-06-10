@@ -187,6 +187,7 @@ type JobStatus =
   | 'pending'
   | 'processing'
   | 'font_strip_needed'
+  | 'clean_score_preview_needed'
   | 'review_needed'
   | 'part_labels_needed'
   | 'omr_staff_review_needed'
@@ -266,6 +267,8 @@ type JobRecord = {
   partLabelsByIndex?: string[];
   fontStripDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripStats?: Record<string, unknown>;
+  cleanScorePreviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  cleanScorePreviewAction?: 'continue' | 'redo_font_strip';
 };
 
 const jobs = new Map<string, JobRecord>();
@@ -292,6 +295,10 @@ function setJobProgress(job: JobRecord | undefined, p: JobProgress): void {
   if (!job || job.status === 'failed' || job.status === 'completed') return;
   job.progress = p;
   if (p.phase === 'audiveris' && p.total > 0) job.pdfPageCount = p.total;
+}
+
+function cleanScorePreviewJobsAllowed(job: JobRecord | undefined): job is JobRecord {
+  return Boolean(job && job.status === 'clean_score_preview_needed');
 }
 
 function diagnosticJobsAllowed(job: JobRecord | undefined): job is JobRecord {
@@ -1117,47 +1124,70 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       );
       await fs.writeFile(fontStripStatsPath(sessionRoot), JSON.stringify(fontStats, null, 2), 'utf8');
       job.fontStripStats = fontStats;
-      console.log(`[job ${jobId}] Pausing for font size strip selection…`);
-      job.status = 'font_strip_needed';
-      await new Promise<void>((resolve, reject) => {
-        job.fontStripDeferred = { resolve, reject };
-      });
-      delete job.fontStripDeferred;
-      job.status = 'processing';
-      console.log(`[job ${jobId}] Font strip selection completed`);
 
-      const stripConfigRaw = await fs.readFile(fontStripConfigPath(sessionRoot), 'utf8');
-      const stripConfig = JSON.parse(stripConfigRaw) as { ranges?: FontStripRangeDto[] };
-      const stripRanges = stripConfig.ranges ?? [{ minPt: 7, maxPt: 17 }];
-      const rangeSpec = rangesToCliSpec(stripRanges);
+      const replaceTripletPua = process.env.CLEAN_SCORE_REPLACE_TRIPLET_PUA === '1';
+      const stripPuaFlag = replaceTripletPua ? ' --replace-triplet-pua' : '';
 
-      setJobProgress(job, {
-        phase: 'separator',
-        current: 1,
-        total: 2,
-        detail: `pikepdf 텍스트 제거 (${rangeSpec})…`,
-      });
-      console.log(`[job ${jobId}] pdf_separator strip ranges=${rangeSpec}`);
-      try {
-        await exec(
-          `"${pythonBin}" "${scriptSeparator}" strip "${inputPdfPath}" "${cleanScorePath}" --ranges "${rangeSpec}"`,
-        );
-      } catch (stripErr) {
-        const msg = stripErr instanceof Error ? stripErr.message : String(stripErr);
-        await fail({
-          status: 500,
-          error: 'clean_score_only.pdf 생성 실패',
-          detail: msg,
+      for (;;) {
+        console.log(`[job ${jobId}] Pausing for font size strip selection…`);
+        job.status = 'font_strip_needed';
+        await new Promise<void>((resolve, reject) => {
+          job.fontStripDeferred = { resolve, reject };
         });
-        return;
-      }
-      if (!fsSync.existsSync(cleanScorePath)) {
-        await fail({
-          status: 500,
-          error: 'clean_score_only.pdf 생성 실패',
-          detail: 'pdf_separator.py가 악보 PDF를 만들지 못했습니다.',
+        delete job.fontStripDeferred;
+        job.status = 'processing';
+        console.log(`[job ${jobId}] Font strip selection completed`);
+
+        const stripConfigRaw = await fs.readFile(fontStripConfigPath(sessionRoot), 'utf8');
+        const stripConfig = JSON.parse(stripConfigRaw) as { ranges?: FontStripRangeDto[] };
+        const stripRanges = stripConfig.ranges ?? [{ minPt: 7, maxPt: 17 }];
+        const rangeSpec = rangesToCliSpec(stripRanges);
+
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 1,
+          total: 2,
+          detail: `pikepdf 텍스트 제거 (${rangeSpec})…`,
         });
-        return;
+        console.log(`[job ${jobId}] pdf_separator strip ranges=${rangeSpec}`);
+        try {
+          await exec(
+            `"${pythonBin}" "${scriptSeparator}" strip "${inputPdfPath}" "${cleanScorePath}" --ranges "${rangeSpec}"${stripPuaFlag}`,
+          );
+        } catch (stripErr) {
+          const msg = stripErr instanceof Error ? stripErr.message : String(stripErr);
+          await fail({
+            status: 500,
+            error: 'clean_score_only.pdf 생성 실패',
+            detail: msg,
+          });
+          return;
+        }
+        if (!fsSync.existsSync(cleanScorePath)) {
+          await fail({
+            status: 500,
+            error: 'clean_score_only.pdf 생성 실패',
+            detail: 'pdf_separator.py가 악보 PDF를 만들지 못했습니다.',
+          });
+          return;
+        }
+
+        console.log(`[job ${jobId}] Pausing for clean_score PDF preview…`);
+        job.cleanScorePreviewAction = undefined;
+        job.status = 'clean_score_preview_needed';
+        await new Promise<void>((resolve, reject) => {
+          job.cleanScorePreviewDeferred = { resolve, reject };
+        });
+        delete job.cleanScorePreviewDeferred;
+        job.status = 'processing';
+        console.log(`[job ${jobId}] clean_score preview completed`);
+
+        if (job.cleanScorePreviewAction === 'redo_font_strip') {
+          job.cleanScorePreviewAction = undefined;
+          await fs.unlink(cleanScorePath).catch(() => {});
+          continue;
+        }
+        break;
       }
 
       if (enablePymupdfReview) {
@@ -2241,6 +2271,156 @@ app.post('/api/font-strip/:jobId', express.json({ limit: '256kb' }), async (req,
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
+});
+
+async function renderSessionPagePng(
+  job: JobRecord,
+  pdfPath: string,
+  page: number,
+  dpi: number,
+  cacheTag: string,
+): Promise<string> {
+  const cacheDir = path.join(job.sessionRoot, '.diag-cache');
+  await fs.mkdir(cacheDir, { recursive: true });
+  const cacheFile = path.join(cacheDir, `p${page}-${cacheTag}-dpi${dpi}-rgb-v2.png`);
+  let needRender = true;
+  if (fsSync.existsSync(cacheFile)) {
+    const [stPdf, stPng] = await Promise.all([fs.stat(pdfPath), fs.stat(cacheFile)]);
+    if (stPng.mtimeMs >= stPdf.mtimeMs) needRender = false;
+  }
+  try {
+    const st = fsSync.statSync(cacheFile);
+    if (st.size < 64) needRender = true;
+  } catch {
+    needRender = true;
+  }
+  if (needRender) {
+    const script = path.join(__dirname, '..', 'scripts', 'pdf_diagnostic.py');
+    const pythonBin = resolvePythonBin();
+    await exec(
+      `"${pythonBin}" "${script}" render "${pdfPath}" ${page} "${cacheFile}" ${dpi}`,
+      { maxBuffer: 32 * 1024 * 1024 },
+    );
+  }
+  return cacheFile;
+}
+
+app.get('/api/clean-score-preview/:jobId', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!cleanScorePreviewJobsAllowed(job)) {
+    res.status(400).json({ error: 'clean_score 미리보기 단계가 아닙니다' });
+    return;
+  }
+  const inputPdfPath = job.inputPdfPath;
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath) || !fsSync.existsSync(cleanScorePath)) {
+    res.status(404).json({ error: '미리보기 PDF가 준비되지 않았습니다' });
+    return;
+  }
+  const [origCount, cleanCount] = await Promise.all([
+    pdfPageCountViaPython(inputPdfPath),
+    pdfPageCountViaPython(cleanScorePath),
+  ]);
+  let ranges: FontStripRangeDto[] = [];
+  const cfgPath = fontStripConfigPath(job.sessionRoot);
+  if (fsSync.existsSync(cfgPath)) {
+    try {
+      const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf8')) as { ranges?: FontStripRangeDto[] };
+      ranges = cfg.ranges ?? [];
+    } catch {
+      /* ignore */
+    }
+  }
+  res.json({
+    jobId: req.params.jobId,
+    originalName: job.originalName,
+    pageCount: Math.max(1, origCount ?? cleanCount ?? 1),
+    ranges,
+    replaceTripletPua: process.env.CLEAN_SCORE_REPLACE_TRIPLET_PUA === '1',
+  });
+});
+
+app.get('/api/clean-score-preview/:jobId/page/:pageNum/png', async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!cleanScorePreviewJobsAllowed(job)) {
+    res.status(404).end();
+    return;
+  }
+  const sourceRaw = String(req.query.source ?? 'original');
+  const source = sourceRaw === 'clean_score' ? 'clean_score' : 'original';
+  const page = parseInt(req.params.pageNum, 10);
+  const dpiRaw = parseInt(String(req.query.dpi ?? '132'), 10);
+  const dpi = Number.isFinite(dpiRaw) ? Math.min(240, Math.max(72, dpiRaw)) : 132;
+  const inputPdfPath = job.inputPdfPath;
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  const pdfPath = source === 'clean_score' ? cleanScorePath : inputPdfPath;
+  if (!pdfPath || !fsSync.existsSync(pdfPath)) {
+    res.status(404).end();
+    return;
+  }
+  const count = await pdfPageCountViaPython(pdfPath);
+  if (!count || !Number.isFinite(page) || page < 1 || page > count) {
+    res.status(400).json({ error: '페이지 번호가 범위를 벗어났습니다' });
+    return;
+  }
+  try {
+    const cacheFile = await renderSessionPagePng(job, pdfPath, page, dpi, `${source}-preview`);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=120');
+    res.sendFile(path.resolve(cacheFile));
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/clean-score-preview/:jobId/pdf', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!cleanScorePreviewJobsAllowed(job)) {
+    res.status(400).json({ error: 'clean_score 미리보기 단계가 아닙니다' });
+    return;
+  }
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  if (!fsSync.existsSync(cleanScorePath)) {
+    res.status(404).json({ error: 'clean_score_only.pdf가 없습니다' });
+    return;
+  }
+  const attachment =
+    req.query.download === '1' ||
+    req.query.download === 'true' ||
+    String(req.query.disposition ?? '').toLowerCase() === 'attachment';
+  sendDiagnosticSessionPdf(
+    res,
+    cleanScorePath,
+    diagnosticPdfDownloadBaseName(job, 'clean_score'),
+    attachment,
+  );
+});
+
+app.post('/api/clean-score-preview/:jobId/continue', express.json(), (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'clean_score_preview_needed' || !job.cleanScorePreviewDeferred) {
+    res.status(400).json({ error: 'clean_score 미리보기 대기 상태가 아닙니다' });
+    return;
+  }
+  job.cleanScorePreviewAction = 'continue';
+  job.cleanScorePreviewDeferred.resolve();
+  delete job.cleanScorePreviewDeferred;
+  res.json({ ok: true });
+});
+
+app.post('/api/clean-score-preview/:jobId/redo-font-strip', express.json(), (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'clean_score_preview_needed' || !job.cleanScorePreviewDeferred) {
+    res.status(400).json({ error: 'clean_score 미리보기 대기 상태가 아닙니다' });
+    return;
+  }
+  job.cleanScorePreviewAction = 'redo_font_strip';
+  job.cleanScorePreviewDeferred.resolve();
+  delete job.cleanScorePreviewDeferred;
+  res.json({ ok: true });
 });
 
 app.get('/api/review/:jobId', (req, res) => {

@@ -46,8 +46,9 @@ pm2 logs pdf2mxl --lines 200 --nostream | grep -E "Part labels saved|inject_ocr|
 1. 변환 시작 → **폰트 크기 선택** UI가 뜨면:
    - **제목·가사**에 해당하는 **큰 pt만** 선택 (예: 20pt대 제목).
    - **음자리표·음표·조표**(보통 ~22.8pt 등)는 **선택하지 않음**.
-2. `clean_score_only.pdf`를 **마스킹·인식 점검** 또는 다운로드로 열어, 왼쪽 음자리표·첫 마디가 잘리지 않았는지 확인.
-3. strip 확정 후 Audiveris가 이 PDF만 사용합니다.
+2. **clean_score_only.pdf 확인** 모달에서 **원본 vs clean_score** PNG를 나란히 보고, **음표 머리·오선**이 남았는지 확인합니다. **「clean_score PDF 저장」**으로 로컬에 남길 수 있습니다.
+3. 문제가 있으면 **「폰트 범위 다시 선택」** → 범위를 좁힌 뒤 재생성. 확인 후 **「Audiveris로 계속」**.
+4. strip 확정 후 Audiveris가 이 PDF만 사용합니다.
 
 ### C. 2단계 — OCR·P 유발 (서버 설정)
 

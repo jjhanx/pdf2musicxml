@@ -265,6 +265,8 @@ def strip_font_ranges(
     input_pdf_path: str,
     output_pdf_path: str,
     ranges: list[tuple[float, float]],
+    *,
+    replace_triplet_pua: bool = False,
 ) -> None:
     if not ranges:
         raise ValueError("제거할 폰트 크기 범위가 비어 있습니다.")
@@ -286,11 +288,11 @@ def strip_font_ranges(
 
         pdf.save(output_pdf_path, linearize=True)
 
-    # Replace PUA triplet symbol U+F073 with standard '3' using PyMuPDF
-    try:
-        replace_f073_triplets(output_pdf_path)
-    except Exception as e:
-        print(f"[pdf_separator] Triplet replacement failed: {e}", file=sys.stderr)
+    if replace_triplet_pua:
+        try:
+            replace_f073_triplets(output_pdf_path)
+        except Exception as e:
+            print(f"[pdf_separator] Triplet replacement failed: {e}", file=sys.stderr)
 
     print(f" -> {output_pdf_path}", file=sys.stderr)
 
@@ -435,7 +437,12 @@ def cmd_strip(args: argparse.Namespace) -> int:
     if args.sizes:
         extra = sizes_to_ranges([float(x) for x in args.sizes.split(",") if x.strip()])
         ranges = merge_ranges(ranges + extra)
-    strip_font_ranges(args.input_pdf, args.output_pdf, ranges)
+    strip_font_ranges(
+        args.input_pdf,
+        args.output_pdf,
+        ranges,
+        replace_triplet_pua=bool(getattr(args, "replace_triplet_pua", False)),
+    )
     return 0
 
 
@@ -453,7 +460,12 @@ def cmd_all(args: argparse.Namespace) -> int:
         extra = sizes_to_ranges([float(x) for x in args.sizes.split(",") if x.strip()])
         ranges = merge_ranges(ranges + extra)
     extract_layout(args.input_pdf, args.output_json)
-    strip_font_ranges(args.input_pdf, args.output_pdf, ranges)
+    strip_font_ranges(
+        args.input_pdf,
+        args.output_pdf,
+        ranges,
+        replace_triplet_pua=bool(getattr(args, "replace_triplet_pua", False)),
+    )
     return 0
 
 
@@ -471,6 +483,11 @@ def main() -> int:
     p_strip.add_argument("output_pdf")
     p_strip.add_argument("--ranges", default="7-17", help="예: 7-17,18-24")
     p_strip.add_argument("--sizes", help="개별 pt, 쉼표 구분. 예: 12,18,24")
+    p_strip.add_argument(
+        "--replace-triplet-pua",
+        action="store_true",
+        help="U+F073 세잇단 PUA→'3' 치환(기본 끔 — PyMuPDF 재저장 시 음표 머리 손실 위험)",
+    )
     p_strip.set_defaults(func=cmd_strip)
 
     p_analyze = sub.add_parser("analyze", help="extracted JSON에서 폰트 크기 통계(JSON stdout)")

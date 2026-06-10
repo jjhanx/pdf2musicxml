@@ -295,7 +295,7 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
 
           <div className="row" style={{ gap: '0.75rem', marginTop: '0.5rem' }}>
             <button type="button" disabled={busy || !selected.length} onClick={() => void submit()}>
-              {busy ? '적용 중…' : '선택 범위로 clean_score PDF 만들기'}
+              {busy ? '생성 중…' : '선택 범위로 clean_score PDF 만들기'}
             </button>
             {onCancel && (
               <button type="button" className="btn-secondary" disabled={busy} onClick={onCancel}>

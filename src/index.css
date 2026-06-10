@@ -370,6 +370,44 @@ button.btn-muted {
   padding: 0.25rem 0.35rem;
 }
 
+.clean-score-preview-modal {
+  max-width: min(1200px, 96vw);
+}
+
+.clean-score-preview-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 860px) {
+  .clean-score-preview-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.clean-score-preview-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #bdc1c6;
+  margin-bottom: 0.35rem;
+}
+
+.clean-score-preview-frame {
+  background: #fff;
+  border: 1px solid #3c4049;
+  border-radius: 4px;
+  overflow: auto;
+  max-height: 52vh;
+}
+
+.clean-score-preview-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 /* 밝은 배경 모달 — :root 밝은 글자색 상속 방지 */
 .modal-light {
   color: #1a1a1a;

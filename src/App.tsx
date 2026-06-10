@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FontStripPanel } from './FontStripPanel';
+import { CleanScorePreviewPanel } from './CleanScorePreviewPanel';
 import { AudiverisInspectPanel, InspectPanelErrorBoundary } from './AudiverisInspectPanel';
 import { OmrStaffReviewPanel } from './OmrStaffReviewPanel';
 import { PartLabelsPanel } from './PartLabelsPanel';
@@ -321,6 +322,7 @@ export default function App() {
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
   const [enableOmrStaffReview, setEnableOmrStaffReview] = useState(true);
   const [fontStripJobId, setFontStripJobId] = useState<string | null>(null);
+  const [cleanScorePreviewJobId, setCleanScorePreviewJobId] = useState<string | null>(null);
   const [partLabelsJobId, setPartLabelsJobId] = useState<string | null>(null);
   const [partLabelCount, setPartLabelCount] = useState(6);
   const [partLabelsPreset, setPartLabelsPreset] = useState<string[]>(() => defaultPartLabels(6));
@@ -394,6 +396,7 @@ export default function App() {
       onProgress?: (p: TaskProgress | undefined) => void,
       onReviewNeeded?: (jobId: string) => void,
       onFontStripNeeded?: (jobId: string) => void,
+      onCleanScorePreviewNeeded?: (jobId: string) => void,
       onAudiverisReviewNeeded?: (jobId: string) => void,
       onOmrStaffReviewNeeded?: (jobId: string) => void,
       onPartLabelsNeeded?: (jobId: string) => void,
@@ -435,7 +438,6 @@ export default function App() {
     }
     const { jobId } = accepted;
     let reviewTriggered = false;
-    let fontStripTriggered = false;
     let audiverisReviewTriggered = false;
     let omrStaffReviewTriggered = false;
     let partLabelsTriggered = false;
@@ -466,9 +468,12 @@ export default function App() {
         onProgress?.(j.progress);
       }
 
-      if (j.status === 'font_strip_needed' && !fontStripTriggered) {
-        fontStripTriggered = true;
+      if (j.status === 'font_strip_needed') {
         onFontStripNeeded?.(jobId);
+      }
+
+      if (j.status === 'clean_score_preview_needed') {
+        onCleanScorePreviewNeeded?.(jobId);
       }
 
       if (j.status === 'review_needed' && !reviewTriggered) {
@@ -564,6 +569,7 @@ export default function App() {
       setOmrStaffReviewJobId(null);
       setAudiverisReviewJobId(null);
       setFontStripJobId(null);
+      setCleanScorePreviewJobId(null);
       setReviewingJobId(null);
 
       const initialTasks: ConvertTask[] = list.map((f) => ({
@@ -633,6 +639,9 @@ export default function App() {
               },
               (jobId) => {
                 setFontStripJobId(jobId);
+              },
+              (jobId) => {
+                setCleanScorePreviewJobId(jobId);
               },
               (jobId) => {
                 setAudiverisTranspose(0);
@@ -1375,8 +1384,8 @@ bash scripts/install-font-separator-deps.sh`}
         </p>
       </div>
 
-      {fontStripJobId &&
-        createPortal(
+        {fontStripJobId &&
+          createPortal(
           <div
             style={{
               position: 'fixed',
@@ -1393,6 +1402,36 @@ bash scripts/install-font-separator-deps.sh`}
           >
             <div className="font-strip-modal">
               <FontStripPanel jobId={fontStripJobId} onSubmitted={() => setFontStripJobId(null)} />
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {cleanScorePreviewJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9998,
+            }}
+          >
+            <div className="font-strip-modal clean-score-preview-modal">
+              <CleanScorePreviewPanel
+                jobId={cleanScorePreviewJobId}
+                onContinue={() => setCleanScorePreviewJobId(null)}
+                onRedoFontStrip={() => {
+                  setCleanScorePreviewJobId(null);
+                  setFontStripJobId(cleanScorePreviewJobId);
+                }}
+              />
             </div>
           </div>,
           document.body,
@@ -1438,7 +1477,8 @@ bash scripts/install-font-separator-deps.sh`}
               {pipelineMode === 'font_separator' ? (
                 <>
                   {' '}
-                  (앞 단계에서 선택한 폰트 크기로 <code>clean_score_only.pdf</code>가 만들어진 뒤) pdfplumber·검토
+                  (앞 단계에서 선택한 폰트 크기로 <code>clean_score_only.pdf</code>가 만들어지고
+                  <strong> 원본과 나란히 확인</strong>한 뒤) pdfplumber·검토
                   결과가 <code>lyric_manifest.json</code>(v3)으로 병합되고 MusicXML에 주입됩니다.
                 </>
               ) : (

@@ -8,7 +8,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 ## 최근 변경 (폰트 분리 + 가사 병합 파이프라인)
 
 - **변환 방식 선택(웹 UI)**: 업로드 전 **변환 방식**을 고릅니다.
-  - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI**(표·프리셋·사용자 범위) → pikepdf로 `clean_score_only.pdf` 생성 → (선택) PyMuPDF 가사 검증 → 병합·Audiveris·주입.
+  - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI**(표·프리셋·사용자 범위) → pikepdf로 `clean_score_only.pdf` 생성 → **원본과 나란히 미리보기·PDF 저장 확인** → (선택) PyMuPDF 가사 검증 → 병합·Audiveris·주입.
   - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
   - **Audiveris만**: 선행 처리·가사 주입 없음.
 - **이음줄(Slur) 및 세잇단음표 숫자 누락 버그 수정**: Audiveris 후처리 스크립트(`fix_audiveris_mxl.py`)가 얇은 이음줄(`<bracket>`) 기호를 지우거나 세잇단음표 숫자 '3'을 텍스트 찌꺼기로 오인하여 무차별 삭제하던 문제를 수정하여 정상적으로 출력되도록 개선했습니다.
@@ -83,6 +83,7 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `AUDIVERIS_KEEP_DEFAULT_SWITCHES` | `1`/`true`이면 가사·코드네임 OCR 끄기·피아노 마디선 완화 등 **기본 Audiveris 스위치**를 넣지 않음. |
 | `AUDIVERIS_KEEP_TEXT_CONSTANTS` | `1`/`true`이면 `TextWord` tuplet/abnormal regexp 튜닝 상수를 넣지 않음. |
 | `AUDIVERIS_CLEAN_SCORE_OCR_LANG` | `AUDIVERIS_OCR_LANG` 미설정 시 Audiveris OCR 언어(기본 **`eng`**). clean_score에 한글 없을 때 세잇단 `3`→`P` OCR 완화. |
+| `CLEAN_SCORE_REPLACE_TRIPLET_PUA` | `1`이면 `clean_score_only.pdf` strip 직후 PDF 내 U+F073→`3` 치환(기본 **끔** — PyMuPDF 재저장 시 **음표 머리 손실** 위험). 세잇단은 MXL 후처리(`fix_audiveris_mxl`)로 보완. |
 | `AUDIVERIS_MXL_FIX` | 기본 켜짐. `0`/`false`이면 `inject_ocr.py` 직전 `fix_audiveris_mxl.py`(잔여 P/2P direction 등) 생략. **SYMBOLS UI에는 영향 없음.** |
 | (문서) | SYMBOLS 단계 오인식·Audiveris 소스 패치: [docs/Audiveris_엔진_한계와_대응.md](docs/Audiveris_엔진_한계와_대응.md) |
 | `MASK_PDF_TEXT_REDACT` | (선택) `1`/`true`/`yes`일 때 **제목·작곡가 등 비-가사** 구역에 벡터 텍스트가 있으면 **전체 bbox** 텍스트 리독을 시도합니다. **가사**는 기본이 **글자별 선택 리독**(아래)이라 이 옵션과 별개입니다. |
@@ -210,6 +211,12 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/diagnostic/:jobId/omr-policy` | job별 OCR·TextWord 상수·P 유발 경로·lint 요약 |
 | `GET /api/diagnostic/:jobId/mxl-lint` | Audiveris 직후 MXL lint JSON. `part_labels.json` 저장·갱신 시 캐시를 무효화하고 성부 라벨을 반영합니다. 쿼리 `page`, `staff`(S/A/T/B/PR/PL), 강제 재생성 `regen=1` |
 | `GET /api/diagnostic/:jobId/score-parts` | Audiveris MXL part-list + 저장·초안 라벨 |
+| `GET` / `POST /api/font-strip/:jobId` | **`font_strip_needed`** 일 때 폰트 pt 제거 범위 조회·저장 |
+| `GET /api/clean-score-preview/:jobId` | **`clean_score_preview_needed`** 일 때 strip 결과 요약 |
+| `GET /api/clean-score-preview/:jobId/page/:n/png` | 미리보기 PNG (`source=original` \| `clean_score`) |
+| `GET /api/clean-score-preview/:jobId/pdf` | `clean_score_only.pdf` 열기·다운로드 (`?download=1`) |
+| `POST /api/clean-score-preview/:jobId/continue` | 미리보기 확인 후 Audiveris 단계로 진행 |
+| `POST /api/clean-score-preview/:jobId/redo-font-strip` | 폰트 범위 재선택( strip 재실행 ) |
 | `POST /api/part-labels/:jobId` | **`part_labels_needed`** 일 때 `{ "labelsByIndex": ["S","A",…] }` 저장 후 계속 |
 | `GET` / `POST /api/omr-hitl/:jobId/fixes` | OMR HITL 대기 보정 목록 저장 |
 | `POST /api/omr-hitl/:jobId/apply` | 보정을 Audiveris MXL에 반영·lint 재생성 (원본 MXL 백업에서 후처리·보정 재합성) |

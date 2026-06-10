@@ -243,6 +243,38 @@ export function clientToOsmdPoint(osmd: OpenSheetMusicDisplay, host: HTMLElement
   return new PointF2D(x, y);
 }
 
+/**
+ * 시스템의 마디를 줄(스태프) 단위 2차원 배열로 만든다 — rows[si] = si번째 줄의 마디들.
+ *
+ * 주의: OSMD `MusicSystem.GraphicalMeasures`는 [마디][스태프] 순서다(겉이 마디 열).
+ * 줄 기준이 필요하므로 각 줄이 자기 마디 목록을 직접 갖는 `StaffLine.Measures`를
+ * 일차 소스로 쓰고, 없을 때만 GraphicalMeasures를 전치한다.
+ */
+function systemRows(system: Record<string, unknown>): GraphicalMeasureLike[][] {
+  const staffLines = (system.StaffLines ?? system.staffLines) as unknown[] | undefined;
+  const rows: GraphicalMeasureLike[][] = [];
+  for (const sl of staffLines ?? []) {
+    const slRec = asRecord(sl);
+    const measures = (slRec?.Measures ?? slRec?.measures) as GraphicalMeasureLike[] | undefined;
+    rows.push((measures ?? []).filter((g) => g && !isExtraMeasure(g)));
+  }
+  if (rows.some((r) => r.length > 0)) return rows;
+
+  const byMeasure = (system.GraphicalMeasures ?? system.graphicalMeasures) as
+    | GraphicalMeasureLike[][]
+    | undefined;
+  if (!byMeasure?.length) return [];
+  const staffCount = Math.max(0, ...byMeasure.map((col) => col?.length ?? 0));
+  const transposed: GraphicalMeasureLike[][] = Array.from({ length: staffCount }, () => []);
+  for (const col of byMeasure) {
+    for (let si = 0; si < (col?.length ?? 0); si += 1) {
+      const gm = col?.[si];
+      if (gm && !isExtraMeasure(gm)) transposed[si].push(gm);
+    }
+  }
+  return transposed;
+}
+
 function forEachSystem(
   osmd: OpenSheetMusicDisplay,
   fn: (system: Record<string, unknown>, rows: GraphicalMeasureLike[][], pageIndex: number) => void,
@@ -256,10 +288,8 @@ function forEachSystem(
     for (const system of ((pageRec.MusicSystems ?? pageRec.musicSystems) as unknown[]) ?? []) {
       const sysRec = asRecord(system);
       if (!sysRec) continue;
-      const rows = (sysRec.GraphicalMeasures ?? sysRec.graphicalMeasures) as
-        | GraphicalMeasureLike[][]
-        | undefined;
-      if (!rows?.length) continue;
+      const rows = systemRows(sysRec);
+      if (!rows.length) continue;
       fn(sysRec, rows, pi);
     }
   }
@@ -455,9 +485,15 @@ function buildStaffBandsForSystem(
     bandByLine.set(sl, toHostBand(v));
   }
 
-  // 2) 각 줄(row): 그 줄 마디들의 ParentStaffLine으로 밴드를 직접 찾는다
+  // 2) 각 줄(row): rows[si]는 staffLines[si].Measures에서 왔으므로 인덱스로 먼저,
+  //    그다음 마디의 ParentStaffLine으로 밴드를 찾는다
   const raw: (Band | null)[] = new Array(numRows).fill(null);
   for (let si = 0; si < numRows; si += 1) {
+    const direct = staffLines?.[si] ? bandByLine.get(staffLines[si]) : undefined;
+    if (direct) {
+      raw[si] = { ...direct };
+      continue;
+    }
     for (const gm of rows[si] ?? []) {
       if (!gm || isExtraMeasure(gm)) continue;
       const line = parentStaffLineOf(gm);

@@ -734,7 +734,12 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
     "없던 점" 증상의 근본 대응.
     """
     ns = _ns(root)
-    stats = {"restsFixed": 0, "measuresChanged": 0, "measuresOverfullLeft": 0}
+    stats = {
+        "restsFixed": 0,
+        "measuresChanged": 0,
+        "measuresOverfullLeft": 0,
+        "restDisplayCleared": 0,
+    }
     for part in root.findall(_q(ns, "part")):
         divisions = 1
         beats = 4
@@ -769,6 +774,33 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                 by_voice.setdefault(voice, []).append(note)
 
             measure_changed = False
+
+            # 마디 전체 쉼표의 display-step/octave 힌트 제거 — Audiveris가 잘못 내보내면
+            # 쉼표가 표준 위치(둘째줄 아래)가 아닌 엉뚱한 줄에 걸린다. 힌트를 지우면
+            # 렌더러가 기본 위치에 그린다. (한 보이스가 통째로 쉬는 마디만 대상)
+            for notes in by_voice.values():
+                if not all(n.find(_q(ns, "rest")) is not None for n in notes):
+                    continue
+                for note in notes:
+                    rest_el = note.find(_q(ns, "rest"))
+                    if rest_el is None:
+                        continue
+                    type_el = note.find(_q(ns, "type"))
+                    note_type = (
+                        (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+                    )
+                    if note_type not in ("whole", "") and rest_el.get("measure") != "yes":
+                        continue
+                    cleared = False
+                    for tag in ("display-step", "display-octave"):
+                        el = rest_el.find(_q(ns, tag))
+                        if el is not None:
+                            rest_el.remove(el)
+                            cleared = True
+                    if cleared:
+                        stats["restDisplayCleared"] += 1
+                        measure_changed = True
+
             for notes in by_voice.values():
                 total = sum(_note_duration(n, ns) for n in notes)
                 excess = total - measure_len
@@ -819,7 +851,7 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
 def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
     files, root_path, root = load_mxl_root(mxl_path)
     stats = normalize_rest_durations_root(root)
-    if stats["restsFixed"] > 0:
+    if stats["restsFixed"] > 0 or stats["restDisplayCleared"] > 0:
         write_mxl_root(mxl_path, files, root_path, root)
     return {"path": str(mxl_path), **stats}
 

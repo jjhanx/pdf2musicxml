@@ -327,6 +327,11 @@ def _remove_beam_side_staccato_on_tuplet(note: ET.Element, ns: str) -> bool:
     return removed
 
 
+def _stem_direction(note: ET.Element, ns: str) -> str:
+    stem_el = note.find(qname(ns, "stem"))
+    return (stem_el.text or "").strip() if stem_el is not None and stem_el.text else ""
+
+
 def _fix_tuplet_show_numbers(note: ET.Element, ns: str) -> bool:
     actual = _tuplet_actual_notes(note, ns)
     if actual is None:
@@ -340,7 +345,9 @@ def _fix_tuplet_show_numbers(note: ET.Element, ns: str) -> bool:
             if tuplet.get("show-number") != "actual":
                 tuplet.set("show-number", "actual")
             if actual == 3 and not tuplet.get("placement"):
-                tuplet.set("placement", "above")
+                # 숫자는 빔 쪽(stem 방향)에 — 꼬리가 아래면 '3'도 아래.
+                placement = "below" if _stem_direction(note, ns) == "down" else "above"
+                tuplet.set("placement", placement)
             changed = True
     return changed
 
@@ -503,6 +510,108 @@ def _repair_overfull_eighth(part: ET.Element, ns: str) -> tuple[int, int]:
     return fixed, rest_fixed
 
 
+def _has_tuplet_element(note: ET.Element, ns: str) -> bool:
+    for notations in note.findall(qname(ns, "notations")):
+        if notations.findall(qname(ns, "tuplet")):
+            return True
+    return False
+
+
+def _add_tuplet_element(
+    note: ET.Element, ns: str, tuplet_type: str, placement: str | None = None
+) -> None:
+    notations = note.find(qname(ns, "notations"))
+    if notations is None:
+        notations = ET.SubElement(note, qname(ns, "notations"))
+    attrib = {"type": tuplet_type}
+    if tuplet_type == "start":
+        attrib["show-number"] = "actual"
+        if placement:
+            attrib["placement"] = placement
+    ET.SubElement(notations, qname(ns, "tuplet"), attrib=attrib)
+
+
+def _ensure_tuplet_notations(part: ET.Element, ns: str) -> int:
+    """time-modification만 있고 tuplet 표기가 없는 잇단 묶음에 '3' 표기 주입.
+
+    MuseScore는 time-modification만으로도 잇단 숫자를 그리지만, OSMD는
+    tuplet 요소가 없으면 숫자를 그리지 않아 미리보기에서 '3'이 사라져 보인다.
+    같은 staff/voice의 연속 잇단 묶음이 박(divisions) 배수로 나누어떨어지는
+    지점마다 tuplet start/stop(show-number=actual, 빔 쪽 placement)을 넣는다.
+    """
+    added = 0
+    for measure, divisions, _expected in _iter_measures_with_timing(part, ns):
+        if not divisions:
+            continue
+        by_key: dict[tuple[str, str], list] = {}
+        for grp in _iter_chord_groups(measure, ns):
+            by_key.setdefault((grp[2], grp[3]), []).append(grp)
+        for glist in by_key.values():
+            run: list = []
+            run_dur = 0
+            for grp in glist:
+                leader = grp[0]
+                if leader.find(qname(ns, "time-modification")) is None or _has_tuplet_element(
+                    leader, ns
+                ):
+                    run, run_dur = [], 0
+                    continue
+                dur = _note_duration(leader, ns)
+                if dur is None or dur <= 0:
+                    run, run_dur = [], 0
+                    continue
+                run.append(grp)
+                run_dur += dur
+                if run_dur % divisions == 0:
+                    if len(run) >= 2:
+                        placement = (
+                            "below" if _stem_direction(run[0][0], ns) == "down" else "above"
+                        )
+                        _add_tuplet_element(run[0][0], ns, "start", placement)
+                        _add_tuplet_element(run[-1][0], ns, "stop")
+                        added += 1
+                    run, run_dur = [], 0
+            # 박 경계에 못 미친 미완 묶음은 건드리지 않음
+    return added
+
+
+def _remove_spurious_tuplet_dynamics(part: ET.Element, ns: str) -> int:
+    """피아노(2단) 파트의 잇단 마디에서 단독 `p` dynamics 제거.
+
+    Audiveris가 잇단 숫자 '3'을 dynamics `p`로 오인하는 사례('눈/김효근' 보고).
+    잇단(time-modification) 음표가 있는 마디에서, direction-type 내용이
+    dynamics `p` 하나뿐인 direction만 제거한다 (pp·mp·f 등은 보존).
+    """
+    removed = 0
+    for measure in part.findall(qname(ns, "measure")):
+        if not any(
+            n.find(qname(ns, "time-modification")) is not None
+            for n in measure.findall(qname(ns, "note"))
+        ):
+            continue
+        for direction in list(measure.findall(qname(ns, "direction"))):
+            dts = direction.findall(qname(ns, "direction-type"))
+            if not dts:
+                continue
+            saw_p = False
+            only_p = True
+            for dt in dts:
+                for child in dt:
+                    if local_tag(child) != "dynamics":
+                        only_p = False
+                        break
+                    if [local_tag(c) for c in child] != ["p"]:
+                        only_p = False
+                        break
+                    saw_p = True
+                if not only_p:
+                    break
+            if saw_p and only_p:
+                measure.remove(direction)
+                removed += 1
+    return removed
+
+
 def _group_pitch_map(notes: list[ET.Element], ns: str) -> dict[str, ET.Element]:
     out: dict[str, ET.Element] = {}
     for n in notes:
@@ -606,6 +715,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "slurs_injected": 0,
         "tuplet_show_number_fixed": 0,
         "tuplet_staccato_removed": 0,
+        "tuplet_notations_added": 0,
+        "tuplet_dynamics_removed": 0,
         "score_patches_applied": 0,
         "overfull_eighth_fixed": 0,
         "overfull_rest_normalized": 0,
@@ -626,6 +737,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             tc, dr = _clean_measure(measure, ns, parents)
             stats["text_nodes_cleared"] += tc
             stats["directions_removed"] += dr
+
+        stats["tuplet_notations_added"] += _ensure_tuplet_notations(part, ns)
+        if _part_has_two_staves(part, ns):
+            stats["tuplet_dynamics_removed"] += _remove_spurious_tuplet_dynamics(part, ns)
 
         for note in part.iter(qname(ns, "note")):
             if _remove_duplicate_staccato_as_natural(note, ns):

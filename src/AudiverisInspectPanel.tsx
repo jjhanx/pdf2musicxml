@@ -370,6 +370,10 @@ export function OsmdBlock({
         autoResize: true,
         backend: 'svg',
       });
+      // OSMD는 기본값으로 연속 잇단 숫자를 2회 이후 생략한다(인쇄 관례).
+      // 원본 악보·review.mxl과 미리보기가 달라 보이는 혼란("3이 사라짐")을 막기 위해 항상 그린다.
+      osmd.EngravingRules.TupletNumberLimitConsecutiveRepetitions = false;
+      osmd.EngravingRules.TupletNumberAlwaysDisableAfterFirstMax = false;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const d = document.createElement('div');

@@ -2,9 +2,21 @@
 """Copy MusicXML bytes from an MXL (zip) or plain .musicxml/.xml file to a destination path."""
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import zipfile
+
+
+def _rootfile_from_container(z: zipfile.ZipFile) -> str | None:
+    try:
+        container = z.read("META-INF/container.xml").decode("utf-8", errors="replace")
+    except KeyError:
+        return None
+    m = re.search(r'full-path="([^"]+)"', container)
+    if m and m.group(1) in z.namelist():
+        return m.group(1)
+    return None
 
 
 def main() -> None:
@@ -15,12 +27,20 @@ def main() -> None:
     lower = src.lower()
     if lower.endswith(".mxl"):
         with zipfile.ZipFile(src) as z:
-            names = [n for n in z.namelist() if n.lower().endswith(".xml")]
-            if not names:
-                print("no .xml entry in mxl", file=sys.stderr)
-                sys.exit(1)
-            names.sort(key=len)
-            data = z.read(names[0])
+            name = _rootfile_from_container(z)
+            if name is None:
+                # container.xml이 없으면 META-INF 밖의 .xml 중 가장 짧은 이름 사용
+                names = [
+                    n
+                    for n in z.namelist()
+                    if n.lower().endswith(".xml") and not n.startswith("META-INF/")
+                ]
+                if not names:
+                    print("no .xml entry in mxl", file=sys.stderr)
+                    sys.exit(1)
+                names.sort(key=len)
+                name = names[0]
+            data = z.read(name)
         with open(dest, "wb") as f:
             f.write(data)
         return

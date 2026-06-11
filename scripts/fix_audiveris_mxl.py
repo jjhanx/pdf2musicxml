@@ -2,6 +2,7 @@
 """Audiveris MXL 후처리 — TEXTS/SYMBOLS·OCR 잔여로 생긴 흔한 오인식 완화."""
 from __future__ import annotations
 
+import copy
 import io
 import re
 import sys
@@ -13,6 +14,8 @@ _SPURIOUS_DIRECTION_WORDS = frozenset(
     {"P", "p", "2P", "2p", "PR", "PL", "R", "L"}
 )
 _SPURIOUS_DIRECTION_DIGITS = frozenset({"9"})
+# 세잇단 숫자 '3' OCR 잔여가 '.', ':2', '3:2', '2:' 등으로 남는 경우 (눈/김효근 보고)
+_SPURIOUS_TUPLET_RESIDUE = frozenset({".", ":", ":2", "2:", "3:2", "3:", ":3", "2:3"})
 _TEXT_TAGS = frozenset({"words", "text", "syllable", "rehearsal"})
 
 
@@ -49,6 +52,8 @@ def _is_spurious_word_text(text: str) -> bool:
     if compact in _SPURIOUS_DIRECTION_WORDS:
         return True
     if compact in _SPURIOUS_DIRECTION_DIGITS:
+        return True
+    if compact in _SPURIOUS_TUPLET_RESIDUE:
         return True
     if re.fullmatch(r"[Pp]{1,3}", compact):
         return True
@@ -331,12 +336,262 @@ def _fix_tuplet_show_numbers(note: ET.Element, ns: str) -> bool:
         for tuplet in notations.findall(qname(ns, "tuplet")):
             if tuplet.get("type") != "start":
                 continue
-            if tuplet.get("show-number") not in ("actual", "both"):
-                tuplet.set("show-number", "both")
+            # 'both'는 OSMD 등에서 '3:2'로 그려져 세잇단 숫자가 잘못 보임 — 항상 'actual'('3'만 표시)로 통일.
+            if tuplet.get("show-number") != "actual":
+                tuplet.set("show-number", "actual")
             if actual == 3 and not tuplet.get("placement"):
                 tuplet.set("placement", "above")
             changed = True
     return changed
+
+
+# ---------------------------------------------------------------------------
+# 마디 리듬 복구 — 8분음표(아래 꼬리)를 4분음표로 오인해 마디가 8분음표 하나만큼
+# 넘치는 Audiveris 패턴 보정 + 온쉼표 duration 정규화 + tie 보완.
+# ---------------------------------------------------------------------------
+
+
+def _note_duration(note: ET.Element, ns: str) -> int | None:
+    d = note.find(qname(ns, "duration"))
+    if d is None or not d.text or not d.text.strip().lstrip("-").isdigit():
+        return None
+    return int(d.text.strip())
+
+
+def _note_type_text(note: ET.Element, ns: str) -> str | None:
+    t = note.find(qname(ns, "type"))
+    return t.text.strip() if t is not None and t.text else None
+
+
+def _is_rest(note: ET.Element, ns: str) -> bool:
+    return note.find(qname(ns, "rest")) is not None
+
+
+def _iter_chord_groups(measure: ET.Element, ns: str):
+    """마디 안 음표를 (선두 음표, 화음 전체 노트 목록, staff, voice) 그룹으로 순회."""
+    groups: list[tuple[ET.Element, list[ET.Element], str, str]] = []
+    cur: tuple[ET.Element, list[ET.Element], str, str] | None = None
+    for child in measure:
+        if local_tag(child) != "note":
+            continue
+        if child.find(qname(ns, "grace")) is not None:
+            continue
+        if child.find(qname(ns, "chord")) is not None and cur is not None:
+            cur[1].append(child)
+            continue
+        voice, staff = _note_voice_staff(child, ns)
+        cur = (child, [child], staff or "1", voice or "1")
+        groups.append(cur)
+    return groups
+
+
+def _iter_measures_with_timing(part: ET.Element, ns: str):
+    """(measure, divisions, 마디 정규 길이) 순회 — attributes 누적 추적."""
+    divisions = None
+    beats = beat_type = None
+    for measure in part.findall(qname(ns, "measure")):
+        for attr in measure.findall(qname(ns, "attributes")):
+            d = attr.find(qname(ns, "divisions"))
+            if d is not None and d.text and d.text.strip().isdigit():
+                divisions = int(d.text.strip())
+            t = attr.find(qname(ns, "time"))
+            if t is not None:
+                b = t.find(qname(ns, "beats"))
+                bt = t.find(qname(ns, "beat-type"))
+                if b is not None and b.text and bt is not None and bt.text:
+                    try:
+                        beats, beat_type = int(b.text), int(bt.text)
+                    except ValueError:
+                        pass
+        expected = None
+        if divisions and beats and beat_type:
+            expected = divisions * beats * 4 // beat_type
+        yield measure, divisions, expected
+
+
+def _voice_groups(measure: ET.Element, ns: str) -> dict[tuple[str, str], list]:
+    by_voice: dict[tuple[str, str], list] = {}
+    for grp in _iter_chord_groups(measure, ns):
+        by_voice.setdefault((grp[2], grp[3]), []).append(grp)
+    return by_voice
+
+
+def _halve_group_to_eighth(notes: list[ET.Element], ns: str) -> None:
+    for n in notes:
+        d = n.find(qname(ns, "duration"))
+        if d is not None and d.text and d.text.strip().isdigit():
+            d.text = str(int(d.text.strip()) // 2)
+        t = n.find(qname(ns, "type"))
+        if t is not None:
+            t.text = "eighth"
+
+
+def _normalize_overfull_rest_only_voice(groups: list, ns: str, expected: int) -> bool:
+    """온쉼표 한 개뿐인데 duration이 마디 길이를 넘는 경우 정규화."""
+    if len(groups) != 1:
+        return False
+    leader, notes, _, _ = groups[0]
+    if not _is_rest(leader, ns) or len(notes) != 1:
+        return False
+    typ = _note_type_text(leader, ns)
+    if typ not in (None, "whole"):
+        return False
+    dur = _note_duration(leader, ns)
+    if dur is None or dur <= expected:
+        return False
+    d = leader.find(qname(ns, "duration"))
+    d.text = str(expected)
+    return True
+
+
+def _repair_overfull_eighth(part: ET.Element, ns: str) -> tuple[int, int]:
+    """(staff, voice)가 8분음표 하나만큼 넘칠 때, 오인된 4분음표 하나를 8분음표로 복원."""
+    fixed = 0
+    rest_fixed = 0
+    for measure, divisions, expected in _iter_measures_with_timing(part, ns):
+        if not divisions or not expected:
+            continue
+        eighth = divisions // 2
+        if eighth <= 0:
+            continue
+        for (_, _voice), groups in _voice_groups(measure, ns).items():
+            total = 0
+            for leader, _, _, _ in groups:
+                dur = _note_duration(leader, ns)
+                if dur is not None:
+                    total += dur
+            if total == expected:
+                continue
+            if _normalize_overfull_rest_only_voice(groups, ns, expected):
+                rest_fixed += 1
+                continue
+            if total != expected + eighth:
+                continue
+            # 후보: 점·잇단 없음, 순수 4분음표(쉼표 제외)
+            candidates: list[tuple[int, int]] = []  # (index, score)
+            for i, (leader, _, _, _) in enumerate(groups):
+                if _is_rest(leader, ns):
+                    continue
+                if _note_type_text(leader, ns) != "quarter":
+                    continue
+                if leader.find(qname(ns, "dot")) is not None:
+                    continue
+                if leader.find(qname(ns, "time-modification")) is not None:
+                    continue
+                if _note_duration(leader, ns) != divisions:
+                    continue
+                score = 0
+                prev = groups[i - 1][0] if i > 0 else None
+                if prev is not None and prev.find(qname(ns, "dot")) is not None:
+                    score += 4  # ♩. ♪ 패턴의 두번째 음
+                if i == len(groups) - 1 and prev is not None and _is_rest(prev, ns):
+                    score += 3  # 쉼표 뒤 마지막 못갖춘 8분음표
+                if i == 1 and _is_rest(groups[0][0], ns) and _note_duration(groups[0][0], ns) == eighth:
+                    score += 3  # 마디 시작 8분쉼표 직후 첫 음
+                candidates.append((i, score))
+            if not candidates:
+                continue
+            if len(candidates) == 1:
+                pick = candidates[0][0]
+            else:
+                candidates.sort(key=lambda c: c[1], reverse=True)
+                if candidates[0][1] == 0 or candidates[0][1] == candidates[1][1]:
+                    continue  # 근거 불충분 — 건드리지 않음
+                pick = candidates[0][0]
+            _halve_group_to_eighth(groups[pick][1], ns)
+            fixed += 1
+    return fixed, rest_fixed
+
+
+def _group_pitch_map(notes: list[ET.Element], ns: str) -> dict[str, ET.Element]:
+    out: dict[str, ET.Element] = {}
+    for n in notes:
+        label = _pitch_label(n, ns)
+        if label:
+            out.setdefault(label, n)
+    return out
+
+
+def _note_has_tie(note: ET.Element, ns: str, tie_type: str) -> bool:
+    return any(t.get("type") == tie_type for t in note.findall(qname(ns, "tie")))
+
+
+def _add_tie(note: ET.Element, ns: str, tie_type: str) -> None:
+    if not _note_has_tie(note, ns, tie_type):
+        tie = ET.Element(qname(ns, "tie"), attrib={"type": tie_type})
+        dur_idx = None
+        for idx, child in enumerate(note):
+            if local_tag(child) == "duration":
+                dur_idx = idx
+        note.insert(dur_idx + 1 if dur_idx is not None else len(note), tie)
+    notations = note.find(qname(ns, "notations"))
+    if notations is None:
+        notations = ET.SubElement(note, qname(ns, "notations"))
+    if not any(t.get("type") == tie_type for t in notations.findall(qname(ns, "tied"))):
+        ET.SubElement(notations, qname(ns, "tied"), attrib={"type": tie_type})
+
+
+def _measure_starts_new_system(measure: ET.Element, ns: str) -> bool:
+    for pr in measure.findall(qname(ns, "print")):
+        if pr.get("new-system") == "yes" or pr.get("new-page") == "yes":
+            return True
+    return False
+
+
+def _restore_ties_between_measures(part: ET.Element, ns: str) -> tuple[int, int]:
+    """인접 마디 사이 tie 보완.
+
+    1) 화음 일부에만 tie가 남은 경우 — 양쪽 화음에 공통 피치가 더 있으면 tie 확장.
+    2) 줄바꿈(new-system) 경계에서 동일 화음(2음 이상)이 이어지고 앞 음이 더 길면 tie 복원.
+    """
+    completed = 0
+    system_added = 0
+    measures = part.findall(qname(ns, "measure"))
+    for mi in range(len(measures) - 1):
+        cur, nxt = measures[mi], measures[mi + 1]
+        cur_by_voice = _voice_groups(cur, ns)
+        nxt_by_voice = _voice_groups(nxt, ns)
+        for key, cur_groups in cur_by_voice.items():
+            nxt_groups = nxt_by_voice.get(key)
+            if not cur_groups or not nxt_groups:
+                continue
+            a_notes = cur_groups[-1][1]
+            b_notes = nxt_groups[0][1]
+            a_map = _group_pitch_map(a_notes, ns)
+            b_map = _group_pitch_map(b_notes, ns)
+            common = [p for p in a_map if p in b_map]
+            if not common:
+                continue
+            tied_pairs = [
+                p
+                for p in common
+                if _note_has_tie(a_map[p], ns, "start") and _note_has_tie(b_map[p], ns, "stop")
+            ]
+            if tied_pairs:
+                for p in common:
+                    if p in tied_pairs:
+                        continue
+                    if _note_has_tie(a_map[p], ns, "start") or _note_has_tie(b_map[p], ns, "stop"):
+                        continue
+                    _add_tie(a_map[p], ns, "start")
+                    _add_tie(b_map[p], ns, "stop")
+                    completed += 1
+                continue
+            if not _measure_starts_new_system(nxt, ns):
+                continue
+            if len(a_map) < 2 or set(a_map) != set(b_map):
+                continue
+            if any(_note_has_tie(n, ns, "start") for n in a_notes):
+                continue
+            dur_a = _note_duration(cur_groups[-1][0], ns)
+            dur_b = _note_duration(nxt_groups[0][0], ns)
+            if dur_a is None or dur_b is None or dur_a <= dur_b:
+                continue
+            for p in a_map:
+                _add_tie(a_map[p], ns, "start")
+                _add_tie(b_map[p], ns, "stop")
+            system_added += 1
+    return completed, system_added
 
 
 def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
@@ -351,7 +606,20 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "slurs_injected": 0,
         "tuplet_show_number_fixed": 0,
         "tuplet_staccato_removed": 0,
+        "score_patches_applied": 0,
+        "overfull_eighth_fixed": 0,
+        "overfull_rest_normalized": 0,
+        "chord_ties_completed": 0,
+        "system_break_ties_added": 0,
     }
+
+    # 악보별 패턴 패치 (내용 시그니처가 일치할 때만 동작) — 일반 보정보다 먼저.
+    try:
+        from omr_score_patches import apply_score_patches
+
+        stats["score_patches_applied"] = apply_score_patches(root, ns)
+    except ImportError:
+        pass
 
     for part in root.findall(qname(ns, "part")):
         for measure in part.findall(qname(ns, "measure")):
@@ -366,6 +634,14 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 stats["tuplet_staccato_removed"] += 1
             if _fix_tuplet_show_numbers(note, ns):
                 stats["tuplet_show_number_fixed"] += 1
+
+        fixed, rest_fixed = _repair_overfull_eighth(part, ns)
+        stats["overfull_eighth_fixed"] += fixed
+        stats["overfull_rest_normalized"] += rest_fixed
+
+        completed, system_added = _restore_ties_between_measures(part, ns)
+        stats["chord_ties_completed"] += completed
+        stats["system_break_ties_added"] += system_added
 
         if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
             stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
@@ -440,13 +716,7 @@ def main() -> int:
         return 0
     stats = fix_mxl_file(sys.argv[1], sys.argv[2])
     print(
-        "fix_audiveris_mxl: "
-        f"text_nodes_cleared={stats['text_nodes_cleared']} "
-        f"directions_removed={stats['directions_removed']} "
-        f"natural_from_staccato_removed={stats['natural_from_staccato_removed']} "
-        f"slurs_injected={stats.get('slurs_injected', 0)} "
-        f"tuplet_show_number_fixed={stats.get('tuplet_show_number_fixed', 0)} "
-        f"tuplet_staccato_removed={stats.get('tuplet_staccato_removed', 0)}",
+        "fix_audiveris_mxl: " + " ".join(f"{k}={v}" for k, v in sorted(stats.items())),
         file=sys.stderr,
     )
     return 0

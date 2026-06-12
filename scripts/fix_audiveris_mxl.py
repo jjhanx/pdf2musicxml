@@ -1599,6 +1599,85 @@ def _repair_two_quarters_as_triplet_prefix(
     return fixed
 
 
+def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> int:
+    """마디 내의 잇단음(tuplet) 그룹을 검사하여, 쉼표가 섞이지 않은 경우 대괄호를 제거한다.
+
+    속성:
+      - 쉼표 없음: bracket="no", show-bracket="no"
+      - 쉼표 있음: bracket="yes", show-bracket="yes"
+    """
+    fixed = 0
+    for (staff, voice), groups in _voice_groups(measure, ns).items():
+        active_groups: list[dict] = []
+        
+        for grp in groups:
+            starts = []
+            stops = []
+            
+            for n in grp[1]:
+                for notations in n.findall(qname(ns, "notations")):
+                    for tuplet in notations.findall(qname(ns, "tuplet")):
+                        t_type = tuplet.get("type")
+                        if t_type == "start":
+                            starts.append(tuplet)
+                        elif t_type == "stop":
+                            stops.append(tuplet)
+            
+            is_rest_note = False
+            for n in grp[1]:
+                if n.find(qname(ns, "rest")) is not None:
+                    is_rest_note = True
+                    break
+            
+            for g in active_groups:
+                if is_rest_note:
+                    g["has_rest"] = True
+                g["notes"].append(grp)
+                
+            for start_el in starts:
+                active_groups.append({
+                    "start_element": start_el,
+                    "has_rest": is_rest_note,
+                    "notes": [grp]
+                })
+                
+            for stop_el in stops:
+                if active_groups:
+                    g = active_groups.pop()
+                    if g["has_rest"]:
+                        if g["start_element"].get("bracket") != "yes":
+                            g["start_element"].set("bracket", "yes")
+                            fixed += 1
+                        if g["start_element"].get("show-bracket") != "yes":
+                            g["start_element"].set("show-bracket", "yes")
+                            fixed += 1
+                    else:
+                        if g["start_element"].get("bracket") != "no":
+                            g["start_element"].set("bracket", "no")
+                            fixed += 1
+                        if g["start_element"].get("show-bracket") != "no":
+                            g["start_element"].set("show-bracket", "no")
+                            fixed += 1
+                            
+        for g in active_groups:
+            if g["has_rest"]:
+                if g["start_element"].get("bracket") != "yes":
+                    g["start_element"].set("bracket", "yes")
+                    fixed += 1
+                if g["start_element"].get("show-bracket") != "yes":
+                    g["start_element"].set("show-bracket", "yes")
+                    fixed += 1
+            else:
+                if g["start_element"].get("bracket") != "no":
+                    g["start_element"].set("bracket", "no")
+                    fixed += 1
+                if g["start_element"].get("show-bracket") != "no":
+                    g["start_element"].set("show-bracket", "no")
+                    fixed += 1
+                    
+    return fixed
+
+
 def _has_tuplet_element(note: ET.Element, ns: str) -> bool:
     for notations in note.findall(qname(ns, "notations")):
         if notations.findall(qname(ns, "tuplet")):
@@ -1822,6 +1901,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "three_eighth_triplet_fixed": 0,
         "rest_eighth_triplet_fixed": 0,
         "continuation_slurs_added": 0,
+        "tuplet_brackets_adjusted": 0,
     }
 
     # 1) 텍스트 정리 + backup/forward 겹침 voice 병합 (악보 패치보다 먼저)
@@ -1904,6 +1984,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
             stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
         stats["continuation_slurs_added"] += _repair_same_pitch_continuation_slurs(part, ns)
+        
+        for measure in part.findall(qname(ns, "measure")):
+            stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(measure, ns)
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats
@@ -1919,6 +2002,7 @@ def fix_mxl_file(mxl_in: str | Path, mxl_out: str | Path) -> dict[str, int]:
         "slurs_injected": 0,
         "tuplet_show_number_fixed": 0,
         "tuplet_staccato_removed": 0,
+        "tuplet_brackets_adjusted": 0,
     }
 
     with zipfile.ZipFile(mxl_in, "r") as zin:

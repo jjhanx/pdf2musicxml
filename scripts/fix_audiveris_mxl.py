@@ -1031,39 +1031,6 @@ def _consolidate_cross_voices_on_staff(measure: ET.Element, ns: str) -> int:
     return merged
 
 
-def _repair_rest_plus_two_eighths_triplet(
-    measure: ET.Element, ns: str, max_staff: int, triplet_dur: int = 4
-) -> int:
-    """𝄽8 + 8분 2개 패턴을 세잇단(괄호·3)으로 정규화. 앞쪽 음표 길이는 유지."""
-    fixed = 0
-    for (_, _voice), groups in _voice_groups(measure, ns).items():
-        for i in range(len(groups) - 2):
-            rest_g, a_g, b_g = groups[i], groups[i + 1], groups[i + 2]
-            if not _is_rest(rest_g[0], ns):
-                continue
-            if _note_type_text(a_g[0], ns) not in ("eighth", "quarter", None):
-                continue
-            if a_g[0].find(qname(ns, "time-modification")) is not None:
-                continue
-            trio = (rest_g, a_g, b_g)
-            for j, grp in enumerate(trio):
-                for n in grp[1]:
-                    _clear_note_staccato(n, ns)
-                    _ensure_time_modification(n, ns)
-                    _set_note_type_duration(n, ns, triplet_dur, "eighth")
-                    if j == 0:
-                        _set_beam(n, ns, None)
-                    elif j == 1:
-                        _set_beam(n, ns, "begin")
-                    else:
-                        _set_beam(n, ns, "end")
-            plc = _infer_tuplet_placement(a_g[0], ns, max_staff)
-            _ensure_tuplet_bracket(rest_g[0], ns, plc, b_g[0])
-            fixed += 1
-            break
-    return fixed
-
-
 def _repair_two_quarters_as_triplet_prefix(measure: ET.Element, ns: str, max_staff: int) -> int:
     """4분 2개 + 세잇단 8분 연속 — 앞 4분 2개를 첫 세잇단 1·2음으로 복원.
 
@@ -1326,7 +1293,6 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "chord_ties_completed": 0,
         "system_break_ties_added": 0,
         "voice_consolidated": 0,
-        "triplet_rest_repaired": 0,
         "triplet_quarter_prefix_repaired": 0,
         "chord_duplicates_removed": 0,
         "misread_natural_to_sharp": 0,
@@ -1358,9 +1324,6 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 measure, ns, max_staff, divisions or 0
             )
         for measure in part.findall(qname(ns, "measure")):
-            stats["triplet_rest_repaired"] += _repair_rest_plus_two_eighths_triplet(
-                measure, ns, max_staff
-            )
             stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
                 measure, ns, max_staff
             )

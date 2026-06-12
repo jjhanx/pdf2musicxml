@@ -144,9 +144,9 @@ def _insert_after(measure: ET.Element, anchor: ET.Element, new_elements: list[ET
 # (앞 3음 pitch 시퀀스, 복원 (step, octave))
 # ---------------------------------------------------------------------------
 _PICKUP_RESTORES = [
-    (["A4", "B4", "C5"], ("D", "5")),
-    (["C5", "B4", "A4"], ("D", "5")),
-    (["A3", "B3", "C4"], ("D", "4")),
+    (["A4", "B4", "C5"], ("D", "5"), "eighth_after_rest"),
+    (["C5", "B4", "A4"], ("D", "5"), "eighth_after_rest"),
+    (["A3", "B3", "C4"], ("D", "4"), "quarter_replace_rest"),
 ]
 
 
@@ -175,7 +175,7 @@ def _patch_vocal_pickup(measure: ET.Element, ns: str, part: ET.Element) -> int:
     expected = _measure_expected_duration(measure, ns, part)
     if not expected:
         return 0
-    for seq, restore in _PICKUP_RESTORES:
+    for seq, restore, mode in _PICKUP_RESTORES:
         groups = _groups(measure, ns, "1", "1")
         if len(groups) != 4:
             continue
@@ -183,6 +183,9 @@ def _patch_vocal_pickup(measure: ET.Element, ns: str, part: ET.Element) -> int:
         eighth_dur = _duration(groups[1][0], ns) or 1
         if eighth_dur > 3:
             eighth_dur = eighth_dur // 2
+        g1_dur = _duration(groups[1][0], ns) or 0
+        if g1_dur <= eighth_dur:
+            continue
         if not (
             sig[0][2] is True
             and sig[1][2] is False
@@ -194,25 +197,46 @@ def _patch_vocal_pickup(measure: ET.Element, ns: str, part: ET.Element) -> int:
         ):
             continue
         total = sum(_duration(g[0], ns) or 0 for g in groups)
-        if total != expected + eighth_dur:
+        quarter_dur = _duration(groups[2][0], ns) or eighth_dur * 2
+        if total == expected + eighth_dur and mode == "eighth_after_rest":
+            _set_eighth(groups[1][1], ns)
+            if restore is not None:
+                step, octave = restore
+                rest_leader = groups[3][0]
+                staff = _text(rest_leader.find(_qname(ns, "staff")))
+                new_note = _make_note(
+                    ns,
+                    step=step,
+                    octave=octave,
+                    duration=eighth_dur,
+                    note_type="eighth",
+                    voice="1",
+                    staff=staff,
+                    stem="down",
+                )
+                _insert_after(measure, rest_leader, [new_note])
+            applied += 1
             continue
-        _set_eighth(groups[1][1], ns)
-        if restore is not None:
-            step, octave = restore
-            rest_leader = groups[3][0]
-            staff = _text(rest_leader.find(_qname(ns, "staff")))
-            new_note = _make_note(
-                ns,
-                step=step,
-                octave=octave,
-                duration=eighth_dur,
-                note_type="eighth",
-                voice="1",
-                staff=staff,
-                stem="down",
-            )
-            _insert_after(measure, rest_leader, [new_note])
-        applied += 1
+        if total == expected and mode == "quarter_replace_rest":
+            _set_eighth(groups[1][1], ns)
+            if restore is not None:
+                step, octave = restore
+                rest_leader = groups[3][0]
+                idx = list(measure).index(rest_leader)
+                measure.remove(rest_leader)
+                staff = _text(groups[0][0].find(_qname(ns, "staff")))
+                new_note = _make_note(
+                    ns,
+                    step=step,
+                    octave=octave,
+                    duration=quarter_dur,
+                    note_type="quarter",
+                    voice="1",
+                    staff=staff,
+                    stem="down",
+                )
+                measure.insert(idx, new_note)
+            applied += 1
     return applied
 
 
@@ -463,7 +487,7 @@ _PATCHES = [
     _patch_vocal_pickup,
     _patch_sixteenth_dotted_pickup,
     _patch_piano_lost_rhythm_after_dotted,
-    _patch_piano_lost_quarter_after_eighth_run,
+    _patch_piano_voice_split_overlap,
     _patch_piano_lost_whole_chord_tone,
 ]
 

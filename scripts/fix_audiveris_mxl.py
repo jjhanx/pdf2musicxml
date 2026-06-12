@@ -458,7 +458,8 @@ def _halve_group_to_eighth(notes: list[ET.Element], ns: str) -> None:
     for n in notes:
         d = n.find(qname(ns, "duration"))
         if d is not None and d.text and d.text.strip().isdigit():
-            d.text = str(int(d.text.strip()) // 2)
+            new_d = max(1, int(d.text.strip()) // 2)
+            d.text = str(new_d)
         t = n.find(qname(ns, "type"))
         if t is not None:
             t.text = "eighth"
@@ -496,22 +497,74 @@ def _is_eighth_rest_group(leader: ET.Element, ns: str, divisions: int) -> bool:
     )
 
 
-def _adjust_voice_backup(measure: ET.Element, ns: str, staff: str, voice: str, new_total: int) -> None:
-    """해당 staff/voice 직후 첫 backup duration을 new_total로 맞춤."""
-    seen = False
+def _is_quarter_rest_group(leader: ET.Element, ns: str, divisions: int) -> bool:
+    return (
+        _is_rest(leader, ns)
+        and _note_type_text(leader, ns) == "quarter"
+        and _note_duration(leader, ns) == divisions
+    )
+
+
+def _voice_backup_after_notes(
+    measure: ET.Element, ns: str, staff: str, voice: str
+) -> tuple[ET.Element | None, int | None]:
+    """동일 staff/voice의 마지막 음표(비-chord leader) 직후 첫 backup."""
+    last_leader: ET.Element | None = None
     for el in measure:
+        if local_tag(el) != "note":
+            continue
+        v, s = _note_voice_staff(el, ns)
+        if v != voice or s != staff:
+            continue
+        if el.find(qname(ns, "chord")) is None:
+            last_leader = el
+    if last_leader is None:
+        return None, None
+    children = list(measure)
+    start = children.index(last_leader) + 1
+    for el in children[start:]:
         tag = local_tag(el)
-        if tag == "note":
+        if tag == "backup":
+            d = el.find(qname(ns, "duration"))
+            if d is None or not d.text or not d.text.strip().isdigit():
+                return el, None
+            return el, int(d.text.strip())
+        if tag == "note" and el.find(qname(ns, "chord")) is None:
             v, s = _note_voice_staff(el, ns)
             if v == voice and s == staff:
-                seen = True
-            elif seen and el.find(qname(ns, "chord")) is None:
                 break
-        elif tag == "backup" and seen:
-            d = el.find(qname(ns, "duration"))
-            if d is not None:
-                d.text = str(new_total)
-            return
+    return None, None
+
+
+def _other_staff_same_voice_duration_before_backup(
+    measure: ET.Element, ns: str, staff: str, voice: str, after_leader: ET.Element
+) -> int:
+    """after_leader 직후 첫 backup 전, 다른 staff·동일 voice 음표 duration 합."""
+    children = list(measure)
+    start = children.index(after_leader) + 1
+    total = 0
+    for el in children[start:]:
+        tag = local_tag(el)
+        if tag == "backup":
+            break
+        if tag != "note" or el.find(qname(ns, "chord")) is not None:
+            continue
+        v, s = _note_voice_staff(el, ns)
+        if v == voice and s != staff:
+            dur = _note_duration(el, ns)
+            if dur:
+                total += dur
+    return total
+
+
+def _adjust_voice_backup(measure: ET.Element, ns: str, staff: str, voice: str, new_total: int) -> None:
+    """해당 staff/voice 마지막 음표 직후 첫 backup duration을 new_total로 맞춤."""
+    backup_el, _ = _voice_backup_after_notes(measure, ns, staff, voice)
+    if backup_el is None:
+        return
+    d = backup_el.find(qname(ns, "duration"))
+    if d is not None:
+        d.text = str(new_total)
 
 
 def _clone_as_eighth(template: ET.Element, ns: str, eighth_dur: int) -> ET.Element:
@@ -575,7 +628,10 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                     and _is_dotted_quarter_group(g0[0], ns, divisions)
                     and _is_plain_quarter_group(g1[0], ns, divisions)
                     and _is_plain_quarter_group(g2[0], ns, divisions)
-                    and _is_eighth_rest_group(g3[0], ns, divisions)
+                    and (
+                        _is_eighth_rest_group(g3[0], ns, divisions)
+                        or _is_quarter_rest_group(g3[0], ns, divisions)
+                    )
                 ):
                     _halve_group_to_eighth(g1[1], ns)
                     dotted_fixed += 1
@@ -618,35 +674,92 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
             if len(groups) == 2:
                 g0, g1 = groups[0], groups[1]
                 total = sum(_note_duration(g[0], ns) or 0 for g in groups)
-                if not (
+                if (
                     _is_dotted_quarter_group(g0[0], ns, divisions)
                     and _is_plain_quarter_group(g1[0], ns, divisions)
+                    and total == expected + eighth
                 ):
-                    continue
-                if total != expected + eighth:
-                    continue
-                new_total = total - eighth
-                if new_total <= 0:
-                    continue
-                # backup이 voice 합과 일치할 때만 (피아노 cross-voice 레이아웃)
-                backup_el = None
-                seen = False
-                for el in measure:
-                    if local_tag(el) == "note":
-                        v, s = _note_voice_staff(el, ns)
-                        if v == voice and s == staff:
-                            seen = True
-                    elif local_tag(el) == "backup" and seen:
-                        backup_el = el
+                    new_total = total - eighth
+                    backup_el = None
+                    seen = False
+                    for el in measure:
+                        if local_tag(el) == "note":
+                            v, s = _note_voice_staff(el, ns)
+                            if v == voice and s == staff:
+                                seen = True
+                        elif local_tag(el) == "backup" and seen:
+                            backup_el = el
+                            break
+                    if backup_el is not None and new_total > 0:
+                        bd = backup_el.find(qname(ns, "duration"))
+                        if (
+                            bd is not None
+                            and bd.text
+                            and int(bd.text.strip()) == total
+                        ):
+                            _halve_group_to_eighth(g1[1], ns)
+                            _adjust_voice_backup(measure, ns, staff, voice, new_total)
+                            dotted_fixed += 1
+                            continue
+            # 패턴 E: ♩. ♩ … + backup — 피아노 cross-voice (backup duration == voice 합)
+            if (
+                len(groups) >= 2
+                and _is_dotted_quarter_group(groups[0][0], ns, divisions)
+                and _is_plain_quarter_group(groups[1][0], ns, divisions)
+            ):
+                total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+                _, backup_dur = _voice_backup_after_notes(measure, ns, staff, voice)
+                other_staff = _other_staff_same_voice_duration_before_backup(
+                    measure, ns, staff, voice, groups[1][0]
+                )
+                backup_matches = backup_dur is not None and (
+                    backup_dur == total
+                    or (len(groups) == 2 and backup_dur == total + other_staff)
+                )
+                if backup_matches:
+                    if len(groups) >= 3 and _is_plain_quarter_group(
+                        groups[2][0], ns, divisions
+                    ):
+                        _halve_group_to_eighth(groups[1][1], ns)
+                        _adjust_voice_backup(
+                            measure, ns, staff, voice, (backup_dur or total) - eighth
+                        )
+                        dotted_fixed += 1
+                        continue
+                    if len(groups) >= 3 and _is_plain_eighth_group(
+                        groups[2][0], ns, divisions
+                    ):
+                        _halve_group_to_eighth(groups[1][1], ns)
+                        _adjust_voice_backup(
+                            measure, ns, staff, voice, (backup_dur or total) - eighth
+                        )
+                        dotted_fixed += 1
+                        continue
+                    if len(groups) == 2 and other_staff > 0:
+                        _halve_group_to_eighth(groups[1][1], ns)
+                        _adjust_voice_backup(
+                            measure, ns, staff, voice, (backup_dur or total) - eighth
+                        )
+                        dotted_fixed += 1
+                        continue
+            # 패턴 D: ♩. … ♩(들) ♪♪ — 8분 하나 넘침, 점4분 뒤 4분 하나를 8분으로
+            if _is_dotted_quarter_group(groups[0][0], ns, divisions):
+                total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+                if total == expected + eighth:
+                    for qi in range(2, len(groups)):
+                        if not _is_plain_eighth_group(groups[qi][0], ns, divisions):
+                            continue
+                        quarter_idxs = [
+                            j
+                            for j in range(1, qi)
+                            if _is_plain_quarter_group(groups[j][0], ns, divisions)
+                        ]
+                        if not quarter_idxs:
+                            continue
+                        pick = quarter_idxs[0]
+                        _halve_group_to_eighth(groups[pick][1], ns)
+                        dotted_fixed += 1
                         break
-                if backup_el is None:
-                    continue
-                bd = backup_el.find(qname(ns, "duration"))
-                if bd is None or not bd.text or int(bd.text.strip()) != total:
-                    continue
-                _halve_group_to_eighth(g1[1], ns)
-                _adjust_voice_backup(measure, ns, staff, voice, new_total)
-                dotted_fixed += 1
     return dotted_fixed, rest_fixed
 
 
@@ -690,27 +803,9 @@ def _dedupe_chord_members_in_measure(measure: ET.Element, ns: str) -> int:
 
 
 def _fix_misread_natural_as_sharp(note: ET.Element, ns: str) -> bool:
-    """`#` 오인으로 붙은 `<accidental>natural</accidental>`(alter 없음)을 sharp로 복원.
-
-    화음(2음 이상) 안에서만 적용 — 단선율의 정당한 natural은 건드리지 않음.
-    """
-    acc = note.find(qname(ns, "accidental"))
-    if acc is None or (acc.text or "").strip() != "natural":
-        return False
-    pitch = note.find(qname(ns, "pitch"))
-    if pitch is None:
-        return False
-    alter = pitch.find(qname(ns, "alter"))
-    if alter is not None and alter.text and alter.text.strip() not in ("0", "0.0"):
-        return False
-    in_chord = note.find(qname(ns, "chord")) is not None
-    if not in_chord:
-        return False
-    if alter is None:
-        alter = ET.SubElement(pitch, qname(ns, "alter"))
-    alter.text = "1"
-    acc.text = "sharp"
-    return True
+    """(비활성) `#` 오인 natural 복원 — `<accidental>natural</accidental>`는 악보의 제자리표로
+    해석하는 경우가 많아 자동 sharp 변환은 오히려 F♮ 등을 F#로 바꾼다."""
+    return False
 
 
 def _repair_quarter_pair_before_eighths(
@@ -744,6 +839,104 @@ def _repair_quarter_pair_before_eighths(
             _rebeam_group(g1[1], ns, "end")
             fixed += 1
             break
+    return fixed
+
+
+def _note_has_beam(note: ET.Element, ns: str) -> bool:
+    return bool(note.findall(qname(ns, "beam")))
+
+
+def _repair_quarter_pair_after_beam_run(
+    measure: ET.Element, ns: str, divisions: int, expected: int
+) -> int:
+    """빔 8분 run 뒤 연속 4분 2개(화음) — 각각 8분으로 복원.
+
+    Audiveris가 빔으로 묶인 7~8번째 8분화음을 4분화음 2개로 읽는 패턴.
+    """
+    if not divisions or not expected:
+        return 0
+    eighth = divisions // 2
+    fixed = 0
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        if total != expected + divisions:
+            continue
+        for i in range(2, len(groups) - 1):
+            g_prev, g0, g1 = groups[i - 1], groups[i], groups[i + 1]
+            if not (
+                _is_plain_quarter_group(g0[0], ns, divisions)
+                and _is_plain_quarter_group(g1[0], ns, divisions)
+            ):
+                continue
+            if not (
+                _is_plain_eighth_group(g_prev[0], ns, divisions)
+                and _note_has_beam(g_prev[0], ns)
+            ):
+                continue
+            beam_run = 0
+            for k in range(i - 1, -1, -1):
+                if _is_plain_eighth_group(groups[k][0], ns, divisions) and _note_has_beam(
+                    groups[k][0], ns
+                ):
+                    beam_run += 1
+                else:
+                    break
+            if beam_run < 2:
+                continue
+            _halve_group_to_eighth(g0[1], ns)
+            _halve_group_to_eighth(g1[1], ns)
+            prev_beam = None
+            for b in g_prev[0].findall(qname(ns, "beam")):
+                prev_beam = b.text
+            if prev_beam == "end":
+                _set_beam(g_prev[0], ns, "continue")
+                _rebeam_group(g0[1], ns, "begin")
+                _rebeam_group(g1[1], ns, "end")
+            else:
+                _rebeam_group(g0[1], ns, "begin")
+                _rebeam_group(g1[1], ns, "end")
+            fixed += 1
+            break
+    return fixed
+
+
+def _repair_quarter_chord_before_rest(
+    measure: ET.Element, ns: str, divisions: int, expected: int
+) -> int:
+    """빔/잇단 run 뒤 4분 화음 + 4분쉼표 — 화음을 8분으로, 쉼표 duration 보정.
+
+    마디 total==expected 일 때만 (리듬 길이 유지).
+    """
+    if not divisions or not expected:
+        return 0
+    eighth = divisions // 2
+    fixed = 0
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        if len(groups) < 3:
+            continue
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        if total != expected:
+            continue
+        g_q, g_r = groups[-2], groups[-1]
+        if not _is_plain_quarter_group(g_q[0], ns, divisions):
+            continue
+        if not _is_quarter_rest_group(g_r[0], ns, divisions):
+            continue
+        has_run = False
+        for g in groups[:-2]:
+            ld = g[0]
+            if ld.find(qname(ns, "time-modification")) is not None or _note_has_beam(
+                ld, ns
+            ):
+                has_run = True
+                break
+        if not has_run:
+            continue
+        _halve_group_to_eighth(g_q[1], ns)
+        rd = g_r[0].find(qname(ns, "duration"))
+        if rd is not None and rd.text and rd.text.strip().isdigit():
+            rd.text = str(int(rd.text.strip()) + eighth)
+        fixed += 1
     return fixed
 
 
@@ -1116,7 +1309,13 @@ def _ensure_tuplet_bracket(leader: ET.Element, ns: str, placement: str, stop_lea
     ET.SubElement(
         notations,
         qname(ns, "tuplet"),
-        {"type": "start", "show-number": "actual", "placement": placement},
+        {
+            "type": "start",
+            "show-number": "actual",
+            "show-bracket": "yes",
+            "bracket": "yes",
+            "placement": placement,
+        },
     )
     stop_n = stop_leader.find(qname(ns, "notations"))
     if stop_n is None:
@@ -1185,18 +1384,25 @@ def _consolidate_cross_voices_on_staff(measure: ET.Element, ns: str) -> int:
     return merged
 
 
-def _repair_two_quarters_as_triplet_prefix(measure: ET.Element, ns: str, max_staff: int) -> int:
+def _repair_two_quarters_as_triplet_prefix(
+    measure: ET.Element, ns: str, max_staff: int, expected: int
+) -> int:
     """4분 2개 + 세잇단 8분 연속 — 앞 4분 2개를 첫 세잇단 1·2음으로 복원.
 
-    Audiveris가 세잇단 선두 8분 2개를 4분으로 오인한 패턴(피아노 LH 등).
-    마디 voice 선두에서만 적용하며, 이어지는 8분은 모두 time-modification=dur4여야 한다.
+    voice가 4분 하나 넘치고, 앞 4분 화음이 3성부 이상이 아닐 때만.
     """
     fixed = 0
     for (_, _voice), groups in _voice_groups(measure, ns).items():
-        if len(groups) < 5:
+        if len(groups) < 5 or not expected:
             continue
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
         g0, g1 = groups[0], groups[1]
-        if _note_duration(g0[0], ns) != 12 or _note_duration(g1[0], ns) != 12:
+        quarter_dur = _note_duration(g0[0], ns)
+        if quarter_dur is None or total != expected + quarter_dur:
+            continue
+        if len(g0[1]) > 2 or len(g1[1]) > 2:
+            continue
+        if _note_duration(g0[0], ns) != quarter_dur or _note_duration(g1[0], ns) != quarter_dur:
             continue
         if g0[0].find(qname(ns, "time-modification")) is not None:
             continue
@@ -1205,10 +1411,13 @@ def _repair_two_quarters_as_triplet_prefix(measure: ET.Element, ns: str, max_sta
         if g0[0].find(qname(ns, "dot")) or g1[0].find(qname(ns, "dot")):
             continue
         tail = groups[2:]
+        triplet_eighth_dur = _note_duration(tail[0][0], ns)
         if not tail or tail[0][0].find(qname(ns, "time-modification")) is None:
             continue
+        if triplet_eighth_dur is None or triplet_eighth_dur <= 0:
+            continue
         if not all(
-            _note_duration(g[0], ns) == 4
+            _note_duration(g[0], ns) == triplet_eighth_dur
             and g[0].find(qname(ns, "time-modification")) is not None
             for g in tail
         ):
@@ -1218,7 +1427,7 @@ def _repair_two_quarters_as_triplet_prefix(measure: ET.Element, ns: str, max_sta
             for n in grp[1]:
                 _clear_note_staccato(n, ns)
                 _ensure_time_modification(n, ns)
-                _set_note_type_duration(n, ns, 4, "eighth")
+                _set_note_type_duration(n, ns, triplet_eighth_dur, "eighth")
                 _set_beam(n, ns, "begin" if gi == 0 else "continue")
         for n in groups[2][1]:
             _clear_note_staccato(n, ns)
@@ -1250,6 +1459,8 @@ def _add_tuplet_element(
     attrib = {"type": tuplet_type}
     if tuplet_type == "start":
         attrib["show-number"] = "actual"
+        attrib["show-bracket"] = "yes"
+        attrib["bracket"] = "yes"
         if placement:
             attrib["placement"] = placement
     ET.SubElement(notations, qname(ns, "tuplet"), attrib=attrib)
@@ -1473,6 +1684,12 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
                 measure, ns, divisions or 0, expected or 0
             )
+            stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_after_beam_run(
+                measure, ns, divisions or 0, expected or 0
+            )
+            stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_before_rest(
+                measure, ns, divisions or 0, expected or 0
+            )
             stats["two_quarter_voice_eighth_fixed"] += _repair_two_quarter_voice_as_eighths(
                 measure, ns, divisions or 0, expected or 0
             )
@@ -1482,11 +1699,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
                 measure, ns, max_staff, divisions or 0, expected or 0
             )
-        for measure in part.findall(qname(ns, "measure")):
             stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
-                measure, ns, max_staff
+                measure, ns, max_staff, expected or 0
             )
-
         dotted_fixed, lost_eighth = _repair_dotted_quarter_misread(part, ns)
         stats["dotted_quarter_eighth_fixed"] += dotted_fixed
         stats["lost_eighth_restored"] += lost_eighth

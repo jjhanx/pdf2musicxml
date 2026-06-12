@@ -748,6 +748,23 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                         )
                         dotted_fixed += 1
                         continue
+            # 신규 패턴 G: ♩. ♩ ♩ ♪ ♪ (총합 초과) -> ♩. ♪ ♩ ♪ ♪ 로 보정
+            if len(groups) == 5:
+                g0, g1, g2, g3, g4 = groups
+                eighth = divisions // 2
+                quarter = divisions
+                dotted_quarter = quarter + eighth
+                if (
+                    _note_duration(g0[0], ns) == dotted_quarter
+                    and _note_duration(g1[0], ns) == quarter
+                    and _note_duration(g2[0], ns) == quarter
+                    and _note_duration(g3[0], ns) == eighth
+                    and _note_duration(g4[0], ns) == eighth
+                ):
+                    _halve_group_to_eighth(g1[1], ns)
+                    dotted_fixed += 1
+                    continue
+
             # 신규 패턴 F: ♩. ♩ ♩ ♪ ♪ — 8분 하나 넘침, ♩ ♩ 둘 다 ♪ ♪로 바꾸고 끝에 𝄽8 보충
             if len(groups) == 5:
                 g0, g1, g2, g3, g4 = groups
@@ -1680,8 +1697,8 @@ def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> int:
                             g["start_element"].set("show-bracket", "yes")
                             fixed += 1
                     else:
-                        if g["start_element"].get("bracket") != "no":
-                            g["start_element"].set("bracket", "no")
+                        if "bracket" in g["start_element"].attrib:
+                            g["start_element"].attrib.pop("bracket")
                             fixed += 1
                         if "show-bracket" in g["start_element"].attrib:
                             g["start_element"].attrib.pop("show-bracket")
@@ -1696,8 +1713,8 @@ def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> int:
                     g["start_element"].set("show-bracket", "yes")
                     fixed += 1
             else:
-                if g["start_element"].get("bracket") != "no":
-                    g["start_element"].set("bracket", "no")
+                if "bracket" in g["start_element"].attrib:
+                    g["start_element"].attrib.pop("bracket")
                     fixed += 1
                 if "show-bracket" in g["start_element"].attrib:
                     g["start_element"].attrib.pop("show-bracket")

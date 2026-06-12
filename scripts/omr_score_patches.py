@@ -524,9 +524,8 @@ def _patch_piano_m50_accidentals(measure: ET.Element, ns: str) -> int:
             applied += 1
         elif step == "F" and octave == "5":
             acc = n.find(_qname(ns, "accidental"))
-            if acc is None:
-                acc = ET.SubElement(n, _qname(ns, "accidental"))
-            acc.text = "sharp"
+            if acc is not None:
+                n.remove(acc)
             alter = p.find(_qname(ns, "alter"))
             if alter is None:
                 step_el = p.find(_qname(ns, "step"))

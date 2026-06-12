@@ -150,8 +150,31 @@ _PICKUP_RESTORES = [
 ]
 
 
-def _patch_vocal_pickup(measure: ET.Element, ns: str) -> int:
+def _measure_expected_duration(measure: ET.Element, ns: str, part: ET.Element) -> int | None:
+    divisions = beats = beat_type = None
+    for m in part.findall(_qname(ns, "measure")):
+        for attr in m.findall(_qname(ns, "attributes")):
+            d = attr.find(_qname(ns, "divisions"))
+            if d is not None and d.text and d.text.strip().isdigit():
+                divisions = int(d.text.strip())
+            t = attr.find(_qname(ns, "time"))
+            if t is not None:
+                b = t.find(_qname(ns, "beats"))
+                bt = t.find(_qname(ns, "beat-type"))
+                if b is not None and b.text and bt is not None and bt.text:
+                    beats, beat_type = int(b.text), int(bt.text)
+        if m is measure:
+            break
+    if divisions and beats and beat_type:
+        return divisions * beats * 4 // beat_type
+    return None
+
+
+def _patch_vocal_pickup(measure: ET.Element, ns: str, part: ET.Element) -> int:
     applied = 0
+    expected = _measure_expected_duration(measure, ns, part)
+    if not expected:
+        return 0
     for seq, restore in _PICKUP_RESTORES:
         groups = _groups(measure, ns, "1", "1")
         if len(groups) != 4:
@@ -169,6 +192,9 @@ def _patch_vocal_pickup(measure: ET.Element, ns: str) -> int:
             and frozenset([seq[1]]) <= sig[1][0]
             and frozenset([seq[2]]) <= sig[2][0]
         ):
+            continue
+        total = sum(_duration(g[0], ns) or 0 for g in groups)
+        if total != expected + eighth_dur:
             continue
         _set_eighth(groups[1][1], ns)
         if restore is not None:
@@ -438,7 +464,6 @@ _PATCHES = [
     _patch_sixteenth_dotted_pickup,
     _patch_piano_lost_rhythm_after_dotted,
     _patch_piano_lost_quarter_after_eighth_run,
-    _patch_piano_voice_split_overlap,
     _patch_piano_lost_whole_chord_tone,
 ]
 
@@ -449,6 +474,11 @@ def apply_score_patches(root: ET.Element, ns: str) -> int:
         for measure in part.findall(_qname(ns, "measure")):
             for patch in _PATCHES:
                 try:
+                    if patch is _patch_vocal_pickup:
+                        applied += patch(measure, ns, part)
+                    else:
+                        applied += patch(measure, ns)
+                except TypeError:
                     applied += patch(measure, ns)
                 except Exception:
                     continue

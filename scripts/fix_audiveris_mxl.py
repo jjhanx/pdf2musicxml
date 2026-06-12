@@ -352,13 +352,13 @@ def _max_staff_in_part(part: ET.Element, ns: str) -> int:
 
 
 def _infer_tuplet_placement(note: ET.Element, ns: str, max_staff: int) -> str:
-    """세잇단 숫자 placement — 2단 악기의 아래 staff는 윗 staff·빔과 겹치지 않게 위쪽."""
+    """세잇단 숫자 placement — 빔 쪽(stem down → below, stem up → above)."""
     stem = _stem_direction(note, ns)
-    staff_el = note.find(qname(ns, "staff"))
-    staff_num = int(staff_el.text.strip()) if staff_el is not None and staff_el.text else 1
-    if max_staff >= 2 and staff_num >= 2:
+    if stem == "down":
+        return "below"
+    if stem == "up":
         return "above"
-    return "below" if stem == "down" else "above"
+    return "above"
 
 
 def _fix_tuplet_show_numbers(note: ET.Element, ns: str, max_staff: int = 1) -> bool:
@@ -374,6 +374,8 @@ def _fix_tuplet_show_numbers(note: ET.Element, ns: str, max_staff: int = 1) -> b
                 tuplet.set("show-number", "actual")
                 changed = True
             if actual == 3:
+                if note.find(qname(ns, "rest")) is not None:
+                    continue
                 desired = _infer_tuplet_placement(note, ns, max_staff)
                 if tuplet.get("placement") != desired:
                     tuplet.set("placement", desired)
@@ -569,7 +571,7 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                 g0, g1, g2, g3 = groups
                 total = sum(_note_duration(g[0], ns) or 0 for g in groups)
                 if (
-                    total == expected
+                    total == expected + eighth
                     and _is_dotted_quarter_group(g0[0], ns, divisions)
                     and _is_plain_quarter_group(g1[0], ns, divisions)
                     and _is_plain_quarter_group(g2[0], ns, divisions)
@@ -612,14 +614,16 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                     dotted_fixed += 1
                     rest_fixed += 1
                     continue
-            # 패턴 B: ♩. ♩ (피아노 voice1 등, backup 직후 다른 voice)
-            if len(groups) >= 2:
+            # 패턴 B: ♩. ♩ (피아노 voice1 등, backup 직후 다른 voice) — voice에 4분 2개뿐일 때만
+            if len(groups) == 2:
                 g0, g1 = groups[0], groups[1]
                 total = sum(_note_duration(g[0], ns) or 0 for g in groups)
                 if not (
                     _is_dotted_quarter_group(g0[0], ns, divisions)
                     and _is_plain_quarter_group(g1[0], ns, divisions)
                 ):
+                    continue
+                if total != expected + eighth:
                     continue
                 new_total = total - eighth
                 if new_total <= 0:
@@ -709,14 +713,25 @@ def _fix_misread_natural_as_sharp(note: ET.Element, ns: str) -> bool:
     return True
 
 
-def _repair_quarter_pair_before_eighths(measure: ET.Element, ns: str, divisions: int) -> int:
-    """연속 4분 2개 + 8분 run — 앞 4분 2개를 빔 8분으로 복원."""
-    if not divisions:
+def _repair_quarter_pair_before_eighths(
+    measure: ET.Element, ns: str, divisions: int, expected: int
+) -> int:
+    """연속 4분 2개 + 8분 run — 앞 4분 2개를 빔 8분으로 복원.
+
+    voice가 4분 하나 분량 초과이고, 점4분 뒤가 아닐 때만 적용.
+    """
+    if not divisions or not expected:
         return 0
+    eighth = divisions // 2
     fixed = 0
     for (_, _voice), groups in _voice_groups(measure, ns).items():
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        if total != expected + divisions:
+            continue
         for i in range(len(groups) - 2):
             g0, g1, g2 = groups[i], groups[i + 1], groups[i + 2]
+            if i > 0 and _is_dotted_quarter_group(groups[i - 1][0], ns, divisions):
+                continue
             if not (
                 _is_plain_quarter_group(g0[0], ns, divisions)
                 and _is_plain_quarter_group(g1[0], ns, divisions)
@@ -765,6 +780,115 @@ def _note_has_staccato(note: ET.Element, ns: str) -> bool:
             if any(local_tag(a) == "staccato" for a in arts):
                 return True
     return False
+
+
+def _note_has_fermata(note: ET.Element, ns: str) -> bool:
+    for notations in note.findall(qname(ns, "notations")):
+        if notations.find(qname(ns, "fermata")) is not None:
+            return True
+    return False
+
+
+def _measure_has_p_dynamic(measure: ET.Element, ns: str) -> bool:
+    for direction in measure.findall(qname(ns, "direction")):
+        for dtype in direction.findall(qname(ns, "direction-type")):
+            dynamics = dtype.find(qname(ns, "dynamics"))
+            if dynamics is not None and dynamics.find(qname(ns, "p")) is not None:
+                return True
+    return False
+
+
+def _groups_are_beamed_together(leader0: ET.Element, leader1: ET.Element, ns: str) -> bool:
+    b0 = leader0.findall(qname(ns, "beam"))
+    b1 = leader1.findall(qname(ns, "beam"))
+    if not b0 or not b1:
+        return False
+    return any(b.text in ("begin", "continue", "end") for b in b0) and any(
+        b.text in ("begin", "continue", "end") for b in b1
+    )
+
+
+def _repair_eighth_rest_plus_two_eighths_triplet(
+    measure: ET.Element, ns: str, max_staff: int, divisions: int, expected: int
+) -> int:
+    """8분쉼표 + 빔 8분 2개( staccato / p ) → 세잇단 — triplet 표기만 빠진 경우."""
+    if not divisions or not expected:
+        return 0
+    eighth = divisions // 2
+    triplet_dur = max(1, (eighth * 2) // 3)
+    triplet_saving = 3 * eighth - 3 * triplet_dur
+    if triplet_saving <= 0:
+        return 0
+    has_dyn_p = _measure_has_p_dynamic(measure, ns)
+    fixed = 0
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        if total != expected + triplet_saving:
+            continue
+        for i in range(len(groups) - 2):
+            g0, g1, g2 = groups[i], groups[i + 1], groups[i + 2]
+            if not _is_eighth_rest_group(g0[0], ns, divisions):
+                continue
+            if not (
+                _is_plain_eighth_group(g1[0], ns, divisions)
+                and _is_plain_eighth_group(g2[0], ns, divisions)
+            ):
+                continue
+            if not _groups_are_beamed_together(g1[0], g2[0], ns):
+                continue
+            if not (
+                any(_note_has_staccato(n, ns) for n in g1[1])
+                or has_dyn_p
+            ):
+                continue
+            for j, grp in enumerate((g0, g1, g2)):
+                for n in grp[1]:
+                    _clear_note_staccato(n, ns)
+                    _strip_tuplet_notations(n, ns)
+                    _ensure_time_modification(n, ns)
+                    _set_note_type_duration(n, ns, triplet_dur, "eighth")
+                    _rebeam_group(
+                        [n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue")
+                    )
+            plc = _infer_tuplet_placement(g1[0], ns, max_staff)
+            _ensure_tuplet_bracket(g0[0], ns, plc, g2[0])
+            fixed += 1
+            break
+    return fixed
+
+
+def _repair_same_pitch_continuation_slurs(part: ET.Element, ns: str) -> int:
+    """같은 음고로 이어지는 선율(이음줄) — tie 없이 slur만 빠진 경우."""
+    fixed = 0
+    slur_num = 10
+    for measure in part.findall(qname(ns, "measure")):
+        for (_, _voice), groups in _voice_groups(measure, ns).items():
+            for i in range(len(groups) - 1):
+                g0, g1 = groups[i], groups[i + 1]
+                if _is_rest(g0[0], ns) or _is_rest(g1[0], ns):
+                    continue
+                lab0 = _pitch_label(g0[0], ns)
+                lab1 = _pitch_label(g1[0], ns)
+                if not lab0 or lab0 != lab1:
+                    continue
+                d0 = _note_duration(g0[0], ns) or 0
+                d1 = _note_duration(g1[0], ns) or 0
+                if d1 <= d0:
+                    continue
+                if d0 <= 0 or d1 < 4 * d0:
+                    continue
+                if _note_has_tie(g0[0], ns, "stop") or _note_has_tie(g1[0], ns, "start"):
+                    continue
+                if _has_slur(g0[0], ns, slur_num, "stop") or _has_slur(
+                    g1[0], ns, slur_num, "start"
+                ):
+                    continue
+                if _add_slur_to_note(g0[0], ns, "start", slur_num) and _add_slur_to_note(
+                    g1[0], ns, "stop", slur_num
+                ):
+                    fixed += 1
+                    slur_num += 1
+    return fixed
 
 
 def _repair_three_eighths_as_triplet(
@@ -862,8 +986,30 @@ def _repair_overfull_eighth(part: ET.Element, ns: str) -> tuple[int, int]:
                     continue
                 score = 0
                 prev = groups[i - 1][0] if i > 0 else None
-                if prev is not None and prev.find(qname(ns, "dot")) is not None:
-                    score += 4  # ♩. ♪ 패턴의 두번째 음
+                nxt = groups[i + 1][0] if i + 1 < len(groups) else None
+                if prev is not None:
+                    prev_dur = _note_duration(prev, ns) or 0
+                    if prev_dur >= 2 * divisions:
+                        score -= 10
+                    if (
+                        _is_plain_quarter_group(prev, ns, divisions)
+                        and prev.find(qname(ns, "dot")) is None
+                    ):
+                        score -= 8
+                    if prev.find(qname(ns, "dot")) is not None:
+                        if nxt is not None and _is_plain_eighth_group(nxt, ns, divisions):
+                            eighth_run = 0
+                            for k in range(i + 1, len(groups)):
+                                if _is_plain_eighth_group(groups[k][0], ns, divisions):
+                                    eighth_run += 1
+                                else:
+                                    break
+                            if eighth_run >= 2:
+                                score -= 10
+                            else:
+                                score += 4
+                        else:
+                            score -= 8
                 if i == len(groups) - 1 and prev is not None and _is_rest(prev, ns):
                     score += 3  # 쉼표 뒤 마지막 못갖춘 8분음표
                 if i == 1 and _is_rest(groups[0][0], ns) and _note_duration(groups[0][0], ns) == eighth:
@@ -872,6 +1018,8 @@ def _repair_overfull_eighth(part: ET.Element, ns: str) -> tuple[int, int]:
             if not candidates:
                 continue
             if len(candidates) == 1:
+                if candidates[0][1] <= 0:
+                    continue
                 pick = candidates[0][0]
             else:
                 candidates.sort(key=lambda c: c[1], reverse=True)
@@ -1003,6 +1151,12 @@ def _consolidate_cross_voices_on_staff(measure: ET.Element, ns: str) -> int:
                 continue
             sec_voice, sec_staff = _note_voice_staff(first_sec, ns)
             if not sec_voice or not sec_staff:
+                continue
+            if any(_note_has_fermata(n, ns) for n in measure.findall(qname(ns, "note")) if _note_voice_staff(n, ns) == (sec_voice, sec_staff)):
+                continue
+            forward_el = children[i + 1]
+            fd = forward_el.find(qname(ns, "duration"))
+            if fd is not None and fd.text and fd.text.strip().isdigit() and int(fd.text.strip()) > 0:
                 continue
             pri_voice = None
             for k in range(i - 1, -1, -1):
@@ -1299,6 +1453,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "quarter_pair_eighth_fixed": 0,
         "two_quarter_voice_eighth_fixed": 0,
         "three_eighth_triplet_fixed": 0,
+        "rest_eighth_triplet_fixed": 0,
+        "continuation_slurs_added": 0,
     }
 
     # 1) 텍스트 정리 + backup/forward 겹침 voice 병합 (악보 패치보다 먼저)
@@ -1315,13 +1471,16 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         for measure, divisions, expected in _iter_measures_with_timing(part, ns):
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
             stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
-                measure, ns, divisions or 0
+                measure, ns, divisions or 0, expected or 0
             )
             stats["two_quarter_voice_eighth_fixed"] += _repair_two_quarter_voice_as_eighths(
                 measure, ns, divisions or 0, expected or 0
             )
             stats["three_eighth_triplet_fixed"] += _repair_three_eighths_as_triplet(
                 measure, ns, max_staff, divisions or 0
+            )
+            stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
+                measure, ns, max_staff, divisions or 0, expected or 0
             )
         for measure in part.findall(qname(ns, "measure")):
             stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
@@ -1367,6 +1526,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
 
         if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
             stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
+        stats["continuation_slurs_added"] += _repair_same_pitch_continuation_slurs(part, ns)
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats

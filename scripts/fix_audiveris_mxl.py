@@ -306,18 +306,28 @@ def _tuplet_actual_notes(note: ET.Element, ns: str) -> int | None:
 
 
 def _remove_beam_side_staccato_on_tuplet(note: ET.Element, ns: str) -> bool:
-    if _tuplet_actual_notes(note, ns) is None:
-        return False
+    """잇단 숫자 '3'을 빔 쪽 staccato로 오인한 Articulation 제거.
+
+    time-modification이 있거나 빔이 있는 음표에서, stem과 같은 쪽 placement의
+    staccato(또는 placement 없는 staccato)를 제거한다.
+    """
     stem_el = note.find(qname(ns, "stem"))
     stem = (stem_el.text or "").strip() if stem_el is not None and stem_el.text else ""
     if stem not in ("up", "down"):
+        return False
+    has_beam = bool(note.findall(qname(ns, "beam")))
+    has_tm = _tuplet_actual_notes(note, ns) is not None
+    if not has_beam and not has_tm:
         return False
     beam_side = "above" if stem == "up" else "below"
     removed = False
     for notations in list(note.findall(qname(ns, "notations"))):
         for arts in list(notations.findall(qname(ns, "articulations"))):
             for art in list(arts):
-                if local_tag(art) == "staccato" and art.get("placement") == beam_side:
+                if local_tag(art) != "staccato":
+                    continue
+                plc = art.get("placement")
+                if plc == beam_side or (has_beam and plc is None):
                     arts.remove(art)
                     removed = True
             if len(arts) == 0:
@@ -523,7 +533,7 @@ def _replace_rest_group_with_eighth(
 def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]:
     """♩. 뒤 8분음표를 4분으로 읽고 마지막 8분을 쉼표로 대체한 Audiveris 패턴 복구.
 
-    패턴 A (성부·단일 보이스): ♩. ♩ ♩ 𝄽(8분) — 2번째 ♩→8분, 쉼표→2번째 음표 높이의 8분음표.
+    패턴 A (성부·단일 보이스): ♩. ♩ ♩ 𝄽(8분) — 2번째 ♩→8분만 (끝 쉼표는 유지).
     패턴 B (피아노 등): ♩. ♩ 직후 backup — 2번째 ♩→8분, backup duration도 함께 줄임.
     """
     dotted_fixed = 0
@@ -547,9 +557,7 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                     and _is_eighth_rest_group(g3[0], ns, divisions)
                 ):
                     _halve_group_to_eighth(g1[1], ns)
-                    _replace_rest_group_with_eighth(measure, g3[0], g1[0], ns, eighth)
                     dotted_fixed += 1
-                    rest_fixed += 1
                     continue
             # 패턴 B: ♩. ♩ (피아노 voice1 등, backup 직후 다른 voice)
             if len(groups) >= 2:

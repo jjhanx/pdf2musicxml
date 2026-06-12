@@ -143,44 +143,53 @@ def _insert_after(measure: ET.Element, anchor: ET.Element, new_elements: list[ET
 # 패치 1 — 합창 성부 "♩. ♪ ♩ 𝄾 ♪" 마디에서 마지막 8분음표가 유실되고
 # 두번째 8분음표가 4분음표로 읽힌 경우 (인쇄 19마디 S/T, 35마디 B).
 # ---------------------------------------------------------------------------
+# (measure number, [p1, p2, p3], 복원 피치(step, octave) — None이면 쉼표 유지)
 _PICKUP_RESTORES = [
-    # (measure number, [p1, p2, p3], 복원 피치(step, octave))
     ("18", ["A4", "B4", "C5"], ("D", "5")),
     ("18", ["C5", "B4", "A4"], ("D", "5")),
-    ("34", ["A3", "B3", "C4"], ("D", "4")),
+    ("34", ["A3", "B3", "C4"], None),
 ]
 
 
 def _patch_vocal_pickup(measure: ET.Element, ns: str) -> int:
     applied = 0
-    for mnum, seq, (step, octave) in _PICKUP_RESTORES:
+    for mnum, seq, restore in _PICKUP_RESTORES:
         if measure.get("number") != mnum:
             continue
         groups = _groups(measure, ns, "1", "1")
         if len(groups) != 4:
             continue
         sig = _sig(groups, ns)
-        if (
-            sig[0] == (frozenset([seq[0]]), 3, True)
-            and sig[1] == (frozenset([seq[1]]), 2, False)
-            and sig[2] == (frozenset([seq[2]]), 2, False)
-            and sig[3] == (frozenset(["REST"]), 1, False)
+        eighth_dur = _duration(groups[1][0], ns) or 1
+        if eighth_dur > 3:
+            eighth_dur = eighth_dur // 2
+        if not (
+            sig[0][2] is True
+            and sig[1][2] is False
+            and sig[2][2] is False
+            and sig[3][0] == frozenset(["REST"])
+            and frozenset([seq[0]]) <= sig[0][0]
+            and frozenset([seq[1]]) <= sig[1][0]
+            and frozenset([seq[2]]) <= sig[2][0]
         ):
-            _set_eighth(groups[1][1], ns)
+            continue
+        _set_eighth(groups[1][1], ns)
+        if restore is not None:
+            step, octave = restore
             rest_leader = groups[3][0]
             staff = _text(rest_leader.find(_qname(ns, "staff")))
             new_note = _make_note(
                 ns,
                 step=step,
                 octave=octave,
-                duration=1,
+                duration=eighth_dur,
                 note_type="eighth",
                 voice="1",
                 staff=staff,
                 stem="down",
             )
             _insert_after(measure, rest_leader, [new_note])
-            applied += 1
+        applied += 1
     return applied
 
 
@@ -207,48 +216,281 @@ def _patch_piano_m18(measure: ET.Element, ns: str) -> int:
             )
             _insert_after(measure, groups[2][1][-1], [rest])
             applied += 1
-    # 레이아웃 B — voice2: ♩. 𝄽(8분) (서버 산출물 omr-work-0de3cdf2 등)
-    g2 = _groups(measure, ns, "1", "2")
-    if len(g2) == 2:
-        sig2 = _sig(g2, ns)
-        rest_dur = sig2[1][1] if len(sig2) > 1 else None
-        if (
-            sig2[0][0] == frozenset(["A4", "A5"])
-            and sig2[0][2] is True
-            and sig2[1][0] == frozenset(["REST"])
-            and rest_dur is not None
-            and sig2[1][2] is False
-        ):
-            rest_leader = g2[1][0]
-            idx = list(measure).index(rest_leader)
-            measure.remove(rest_leader)
-            notes = [
-                _make_note(
-                    ns,
-                    step="B",
-                    octave="4",
-                    duration=rest_dur,
-                    note_type="eighth",
-                    voice="2",
-                    staff="1",
-                    stem="down",
-                ),
-                _make_note(
-                    ns,
-                    step="A",
-                    octave="5",
-                    duration=rest_dur,
-                    note_type="eighth",
-                    voice="2",
-                    staff="1",
-                    stem="down",
-                    chord=True,
-                ),
-            ]
-            for i, n in enumerate(notes):
-                measure.insert(idx + i, n)
-            applied += 1
     return applied
+
+
+# ---------------------------------------------------------------------------
+# 패치 2c — 피아노 오른손 인쇄 25마디: 빔으로 이어진 첫 두 8분 화음이 각각 4분으로
+# 오인됨 (MXL m24 staff1 voice1).
+# ---------------------------------------------------------------------------
+def _patch_piano_m24_rh(measure: ET.Element, ns: str) -> int:
+    if measure.get("number") != "24":
+        return 0
+    groups = _groups(measure, ns, "1", "1")
+    if len(groups) != 2:
+        return 0
+    sig = _sig(groups, ns)
+    if not (
+        sig[0][0] == frozenset(["D4", "D5"])
+        and sig[1][0] == frozenset(["B4", "B5"])
+        and sig[0][2] is False
+        and sig[1][2] is False
+    ):
+        return 0
+    _set_eighth(groups[0][1], ns)
+    _set_eighth(groups[1][1], ns)
+    for i, leader in enumerate((groups[0][0], groups[1][0])):
+        for b in list(leader.findall(_qname(ns, "beam"))):
+            leader.remove(b)
+        ET.SubElement(leader, _qname(ns, "beam"), {"number": "1"}).text = (
+            "begin" if i == 0 else "end"
+        )
+        for ch in groups[i][1]:
+            if ch is leader:
+                continue
+            for b in list(ch.findall(_qname(ns, "beam"))):
+                ch.remove(b)
+            ET.SubElement(ch, _qname(ns, "beam"), {"number": "1"}).text = (
+                "begin" if i == 0 else "end"
+            )
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# 패치 2d — 피아노 왼손 인쇄 29마디: 𝄽8 + 8분 2개가 세잇단(괄호·3)인데 스타카토만
+# 남음 (MXL m28 staff2). 잘못 앞에 붙은 C4 음표 제거.
+# ---------------------------------------------------------------------------
+def _add_triplet_mod(note: ET.Element, ns: str, actual: int = 3, normal: int = 2) -> None:
+    tm = note.find(_qname(ns, "time-modification"))
+    if tm is None:
+        dur_el = note.find(_qname(ns, "duration"))
+        idx = list(note).index(dur_el) + 1 if dur_el is not None else len(note)
+        tm = ET.Element(_qname(ns, "time-modification"))
+        note.insert(idx, tm)
+    an = tm.find(_qname(ns, "actual-notes"))
+    if an is None:
+        an = ET.SubElement(tm, _qname(ns, "actual-notes"))
+    an.text = str(actual)
+    nn = tm.find(_qname(ns, "normal-notes"))
+    if nn is None:
+        nn = ET.SubElement(tm, _qname(ns, "normal-notes"))
+    nn.text = str(normal)
+
+
+def _add_tuplet_tag(note: ET.Element, ns: str, tuplet_type: str, placement: str | None = None) -> None:
+    notations = note.find(_qname(ns, "notations"))
+    if notations is None:
+        notations = ET.SubElement(note, _qname(ns, "notations"))
+    attrib = {"type": tuplet_type}
+    if tuplet_type == "start":
+        attrib["show-number"] = "actual"
+        if placement:
+            attrib["placement"] = placement
+    ET.SubElement(notations, _qname(ns, "tuplet"), attrib=attrib)
+
+
+def _clear_staccato(note: ET.Element, ns: str) -> None:
+    for notations in list(note.findall(_qname(ns, "notations"))):
+        for arts in list(notations.findall(_qname(ns, "articulations"))):
+            for art in list(arts):
+                if _local(art) == "staccato":
+                    arts.remove(art)
+            if len(arts) == 0:
+                notations.remove(arts)
+
+
+def _patch_piano_m28_lh(measure: ET.Element, ns: str) -> int:
+    if measure.get("number") != "28":
+        return 0
+    groups = _groups(measure, ns, "2", "5")
+    rest_idx = next(
+        (i for i, g in enumerate(groups) if g[0].find(_qname(ns, "rest")) is not None),
+        None,
+    )
+    if rest_idx is None:
+        return 0
+    # 𝄽8 직전에 Audiveris가 C4 등 잘못 넣은 음표 제거
+    if rest_idx > 0 and groups[rest_idx - 1][0].find(_qname(ns, "rest")) is None:
+        for n in groups[rest_idx - 1][1]:
+            measure.remove(n)
+        groups = _groups(measure, ns, "2", "5")
+        rest_idx = next(
+            (i for i, g in enumerate(groups) if g[0].find(_qname(ns, "rest")) is not None),
+            None,
+        )
+        if rest_idx is None:
+            return 0
+    if rest_idx + 2 >= len(groups):
+        return 0
+    rest_g, a_g, d_g = groups[rest_idx], groups[rest_idx + 1], groups[rest_idx + 2]
+    if _pitch_label(a_g[0], ns) != "A3" or _pitch_label(d_g[0], ns) != "D3":
+        return 0
+    dur = _duration(rest_g[0], ns) or 6
+    for i, grp in enumerate((rest_g, a_g, d_g)):
+        for n in grp[1]:
+            _clear_staccato(n, ns)
+            _add_triplet_mod(n, ns)
+            typ = n.find(_qname(ns, "type"))
+            if typ is not None:
+                typ.text = "eighth"
+            d = n.find(_qname(ns, "duration"))
+            if d is not None:
+                d.text = str(dur)
+            for b in list(n.findall(_qname(ns, "beam"))):
+                n.remove(b)
+            if not n.find(_qname(ns, "rest")):
+                ET.SubElement(n, _qname(ns, "beam"), {"number": "1"}).text = (
+                    "begin" if i == 1 else ("end" if i == 2 else "continue")
+                )
+    _add_tuplet_tag(rest_g[0], ns, "start", "below")
+    _add_tuplet_tag(d_g[0], ns, "stop")
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# 패치 2e — PL 인쇄 41·43마디: 세잇단 '3'→스타카토, time-modification 누락
+# ---------------------------------------------------------------------------
+def _patch_piano_m41_lh(measure: ET.Element, ns: str) -> int:
+    if measure.get("number") != "40":
+        return 0
+    groups = _groups(measure, ns, "2", "5")
+    if len(groups) < 4:
+        return 0
+    # B1 triplet 뒤 D#3 F#3 B2
+    idx = next((i for i, g in enumerate(groups) if _pitch_label(g[0], ns) == "D#3"), None)
+    if idx is None or idx + 2 >= len(groups):
+        return 0
+    trio = groups[idx : idx + 3]
+    if [_pitch_label(t[0], ns) for t in trio] != ["D#3", "F#3", "B2"]:
+        return 0
+    dur = _duration(trio[0][0], ns) or 6
+    for i, (_, notes) in enumerate(trio):
+        for n in notes:
+            _clear_staccato(n, ns)
+            _add_triplet_mod(n, ns)
+            d = n.find(_qname(ns, "duration"))
+            if d is not None:
+                d.text = str(dur * 2 // 3)
+            typ = n.find(_qname(ns, "type"))
+            if typ is not None:
+                typ.text = "eighth"
+            for b in list(n.findall(_qname(ns, "beam"))):
+                n.remove(b)
+            ET.SubElement(n, _qname(ns, "beam"), {"number": "1"}).text = (
+                "begin" if i == 0 else ("end" if i == 2 else "continue")
+            )
+    _add_tuplet_tag(trio[0][0], ns, "start", "below")
+    _add_tuplet_tag(trio[2][0], ns, "stop")
+    return 1
+
+
+def _patch_piano_m43_lh(measure: ET.Element, ns: str) -> int:
+    if measure.get("number") != "42":
+        return 0
+    applied = 0
+    for voice in ("5", "6"):
+        groups = _groups(measure, ns, "2", voice)
+        for g in groups:
+            for n in g[1]:
+                _clear_staccato(n, ns)
+            if g[0].find(_qname(ns, "time-modification")) is not None:
+                for t in g[0].findall(f".//{_qname(ns, 'tuplet')}"):
+                    if t.get("type") == "start":
+                        t.set("show-number", "actual")
+                        if not t.get("placement"):
+                            t.set("placement", "below")
+                applied += 1
+    return min(applied, 1)
+
+
+# ---------------------------------------------------------------------------
+# 패치 2f — PR 인쇄 49·51마디: # 오인 → natural/중복 음·제자리표
+# ---------------------------------------------------------------------------
+def _dedupe_chord_pitches(measure: ET.Element, leader: ET.Element, notes: list[ET.Element], ns: str) -> None:
+    """화음 leader와 동일한 pitch의 chord 멤버 제거."""
+    seen: set[str | None] = {_pitch_label(leader, ns)}
+    for n in list(notes):
+        if n is leader:
+            continue
+        lab = _pitch_label(n, ns)
+        if lab in seen:
+            measure.remove(n)
+        elif lab is not None:
+            seen.add(lab)
+
+
+def _fix_misread_sharp_as_natural(note: ET.Element, ns: str, step: str, octave: str) -> None:
+    if _text(note.find(_qname(ns, "accidental"))) != "natural":
+        return
+    pitch = note.find(_qname(ns, "pitch"))
+    if pitch is None or _text(pitch.find(_qname(ns, "step"))) != step:
+        return
+    if _text(pitch.find(_qname(ns, "octave"))) != octave:
+        return
+    _fix_chord_leader_accidental(note, ns, step, octave, 1)
+
+
+def _fix_chord_leader_accidental(leader: ET.Element, ns: str, step: str, octave: str, alter: int) -> None:
+    pitch = leader.find(_qname(ns, "pitch"))
+    if pitch is None:
+        return
+    if _text(pitch.find(_qname(ns, "step"))) != step or _text(pitch.find(_qname(ns, "octave"))) != octave:
+        return
+    acc_el = leader.find(_qname(ns, "accidental"))
+    if acc_el is not None:
+        leader.remove(acc_el)
+    alter_el = pitch.find(_qname(ns, "alter"))
+    if alter == 0:
+        if alter_el is not None:
+            pitch.remove(alter_el)
+    else:
+        if alter_el is None:
+            alter_el = ET.SubElement(pitch, _qname(ns, "alter"))
+        alter_el.text = str(alter)
+        ET.SubElement(leader, _qname(ns, "accidental")).text = (
+            "sharp" if alter == 1 else "flat" if alter == -1 else "natural"
+        )
+
+
+def _patch_piano_m48_rh(measure: ET.Element, ns: str) -> int:
+    if measure.get("number") != "48":
+        return 0
+    groups = _groups(measure, ns, "1", "1")
+    if not groups:
+        return 0
+    leader, notes = groups[0]
+    labels = [_pitch_label(n, ns) for n in notes]
+    if labels.count("D5") < 2:
+        return 0
+    _dedupe_chord_pitches(measure, leader, notes, ns)
+    for n in groups[0][1]:
+        _fix_misread_sharp_as_natural(n, ns, "G", "5")
+    return 1
+
+
+def _patch_piano_m50_rh(measure: ET.Element, ns: str) -> int:
+    if measure.get("number") != "50":
+        return 0
+    groups = _groups(measure, ns, "1", "1")
+    if not groups:
+        return 0
+    leader, notes = groups[0]
+    labels = [_pitch_label(n, ns) for n in notes]
+    if labels.count("D5") < 2:
+        return 0
+    _dedupe_chord_pitches(measure, leader, notes, ns)
+    for g in groups:
+        for n in g[1]:
+            pitch = n.find(_qname(ns, "pitch"))
+            if pitch is None:
+                continue
+            st = _text(pitch.find(_qname(ns, "step")))
+            oct_ = _text(pitch.find(_qname(ns, "octave")))
+            if st == "F" and oct_ == "5":
+                _fix_misread_sharp_as_natural(n, ns, "F", "5")
+            elif st == "D" and oct_ == "5":
+                _fix_misread_sharp_as_natural(n, ns, "D", "5")
+    return 1
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +552,13 @@ def _patch_piano_m44_rh(measure: ET.Element, ns: str) -> int:
         return 0
     _set_eighth(groups[0][1], ns)
     _set_eighth(groups[1][1], ns)
+    for i in (0, 1):
+        for n in groups[i][1]:
+            for b in list(n.findall(_qname(ns, "beam"))):
+                n.remove(b)
+            ET.SubElement(n, _qname(ns, "beam"), {"number": "1"}).text = (
+                "begin" if i == 0 else "end"
+            )
     clones = []
     for n in groups[4][1]:
         c = copy.deepcopy(n)
@@ -467,9 +716,15 @@ def _patch_piano_m57(measure: ET.Element, ns: str) -> int:
 _PATCHES = [
     _patch_vocal_pickup,
     _patch_piano_m18,
+    _patch_piano_m24_rh,
     _patch_piano_m26,
+    _patch_piano_m28_lh,
+    _patch_piano_m41_lh,
+    _patch_piano_m43_lh,
     _patch_piano_m44_rh,
     _patch_piano_m44_lh,
+    _patch_piano_m48_rh,
+    _patch_piano_m50_rh,
     _patch_piano_m56,
     _patch_piano_m57,
 ]

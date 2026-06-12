@@ -147,7 +147,7 @@ def _insert_after(measure: ET.Element, anchor: ET.Element, new_elements: list[ET
 _PICKUP_RESTORES = [
     ("18", ["A4", "B4", "C5"], ("D", "5")),
     ("18", ["C5", "B4", "A4"], ("D", "5")),
-    ("34", ["A3", "B3", "C4"], None),
+    ("34", ["A3", "B3", "C4"], ("D", "4")),
 ]
 
 
@@ -257,8 +257,7 @@ def _patch_piano_m24_rh(measure: ET.Element, ns: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# 패치 2d — 피아노 왼손 인쇄 29마디: 𝄽8 + 8분 2개가 세잇단(괄호·3)인데 스타카토만
-# 남음 (MXL m28 staff2). 잘못 앞에 붙은 C4 음표 제거.
+# 패치 2d — 피아노 왼손 인쇄 29마디: 𝄽8 + 8분 2개 세잇단, 4분 2개(온음표 오인 보정).
 # ---------------------------------------------------------------------------
 def _add_triplet_mod(note: ET.Element, ns: str, actual: int = 3, normal: int = 2) -> None:
     tm = note.find(_qname(ns, "time-modification"))
@@ -299,33 +298,95 @@ def _clear_staccato(note: ET.Element, ns: str) -> None:
                 notations.remove(arts)
 
 
+def _set_quarter(notes: list[ET.Element], ns: str) -> None:
+    for n in notes:
+        d = n.find(_qname(ns, "duration"))
+        if d is not None:
+            d.text = "12"
+        t = n.find(_qname(ns, "type"))
+        if t is not None:
+            t.text = "quarter"
+
+
+def _set_triplet_eighth(notes: list[ET.Element], ns: str, dur: int = 4) -> None:
+    for n in notes:
+        d = n.find(_qname(ns, "duration"))
+        if d is not None:
+            d.text = str(dur)
+        t = n.find(_qname(ns, "type"))
+        if t is not None:
+            t.text = "eighth"
+        _add_triplet_mod(n, ns)
+
+
+def _rebeam_group(notes: list[ET.Element], ns: str, beam: str) -> None:
+    for n in notes:
+        for b in list(n.findall(_qname(ns, "beam"))):
+            n.remove(b)
+        if n.find(_qname(ns, "rest")) is None:
+            ET.SubElement(n, _qname(ns, "beam"), {"number": "1"}).text = beam
+
+
+def _fix_tuplet_bracket(leader: ET.Element, ns: str, placement: str) -> None:
+    for notations in list(leader.findall(_qname(ns, "notations"))):
+        for t in list(notations.findall(_qname(ns, "tuplet"))):
+            notations.remove(t)
+    _add_tuplet_tag(leader, ns, "start", placement)
+
+
+def _patch_piano_m24_lh(measure: ET.Element, ns: str) -> int:
+    """PL 인쇄 25마디: 첫 세잇단 '3'이 PR 빔과 겹쳐 사라짐 → placement above."""
+    if measure.get("number") != "24":
+        return 0
+    groups = _groups(measure, ns, "2", "5")
+    idx = next(
+        (
+            i
+            for i, g in enumerate(groups)
+            if g[0].find(_qname(ns, "time-modification")) is not None
+            and _pitch_label(g[0], ns) == "E3"
+        ),
+        None,
+    )
+    if idx is None or idx + 3 > len(groups):
+        return 0
+    trio = groups[idx : idx + 3]
+    for _, notes in trio:
+        for n in notes:
+            _clear_staccato(n, ns)
+    found = False
+    for t in trio[0][0].findall(f".//{_qname(ns, 'tuplet')}"):
+        if t.get("type") == "start":
+            t.set("show-number", "actual")
+            t.set("placement", "above")
+            found = True
+    if not found:
+        _fix_tuplet_bracket(trio[0][0], ns, "above")
+    return 1
+
+
 def _patch_piano_m28_lh(measure: ET.Element, ns: str) -> int:
+    """PL 인쇄 29마디: 온음표 오인→4분 + 4분(C4) 유지 + 𝄽8 세잇단."""
     if measure.get("number") != "28":
         return 0
     groups = _groups(measure, ns, "2", "5")
-    rest_idx = next(
-        (i for i, g in enumerate(groups) if g[0].find(_qname(ns, "rest")) is not None),
-        None,
-    )
-    if rest_idx is None:
+    if len(groups) < 5:
         return 0
-    # 𝄽8 직전에 Audiveris가 C4 등 잘못 넣은 음표 제거
-    if rest_idx > 0 and groups[rest_idx - 1][0].find(_qname(ns, "rest")) is None:
-        for n in groups[rest_idx - 1][1]:
-            measure.remove(n)
-        groups = _groups(measure, ns, "2", "5")
-        rest_idx = next(
-            (i for i, g in enumerate(groups) if g[0].find(_qname(ns, "rest")) is not None),
-            None,
-        )
-        if rest_idx is None:
-            return 0
-    if rest_idx + 2 >= len(groups):
+    sig = _sig(groups[:5], ns)
+    d_chord = frozenset(["D3", "F#3", "A3", "D4"])
+    if not (
+        d_chord <= sig[0][0]
+        and sig[0][1] in (24, 12)
+        and _pitch_label(groups[1][0], ns) == "C4"
+        and sig[1][1] == 12
+        and sig[2][0] == frozenset(["REST"])
+    ):
         return 0
-    rest_g, a_g, d_g = groups[rest_idx], groups[rest_idx + 1], groups[rest_idx + 2]
+    if sig[0][1] == 24:
+        _set_quarter(groups[0][1], ns)
+    rest_g, a_g, d_g = groups[2], groups[3], groups[4]
     if _pitch_label(a_g[0], ns) != "A3" or _pitch_label(d_g[0], ns) != "D3":
         return 0
-    dur = _duration(rest_g[0], ns) or 6
     for i, grp in enumerate((rest_g, a_g, d_g)):
         for n in grp[1]:
             _clear_staccato(n, ns)
@@ -335,15 +396,18 @@ def _patch_piano_m28_lh(measure: ET.Element, ns: str) -> int:
                 typ.text = "eighth"
             d = n.find(_qname(ns, "duration"))
             if d is not None:
-                d.text = str(dur)
-            for b in list(n.findall(_qname(ns, "beam"))):
-                n.remove(b)
-            if not n.find(_qname(ns, "rest")):
-                ET.SubElement(n, _qname(ns, "beam"), {"number": "1"}).text = (
-                    "begin" if i == 1 else ("end" if i == 2 else "continue")
-                )
-    _add_tuplet_tag(rest_g[0], ns, "start", "below")
-    _add_tuplet_tag(d_g[0], ns, "stop")
+                d.text = "4"
+            if n.find(_qname(ns, "rest")) is not None:
+                for b in list(n.findall(_qname(ns, "beam"))):
+                    n.remove(b)
+            else:
+                _rebeam_group([n], ns, "begin" if i == 1 else "end")
+    _fix_tuplet_bracket(rest_g[0], ns, "below")
+    stop_n = d_g[0].find(_qname(ns, "notations"))
+    if stop_n is None:
+        stop_n = ET.SubElement(d_g[0], _qname(ns, "notations"))
+    if not stop_n.findall(_qname(ns, "tuplet")):
+        ET.SubElement(stop_n, _qname(ns, "tuplet"), {"type": "stop"})
     return 1
 
 
@@ -384,21 +448,99 @@ def _patch_piano_m41_lh(measure: ET.Element, ns: str) -> int:
     return 1
 
 
+def _patch_piano_m39_lh(measure: ET.Element, ns: str) -> int:
+    """PL 인쇄 40마디: voice6+backup/forward로 세잇단 1·2음이 겹침 → voice5 순차."""
+    if measure.get("number") != "39":
+        return 0
+    children = list(measure)
+    v6_start: ET.Element | None = None
+    for el in children:
+        if _local(el) != "note":
+            continue
+        if _text(el.find(_qname(ns, "staff"))) != "2":
+            continue
+        if _text(el.find(_qname(ns, "voice"))) != "6":
+            continue
+        if _pitch_label(el, ns) == "F#3":
+            v6_start = el
+            break
+    if v6_start is None:
+        return 0
+    idx = children.index(v6_start)
+    to_remove: list[ET.Element] = []
+    for el in children[:idx][::-1]:
+        if _local(el) in ("backup", "forward"):
+            to_remove.append(el)
+        elif _local(el) == "note":
+            if (
+                _text(el.find(_qname(ns, "voice"))) == "5"
+                and _text(el.find(_qname(ns, "staff"))) == "2"
+            ):
+                break
+    for el in to_remove:
+        measure.remove(el)
+    for el in measure.findall(_qname(ns, "note")):
+        if (
+            _text(el.find(_qname(ns, "staff"))) == "2"
+            and _text(el.find(_qname(ns, "voice"))) == "6"
+        ):
+            vel = el.find(_qname(ns, "voice"))
+            if vel is not None:
+                vel.text = "5"
+            _clear_staccato(el, ns)
+    groups = _groups(measure, ns, "2", "5")
+    idx3 = next((i for i, g in enumerate(groups) if _pitch_label(g[0], ns) == "F#3"), None)
+    if idx3 is not None and idx3 + 9 <= len(groups):
+        labels = [_pitch_label(groups[i][0], ns) for i in range(idx3 + 6, idx3 + 9)]
+        if labels == ["F#3", "D3", "A2"]:
+            for i in range(idx3 + 6, idx3 + 9):
+                for n in groups[i][1]:
+                    measure.remove(n)
+        groups = _groups(measure, ns, "2", "5")
+        idx3 = next((i for i, g in enumerate(groups) if _pitch_label(g[0], ns) == "F#3"), None)
+    if idx3 is not None and idx3 + 6 <= len(groups):
+        for t_idx in range(2):
+            trio = groups[idx3 + t_idx * 3 : idx3 + t_idx * 3 + 3]
+            if len(trio) != 3:
+                break
+            stem = _text(trio[0][0].find(_qname(ns, "stem"))) or "down"
+            plc = "above" if stem == "up" else "below"
+            for j, (_, notes) in enumerate(trio):
+                _rebeam_group(notes, ns, "begin" if j == 0 else ("end" if j == 2 else "continue"))
+            _fix_tuplet_bracket(trio[0][0], ns, plc)
+            stop_n = trio[2][0].find(_qname(ns, "notations"))
+            if stop_n is None:
+                stop_n = ET.SubElement(trio[2][0], _qname(ns, "notations"))
+            if not any(t.get("type") == "stop" for t in stop_n.findall(_qname(ns, "tuplet"))):
+                ET.SubElement(stop_n, _qname(ns, "tuplet"), {"type": "stop"})
+    return 1
+
+
 def _patch_piano_m43_lh(measure: ET.Element, ns: str) -> int:
     if measure.get("number") != "42":
         return 0
     applied = 0
     for voice in ("5", "6"):
         groups = _groups(measure, ns, "2", voice)
-        for g in groups:
+        for gi, g in enumerate(groups):
             for n in g[1]:
                 _clear_staccato(n, ns)
             if g[0].find(_qname(ns, "time-modification")) is not None:
+                plc = "above" if voice == "6" and gi == 0 else None
                 for t in g[0].findall(f".//{_qname(ns, 'tuplet')}"):
                     if t.get("type") == "start":
                         t.set("show-number", "actual")
-                        if not t.get("placement"):
-                            t.set("placement", "below")
+                        if plc:
+                            t.set("placement", plc)
+                        elif not t.get("placement"):
+                            stem = _text(g[0].find(_qname(ns, "stem"))) or "down"
+                            t.set("placement", "below" if stem == "down" else "above")
+                if not g[0].findall(f".//{_qname(ns, 'tuplet')}"):
+                    stem = _text(g[0].find(_qname(ns, "stem"))) or "down"
+                    placement = "above" if voice == "6" and gi == 0 else (
+                        "below" if stem == "down" else "above"
+                    )
+                    _fix_tuplet_bracket(g[0], ns, placement)
                 applied += 1
     return min(applied, 1)
 
@@ -582,6 +724,37 @@ def _patch_piano_m44_lh(measure: ET.Element, ns: str) -> int:
         return 0
     sig = _sig(groups, ns)
     dgb = frozenset(["D3", "G3", "B3"])
+
+    # 패턴 A — 4분 2개 + 세잇단 8분 6개(738073fc): 첫 세잇단에 4분 2개 흡수
+    if (
+        frozenset(["B1", "B2"]) <= sig[0][0]
+        and sig[0][1] == 12
+        and dgb <= sig[1][0]
+        and sig[1][1] == 12
+        and all(sig[i][1] == 4 for i in range(2, 8))
+    ):
+        for gi in (0, 1):
+            _set_triplet_eighth(groups[gi][1], ns, 4)
+            _rebeam_group(groups[gi][1], ns, "begin" if gi == 0 else "continue")
+        for n in groups[2][1]:
+            _clear_staccato(n, ns)
+        _rebeam_group(groups[2][1], ns, "end")
+        _fix_tuplet_bracket(groups[0][0], ns, "below")
+        stop_n = groups[2][0].find(_qname(ns, "notations"))
+        if stop_n is None:
+            stop_n = ET.SubElement(groups[2][0], _qname(ns, "notations"))
+        if not any(t.get("type") == "stop" for t in stop_n.findall(_qname(ns, "tuplet"))):
+            ET.SubElement(stop_n, _qname(ns, "tuplet"), {"type": "stop"})
+        for g in groups[3:6]:
+            for n in g[1]:
+                _clear_staccato(n, ns)
+            for t in g[0].findall(f".//{_qname(ns, 'tuplet')}"):
+                if t.get("type") == "start":
+                    t.set("show-number", "actual")
+                    if not t.get("placement"):
+                        t.set("placement", "below")
+        return 1
+
     expected = [
         (frozenset(["B1", "B2"]), 12, False),
         (dgb, 12, False),
@@ -594,7 +767,6 @@ def _patch_piano_m44_lh(measure: ET.Element, ns: str) -> int:
     ]
     ok = True
     for (pitches, dur, dotted), (exp_pitches, exp_dur, exp_dotted) in zip(sig, expected):
-        # 마지막 8분 묶음 첫 화음에 잘못 붙은 B2 등 잉여 음은 허용 (상위집합 비교)
         if not (pitches >= exp_pitches and dur == exp_dur and dotted == exp_dotted):
             ok = False
             break
@@ -602,7 +774,13 @@ def _patch_piano_m44_lh(measure: ET.Element, ns: str) -> int:
         return 0
     _set_eighth(groups[0][1], ns)
     _set_eighth(groups[1][1], ns)
-    # 마지막 8분 3개 → 셋잇단(duration 4 + time-modification)으로
+    for gi in (0, 1):
+        for n in groups[gi][1]:
+            for b in list(n.findall(_qname(ns, "beam"))):
+                n.remove(b)
+            ET.SubElement(n, _qname(ns, "beam"), {"number": "1"}).text = (
+                "begin" if gi == 0 else "end"
+            )
     for gi in (5, 6, 7):
         for n in groups[gi][1]:
             d = n.find(_qname(ns, "duration"))
@@ -613,18 +791,11 @@ def _patch_piano_m44_lh(measure: ET.Element, ns: str) -> int:
             dur_idx = list(n).index(d)
             n.insert(dur_idx + 1, tm)
 
-    def _add_tuplet(leader: ET.Element, tuplet_type: str) -> None:
-        notations = leader.find(_qname(ns, "notations"))
-        if notations is None:
-            notations = ET.SubElement(leader, _qname(ns, "notations"))
-        attrib = {"type": tuplet_type}
-        if tuplet_type == "start":
-            attrib["show-number"] = "actual"
-        ET.SubElement(notations, _qname(ns, "tuplet"), attrib=attrib)
-
-    _add_tuplet(groups[5][0], "start")
-    _add_tuplet(groups[7][0], "stop")
-    # 유실된 세번째 셋잇단: 위 셋잇단을 복제해 뒤에 붙임
+    _fix_tuplet_bracket(groups[5][0], ns, "below")
+    stop_n = groups[7][0].find(_qname(ns, "notations"))
+    if stop_n is None:
+        stop_n = ET.SubElement(groups[7][0], _qname(ns, "notations"))
+    ET.SubElement(stop_n, _qname(ns, "tuplet"), {"type": "stop"})
     clones: list[ET.Element] = []
     for gi in (5, 6, 7):
         for n in groups[gi][1]:
@@ -717,8 +888,10 @@ _PATCHES = [
     _patch_vocal_pickup,
     _patch_piano_m18,
     _patch_piano_m24_rh,
+    _patch_piano_m24_lh,
     _patch_piano_m26,
     _patch_piano_m28_lh,
+    _patch_piano_m39_lh,
     _patch_piano_m41_lh,
     _patch_piano_m43_lh,
     _patch_piano_m44_rh,

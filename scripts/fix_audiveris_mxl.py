@@ -748,6 +748,34 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                         )
                         dotted_fixed += 1
                         continue
+            # 신규 패턴 F: ♩. ♩ ♩ ♪ ♪ — 8분 하나 넘침, ♩ ♩ 둘 다 ♪ ♪로 바꾸고 끝에 𝄽8 보충
+            if len(groups) == 5:
+                g0, g1, g2, g3, g4 = groups
+                total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+                if (
+                    total == expected + eighth
+                    and _is_dotted_quarter_group(g0[0], ns, divisions)
+                    and _is_plain_quarter_group(g1[0], ns, divisions)
+                    and _is_plain_quarter_group(g2[0], ns, divisions)
+                    and _is_plain_eighth_group(g3[0], ns, divisions)
+                    and _is_plain_eighth_group(g4[0], ns, divisions)
+                ):
+                    _halve_group_to_eighth(g1[1], ns)
+                    _halve_group_to_eighth(g2[1], ns)
+                    rest = ET.Element(qname(ns, "note"))
+                    ET.SubElement(rest, qname(ns, "rest"))
+                    ET.SubElement(rest, qname(ns, "duration")).text = str(eighth)
+                    v, s = _note_voice_staff(g0[0], ns)
+                    if v:
+                        ET.SubElement(rest, qname(ns, "voice")).text = v
+                    if s:
+                        ET.SubElement(rest, qname(ns, "staff")).text = s
+                    ET.SubElement(rest, qname(ns, "type")).text = "eighth"
+                    _insert_after_note(measure, g4[1][-1], rest)
+                    dotted_fixed += 2
+                    rest_fixed += 1
+                    continue
+
             # 패턴 D: ♩. … ♩(들) ♪♪ — 8분 하나 넘침, 점4분 뒤 4분 하나를 8분으로
             if _is_dotted_quarter_group(groups[0][0], ns, divisions):
                 total = sum(_note_duration(g[0], ns) or 0 for g in groups)
@@ -1503,7 +1531,7 @@ def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: 
             pitch_key = step_el.text + oct_el.text
             
             acc = note.find(qname(ns, "accidental"))
-            if acc is not None and acc.text:
+            if acc is not None and acc.text and acc.text.strip() != "natural":
                 if pitch_key not in explicit_accs:
                     explicit_accs[pitch_key] = acc.text
                     
@@ -1655,8 +1683,8 @@ def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> int:
                         if g["start_element"].get("bracket") != "no":
                             g["start_element"].set("bracket", "no")
                             fixed += 1
-                        if g["start_element"].get("show-bracket") != "no":
-                            g["start_element"].set("show-bracket", "no")
+                        if "show-bracket" in g["start_element"].attrib:
+                            g["start_element"].attrib.pop("show-bracket")
                             fixed += 1
                             
         for g in active_groups:
@@ -1671,8 +1699,8 @@ def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> int:
                 if g["start_element"].get("bracket") != "no":
                     g["start_element"].set("bracket", "no")
                     fixed += 1
-                if g["start_element"].get("show-bracket") != "no":
-                    g["start_element"].set("show-bracket", "no")
+                if "show-bracket" in g["start_element"].attrib:
+                    g["start_element"].attrib.pop("show-bracket")
                     fixed += 1
                     
     return fixed

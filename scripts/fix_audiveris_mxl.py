@@ -373,6 +373,12 @@ def _fix_tuplet_show_numbers(note: ET.Element, ns: str, max_staff: int = 1) -> b
             if tuplet.get("show-number") != "actual":
                 tuplet.set("show-number", "actual")
                 changed = True
+            if tuplet.get("bracket") != "yes":
+                tuplet.set("bracket", "yes")
+                changed = True
+            if tuplet.get("show-bracket") != "yes":
+                tuplet.set("show-bracket", "yes")
+                changed = True
             if actual == 3:
                 if note.find(qname(ns, "rest")) is not None:
                     continue
@@ -781,7 +787,10 @@ def _is_plain_eighth_group(leader: ET.Element, ns: str, divisions: int) -> bool:
 
 def _rebeam_group(notes: list[ET.Element], ns: str, beam: str) -> None:
     for n in notes:
-        _set_beam(n, ns, beam if n.find(qname(ns, "rest")) is None else None)
+        for b in list(n.findall(qname(ns, "beam"))):
+            n.remove(b)
+        if n.find(qname(ns, "chord")) is None and n.find(qname(ns, "rest")) is None:
+            ET.SubElement(n, qname(ns, "beam"), {"number": "1"}).text = beam
 
 
 def _dedupe_chord_members_in_measure(measure: ET.Element, ns: str) -> int:
@@ -1202,7 +1211,7 @@ def _repair_overfull_eighth(part: ET.Element, ns: str) -> tuple[int, int]:
                             else:
                                 score += 4
                         else:
-                            score -= 8
+                            score += 5
                 if i == len(groups) - 1 and prev is not None and _is_rest(prev, ns):
                     score += 3  # 쉼표 뒤 마지막 못갖춘 8분음표
                 if i == 1 and _is_rest(groups[0][0], ns) and _note_duration(groups[0][0], ns) == eighth:
@@ -1382,6 +1391,153 @@ def _consolidate_cross_voices_on_staff(measure: ET.Element, ns: str) -> int:
         if not found:
             break
     return merged
+
+
+def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected: int) -> int:
+    """If staff 1 or staff 2 has fragmented voices that sum to <= expected, serialize the entire measure by staff."""
+    if not expected:
+        return 0
+    staves = {}
+    for note in measure.findall(qname(ns, "note")):
+        s_el = note.find(qname(ns, "staff"))
+        s = s_el.text if s_el is not None else "1"
+        if s not in staves:
+            staves[s] = []
+        staves[s].append(note)
+    
+    needs_flatten = False
+    for s, notes in staves.items():
+        v_durs = {}
+        for note in notes:
+            if note.find(qname(ns, "chord")) is not None or _is_rest(note, ns):
+                continue
+            v_el = note.find(qname(ns, "voice"))
+            v = v_el.text if v_el is not None else "1"
+            v_durs[v] = v_durs.get(v, 0) + (_note_duration(note, ns) or 0)
+        if len(v_durs) > 1 and (sum(v_durs.values()) <= expected + (expected // 4) or max(v_durs.values()) < expected):
+            needs_flatten = True
+            break
+            
+    if not needs_flatten:
+        return 0
+
+    def get_x(grp):
+        leader = grp[0]
+        x = leader.get("default-x")
+        try:
+            return float(x) if x is not None else 9999.0
+        except ValueError:
+            return 9999.0
+
+    non_notes = []
+    for c in list(measure):
+        if local_tag(c) not in ("note", "backup", "forward"):
+            non_notes.append(c)
+        measure.remove(c)
+        
+    for c in non_notes:
+        measure.append(c)
+        
+    sorted_staves = sorted(staves.keys())
+    for i, s in enumerate(sorted_staves):
+        notes = staves[s]
+        
+        groups = []
+        current_group = []
+        for n in notes:
+            if n.find(qname(ns, "chord")) is None:
+                if current_group:
+                    groups.append(current_group)
+                current_group = [n]
+            else:
+                current_group.append(n)
+        if current_group:
+            groups.append(current_group)
+            
+        groups.sort(key=get_x)
+        
+        total_dur = 0
+        for grp in groups:
+            leader = grp[0]
+            if not _is_rest(leader, ns):
+                total_dur += (_note_duration(leader, ns) or 0)
+            for n in grp:
+                v_el = n.find(qname(ns, "voice"))
+                if v_el is not None:
+                    v_el.text = "1" if s == "1" else "5"
+                measure.append(n)
+        
+        if i < len(sorted_staves) - 1 and total_dur > 0:
+            b = ET.Element(qname(ns, "backup"))
+            d = ET.SubElement(b, qname(ns, "duration"))
+            d.text = str(total_dur)
+            measure.append(b)
+            
+    return 1
+
+
+def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: str) -> int:
+    """If a pitch has an explicit accidental later in the measure, back-propagate it to earlier occurrences
+    that have no accidental, as OMR frequently misses accidentals on the first chord."""
+    fixed = 0
+    staves = {}
+    for note in measure.findall(qname(ns, "note")):
+        if _is_rest(note, ns):
+            continue
+        s_el = note.find(qname(ns, "staff"))
+        s = s_el.text if s_el is not None else "1"
+        if s not in staves:
+            staves[s] = []
+        staves[s].append(note)
+        
+    for s, notes in staves.items():
+        explicit_accs = {}
+        for note in notes:
+            p = note.find(qname(ns, "pitch"))
+            if p is None:
+                continue
+            step_el = p.find(qname(ns, "step"))
+            oct_el = p.find(qname(ns, "octave"))
+            if step_el is None or oct_el is None:
+                continue
+            pitch_key = step_el.text + oct_el.text
+            
+            acc = note.find(qname(ns, "accidental"))
+            if acc is not None and acc.text:
+                if pitch_key not in explicit_accs:
+                    explicit_accs[pitch_key] = acc.text
+                    
+        for note in notes:
+            p = note.find(qname(ns, "pitch"))
+            if p is None:
+                continue
+            step_el = p.find(qname(ns, "step"))
+            oct_el = p.find(qname(ns, "octave"))
+            if step_el is None or oct_el is None:
+                continue
+            pitch_key = step_el.text + oct_el.text
+            
+            acc = note.find(qname(ns, "accidental"))
+            if acc is None and pitch_key in explicit_accs:
+                acc_text = explicit_accs[pitch_key]
+                new_acc = ET.SubElement(note, qname(ns, "accidental"))
+                new_acc.text = acc_text
+                
+                alter_val = "1" if acc_text == "sharp" else ("-1" if acc_text == "flat" else "0")
+                if alter_val != "0":
+                    alter_el = p.find(qname(ns, "alter"))
+                    if alter_el is None:
+                        idx = list(p).index(step_el) + 1
+                        alter_el = ET.Element(qname(ns, "alter"))
+                        p.insert(idx, alter_el)
+                    alter_el.text = alter_val
+                else:
+                    alter_el = p.find(qname(ns, "alter"))
+                    if alter_el is not None:
+                        p.remove(alter_el)
+                fixed += 1
+                
+    return fixed
 
 
 def _repair_two_quarters_as_triplet_prefix(
@@ -1680,6 +1836,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     for part in root.findall(qname(ns, "part")):
         max_staff = _max_staff_in_part(part, ns)
         for measure, divisions, expected in _iter_measures_with_timing(part, ns):
+            stats["voice_consolidated"] += _flatten_underfull_voices_in_measure(measure, ns, (divisions or 6) * 4)
+            stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
             stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
                 measure, ns, divisions or 0, expected or 0
@@ -1734,6 +1892,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 stats["tuplet_staccato_removed"] += 1
             if _fix_tuplet_show_numbers(note, ns, max_staff):
                 stats["tuplet_show_number_fixed"] += 1
+            
+            if note.find(qname(ns, "chord")) is not None:
+                for b in list(note.findall(qname(ns, "beam"))):
+                    note.remove(b)
 
         completed, system_added = _restore_ties_between_measures(part, ns)
         stats["chord_ties_completed"] += completed

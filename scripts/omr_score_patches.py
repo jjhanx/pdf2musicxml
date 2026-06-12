@@ -191,22 +191,64 @@ def _patch_vocal_pickup(measure: ET.Element, ns: str) -> int:
 def _patch_piano_m18(measure: ET.Element, ns: str) -> int:
     if measure.get("number") != "18":
         return 0
+    applied = 0
+    # 레이아웃 A — voice1에 3그룹 (구버전 Audiveris)
     groups = _groups(measure, ns, "1", "1")
-    if len(groups) != 3:
-        return 0
-    sig = _sig(groups, ns)
-    if not (
-        sig[0] == (frozenset(["C5", "B5"]), 3, True)
-        and sig[1] == (frozenset(["B4", "A5"]), 2, False)
-        and sig[2] == (frozenset(["A4", "A5"]), 3, True)
-    ):
-        return 0
-    _set_eighth(groups[1][1], ns)
-    rest = _make_note(
-        ns, step=None, octave=None, duration=1, note_type="eighth", voice="1", staff="1", rest=True
-    )
-    _insert_after(measure, groups[2][1][-1], [rest])
-    return 1
+    if len(groups) == 3:
+        sig = _sig(groups, ns)
+        if (
+            sig[0] == (frozenset(["C5", "B5"]), 3, True)
+            and sig[1] == (frozenset(["B4", "A5"]), 2, False)
+            and sig[2] == (frozenset(["A4", "A5"]), 3, True)
+        ):
+            _set_eighth(groups[1][1], ns)
+            rest = _make_note(
+                ns, step=None, octave=None, duration=1, note_type="eighth", voice="1", staff="1", rest=True
+            )
+            _insert_after(measure, groups[2][1][-1], [rest])
+            applied += 1
+    # 레이아웃 B — voice2: ♩. 𝄽(8분) (서버 산출물 omr-work-0de3cdf2 등)
+    g2 = _groups(measure, ns, "1", "2")
+    if len(g2) == 2:
+        sig2 = _sig(g2, ns)
+        rest_dur = sig2[1][1] if len(sig2) > 1 else None
+        if (
+            sig2[0][0] == frozenset(["A4", "A5"])
+            and sig2[0][2] is True
+            and sig2[1][0] == frozenset(["REST"])
+            and rest_dur is not None
+            and sig2[1][2] is False
+        ):
+            rest_leader = g2[1][0]
+            idx = list(measure).index(rest_leader)
+            measure.remove(rest_leader)
+            notes = [
+                _make_note(
+                    ns,
+                    step="B",
+                    octave="4",
+                    duration=rest_dur,
+                    note_type="eighth",
+                    voice="2",
+                    staff="1",
+                    stem="down",
+                ),
+                _make_note(
+                    ns,
+                    step="A",
+                    octave="5",
+                    duration=rest_dur,
+                    note_type="eighth",
+                    voice="2",
+                    staff="1",
+                    stem="down",
+                    chord=True,
+                ),
+            ]
+            for i, n in enumerate(notes):
+                measure.insert(idx + i, n)
+            applied += 1
+    return applied
 
 
 # ---------------------------------------------------------------------------

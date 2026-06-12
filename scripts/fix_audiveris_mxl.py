@@ -433,6 +433,158 @@ def _halve_group_to_eighth(notes: list[ET.Element], ns: str) -> None:
             t.text = "eighth"
 
 
+def _is_dotted_quarter_group(leader: ET.Element, ns: str, divisions: int) -> bool:
+    eighth = divisions // 2
+    if eighth <= 0 or _is_rest(leader, ns):
+        return False
+    return (
+        _note_type_text(leader, ns) == "quarter"
+        and leader.find(qname(ns, "dot")) is not None
+        and _note_duration(leader, ns) == divisions + eighth
+        and leader.find(qname(ns, "time-modification")) is None
+    )
+
+
+def _is_plain_quarter_group(leader: ET.Element, ns: str, divisions: int) -> bool:
+    if _is_rest(leader, ns):
+        return False
+    return (
+        _note_type_text(leader, ns) == "quarter"
+        and leader.find(qname(ns, "dot")) is None
+        and _note_duration(leader, ns) == divisions
+        and leader.find(qname(ns, "time-modification")) is None
+    )
+
+
+def _is_eighth_rest_group(leader: ET.Element, ns: str, divisions: int) -> bool:
+    eighth = divisions // 2
+    return (
+        _is_rest(leader, ns)
+        and _note_type_text(leader, ns) == "eighth"
+        and _note_duration(leader, ns) == eighth
+    )
+
+
+def _adjust_voice_backup(measure: ET.Element, ns: str, staff: str, voice: str, new_total: int) -> None:
+    """해당 staff/voice 직후 첫 backup duration을 new_total로 맞춤."""
+    seen = False
+    for el in measure:
+        tag = local_tag(el)
+        if tag == "note":
+            v, s = _note_voice_staff(el, ns)
+            if v == voice and s == staff:
+                seen = True
+            elif seen and el.find(qname(ns, "chord")) is None:
+                break
+        elif tag == "backup" and seen:
+            d = el.find(qname(ns, "duration"))
+            if d is not None:
+                d.text = str(new_total)
+            return
+
+
+def _clone_as_eighth(template: ET.Element, ns: str, eighth_dur: int) -> ET.Element:
+    note = copy.deepcopy(template)
+    ch = note.find(qname(ns, "chord"))
+    if ch is not None:
+        note.remove(ch)
+    d = note.find(qname(ns, "duration"))
+    if d is not None:
+        d.text = str(eighth_dur)
+    t = note.find(qname(ns, "type"))
+    if t is not None:
+        t.text = "eighth"
+    for dot in list(note.findall(qname(ns, "dot"))):
+        note.remove(dot)
+    rest_el = note.find(qname(ns, "rest"))
+    if rest_el is not None:
+        note.remove(rest_el)
+    return note
+
+
+def _replace_rest_group_with_eighth(
+    measure: ET.Element, rest_leader: ET.Element, template: ET.Element, ns: str, eighth_dur: int
+) -> None:
+    idx = list(measure).index(rest_leader)
+    v_staff = _note_voice_staff(rest_leader, ns)
+    to_remove = [rest_leader]
+    for sibling in list(measure)[idx + 1 :]:
+        if local_tag(sibling) != "note" or sibling.find(qname(ns, "chord")) is None:
+            break
+        if _note_voice_staff(sibling, ns) == v_staff:
+            to_remove.append(sibling)
+        else:
+            break
+    for el in to_remove:
+        measure.remove(el)
+    measure.insert(idx, _clone_as_eighth(template, ns, eighth_dur))
+
+
+def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]:
+    """♩. 뒤 8분음표를 4분으로 읽고 마지막 8분을 쉼표로 대체한 Audiveris 패턴 복구.
+
+    패턴 A (성부·단일 보이스): ♩. ♩ ♩ 𝄽(8분) — 2번째 ♩→8분, 쉼표→2번째 음표 높이의 8분음표.
+    패턴 B (피아노 등): ♩. ♩ 직후 backup — 2번째 ♩→8분, backup duration도 함께 줄임.
+    """
+    dotted_fixed = 0
+    rest_fixed = 0
+    for measure, divisions, expected in _iter_measures_with_timing(part, ns):
+        if not divisions or not expected:
+            continue
+        eighth = divisions // 2
+        if eighth <= 0:
+            continue
+        for (staff, voice), groups in _voice_groups(measure, ns).items():
+            # 패턴 A: ♩. ♩ ♩ 𝄽8
+            if len(groups) == 4:
+                g0, g1, g2, g3 = groups
+                total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+                if (
+                    total == expected
+                    and _is_dotted_quarter_group(g0[0], ns, divisions)
+                    and _is_plain_quarter_group(g1[0], ns, divisions)
+                    and _is_plain_quarter_group(g2[0], ns, divisions)
+                    and _is_eighth_rest_group(g3[0], ns, divisions)
+                ):
+                    _halve_group_to_eighth(g1[1], ns)
+                    _replace_rest_group_with_eighth(measure, g3[0], g1[0], ns, eighth)
+                    dotted_fixed += 1
+                    rest_fixed += 1
+                    continue
+            # 패턴 B: ♩. ♩ (피아노 voice1 등, backup 직후 다른 voice)
+            if len(groups) >= 2:
+                g0, g1 = groups[0], groups[1]
+                total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+                if not (
+                    _is_dotted_quarter_group(g0[0], ns, divisions)
+                    and _is_plain_quarter_group(g1[0], ns, divisions)
+                ):
+                    continue
+                new_total = total - eighth
+                if new_total <= 0:
+                    continue
+                # backup이 voice 합과 일치할 때만 (피아노 cross-voice 레이아웃)
+                backup_el = None
+                seen = False
+                for el in measure:
+                    if local_tag(el) == "note":
+                        v, s = _note_voice_staff(el, ns)
+                        if v == voice and s == staff:
+                            seen = True
+                    elif local_tag(el) == "backup" and seen:
+                        backup_el = el
+                        break
+                if backup_el is None:
+                    continue
+                bd = backup_el.find(qname(ns, "duration"))
+                if bd is None or not bd.text or int(bd.text.strip()) != total:
+                    continue
+                _halve_group_to_eighth(g1[1], ns)
+                _adjust_voice_backup(measure, ns, staff, voice, new_total)
+                dotted_fixed += 1
+    return dotted_fixed, rest_fixed
+
+
 def _normalize_overfull_rest_only_voice(groups: list, ns: str, expected: int) -> bool:
     """온쉼표 한 개뿐인데 duration이 마디 길이를 넘는 경우 정규화."""
     if len(groups) != 1:
@@ -720,6 +872,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "score_patches_applied": 0,
         "overfull_eighth_fixed": 0,
         "overfull_rest_normalized": 0,
+        "dotted_quarter_eighth_fixed": 0,
+        "lost_eighth_restored": 0,
         "chord_ties_completed": 0,
         "system_break_ties_added": 0,
     }
@@ -749,6 +903,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 stats["tuplet_staccato_removed"] += 1
             if _fix_tuplet_show_numbers(note, ns):
                 stats["tuplet_show_number_fixed"] += 1
+
+        dotted_fixed, lost_eighth = _repair_dotted_quarter_misread(part, ns)
+        stats["dotted_quarter_eighth_fixed"] += dotted_fixed
+        stats["lost_eighth_restored"] += lost_eighth
 
         fixed, rest_fixed = _repair_overfull_eighth(part, ns)
         stats["overfull_eighth_fixed"] += fixed

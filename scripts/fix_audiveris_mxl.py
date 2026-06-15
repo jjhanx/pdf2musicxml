@@ -1245,41 +1245,166 @@ def _repair_repeated_chord_slurs(part: ET.Element, ns: str) -> int:
                     continue
                 if _note_has_tie(g0[0], ns, "stop") or _note_has_tie(g1[0], ns, "start"):
                     continue
-                if _note_has_any_slur(g0[0], ns) or _note_has_any_slur(g1[0], ns):
+                if any(_note_has_any_slur(n, ns) for n in g0[1] + g1[1]):
                     continue
-                if _add_slur_to_note(g0[0], ns, "start", slur_num) and _add_slur_to_note(
-                    g1[0], ns, "stop", slur_num
-                ):
-                    fixed += 1
-                    slur_num += 1
+                pairs = _chord_note_pairs(g0, g1, ns)
+                added = _add_slur_between_chord_groups(g0, g1, ns, slur_num)
+                if added:
+                    fixed += added
+                    slur_num += max(len(pairs), 1)
                     voice_slurs += 1
     return fixed
 
 
-def _remove_spurious_natural_accidental(
-    note: ET.Element, ns: str, seen: set[tuple[str, str, str, str]]
-) -> bool:
-    """조표 음을 `#` 오인해 `<accidental>natural</accidental>`만 붙인 경우 — 태그 제거."""
-    acc = note.find(qname(ns, "accidental"))
-    if acc is None or (acc.text or "").strip() != "natural":
-        return False
+def _apply_sharp_to_note(note: ET.Element, ns: str) -> None:
     pitch_el = note.find(qname(ns, "pitch"))
     if pitch_el is None:
-        return False
+        return
+    alter_el = pitch_el.find(qname(ns, "alter"))
+    if alter_el is None:
+        alter_el = ET.SubElement(pitch_el, qname(ns, "alter"))
+    alter_el.text = "1"
+    acc = note.find(qname(ns, "accidental"))
+    if acc is None:
+        acc = ET.SubElement(note, qname(ns, "accidental"))
+    acc.text = "sharp"
+
+
+_SHARP_ORDER = ("F", "C", "G", "D", "A", "E", "B")
+_FLAT_ORDER = ("B", "E", "A", "D", "G", "C", "F")
+
+
+def _part_key_fifths(part: ET.Element, ns: str) -> int:
+    fifths = 0
+    for measure in part.findall(qname(ns, "measure")):
+        for attr in measure.findall(qname(ns, "attributes")):
+            key_el = attr.find(qname(ns, "key"))
+            if key_el is None:
+                continue
+            f = key_el.find(qname(ns, "fifths"))
+            if f is not None and f.text and f.text.strip().lstrip("-").isdigit():
+                fifths = int(f.text.strip())
+    return fifths
+
+
+def _step_key_alter(step: str, fifths: int) -> int:
+    if fifths > 0 and step in _SHARP_ORDER[:fifths]:
+        return 1
+    if fifths < 0 and step in _FLAT_ORDER[:-fifths]:
+        return -1
+    return 0
+
+
+def _chord_note_pairs(g0: tuple, g1: tuple, ns: str) -> list[tuple[ET.Element, ET.Element]]:
+    map0 = {_pitch_label(n, ns): n for n in g0[1] if _pitch_label(n, ns)}
+    map1 = {_pitch_label(n, ns): n for n in g1[1] if _pitch_label(n, ns)}
+    return [(map0[k], map1[k]) for k in sorted(set(map0) & set(map1))]
+
+
+def _add_slur_between_chord_groups(
+    g0: tuple, g1: tuple, ns: str, slur_num_base: int
+) -> int:
+    """화음 각 성부(음고)마다 slur — 위·아래 이음줄 쌍."""
+    pairs = _chord_note_pairs(g0, g1, ns)
+    added = 0
+    for i, (n0, n1) in enumerate(pairs):
+        num = slur_num_base + i
+        if _add_slur_to_note(n0, ns, "start", num) and _add_slur_to_note(
+            n1, ns, "stop", num
+        ):
+            added += 1
+    return added
+
+
+def _complete_chord_member_slurs(part: ET.Element, ns: str) -> int:
+    """한 성부에만 slur가 있을 때 화음의 다른 성부에도 동일 패턴 slur 복제."""
+    fixed = 0
+    for measure in part.findall(qname(ns, "measure")):
+        for (_, _voice), groups in _voice_groups(measure, ns).items():
+            for i in range(len(groups) - 1):
+                g0, g1 = groups[i], groups[i + 1]
+                pairs = _chord_note_pairs(g0, g1, ns)
+                if len(pairs) < 2:
+                    continue
+                ref_idx = None
+                for j, (n0, n1) in enumerate(pairs):
+                    if _note_has_any_slur(n0, ns) or _note_has_any_slur(n1, ns):
+                        ref_idx = j
+                        break
+                if ref_idx is None:
+                    continue
+                ref_n0, ref_n1 = pairs[ref_idx]
+                start_nums = [
+                    int(s.get("number"))
+                    for s in ref_n0.findall(".//" + qname(ns, "slur"))
+                    if s.get("type") == "start" and (s.get("number") or "").isdigit()
+                ]
+                if not start_nums:
+                    continue
+                base = start_nums[0]
+                for j, (n0, n1) in enumerate(pairs):
+                    num = base + (j - ref_idx)
+                    if num < 1:
+                        num = base + j
+                    if not _has_slur(n0, ns, num, "start"):
+                        if _add_slur_to_note(n0, ns, "start", num):
+                            fixed += 1
+                    if not _has_slur(n1, ns, num, "stop"):
+                        if _add_slur_to_note(n1, ns, "stop", num):
+                            fixed += 1
+    return fixed
+
+
+def _measure_first_chord_note_ids(measure: ET.Element, ns: str) -> set[int]:
+    """staff별 첫 비-쉼표 화음 그룹에 속한 note 객체 id."""
+    out: set[int] = set()
+    seen_staff: set[str] = set()
+    for grp in _iter_chord_groups(measure, ns):
+        staff = grp[2]
+        if staff in seen_staff or _is_rest(grp[0], ns):
+            continue
+        seen_staff.add(staff)
+        for n in grp[1]:
+            out.add(id(n))
+    return out
+
+
+def _fix_misread_natural_accidental(
+    note: ET.Element,
+    ns: str,
+    seen: set[tuple[str, str, str, str]],
+    first_chord_note_ids: set[int],
+) -> tuple[bool, bool]:
+    """`#` 글리프 오인 `<accidental>natural</accidental>` → sharp 또는 태그 제거.
+
+    Returns (changed, converted_to_sharp).
+    """
+    acc = note.find(qname(ns, "accidental"))
+    if acc is None or (acc.text or "").strip() != "natural":
+        return False, False
+    pitch_el = note.find(qname(ns, "pitch"))
+    if pitch_el is None:
+        return False, False
     alter_el = pitch_el.find(qname(ns, "alter"))
     if alter_el is not None and (alter_el.text or "").strip():
-        return False
+        return False, False
     step_el = pitch_el.find(qname(ns, "step"))
     oct_el = pitch_el.find(qname(ns, "octave"))
     if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
-        return False
+        return False, False
+    step = step_el.text.strip()
     voice, staff = _note_voice_staff(note, ns)
-    key = (staff or "1", voice or "1", step_el.text.strip(), oct_el.text.strip())
+    staff = staff or "1"
+    key = (staff, voice or "1", step, oct_el.text.strip())
     if key in seen:
-        return False
+        return False, False
     seen.add(key)
+
+    if id(note) in first_chord_note_ids:
+        _apply_sharp_to_note(note, ns)
+        return True, True
     note.remove(acc)
-    return True
+    return True, False
 
 
 def _repair_three_eighths_as_triplet(
@@ -1478,6 +1603,37 @@ def _copy_pitch_alter(src: ET.Element, dst: ET.Element, ns: str) -> None:
         ET.SubElement(dst, qname(ns, "accidental")).text = "sharp"
     elif alter_val == -1:
         ET.SubElement(dst, qname(ns, "accidental")).text = "flat"
+
+
+def _ensure_tuplet_normal_fields(note: ET.Element, ns: str) -> bool:
+    """잇단 음표에 normal-type/normal-dots — bracket 없을 때 OSMD 겹침 완화."""
+    tm = note.find(qname(ns, "time-modification"))
+    if tm is None:
+        return False
+    typ = _note_type_text(note, ns)
+    if not typ:
+        return False
+    changed = False
+    nt = tm.find(qname(ns, "normal-type"))
+    if nt is None:
+        nt = ET.SubElement(tm, qname(ns, "normal-type"))
+        changed = True
+    if nt.text != typ:
+        nt.text = typ
+        changed = True
+    nd = tm.find(qname(ns, "normal-dots"))
+    has_dot = note.find(qname(ns, "dot")) is not None
+    if has_dot:
+        if nd is None:
+            nd = ET.SubElement(tm, qname(ns, "normal-dots"))
+            changed = True
+        if (nd.text or "1") != "1":
+            nd.text = "1"
+            changed = True
+    elif nd is not None:
+        tm.remove(nd)
+        changed = True
+    return changed
 
 
 def _clear_note_staccato(note: ET.Element, ns: str) -> None:
@@ -2024,8 +2180,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "rest_eighth_triplet_fixed": 0,
         "continuation_slurs_added": 0,
         "repeated_chord_slurs_added": 0,
+        "chord_slurs_completed": 0,
         "spurious_natural_removed": 0,
         "tuplet_brackets_adjusted": 0,
+        "tuplet_normal_fields_fixed": 0,
         "fermata_from_staccato_fixed": 0,
     }
 
@@ -2088,6 +2246,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
 
     for part in root.findall(qname(ns, "part")):
         max_staff = _max_staff_in_part(part, ns)
+        key_fifths = _part_key_fifths(part, ns)
 
         stats["tuplet_notations_added"] += _ensure_tuplet_notations(part, ns, max_staff)
         if _part_has_two_staves(part, ns):
@@ -2095,17 +2254,24 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
 
         for measure in part.findall(qname(ns, "measure")):
             seen_natural: set[tuple[str, str, str, str]] = set()
+            first_chord_ids = _measure_first_chord_note_ids(measure, ns)
             for note in measure.findall(qname(ns, "note")):
                 if _remove_duplicate_staccato_as_natural(note, ns):
                     stats["natural_from_staccato_removed"] += 1
-                if _remove_spurious_natural_accidental(note, ns, seen_natural):
-                    stats["spurious_natural_removed"] += 1
-                if _fix_misread_natural_as_sharp(note, ns):
-                    stats["misread_natural_to_sharp"] += 1
+                changed, to_sharp = _fix_misread_natural_accidental(
+                    note, ns, seen_natural, first_chord_ids
+                )
+                if changed:
+                    if to_sharp:
+                        stats["misread_natural_to_sharp"] += 1
+                    else:
+                        stats["spurious_natural_removed"] += 1
                 if _remove_beam_side_staccato_on_tuplet(note, ns):
                     stats["tuplet_staccato_removed"] += 1
                 if _fix_tuplet_show_numbers(note, ns, max_staff, measure):
                     stats["tuplet_show_number_fixed"] += 1
+                if _ensure_tuplet_normal_fields(note, ns):
+                    stats["tuplet_normal_fields_fixed"] += 1
 
         completed, system_added = _restore_ties_between_measures(part, ns)
         stats["chord_ties_completed"] += completed
@@ -2115,6 +2281,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
         stats["continuation_slurs_added"] += _repair_same_pitch_continuation_slurs(part, ns)
         stats["repeated_chord_slurs_added"] += _repair_repeated_chord_slurs(part, ns)
+        stats["chord_slurs_completed"] += _complete_chord_member_slurs(part, ns)
 
         for measure in part.findall(qname(ns, "measure")):
             stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(

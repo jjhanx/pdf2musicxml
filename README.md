@@ -12,7 +12,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
   - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
   - **Audiveris만**: 선행 처리·가사 주입 없음.
 - **이음줄(Slur) 및 세잇단음표 숫자 누락 버그 수정**: Audiveris 후처리 스크립트(`fix_audiveris_mxl.py`)가 얇은 이음줄(`<bracket>`) 기호를 지우거나 세잇단음표 숫자 '3'을 텍스트 찌꺼기로 오인하여 무차별 삭제하던 문제를 수정하여 정상적으로 출력되도록 개선했습니다.
-- **OMR 리듬·tie 자동 보정 확대**: `fix_audiveris_mxl.py` 범용 보정 — ① 세잇단 **쉼표 없음→숫자 '3'만**, **쉼표 포함→bracket**, ② **𝄽8+8분 2개** 세잇단·점4분→8분 오인, ③ **연속 동일 8분 화음·동음 연장** slur 복원, ④ **조표 `#` 오인 natural** 제거, ⑤ 쉼표 전용 voice 병렬 유지. **임시표 역전파 비활성**. 자세히 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
+- **OMR 리듬·tie 자동 보정 확대**: `fix_audiveris_mxl.py` 범용 보정 — ① 세잇단 **쉼표 없음→숫자 '3'만**, **쉼표 포함→bracket**, ② **𝄽8+8분 2개** 세잇단·점4분→8분 오인, ③ **연속 동일 8분 화음**(각 성부 slur)·**동음 연장** slur 복원, ④ 마디 **첫 화음**의 `#` 오인 natural→sharp·그 외 natural 제거, ⑤ 잇단 `normal-type` 보강(OSMD), ⑥ 쉼표 전용 voice 병렬 유지. **임시표 역전파 비활성**. 자세히 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
 - **Audiveris 후처리 (최근)**: 세잇단 **쉼표 없음→`show-bracket=no`(숫자만)**, **쉼표 포함→bracket 유지**. 화음 멤버 beam 일괄 제거·마디 임시표 역전파·m50 전용 accidental 패치는 **제거**(범용 오류 유발).
 - **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「PyMuPDF 가사 검증·편집」 체크를 끄면 pdfplumber 추출만으로 병합합니다.
 - **점검 UI**: 완료 후 **마스킹·인식 점검**에서 원본 vs **`clean_score_only.pdf`** PNG 비교, PDF 다운로드, Audiveris 단계별 실행(`pdfSource=clean_score`)을 지원합니다. 단계 의미·디버깅: [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md).

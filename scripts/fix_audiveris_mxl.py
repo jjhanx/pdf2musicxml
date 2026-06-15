@@ -905,6 +905,61 @@ def _rebeam_group(notes: list[ET.Element], ns: str, beam: str) -> None:
             ET.SubElement(n, qname(ns, "beam"), {"number": "1"}).text = beam
 
 
+def _note_has_misread_natural(note: ET.Element, ns: str) -> bool:
+    acc = note.find(qname(ns, "accidental"))
+    if acc is None or (acc.text or "").strip() != "natural":
+        return False
+    pitch_el = note.find(qname(ns, "pitch"))
+    if pitch_el is None:
+        return False
+    alter_el = pitch_el.find(qname(ns, "alter"))
+    return alter_el is None or not (alter_el.text or "").strip()
+
+
+def _remove_accidental_tag(note: ET.Element, ns: str) -> None:
+    acc = note.find(qname(ns, "accidental"))
+    if acc is not None:
+        note.remove(acc)
+
+
+def _repair_misplaced_sharp_via_duplicate(measure: ET.Element, ns: str) -> int:
+    """마디 첫 화음: duplicate pitch + 타 음표 natural → `#`를 duplicate에 sharp.
+
+    Audiveris가 `#` 글리프를 인접 음(G/F 등)에 natural로 붙이고, 동일 pitch를
+    중복 출력하는 패턴. dedupe 전에 처리해야 duplicate 단서가 사라지지 않는다.
+    """
+    fixed = 0
+    seen_staff: set[str] = set()
+    for grp in _iter_chord_groups(measure, ns):
+        staff = grp[2]
+        if staff in seen_staff or _is_rest(grp[0], ns):
+            continue
+        seen_staff.add(staff)
+        notes = grp[1]
+        misread_notes = [n for n in notes if _note_has_misread_natural(n, ns)]
+        if not misread_notes:
+            continue
+        by_label: dict[str, list[ET.Element]] = {}
+        for n in notes:
+            lab = _pitch_label(n, ns)
+            if lab:
+                by_label.setdefault(lab, []).append(n)
+        dup_sets = [v for v in by_label.values() if len(v) > 1]
+        if not dup_sets:
+            continue
+        dup_notes = dup_sets[0]
+        misread = next((n for n in misread_notes if n not in dup_notes), misread_notes[0])
+        if misread in dup_notes:
+            continue
+        for n in dup_notes[:-1]:
+            measure.remove(n)
+            fixed += 1
+        _apply_sharp_to_note(dup_notes[-1], ns)
+        _remove_accidental_tag(misread, ns)
+        fixed += 1
+    return fixed
+
+
 def _dedupe_chord_members_in_measure(measure: ET.Element, ns: str) -> int:
     """화음 내 leader와 동일 pitch의 chord 멤버 제거."""
     removed = 0
@@ -1401,8 +1456,10 @@ def _fix_misread_natural_accidental(
     seen.add(key)
 
     if id(note) in first_chord_note_ids:
-        _apply_sharp_to_note(note, ns)
-        return True, True
+        if _note_has_misread_natural(note, ns):
+            _apply_sharp_to_note(note, ns)
+            return True, True
+        return False, False
     note.remove(acc)
     return True, False
 
@@ -2173,6 +2230,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "voice_consolidated": 0,
         "triplet_quarter_prefix_repaired": 0,
         "chord_duplicates_removed": 0,
+        "misplaced_sharp_relocated": 0,
         "misread_natural_to_sharp": 0,
         "quarter_pair_eighth_fixed": 0,
         "two_quarter_voice_eighth_fixed": 0,
@@ -2203,6 +2261,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 measure, ns, expected or 0
             )
             stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
+            stats["misplaced_sharp_relocated"] += _repair_misplaced_sharp_via_duplicate(
+                measure, ns
+            )
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
             stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
                 measure, ns, divisions or 0, expected or 0

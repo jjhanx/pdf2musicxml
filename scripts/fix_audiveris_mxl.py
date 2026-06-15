@@ -361,7 +361,49 @@ def _infer_tuplet_placement(note: ET.Element, ns: str, max_staff: int) -> str:
     return "above"
 
 
-def _fix_tuplet_show_numbers(note: ET.Element, ns: str, max_staff: int = 1) -> bool:
+def _tuplet_run_has_rest(measure: ET.Element, start_note: ET.Element, ns: str) -> bool:
+    """잇단 start~stop 구간에 쉼표가 있으면 True (쉼표 포함 잇단은 bracket 유지)."""
+    voice, staff = _note_voice_staff(start_note, ns)
+    if _is_rest(start_note, ns):
+        return True
+    in_run = False
+    for grp in _iter_chord_groups(measure, ns):
+        leader = grp[0]
+        if leader is start_note:
+            in_run = True
+        if not in_run:
+            continue
+        if (grp[2], grp[3]) != (staff or "1", voice or "1"):
+            continue
+        if _is_rest(leader, ns):
+            return True
+        for notations in leader.findall(qname(ns, "notations")):
+            for tuplet in notations.findall(qname(ns, "tuplet")):
+                if tuplet.get("type") == "stop":
+                    return False
+    return False
+
+
+def _set_tuplet_bracket_attrs(
+    tuplet: ET.Element, has_rest: bool, placement: str | None = None
+) -> None:
+    """쉼표 없는 잇단: 숫자 '3'만(show-bracket=no). 쉼표 포함: bracket 유지."""
+    tuplet.set("show-number", "actual")
+    if has_rest:
+        tuplet.set("show-bracket", "yes")
+        tuplet.set("bracket", "yes")
+        if placement:
+            tuplet.set("placement", placement)
+    else:
+        tuplet.set("show-bracket", "no")
+        tuplet.set("bracket", "no")
+        if placement:
+            tuplet.set("placement", placement)
+
+
+def _fix_tuplet_show_numbers(
+    note: ET.Element, ns: str, max_staff: int = 1, measure: ET.Element | None = None
+) -> bool:
     actual = _tuplet_actual_notes(note, ns)
     if actual is None:
         return False
@@ -370,22 +412,19 @@ def _fix_tuplet_show_numbers(note: ET.Element, ns: str, max_staff: int = 1) -> b
         for tuplet in notations.findall(qname(ns, "tuplet")):
             if tuplet.get("type") != "start":
                 continue
-            if tuplet.get("show-number") != "actual":
-                tuplet.set("show-number", "actual")
+            has_rest = (
+                _tuplet_run_has_rest(measure, note, ns)
+                if measure is not None
+                else note.find(qname(ns, "rest")) is not None
+            )
+            placement = None
+            if actual == 3 and not has_rest:
+                placement = _infer_tuplet_placement(note, ns, max_staff)
+            before = (tuplet.get("show-number"), tuplet.get("show-bracket"), tuplet.get("bracket"))
+            _set_tuplet_bracket_attrs(tuplet, has_rest, placement)
+            after = (tuplet.get("show-number"), tuplet.get("show-bracket"), tuplet.get("bracket"))
+            if before != after or (placement and tuplet.get("placement") != placement):
                 changed = True
-            if tuplet.get("bracket") != "yes":
-                tuplet.set("bracket", "yes")
-                changed = True
-            if tuplet.get("show-bracket") != "yes":
-                tuplet.set("show-bracket", "yes")
-                changed = True
-            if actual == 3:
-                if note.find(qname(ns, "rest")) is not None:
-                    continue
-                desired = _infer_tuplet_placement(note, ns, max_staff)
-                if tuplet.get("placement") != desired:
-                    tuplet.set("placement", desired)
-                    changed = True
     return changed
 
 
@@ -862,7 +901,7 @@ def _rebeam_group(notes: list[ET.Element], ns: str, beam: str) -> None:
     for n in notes:
         for b in list(n.findall(qname(ns, "beam"))):
             n.remove(b)
-        if n.find(qname(ns, "chord")) is None and n.find(qname(ns, "rest")) is None:
+        if n.find(qname(ns, "chord")) is None:
             ET.SubElement(n, qname(ns, "beam"), {"number": "1"}).text = beam
 
 
@@ -1111,9 +1150,11 @@ def _repair_eighth_rest_plus_two_eighths_triplet(
                 continue
             if not _groups_are_beamed_together(g1[0], g2[0], ns):
                 continue
+            # 𝄽8+빔 8분 2개: 마디 길이가 맞으면 staccato/p 없이도 세잇단
             if not (
                 any(_note_has_staccato(n, ns) for n in g1[1])
                 or has_dyn_p
+                or total == expected + triplet_saving
             ):
                 continue
             for j, grp in enumerate((g0, g1, g2)):
@@ -1126,7 +1167,7 @@ def _repair_eighth_rest_plus_two_eighths_triplet(
                         [n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue")
                     )
             plc = _infer_tuplet_placement(g1[0], ns, max_staff)
-            _ensure_tuplet_bracket(g0[0], ns, plc, g2[0])
+            _ensure_tuplet_bracket(g0[0], ns, plc, g2[0], has_rest=True)
             fixed += 1
             break
     return fixed
@@ -1150,7 +1191,7 @@ def _repair_same_pitch_continuation_slurs(part: ET.Element, ns: str) -> int:
                 d1 = _note_duration(g1[0], ns) or 0
                 if d1 <= d0:
                     continue
-                if d0 <= 0 or d1 < 4 * d0:
+                if d0 <= 0 or d1 < 2 * d0:
                     continue
                 if _note_has_tie(g0[0], ns, "stop") or _note_has_tie(g1[0], ns, "start"):
                     continue
@@ -1164,6 +1205,81 @@ def _repair_same_pitch_continuation_slurs(part: ET.Element, ns: str) -> int:
                     fixed += 1
                     slur_num += 1
     return fixed
+
+
+def _chord_pitch_signature(group: tuple, ns: str) -> tuple[str, ...]:
+    labs = sorted(_pitch_label(n, ns) or "?" for n in group[1])
+    return tuple(labs)
+
+
+def _note_has_any_slur(note: ET.Element, ns: str) -> bool:
+    for notations in note.findall(qname(ns, "notations")):
+        if notations.findall(qname(ns, "slur")):
+            return True
+    return False
+
+
+def _repair_repeated_chord_slurs(part: ET.Element, ns: str) -> int:
+    """연속 동일 8분 화음(피아노 알베르지 등) — 폰트/OMR 이음줄 미검출 시 slur 복원."""
+    fixed = 0
+    slur_num = 20
+    for measure in part.findall(qname(ns, "measure")):
+        for (_, _voice), groups in _voice_groups(measure, ns).items():
+            voice_slurs = 0
+            for i in range(len(groups) - 1):
+                if voice_slurs >= 2:
+                    break
+                g0, g1 = groups[i], groups[i + 1]
+                if _is_rest(g0[0], ns) or _is_rest(g1[0], ns):
+                    continue
+                if len(g0[1]) != 2 or len(g1[1]) != 2:
+                    continue
+                if g0[0].find(qname(ns, "time-modification")) is not None:
+                    continue
+                if g1[0].find(qname(ns, "time-modification")) is not None:
+                    continue
+                if _note_type_text(g0[0], ns) != "eighth":
+                    continue
+                sig = _chord_pitch_signature(g0, ns)
+                if sig != _chord_pitch_signature(g1, ns):
+                    continue
+                if _note_has_tie(g0[0], ns, "stop") or _note_has_tie(g1[0], ns, "start"):
+                    continue
+                if _note_has_any_slur(g0[0], ns) or _note_has_any_slur(g1[0], ns):
+                    continue
+                if _add_slur_to_note(g0[0], ns, "start", slur_num) and _add_slur_to_note(
+                    g1[0], ns, "stop", slur_num
+                ):
+                    fixed += 1
+                    slur_num += 1
+                    voice_slurs += 1
+    return fixed
+
+
+def _remove_spurious_natural_accidental(
+    note: ET.Element, ns: str, seen: set[tuple[str, str, str, str]]
+) -> bool:
+    """조표 음을 `#` 오인해 `<accidental>natural</accidental>`만 붙인 경우 — 태그 제거."""
+    acc = note.find(qname(ns, "accidental"))
+    if acc is None or (acc.text or "").strip() != "natural":
+        return False
+    pitch_el = note.find(qname(ns, "pitch"))
+    if pitch_el is None:
+        return False
+    alter_el = pitch_el.find(qname(ns, "alter"))
+    if alter_el is not None and (alter_el.text or "").strip():
+        return False
+    step_el = pitch_el.find(qname(ns, "step"))
+    oct_el = pitch_el.find(qname(ns, "octave"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return False
+    voice, staff = _note_voice_staff(note, ns)
+    key = (staff or "1", voice or "1", step_el.text.strip(), oct_el.text.strip())
+    if key in seen:
+        return False
+    seen.add(key)
+    note.remove(acc)
+    return True
 
 
 def _repair_three_eighths_as_triplet(
@@ -1199,7 +1315,7 @@ def _repair_three_eighths_as_triplet(
                         [n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue")
                     )
             plc = _infer_tuplet_placement(trio[0][0], ns, max_staff)
-            _ensure_tuplet_bracket(trio[0][0], ns, plc, trio[2][0])
+            _ensure_tuplet_bracket(trio[0][0], ns, plc, trio[2][0], has_rest=False)
             fixed += 1
             break
     return fixed
@@ -1289,6 +1405,13 @@ def _repair_overfull_eighth(part: ET.Element, ns: str) -> tuple[int, int]:
                     score += 3  # 쉼표 뒤 마지막 못갖춘 8분음표
                 if i == 1 and _is_rest(groups[0][0], ns) and _note_duration(groups[0][0], ns) == eighth:
                     score += 3  # 마디 시작 8분쉼표 직후 첫 음
+                if (
+                    prev is not None
+                    and _is_eighth_rest_group(prev, ns, divisions)
+                    and nxt is not None
+                    and _is_plain_eighth_group(nxt, ns, divisions)
+                ):
+                    score += 6  # 𝄽8 ♩ ♪ ♪ — 가운데 4분 오인
                 candidates.append((i, score))
             if not candidates:
                 continue
@@ -1382,23 +1505,21 @@ def _strip_tuplet_notations(note: ET.Element, ns: str) -> None:
             note.remove(notations)
 
 
-def _ensure_tuplet_bracket(leader: ET.Element, ns: str, placement: str, stop_leader: ET.Element) -> None:
+def _ensure_tuplet_bracket(
+    leader: ET.Element,
+    ns: str,
+    placement: str,
+    stop_leader: ET.Element,
+    *,
+    has_rest: bool = False,
+) -> None:
     _strip_tuplet_notations(leader, ns)
     _strip_tuplet_notations(stop_leader, ns)
     notations = leader.find(qname(ns, "notations"))
     if notations is None:
         notations = ET.SubElement(leader, qname(ns, "notations"))
-    ET.SubElement(
-        notations,
-        qname(ns, "tuplet"),
-        {
-            "type": "start",
-            "show-number": "actual",
-            "show-bracket": "yes",
-            "bracket": "yes",
-            "placement": placement,
-        },
-    )
+    tuplet = ET.SubElement(notations, qname(ns, "tuplet"), {"type": "start"})
+    _set_tuplet_bracket_attrs(tuplet, has_rest, placement if not has_rest else placement)
     stop_n = stop_leader.find(qname(ns, "notations"))
     if stop_n is None:
         stop_n = ET.SubElement(stop_leader, qname(ns, "notations"))
@@ -1478,19 +1599,32 @@ def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected:
             staves[s] = []
         staves[s].append(note)
     
-    needs_flatten = False
+    needs_flatten: set[str] = set()
     for s, notes in staves.items():
-        v_durs = {}
+        v_durs: dict[str, int] = {}
+        v_has_note: dict[str, bool] = {}
         for note in notes:
-            if note.find(qname(ns, "chord")) is not None or _is_rest(note, ns):
+            if note.find(qname(ns, "chord")) is not None:
                 continue
             v_el = note.find(qname(ns, "voice"))
             v = v_el.text if v_el is not None else "1"
-            v_durs[v] = v_durs.get(v, 0) + (_note_duration(note, ns) or 0)
-        if len(v_durs) > 1 and (sum(v_durs.values()) <= expected + (expected // 4) or max(v_durs.values()) < expected):
-            needs_flatten = True
-            break
-            
+            if _is_rest(note, ns):
+                v_durs[v] = v_durs.get(v, 0) + (_note_duration(note, ns) or 0)
+            else:
+                v_has_note[v] = True
+                v_durs[v] = v_durs.get(v, 0) + (_note_duration(note, ns) or 0)
+        if len(v_durs) <= 1:
+            continue
+        if any(
+            v_has_note.get(v, False) is False and (v_durs.get(v) or 0) > 0
+            for v in v_durs
+        ):
+            continue  # 쉼표 전용 voice — 멜로디 voice와 병렬
+        if sum(v_durs.values()) == expected:
+            continue  # voice 합이 마디 길이와 같으면 병렬 레이어로 간주
+        if sum(v_durs.values()) <= expected + (expected // 4) or max(v_durs.values()) < expected:
+            needs_flatten.add(s)
+
     if not needs_flatten:
         return 0
 
@@ -1502,19 +1636,20 @@ def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected:
         except ValueError:
             return 9999.0
 
-    non_notes = []
-    for c in list(measure):
-        if local_tag(c) not in ("note", "backup", "forward"):
-            non_notes.append(c)
-        measure.remove(c)
-        
-    for c in non_notes:
-        measure.append(c)
-        
-    sorted_staves = sorted(staves.keys())
-    for i, s in enumerate(sorted_staves):
+    kept_notes: list[ET.Element] = []
+    for note in list(measure.findall(qname(ns, "note"))):
+        s_el = note.find(qname(ns, "staff"))
+        s = s_el.text if s_el is not None else "1"
+        if s not in needs_flatten:
+            kept_notes.append(note)
+        measure.remove(note)
+
+    for note in kept_notes:
+        measure.append(note)
+
+    sorted_flat = sorted(needs_flatten)
+    for i, s in enumerate(sorted_flat):
         notes = staves[s]
-        
         groups = []
         current_group = []
         for n in notes:
@@ -1526,27 +1661,27 @@ def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected:
                 current_group.append(n)
         if current_group:
             groups.append(current_group)
-            
+
         groups.sort(key=get_x)
-        
+
         total_dur = 0
         for grp in groups:
             leader = grp[0]
             if not _is_rest(leader, ns):
-                total_dur += (_note_duration(leader, ns) or 0)
+                total_dur += _note_duration(leader, ns) or 0
             for n in grp:
                 v_el = n.find(qname(ns, "voice"))
                 if v_el is not None:
                     v_el.text = "1" if s == "1" else "5"
                 measure.append(n)
-        
-        if i < len(sorted_staves) - 1 and total_dur > 0:
+
+        if i < len(sorted_flat) - 1 and total_dur > 0:
             b = ET.Element(qname(ns, "backup"))
             d = ET.SubElement(b, qname(ns, "duration"))
             d.text = str(total_dur)
             measure.append(b)
-            
-    return 1
+
+    return len(needs_flatten)
 
 
 def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: str) -> int:
@@ -1635,27 +1770,28 @@ def _repair_two_quarters_as_triplet_prefix(
             for n in grp[1]:
                 _strip_tuplet_notations(n, ns)
         plc = _infer_tuplet_placement(g0[0], ns, max_staff)
-        _ensure_tuplet_bracket(g0[0], ns, plc, groups[2][0])
+        _ensure_tuplet_bracket(g0[0], ns, plc, groups[2][0], has_rest=False)
 
         fixed += 1
     return fixed
 
 
-def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> int:
-    """잇단 start에 bracket/show-bracket=yes 유지(OSMD '3' 표시)."""
+def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str, max_staff: int = 1) -> int:
+    """잇단 bracket 정책: 쉼표 포함만 bracket, 그 외 숫자 '3'만."""
     fixed = 0
     for note in measure.findall(qname(ns, "note")):
         for notations in note.findall(qname(ns, "notations")):
             for tuplet in notations.findall(qname(ns, "tuplet")):
                 if tuplet.get("type") != "start":
                     continue
-                if tuplet.get("show-number") == "actual":
-                    if tuplet.get("bracket") != "yes":
-                        tuplet.set("bracket", "yes")
-                        fixed += 1
-                    if tuplet.get("show-bracket") != "yes":
-                        tuplet.set("show-bracket", "yes")
-                        fixed += 1
+                has_rest = _tuplet_run_has_rest(measure, note, ns)
+                placement = None
+                if not has_rest and _tuplet_actual_notes(note, ns) == 3:
+                    placement = _infer_tuplet_placement(note, ns, max_staff)
+                before = (tuplet.get("show-bracket"), tuplet.get("bracket"))
+                _set_tuplet_bracket_attrs(tuplet, has_rest, placement)
+                if before != (tuplet.get("show-bracket"), tuplet.get("bracket")):
+                    fixed += 1
     return fixed
 
 
@@ -1667,19 +1803,21 @@ def _has_tuplet_element(note: ET.Element, ns: str) -> bool:
 
 
 def _add_tuplet_element(
-    note: ET.Element, ns: str, tuplet_type: str, placement: str | None = None
+    note: ET.Element,
+    ns: str,
+    tuplet_type: str,
+    placement: str | None = None,
+    *,
+    has_rest: bool = False,
 ) -> None:
     notations = note.find(qname(ns, "notations"))
     if notations is None:
         notations = ET.SubElement(note, qname(ns, "notations"))
-    attrib = {"type": tuplet_type}
     if tuplet_type == "start":
-        attrib["show-number"] = "actual"
-        attrib["show-bracket"] = "yes"
-        attrib["bracket"] = "yes"
-        if placement:
-            attrib["placement"] = placement
-    ET.SubElement(notations, qname(ns, "tuplet"), attrib=attrib)
+        tuplet = ET.SubElement(notations, qname(ns, "tuplet"), {"type": "start"})
+        _set_tuplet_bracket_attrs(tuplet, has_rest, placement if not has_rest else placement)
+    else:
+        ET.SubElement(notations, qname(ns, "tuplet"), {"type": tuplet_type})
 
 
 def _ensure_tuplet_notations(part: ET.Element, ns: str, max_staff: int = 1) -> int:
@@ -1716,7 +1854,10 @@ def _ensure_tuplet_notations(part: ET.Element, ns: str, max_staff: int = 1) -> i
                 if run_dur % divisions == 0:
                     if len(run) >= 2:
                         placement = _infer_tuplet_placement(run[0][0], ns, max_staff)
-                        _add_tuplet_element(run[0][0], ns, "start", placement)
+                        run_has_rest = any(_is_rest(g[0], ns) for g in run)
+                        _add_tuplet_element(
+                            run[0][0], ns, "start", placement, has_rest=run_has_rest
+                        )
                         _add_tuplet_element(run[-1][0], ns, "stop")
                         added += 1
                     run, run_dur = [], 0
@@ -1882,6 +2023,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "three_eighth_triplet_fixed": 0,
         "rest_eighth_triplet_fixed": 0,
         "continuation_slurs_added": 0,
+        "repeated_chord_slurs_added": 0,
+        "spurious_natural_removed": 0,
         "tuplet_brackets_adjusted": 0,
         "fermata_from_staccato_fixed": 0,
     }
@@ -1898,7 +2041,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     for part in root.findall(qname(ns, "part")):
         max_staff = _max_staff_in_part(part, ns)
         for measure, divisions, expected in _iter_measures_with_timing(part, ns):
-            stats["voice_consolidated"] += _flatten_underfull_voices_in_measure(measure, ns, (divisions or 6) * 4)
+            stats["voice_consolidated"] += _flatten_underfull_voices_in_measure(
+                measure, ns, expected or 0
+            )
             stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
             stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
@@ -1948,15 +2093,19 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         if _part_has_two_staves(part, ns):
             stats["tuplet_dynamics_removed"] += _remove_spurious_tuplet_dynamics(part, ns)
 
-        for note in part.iter(qname(ns, "note")):
-            if _remove_duplicate_staccato_as_natural(note, ns):
-                stats["natural_from_staccato_removed"] += 1
-            if _fix_misread_natural_as_sharp(note, ns):
-                stats["misread_natural_to_sharp"] += 1
-            if _remove_beam_side_staccato_on_tuplet(note, ns):
-                stats["tuplet_staccato_removed"] += 1
-            if _fix_tuplet_show_numbers(note, ns, max_staff):
-                stats["tuplet_show_number_fixed"] += 1
+        for measure in part.findall(qname(ns, "measure")):
+            seen_natural: set[tuple[str, str, str, str]] = set()
+            for note in measure.findall(qname(ns, "note")):
+                if _remove_duplicate_staccato_as_natural(note, ns):
+                    stats["natural_from_staccato_removed"] += 1
+                if _remove_spurious_natural_accidental(note, ns, seen_natural):
+                    stats["spurious_natural_removed"] += 1
+                if _fix_misread_natural_as_sharp(note, ns):
+                    stats["misread_natural_to_sharp"] += 1
+                if _remove_beam_side_staccato_on_tuplet(note, ns):
+                    stats["tuplet_staccato_removed"] += 1
+                if _fix_tuplet_show_numbers(note, ns, max_staff, measure):
+                    stats["tuplet_show_number_fixed"] += 1
 
         completed, system_added = _restore_ties_between_measures(part, ns)
         stats["chord_ties_completed"] += completed
@@ -1965,9 +2114,12 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
             stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
         stats["continuation_slurs_added"] += _repair_same_pitch_continuation_slurs(part, ns)
-        
+        stats["repeated_chord_slurs_added"] += _repair_repeated_chord_slurs(part, ns)
+
         for measure in part.findall(qname(ns, "measure")):
-            stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(measure, ns)
+            stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(
+                measure, ns, max_staff
+            )
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats

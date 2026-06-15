@@ -483,67 +483,12 @@ def _patch_sixteenth_dotted_pickup(measure: ET.Element, ns: str) -> int:
     return 0
 
 
-def _patch_piano_m50_accidentals(measure: ET.Element, ns: str) -> int:
-    groups = _groups(measure, ns, "1", "1")
-    if len(groups) != 3:
-        return 0
-    sig = _sig(groups, ns)
-    p0 = sig[0][0]
-    p1 = sig[1][0]
-    dur0 = _duration(groups[0][0], ns)
-    dur1 = _duration(groups[1][0], ns)
-    dur2 = _duration(groups[2][0], ns)
-    if not (
-        (p0 == frozenset(["B4", "D5", "F5", "B5"]) or p0 == frozenset(["B4", "D#5", "F5", "B5"]) or p0 == frozenset(["B4", "D5", "F#5", "B5"]))
-        and p1 == frozenset(["A4", "D5", "A5"])
-    ):
-        return 0
-    if dur0 is None or dur1 is None or dur2 is None:
-        return 0
-    if dur0 != dur1 * 2 or dur1 != dur2:
-        return 0
-    applied = 0
-    for n in groups[0][1]:
-        p = n.find(_qname(ns, "pitch"))
-        if p is None:
-            continue
-        step = _text(p.find(_qname(ns, "step")))
-        octave = _text(p.find(_qname(ns, "octave")))
-        if step == "D" and octave == "5":
-            acc = n.find(_qname(ns, "accidental"))
-            if acc is None:
-                acc = ET.SubElement(n, _qname(ns, "accidental"))
-            acc.text = "sharp"
-            alter = p.find(_qname(ns, "alter"))
-            if alter is None:
-                step_el = p.find(_qname(ns, "step"))
-                idx = list(p).index(step_el) + 1
-                alter = ET.Element(_qname(ns, "alter"))
-                p.insert(idx, alter)
-            alter.text = "1"
-            applied += 1
-        elif step == "F" and octave == "5":
-            acc = n.find(_qname(ns, "accidental"))
-            if acc is not None:
-                n.remove(acc)
-            alter = p.find(_qname(ns, "alter"))
-            if alter is None:
-                step_el = p.find(_qname(ns, "step"))
-                idx = list(p).index(step_el) + 1
-                alter = ET.Element(_qname(ns, "alter"))
-                p.insert(idx, alter)
-            alter.text = "1"
-            applied += 1
-    return 1 if applied > 0 else 0
-
-
 _PATCHES = [
     _patch_vocal_pickup,
     _patch_sixteenth_dotted_pickup,
     _patch_piano_lost_rhythm_after_dotted,
     _patch_piano_voice_split_overlap,
     _patch_piano_lost_whole_chord_tone,
-    _patch_piano_m50_accidentals,
 ]
 
 

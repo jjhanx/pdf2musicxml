@@ -651,6 +651,34 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                         )
                         rest_fixed += 1
                     continue
+                # 패턴 A2: ♩. ♩ ♩ 𝄽8 — 마디 길이는 맞지만 2번째 4분 오인 + 끝 8분 유실
+                if (
+                    total == expected
+                    and _is_dotted_quarter_group(g0[0], ns, divisions)
+                    and _is_plain_quarter_group(g1[0], ns, divisions)
+                    and _is_plain_quarter_group(g2[0], ns, divisions)
+                    and _is_eighth_rest_group(g3[0], ns, divisions)
+                ):
+                    _halve_group_to_eighth(g1[1], ns)
+                    new_note = _clone_as_eighth(g2[0], ns, eighth)
+                    v, s = _note_voice_staff(g2[0], ns)
+                    if v:
+                        ve = new_note.find(qname(ns, "voice"))
+                        if ve is None:
+                            ve = ET.SubElement(new_note, qname(ns, "voice"))
+                        ve.text = v
+                    if s:
+                        se = new_note.find(qname(ns, "staff"))
+                        if se is None:
+                            se = ET.SubElement(new_note, qname(ns, "staff"))
+                        se.text = s
+                    stem = g2[0].find(qname(ns, "stem"))
+                    if stem is not None and stem.text:
+                        ET.SubElement(new_note, qname(ns, "stem")).text = stem.text
+                    _insert_after_note(measure, g2[1][-1], new_note)
+                    dotted_fixed += 1
+                    rest_fixed += 1
+                    continue
             # 패턴 C: ♩. ♪ ♩. — 가운데 8분이 4분으로, 끝 8분쉼표 유실(피아노 RH 등)
             if len(groups) == 3:
                 g0, g1, g2 = groups
@@ -1522,66 +1550,35 @@ def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected:
 
 
 def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: str) -> int:
-    """If a pitch has an explicit accidental later in the measure, back-propagate it to earlier occurrences
-    that have no accidental, as OMR frequently misses accidentals on the first chord."""
+    """(비활성) 마디 후반 accidental을 앞 음표에 역전파 — 조표·키 문맥을 무시하고
+    C5→C#5 등을 일괄 바꿔 # 유실/과다 오류를 유발한다."""
+    return 0
+
+
+def _repair_staccato_as_fermata_before_rest(measure: ET.Element, ns: str) -> int:
+    """마디 끝 𝄽 직전 음의 staccato → fermata (Audiveris 늘임표 오인)."""
     fixed = 0
-    staves = {}
-    for note in measure.findall(qname(ns, "note")):
-        if _is_rest(note, ns):
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        if len(groups) < 2:
             continue
-        s_el = note.find(qname(ns, "staff"))
-        s = s_el.text if s_el is not None else "1"
-        if s not in staves:
-            staves[s] = []
-        staves[s].append(note)
-        
-    for s, notes in staves.items():
-        explicit_accs = {}
-        for note in notes:
-            p = note.find(qname(ns, "pitch"))
-            if p is None:
-                continue
-            step_el = p.find(qname(ns, "step"))
-            oct_el = p.find(qname(ns, "octave"))
-            if step_el is None or oct_el is None:
-                continue
-            pitch_key = step_el.text + oct_el.text
-            
-            acc = note.find(qname(ns, "accidental"))
-            if acc is not None and acc.text and acc.text.strip() != "natural":
-                if pitch_key not in explicit_accs:
-                    explicit_accs[pitch_key] = acc.text
-                    
-        for note in notes:
-            p = note.find(qname(ns, "pitch"))
-            if p is None:
-                continue
-            step_el = p.find(qname(ns, "step"))
-            oct_el = p.find(qname(ns, "octave"))
-            if step_el is None or oct_el is None:
-                continue
-            pitch_key = step_el.text + oct_el.text
-            
-            acc = note.find(qname(ns, "accidental"))
-            if acc is None and pitch_key in explicit_accs:
-                acc_text = explicit_accs[pitch_key]
-                new_acc = ET.SubElement(note, qname(ns, "accidental"))
-                new_acc.text = acc_text
-                
-                alter_val = "1" if acc_text == "sharp" else ("-1" if acc_text == "flat" else "0")
-                if alter_val != "0":
-                    alter_el = p.find(qname(ns, "alter"))
-                    if alter_el is None:
-                        idx = list(p).index(step_el) + 1
-                        alter_el = ET.Element(qname(ns, "alter"))
-                        p.insert(idx, alter_el)
-                    alter_el.text = alter_val
-                else:
-                    alter_el = p.find(qname(ns, "alter"))
-                    if alter_el is not None:
-                        p.remove(alter_el)
-                fixed += 1
-                
+        g_note, g_rest = groups[-2], groups[-1]
+        if not _is_rest(g_rest[0], ns) or _is_rest(g_note[0], ns):
+            continue
+        if _note_has_fermata(g_note[0], ns):
+            continue
+        if not any(_note_has_staccato(n, ns) for n in g_note[1]):
+            continue
+        for n in g_note[1]:
+            _clear_note_staccato(n, ns)
+            notations = n.find(qname(ns, "notations"))
+            if notations is None:
+                notations = ET.SubElement(n, qname(ns, "notations"))
+            fermata = notations.find(qname(ns, "fermata"))
+            if fermata is None:
+                fermata = ET.SubElement(notations, qname(ns, "fermata"))
+            if fermata.get("type") is None:
+                fermata.set("type", "upright")
+            fixed += 1
     return fixed
 
 
@@ -1645,81 +1642,20 @@ def _repair_two_quarters_as_triplet_prefix(
 
 
 def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> int:
-    """마디 내의 잇단음(tuplet) 그룹을 검사하여, 쉼표가 섞이지 않은 경우 대괄호를 제거한다.
-
-    속성:
-      - 쉼표 없음: bracket="no", show-bracket="no"
-      - 쉼표 있음: bracket="yes", show-bracket="yes"
-    """
+    """잇단 start에 bracket/show-bracket=yes 유지(OSMD '3' 표시)."""
     fixed = 0
-    for (staff, voice), groups in _voice_groups(measure, ns).items():
-        active_groups: list[dict] = []
-        
-        for grp in groups:
-            starts = []
-            stops = []
-            
-            for n in grp[1]:
-                for notations in n.findall(qname(ns, "notations")):
-                    for tuplet in notations.findall(qname(ns, "tuplet")):
-                        t_type = tuplet.get("type")
-                        if t_type == "start":
-                            starts.append(tuplet)
-                        elif t_type == "stop":
-                            stops.append(tuplet)
-            
-            is_rest_note = False
-            for n in grp[1]:
-                if n.find(qname(ns, "rest")) is not None:
-                    is_rest_note = True
-                    break
-            
-            for g in active_groups:
-                if is_rest_note:
-                    g["has_rest"] = True
-                g["notes"].append(grp)
-                
-            for start_el in starts:
-                active_groups.append({
-                    "start_element": start_el,
-                    "has_rest": is_rest_note,
-                    "notes": [grp]
-                })
-                
-            for stop_el in stops:
-                if active_groups:
-                    g = active_groups.pop()
-                    if g["has_rest"]:
-                        if g["start_element"].get("bracket") != "yes":
-                            g["start_element"].set("bracket", "yes")
-                            fixed += 1
-                        if g["start_element"].get("show-bracket") != "yes":
-                            g["start_element"].set("show-bracket", "yes")
-                            fixed += 1
-                    else:
-                        if "bracket" in g["start_element"].attrib:
-                            g["start_element"].attrib.pop("bracket")
-                            fixed += 1
-                        if "show-bracket" in g["start_element"].attrib:
-                            g["start_element"].attrib.pop("show-bracket")
-                            fixed += 1
-                            
-        for g in active_groups:
-            if g["has_rest"]:
-                if g["start_element"].get("bracket") != "yes":
-                    g["start_element"].set("bracket", "yes")
-                    fixed += 1
-                if g["start_element"].get("show-bracket") != "yes":
-                    g["start_element"].set("show-bracket", "yes")
-                    fixed += 1
-            else:
-                if "bracket" in g["start_element"].attrib:
-                    g["start_element"].attrib.pop("bracket")
-                    fixed += 1
-                if "show-bracket" in g["start_element"].attrib:
-                    g["start_element"].attrib.pop("show-bracket")
-                    fixed += 1
-                    
+    for note in measure.findall(qname(ns, "note")):
+        for notations in note.findall(qname(ns, "notations")):
+            for tuplet in notations.findall(qname(ns, "tuplet")):
+                if tuplet.get("type") != "start":
+                    continue
+                if tuplet.get("show-number") == "actual":
+                    if tuplet.get("bracket") != "yes":
+                        tuplet.set("bracket", "yes")
+                        fixed += 1
+                    if tuplet.get("show-bracket") != "yes":
+                        tuplet.set("show-bracket", "yes")
+                        fixed += 1
     return fixed
 
 
@@ -1947,6 +1883,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "rest_eighth_triplet_fixed": 0,
         "continuation_slurs_added": 0,
         "tuplet_brackets_adjusted": 0,
+        "fermata_from_staccato_fixed": 0,
     }
 
     # 1) 텍스트 정리 + backup/forward 겹침 voice 병합 (악보 패치보다 먼저)
@@ -1985,6 +1922,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
                 measure, ns, max_staff, expected or 0
             )
+            stats["fermata_from_staccato_fixed"] += _repair_staccato_as_fermata_before_rest(
+                measure, ns
+            )
         dotted_fixed, lost_eighth = _repair_dotted_quarter_misread(part, ns)
         stats["dotted_quarter_eighth_fixed"] += dotted_fixed
         stats["lost_eighth_restored"] += lost_eighth
@@ -2017,10 +1957,6 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 stats["tuplet_staccato_removed"] += 1
             if _fix_tuplet_show_numbers(note, ns, max_staff):
                 stats["tuplet_show_number_fixed"] += 1
-            
-            if note.find(qname(ns, "chord")) is not None:
-                for b in list(note.findall(qname(ns, "beam"))):
-                    note.remove(b)
 
         completed, system_added = _restore_ties_between_measures(part, ns)
         stats["chord_ties_completed"] += completed

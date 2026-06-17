@@ -1424,6 +1424,42 @@ def _measure_first_chord_note_ids(measure: ET.Element, ns: str) -> set[int]:
     return out
 
 
+
+def _normalize_accidentals(measure, ns: str, key_fifths: int) -> int:
+    fixed = 0
+    
+    def get_expected_alter(step: str, fifths: int) -> int:
+        sharp_order = ('F', 'C', 'G', 'D', 'A', 'E', 'B')
+        flat_order = ('B', 'E', 'A', 'D', 'G', 'C', 'F')
+        if fifths > 0 and step in sharp_order[:fifths]: return 1
+        if fifths < 0 and step in flat_order[:-fifths]: return -1
+        return 0
+
+    seen_in_measure = {}
+    for n in measure.findall(qname(ns, "note")):
+        if _is_rest(n, ns): continue
+        pitch = n.find(qname(ns, "pitch"))
+        if pitch is None: continue
+        step = pitch.find(qname(ns, "step")).text
+        octave = pitch.find(qname(ns, "octave")).text
+        alter_el = pitch.find(qname(ns, "alter"))
+        alter = int(alter_el.text) if alter_el is not None and alter_el.text else 0
+        
+        acc = n.find(qname(ns, "accidental"))
+        if acc is not None:
+            acc_type = acc.text.strip() if acc.text else ""
+            key = (step, octave)
+            
+            expected_alter = seen_in_measure.get(key, get_expected_alter(step, key_fifths))
+            
+            if alter == 0 and acc_type == "natural" and expected_alter == 0:
+                n.remove(acc)
+                fixed += 1
+                
+            seen_in_measure[key] = alter
+            
+    return fixed
+
 def _fix_misread_natural_accidental(
     note: ET.Element,
     ns: str,
@@ -1463,6 +1499,154 @@ def _fix_misread_natural_accidental(
     note.remove(acc)
     return True, False
 
+
+
+def _general_resolve_overfull_measure(
+    measure, ns: str, max_staff: int, divisions: int, expected: int
+) -> int:
+    """마디가 Overfull일 때, 수학적으로 잇단음표 변환이 정확히 들어맞는 구간을 찾아 범용 보정."""
+    if not divisions or not expected:
+        return 0
+    fixed = 0
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        if total <= expected:
+            continue
+        overflow = total - expected
+        eighth = divisions // 2
+        quarter = divisions
+        
+        # Check eighths
+        triplet_eighth = max(1, (eighth * 2) // 3)
+        eighth_saving = 3 * eighth - 3 * triplet_eighth
+        
+        # Check quarters
+        triplet_quarter = max(1, (quarter * 2) // 3)
+        quarter_saving = 3 * quarter - 3 * triplet_quarter
+
+        target_dur = None
+        target_saving = 0
+        new_type = ''
+        new_dur = 0
+        
+        if eighth_saving > 0 and overflow % eighth_saving == 0:
+            target_dur = eighth
+            target_saving = eighth_saving
+            new_type = 'eighth'
+            new_dur = triplet_eighth
+        elif quarter_saving > 0 and overflow % quarter_saving == 0:
+            target_dur = quarter
+            target_saving = quarter_saving
+            new_type = 'quarter'
+            new_dur = triplet_quarter
+            
+        if not target_dur:
+            continue
+            
+        num_triplets = overflow // target_saving
+        triplets_found = 0
+        
+        i = 0
+        while i <= len(groups) - 3:
+            trio = groups[i : i + 3]
+            if any(g[0].find(qname(ns, "time-modification")) is not None for g in trio):
+                i += 1; continue
+            if not all(_note_duration(g[0], ns) == target_dur for g in trio):
+                i += 1; continue
+                
+            for j, grp in enumerate(trio):
+                for n in grp[1]:
+                    _clear_note_staccato(n, ns)
+                    _strip_tuplet_notations(n, ns)
+                    _ensure_time_modification(n, ns)
+                    _set_note_type_duration(n, ns, new_dur, new_type)
+                    if new_type == 'eighth' and not any(_is_rest(g[0], ns) for g in trio):
+                        _rebeam_group([n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue"))
+            
+            has_rest = any(_is_rest(g[0], ns) for g in trio)
+            plc = _infer_tuplet_placement(trio[0][0], ns, max_staff)
+            _ensure_tuplet_bracket(trio[0][0], ns, plc, trio[2][0], has_rest=has_rest)
+            
+            fixed += 1
+            triplets_found += 1
+            i += 3
+            if triplets_found >= num_triplets:
+                break
+    return fixed
+
+
+def _general_resolve_overfull_measure(
+    measure, ns: str, max_staff: int, divisions: int, expected: int
+) -> int:
+    """마디가 Overfull일 때, 수학적으로 잇단음표 변환이 정확히 들어맞는 구간을 찾아 범용 보정."""
+    if not divisions or not expected:
+        return 0
+    fixed = 0
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        if total <= expected:
+            continue
+        overflow = total - expected
+        eighth = divisions // 2
+        quarter = divisions
+        
+        # Check eighths
+        triplet_eighth = max(1, (eighth * 2) // 3)
+        eighth_saving = 3 * eighth - 3 * triplet_eighth
+        
+        # Check quarters
+        triplet_quarter = max(1, (quarter * 2) // 3)
+        quarter_saving = 3 * quarter - 3 * triplet_quarter
+
+        target_dur = None
+        target_saving = 0
+        new_type = ''
+        new_dur = 0
+        
+        if eighth_saving > 0 and overflow % eighth_saving == 0:
+            target_dur = eighth
+            target_saving = eighth_saving
+            new_type = 'eighth'
+            new_dur = triplet_eighth
+        elif quarter_saving > 0 and overflow % quarter_saving == 0:
+            target_dur = quarter
+            target_saving = quarter_saving
+            new_type = 'quarter'
+            new_dur = triplet_quarter
+            
+        if not target_dur:
+            continue
+            
+        num_triplets = overflow // target_saving
+        triplets_found = 0
+        
+        i = 0
+        while i <= len(groups) - 3:
+            trio = groups[i : i + 3]
+            if any(g[0].find(qname(ns, "time-modification")) is not None for g in trio):
+                i += 1; continue
+            if not all(_note_duration(g[0], ns) == target_dur for g in trio):
+                i += 1; continue
+                
+            for j, grp in enumerate(trio):
+                for n in grp[1]:
+                    _clear_note_staccato(n, ns)
+                    _strip_tuplet_notations(n, ns)
+                    _ensure_time_modification(n, ns)
+                    _set_note_type_duration(n, ns, new_dur, new_type)
+                    if new_type == 'eighth' and not any(_is_rest(g[0], ns) for g in trio):
+                        _rebeam_group([n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue"))
+            
+            has_rest = any(_is_rest(g[0], ns) for g in trio)
+            plc = _infer_tuplet_placement(trio[0][0], ns, max_staff)
+            _ensure_tuplet_bracket(trio[0][0], ns, plc, trio[2][0], has_rest=has_rest)
+            
+            fixed += 1
+            triplets_found += 1
+            i += 3
+            if triplets_found >= num_triplets:
+                break
+    return fixed
 
 def _repair_three_eighths_as_triplet(
     measure: ET.Element, ns: str, max_staff: int, divisions: int
@@ -1542,7 +1726,7 @@ def _repair_overfull_eighth(part: ET.Element, ns: str) -> tuple[int, int]:
             if _normalize_overfull_rest_only_voice(groups, ns, expected):
                 rest_fixed += 1
                 continue
-            if total != expected + eighth:
+            if total != expected + eighth or total < expected:
                 continue
             # 후보: 점·잇단 없음, 순수 4분음표(쉼표 제외)
             candidates: list[tuple[int, int]] = []  # (index, score)
@@ -2150,6 +2334,58 @@ def _measure_starts_new_system(measure: ET.Element, ns: str) -> bool:
     return False
 
 
+
+def _extrapolate_chord_ties(part, ns: str) -> int:
+    """동일 화음 내 일부 노트만 Tie가 있는 경우 전체 공통 피치로 확장."""
+    completed = 0
+    for measure in part.findall(qname(ns, "measure")):
+        for (_, _voice), groups in _voice_groups(measure, ns).items():
+            for i in range(len(groups) - 1):
+                a_notes = groups[i][1]
+                b_notes = groups[i+1][1]
+                a_map = _group_pitch_map(a_notes, ns)
+                b_map = _group_pitch_map(b_notes, ns)
+                common = [p for p in a_map if p in b_map]
+                if not common: continue
+                
+                has_start = any(_note_has_tie(a_map[p], ns, "start") for p in common)
+                has_stop = any(_note_has_tie(b_map[p], ns, "stop") for p in common)
+                
+                if has_start or has_stop:
+                    for p in common:
+                        if not _note_has_tie(a_map[p], ns, "start"):
+                            _add_tie(a_map[p], ns, "start")
+                            completed += 1
+                        if not _note_has_tie(b_map[p], ns, "stop"):
+                            _add_tie(b_map[p], ns, "stop")
+    return completed
+
+
+def _extrapolate_chord_ties(part, ns: str) -> int:
+    """동일 화음 내 일부 노트만 Tie가 있는 경우 전체 공통 피치로 확장."""
+    completed = 0
+    for measure in part.findall(qname(ns, "measure")):
+        for (_, _voice), groups in _voice_groups(measure, ns).items():
+            for i in range(len(groups) - 1):
+                a_notes = groups[i][1]
+                b_notes = groups[i+1][1]
+                a_map = _group_pitch_map(a_notes, ns)
+                b_map = _group_pitch_map(b_notes, ns)
+                common = [p for p in a_map if p in b_map]
+                if not common: continue
+                
+                has_start = any(_note_has_tie(a_map[p], ns, "start") for p in common)
+                has_stop = any(_note_has_tie(b_map[p], ns, "stop") for p in common)
+                
+                if has_start or has_stop:
+                    for p in common:
+                        if not _note_has_tie(a_map[p], ns, "start"):
+                            _add_tie(a_map[p], ns, "start")
+                            completed += 1
+                        if not _note_has_tie(b_map[p], ns, "stop"):
+                            _add_tie(b_map[p], ns, "stop")
+    return completed
+
 def _restore_ties_between_measures(part: ET.Element, ns: str) -> tuple[int, int]:
     """인접 마디 사이 tie 보완.
 
@@ -2265,27 +2501,43 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 measure, ns
             )
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
-            stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
-                measure, ns, divisions or 0, expected or 0
-            )
-            stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_after_beam_run(
-                measure, ns, divisions or 0, expected or 0
-            )
-            stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_before_rest(
-                measure, ns, divisions or 0, expected or 0
-            )
-            stats["two_quarter_voice_eighth_fixed"] += _repair_two_quarter_voice_as_eighths(
-                measure, ns, divisions or 0, expected or 0
-            )
-            stats["three_eighth_triplet_fixed"] += _repair_three_eighths_as_triplet(
-                measure, ns, max_staff, divisions or 0
-            )
-            stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
-                measure, ns, max_staff, divisions or 0, expected or 0
-            )
-            stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
-                measure, ns, max_staff, expected or 0
-            )
+            # Check for underfull measure bypass
+            total_durations = [sum(_note_duration(g[0], ns) or 0 for g in groups) for groups in _voice_groups(measure, ns).values()]
+            is_underfull = any(t > 0 and t < expected for t in total_durations)
+            
+            if not is_underfull:
+                stats["three_eighth_triplet_fixed"] += _general_resolve_overfull_measure(
+                    measure, ns, max_staff, divisions or 0, expected or 0
+                )
+                # Check for underfull measure bypass
+            total_durations = [sum(_note_duration(g[0], ns) or 0 for g in groups) for groups in _voice_groups(measure, ns).values()]
+            is_underfull = any(t > 0 and t < expected for t in total_durations)
+            
+            if not is_underfull:
+                stats["three_eighth_triplet_fixed"] += _general_resolve_overfull_measure(
+                    measure, ns, max_staff, divisions or 0, expected or 0
+                )
+                stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
+                    measure, ns, divisions or 0, expected or 0
+                )
+                stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_after_beam_run(
+                    measure, ns, divisions or 0, expected or 0
+                )
+                stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_before_rest(
+                    measure, ns, divisions or 0, expected or 0
+                )
+                stats["two_quarter_voice_eighth_fixed"] += _repair_two_quarter_voice_as_eighths(
+                    measure, ns, divisions or 0, expected or 0
+                )
+                stats["three_eighth_triplet_fixed"] += _repair_three_eighths_as_triplet(
+                    measure, ns, max_staff, divisions or 0
+                )
+                stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
+                    measure, ns, max_staff, divisions or 0, expected or 0
+                )
+                stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
+                    measure, ns, max_staff, expected or 0
+                )
             stats["fermata_from_staccato_fixed"] += _repair_staccato_as_fermata_before_rest(
                 measure, ns
             )
@@ -2297,13 +2549,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         stats["overfull_eighth_fixed"] += fixed
         stats["overfull_rest_normalized"] += rest_fixed
 
-    # 3) 음표 발명·성부 재배치 등 최후 수단 패치 (시그니처 일치 시만)
-    try:
-        from omr_score_patches import apply_score_patches
-
-        stats["score_patches_applied"] = apply_score_patches(root, ns)
-    except ImportError:
-        pass
+    # 3) 음표 발명·성부 재배치 등 최후 수단 패치는 일반화 원칙에 따라 제거되었습니다.
+    stats["score_patches_applied"] = 0
 
     for part in root.findall(qname(ns, "part")):
         max_staff = _max_staff_in_part(part, ns)
@@ -2319,21 +2566,15 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             for note in measure.findall(qname(ns, "note")):
                 if _remove_duplicate_staccato_as_natural(note, ns):
                     stats["natural_from_staccato_removed"] += 1
-                changed, to_sharp = _fix_misread_natural_accidental(
-                    note, ns, seen_natural, first_chord_ids
-                )
-                if changed:
-                    if to_sharp:
-                        stats["misread_natural_to_sharp"] += 1
-                    else:
-                        stats["spurious_natural_removed"] += 1
                 if _remove_beam_side_staccato_on_tuplet(note, ns):
                     stats["tuplet_staccato_removed"] += 1
                 if _fix_tuplet_show_numbers(note, ns, max_staff, measure):
                     stats["tuplet_show_number_fixed"] += 1
                 if _ensure_tuplet_normal_fields(note, ns):
                     stats["tuplet_normal_fields_fixed"] += 1
+            stats["spurious_natural_removed"] += _normalize_accidentals(measure, ns, key_fifths)
 
+        stats["chord_ties_completed"] += _extrapolate_chord_ties(part, ns)
         completed, system_added = _restore_ties_between_measures(part, ns)
         stats["chord_ties_completed"] += completed
         stats["system_break_ties_added"] += system_added

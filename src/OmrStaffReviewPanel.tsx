@@ -63,6 +63,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const pendingFixesRef = useRef<OmrHitlFix[]>([]);
   const [workMsg, setWorkMsg] = useState('');
 
+  const [lintData, setLintData] = useState<any | null>(null);
+  const [lintLoading, setLintLoading] = useState(false);
+
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
   const pngSource =
     summary?.cleanScorePdf?.exists || summary?.audiverisInputPdf === 'clean_score'
@@ -92,6 +95,20 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setXmlLoadErr(e instanceof Error ? e.message : String(e));
     } finally {
       setXmlLoading(false);
+    }
+  }, [jobId]);
+
+  const refreshLintData = useCallback(async () => {
+    setLintLoading(true);
+    try {
+      const r = await fetch(`/api/diagnostic/${jobId}/mxl-lint`, { cache: 'no-store' });
+      if (r.ok) {
+        setLintData(await r.json());
+      }
+    } catch (e) {
+      console.error('Failed to load lint data', e);
+    } finally {
+      setLintLoading(false);
     }
   }, [jobId]);
 
@@ -156,7 +173,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             })),
           );
         }
-        if (!cancelled) void refreshScoreXml();
+        if (!cancelled) {
+          await Promise.all([refreshScoreXml(), refreshLintData()]);
+        }
       } catch (e) {
         if (!cancelled) setLoadErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -166,7 +185,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [jobId, refreshScoreXml]);
+  }, [jobId, refreshScoreXml, refreshLintData]);
 
   const partIdForStaff = useCallback(
     (staffLabel: string): string | null => {
@@ -290,7 +309,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           tupletShowNumberFixed?: number;
         };
       };
-      await refreshScoreXml();
+      await Promise.all([refreshScoreXml(), refreshLintData()]);
       setPreviewRevision((n) => n + 1);
       setEditorKey((k) => k + 1);
       const fixed = j.stats?.restsFixed ?? 0;
@@ -310,7 +329,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     } finally {
       setApplyBusy(false);
     }
-  }, [jobId, refreshScoreXml]);
+  }, [jobId, refreshScoreXml, refreshLintData]);
 
   useEffect(() => {
     if (loading || previewSyncedRef.current) return;
@@ -318,12 +337,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     void (async () => {
       try {
         const r = await fetch(`/api/omr-hitl/${jobId}/sync-preview`, { method: 'POST' });
-        if (r.ok) await refreshScoreXml();
+        if (r.ok) await Promise.all([refreshScoreXml(), refreshLintData()]);
       } catch {
         /* 첫 동기화 실패는 무시 */
       }
     })();
-  }, [loading, jobId, refreshScoreXml]);
+  }, [loading, jobId, refreshScoreXml, refreshLintData]);
 
   const exportWork = useCallback(async () => {
     setWorkMsg('');
@@ -395,7 +414,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
       const j = (await r.json()) as { stats?: { applied?: number; skipped?: number } };
-      await refreshScoreXml();
+      await Promise.all([refreshScoreXml(), refreshLintData()]);
       setPreviewRevision((n) => n + 1);
       setEditorKey((k) => k + 1);
       const applied = j.stats?.applied ?? 0;
@@ -411,7 +430,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     } finally {
       setApplyBusy(false);
     }
-  }, [jobId, persistFixes, refreshScoreXml, loadFixesFromServer]);
+  }, [jobId, persistFixes, refreshScoreXml, refreshLintData, loadFixesFromServer]);
 
   const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo) => {
@@ -612,6 +631,82 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           </div>
         </div>
       </div>
+
+      {/* OMR 불일치 의심 마디 목록 */}
+      {(() => {
+        const suspiciousIssues = (() => {
+          if (!lintData || !Array.isArray(lintData.issues)) return [];
+          return lintData.issues.filter(
+            (iss: any) =>
+              iss.code === 'measureUnderfull' ||
+              iss.code === 'measureOverfull' ||
+              iss.code === 'measureBoundaryOrderSuspect'
+          );
+        })();
+
+        if (suspiciousIssues.length > 0) {
+          return (
+            <div className="omr-suspicious-box" style={{ background: '#fcf8e3', border: '1px solid #faebcc', padding: '1rem', borderRadius: '4px', color: '#8a6d3b' }}>
+              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', color: '#8a6d3b', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                ⚠️ OMR 불일치 의심 마디 ({suspiciousIssues.length}건)
+              </h3>
+              <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: '#666', lineHeight: 1.4 }}>
+                Audiveris 변환 결과 중 박자 미달, 초과 또는 마디 경계 오류가 의심되는 곳입니다. 각 항목을 클릭하여 바로 편집 창을 열고 보정할 수 있습니다.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
+                {suspiciousIssues.map((iss: any, idx: number) => {
+                  const printed = iss.measurePrinted || (Number(iss.measureMxl || iss.measureMxlA) + measureOffset);
+                  const isSelected = selectedMeasure && String(selectedMeasure.measureMxl) === String(iss.measureMxl || iss.measureMxlA);
+                  return (
+                    <button
+                      key={`${iss.code}-${idx}`}
+                      type="button"
+                      style={{
+                        padding: '0.45rem 0.8rem',
+                        fontSize: '0.82rem',
+                        borderRadius: '4px',
+                        border: isSelected ? '2px solid #8a6d3b' : '1px solid #e0e0e0',
+                        background: isSelected ? '#f5e79e' : '#fff',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: '2px',
+                        textAlign: 'left'
+                      }}
+                      onClick={() => {
+                        const mxlVal = parseInt(iss.measureMxl || iss.measureMxlA, 10);
+                        if (Number.isFinite(mxlVal)) {
+                          const sIdx = staffList.indexOf(iss.staff);
+                          openMeasure({
+                            measureMxl: mxlVal,
+                            staffIndex: sIdx >= 0 ? sIdx : 0,
+                            partId: iss.partId || null
+                          });
+                        }
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, color: '#333' }}>
+                        {iss.staff ? `[${iss.staff}] ` : ''}인쇄 m.{printed}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: '#555' }}>
+                        {iss.detail}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        } else if (lintData && !lintLoading) {
+          return (
+            <div style={{ background: '#dff0d8', border: '1px solid #d6e9c6', padding: '0.75rem 1rem', borderRadius: '4px', color: '#3c763d', fontSize: '0.9rem' }}>
+              ✓ 박자 불일치 및 OMR 경계 오류가 감지되지 않았습니다. (정상 악보 또는 보정 완료)
+            </div>
+          );
+        }
+        return null;
+      })()}
 
       {selectedMeasure && selectedPrinted != null ? (
         <div className="omr-measure-editor-wrap">

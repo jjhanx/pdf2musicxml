@@ -18,6 +18,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
 _STAFF_ORDER_6 = ("S", "A", "T", "B", "PR", "PL")
 _SPURIOUS_WORDS = frozenset({"P", "p", "2P", "2p", "PR", "PL", "R", "L", "9"})
 _TRAILING_REST_TYPES = frozenset({"eighth", "16th"})
@@ -232,6 +235,8 @@ def lint_score_xml(
     rest_staff_issues: list[dict] = []
     rest_display_high_issues: list[dict] = []
     boundary_order_suspects: list[dict] = []
+    underfull_measures: list[dict] = []
+    overfull_measures: list[dict] = []
     tuplet_starts = 0
 
     per_part_measures: list[list[tuple[str, list[str]]]] = []
@@ -242,6 +247,10 @@ def lint_score_xml(
         staff = staff_label(part_index, part_count, pname, labels_by_index)
         seq_by_measure: list[tuple[str, list[str]]] = []
 
+        divisions = 1
+        beats = 4
+        beat_type = 4
+
         for measure in part.findall(_q(ns, "measure")):
             mnum = measure.get("number", "?")
             printed = printed_measure(mnum, measure_offset_printed)
@@ -250,6 +259,25 @@ def lint_score_xml(
                 if mnum.isdigit()
                 else 1
             )
+
+            # attributes 추적
+            for attr in measure.findall(_q(ns, "attributes")):
+                div_el = attr.find(_q(ns, "divisions"))
+                if div_el is not None and div_el.text and div_el.text.strip().isdigit():
+                    divisions = max(1, int(div_el.text.strip()))
+                time_el = attr.find(_q(ns, "time"))
+                if time_el is not None:
+                    b_el = time_el.find(_q(ns, "beats"))
+                    bt_el = time_el.find(_q(ns, "beat-type"))
+                    try:
+                        if b_el is not None and b_el.text and b_el.text.strip():
+                            beats = max(1, int(b_el.text.strip()))
+                        if bt_el is not None and bt_el.text and bt_el.text.strip():
+                            beat_type = max(1, int(bt_el.text.strip()))
+                    except ValueError:
+                        pass
+
+            is_implicit = measure.get("implicit") == "yes"
 
             for direction in measure.findall(_q(ns, "direction")):
                 texts: list[str] = []
@@ -277,6 +305,57 @@ def lint_score_xml(
             seq_by_measure.append((mnum, events))
 
             note_els = [el for el in measure if _local(el) == "note"]
+
+            # 보이스별 박자(duration) 검증
+            if not is_implicit:
+                measure_len = max(1, round(divisions * beats * 4 / beat_type))
+                by_voice: dict[str, int] = {}
+                for note in note_els:
+                    if note.find(_q(ns, "grace")) is not None:
+                        continue
+                    if note.find(_q(ns, "chord")) is not None:
+                        continue
+                    voice_el = note.find(_q(ns, "voice"))
+                    voice = (voice_el.text or "1").strip() if voice_el is not None and voice_el.text else "1"
+
+                    dur_el = note.find(_q(ns, "duration"))
+                    dur = 0
+                    if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
+                        dur = int(dur_el.text.strip())
+                    by_voice[voice] = by_voice.get(voice, 0) + dur
+
+                for voice, total_dur in by_voice.items():
+                    if total_dur < measure_len:
+                        underfull_measures.append(
+                            {
+                                "code": "measureUnderfull",
+                                "staff": staff,
+                                "partId": pid,
+                                "measureMxl": mnum,
+                                "measurePrinted": printed,
+                                "pageEstimate": page_est,
+                                "detail": f"Voice {voice}: {total_dur}/{measure_len} (박자 부족)",
+                                "voice": voice,
+                                "totalDur": total_dur,
+                                "expectedDur": measure_len,
+                            }
+                        )
+                    elif total_dur > measure_len:
+                        overfull_measures.append(
+                            {
+                                "code": "measureOverfull",
+                                "staff": staff,
+                                "partId": pid,
+                                "measureMxl": mnum,
+                                "measurePrinted": printed,
+                                "pageEstimate": page_est,
+                                "detail": f"Voice {voice}: {total_dur}/{measure_len} (박자 초과)",
+                                "voice": voice,
+                                "totalDur": total_dur,
+                                "expectedDur": measure_len,
+                            }
+                        )
+
             if len(events) >= 2 and events[-1].startswith("rest:"):
                 rest_type = events[-1].split(":", 1)[1]
                 if rest_type in _TRAILING_REST_TYPES and any(
@@ -394,6 +473,8 @@ def lint_score_xml(
         + rest_staff_issues
         + rest_display_high_issues
         + boundary_order_suspects
+        + underfull_measures
+        + overfull_measures
     )
 
     by_page_staff: dict[str, int] = {}
@@ -421,6 +502,8 @@ def lint_score_xml(
             "restMissingStaff": len(rest_staff_issues),
             "restDisplayHigh": len(rest_display_high_issues),
             "measureBoundaryOrderSuspect": len(boundary_order_suspects),
+            "measureUnderfull": len(underfull_measures),
+            "measureOverfull": len(overfull_measures),
             "tupletStartTags": tuplet_starts,
         },
         "byPageStaff": [

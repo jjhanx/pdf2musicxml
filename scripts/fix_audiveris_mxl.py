@@ -1083,6 +1083,8 @@ def _repair_quarter_chord_before_rest(
 
     마디 total==expected 일 때만 (리듬 길이 유지).
     """
+    # 범용 보정 오작동(종지부 4분음표+4분쉼표 오독으로 오인하는 3개 지점의 오작동 등) 방지를 위해 비활성화
+    return 0
     if not divisions or not expected:
         return 0
     eighth = divisions // 2
@@ -1575,78 +1577,6 @@ def _general_resolve_overfull_measure(
     return fixed
 
 
-def _general_resolve_overfull_measure(
-    measure, ns: str, max_staff: int, divisions: int, expected: int
-) -> int:
-    """마디가 Overfull일 때, 수학적으로 잇단음표 변환이 정확히 들어맞는 구간을 찾아 범용 보정."""
-    if not divisions or not expected:
-        return 0
-    fixed = 0
-    for (_, _voice), groups in _voice_groups(measure, ns).items():
-        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
-        if total <= expected:
-            continue
-        overflow = total - expected
-        eighth = divisions // 2
-        quarter = divisions
-        
-        # Check eighths
-        triplet_eighth = max(1, (eighth * 2) // 3)
-        eighth_saving = 3 * eighth - 3 * triplet_eighth
-        
-        # Check quarters
-        triplet_quarter = max(1, (quarter * 2) // 3)
-        quarter_saving = 3 * quarter - 3 * triplet_quarter
-
-        target_dur = None
-        target_saving = 0
-        new_type = ''
-        new_dur = 0
-        
-        if eighth_saving > 0 and overflow % eighth_saving == 0:
-            target_dur = eighth
-            target_saving = eighth_saving
-            new_type = 'eighth'
-            new_dur = triplet_eighth
-        elif quarter_saving > 0 and overflow % quarter_saving == 0:
-            target_dur = quarter
-            target_saving = quarter_saving
-            new_type = 'quarter'
-            new_dur = triplet_quarter
-            
-        if not target_dur:
-            continue
-            
-        num_triplets = overflow // target_saving
-        triplets_found = 0
-        
-        i = 0
-        while i <= len(groups) - 3:
-            trio = groups[i : i + 3]
-            if any(g[0].find(qname(ns, "time-modification")) is not None for g in trio):
-                i += 1; continue
-            if not all(_note_duration(g[0], ns) == target_dur for g in trio):
-                i += 1; continue
-                
-            for j, grp in enumerate(trio):
-                for n in grp[1]:
-                    _clear_note_staccato(n, ns)
-                    _strip_tuplet_notations(n, ns)
-                    _ensure_time_modification(n, ns)
-                    _set_note_type_duration(n, ns, new_dur, new_type)
-                    if new_type == 'eighth' and not any(_is_rest(g[0], ns) for g in trio):
-                        _rebeam_group([n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue"))
-            
-            has_rest = any(_is_rest(g[0], ns) for g in trio)
-            plc = _infer_tuplet_placement(trio[0][0], ns, max_staff)
-            _ensure_tuplet_bracket(trio[0][0], ns, plc, trio[2][0], has_rest=has_rest)
-            
-            fixed += 1
-            triplets_found += 1
-            i += 3
-            if triplets_found >= num_triplets:
-                break
-    return fixed
 
 def _repair_three_eighths_as_triplet(
     measure: ET.Element, ns: str, max_staff: int, divisions: int
@@ -2012,15 +1942,19 @@ def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected:
                 v_durs[v] = v_durs.get(v, 0) + (_note_duration(note, ns) or 0)
         if len(v_durs) <= 1:
             continue
-        if any(
-            v_has_note.get(v, False) is False and (v_durs.get(v) or 0) > 0
-            for v in v_durs
-        ):
-            continue  # 쉼표 전용 voice — 멜로디 voice와 병렬
-        if sum(v_durs.values()) == expected:
-            continue  # voice 합이 마디 길이와 같으면 병렬 레이어로 간주
-        if sum(v_durs.values()) <= expected + (expected // 4) or max(v_durs.values()) < expected:
+        v_with_notes = [v for v in v_durs if v_has_note.get(v, False)]
+        if len(v_with_notes) <= 1:
             needs_flatten.add(s)
+        else:
+            if any(
+                v_has_note.get(v, False) is False and (v_durs.get(v) or 0) > 0
+                for v in v_durs
+            ):
+                continue  # 쉼표 전용 voice — 멜로디 voice와 병렬
+            if sum(v_durs.values()) == expected:
+                continue  # voice 합이 마디 길이와 같으면 병렬 레이어로 간주
+            if sum(v_durs.values()) <= expected + (expected // 4) or max(v_durs.values()) < expected:
+                needs_flatten.add(s)
 
     if not needs_flatten:
         return 0
@@ -2033,46 +1967,78 @@ def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected:
         except ValueError:
             return 9999.0
 
-    kept_notes: list[ET.Element] = []
-    for note in list(measure.findall(qname(ns, "note"))):
-        s_el = note.find(qname(ns, "staff"))
-        s = s_el.text if s_el is not None else "1"
-        if s not in needs_flatten:
-            kept_notes.append(note)
-        measure.remove(note)
+    # 1. Extract other elements (attributes, directions, prints, etc.)
+    other_elements = [el for el in list(measure) if local_tag(el) not in ("note", "backup", "forward")]
 
-    for note in kept_notes:
-        measure.append(note)
+    # 2. Clear all children from the measure
+    for el in list(measure):
+        measure.remove(el)
 
-    sorted_flat = sorted(needs_flatten)
-    for i, s in enumerate(sorted_flat):
+    # 3. Put non-note elements at the beginning of the measure
+    for el in other_elements:
+        measure.append(el)
+
+    # 4. Group notes by staff
+    all_staves = sorted(list(staves.keys()))
+    for i, s in enumerate(all_staves):
         notes = staves[s]
-        groups = []
-        current_group = []
-        for n in notes:
-            if n.find(qname(ns, "chord")) is None:
-                if current_group:
-                    groups.append(current_group)
-                current_group = [n]
-            else:
-                current_group.append(n)
-        if current_group:
-            groups.append(current_group)
-
-        groups.sort(key=get_x)
-
-        total_dur = 0
-        for grp in groups:
-            leader = grp[0]
-            if not _is_rest(leader, ns):
-                total_dur += _note_duration(leader, ns) or 0
-            for n in grp:
-                v_el = n.find(qname(ns, "voice"))
-                if v_el is not None:
-                    v_el.text = "1" if s == "1" else "5"
+        
+        if s in needs_flatten:
+            # Flatten notes of this staff
+            groups = []
+            current_group = []
+            for n in notes:
+                if n.find(qname(ns, "chord")) is None:
+                    if current_group:
+                        groups.append(current_group)
+                    current_group = [n]
+                else:
+                    current_group.append(n)
+            if current_group:
+                groups.append(current_group)
+                
+            groups.sort(key=get_x)
+            
+            flat_notes = []
+            for grp in groups:
+                for n in grp:
+                    v_el = n.find(qname(ns, "voice"))
+                    if v_el is not None:
+                        v_el.text = "1" if s == "1" else "5"
+                    flat_notes.append(n)
+            
+            for n in flat_notes:
                 measure.append(n)
-
-        if i < len(sorted_flat) - 1 and total_dur > 0:
+                
+            total_dur = sum(_note_duration(n, ns) or 0 for n in flat_notes if n.find(qname(ns, "chord")) is None)
+            
+        else:
+            # Keep original voices of this staff
+            voice_groups_dict = {}
+            for n in notes:
+                v_el = n.find(qname(ns, "voice"))
+                v = v_el.text if v_el is not None else "1"
+                if v not in voice_groups_dict:
+                    voice_groups_dict[v] = []
+                voice_groups_dict[v].append(n)
+                
+            sorted_voices = sorted(list(voice_groups_dict.keys()))
+            total_dur = 0
+            for vi, v in enumerate(sorted_voices):
+                v_notes = voice_groups_dict[v]
+                for n in v_notes:
+                    measure.append(n)
+                
+                v_dur = sum(_note_duration(n, ns) or 0 for n in v_notes if n.find(qname(ns, "chord")) is None)
+                total_dur = v_dur
+                
+                if vi < len(sorted_voices) - 1 and v_dur > 0:
+                    b = ET.Element(qname(ns, "backup"))
+                    d = ET.SubElement(b, qname(ns, "duration"))
+                    d.text = str(v_dur)
+                    measure.append(b)
+                    
+        if i < len(all_staves) - 1 and total_dur > 0:
             b = ET.Element(qname(ns, "backup"))
             d = ET.SubElement(b, qname(ns, "duration"))
             d.text = str(total_dur)
@@ -2335,30 +2301,6 @@ def _measure_starts_new_system(measure: ET.Element, ns: str) -> bool:
 
 
 
-def _extrapolate_chord_ties(part, ns: str) -> int:
-    """동일 화음 내 일부 노트만 Tie가 있는 경우 전체 공통 피치로 확장."""
-    completed = 0
-    for measure in part.findall(qname(ns, "measure")):
-        for (_, _voice), groups in _voice_groups(measure, ns).items():
-            for i in range(len(groups) - 1):
-                a_notes = groups[i][1]
-                b_notes = groups[i+1][1]
-                a_map = _group_pitch_map(a_notes, ns)
-                b_map = _group_pitch_map(b_notes, ns)
-                common = [p for p in a_map if p in b_map]
-                if not common: continue
-                
-                has_start = any(_note_has_tie(a_map[p], ns, "start") for p in common)
-                has_stop = any(_note_has_tie(b_map[p], ns, "stop") for p in common)
-                
-                if has_start or has_stop:
-                    for p in common:
-                        if not _note_has_tie(a_map[p], ns, "start"):
-                            _add_tie(a_map[p], ns, "start")
-                            completed += 1
-                        if not _note_has_tie(b_map[p], ns, "stop"):
-                            _add_tie(b_map[p], ns, "stop")
-    return completed
 
 
 def _extrapolate_chord_ties(part, ns: str) -> int:

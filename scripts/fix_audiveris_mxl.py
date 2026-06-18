@@ -251,17 +251,21 @@ def _notehead_slur_placement(note: ET.Element, ns: str) -> str:
 def _chord_member_slur_placement(
     note: ET.Element, chord_members: list[ET.Element], ns: str
 ) -> str:
-    """화음 slur — 각 성부 음머리 쪽(깃대 쪽이 아님)."""
+    """화음 slur — 모든 성부를 음머리 쪽(깃대 반대)에 둠."""
+    return _notehead_slur_placement(note, ns)
+
+
+def _chord_slur_default_y(note: ET.Element, chord_members: list[ET.Element], ns: str) -> str | None:
+    """화음 slur — 위 성부는 default-y로 아래 slur를 해당 음머리 높이로 올림."""
     labeled = [n for n in chord_members if _pitch_label(n, ns)]
     if len(labeled) < 2:
-        return _notehead_slur_placement(note, ns)
+        return None
     midis = sorted(_pitch_midi(n, ns) for n in labeled)
     p = _pitch_midi(note, ns)
-    is_lower = p <= midis[0]
-    stem = _stem_from_note(note, ns)
-    if stem == "down":
-        return "above" if is_lower else "below"
-    return "below" if is_lower else "above"
+    if p <= midis[0]:
+        return None
+    rank = midis.index(p)
+    return str(12 + 8 * rank)
 
 
 def _apply_slur_orientation(slur: ET.Element, note: ET.Element, ns: str) -> None:
@@ -273,24 +277,6 @@ def _apply_slur_orientation(slur: ET.Element, note: ET.Element, ns: str) -> None
         slur.set("orientation", "over")
     elif slur.get("orientation") is not None:
         slur.attrib.pop("orientation", None)
-
-
-def _chord_slur_default_y(note: ET.Element, chord_members: list[ET.Element], ns: str) -> str | None:
-    """같은 placement의 화음 slur가 겹칠 때만 default-y로 간격."""
-    labeled = [n for n in chord_members if _pitch_label(n, ns)]
-    if len(labeled) < 2:
-        return None
-    midis = sorted(_pitch_midi(n, ns) for n in labeled)
-    p = _pitch_midi(note, ns)
-    if p <= midis[0]:
-        return None
-    rank = midis.index(p)
-    plc = _chord_member_slur_placement(note, chord_members, ns)
-    stem = _stem_from_note(note, ns)
-    same_side = (plc == "below" and stem != "down") or (plc == "above" and stem == "down")
-    if not same_side:
-        return None
-    return str(10 + 8 * rank)
 
 
 def _add_slur_to_note(
@@ -1917,6 +1903,52 @@ def _triplet_span_duration(divisions: int) -> int:
     return 3 * td if td else 0
 
 
+def _is_triplet_eighth_group(leader: ET.Element, ns: str) -> bool:
+    return (
+        leader.find(qname(ns, "time-modification")) is not None
+        and _note_type_text(leader, ns) == "eighth"
+    )
+
+
+def _is_pickup_quarter_before_triplet(
+    group: tuple, groups: list, qi: int, triplet_idx: int, total: int, expected: int, ns: str
+) -> bool:
+    """마디 길이가 맞을 때 세잇단 직전 4분 pickup(동일 화음)은 펼치지 않음."""
+    if total > expected or qi + 1 != triplet_idx:
+        return False
+    if not _is_triplet_eighth_group(groups[triplet_idx][0], ns):
+        return False
+    return _chord_pitch_signature(group, ns) == _chord_pitch_signature(
+        groups[triplet_idx], ns
+    )
+
+
+def _measure_rhythm_repairable(
+    measure: ET.Element, ns: str, expected: int, divisions: int
+) -> bool:
+    """다른 staff voice가 underfull이어도 overfull·exact-fit voice는 리듬 보정 가능."""
+    if not expected:
+        return False
+    totals = [
+        sum(_note_duration(g[0], ns) or 0 for g in groups)
+        for groups in _voice_groups(measure, ns).values()
+    ]
+    pitched = [t for t in totals if t > 0]
+    if not pitched:
+        return False
+    if any(t > expected for t in pitched):
+        return True
+    if any(t == expected for t in pitched):
+        return True
+    triplet_saving = _triplet_eighth_saving(divisions or 0)
+    if triplet_saving and any(t == expected + triplet_saving for t in pitched):
+        return True
+    eighth = (divisions or 0) // 2
+    if eighth and any(t == expected + 2 * eighth for t in pitched):
+        return True
+    return not any(t < expected for t in pitched)
+
+
 def _is_misread_quarter_chord_for_triplet(
     group: tuple, ns: str, divisions: int
 ) -> bool:
@@ -1977,14 +2009,14 @@ def _expand_quarter_chord_group_to_triplet(
 ) -> bool:
     """plain 4분 화음 1개(=세잇단 1절 분량) → 세잇단 3slice로 펼침."""
     leader, notes, staff, _voice = group
-    ref = leader
-    for n in notes:
-        if _stem_from_note(n, ns):
-            ref = n
-            break
+    if stem_ref is not None and _stem_from_note(stem_ref, ns):
+        ref = stem_ref
     else:
-        if stem_ref is not None and _stem_from_note(stem_ref, ns):
-            ref = stem_ref
+        ref = leader
+        for n in notes:
+            if _stem_from_note(n, ns):
+                ref = n
+                break
     for j, n in enumerate(notes):
         _ensure_time_modification(n, ns)
         _set_note_type_duration(n, ns, triplet_dur, "eighth")
@@ -2044,9 +2076,19 @@ def _repair_quarter_chords_before_triplet_run(
         triplet_dur = _triplet_eighth_duration(divisions)
         if not triplet_dur:
             continue
+        triplet_stem_ref = groups[triplet_idx][0]
         for qi in range(triplet_idx - 1, start - 1, -1):
+            if _is_pickup_quarter_before_triplet(
+                groups[qi], groups, qi, triplet_idx, total, expected, ns
+            ):
+                continue
             if _expand_quarter_chord_group_to_triplet(
-                measure, groups[qi], ns, triplet_dur, max_staff
+                measure,
+                groups[qi],
+                ns,
+                triplet_dur,
+                max_staff,
+                stem_ref=triplet_stem_ref,
             ):
                 fixed += 1
     return fixed
@@ -2938,27 +2980,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 measure, ns, key_fifths
             )
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
-            # Check for underfull measure bypass
-            total_durations = [sum(_note_duration(g[0], ns) or 0 for g in groups) for groups in _voice_groups(measure, ns).values()]
-            is_underfull = any(t > 0 and t < expected for t in total_durations)
-            
-            if not is_underfull:
-                stats["three_eighth_triplet_fixed"] += _general_resolve_overfull_measure(
-                    measure, ns, max_staff, divisions or 0, expected or 0
-                )
-                # Check for underfull measure bypass
-            total_durations = [sum(_note_duration(g[0], ns) or 0 for g in groups) for groups in _voice_groups(measure, ns).values()]
-            is_underfull = any(t > 0 and t < expected for t in total_durations)
-            
-            if not is_underfull:
-                stats["three_eighth_triplet_fixed"] += _general_resolve_overfull_measure(
-                    measure, ns, max_staff, divisions or 0, expected or 0
-                )
-                # Check for underfull measure bypass
-            total_durations = [sum(_note_duration(g[0], ns) or 0 for g in groups) for groups in _voice_groups(measure, ns).values()]
-            is_underfull = any(t > 0 and t < expected for t in total_durations)
-            
-            if not is_underfull:
+            if _measure_rhythm_repairable(measure, ns, expected or 0, divisions or 0):
                 stats["three_eighth_triplet_fixed"] += _general_resolve_overfull_measure(
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )

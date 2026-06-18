@@ -88,8 +88,73 @@ def slurs_m6_chord_placement(mxl: Path):
                             )
             e4 = slurs_by_pitch.get(("E4", "22"))
             g4 = slurs_by_pitch.get(("G4", "23"))
-            ok = e4 == ("below", "under") and g4 == ("above", "over")
-            return ok, {"E4/22": e4, "G4/23": g4}
+            ok = e4 == ("below", "under") and g4 == ("below", "under")
+            dy = None
+            for note in m.findall(q(ns, "note")):
+                pitch = note.find(q(ns, "pitch"))
+                if pitch is None:
+                    continue
+                if pitch.find(q(ns, "step")).text + pitch.find(q(ns, "octave")).text != "G4":
+                    continue
+                for n in note.findall(q(ns, "notations")):
+                    for s in n.findall(q(ns, "slur")):
+                        if s.get("number") == "23" and s.get("type") == "start":
+                            dy = s.get("default-y")
+            ok = ok and dy is not None and int(dy) > 0
+            return ok, {"E4/22": e4, "G4/23": g4, "G4_dy": dy}
+    return False, "missing"
+
+
+def pl_m42_triplet_pitches(mxl: Path):
+    """PDF 43마디 PL — 세잇단 1~3 화음 pitch 유지."""
+    root = load_root(mxl)
+    ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
+    for part in root.findall(q(ns, "part")):
+        if part.get("id") != "P5":
+            continue
+        for m in part.findall(q(ns, "measure")):
+            if m.get("number") != "42":
+                continue
+            groups = []
+            chord = []
+            for n in m.findall(q(ns, "note")):
+                st = (n.find(q(ns, "staff")).text if n.find(q(ns, "staff")) is not None else "1")
+                if st != "2":
+                    continue
+                ch = n.find(q(ns, "chord")) is not None
+                if not ch:
+                    if chord:
+                        groups.append(chord)
+                    chord = [n]
+                else:
+                    chord.append(n)
+            if chord:
+                groups.append(chord)
+            if len(groups) < 6:
+                return False, "short"
+
+            def sig(g):
+                ps = []
+                for x in g:
+                    p = x.find(q(ns, "pitch"))
+                    if p is not None:
+                        ps.append(p.find(q(ns, "step")).text + p.find(q(ns, "octave")).text)
+                return tuple(sorted(ps))
+
+            ok = (
+                sig(groups[0]) == ("C2", "C3")
+                and sig(groups[1]) == ("C4", "E3", "G3")
+                and sig(groups[1]) == sig(groups[2])
+                and groups[3][0].find(q(ns, "time-modification")) is not None
+                and (groups[3][0].find(q(ns, "stem")).text if groups[3][0].find(q(ns, "stem")) is not None else None)
+                == "down"
+            )
+            return ok, {
+                "g1": sig(groups[0]),
+                "g2": sig(groups[1]),
+                "g3": sig(groups[2]),
+                "g4_stem": groups[3][0].find(q(ns, "stem")).text if groups[3][0].find(q(ns, "stem")) is not None else None,
+            }
     return False, "missing"
 
 
@@ -217,16 +282,20 @@ def main() -> int:
 
     ok_a26 = True
     a26 = ROOT / "omr-work-a26ecec0-full" / "audiveris_raw.mxl"
+    if not a26.is_file():
+        a26 = ROOT / "omr-work-6855d546-full" / "audiveris_raw.mxl"
     if a26.is_file():
         from fix_audiveris_mxl import fix_mxl_file  # noqa: E402
 
-        a26_out = ROOT / "omr-work-a26ecec0-full" / "_test_regression.mxl"
+        a26_out = a26.parent / "_test_regression.mxl"
         fix_mxl_file(a26, a26_out)
         ok_slur_plc, detail = slurs_m6_chord_placement(a26_out)
         print(f"{'PASS' if ok_slur_plc else 'FAIL'} a26 m6 chord slur placement: {detail}")
         ok_m44, detail44 = pl_m44_quarters_preserved(a26_out)
         print(f"{'PASS' if ok_m44 else 'FAIL'} a26 m44 PL quarters: {detail44}")
-        ok_a26 = ok_slur_plc and ok_m44
+        ok_m42, detail42 = pl_m42_triplet_pitches(a26_out)
+        print(f"{'PASS' if ok_m42 else 'FAIL'} a26 m42 PL triplet pitches: {detail42}")
+        ok_a26 = ok_slur_plc and ok_m44 and ok_m42
 
     return 0 if ok_slur and ok_tup and ok_stats and ok_m28 and ok_a26 else 1
 

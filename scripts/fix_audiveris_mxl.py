@@ -221,7 +221,22 @@ def _part_has_two_staves(part: ET.Element, ns: str) -> bool:
     return False
 
 
-def _add_slur_to_note(note_el: ET.Element, ns: str, slur_type: str, slur_num: int) -> bool:
+def _notehead_slur_placement(note: ET.Element, ns: str) -> str:
+    """이음줄을 음머리 쪽에 그리도록 placement — stem up→below, stem down→above."""
+    stem = note.find(qname(ns, "stem"))
+    if stem is not None and (stem.text or "").strip() == "down":
+        return "above"
+    return "below"
+
+
+def _add_slur_to_note(
+    note_el: ET.Element,
+    ns: str,
+    slur_type: str,
+    slur_num: int,
+    *,
+    placement: str | None = None,
+) -> bool:
     if _has_slur(note_el, ns, slur_num, slur_type):
         return False
     notations = note_el.find(qname(ns, "notations"))
@@ -237,8 +252,22 @@ def _add_slur_to_note(note_el: ET.Element, ns: str, slur_type: str, slur_num: in
         else:
             note_el.append(notations)
     slur = ET.Element(qname(ns, "slur"), attrib={"number": str(slur_num), "type": slur_type})
+    slur.set("placement", placement or _notehead_slur_placement(note_el, ns))
     notations.append(slur)
     return True
+
+
+def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
+    """기존 slur placement를 음머리 기준으로 통일."""
+    fixed = 0
+    for measure in part.findall(qname(ns, "measure")):
+        for note in measure.findall(qname(ns, "note")):
+            want = _notehead_slur_placement(note, ns)
+            for slur in note.findall(".//" + qname(ns, "slur")):
+                if slur.get("placement") != want:
+                    slur.set("placement", want)
+                    fixed += 1
+    return fixed
 
 
 def _part_is_piano(part_id: str | None, root: ET.Element, ns: str) -> bool:
@@ -253,60 +282,6 @@ def _part_is_piano(part_id: str | None, root: ET.Element, ns: str) -> bool:
         name_lower = name_el.text.lower().strip()
         return name_lower in ("p", "pr", "pl", "piano", "pno") or "piano" in name_lower
     return False
-
-
-def _inject_missing_slurs_piano_m7_m31(part: ET.Element, ns: str) -> int:
-    injected = 0
-    for num in ("6", "30"):
-        m = part.find(f".//{{{ns}}}measure[@number='{num}']" if ns else f".//measure[@number='{num}']")
-        if m is None: continue
-        groups = [grp for grp in _iter_chord_groups(m, ns) if grp[2] == "1" and grp[3] == "1"]
-        if len(groups) >= 5:
-            c4, c5 = groups[3][1], groups[4][1]
-            if len(c4) >= 2 and len(c5) >= 2:
-                # Clear existing slurs on chord members to avoid duplicates
-                for note in (c4[0], c4[-1], c5[0], c5[-1]):
-                    notations = note.find(qname(ns, "notations"))
-                    if notations is not None:
-                        for s in list(notations.findall(qname(ns, "slur"))):
-                            notations.remove(s)
-                
-                # Bottom slur (c4[0] -> c5[0], number 1, placement below)
-                n4_bot = c4[0]
-                notations4_bot = n4_bot.find(qname(ns, "notations"))
-                if notations4_bot is None: notations4_bot = ET.SubElement(n4_bot, qname(ns, "notations"))
-                slur_start1 = ET.SubElement(notations4_bot, qname(ns, "slur"))
-                slur_start1.set("type", "start")
-                slur_start1.set("number", "1")
-                slur_start1.set("placement", "below")
-                
-                n5_bot = c5[0]
-                notations5_bot = n5_bot.find(qname(ns, "notations"))
-                if notations5_bot is None: notations5_bot = ET.SubElement(n5_bot, qname(ns, "notations"))
-                slur_stop1 = ET.SubElement(notations5_bot, qname(ns, "slur"))
-                slur_stop1.set("type", "stop")
-                slur_stop1.set("number", "1")
-                slur_stop1.set("placement", "below")
-                
-                # Top slur (c4[-1] -> c5[-1], number 2, placement above)
-                n4_top = c4[-1]
-                notations4_top = n4_top.find(qname(ns, "notations"))
-                if notations4_top is None: notations4_top = ET.SubElement(n4_top, qname(ns, "notations"))
-                slur_start2 = ET.SubElement(notations4_top, qname(ns, "slur"))
-                slur_start2.set("type", "start")
-                slur_start2.set("number", "2")
-                slur_start2.set("placement", "above")
-                
-                n5_top = c5[-1]
-                notations5_top = n5_top.find(qname(ns, "notations"))
-                if notations5_top is None: notations5_top = ET.SubElement(n5_top, qname(ns, "notations"))
-                slur_stop2 = ET.SubElement(notations5_top, qname(ns, "slur"))
-                slur_stop2.set("type", "stop")
-                slur_stop2.set("number", "2")
-                slur_stop2.set("placement", "above")
-                
-                injected += 2
-    return injected
 
 
 def _inject_missing_slurs_piano_m6(part: ET.Element, ns: str) -> int:
@@ -1735,6 +1710,126 @@ def _repair_three_eighths_as_triplet(
     return fixed
 
 
+def _triplet_eighth_duration(divisions: int) -> int:
+    eighth = divisions // 2
+    if eighth <= 0:
+        return 0
+    return max(1, (eighth * 2) // 3)
+
+
+def _triplet_span_duration(divisions: int) -> int:
+    td = _triplet_eighth_duration(divisions)
+    return 3 * td if td else 0
+
+
+def _is_misread_quarter_chord_for_triplet(
+    group: tuple, ns: str, divisions: int
+) -> bool:
+    leader, notes, _, _ = group
+    if _is_rest(leader, ns):
+        return False
+    if leader.find(qname(ns, "time-modification")) is not None:
+        return False
+    if leader.find(qname(ns, "dot")) is not None:
+        return False
+    if _note_type_text(leader, ns) != "quarter":
+        return False
+    span = _triplet_span_duration(divisions)
+    if not span or _note_duration(leader, ns) != span:
+        return False
+    if len(notes) < 2:
+        return False
+    return True
+
+
+def _clone_triplet_slice_note(
+    template: ET.Element, ns: str, triplet_dur: int, beam: str, as_chord: bool
+) -> ET.Element:
+    note = copy.deepcopy(template)
+    if as_chord:
+        if note.find(qname(ns, "chord")) is None:
+            ET.SubElement(note, qname(ns, "chord"))
+    else:
+        ch = note.find(qname(ns, "chord"))
+        if ch is not None:
+            note.remove(ch)
+    _set_note_type_duration(note, ns, triplet_dur, "eighth")
+    _ensure_time_modification(note, ns)
+    _strip_tuplet_notations(note, ns)
+    for notations in list(note.findall(qname(ns, "notations"))):
+        for el in list(notations):
+            if local_tag(el) == "slur":
+                notations.remove(el)
+        if len(notations) == 0:
+            note.remove(notations)
+    _set_beam(note, ns, beam)
+    return note
+
+
+def _expand_quarter_chord_group_to_triplet(
+    measure: ET.Element, group: tuple, ns: str, triplet_dur: int, max_staff: int
+) -> bool:
+    """plain 4분 화음 1개(=세잇단 1절 분량) → 세잇단 3slice로 펼침."""
+    leader, notes, _, _ = group
+    for j, n in enumerate(notes):
+        _ensure_time_modification(n, ns)
+        _set_note_type_duration(n, ns, triplet_dur, "eighth")
+        _strip_tuplet_notations(n, ns)
+        _set_beam(n, ns, "begin")
+    insert_at = list(measure).index(notes[-1]) + 1
+    slice2: list[ET.Element] = []
+    slice3: list[ET.Element] = []
+    for j, template in enumerate(notes):
+        slice2.append(_clone_triplet_slice_note(template, ns, triplet_dur, "continue", j > 0))
+        slice3.append(_clone_triplet_slice_note(template, ns, triplet_dur, "end", j > 0))
+    for n in slice2 + slice3:
+        measure.insert(insert_at, n)
+        insert_at += 1
+    plc = _infer_tuplet_placement(leader, ns, max_staff)
+    _ensure_tuplet_bracket(leader, ns, plc, slice3[0], has_rest=False)
+    return True
+
+
+def _repair_quarter_chords_before_triplet_run(
+    measure: ET.Element, ns: str, max_staff: int, divisions: int
+) -> int:
+    """세잇단 run 직전 plain 4분 화음 — Audiveris가 세잇단 1절을 4분 1개로 읽은 경우 복원.
+
+    한 4분(duration = 3×세잇단8분) 화음은 세잇단 3slice와 같은 시간 길이.
+    뒤에 time-modification 8분 세잇단이 이어지면 앞 연속 4분 화음을 세잇단으로 펼친다.
+    """
+    if not divisions:
+        return 0
+    fixed = 0
+    triplet_idx: int | None = None
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        triplet_idx = None
+        for i, g in enumerate(groups):
+            if g[0].find(qname(ns, "time-modification")) is not None and _note_type_text(
+                g[0], ns
+            ) == "eighth":
+                triplet_idx = i
+                break
+        if triplet_idx is None or triplet_idx == 0:
+            continue
+        start = triplet_idx
+        while start > 0 and _is_misread_quarter_chord_for_triplet(
+            groups[start - 1], ns, divisions
+        ):
+            start -= 1
+        if start == triplet_idx:
+            continue
+        triplet_dur = _triplet_eighth_duration(divisions)
+        if not triplet_dur:
+            continue
+        for qi in range(triplet_idx - 1, start - 1, -1):
+            if _expand_quarter_chord_group_to_triplet(
+                measure, groups[qi], ns, triplet_dur, max_staff
+            ):
+                fixed += 1
+    return fixed
+
+
 def _repair_four_eighths_as_triplet_plus_eighth(
     measure: ET.Element, ns: str, divisions: int
 ) -> int:
@@ -2581,6 +2676,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "system_break_ties_added": 0,
         "voice_consolidated": 0,
         "triplet_quarter_prefix_repaired": 0,
+        "quarter_chord_triplet_expanded": 0,
         "chord_duplicates_removed": 0,
         "misplaced_sharp_relocated": 0,
         "misread_natural_to_sharp": 0,
@@ -2591,6 +2687,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "continuation_slurs_added": 0,
         "repeated_chord_slurs_added": 0,
         "chord_slurs_completed": 0,
+        "slur_placements_fixed": 0,
         "spurious_natural_removed": 0,
         "tuplet_brackets_adjusted": 0,
         "tuplet_normal_fields_fixed": 0,
@@ -2663,6 +2760,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
                     measure, ns, max_staff, expected or 0
                 )
+                stats["quarter_chord_triplet_expanded"] += _repair_quarter_chords_before_triplet_run(
+                    measure, ns, max_staff, divisions or 0
+                )
             stats["fermata_from_staccato_fixed"] += _repair_staccato_as_fermata_before_rest(
                 measure, ns
             )
@@ -2708,10 +2808,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
 
         if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
             stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
-            stats["slurs_injected"] += _inject_missing_slurs_piano_m7_m31(part, ns)
         stats["continuation_slurs_added"] += _repair_same_pitch_continuation_slurs(part, ns)
         stats["repeated_chord_slurs_added"] += _repair_repeated_chord_slurs(part, ns)
         stats["chord_slurs_completed"] += _complete_chord_member_slurs(part, ns)
+        stats["slur_placements_fixed"] += _normalize_slur_placements(part, ns)
 
         for measure in part.findall(qname(ns, "measure")):
             stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(

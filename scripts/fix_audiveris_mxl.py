@@ -248,37 +248,23 @@ def _notehead_slur_placement(note: ET.Element, ns: str) -> str:
     return "below"
 
 
+def _lower_chord_member(members: list[ET.Element], ns: str) -> ET.Element:
+    labeled = [n for n in members if _pitch_label(n, ns)]
+    if not labeled:
+        return members[0]
+    return min(labeled, key=lambda n: _pitch_midi(n, ns))
+
+
 def _chord_member_slur_placement(
     note: ET.Element, chord_members: list[ET.Element], ns: str
 ) -> str:
-    """화음 slur — 각 성부 음표의 음머리(깃대 반대) 쪽 placement."""
     return _notehead_slur_placement(note, ns)
 
 
-def _chord_slur_default_y(note: ET.Element, chord_members: list[ET.Element], ns: str) -> str | None:
-    """같은 placement(below) 2중 slur — 위 성부 곡선을 해당 음머리 높이로 분리."""
-    labeled = [n for n in chord_members if _pitch_label(n, ns)]
-    if len(labeled) < 2:
-        return None
-    plc = _notehead_slur_placement(note, ns)
-    midis = sorted(_pitch_midi(n, ns) for n in labeled)
-    p = _pitch_midi(note, ns)
-    if p <= midis[0]:
-        return None
-    rank = midis.index(p)
-    # stem up·below: 위 음일수록 default-y↑ (OSMD 음머리 쪽 곡선)
-    return str(8 + 6 * rank)
-
-
 def _apply_slur_orientation(slur: ET.Element, note: ET.Element, ns: str) -> None:
-    """음머리 쪽 slur — orientation으로 under/over 명시."""
-    plc = slur.get("placement")
-    if plc == "below":
-        slur.set("orientation", "under")
-    elif plc == "above":
-        slur.set("orientation", "over")
-    elif slur.get("orientation") is not None:
-        slur.attrib.pop("orientation", None)
+    """OSMD는 placement만 사용 — orientation/default-y는 2중 slur를 숨길 수 있음."""
+    slur.attrib.pop("orientation", None)
+    slur.attrib.pop("default-y", None)
 
 
 def _add_slur_to_note(
@@ -313,43 +299,62 @@ def _add_slur_to_note(
     if plc is not None:
         slur.set("placement", plc)
     _apply_slur_orientation(slur, note_el, ns)
-    if chord_members is not None:
-        dy = _chord_slur_default_y(note_el, chord_members, ns)
-        if dy is not None:
-            slur.set("default-y", dy)
-        elif slur.get("default-y") is not None:
-            slur.attrib.pop("default-y", None)
     notations.append(slur)
     return True
 
 
 def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
-    """화음 slur placement — 각 성부 음머리 쪽으로 정리."""
+    """화음 2성부 slur — OSMD #1274: 아래 음표에 below/above 2개 placement."""
     fixed = 0
     for measure in part.findall(qname(ns, "measure")):
-        chord_by_note: dict[int, list[ET.Element]] = {}
         for grp in _iter_chord_groups(measure, ns):
-            for n in grp[1]:
-                chord_by_note[id(n)] = grp[1]
-        for note in measure.findall(qname(ns, "note")):
-            members = chord_by_note.get(id(note), [note])
-            want = _chord_member_slur_placement(note, members, ns)
-            dy = _chord_slur_default_y(note, members, ns)
-            for slur in note.findall(".//" + qname(ns, "slur")):
+            members = grp[1]
+            if len(members) < 2:
+                continue
+            lower = _lower_chord_member(members, ns)
+            starts: list[tuple[ET.Element, ET.Element]] = []
+            stops: list[tuple[ET.Element, ET.Element]] = []
+            for n in members:
+                for slur in n.findall(".//" + qname(ns, "slur")):
+                    st = slur.get("type")
+                    if st == "start":
+                        starts.append((n, slur))
+                    elif st == "stop":
+                        stops.append((n, slur))
+            if len(starts) < 2 and len(stops) < 2:
+                for _, slur in starts + stops:
+                    _apply_slur_orientation(slur, lower, ns)
+                continue
+            for n, slur in starts + stops:
+                if n is not lower:
+                    notations = n.find(qname(ns, "notations"))
+                    if notations is not None:
+                        notations.remove(slur)
+                        fixed += 1
+            ordered_starts = sorted(starts, key=lambda x: x[1].get("number") or "0")
+            ordered_stops = sorted(stops, key=lambda x: x[1].get("number") or "0")
+            placements = ("below", "above")
+            for idx, (_, slur) in enumerate(ordered_starts[:2]):
+                notations = lower.find(qname(ns, "notations"))
+                if notations is None:
+                    notations = ET.Element(qname(ns, "notations"))
+                    lower.append(notations)
+                if slur not in list(notations):
+                    notations.append(slur)
+                want = placements[idx] if idx < len(placements) else "below"
                 if slur.get("placement") != want:
                     slur.set("placement", want)
                     fixed += 1
-                prev = slur.get("orientation")
-                _apply_slur_orientation(slur, note, ns)
-                if slur.get("orientation") != prev:
-                    fixed += 1
-                if dy is not None:
-                    if slur.get("default-y") != dy:
-                        slur.set("default-y", dy)
-                        fixed += 1
-                elif slur.get("default-y") is not None:
-                    slur.attrib.pop("default-y", None)
-                    fixed += 1
+                _apply_slur_orientation(slur, lower, ns)
+            for _, slur in ordered_stops[:2]:
+                notations = lower.find(qname(ns, "notations"))
+                if notations is None:
+                    notations = ET.Element(qname(ns, "notations"))
+                    lower.append(notations)
+                if slur not in list(notations):
+                    notations.append(slur)
+                slur.attrib.pop("placement", None)
+                _apply_slur_orientation(slur, lower, ns)
     return fixed
 
 
@@ -1359,6 +1364,56 @@ def _repair_quarter_pair_before_eighths(
     return fixed
 
 
+def _set_group_to_quarter(
+    notes: list[ET.Element], ns: str, divisions: int
+) -> None:
+    quarter = divisions
+    if quarter <= 0:
+        return
+    for n in notes:
+        _set_note_type_duration(n, ns, quarter, "quarter")
+        for dot in list(n.findall(qname(ns, "dot"))):
+            n.remove(dot)
+        for b in list(n.findall(qname(ns, "beam"))):
+            n.remove(b)
+
+
+def _repair_swap_leading_qq_with_beamed_pair(
+    measure: ET.Element, ns: str, divisions: int, expected: int
+) -> int:
+    """♩♩–♪♪–♩ 오인 ↔ ♪♪–♩♩–♩ (duration 합 동일) — 인쇄 45 PR(m44 staff1) 등."""
+    if not divisions or not expected:
+        return 0
+    fixed = 0
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        if len(groups) < 5:
+            continue
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        if total != expected:
+            continue
+        g0, g1, g2, g3 = groups[0], groups[1], groups[2], groups[3]
+        if not (
+            _is_plain_quarter_group(g0[0], ns, divisions)
+            and _is_plain_quarter_group(g1[0], ns, divisions)
+            and _is_plain_eighth_group(g2[0], ns, divisions)
+            and _is_plain_eighth_group(g3[0], ns, divisions)
+        ):
+            continue
+        if _note_has_beam(g0[0], ns) or _note_has_beam(g1[0], ns):
+            continue
+        if not (_note_has_beam(g2[0], ns) and _note_has_beam(g3[0], ns)):
+            continue
+        _set_group_to_plain_eighth(g0[1], ns, divisions)
+        _set_group_to_plain_eighth(g1[1], ns, divisions)
+        _rebeam_group(g0[1], ns, "begin")
+        _rebeam_group(g1[1], ns, "end")
+        _set_group_to_quarter(g2[1], ns, divisions)
+        _set_group_to_quarter(g3[1], ns, divisions)
+        fixed += 1
+        break
+    return fixed
+
+
 def _repair_leading_quarter_pair(
     measure: ET.Element, ns: str, divisions: int, expected: int
 ) -> int:
@@ -1674,11 +1729,10 @@ def _repair_repeated_chord_slurs(part: ET.Element, ns: str) -> int:
                     continue
                 if any(_note_has_any_slur(n, ns) for n in g0[1] + g1[1]):
                     continue
-                pairs = _chord_note_pairs(g0, g1, ns)
                 added = _add_slur_between_chord_groups(g0, g1, ns, slur_num)
                 if added:
                     fixed += added
-                    slur_num += max(len(pairs), 1)
+                    slur_num += 2
                     voice_slurs += 1
     return fixed
 
@@ -1731,54 +1785,50 @@ def _chord_note_pairs(g0: tuple, g1: tuple, ns: str) -> list[tuple[ET.Element, E
 def _add_slur_between_chord_groups(
     g0: tuple, g1: tuple, ns: str, slur_num_base: int
 ) -> int:
-    """화음 각 성부(음고)마다 slur — 위·아래 이음줄 쌍."""
-    pairs = _chord_note_pairs(g0, g1, ns)
-    added = 0
-    for i, (n0, n1) in enumerate(pairs):
-        num = slur_num_base + i
-        if _add_slur_to_note(n0, ns, "start", num, chord_members=g0[1]) and _add_slur_to_note(
-            n1, ns, "stop", num, chord_members=g1[1]
+    """화음 slur — OSMD: 아래 음표에 below(아래성부)·above(위성부) 2개."""
+    if len(g0[1]) < 2 or len(g1[1]) < 2:
+        n0, n1 = g0[0], g1[0]
+        if _add_slur_to_note(n0, ns, "start", slur_num_base) and _add_slur_to_note(
+            n1, ns, "stop", slur_num_base
         ):
-            added += 1
+            return 1
+        return 0
+    low0 = _lower_chord_member(g0[1], ns)
+    low1 = _lower_chord_member(g1[1], ns)
+    added = 0
+    if _add_slur_to_note(low0, ns, "start", slur_num_base, placement="below") and _add_slur_to_note(
+        low1, ns, "stop", slur_num_base, placement="below"
+    ):
+        added += 1
+    if _add_slur_to_note(
+        low0, ns, "start", slur_num_base + 1, placement="above"
+    ) and _add_slur_to_note(low1, ns, "stop", slur_num_base + 1, placement="above"):
+        added += 1
     return added
 
 
 def _complete_chord_member_slurs(part: ET.Element, ns: str) -> int:
-    """한 성부에만 slur가 있을 때 화음의 다른 성부에도 동일 패턴 slur 복제."""
+    """한 성부에만 slur가 있을 때 OSMD 방식으로 보완 — normalize가 최종 정리."""
     fixed = 0
     for measure in part.findall(qname(ns, "measure")):
         for (_, _voice), groups in _voice_groups(measure, ns).items():
             for i in range(len(groups) - 1):
                 g0, g1 = groups[i], groups[i + 1]
-                pairs = _chord_note_pairs(g0, g1, ns)
-                if len(pairs) < 2:
+                if len(g0[1]) < 2 or len(g1[1]) < 2:
                     continue
-                ref_idx = None
-                for j, (n0, n1) in enumerate(pairs):
-                    if _note_has_any_slur(n0, ns) or _note_has_any_slur(n1, ns):
-                        ref_idx = j
-                        break
-                if ref_idx is None:
+                low0 = _lower_chord_member(g0[1], ns)
+                if _note_has_any_slur(low0, ns):
                     continue
-                ref_n0, ref_n1 = pairs[ref_idx]
-                start_nums = [
+                if not any(_note_has_any_slur(n, ns) for n in g0[1] + g1[1]):
+                    continue
+                nums = [
                     int(s.get("number"))
-                    for s in ref_n0.findall(".//" + qname(ns, "slur"))
+                    for n in g0[1] + g1[1]
+                    for s in n.findall(".//" + qname(ns, "slur"))
                     if s.get("type") == "start" and (s.get("number") or "").isdigit()
                 ]
-                if not start_nums:
-                    continue
-                base = start_nums[0]
-                for j, (n0, n1) in enumerate(pairs):
-                    num = base + (j - ref_idx)
-                    if num < 1:
-                        num = base + j
-                    if not _has_slur(n0, ns, num, "start"):
-                        if _add_slur_to_note(n0, ns, "start", num, chord_members=g0[1]):
-                            fixed += 1
-                    if not _has_slur(n1, ns, num, "stop"):
-                        if _add_slur_to_note(n1, ns, "stop", num, chord_members=g1[1]):
-                            fixed += 1
+                base = min(nums) if nums else 20
+                fixed += _add_slur_between_chord_groups(g0, g1, ns, base)
     return fixed
 
 
@@ -3158,6 +3208,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 stats["three_eighth_triplet_fixed"] += _general_resolve_overfull_measure(
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )
+                stats["quarter_pair_eighth_fixed"] += _repair_swap_leading_qq_with_beamed_pair(
+                    measure, ns, divisions or 0, expected or 0
+                )
                 stats["quarter_pair_eighth_fixed"] += _repair_leading_quarter_pair(
                     measure, ns, divisions or 0, expected or 0
                 )
@@ -3180,12 +3233,6 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )
                 stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
-                    measure, ns, max_staff, divisions or 0, expected or 0
-                )
-                stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
-                    measure, ns, max_staff, expected or 0, divisions or 0
-                )
-                stats["quarter_chord_triplet_expanded"] += _repair_quarter_chords_before_triplet_run(
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )
             stats["fermata_from_staccato_fixed"] += _repair_staccato_as_fermata_before_rest(

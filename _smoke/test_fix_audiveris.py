@@ -64,7 +64,7 @@ def rest_beamed_triplet_m28(mxl: Path):
 
 
 def slurs_m6_chord_placement(mxl: Path):
-    """PDF 7마디 — E4 below, G4 above slur on 4th–5th chord."""
+    """인쇄 7마디 — OSMD: E4에 below+above slur, G4에는 slur 없음."""
     root = load_root(mxl)
     ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
     for part in root.findall(q(ns, "part")):
@@ -73,7 +73,8 @@ def slurs_m6_chord_placement(mxl: Path):
         for m in part.findall(q(ns, "measure")):
             if m.get("number") != "6":
                 continue
-            slurs_by_pitch = {}
+            e4_slurs = []
+            g4_slurs = []
             for note in m.findall(q(ns, "note")):
                 pitch = note.find(q(ns, "pitch"))
                 if pitch is None:
@@ -81,32 +82,15 @@ def slurs_m6_chord_placement(mxl: Path):
                 lab = pitch.find(q(ns, "step")).text + pitch.find(q(ns, "octave")).text
                 for n in note.findall(q(ns, "notations")):
                     for s in n.findall(q(ns, "slur")):
-                        if s.get("type") == "start":
-                            slurs_by_pitch[(lab, s.get("number"))] = (
-                                s.get("placement"),
-                                s.get("orientation"),
-                            )
-            e4 = slurs_by_pitch.get(("E4", "22"))
-            g4 = slurs_by_pitch.get(("G4", "23"))
-            dy = None
-            for note in m.findall(q(ns, "note")):
-                pitch = note.find(q(ns, "pitch"))
-                if pitch is None:
-                    continue
-                if pitch.find(q(ns, "step")).text + pitch.find(q(ns, "octave")).text != "G4":
-                    continue
-                for n in note.findall(q(ns, "notations")):
-                    for s in n.findall(q(ns, "slur")):
-                        if s.get("number") == "23" and s.get("type") == "start":
-                            dy = s.get("default-y")
-                            ori = s.get("orientation")
-            ok = (
-                e4 == ("below", "under")
-                and g4 == ("below", "under")
-                and dy is not None
-                and int(dy) > 0
-            )
-            return ok, {"E4/22": e4, "G4/23": g4, "G4_dy": dy}
+                        if s.get("type") != "start":
+                            continue
+                        entry = (s.get("number"), s.get("placement"))
+                        if lab == "E4":
+                            e4_slurs.append(entry)
+                        elif lab == "G4":
+                            g4_slurs.append(entry)
+            ok = ("22", "below") in e4_slurs and ("23", "above") in e4_slurs and not g4_slurs
+            return ok, {"E4": e4_slurs, "G4": g4_slurs}
     return False, "missing"
 
 
@@ -164,7 +148,7 @@ def pl_m42_triplet_pitches(mxl: Path):
 
 
 def pl_m44_quarters_preserved(mxl: Path):
-    """인쇄 45마디 PL — Q(A)+Q(B) → 세잇단 slice A, B, B."""
+    """인쇄 45 PL(XML m44 staff2) — OMR 인식 그대로(4분 2 + 세잇단 run, stem 유지)."""
     root = load_root(mxl)
     ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
     for part in root.findall(q(ns, "part")):
@@ -188,30 +172,31 @@ def pl_m44_quarters_preserved(mxl: Path):
                     chord.append(n)
             if chord:
                 groups.append(chord)
-            if len(groups) < 5:
+            if len(groups) < 8:
                 return False, "short"
 
-            def sig(g):
-                labs = []
-                for n in g:
-                    p = n.find(q(ns, "pitch"))
-                    if p is not None:
-                        labs.append(p.find(q(ns, "step")).text + p.find(q(ns, "octave")).text)
-                return tuple(sorted(labs))
+            def stem(g):
+                s = g[0].find(q(ns, "stem"))
+                return s.text if s is not None else None
 
-            def is_tm(g):
-                return g[0].find(q(ns, "time-modification")) is not None
+            def typ(g):
+                t = g[0].find(q(ns, "type"))
+                return t.text if t is not None else None
 
-            s0, s1, s2 = sig(groups[0]), sig(groups[1]), sig(groups[2])
             ok = (
-                is_tm(groups[0])
-                and is_tm(groups[1])
-                and is_tm(groups[2])
-                and s0 == ("B1", "B2")
-                and s1 == s2
-                and s1 in (("D3", "G3", "B3"), ("B3", "D3", "G3"))
+                typ(groups[0]) == "quarter"
+                and typ(groups[1]) == "quarter"
+                and stem(groups[0]) == "up"
+                and stem(groups[1]) == "up"
+                and groups[2][0].find(q(ns, "time-modification")) is not None
+                and stem(groups[2]) == "down"
+                and groups[-1][0].find(q(ns, "time-modification")) is not None
             )
-            return ok, {"g1": s0, "g2": s1, "g3": s2}
+            return ok, {
+                "g1": (typ(groups[0]), stem(groups[0])),
+                "g3": (typ(groups[2]), stem(groups[2])),
+                "g8": (typ(groups[7]), stem(groups[7])),
+            }
     return False, "missing"
 
 

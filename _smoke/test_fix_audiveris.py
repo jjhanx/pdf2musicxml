@@ -89,10 +89,45 @@ def slurs_m6_chord_placement(mxl: Path):
                             e4_slurs.append(entry)
                         elif lab == "G4":
                             g4_slurs.append(entry)
-            ok = ("22", "below") in e4_slurs and ("23", "above") in g4_slurs and not (
-                ("23", "above") in e4_slurs or ("22", "below") in g4_slurs
+            ok = (
+                any(p == "below" for _, p in e4_slurs)
+                and any(p == "above" for _, p in g4_slurs)
+                and not any(p == "above" for _, p in e4_slurs)
+                and not any(p == "below" for _, p in g4_slurs)
             )
             return ok, {"E4": e4_slurs, "G4": g4_slurs}
+    return False, "missing"
+
+
+def slurs_m59_no_injected_chord_slur(mxl: Path):
+    """인쇄 60마디(XML m59) PR — B4+G4 연속 화음 사이에 후처리 slur 없음."""
+    root = load_root(mxl)
+    ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
+    for part in root.findall(q(ns, "part")):
+        if part.get("id") != "P5":
+            continue
+        for m in part.findall(q(ns, "measure")):
+            if m.get("number") != "59":
+                continue
+            injected = []
+            for note in m.findall(q(ns, "note")):
+                st = note.find(q(ns, "staff"))
+                if st is not None and st.text != "1":
+                    continue
+                pitch = note.find(q(ns, "pitch"))
+                if pitch is None:
+                    continue
+                lab = pitch.find(q(ns, "step")).text + pitch.find(q(ns, "octave")).text
+                for n in note.findall(q(ns, "notations")):
+                    for s in n.findall(q(ns, "slur")):
+                        num = s.get("number") or "1"
+                        try:
+                            if int(num) >= 20:
+                                injected.append((lab, num, s.get("type")))
+                        except ValueError:
+                            pass
+            ok = len(injected) == 0
+            return ok, {"injected_slurs": injected}
     return False, "missing"
 
 
@@ -354,7 +389,9 @@ def main() -> int:
         print(f"{'PASS' if ok_pr44 else 'FAIL'} a26 m44 PR rhythm: {detail_pr}")
         ok_m42, detail42 = pl_m42_triplet_pitches(a26_out)
         print(f"{'PASS' if ok_m42 else 'FAIL'} a26 m42 PL triplet pitches: {detail42}")
-        ok_a26 = ok_slur_plc and ok_m44 and ok_pr44 and ok_m42
+        ok_m59, detail59 = slurs_m59_no_injected_chord_slur(a26_out)
+        print(f"{'PASS' if ok_m59 else 'FAIL'} a26 m59 no false B4+G4 slur: {detail59}")
+        ok_a26 = ok_slur_plc and ok_m44 and ok_pr44 and ok_m42 and ok_m59
 
     return 0 if ok_slur and ok_tup and ok_stats and ok_m28 and ok_a26 else 1
 

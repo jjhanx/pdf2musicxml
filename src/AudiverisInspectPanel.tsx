@@ -26,6 +26,21 @@ type InspectErrorBoundaryProps = {
 
 type InspectErrorBoundaryState = { error: Error | null };
 
+/** OMR·HITL 미리보기 — 이음줄을 깃대(stem)가 아닌 음머리 쪽에 그리도록 OSMD 규칙 조정 */
+export function applyOsmdPreviewEngravingRules(
+  rules: OpenSheetMusicDisplay['EngravingRules'],
+): void {
+  rules.TupletNumberLimitConsecutiveRepetitions = false;
+  rules.TupletNumberAlwaysDisableAfterFirstMax = false;
+  const ext = rules as Record<string, unknown>;
+  if (typeof ext.SlurPlacementAtStems === 'boolean') {
+    ext.SlurPlacementAtStems = false;
+  }
+  if (typeof ext.SlurPlacementFromXML === 'boolean') {
+    ext.SlurPlacementFromXML = true;
+  }
+}
+
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
 export class InspectPanelErrorBoundary extends Component<
   InspectErrorBoundaryProps,
@@ -370,10 +385,7 @@ export function OsmdBlock({
         autoResize: true,
         backend: 'svg',
       });
-      // OSMD는 기본값으로 연속 잇단 숫자를 2회 이후 생략한다(인쇄 관례).
-      // 원본 악보·review.mxl과 미리보기가 달라 보이는 혼란("3이 사라짐")을 막기 위해 항상 그린다.
-      osmd.EngravingRules.TupletNumberLimitConsecutiveRepetitions = false;
-      osmd.EngravingRules.TupletNumberAlwaysDisableAfterFirstMax = false;
+      applyOsmdPreviewEngravingRules(osmd.EngravingRules);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const d = document.createElement('div');

@@ -375,11 +375,10 @@ def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
                 if slur.get("placement") != plc:
                     slur.set("placement", plc)
                     fixed += 1
-                if slur.get("type") == "stop":
-                    slur.attrib.pop("placement", None)
                 _apply_slur_orientation(slur, target, ns)
-                if slur.get("type") == "start" and slur.get("placement"):
-                    _set_slur_notehead_offset(slur, target, ns, slur.get("placement"))
+                plc_on_slur = slur.get("placement")
+                if plc_on_slur:
+                    _set_slur_notehead_offset(slur, target, ns, plc_on_slur)
     return fixed
 
 
@@ -1726,8 +1725,12 @@ def _note_has_any_slur(note: ET.Element, ns: str) -> bool:
     return False
 
 
+# 피아노 알베르지(E4+G4 8분 화음 연속)만 — B4+G4 등 다른 화음은 OMR 그대로 둠.
+_REPEATED_CHORD_SLUR_SIGNATURES = frozenset({("E4", "G4")})
+
+
 def _repair_repeated_chord_slurs(part: ET.Element, ns: str) -> int:
-    """연속 동일 8분 화음(피아노 알베르지 등) — 폰트/OMR 이음줄 미검출 시 slur 복원."""
+    """연속 동일 E4+G4 8분 화음 — OMR 이음줄 미검출 시 slur 복원 (7·31·45 PR 등)."""
     fixed = 0
     slur_num = 20
     for measure in part.findall(qname(ns, "measure")):
@@ -1748,6 +1751,8 @@ def _repair_repeated_chord_slurs(part: ET.Element, ns: str) -> int:
                 if _note_type_text(g0[0], ns) != "eighth":
                     continue
                 sig = _chord_pitch_signature(g0, ns)
+                if sig not in _REPEATED_CHORD_SLUR_SIGNATURES:
+                    continue
                 if sig != _chord_pitch_signature(g1, ns):
                     continue
                 if _note_has_tie(g0[0], ns, "stop") or _note_has_tie(g1[0], ns, "start"):

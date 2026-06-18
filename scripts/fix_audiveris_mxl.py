@@ -172,6 +172,25 @@ def _pitch_label(note: ET.Element, ns: str) -> str | None:
     return f"{step}{octave}"
 
 
+def _pitch_midi(note: ET.Element, ns: str) -> int:
+    pitch_el = note.find(qname(ns, "pitch"))
+    if pitch_el is None:
+        return -999999
+    step_el = pitch_el.find(qname(ns, "step"))
+    oct_el = pitch_el.find(qname(ns, "octave"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return -999999
+    steps = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+    alter = 0
+    alter_el = pitch_el.find(qname(ns, "alter"))
+    if alter_el is not None and alter_el.text:
+        try:
+            alter = int(float(alter_el.text.strip()))
+        except ValueError:
+            alter = 0
+    return (int(oct_el.text.strip()) + 1) * 12 + steps.get(step_el.text.strip(), 0) + alter
+
+
 def _is_chord_note(note: ET.Element, ns: str) -> bool:
     return note.find(qname(ns, "chord")) is not None
 
@@ -229,6 +248,19 @@ def _notehead_slur_placement(note: ET.Element, ns: str) -> str:
     return "below"
 
 
+def _chord_member_slur_placement(
+    note: ET.Element, chord_members: list[ET.Element], ns: str
+) -> str | None:
+    """화음 slur — 아래 성부만 placement, 위 성부는 생략(OSMD에서 겹쳐 사라지는 것 방지)."""
+    labeled = [n for n in chord_members if _pitch_label(n, ns)]
+    if len(labeled) < 2:
+        return _notehead_slur_placement(note, ns)
+    midis = sorted(_pitch_midi(n, ns) for n in labeled)
+    if _pitch_midi(note, ns) <= midis[0]:
+        return _notehead_slur_placement(note, ns)
+    return None
+
+
 def _add_slur_to_note(
     note_el: ET.Element,
     ns: str,
@@ -236,6 +268,7 @@ def _add_slur_to_note(
     slur_num: int,
     *,
     placement: str | None = None,
+    chord_members: list[ET.Element] | None = None,
 ) -> bool:
     if _has_slur(note_el, ns, slur_num, slur_type):
         return False
@@ -252,21 +285,69 @@ def _add_slur_to_note(
         else:
             note_el.append(notations)
     slur = ET.Element(qname(ns, "slur"), attrib={"number": str(slur_num), "type": slur_type})
-    slur.set("placement", placement or _notehead_slur_placement(note_el, ns))
+    plc = placement
+    if plc is None and chord_members is not None:
+        plc = _chord_member_slur_placement(note_el, chord_members, ns)
+    elif plc is None:
+        plc = _notehead_slur_placement(note_el, ns)
+    if plc is not None:
+        slur.set("placement", plc)
     notations.append(slur)
     return True
 
 
 def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
-    """기존 slur placement를 음머리 기준으로 통일."""
+    """화음 slur placement 정리 — 아래 성부만 명시, 위 성부는 placement 생략."""
     fixed = 0
     for measure in part.findall(qname(ns, "measure")):
+        chord_by_note: dict[int, list[ET.Element]] = {}
+        for grp in _iter_chord_groups(measure, ns):
+            for n in grp[1]:
+                chord_by_note[id(n)] = grp[1]
         for note in measure.findall(qname(ns, "note")):
-            want = _notehead_slur_placement(note, ns)
+            members = chord_by_note.get(id(note), [note])
+            want = _chord_member_slur_placement(note, members, ns)
             for slur in note.findall(".//" + qname(ns, "slur")):
-                if slur.get("placement") != want:
+                if want is None:
+                    if slur.get("placement") is not None:
+                        slur.attrib.pop("placement", None)
+                        fixed += 1
+                elif slur.get("placement") != want:
                     slur.set("placement", want)
                     fixed += 1
+    return fixed
+
+
+def _default_stem_for_staff(staff: str, max_staff: int) -> str:
+    if max_staff >= 2 and staff == "2":
+        return "down"
+    return "up"
+
+
+def _ensure_stem_for_staff(
+    note: ET.Element, staff: str, max_staff: int, ns: str
+) -> bool:
+    """2단 악보 staff별 기본 stem — PL(staff2) down, PR(staff1) up. 쉼표도 빔 연결용."""
+    want = _default_stem_for_staff(staff or "1", max_staff)
+    stem_el = note.find(qname(ns, "stem"))
+    if stem_el is None:
+        stem_el = ET.SubElement(note, qname(ns, "stem"))
+    if (stem_el.text or "").strip() != want:
+        stem_el.text = want
+        return True
+    return False
+
+
+def _normalize_piano_stems_in_measure(
+    measure: ET.Element, ns: str, max_staff: int
+) -> int:
+    if max_staff < 2:
+        return 0
+    fixed = 0
+    for note in measure.findall(qname(ns, "note")):
+        _, staff = _note_voice_staff(note, ns)
+        if _ensure_stem_for_staff(note, staff or "1", max_staff, ns):
+            fixed += 1
     return fixed
 
 
@@ -424,6 +505,11 @@ def _set_tuplet_bracket_attrs(
     if has_rest:
         tuplet.set("show-bracket", "yes")
         tuplet.set("bracket", "yes")
+        if placement:
+            tuplet.set("placement", placement)
+    else:
+        tuplet.set("show-bracket", "no")
+        tuplet.set("bracket", "no")
         if placement:
             tuplet.set("placement", placement)
 
@@ -1304,6 +1390,7 @@ def _repair_eighth_rest_plus_two_eighths_triplet(
                     _strip_tuplet_notations(n, ns)
                     _ensure_time_modification(n, ns)
                     _set_note_type_duration(n, ns, triplet_dur, "eighth")
+                    _ensure_stem_for_staff(n, grp[2], max_staff, ns)
                     _rebeam_group(
                         [n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue")
                     )
@@ -1450,8 +1537,8 @@ def _add_slur_between_chord_groups(
     added = 0
     for i, (n0, n1) in enumerate(pairs):
         num = slur_num_base + i
-        if _add_slur_to_note(n0, ns, "start", num) and _add_slur_to_note(
-            n1, ns, "stop", num
+        if _add_slur_to_note(n0, ns, "start", num, chord_members=g0[1]) and _add_slur_to_note(
+            n1, ns, "stop", num, chord_members=g1[1]
         ):
             added += 1
     return added
@@ -1488,10 +1575,10 @@ def _complete_chord_member_slurs(part: ET.Element, ns: str) -> int:
                     if num < 1:
                         num = base + j
                     if not _has_slur(n0, ns, num, "start"):
-                        if _add_slur_to_note(n0, ns, "start", num):
+                        if _add_slur_to_note(n0, ns, "start", num, chord_members=g0[1]):
                             fixed += 1
                     if not _has_slur(n1, ns, num, "stop"):
-                        if _add_slur_to_note(n1, ns, "stop", num):
+                        if _add_slur_to_note(n1, ns, "stop", num, chord_members=g1[1]):
                             fixed += 1
     return fixed
 
@@ -1743,7 +1830,13 @@ def _is_misread_quarter_chord_for_triplet(
 
 
 def _clone_triplet_slice_note(
-    template: ET.Element, ns: str, triplet_dur: int, beam: str, as_chord: bool
+    template: ET.Element,
+    ns: str,
+    triplet_dur: int,
+    beam: str,
+    as_chord: bool,
+    staff: str,
+    max_staff: int,
 ) -> ET.Element:
     note = copy.deepcopy(template)
     if as_chord:
@@ -1763,6 +1856,7 @@ def _clone_triplet_slice_note(
         if len(notations) == 0:
             note.remove(notations)
     _set_beam(note, ns, beam)
+    _ensure_stem_for_staff(note, staff, max_staff, ns)
     return note
 
 
@@ -1770,18 +1864,23 @@ def _expand_quarter_chord_group_to_triplet(
     measure: ET.Element, group: tuple, ns: str, triplet_dur: int, max_staff: int
 ) -> bool:
     """plain 4분 화음 1개(=세잇단 1절 분량) → 세잇단 3slice로 펼침."""
-    leader, notes, _, _ = group
+    leader, notes, staff, _voice = group
     for j, n in enumerate(notes):
         _ensure_time_modification(n, ns)
         _set_note_type_duration(n, ns, triplet_dur, "eighth")
         _strip_tuplet_notations(n, ns)
+        _ensure_stem_for_staff(n, staff, max_staff, ns)
         _set_beam(n, ns, "begin")
     insert_at = list(measure).index(notes[-1]) + 1
     slice2: list[ET.Element] = []
     slice3: list[ET.Element] = []
     for j, template in enumerate(notes):
-        slice2.append(_clone_triplet_slice_note(template, ns, triplet_dur, "continue", j > 0))
-        slice3.append(_clone_triplet_slice_note(template, ns, triplet_dur, "end", j > 0))
+        slice2.append(
+            _clone_triplet_slice_note(template, ns, triplet_dur, "continue", j > 0, staff, max_staff)
+        )
+        slice3.append(
+            _clone_triplet_slice_note(template, ns, triplet_dur, "end", j > 0, staff, max_staff)
+        )
     for n in slice2 + slice3:
         measure.insert(insert_at, n)
         insert_at += 1
@@ -2688,6 +2787,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "repeated_chord_slurs_added": 0,
         "chord_slurs_completed": 0,
         "slur_placements_fixed": 0,
+        "piano_stems_fixed": 0,
         "spurious_natural_removed": 0,
         "tuplet_brackets_adjusted": 0,
         "tuplet_normal_fields_fixed": 0,
@@ -2812,6 +2912,12 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         stats["repeated_chord_slurs_added"] += _repair_repeated_chord_slurs(part, ns)
         stats["chord_slurs_completed"] += _complete_chord_member_slurs(part, ns)
         stats["slur_placements_fixed"] += _normalize_slur_placements(part, ns)
+
+        if max_staff >= 2:
+            for measure in part.findall(qname(ns, "measure")):
+                stats["piano_stems_fixed"] += _normalize_piano_stems_in_measure(
+                    measure, ns, max_staff
+                )
 
         for measure in part.findall(qname(ns, "measure")):
             stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(

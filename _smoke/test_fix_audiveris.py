@@ -64,7 +64,7 @@ def rest_beamed_triplet_m28(mxl: Path):
 
 
 def slurs_m6_chord_placement(mxl: Path):
-    """인쇄 7마디 — OSMD: E4에 below+above slur, G4에는 slur 없음."""
+    """인쇄 7·31마디 — E4 below, G4 above (음머리 높이, 깃대 아님)."""
     root = load_root(mxl)
     ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
     for part in root.findall(q(ns, "part")):
@@ -89,7 +89,9 @@ def slurs_m6_chord_placement(mxl: Path):
                             e4_slurs.append(entry)
                         elif lab == "G4":
                             g4_slurs.append(entry)
-            ok = ("22", "below") in e4_slurs and ("23", "above") in e4_slurs and not g4_slurs
+            ok = ("22", "below") in e4_slurs and ("23", "above") in g4_slurs and not (
+                ("23", "above") in e4_slurs or ("22", "below") in g4_slurs
+            )
             return ok, {"E4": e4_slurs, "G4": g4_slurs}
     return False, "missing"
 
@@ -147,8 +149,63 @@ def pl_m42_triplet_pitches(mxl: Path):
     return False, "missing"
 
 
-def pl_m44_quarters_preserved(mxl: Path):
-    """인쇄 45 PL(XML m44 staff2) — OMR 인식 그대로(4분 2 + 세잇단 run, stem 유지)."""
+def pr_m44_staff1_rhythm(mxl: Path):
+    """인쇄 45 PR(XML m44 staff1) — ♪♪–♩♩–♩, 마지막 B4/B5 4분 유지."""
+    root = load_root(mxl)
+    ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
+    for part in root.findall(q(ns, "part")):
+        if part.get("id") != "P5":
+            continue
+        for m in part.findall(q(ns, "measure")):
+            if m.get("number") != "44":
+                continue
+            groups = []
+            chord = []
+            for n in m.findall(q(ns, "note")):
+                st = n.find(q(ns, "staff")).text if n.find(q(ns, "staff")) is not None else "1"
+                if st != "1":
+                    continue
+                ch = n.find(q(ns, "chord")) is not None
+                if not ch:
+                    if chord:
+                        groups.append(chord)
+                    chord = [n]
+                else:
+                    chord.append(n)
+            if chord:
+                groups.append(chord)
+            if len(groups) != 5:
+                return False, {"groups": len(groups)}
+
+            def sig(g):
+                ps = []
+                for n in g:
+                    p = n.find(q(ns, "pitch"))
+                    if p is not None:
+                        ps.append(p.find(q(ns, "step")).text + p.find(q(ns, "octave")).text)
+                return tuple(sorted(ps))
+
+            def typ(g):
+                t = g[0].find(q(ns, "type"))
+                return t.text if t is not None else None
+
+            ok = (
+                typ(groups[0]) == "eighth"
+                and typ(groups[1]) == "eighth"
+                and typ(groups[2]) == "quarter"
+                and typ(groups[3]) == "quarter"
+                and typ(groups[4]) == "quarter"
+                and sig(groups[4]) == ("B4", "B5")
+            )
+            return ok, {
+                "g1": (typ(groups[0]), sig(groups[0])),
+                "g5": (typ(groups[4]), sig(groups[4])),
+            }
+    return False, "missing"
+
+
+def pl_m44_twelve_triplet_slices(mxl: Path):
+    """인쇄 45 PL(XML m44 staff2) — 4×세잇단 12slice 복구(B1,B2,D3G3B3 + …)."""
     root = load_root(mxl)
     ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
     for part in root.findall(q(ns, "part")):
@@ -172,31 +229,38 @@ def pl_m44_quarters_preserved(mxl: Path):
                     chord.append(n)
             if chord:
                 groups.append(chord)
-            if len(groups) < 8:
-                return False, "short"
+            if len(groups) != 12:
+                return False, {"groups": len(groups)}
 
-            def stem(g):
-                s = g[0].find(q(ns, "stem"))
-                return s.text if s is not None else None
+            def sig(g):
+                ps = []
+                for n in g:
+                    p = n.find(q(ns, "pitch"))
+                    if p is not None:
+                        ps.append(p.find(q(ns, "step")).text + p.find(q(ns, "octave")).text)
+                return tuple(sorted(ps))
 
             def typ(g):
                 t = g[0].find(q(ns, "type"))
                 return t.text if t is not None else None
 
+            def stem(g):
+                s = g[0].find(q(ns, "stem"))
+                return s.text if s is not None else None
+
             ok = (
-                typ(groups[0]) == "quarter"
-                and typ(groups[1]) == "quarter"
+                sig(groups[0]) == ("B1",)
+                and sig(groups[1]) == ("B2",)
+                and sig(groups[2]) == ("B3", "D3", "G3")
+                and typ(groups[0]) == "eighth"
+                and typ(groups[1]) == "eighth"
+                and groups[0][0].find(q(ns, "time-modification")) is not None
                 and stem(groups[0]) == "up"
                 and stem(groups[1]) == "up"
-                and groups[2][0].find(q(ns, "time-modification")) is not None
                 and stem(groups[2]) == "down"
                 and groups[-1][0].find(q(ns, "time-modification")) is not None
             )
-            return ok, {
-                "g1": (typ(groups[0]), stem(groups[0])),
-                "g3": (typ(groups[2]), stem(groups[2])),
-                "g8": (typ(groups[7]), stem(groups[7])),
-            }
+            return ok, {"g1": sig(groups[0]), "g2": sig(groups[1]), "g3": sig(groups[2])}
     return False, "missing"
 
 
@@ -284,11 +348,13 @@ def main() -> int:
         fix_mxl_file(a26, a26_out)
         ok_slur_plc, detail = slurs_m6_chord_placement(a26_out)
         print(f"{'PASS' if ok_slur_plc else 'FAIL'} a26 m6 chord slur placement: {detail}")
-        ok_m44, detail44 = pl_m44_quarters_preserved(a26_out)
-        print(f"{'PASS' if ok_m44 else 'FAIL'} a26 m44 PL quarters: {detail44}")
+        ok_m44, detail44 = pl_m44_twelve_triplet_slices(a26_out)
+        print(f"{'PASS' if ok_m44 else 'FAIL'} a26 m44 PL 12 triplet slices: {detail44}")
+        ok_pr44, detail_pr = pr_m44_staff1_rhythm(a26_out)
+        print(f"{'PASS' if ok_pr44 else 'FAIL'} a26 m44 PR rhythm: {detail_pr}")
         ok_m42, detail42 = pl_m42_triplet_pitches(a26_out)
         print(f"{'PASS' if ok_m42 else 'FAIL'} a26 m42 PL triplet pitches: {detail42}")
-        ok_a26 = ok_slur_plc and ok_m44 and ok_m42
+        ok_a26 = ok_slur_plc and ok_m44 and ok_pr44 and ok_m42
 
     return 0 if ok_slur and ok_tup and ok_stats and ok_m28 and ok_a26 else 1
 

@@ -14,7 +14,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **OMR 불일치 의심 마디 감지 및 HITL 보정 UI 개선**: Linter(`mxl_quality_lint.py`)를 확장하여 각 보이스별 박자 부족(`measureUnderfull`) 및 박자 초과(`measureOverfull`) 마디를 자동으로 감지합니다(못갖춘마디 제외). 감지된 마디들은 검토 웹 UI 상단에 목록으로 제공되며, 클릭 시 즉시 마디 편집 패널이 열려 편리한 보정이 가능하도록 연동되었습니다. 또한, 특정 악보 전용의 하드코딩 패치 방식을 완전히 비활성화하여 파이프라인을 일반화하였습니다.
 - **범용 화음(Chord) 및 세잇단음 렌더링 버그 수정**: ① 화음 내 중복 피치 제거 시 새로운 리더(Leader) 음표의 `<chord/>` 태그를 제거하여 이어지는 마디와 박자가 겹치거나 음표가 증발하는 치명적인 버그 해결. ② 세잇단음이 쉼표로 시작할 때 빔(Beam) 반대 방향으로 브라켓을 자동 배치하도록 꼬리 방향 추론 로직 개선. ③ MuseScore 레이아웃 엔진과 충돌하여 화음을 뭉개버리던 강제 `bracket="no"` 주입 로직 제거. ④ 피아노 오른손 화음 이음줄(Slur) 보정 확대.
 - **이음줄(Slur) 및 세잇단음표 숫자 누락 버그 수정**: Audiveris 후처리 스크립트(`fix_audiveris_mxl.py`)가 얇은 이음줄(`<bracket>`) 기호를 지우거나 세잇단음표 숫자 '3'을 텍스트 찌꺼기로 오인하여 무차별 삭제하던 문제를 수정하여 정상적으로 출력되도록 개선했습니다.
-- **OMR 리듬·화음 slur 보정**: 인쇄 마디 ≈ **XML + 1**(pickup). **인쇄 45 PR = XML m44 staff1** — ♩♩–♪♪–♩↔♪♪–♩♩–♩ 스왑. 화음 slur는 **OSMD 방식**(아래 음표에 `below`+`above`). PL 세잇단 **OMR 그대로**(4분 펼침·prefix 비활성). 자세히 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
+- **OMR 리듬·화음 slur 보정**: 인쇄 마디 ≈ **XML + 1**(pickup). **인쇄 45 PR = XML m44 staff1** — ♩♩–♪♪–♩↔♪♪–♩♩–♩ 스왑. 화음 slur — **E4 `below`·G4 `above`** 각 음머리(`default-y`). **인쇄 45 PL = XML m44 staff2** — 4분 2+세잇단 6 → **12 slice** 복구. **OMR 품질 검토** MusicXML 미리보기(`GET …/score-musicxml`)는 요청마다 `fix_audiveris_mxl` 재적용. [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
 - **OMR 리듬·tie 자동 보정 확대**: `fix_audiveris_mxl.py` 범용 보정 — ① 세잇단 **쉼표 없음→숫자 '3'만**, **쉼표 포함→bracket**, ② **𝄽8+8분 2개** 세잇단·점4분→8분 오인, ③ **연속 동일 8분 화음 slur**(음머리 쪽 placement)·**동음 연장** slur, ④ **세잇단 run 직전 4분 화음→세잇단 3slice** 복원(voice overfull일 때), ⑤ 마디 **첫 화음** `#` 오인 natural→sharp(**duplicate pitch** 시 재배치), ⑥ 잇단 `normal-type` 보강(OSMD), ⑦ 쉼표 전용 voice 병렬 유지. **임시표 역전파 비활성**. 자세히 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
 - **Audiveris 후처리 (최근)**: 세잇단 **쉼표 없음→`show-bracket=no`(숫자만)**, **쉼표 포함→bracket 유지**. 화음 멤버 beam 일괄 제거·마디 임시표 역전파·m50 전용 accidental 패치는 **제거**(범용 오류 유발).
 - **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「PyMuPDF 가사 검증·편집」 체크를 끄면 pdfplumber 추출만으로 병합합니다.
@@ -232,7 +232,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/omr-hitl/:jobId/measure` | 마디별 음·쉼 목록 (`partId`, `measureMxl`) |
 | `POST /api/continue-omr-staff-review/:jobId` | **`omr_staff_review_needed`** 일 때 OMR HITL 이어하기(보정 자동 적용 후 inject) |
 | `GET /api/diagnostic/:jobId/page/:pageNum/png` | 쿼리 `source=original` 또는 `masked`, 선택 `dpi`(72–240, 기본 132). PyMuPDF로 해당 페이지 PNG |
-| `GET /api/diagnostic/:jobId/score-musicxml` | Audiveris MXL에서 평문 MusicXML(미리보기용). 완료 결과가 ZIP이면 출력 목록 중 첫 `.mxl` 기준 |
+| `GET /api/diagnostic/:jobId/score-musicxml` | Audiveris MXL → MusicXML(미리보기). **OMR 품질 검토·진단 OSMD**용 — 요청마다 `fix_audiveris_mxl.py` 적용 후 추출 |
 | `GET /api/diagnostic/:jobId/masked-pdf` | Audiveris에 넣기 직전 **`masked_input.pdf`** (`application/pdf`). 기본 `inline`(새 탭), `?download=1`이면 다운로드 |
 | `GET /api/diagnostic/:jobId/original-pdf` | 세션에 남은 **업로드 원본 PDF**. 동일하게 `?download=1` 지원 |
 | `POST /api/diagnostic/:jobId/audiveris-step-probe` | **`completed` / `audiveris_review_needed` / `failed`** 작업만. 본문 JSON: `step`(필수, 예: `GRID`), `force?`, `sheets?`(예: `"1 4-7"`), `pdfSource?`(`clean_score`\|`masked`\|`original`). 서버가 Audiveris `-batch -save -step …`( **`-export` 없음** ) 실행 후 `exitCode`, `stdout`/`stderr`(길면 잘림), `argv`, `artifacts`, `runId` 반환. **단계 설명·사용법:** [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md) |

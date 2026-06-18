@@ -346,8 +346,11 @@ async function ensureAudiverisRawBackup(scorePath: string, sessionRoot: string):
 async function invalidateInspectScoreCache(sessionRoot: string): Promise<void> {
   const lintCache = sessionMxlLintPath(sessionRoot);
   if (fsSync.existsSync(lintCache)) await fs.unlink(lintCache).catch(() => {});
-  const inspectXml = path.join(sessionRoot, '.diag-cache', 'inspect-score.musicxml');
+  const cacheDir = path.join(sessionRoot, '.diag-cache');
+  const inspectXml = path.join(cacheDir, 'inspect-score.musicxml');
   if (fsSync.existsSync(inspectXml)) await fs.unlink(inspectXml).catch(() => {});
+  const fixStamp = path.join(cacheDir, 'inspect-fix.stamp');
+  if (fsSync.existsSync(fixStamp)) await fs.unlink(fixStamp).catch(() => {});
 }
 
 async function rebuildOmrReviewMxl(
@@ -1915,21 +1918,17 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
     return;
   }
   try {
+    const pythonBin = resolvePythonBin();
     const cacheDir = path.join(job.sessionRoot, '.diag-cache');
     await fs.mkdir(cacheDir, { recursive: true });
     const outXml = path.join(cacheDir, 'inspect-score.musicxml');
-    let needExtract = true;
-    if (fsSync.existsSync(outXml) && fsSync.existsSync(mxlPath)) {
-      const [stM, stX] = await Promise.all([fs.stat(mxlPath), fs.stat(outXml)]);
-      if (stX.mtimeMs >= stM.mtimeMs) needExtract = false;
-    }
-    if (needExtract) {
-      const mxlScript = path.join(__dirname, '..', 'scripts', 'mxl_to_musicxml_file.py');
-      const pythonBin = resolvePythonBin();
-      await exec(`"${pythonBin}" "${mxlScript}" "${mxlPath}" "${outXml}"`, {
-        maxBuffer: 40 * 1024 * 1024,
-      });
-    }
+    // OMR 품질 검토·진단 미리보기: 항상 최신 fix_audiveris_mxl 반영 후 XML 추출
+    await fixAudiverisMxlInScoreFile(mxlPath, pythonBin);
+    if (fsSync.existsSync(outXml)) await fs.unlink(outXml).catch(() => {});
+    const mxlScript = path.join(__dirname, '..', 'scripts', 'mxl_to_musicxml_file.py');
+    await exec(`"${pythonBin}" "${mxlScript}" "${mxlPath}" "${outXml}"`, {
+      maxBuffer: 40 * 1024 * 1024,
+    });
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.sendFile(path.resolve(outXml), (err) => {

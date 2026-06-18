@@ -255,6 +255,13 @@ def _lower_chord_member(members: list[ET.Element], ns: str) -> ET.Element:
     return min(labeled, key=lambda n: _pitch_midi(n, ns))
 
 
+def _upper_chord_member(members: list[ET.Element], ns: str) -> ET.Element:
+    labeled = [n for n in members if _pitch_label(n, ns)]
+    if not labeled:
+        return members[0]
+    return max(labeled, key=lambda n: _pitch_midi(n, ns))
+
+
 def _chord_member_slur_placement(
     note: ET.Element, chord_members: list[ET.Element], ns: str
 ) -> str:
@@ -262,9 +269,19 @@ def _chord_member_slur_placement(
 
 
 def _apply_slur_orientation(slur: ET.Element, note: ET.Element, ns: str) -> None:
-    """OSMD는 placement만 사용 — orientation/default-y는 2중 slur를 숨길 수 있음."""
+    """OSMD: orientation 제거. default-y는 음머리 쪽 오프셋용으로만 유지."""
     slur.attrib.pop("orientation", None)
-    slur.attrib.pop("default-y", None)
+
+
+def _set_slur_notehead_offset(
+    slur: ET.Element, note: ET.Element, ns: str, placement: str
+) -> None:
+    """이음줄을 깃대가 아닌 음머리 쪽으로 — stem up: below는 더 아래, above는 윗성부 쪽."""
+    stem = _stem_direction(note, ns)
+    if placement == "below":
+        slur.set("default-y", "-35" if stem == "up" else "-25")
+    elif placement == "above":
+        slur.set("default-y", "35" if stem == "up" else "25")
 
 
 def _add_slur_to_note(
@@ -299,12 +316,14 @@ def _add_slur_to_note(
     if plc is not None:
         slur.set("placement", plc)
     _apply_slur_orientation(slur, note_el, ns)
+    if plc is not None:
+        _set_slur_notehead_offset(slur, note_el, ns, plc)
     notations.append(slur)
     return True
 
 
 def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
-    """화음 2성부 slur — OSMD #1274: 아래 음표에 below/above 2개 placement."""
+    """화음 2성부 slur — 아래 음(E4) below, 위 음(G4) above (음머리 높이)."""
     fixed = 0
     for measure in part.findall(qname(ns, "measure")):
         for grp in _iter_chord_groups(measure, ns):
@@ -312,49 +331,55 @@ def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
             if len(members) < 2:
                 continue
             lower = _lower_chord_member(members, ns)
-            starts: list[tuple[ET.Element, ET.Element]] = []
-            stops: list[tuple[ET.Element, ET.Element]] = []
+            upper = _upper_chord_member(members, ns)
+            starts: list[tuple[ET.Element, ET.Element, ET.Element]] = []
+            stops: list[tuple[ET.Element, ET.Element, ET.Element]] = []
             for n in members:
                 for slur in n.findall(".//" + qname(ns, "slur")):
                     st = slur.get("type")
+                    num = slur.get("number") or "1"
+                    try:
+                        num_i = int(num)
+                    except ValueError:
+                        num_i = 1
+                    target = lower if num_i % 2 == 0 else upper
+                    if num_i % 2 == 0:
+                        want_plc = "below"
+                    else:
+                        want_plc = "above"
                     if st == "start":
-                        starts.append((n, slur))
+                        starts.append((n, slur, target))
                     elif st == "stop":
-                        stops.append((n, slur))
-            if len(starts) < 2 and len(stops) < 2:
-                for _, slur in starts + stops:
-                    _apply_slur_orientation(slur, lower, ns)
-                continue
-            for n, slur in starts + stops:
-                if n is not lower:
-                    notations = n.find(qname(ns, "notations"))
-                    if notations is not None:
-                        notations.remove(slur)
+                        stops.append((n, slur, target))
+            for n, slur, target in starts + stops:
+                if n is target:
+                    plc = "below" if target is lower else "above"
+                    if slur.get("placement") != plc:
+                        slur.set("placement", plc)
                         fixed += 1
-            ordered_starts = sorted(starts, key=lambda x: x[1].get("number") or "0")
-            ordered_stops = sorted(stops, key=lambda x: x[1].get("number") or "0")
-            placements = ("below", "above")
-            for idx, (_, slur) in enumerate(ordered_starts[:2]):
-                notations = lower.find(qname(ns, "notations"))
-                if notations is None:
-                    notations = ET.Element(qname(ns, "notations"))
-                    lower.append(notations)
-                if slur not in list(notations):
-                    notations.append(slur)
-                want = placements[idx] if idx < len(placements) else "below"
-                if slur.get("placement") != want:
-                    slur.set("placement", want)
+                    _apply_slur_orientation(slur, target, ns)
+                    _set_slur_notehead_offset(slur, target, ns, plc)
+                    continue
+                notations = n.find(qname(ns, "notations"))
+                if notations is not None:
+                    notations.remove(slur)
                     fixed += 1
-                _apply_slur_orientation(slur, lower, ns)
-            for _, slur in ordered_stops[:2]:
-                notations = lower.find(qname(ns, "notations"))
-                if notations is None:
-                    notations = ET.Element(qname(ns, "notations"))
-                    lower.append(notations)
-                if slur not in list(notations):
-                    notations.append(slur)
-                slur.attrib.pop("placement", None)
-                _apply_slur_orientation(slur, lower, ns)
+                tgt_notations = target.find(qname(ns, "notations"))
+                if tgt_notations is None:
+                    tgt_notations = ET.Element(qname(ns, "notations"))
+                    target.append(tgt_notations)
+                if slur not in list(tgt_notations):
+                    tgt_notations.append(slur)
+                    fixed += 1
+                plc = "below" if target is lower else "above"
+                if slur.get("placement") != plc:
+                    slur.set("placement", plc)
+                    fixed += 1
+                if slur.get("type") == "stop":
+                    slur.attrib.pop("placement", None)
+                _apply_slur_orientation(slur, target, ns)
+                if slur.get("type") == "start" and slur.get("placement"):
+                    _set_slur_notehead_offset(slur, target, ns, slur.get("placement"))
     return fixed
 
 
@@ -1785,7 +1810,7 @@ def _chord_note_pairs(g0: tuple, g1: tuple, ns: str) -> list[tuple[ET.Element, E
 def _add_slur_between_chord_groups(
     g0: tuple, g1: tuple, ns: str, slur_num_base: int
 ) -> int:
-    """화음 slur — OSMD: 아래 음표에 below(아래성부)·above(위성부) 2개."""
+    """화음 slur — 아래 음 below, 위 음 above (각 음머리 높이)."""
     if len(g0[1]) < 2 or len(g1[1]) < 2:
         n0, n1 = g0[0], g1[0]
         if _add_slur_to_note(n0, ns, "start", slur_num_base) and _add_slur_to_note(
@@ -1795,14 +1820,16 @@ def _add_slur_between_chord_groups(
         return 0
     low0 = _lower_chord_member(g0[1], ns)
     low1 = _lower_chord_member(g1[1], ns)
+    high0 = _upper_chord_member(g0[1], ns)
+    high1 = _upper_chord_member(g1[1], ns)
     added = 0
     if _add_slur_to_note(low0, ns, "start", slur_num_base, placement="below") and _add_slur_to_note(
         low1, ns, "stop", slur_num_base, placement="below"
     ):
         added += 1
     if _add_slur_to_note(
-        low0, ns, "start", slur_num_base + 1, placement="above"
-    ) and _add_slur_to_note(low1, ns, "stop", slur_num_base + 1, placement="above"):
+        high0, ns, "start", slur_num_base + 1, placement="above"
+    ) and _add_slur_to_note(high1, ns, "stop", slur_num_base + 1, placement="above"):
         added += 1
     return added
 
@@ -2788,6 +2815,188 @@ def _insert_forward_before_voice_backup(
     measure.insert(list(measure).index(backup_el), fwd)
 
 
+def _is_melodic_false_chord_group(group: tuple, ns: str) -> bool:
+    """세잇단 1·2slice를 한 4분 화음으로 합친 경우(B1+B2 등)."""
+    notes = group[1]
+    if len(notes) != 2:
+        return False
+    if _is_rest(notes[0], ns):
+        return False
+    pitches: list[tuple[str, int]] = []
+    for n in notes:
+        pitch = n.find(qname(ns, "pitch"))
+        if pitch is None:
+            return False
+        step_el = pitch.find(qname(ns, "step"))
+        oct_el = pitch.find(qname(ns, "octave"))
+        if step_el is None or oct_el is None or not (oct_el.text or "").strip().isdigit():
+            return False
+        pitches.append((step_el.text or "", int(oct_el.text.strip())))
+    return pitches[0][0] == pitches[1][0] and pitches[0][1] != pitches[1][1]
+
+
+def _detach_chord_tail_as_new_group(
+    measure: ET.Element, group: tuple, ns: str
+) -> tuple | None:
+    """화음 2번째 음표를 chord 해제 후 별도 이벤트로 분리."""
+    leader, notes, staff, voice = group
+    if len(notes) < 2:
+        return None
+    tail = notes[1]
+    ch = tail.find(qname(ns, "chord"))
+    if ch is not None:
+        tail.remove(ch)
+    return (tail, [tail], staff, voice)
+
+
+def _repair_two_collapsed_triplet_spans(
+    measure: ET.Element, ns: str, max_staff: int, divisions: int, expected: int
+) -> int:
+    """4분 2개(세잇단 2절 분량) + 세잇단 6slice — 4×3=12화음으로 복구.
+
+    Audiveris BEAMS/RHYTHMS: 첫 두 세잇단 묶음을 stem-up 4분으로 읽고,
+    1·2slice를 한 화음(B1+B2)으로 합치는 패턴(인쇄 45 PL 등).
+    """
+    if not divisions or not expected:
+        return 0
+    triplet_dur = _triplet_eighth_duration(divisions)
+    span = _triplet_span_duration(divisions)
+    if not triplet_dur or not span:
+        return 0
+    fixed = 0
+    for (staff, voice), groups in _voice_groups(measure, ns).items():
+        if len(groups) != 8:
+            continue
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        if total != expected:
+            continue
+        g0, g1, g2 = groups[0], groups[1], groups[2]
+        tail = groups[2:]
+        if not (
+            _is_misread_quarter_chord_for_triplet(g0, ns, divisions)
+            and _is_misread_quarter_chord_for_triplet(g1, ns, divisions)
+        ):
+            continue
+        if g0[0].find(qname(ns, "time-modification")) is not None:
+            continue
+        if g1[0].find(qname(ns, "time-modification")) is not None:
+            continue
+        if _chord_pitch_signature(g0, ns) == _chord_pitch_signature(g1, ns):
+            continue
+        if g2[0].find(qname(ns, "time-modification")) is None:
+            continue
+        if _chord_pitch_signature(g1, ns) != _chord_pitch_signature(g2, ns):
+            continue
+        if not all(
+            _is_triplet_eighth_group(g[0], ns)
+            and _note_duration(g[0], ns) == triplet_dur
+            for g in tail
+        ):
+            continue
+        if len(tail) != 6:
+            continue
+
+        stem_ref = g2[0]
+        slice3_template = g2
+        collapsed_q2 = g1
+        split_group = g0
+        if _is_melodic_false_chord_group(g0, ns):
+            detached = _detach_chord_tail_as_new_group(measure, g0, ns)
+            if detached is None:
+                continue
+            groups = _voice_groups(measure, ns)[(staff, voice)]
+            split_group = groups[0]
+            g0_tail = groups[1]
+            for j, (grp, beam) in enumerate(
+                ((split_group, "begin"), (g0_tail, "continue"))
+            ):
+                for n in grp[1]:
+                    _clear_note_staccato(n, ns)
+                    _ensure_time_modification(n, ns)
+                    _set_note_type_duration(n, ns, triplet_dur, "eighth")
+                    _strip_tuplet_notations(n, ns)
+                    _set_beam(n, ns, beam)
+                    _ensure_stem_like_reference(
+                        n, staff, max_staff, ns, split_group[0] if j == 0 else g0_tail[0]
+                    )
+            slice3_notes: list[ET.Element] = []
+            insert_at = list(measure).index(g0_tail[1][-1]) + 1
+            for j, template in enumerate(slice3_template[1]):
+                clone = _clone_triplet_slice_note(
+                    template,
+                    ns,
+                    triplet_dur,
+                    "end",
+                    j > 0,
+                    staff,
+                    max_staff,
+                    stem_ref,
+                )
+                measure.insert(insert_at, clone)
+                insert_at += 1
+                slice3_notes.append(clone)
+            plc = _infer_tuplet_placement(split_group[0], ns, max_staff)
+            _ensure_tuplet_bracket(
+                split_group[0], ns, plc, slice3_notes[0], has_rest=False
+            )
+            groups = _voice_groups(measure, ns)[(staff, voice)]
+            g1 = next(
+                (
+                    g
+                    for g in groups
+                    if g is collapsed_q2
+                    or _is_misread_quarter_chord_for_triplet(g, ns, divisions)
+                ),
+                None,
+            )
+        else:
+            for gi, grp in enumerate((g0, g1, g2)):
+                beam = "begin" if gi == 0 else ("end" if gi == 2 else "continue")
+                for n in grp[1]:
+                    _clear_note_staccato(n, ns)
+                    _ensure_time_modification(n, ns)
+                    _set_note_type_duration(n, ns, triplet_dur, "eighth")
+                    _strip_tuplet_notations(n, ns)
+                    _set_beam(n, ns, beam)
+                    _ensure_stem_like_reference(n, staff, max_staff, ns, stem_ref)
+            for grp in (g0, g1, g2):
+                for n in grp[1]:
+                    _strip_tuplet_notations(n, ns)
+            plc = _infer_tuplet_placement(g0[0], ns, max_staff)
+            _ensure_tuplet_bracket(g0[0], ns, plc, g2[0], has_rest=False)
+            groups = _voice_groups(measure, ns)[(staff, voice)]
+            g1 = next(
+                (
+                    g
+                    for g in groups
+                    if _is_misread_quarter_chord_for_triplet(g, ns, divisions)
+                ),
+                None,
+            )
+
+        if g1 is None:
+            continue
+        if not _expand_quarter_chord_group_to_triplet(
+            measure, g1, ns, triplet_dur, max_staff, stem_ref=stem_ref
+        ):
+            continue
+
+        groups = _voice_groups(measure, ns)[(staff, voice)]
+        run: list[tuple] = []
+        for g in groups:
+            if _is_triplet_eighth_group(g[0], ns):
+                run.append(g)
+                if len(run) == 3:
+                    _rebeam_group(run[0][1], ns, "begin")
+                    _rebeam_group(run[1][1], ns, "continue")
+                    _rebeam_group(run[2][1], ns, "end")
+                    run = []
+            else:
+                run = []
+        fixed += 1
+    return fixed
+
+
 def _repair_two_quarters_as_triplet_prefix(
     measure: ET.Element, ns: str, max_staff: int, expected: int, divisions: int = 0
 ) -> int:
@@ -3233,6 +3442,12 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )
                 stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
+                    measure, ns, max_staff, divisions or 0, expected or 0
+                )
+                stats["triplet_quarter_prefix_repaired"] += _repair_two_collapsed_triplet_spans(
+                    measure, ns, max_staff, divisions or 0, expected or 0
+                )
+                stats["quarter_chord_triplet_expanded"] += _repair_quarter_chords_before_triplet_run(
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )
             stats["fermata_from_staccato_fixed"] += _repair_staccato_as_fermata_before_rest(

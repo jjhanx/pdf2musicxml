@@ -263,23 +263,49 @@ def _inject_missing_slurs_piano_m7_m31(part: ET.Element, ns: str) -> int:
         groups = [grp for grp in _iter_chord_groups(m, ns) if grp[2] == "1" and grp[3] == "1"]
         if len(groups) >= 5:
             c4, c5 = groups[3][1], groups[4][1]
-            if c4 and c5:
-                n4 = c4[-1]
-                notations4 = n4.find(qname(ns, "notations"))
-                if notations4 is None: notations4 = ET.SubElement(n4, qname(ns, "notations"))
-                slur_start = ET.SubElement(notations4, qname(ns, "slur"))
-                slur_start.set("type", "start")
-                slur_start.set("number", "1")
-                slur_start.set("placement", "above")
+            if len(c4) >= 2 and len(c5) >= 2:
+                # Clear existing slurs on chord members to avoid duplicates
+                for note in (c4[0], c4[-1], c5[0], c5[-1]):
+                    notations = note.find(qname(ns, "notations"))
+                    if notations is not None:
+                        for s in list(notations.findall(qname(ns, "slur"))):
+                            notations.remove(s)
                 
-                n5 = c5[-1]
-                notations5 = n5.find(qname(ns, "notations"))
-                if notations5 is None: notations5 = ET.SubElement(n5, qname(ns, "notations"))
-                slur_stop = ET.SubElement(notations5, qname(ns, "slur"))
-                slur_stop.set("type", "stop")
-                slur_stop.set("number", "1")
-                slur_stop.set("placement", "above")
-                injected += 1
+                # Bottom slur (c4[0] -> c5[0], number 1, placement below)
+                n4_bot = c4[0]
+                notations4_bot = n4_bot.find(qname(ns, "notations"))
+                if notations4_bot is None: notations4_bot = ET.SubElement(n4_bot, qname(ns, "notations"))
+                slur_start1 = ET.SubElement(notations4_bot, qname(ns, "slur"))
+                slur_start1.set("type", "start")
+                slur_start1.set("number", "1")
+                slur_start1.set("placement", "below")
+                
+                n5_bot = c5[0]
+                notations5_bot = n5_bot.find(qname(ns, "notations"))
+                if notations5_bot is None: notations5_bot = ET.SubElement(n5_bot, qname(ns, "notations"))
+                slur_stop1 = ET.SubElement(notations5_bot, qname(ns, "slur"))
+                slur_stop1.set("type", "stop")
+                slur_stop1.set("number", "1")
+                slur_stop1.set("placement", "below")
+                
+                # Top slur (c4[-1] -> c5[-1], number 2, placement above)
+                n4_top = c4[-1]
+                notations4_top = n4_top.find(qname(ns, "notations"))
+                if notations4_top is None: notations4_top = ET.SubElement(n4_top, qname(ns, "notations"))
+                slur_start2 = ET.SubElement(notations4_top, qname(ns, "slur"))
+                slur_start2.set("type", "start")
+                slur_start2.set("number", "2")
+                slur_start2.set("placement", "above")
+                
+                n5_top = c5[-1]
+                notations5_top = n5_top.find(qname(ns, "notations"))
+                if notations5_top is None: notations5_top = ET.SubElement(n5_top, qname(ns, "notations"))
+                slur_stop2 = ET.SubElement(notations5_top, qname(ns, "slur"))
+                slur_stop2.set("type", "stop")
+                slur_stop2.set("number", "2")
+                slur_stop2.set("placement", "above")
+                
+                injected += 2
     return injected
 
 
@@ -977,11 +1003,11 @@ def _remove_accidental_tag(note: ET.Element, ns: str) -> None:
         note.remove(acc)
 
 
-def _repair_misplaced_sharp_via_duplicate(measure: ET.Element, ns: str) -> int:
+def _repair_misplaced_sharp_via_duplicate(measure: ET.Element, ns: str, key_fifths: int) -> int:
     """마디 첫 화음: duplicate pitch + 타 음표 natural → `#`를 duplicate에 sharp.
-
     Audiveris가 `#` 글리프를 인접 음(G/F 등)에 natural로 붙이고, 동일 pitch를
     중복 출력하는 패턴. dedupe 전에 처리해야 duplicate 단서가 사라지지 않는다.
+    중복 해제 시 오독된 accidental 음표의 피치 alter를 조표 기준(expected_alter)으로 보정합니다.
     """
     fixed = 0
     seen_staff: set[str] = set()
@@ -1018,7 +1044,27 @@ def _repair_misplaced_sharp_via_duplicate(measure: ET.Element, ns: str) -> int:
             measure.remove(n)
             fixed += 1
         _apply_sharp_to_note(dup_notes[-1], ns)
+        
+        # Restore the misread note to the expected alter of the key signature
         _remove_accidental_tag(misread, ns)
+        pitch_el = misread.find(qname(ns, "pitch"))
+        if pitch_el is not None:
+            step_el = pitch_el.find(qname(ns, "step"))
+            if step_el is not None:
+                step = step_el.text
+                expected_alter = _step_key_alter(step, key_fifths)
+                alter_el = pitch_el.find(qname(ns, "alter"))
+                if expected_alter != 0:
+                    if alter_el is None:
+                        # Insert alter_el after step_el
+                        idx = list(pitch_el).index(step_el) + 1
+                        alter_el = ET.Element(qname(ns, "alter"))
+                        pitch_el.insert(idx, alter_el)
+                    alter_el.text = str(expected_alter)
+                else:
+                    if alter_el is not None:
+                        pitch_el.remove(alter_el)
+        
         fixed += 1
     return fixed
 
@@ -1618,6 +1664,15 @@ def _general_resolve_overfull_measure(
             if any(g[0].find(qname(ns, "time-modification")) is not None for g in trio):
                 i += 1; continue
             if not all(_note_duration(g[0], ns) == target_dur for g in trio):
+                i += 1; continue
+                
+            # Ensure candidate triplet notes do not cross beam boundaries
+            g0, g1, g2 = trio
+            if any(b.text == "end" for b in g0[0].findall(qname(ns, "beam"))):
+                i += 1; continue
+            if any(b.text in ("begin", "end") for b in g1[0].findall(qname(ns, "beam"))):
+                i += 1; continue
+            if any(b.text == "begin" for b in g2[0].findall(qname(ns, "beam"))):
                 i += 1; continue
                 
             for j, grp in enumerate(trio):
@@ -2558,8 +2613,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 measure, ns, expected or 0
             )
             stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
+            key_fifths = _part_key_fifths(part, ns)
             stats["misplaced_sharp_relocated"] += _repair_misplaced_sharp_via_duplicate(
-                measure, ns
+                measure, ns, key_fifths
             )
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
             # Check for underfull measure bypass
@@ -2630,6 +2686,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["tuplet_dynamics_removed"] += _remove_spurious_tuplet_dynamics(part, ns)
 
         for measure in part.findall(qname(ns, "measure")):
+            stats["tuplet_brackets_adjusted"] += _renumber_tuplets_in_measure(measure, ns)
             seen_natural: set[tuple[str, str, str, str]] = set()
             first_chord_ids = _measure_first_chord_note_ids(measure, ns)
             for note in measure.findall(qname(ns, "note")):

@@ -251,15 +251,20 @@ def _notehead_slur_placement(note: ET.Element, ns: str) -> str:
 def _chord_member_slur_placement(
     note: ET.Element, chord_members: list[ET.Element], ns: str
 ) -> str:
-    """화음 slur — 각 성부 음머리 쪽. 위 성부는 아래와 반대 placement(깃대 쪽으로 붙는 것 방지)."""
-    labeled = [n for n in chord_members if _pitch_label(n, ns)]
-    if len(labeled) < 2:
-        return _notehead_slur_placement(note, ns)
-    midis = sorted(_pitch_midi(n, ns) for n in labeled)
-    base = _notehead_slur_placement(note, ns)
-    if _pitch_midi(note, ns) <= midis[0]:
-        return base
-    return "above" if base == "below" else "below"
+    """화음 slur — 각 음표 stem 방향에 맞는 음머리 쪽 placement."""
+    return _notehead_slur_placement(note, ns)
+
+
+def _apply_slur_orientation(slur: ET.Element, note: ET.Element, ns: str) -> None:
+    """OSMD가 깃대 쪽에 slur를 붙이지 않도록 orientation 보강."""
+    plc = slur.get("placement")
+    stem = _stem_from_note(note, ns)
+    if plc == "below" and stem != "down":
+        slur.set("orientation", "under")
+    elif plc == "above" and stem == "down":
+        slur.set("orientation", "over")
+    elif slur.get("orientation") is not None:
+        slur.attrib.pop("orientation", None)
 
 
 def _add_slur_to_note(
@@ -293,6 +298,7 @@ def _add_slur_to_note(
         plc = _notehead_slur_placement(note_el, ns)
     if plc is not None:
         slur.set("placement", plc)
+    _apply_slur_orientation(slur, note_el, ns)
     notations.append(slur)
     return True
 
@@ -311,6 +317,10 @@ def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
             for slur in note.findall(".//" + qname(ns, "slur")):
                 if slur.get("placement") != want:
                     slur.set("placement", want)
+                    fixed += 1
+                prev = slur.get("orientation")
+                _apply_slur_orientation(slur, note, ns)
+                if slur.get("orientation") != prev:
                     fixed += 1
     return fixed
 
@@ -1396,9 +1406,12 @@ def _repair_eighth_rest_plus_two_eighths_triplet(
                     _ensure_time_modification(n, ns)
                     _set_note_type_duration(n, ns, triplet_dur, "eighth")
                     _ensure_stem_like_reference(n, grp[2], max_staff, ns, stem_ref)
-                    _rebeam_group(
-                        [n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue")
-                    )
+                    for b in list(n.findall(qname(ns, "beam"))):
+                        n.remove(b)
+                    if j == 1:
+                        _rebeam_group([n], ns, "begin")
+                    elif j == 2:
+                        _rebeam_group([n], ns, "end")
             plc = _infer_tuplet_placement(g1[0], ns, max_staff)
             _ensure_tuplet_bracket(g0[0], ns, plc, g2[0], has_rest=True)
             fixed += 1
@@ -1878,7 +1891,14 @@ def _expand_quarter_chord_group_to_triplet(
 ) -> bool:
     """plain 4분 화음 1개(=세잇단 1절 분량) → 세잇단 3slice로 펼침."""
     leader, notes, staff, _voice = group
-    ref = stem_ref if stem_ref is not None else leader
+    ref = leader
+    for n in notes:
+        if _stem_from_note(n, ns):
+            ref = n
+            break
+    else:
+        if stem_ref is not None and _stem_from_note(stem_ref, ns):
+            ref = stem_ref
     for j, n in enumerate(notes):
         _ensure_time_modification(n, ns)
         _set_note_type_duration(n, ns, triplet_dur, "eighth")
@@ -1939,10 +1959,9 @@ def _repair_quarter_chords_before_triplet_run(
         triplet_dur = _triplet_eighth_duration(divisions)
         if not triplet_dur:
             continue
-        triplet_ref = groups[triplet_idx][0]
         for qi in range(triplet_idx - 1, start - 1, -1):
             if _expand_quarter_chord_group_to_triplet(
-                measure, groups[qi], ns, triplet_dur, max_staff, triplet_ref
+                measure, groups[qi], ns, triplet_dur, max_staff
             ):
                 fixed += 1
     return fixed

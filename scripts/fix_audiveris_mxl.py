@@ -427,6 +427,35 @@ def _set_tuplet_bracket_attrs(
             tuplet.set("placement", placement)
 
 
+def _renumber_tuplets_in_measure(measure: ET.Element, ns: str) -> int:
+    """한 마디 내에 여러 잇단음표가 있을 때, 1~6 번호를 순환하며 부여해
+    MuseScore 렌더링 시 잇단음표가 합쳐지거나 유실되는 버그를 방지합니다."""
+    fixed = 0
+    tuplet_count = 0
+    current_mapping = {}
+    
+    for note in measure.findall(qname(ns, "note")):
+        notations = note.find(qname(ns, "notations"))
+        if notations is not None:
+            for tuplet in notations.findall(qname(ns, "tuplet")):
+                old_num = tuplet.get("number") or "1"
+                typ = tuplet.get("type")
+                if typ == "start":
+                    tuplet_count = (tuplet_count % 6) + 1
+                    current_mapping[old_num] = str(tuplet_count)
+                    if tuplet.get("number") != str(tuplet_count):
+                        tuplet.set("number", str(tuplet_count))
+                        fixed += 1
+                elif typ == "stop":
+                    new_num = current_mapping.get(old_num, "1")
+                    if tuplet.get("number") != new_num:
+                        tuplet.set("number", new_num)
+                        fixed += 1
+                    if old_num in current_mapping:
+                        del current_mapping[old_num]
+    return fixed
+
+
 def _fix_tuplet_show_numbers(
     note: ET.Element, ns: str, max_staff: int = 1, measure: ET.Element | None = None
 ) -> bool:
@@ -1497,41 +1526,6 @@ def _normalize_accidentals(measure, ns: str, key_fifths: int) -> int:
     return fixed
 
 
-def _normalize_accidentals(measure, ns: str, key_fifths: int) -> int:
-    fixed = 0
-    
-    def get_expected_alter(step: str, fifths: int) -> int:
-        sharp_order = ('F', 'C', 'G', 'D', 'A', 'E', 'B')
-        flat_order = ('B', 'E', 'A', 'D', 'G', 'C', 'F')
-        if fifths > 0 and step in sharp_order[:fifths]: return 1
-        if fifths < 0 and step in flat_order[:-fifths]: return -1
-        return 0
-
-    seen_in_measure = {}
-    for n in measure.findall(qname(ns, "note")):
-        if _is_rest(n, ns): continue
-        pitch = n.find(qname(ns, "pitch"))
-        if pitch is None: continue
-        step = pitch.find(qname(ns, "step")).text
-        octave = pitch.find(qname(ns, "octave")).text
-        alter_el = pitch.find(qname(ns, "alter"))
-        alter = int(alter_el.text) if alter_el is not None and alter_el.text else 0
-        
-        acc = n.find(qname(ns, "accidental"))
-        if acc is not None:
-            acc_type = acc.text.strip() if acc.text else ""
-            key = (step, octave)
-            
-            expected_alter = seen_in_measure.get(key, get_expected_alter(step, key_fifths))
-            
-            if alter == 0 and acc_type == "natural" and expected_alter == 0:
-                n.remove(acc)
-                fixed += 1
-                
-            seen_in_measure[key] = alter
-            
-    return fixed
-
 def _fix_misread_natural_accidental(
     note: ET.Element,
     ns: str,
@@ -1647,81 +1641,6 @@ def _general_resolve_overfull_measure(
     return fixed
 
 
-
-
-def _general_resolve_overfull_measure(
-    measure, ns: str, max_staff: int, divisions: int, expected: int
-) -> int:
-    """마디가 Overfull일 때, 수학적으로 잇단음표 변환이 정확히 들어맞는 구간을 찾아 범용 보정."""
-    if not divisions or not expected:
-        return 0
-    fixed = 0
-    for (_, _voice), groups in _voice_groups(measure, ns).items():
-        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
-        if total <= expected:
-            continue
-        overflow = total - expected
-        eighth = divisions // 2
-        quarter = divisions
-        
-        # Check eighths
-        triplet_eighth = max(1, (eighth * 2) // 3)
-        eighth_saving = 3 * eighth - 3 * triplet_eighth
-        
-        # Check quarters
-        triplet_quarter = max(1, (quarter * 2) // 3)
-        quarter_saving = 3 * quarter - 3 * triplet_quarter
-
-        target_dur = None
-        target_saving = 0
-        new_type = ''
-        new_dur = 0
-        
-        if eighth_saving > 0 and overflow % eighth_saving == 0:
-            target_dur = eighth
-            target_saving = eighth_saving
-            new_type = 'eighth'
-            new_dur = triplet_eighth
-        elif quarter_saving > 0 and overflow % quarter_saving == 0:
-            target_dur = quarter
-            target_saving = quarter_saving
-            new_type = 'quarter'
-            new_dur = triplet_quarter
-            
-        if not target_dur:
-            continue
-            
-        num_triplets = overflow // target_saving
-        triplets_found = 0
-        
-        i = 0
-        while i <= len(groups) - 3:
-            trio = groups[i : i + 3]
-            if any(g[0].find(qname(ns, "time-modification")) is not None for g in trio):
-                i += 1; continue
-            if not all(_note_duration(g[0], ns) == target_dur for g in trio):
-                i += 1; continue
-                
-            for j, grp in enumerate(trio):
-                for n in grp[1]:
-                    _clear_note_staccato(n, ns)
-                    _strip_tuplet_notations(n, ns)
-                    _ensure_time_modification(n, ns)
-                    _set_note_type_duration(n, ns, new_dur, new_type)
-                    if new_type == 'eighth' and not any(_is_rest(g[0], ns) for g in trio):
-                        _rebeam_group([n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue"))
-            
-            has_rest = any(_is_rest(g[0], ns) for g in trio)
-            plc = _infer_tuplet_placement(trio[0][0], ns, max_staff)
-            _ensure_tuplet_bracket(trio[0][0], ns, plc, trio[2][0], has_rest=has_rest)
-            
-            fixed += 1
-            triplets_found += 1
-            i += 3
-            if triplets_found >= num_triplets:
-                break
-    return fixed
-
 def _repair_three_eighths_as_triplet(
     measure: ET.Element, ns: str, max_staff: int, divisions: int
 ) -> int:
@@ -1758,6 +1677,48 @@ def _repair_three_eighths_as_triplet(
             _ensure_tuplet_bracket(trio[0][0], ns, plc, trio[2][0], has_rest=False)
             fixed += 1
             break
+    return fixed
+
+
+def _repair_four_eighths_as_triplet_plus_eighth(
+    measure: ET.Element, ns: str, divisions: int
+) -> int:
+    """한 Voice에 4개의 8분음표만 있고, 이것이 원래 세잇단음표(3) + 8분음표(1)인 경우를 찾아 복구합니다."""
+    eighth = divisions // 2
+    if eighth <= 0:
+        return 0
+    triplet_dur = max(1, (eighth * 2) // 3)
+    fixed = 0
+
+    for (staff, voice), groups in _voice_groups(measure, ns).items():
+        if len(groups) != 4:
+            continue
+        g0, g1, g2, g3 = groups
+        if not (_is_plain_eighth_group(g0[0], ns, divisions) and 
+                _is_plain_eighth_group(g1[0], ns, divisions) and 
+                _is_plain_eighth_group(g2[0], ns, divisions) and 
+                _is_plain_eighth_group(g3[0], ns, divisions)):
+            continue
+            
+        trio = [g0, g1, g2]
+        for j, grp in enumerate(trio):
+            for n in grp[1]:
+                _clear_note_staccato(n, ns)
+                _strip_tuplet_notations(n, ns)
+                _ensure_time_modification(n, ns)
+                _set_note_type_duration(n, ns, triplet_dur, "eighth")
+                _rebeam_group([n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue"))
+                
+        # 4번째 음표 분리
+        for n in g3[1]:
+            for beam in list(n.findall(qname(ns, "beam"))):
+                n.remove(beam)
+                
+        # Tuplet 기호 추가
+        plc = "above"
+        _ensure_tuplet_bracket(trio[0][0], ns, plc, trio[2][0], has_rest=False)
+        fixed += 1
+
     return fixed
 
 
@@ -2460,9 +2421,6 @@ def _measure_starts_new_system(measure: ET.Element, ns: str) -> bool:
     return False
 
 
-
-
-
 def _extrapolate_chord_ties(part, ns: str) -> int:
     """동일 화음 내 일부 노트만 Tie가 있는 경우 전체 공통 피치로 확장."""
     completed = 0
@@ -2488,31 +2446,6 @@ def _extrapolate_chord_ties(part, ns: str) -> int:
                             _add_tie(b_map[p], ns, "stop")
     return completed
 
-
-def _extrapolate_chord_ties(part, ns: str) -> int:
-    """동일 화음 내 일부 노트만 Tie가 있는 경우 전체 공통 피치로 확장."""
-    completed = 0
-    for measure in part.findall(qname(ns, "measure")):
-        for (_, _voice), groups in _voice_groups(measure, ns).items():
-            for i in range(len(groups) - 1):
-                a_notes = groups[i][1]
-                b_notes = groups[i+1][1]
-                a_map = _group_pitch_map(a_notes, ns)
-                b_map = _group_pitch_map(b_notes, ns)
-                common = [p for p in a_map if p in b_map]
-                if not common: continue
-                
-                has_start = any(_note_has_tie(a_map[p], ns, "start") for p in common)
-                has_stop = any(_note_has_tie(b_map[p], ns, "stop") for p in common)
-                
-                if has_start or has_stop:
-                    for p in common:
-                        if not _note_has_tie(a_map[p], ns, "start"):
-                            _add_tie(a_map[p], ns, "start")
-                            completed += 1
-                        if not _note_has_tie(b_map[p], ns, "stop"):
-                            _add_tie(b_map[p], ns, "stop")
-    return completed
 
 def _restore_ties_between_measures(part: ET.Element, ns: str) -> tuple[int, int]:
     """인접 마디 사이 tie 보완.

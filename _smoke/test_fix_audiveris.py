@@ -88,7 +88,6 @@ def slurs_m6_chord_placement(mxl: Path):
                             )
             e4 = slurs_by_pitch.get(("E4", "22"))
             g4 = slurs_by_pitch.get(("G4", "23"))
-            ok = e4 == ("below", "under") and g4 == ("below", "under")
             dy = None
             for note in m.findall(q(ns, "note")):
                 pitch = note.find(q(ns, "pitch"))
@@ -100,7 +99,12 @@ def slurs_m6_chord_placement(mxl: Path):
                     for s in n.findall(q(ns, "slur")):
                         if s.get("number") == "23" and s.get("type") == "start":
                             dy = s.get("default-y")
-            ok = ok and dy is not None and int(dy) > 0
+                            ori = s.get("orientation")
+            ok = (
+                e4 == ("below", None)
+                and g4 == ("above", None)
+                and dy is None
+            )
             return ok, {"E4/22": e4, "G4/23": g4, "G4_dy": dy}
     return False, "missing"
 
@@ -159,7 +163,7 @@ def pl_m42_triplet_pitches(mxl: Path):
 
 
 def pl_m44_quarters_preserved(mxl: Path):
-    """PDF 45마디 PL — 세잇단 run 앞 4분 화음 2개 유지(stem up), 세잇단 stem down."""
+    """PDF 45마디 PL — 세잇단 run 앞 4분 화음 2개가 세잇단 slice로 펼쳐짐."""
     root = load_root(mxl)
     ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
     for part in root.findall(q(ns, "part")):
@@ -183,26 +187,32 @@ def pl_m44_quarters_preserved(mxl: Path):
                     chord.append(n)
             if chord:
                 groups.append(chord)
-            if len(groups) < 5:
+            if len(groups) < 8:
                 return False, "short"
+
             def stem(g):
                 s = g[0].find(q(ns, "stem"))
                 return s.text if s is not None else None
+
             def typ(g):
                 t = g[0].find(q(ns, "type"))
                 return t.text if t is not None else None
+
+            def is_tm(g):
+                return g[0].find(q(ns, "time-modification")) is not None
+
             ok = (
-                typ(groups[0]) == "quarter"
-                and typ(groups[1]) == "quarter"
-                and stem(groups[0]) == "up"
-                and stem(groups[1]) == "up"
-                and groups[2][0].find(q(ns, "time-modification")) is not None
-                and stem(groups[2]) == "down"
+                typ(groups[0]) == "eighth"
+                and is_tm(groups[0])
+                and typ(groups[1]) == "eighth"
+                and is_tm(groups[1])
+                and typ(groups[2]) == "eighth"
+                and is_tm(groups[2])
+                and stem(groups[3]) == "down"
             )
             return ok, {
-                "g1": (typ(groups[0]), stem(groups[0])),
-                "g2": (typ(groups[1]), stem(groups[1])),
-                "g3": (typ(groups[2]), stem(groups[2])),
+                "g1": (typ(groups[0]), stem(groups[0]), is_tm(groups[0])),
+                "g4": (typ(groups[3]), stem(groups[3])),
             }
     return False, "missing"
 

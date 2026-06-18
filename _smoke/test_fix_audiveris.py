@@ -63,6 +63,85 @@ def rest_beamed_triplet_m28(mxl: Path):
     return False, "missing"
 
 
+def slurs_m6_chord_placement(mxl: Path):
+    """PDF 7마디 — E4 below, G4 above slur on 4th–5th chord."""
+    root = load_root(mxl)
+    ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
+    for part in root.findall(q(ns, "part")):
+        if part.get("id") != "P5":
+            continue
+        for m in part.findall(q(ns, "measure")):
+            if m.get("number") != "6":
+                continue
+            slurs_by_pitch = {}
+            for note in m.findall(q(ns, "note")):
+                pitch = note.find(q(ns, "pitch"))
+                if pitch is None:
+                    continue
+                lab = pitch.find(q(ns, "step")).text + pitch.find(q(ns, "octave")).text
+                for n in note.findall(q(ns, "notations")):
+                    for s in n.findall(q(ns, "slur")):
+                        if s.get("type") == "start":
+                            slurs_by_pitch[(lab, s.get("number"))] = (
+                                s.get("placement"),
+                                s.get("orientation"),
+                            )
+            e4 = slurs_by_pitch.get(("E4", "22"))
+            g4 = slurs_by_pitch.get(("G4", "23"))
+            ok = e4 == ("below", "under") and g4 == ("above", "over")
+            return ok, {"E4/22": e4, "G4/23": g4}
+    return False, "missing"
+
+
+def pl_m44_quarters_preserved(mxl: Path):
+    """PDF 45마디 PL — 세잇단 run 앞 4분 화음 2개 유지(stem up), 세잇단 stem down."""
+    root = load_root(mxl)
+    ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
+    for part in root.findall(q(ns, "part")):
+        if part.get("id") != "P5":
+            continue
+        for m in part.findall(q(ns, "measure")):
+            if m.get("number") != "44":
+                continue
+            groups = []
+            chord = []
+            for n in m.findall(q(ns, "note")):
+                st = (n.find(q(ns, "staff")).text if n.find(q(ns, "staff")) is not None else "1")
+                if st != "2":
+                    continue
+                ch = n.find(q(ns, "chord")) is not None
+                if not ch:
+                    if chord:
+                        groups.append(chord)
+                    chord = [n]
+                else:
+                    chord.append(n)
+            if chord:
+                groups.append(chord)
+            if len(groups) < 5:
+                return False, "short"
+            def stem(g):
+                s = g[0].find(q(ns, "stem"))
+                return s.text if s is not None else None
+            def typ(g):
+                t = g[0].find(q(ns, "type"))
+                return t.text if t is not None else None
+            ok = (
+                typ(groups[0]) == "quarter"
+                and typ(groups[1]) == "quarter"
+                and stem(groups[0]) == "up"
+                and stem(groups[1]) == "up"
+                and groups[2][0].find(q(ns, "time-modification")) is not None
+                and stem(groups[2]) == "down"
+            )
+            return ok, {
+                "g1": (typ(groups[0]), stem(groups[0])),
+                "g2": (typ(groups[1]), stem(groups[1])),
+                "g3": (typ(groups[2]), stem(groups[2])),
+            }
+    return False, "missing"
+
+
 def slurs_m6(mxl: Path):
     root = load_root(mxl)
     ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
@@ -118,7 +197,7 @@ def main() -> int:
     print(f"{'PASS' if ok_slur else 'FAIL'} m6 slurs: {slurs}")
 
     starts14 = tuplet_starts(WORK, "14")
-    ok_tup = len(starts14) >= 4 and all(s == "both" for s in starts14)
+    ok_tup = len(starts14) >= 4 and all(s == "actual" for s in starts14)
     print(f"{'PASS' if ok_tup else 'FAIL'} m14 tuplet show-number: {starts14[:6]}")
 
     ok_stats = stats.get("slurs_injected", 0) >= 2 and stats.get("tuplet_show_number_fixed", 0) > 0
@@ -136,7 +215,20 @@ def main() -> int:
         ok_m28, detail = rest_beamed_triplet_m28(out_path)
         print(f"{'PASS' if ok_m28 else 'FAIL'} m28 rest triplet beam: {detail} (rest_eighth={st.get('rest_eighth_triplet_fixed')})")
 
-    return 0 if ok_slur and ok_tup and ok_stats and ok_m28 else 1
+    ok_a26 = True
+    a26 = ROOT / "omr-work-a26ecec0-full" / "audiveris_raw.mxl"
+    if a26.is_file():
+        from fix_audiveris_mxl import fix_mxl_file  # noqa: E402
+
+        a26_out = ROOT / "omr-work-a26ecec0-full" / "_test_regression.mxl"
+        fix_mxl_file(a26, a26_out)
+        ok_slur_plc, detail = slurs_m6_chord_placement(a26_out)
+        print(f"{'PASS' if ok_slur_plc else 'FAIL'} a26 m6 chord slur placement: {detail}")
+        ok_m44, detail44 = pl_m44_quarters_preserved(a26_out)
+        print(f"{'PASS' if ok_m44 else 'FAIL'} a26 m44 PL quarters: {detail44}")
+        ok_a26 = ok_slur_plc and ok_m44
+
+    return 0 if ok_slur and ok_tup and ok_stats and ok_m28 and ok_a26 else 1
 
 
 if __name__ == "__main__":

@@ -238,7 +238,11 @@ function scheduleOsmdRender(opts: {
     try {
       osmd.zoom = zoom;
       osmd.render();
-      repositionStemUpChordSlurs(osmd);
+      try {
+        repositionStemUpChordSlurs(osmd);
+      } catch (e) {
+        console.warn('[osmd] chord slur reposition skipped:', e);
+      }
       host.querySelector('[data-osmd-warn="width"]')?.remove();
       onAfterRender?.();
     } catch (e) {

@@ -1,16 +1,29 @@
-import {
-  EngravingRules,
-  GraphicalSlur,
-  OpenSheetMusicDisplay,
-  PlacementEnum,
-  StemDirectionType,
-} from 'opensheetmusicdisplay';
+import { EngravingRules, OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+
+/** OSMD PlacementEnum — 패키지 루트에서 런타임 export 되지 않음 */
+const PLACEMENT_ABOVE = 0;
+const PLACEMENT_BELOW = 1;
+/** OSMD StemDirectionType.Up */
+const STEM_UP = 0;
+
+type GraphicalSlurLike = {
+  slur?: { StartNote?: SlurNoteLike; PlacementXml?: number };
+  placement?: number;
+  SVGElement?: Node;
+};
+
+type SlurNoteLike = {
+  ParentVoiceEntry: {
+    StemDirection: number;
+    Notes: Array<{ isRest(): boolean }>;
+  };
+};
 
 type OsmdWithGraphic = OpenSheetMusicDisplay & {
   graphic?: {
     MusicPages: Array<{
       MusicSystems: Array<{
-        StaffLines: Array<{ GraphicalSlurs: GraphicalSlur[] }>;
+        StaffLines: Array<{ GraphicalSlurs: GraphicalSlurLike[] }>;
       }>;
     }>;
   };
@@ -35,15 +48,15 @@ export function repositionStemUpChordSlurs(osmd: OpenSheetMusicDisplay): void {
           const voiceEntry = startNote.ParentVoiceEntry;
           const pitched = voiceEntry.Notes.filter((n) => !n.isRest());
           if (pitched.length < 2) continue;
-          if (voiceEntry.StemDirection !== StemDirectionType.Up) continue;
+          if (voiceEntry.StemDirection !== STEM_UP) continue;
 
-          const placement = gSlur.slur.PlacementXml ?? gSlur.placement;
+          const placement = gSlur.slur?.PlacementXml ?? gSlur.placement;
           let dy = 0;
           let dx = 0;
-          if (placement === PlacementEnum.Above) {
+          if (placement === PLACEMENT_ABOVE) {
             dy = stemShift;
             dx = headShiftX;
-          } else if (placement === PlacementEnum.Below) {
+          } else if (placement === PLACEMENT_BELOW) {
             dy = 0.25 * unitPx;
             dx = headShiftX * 0.5;
           } else {

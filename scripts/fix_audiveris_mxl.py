@@ -251,22 +251,34 @@ def _notehead_slur_placement(note: ET.Element, ns: str) -> str:
 def _chord_member_slur_placement(
     note: ET.Element, chord_members: list[ET.Element], ns: str
 ) -> str:
-    """화음 slur — 아래 성부·위 성부를 각각 음머리 쪽(깃대 반대)에."""
+    """화음 slur — 각 성부 음표의 음머리(깃대 반대) 쪽 placement."""
+    return _notehead_slur_placement(note, ns)
+
+
+def _chord_slur_default_y(note: ET.Element, chord_members: list[ET.Element], ns: str) -> str | None:
+    """같은 placement(below) 2중 slur — 위 성부 곡선을 해당 음머리 높이로 분리."""
     labeled = [n for n in chord_members if _pitch_label(n, ns)]
     if len(labeled) < 2:
-        return _notehead_slur_placement(note, ns)
+        return None
+    plc = _notehead_slur_placement(note, ns)
     midis = sorted(_pitch_midi(n, ns) for n in labeled)
     p = _pitch_midi(note, ns)
-    stem = _stem_from_note(note, ns)
-    is_lower = p <= midis[0]
-    if stem == "down":
-        return "above" if is_lower else "below"
-    return "below" if is_lower else "above"
+    if p <= midis[0]:
+        return None
+    rank = midis.index(p)
+    # stem up·below: 위 음일수록 default-y↑ (OSMD 음머리 쪽 곡선)
+    return str(8 + 6 * rank)
 
 
 def _apply_slur_orientation(slur: ET.Element, note: ET.Element, ns: str) -> None:
-    """OSMD는 placement만으로도 충분 — orientation/default-y는 2중 slur를 숨길 수 있음."""
-    slur.attrib.pop("orientation", None)
+    """음머리 쪽 slur — orientation으로 under/over 명시."""
+    plc = slur.get("placement")
+    if plc == "below":
+        slur.set("orientation", "under")
+    elif plc == "above":
+        slur.set("orientation", "over")
+    elif slur.get("orientation") is not None:
+        slur.attrib.pop("orientation", None)
 
 
 def _add_slur_to_note(
@@ -301,8 +313,12 @@ def _add_slur_to_note(
     if plc is not None:
         slur.set("placement", plc)
     _apply_slur_orientation(slur, note_el, ns)
-    if chord_members is not None and slur.get("default-y") is not None:
-        slur.attrib.pop("default-y", None)
+    if chord_members is not None:
+        dy = _chord_slur_default_y(note_el, chord_members, ns)
+        if dy is not None:
+            slur.set("default-y", dy)
+        elif slur.get("default-y") is not None:
+            slur.attrib.pop("default-y", None)
     notations.append(slur)
     return True
 
@@ -318,14 +334,20 @@ def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
         for note in measure.findall(qname(ns, "note")):
             members = chord_by_note.get(id(note), [note])
             want = _chord_member_slur_placement(note, members, ns)
+            dy = _chord_slur_default_y(note, members, ns)
             for slur in note.findall(".//" + qname(ns, "slur")):
                 if slur.get("placement") != want:
                     slur.set("placement", want)
                     fixed += 1
-                if slur.get("orientation") is not None:
-                    slur.attrib.pop("orientation", None)
+                prev = slur.get("orientation")
+                _apply_slur_orientation(slur, note, ns)
+                if slur.get("orientation") != prev:
                     fixed += 1
-                if slur.get("default-y") is not None:
+                if dy is not None:
+                    if slur.get("default-y") != dy:
+                        slur.set("default-y", dy)
+                        fixed += 1
+                elif slur.get("default-y") is not None:
                     slur.attrib.pop("default-y", None)
                     fixed += 1
     return fixed
@@ -678,6 +700,19 @@ def _halve_group_to_eighth(notes: list[ET.Element], ns: str) -> None:
         t = n.find(qname(ns, "type"))
         if t is not None:
             t.text = "eighth"
+
+
+def _set_group_to_plain_eighth(
+    notes: list[ET.Element], ns: str, divisions: int
+) -> None:
+    """4분 오인 화음 → plain 8분(duration=divisions//2)."""
+    eighth = divisions // 2
+    if eighth <= 0:
+        return
+    for n in notes:
+        _set_note_type_duration(n, ns, eighth, "eighth")
+        for dot in list(n.findall(qname(ns, "dot"))):
+            n.remove(dot)
 
 
 def _is_dotted_quarter_group(leader: ET.Element, ns: str, divisions: int) -> bool:
@@ -1153,8 +1188,8 @@ def _repair_quarter_eighth_quarter_lost_final(
         saved += (_note_duration(g2[0], ns) or 0) - (divisions // 2)
         if saved <= 0:
             continue
-        _halve_group_to_eighth(g0[1], ns)
-        _halve_group_to_eighth(g2[1], ns)
+        _set_group_to_plain_eighth(g0[1], ns, divisions)
+        _set_group_to_plain_eighth(g2[1], ns, divisions)
         _rebeam_group(g0[1], ns, "begin")
         _rebeam_group(g1[1], ns, "continue")
         _rebeam_group(g2[1], ns, "end")
@@ -2148,6 +2183,15 @@ def _repair_quarter_chords_before_triplet_run(
             start -= 1
         if start == triplet_idx:
             continue
+        # Q(A)+Q(B)+T… 는 prefix repair가 A,B,B 로 처리 — 개별 3slice 펼침 금지
+        if triplet_idx >= 2:
+            g_a, g_b = groups[triplet_idx - 2], groups[triplet_idx - 1]
+            if (
+                _is_misread_quarter_chord_for_triplet(g_a, ns, divisions)
+                and _is_misread_quarter_chord_for_triplet(g_b, ns, divisions)
+                and _chord_pitch_signature(g_a, ns) != _chord_pitch_signature(g_b, ns)
+            ):
+                start = triplet_idx
         triplet_dur = _triplet_eighth_duration(divisions)
         if not triplet_dur:
             continue
@@ -2681,38 +2725,64 @@ def _repair_staccato_as_fermata_before_rest(measure: ET.Element, ns: str) -> int
     return fixed
 
 
-def _repair_two_quarters_as_triplet_prefix(
-    measure: ET.Element, ns: str, max_staff: int, expected: int
-) -> int:
-    """4분 2개 + 세잇단 8분 연속 — 앞 4분 2개를 첫 세잇단 1·2음으로 복원.
+def _insert_forward_before_voice_backup(
+    measure: ET.Element, ns: str, staff: str, voice: str, duration: int
+) -> None:
+    if duration <= 0:
+        return
+    backup_el, _ = _voice_backup_after_notes(measure, ns, staff, voice)
+    if backup_el is None:
+        return
+    fwd = ET.Element(qname(ns, "forward"))
+    ET.SubElement(fwd, qname(ns, "duration")).text = str(duration)
+    measure.insert(list(measure).index(backup_el), fwd)
 
-    voice가 4분 하나 넘치고, 앞 4분 화음이 3성부 이상이 아닐 때만.
+
+def _repair_two_quarters_as_triplet_prefix(
+    measure: ET.Element, ns: str, max_staff: int, expected: int, divisions: int = 0
+) -> int:
+    """4분 2개(서로 다른 화음) + 세잇단 run — 앞 2음을 세잇단 1·2slice, 3slice는 기존 run.
+
+    인쇄 45 PL 등: Q(A)+Q(B)+T(B…) → T(A,B,B)… (셋째 slice는 둘째와 동일).
     """
     fixed = 0
-    for (_, _voice), groups in _voice_groups(measure, ns).items():
-        if len(groups) < 5 or not expected:
+    for (staff, voice), groups in _voice_groups(measure, ns).items():
+        if len(groups) < 3 or not expected:
             continue
         total = sum(_note_duration(g[0], ns) or 0 for g in groups)
-        g0, g1 = groups[0], groups[1]
+        g0, g1, g2 = groups[0], groups[1], groups[2]
         quarter_dur = _note_duration(g0[0], ns)
-        if quarter_dur is None or total != expected + quarter_dur:
+        if quarter_dur is None or _note_duration(g1[0], ns) != quarter_dur:
             continue
-        if len(g0[1]) > 2 or len(g1[1]) > 2:
-            continue
-        if _note_duration(g0[0], ns) != quarter_dur or _note_duration(g1[0], ns) != quarter_dur:
-            continue
+        if divisions:
+            if not (
+                _is_misread_quarter_chord_for_triplet(g0, ns, divisions)
+                and _is_misread_quarter_chord_for_triplet(g1, ns, divisions)
+            ):
+                continue
+        else:
+            if _note_type_text(g0[0], ns) != "quarter" or _note_type_text(g1[0], ns) != "quarter":
+                continue
         if g0[0].find(qname(ns, "time-modification")) is not None:
             continue
         if g1[0].find(qname(ns, "time-modification")) is not None:
             continue
         if g0[0].find(qname(ns, "dot")) or g1[0].find(qname(ns, "dot")):
             continue
-        tail = groups[2:]
-        triplet_eighth_dur = _note_duration(tail[0][0], ns)
-        if not tail or tail[0][0].find(qname(ns, "time-modification")) is None:
+        if _chord_pitch_signature(g0, ns) == _chord_pitch_signature(g1, ns):
             continue
+        if g2[0].find(qname(ns, "time-modification")) is None:
+            continue
+        triplet_eighth_dur = _note_duration(g2[0], ns)
         if triplet_eighth_dur is None or triplet_eighth_dur <= 0:
             continue
+        if _chord_pitch_signature(g1, ns) != _chord_pitch_signature(g2, ns):
+            continue
+        overfull = total == expected + quarter_dur
+        exact_fill = total == expected
+        if not (overfull or exact_fill):
+            continue
+        tail = groups[2:]
         if not all(
             _note_duration(g[0], ns) == triplet_eighth_dur
             and g[0].find(qname(ns, "time-modification")) is not None
@@ -2726,15 +2796,37 @@ def _repair_two_quarters_as_triplet_prefix(
                 _ensure_time_modification(n, ns)
                 _set_note_type_duration(n, ns, triplet_eighth_dur, "eighth")
                 _set_beam(n, ns, "begin" if gi == 0 else "continue")
-        for n in groups[2][1]:
+                _ensure_stem_like_reference(n, staff, max_staff, ns, g2[0])
+        for n in g2[1]:
             _clear_note_staccato(n, ns)
             _strip_tuplet_notations(n, ns)
             _set_beam(n, ns, "end")
-        for grp in (g0, g1, groups[2]):
+            _ensure_stem_like_reference(n, staff, max_staff, ns, g2[0])
+        for grp in (g0, g1, g2):
             for n in grp[1]:
                 _strip_tuplet_notations(n, ns)
         plc = _infer_tuplet_placement(g0[0], ns, max_staff)
-        _ensure_tuplet_bracket(g0[0], ns, plc, groups[2][0], has_rest=False)
+        _ensure_tuplet_bracket(g0[0], ns, plc, g2[0], has_rest=False)
+
+        if exact_fill:
+            # g0/g1 4분→8분T 로 줄인 duration 은 forward 로 voice 타임라인 유지
+            forward_dur = 2 * (quarter_dur - triplet_eighth_dur)
+            _insert_forward_before_voice_backup(
+                measure, ns, staff, voice, forward_dur
+            )
+
+        groups = _voice_groups(measure, ns)[(staff, voice)]
+        run: list[tuple] = []
+        for g in groups[3:]:
+            if _is_triplet_eighth_group(g[0], ns):
+                run.append(g)
+                if len(run) == 3:
+                    _rebeam_group(run[0][1], ns, "begin")
+                    _rebeam_group(run[1][1], ns, "continue")
+                    _rebeam_group(run[2][1], ns, "end")
+                    run = []
+            else:
+                run = []
 
         fixed += 1
     return fixed
@@ -3091,7 +3183,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )
                 stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
-                    measure, ns, max_staff, expected or 0
+                    measure, ns, max_staff, expected or 0, divisions or 0
                 )
                 stats["quarter_chord_triplet_expanded"] += _repair_quarter_chords_before_triplet_run(
                     measure, ns, max_staff, divisions or 0, expected or 0

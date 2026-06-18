@@ -101,9 +101,10 @@ def slurs_m6_chord_placement(mxl: Path):
                             dy = s.get("default-y")
                             ori = s.get("orientation")
             ok = (
-                e4 == ("below", None)
-                and g4 == ("above", None)
-                and dy is None
+                e4 == ("below", "under")
+                and g4 == ("below", "under")
+                and dy is not None
+                and int(dy) > 0
             )
             return ok, {"E4/22": e4, "G4/23": g4, "G4_dy": dy}
     return False, "missing"
@@ -163,7 +164,7 @@ def pl_m42_triplet_pitches(mxl: Path):
 
 
 def pl_m44_quarters_preserved(mxl: Path):
-    """PDF 45마디 PL — 세잇단 run 앞 4분 화음 2개가 세잇단 slice로 펼쳐짐."""
+    """인쇄 45마디 PL — Q(A)+Q(B) → 세잇단 slice A, B, B."""
     root = load_root(mxl)
     ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
     for part in root.findall(q(ns, "part")):
@@ -175,7 +176,7 @@ def pl_m44_quarters_preserved(mxl: Path):
             groups = []
             chord = []
             for n in m.findall(q(ns, "note")):
-                st = (n.find(q(ns, "staff")).text if n.find(q(ns, "staff")) is not None else "1")
+                st = n.find(q(ns, "staff")).text if n.find(q(ns, "staff")) is not None else "1"
                 if st != "2":
                     continue
                 ch = n.find(q(ns, "chord")) is not None
@@ -187,33 +188,30 @@ def pl_m44_quarters_preserved(mxl: Path):
                     chord.append(n)
             if chord:
                 groups.append(chord)
-            if len(groups) < 8:
+            if len(groups) < 5:
                 return False, "short"
 
-            def stem(g):
-                s = g[0].find(q(ns, "stem"))
-                return s.text if s is not None else None
-
-            def typ(g):
-                t = g[0].find(q(ns, "type"))
-                return t.text if t is not None else None
+            def sig(g):
+                labs = []
+                for n in g:
+                    p = n.find(q(ns, "pitch"))
+                    if p is not None:
+                        labs.append(p.find(q(ns, "step")).text + p.find(q(ns, "octave")).text)
+                return tuple(sorted(labs))
 
             def is_tm(g):
                 return g[0].find(q(ns, "time-modification")) is not None
 
+            s0, s1, s2 = sig(groups[0]), sig(groups[1]), sig(groups[2])
             ok = (
-                typ(groups[0]) == "eighth"
-                and is_tm(groups[0])
-                and typ(groups[1]) == "eighth"
+                is_tm(groups[0])
                 and is_tm(groups[1])
-                and typ(groups[2]) == "eighth"
                 and is_tm(groups[2])
-                and stem(groups[3]) == "down"
+                and s0 == ("B1", "B2")
+                and s1 == s2
+                and s1 in (("D3", "G3", "B3"), ("B3", "D3", "G3"))
             )
-            return ok, {
-                "g1": (typ(groups[0]), stem(groups[0]), is_tm(groups[0])),
-                "g4": (typ(groups[3]), stem(groups[3])),
-            }
+            return ok, {"g1": s0, "g2": s1, "g3": s2}
     return False, "missing"
 
 

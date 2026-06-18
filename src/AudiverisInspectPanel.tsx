@@ -18,6 +18,7 @@ import {
   removeMeasureClickOverlays,
   removeMeasureHover,
 } from './osmdMeasureClick';
+import { repositionStemUpChordSlurs } from './osmdChordSlurFix';
 
 type InspectErrorBoundaryProps = {
   children: ReactNode;
@@ -32,13 +33,9 @@ export function applyOsmdPreviewEngravingRules(
 ): void {
   rules.TupletNumberLimitConsecutiveRepetitions = false;
   rules.TupletNumberAlwaysDisableAfterFirstMax = false;
-  const ext = rules as Record<string, unknown>;
-  if (typeof ext.SlurPlacementAtStems === 'boolean') {
-    ext.SlurPlacementAtStems = false;
-  }
-  if (typeof ext.SlurPlacementFromXML === 'boolean') {
-    ext.SlurPlacementFromXML = true;
-  }
+  rules.SlurPlacementFromXML = true;
+  rules.SlurPlacementAtStems = false;
+  rules.SlurPlacementUseSkyBottomLine = false;
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
@@ -241,6 +238,7 @@ function scheduleOsmdRender(opts: {
     try {
       osmd.zoom = zoom;
       osmd.render();
+      repositionStemUpChordSlurs(osmd);
       host.querySelector('[data-osmd-warn="width"]')?.remove();
       onAfterRender?.();
     } catch (e) {

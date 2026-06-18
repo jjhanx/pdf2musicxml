@@ -25,6 +25,44 @@ def q(ns, t):
     return f"{{{ns}}}{t}" if ns else t
 
 
+def rest_beamed_triplet_m28(mxl: Path):
+    """PDF 29마디 — 𝄽8 세잇단 + 빔 8분 2개."""
+    root = load_root(mxl)
+    ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
+    for part in root.findall(q(ns, "part")):
+        if part.get("id") != "P5":
+            continue
+        for m in part.findall(q(ns, "measure")):
+            if m.get("number") != "28":
+                continue
+            notes = [
+                n
+                for n in m.findall(q(ns, "note"))
+                if (n.find(q(ns, "staff")) is None or (n.find(q(ns, "staff")).text or "1") == "2")
+                and n.find(q(ns, "chord")) is None
+            ]
+            tail = notes[-3:]
+            if len(tail) < 3:
+                return False, "short"
+            rest, n1, n2 = tail
+            if rest.find(q(ns, "rest")) is None:
+                return False, "no rest"
+            for n in (rest, n1, n2):
+                if n.find(q(ns, "time-modification")) is None:
+                    return False, "no tm"
+            beams = []
+            for n in (rest, n1, n2):
+                b = n.findall(q(ns, "beam"))
+                beams.append(b[0].text if b else None)
+            stems = []
+            for n in (rest, n1, n2):
+                s = n.find(q(ns, "stem"))
+                stems.append(s.text if s is not None else None)
+            ok = beams == ["begin", "continue", "end"] and all(st == "down" for st in stems)
+            return ok, {"beams": beams, "stems": stems}
+    return False, "missing"
+
+
 def slurs_m6(mxl: Path):
     root = load_root(mxl)
     ns = root.tag[1 : root.tag.index("}")] if root.tag.startswith("{") else ""
@@ -86,7 +124,17 @@ def main() -> int:
     ok_stats = stats.get("slurs_injected", 0) >= 2 and stats.get("tuplet_show_number_fixed", 0) > 0
     print(f"{'PASS' if ok_stats else 'FAIL'} stats slurs={stats.get('slurs_injected')} tupletShow={stats.get('tuplet_show_number_fixed')}")
 
-    return 0 if ok_slur and ok_tup and ok_stats else 1
+    ok_m28 = True
+    sample = ROOT / "omr-work-2ffe8bd0-full" / "audiveris_raw.mxl"
+    if sample.is_file():
+        from fix_audiveris_mxl import fix_mxl_file  # noqa: E402
+
+        out_path = ROOT / "omr-work-2ffe8bd0-full" / "_test_m28.mxl"
+        st = fix_mxl_file(sample, out_path)
+        ok_m28, detail = rest_beamed_triplet_m28(out_path)
+        print(f"{'PASS' if ok_m28 else 'FAIL'} m28 rest triplet beam: {detail} (rest_eighth={st.get('rest_eighth_triplet_fixed')})")
+
+    return 0 if ok_slur and ok_tup and ok_stats and ok_m28 else 1
 
 
 if __name__ == "__main__":

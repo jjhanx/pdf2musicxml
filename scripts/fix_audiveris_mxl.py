@@ -250,15 +250,16 @@ def _notehead_slur_placement(note: ET.Element, ns: str) -> str:
 
 def _chord_member_slur_placement(
     note: ET.Element, chord_members: list[ET.Element], ns: str
-) -> str | None:
-    """화음 slur — 아래 성부만 placement, 위 성부는 생략(OSMD에서 겹쳐 사라지는 것 방지)."""
+) -> str:
+    """화음 slur — 각 성부 음머리 쪽. 위 성부는 아래와 반대 placement(깃대 쪽으로 붙는 것 방지)."""
     labeled = [n for n in chord_members if _pitch_label(n, ns)]
     if len(labeled) < 2:
         return _notehead_slur_placement(note, ns)
     midis = sorted(_pitch_midi(n, ns) for n in labeled)
+    base = _notehead_slur_placement(note, ns)
     if _pitch_midi(note, ns) <= midis[0]:
-        return _notehead_slur_placement(note, ns)
-    return None
+        return base
+    return "above" if base == "below" else "below"
 
 
 def _add_slur_to_note(
@@ -297,7 +298,7 @@ def _add_slur_to_note(
 
 
 def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
-    """화음 slur placement 정리 — 아래 성부만 명시, 위 성부는 placement 생략."""
+    """화음 slur placement — 각 성부 음머리 쪽으로 정리."""
     fixed = 0
     for measure in part.findall(qname(ns, "measure")):
         chord_by_note: dict[int, list[ET.Element]] = {}
@@ -308,11 +309,7 @@ def _normalize_slur_placements(part: ET.Element, ns: str) -> int:
             members = chord_by_note.get(id(note), [note])
             want = _chord_member_slur_placement(note, members, ns)
             for slur in note.findall(".//" + qname(ns, "slur")):
-                if want is None:
-                    if slur.get("placement") is not None:
-                        slur.attrib.pop("placement", None)
-                        fixed += 1
-                elif slur.get("placement") != want:
+                if slur.get("placement") != want:
                     slur.set("placement", want)
                     fixed += 1
     return fixed
@@ -327,28 +324,43 @@ def _default_stem_for_staff(staff: str, max_staff: int) -> str:
 def _ensure_stem_for_staff(
     note: ET.Element, staff: str, max_staff: int, ns: str
 ) -> bool:
-    """2단 악보 staff별 기본 stem — PL(staff2) down, PR(staff1) up. 쉼표도 빔 연결용."""
+    """빔·세잇단 XML에 stem 요소가 없을 때만 staff 기본값을 채움. Audiveris stem은 유지."""
+    stem_el = note.find(qname(ns, "stem"))
+    if stem_el is not None and (stem_el.text or "").strip():
+        return False
     want = _default_stem_for_staff(staff or "1", max_staff)
+    if stem_el is None:
+        stem_el = ET.SubElement(note, qname(ns, "stem"))
+    stem_el.text = want
+    return True
+
+
+def _stem_from_note(note: ET.Element, ns: str) -> str | None:
+    stem_el = note.find(qname(ns, "stem"))
+    if stem_el is None or not (stem_el.text or "").strip():
+        return None
+    return (stem_el.text or "").strip()
+
+
+def _ensure_stem_like_reference(
+    note: ET.Element,
+    staff: str,
+    max_staff: int,
+    ns: str,
+    reference: ET.Element | None,
+) -> bool:
+    """참조 음표 stem 방향을 따르거나, 없으면 staff 기본값."""
+    ref = _stem_from_note(reference, ns) if reference is not None else None
+    want = ref or _default_stem_for_staff(staff or "1", max_staff)
     stem_el = note.find(qname(ns, "stem"))
     if stem_el is None:
         stem_el = ET.SubElement(note, qname(ns, "stem"))
+        stem_el.text = want
+        return True
     if (stem_el.text or "").strip() != want:
         stem_el.text = want
         return True
     return False
-
-
-def _normalize_piano_stems_in_measure(
-    measure: ET.Element, ns: str, max_staff: int
-) -> int:
-    if max_staff < 2:
-        return 0
-    fixed = 0
-    for note in measure.findall(qname(ns, "note")):
-        _, staff = _note_voice_staff(note, ns)
-        if _ensure_stem_for_staff(note, staff or "1", max_staff, ns):
-            fixed += 1
-    return fixed
 
 
 def _part_is_piano(part_id: str | None, root: ET.Element, ns: str) -> bool:
@@ -1352,7 +1364,7 @@ def _groups_are_beamed_together(leader0: ET.Element, leader1: ET.Element, ns: st
 def _repair_eighth_rest_plus_two_eighths_triplet(
     measure: ET.Element, ns: str, max_staff: int, divisions: int, expected: int
 ) -> int:
-    """8분쉼표 + 빔 8분 2개( staccato / p ) → 세잇단 — triplet 표기만 빠진 경우."""
+    """𝄽8 + 빔 8분 2개 — triplet 표기만 빠졌고 voice 길이가 세잇단 1절만큼 넘칠 때 복원."""
     if not divisions or not expected:
         return 0
     eighth = divisions // 2
@@ -1360,7 +1372,6 @@ def _repair_eighth_rest_plus_two_eighths_triplet(
     triplet_saving = 3 * eighth - 3 * triplet_dur
     if triplet_saving <= 0:
         return 0
-    has_dyn_p = _measure_has_p_dynamic(measure, ns)
     fixed = 0
     for (_, _voice), groups in _voice_groups(measure, ns).items():
         total = sum(_note_duration(g[0], ns) or 0 for g in groups)
@@ -1377,20 +1388,14 @@ def _repair_eighth_rest_plus_two_eighths_triplet(
                 continue
             if not _groups_are_beamed_together(g1[0], g2[0], ns):
                 continue
-            # 𝄽8+빔 8분 2개: 마디 길이가 맞으면 staccato/p 없이도 세잇단
-            if not (
-                any(_note_has_staccato(n, ns) for n in g1[1])
-                or has_dyn_p
-                or total == expected + triplet_saving
-            ):
-                continue
+            stem_ref = g1[0]
             for j, grp in enumerate((g0, g1, g2)):
                 for n in grp[1]:
                     _clear_note_staccato(n, ns)
                     _strip_tuplet_notations(n, ns)
                     _ensure_time_modification(n, ns)
                     _set_note_type_duration(n, ns, triplet_dur, "eighth")
-                    _ensure_stem_for_staff(n, grp[2], max_staff, ns)
+                    _ensure_stem_like_reference(n, grp[2], max_staff, ns, stem_ref)
                     _rebeam_group(
                         [n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue")
                     )
@@ -1727,6 +1732,10 @@ def _general_resolve_overfull_measure(
                 i += 1; continue
             if not all(_note_duration(g[0], ns) == target_dur for g in trio):
                 i += 1; continue
+            # 쉼표+빔 8분 2개는 overfull 수학 보정으로 세잇단화하지 않음(일반 8분 연결 유지)
+            if any(_is_rest(g[0], ns) for g in trio):
+                i += 1
+                continue
                 
             # Ensure candidate triplet notes do not cross beam boundaries
             g0, g1, g2 = trio
@@ -1837,6 +1846,7 @@ def _clone_triplet_slice_note(
     as_chord: bool,
     staff: str,
     max_staff: int,
+    stem_ref: ET.Element | None = None,
 ) -> ET.Element:
     note = copy.deepcopy(template)
     if as_chord:
@@ -1856,30 +1866,38 @@ def _clone_triplet_slice_note(
         if len(notations) == 0:
             note.remove(notations)
     _set_beam(note, ns, beam)
-    _ensure_stem_for_staff(note, staff, max_staff, ns)
+    _ensure_stem_like_reference(
+        note, staff, max_staff, ns, stem_ref if stem_ref is not None else template
+    )
     return note
 
 
 def _expand_quarter_chord_group_to_triplet(
-    measure: ET.Element, group: tuple, ns: str, triplet_dur: int, max_staff: int
+    measure: ET.Element, group: tuple, ns: str, triplet_dur: int, max_staff: int,
+    stem_ref: ET.Element | None = None,
 ) -> bool:
     """plain 4분 화음 1개(=세잇단 1절 분량) → 세잇단 3slice로 펼침."""
     leader, notes, staff, _voice = group
+    ref = stem_ref if stem_ref is not None else leader
     for j, n in enumerate(notes):
         _ensure_time_modification(n, ns)
         _set_note_type_duration(n, ns, triplet_dur, "eighth")
         _strip_tuplet_notations(n, ns)
-        _ensure_stem_for_staff(n, staff, max_staff, ns)
+        _ensure_stem_like_reference(n, staff, max_staff, ns, ref)
         _set_beam(n, ns, "begin")
     insert_at = list(measure).index(notes[-1]) + 1
     slice2: list[ET.Element] = []
     slice3: list[ET.Element] = []
     for j, template in enumerate(notes):
         slice2.append(
-            _clone_triplet_slice_note(template, ns, triplet_dur, "continue", j > 0, staff, max_staff)
+            _clone_triplet_slice_note(
+                template, ns, triplet_dur, "continue", j > 0, staff, max_staff, ref
+            )
         )
         slice3.append(
-            _clone_triplet_slice_note(template, ns, triplet_dur, "end", j > 0, staff, max_staff)
+            _clone_triplet_slice_note(
+                template, ns, triplet_dur, "end", j > 0, staff, max_staff, ref
+            )
         )
     for n in slice2 + slice3:
         measure.insert(insert_at, n)
@@ -1921,9 +1939,10 @@ def _repair_quarter_chords_before_triplet_run(
         triplet_dur = _triplet_eighth_duration(divisions)
         if not triplet_dur:
             continue
+        triplet_ref = groups[triplet_idx][0]
         for qi in range(triplet_idx - 1, start - 1, -1):
             if _expand_quarter_chord_group_to_triplet(
-                measure, groups[qi], ns, triplet_dur, max_staff
+                measure, groups[qi], ns, triplet_dur, max_staff, triplet_ref
             ):
                 fixed += 1
     return fixed
@@ -2912,12 +2931,6 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         stats["repeated_chord_slurs_added"] += _repair_repeated_chord_slurs(part, ns)
         stats["chord_slurs_completed"] += _complete_chord_member_slurs(part, ns)
         stats["slur_placements_fixed"] += _normalize_slur_placements(part, ns)
-
-        if max_staff >= 2:
-            for measure in part.findall(qname(ns, "measure")):
-                stats["piano_stems_fixed"] += _normalize_piano_stems_in_measure(
-                    measure, ns, max_staff
-                )
 
         for measure in part.findall(qname(ns, "measure")):
             stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(

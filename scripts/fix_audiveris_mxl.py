@@ -257,7 +257,7 @@ def _part_is_piano(part_id: str | None, root: ET.Element, ns: str) -> bool:
 
 def _inject_missing_slurs_piano_m7_m31(part: ET.Element, ns: str) -> int:
     injected = 0
-    for num in ("7", "31"):
+    for num in ("6", "30"):
         m = part.find(f".//{{{ns}}}measure[@number='{num}']" if ns else f".//measure[@number='{num}']")
         if m is None: continue
         groups = [grp for grp in _iter_chord_groups(m, ns) if grp[2] == "1" and grp[3] == "1"]

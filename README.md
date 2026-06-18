@@ -12,6 +12,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
   - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
   - **Audiveris만**: 선행 처리·가사 주입 없음.
 - **OMR 불일치 의심 마디 감지 및 HITL 보정 UI 개선**: Linter(`mxl_quality_lint.py`)를 확장하여 각 보이스별 박자 부족(`measureUnderfull`) 및 박자 초과(`measureOverfull`) 마디를 자동으로 감지합니다(못갖춘마디 제외). 감지된 마디들은 검토 웹 UI 상단에 목록으로 제공되며, 클릭 시 즉시 마디 편집 패널이 열려 편리한 보정이 가능하도록 연동되었습니다. 또한, 특정 악보 전용의 하드코딩 패치 방식을 완전히 비활성화하여 파이프라인을 일반화하였습니다.
+- **범용 화음(Chord) 및 세잇단음 렌더링 버그 수정**: ① 화음 내 중복 피치 제거 시 새로운 리더(Leader) 음표의 `<chord/>` 태그를 제거하여 이어지는 마디와 박자가 겹치거나 음표가 증발하는 치명적인 버그 해결. ② 세잇단음이 쉼표로 시작할 때 빔(Beam) 반대 방향으로 브라켓을 자동 배치하도록 꼬리 방향 추론 로직 개선. ③ MuseScore 레이아웃 엔진과 충돌하여 화음을 뭉개버리던 강제 `bracket="no"` 주입 로직 제거. ④ 피아노 오른손 화음 이음줄(Slur) 보정 확대.
 - **이음줄(Slur) 및 세잇단음표 숫자 누락 버그 수정**: Audiveris 후처리 스크립트(`fix_audiveris_mxl.py`)가 얇은 이음줄(`<bracket>`) 기호를 지우거나 세잇단음표 숫자 '3'을 텍스트 찌꺼기로 오인하여 무차별 삭제하던 문제를 수정하여 정상적으로 출력되도록 개선했습니다.
 - **OMR 리듬·tie 자동 보정 확대**: `fix_audiveris_mxl.py` 범용 보정 — ① 세잇단 **쉼표 없음→숫자 '3'만**, **쉼표 포함→bracket**, ② **𝄽8+8분 2개** 세잇단·점4분→8분 오인, ③ **연속 동일 8분 화음**(각 성부 slur)·**동음 연장** slur 복원, ④ 마디 **첫 화음** `#` 오인 natural→sharp(**duplicate pitch + 타 음 natural**이면 sharp 위치 재배치), ⑤ 잇단 `normal-type` 보강(OSMD), ⑥ 쉼표 전용 voice 병렬 유지. **임시표 역전파 비활성**. 자세히 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
 - **Audiveris 후처리 (최근)**: 세잇단 **쉼표 없음→`show-bracket=no`(숫자만)**, **쉼표 포함→bracket 유지**. 화음 멤버 beam 일괄 제거·마디 임시표 역전파·m50 전용 accidental 패치는 **제거**(범용 오류 유발).

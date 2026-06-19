@@ -165,6 +165,42 @@ def run_checks(path):
     if xs != sorted(xs):
         fails.append("PR m57: notes out of default-x order (overlap)")
 
+    # 14-16 m19 (mxl 18) — 점4분 뒤 8분/4분 오인, 쉼표 순서·음고
+    for part_idx, label, expect in [
+        (1, "S m19", ["quarter", "eighth", "eighth", "eighth", "quarter"]),
+        (2, "A m19", ["quarter", "quarter", "eighth", "quarter"]),
+        (3, "T m19", ["half", "eighth", "eighth", "quarter"]),
+    ]:
+        m = get_measure(root, ns, part_idx, 18)
+        g = groups(m, ns)
+        types = [leader_type(grp, ns) for grp in g[: len(expect)]]
+        if types != expect:
+            fails.append(f"{label}: rhythm {types} != {expect}")
+        if label == "S m19" and leader_type(g[2], ns) == "quarter":
+            fails.append("S m19: 3rd note should be eighth not quarter")
+        if label == "A m19":
+            if leader_type(g[2], ns) != "eighth" or not fix._is_rest(g[3][0], ns):
+                fails.append("A m19: 4th note eighth + quarter rest")
+            elif leader_type(g[3], ns) != "quarter":
+                fails.append("A m19: trailing rest should be quarter not eighth")
+
+    # 17 m45 PR (mxl 44) — beamed 8th pair must stay eighths
+    m = get_measure(root, ns, 4, 44)
+    g = groups(m, ns, "1")
+    if not (
+        leader_type(g[2], ns) == "eighth"
+        and leader_type(g[3], ns) == "eighth"
+        and g[2][0].findall(fix.qname(ns, "beam"))
+        and g[3][0].findall(fix.qname(ns, "beam"))
+    ):
+        fails.append("PR m45: 3rd-4th beamed eighth pair corrupted")
+
+    # 18 m45 PL (mxl 44 staff2) — 8 groups, no triplet span expansion
+    m = get_measure(root, ns, 4, 44)
+    g = groups(m, ns, "2")
+    if len(g) != 8:
+        fails.append(f"PL m45: expected 8 chord groups, got {len(g)}")
+
     return fails
 
 

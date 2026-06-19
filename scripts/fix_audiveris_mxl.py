@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import io
+import os
 import re
 import sys
 import zipfile
@@ -17,6 +18,21 @@ _SPURIOUS_DIRECTION_DIGITS = frozenset({"9"})
 # 세잇단 숫자 '3' OCR 잔여가 '.', ':2', '3:2', '2:' 등으로 남는 경우 (눈/김효근 보고)
 _SPURIOUS_TUPLET_RESIDUE = frozenset({".", ":", ":2", "2:", "3:2", "3:", ":3", "2:3"})
 _TEXT_TAGS = frozenset({"words", "text", "syllable", "rehearsal"})
+
+
+def _rhythm_fix_mode() -> str:
+    """리듬 duration 변경 보정 모드.
+
+    - off (기본): OMR 인식 그대로 — duration·쉼표 삽입·세잇단 펼침 등 **하지 않음**.
+    - beams: 인접 빔(run)이 있는 4분↔8분 오인만 복원.
+    - legacy: 기존 Tier A/B·overfull·♩. 패턴 등 전체 보정.
+    """
+    raw = (os.environ.get("AUDIVERIS_MXL_RHYTHM_FIX") or "off").strip().lower()
+    if raw in ("legacy", "full", "1", "true", "yes", "on"):
+        return "legacy"
+    if raw in ("beams", "beam"):
+        return "beams"
+    return "off"
 
 
 def mxl_ns_uri(root: ET.Element) -> str:
@@ -2655,7 +2671,7 @@ def _repair_divergent_quarter_pair_before_triplet_run(
             _ensure_time_modification(n, ns)
             _set_note_type_duration(n, ns, triplet_dur, "eighth")
             _strip_tuplet_notations(n, ns)
-            _ensure_stem_like_reference(n, st, max_staff, ns, stem_ref)
+            _ensure_stem_like_reference(n, st, max_staff, ns, n)
             _set_beam(n, ns, "begin")
         insert_at = list(measure).index(notes_a[-1]) + 1
         slice2: list[ET.Element] = []
@@ -2663,12 +2679,12 @@ def _repair_divergent_quarter_pair_before_triplet_run(
         for j, template in enumerate(notes_b):
             slice2.append(
                 _clone_triplet_slice_note(
-                    template, ns, triplet_dur, "continue", j > 0, st, max_staff, stem_ref
+                    template, ns, triplet_dur, "continue", j > 0, st, max_staff, template
                 )
             )
             slice3.append(
                 _clone_triplet_slice_note(
-                    template, ns, triplet_dur, "end", j > 0, st, max_staff, stem_ref
+                    template, ns, triplet_dur, "end", j > 0, st, max_staff, template
                 )
             )
         for n in slice2 + slice3:
@@ -3946,103 +3962,114 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["directions_removed"] += dr
             stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
 
-    # 2) 범용 리듬·화음·세잇단 보정
+    # 2) 리듬·화음·세잇단 — AUDIVERIS_MXL_RHYTHM_FIX (기본 off = OMR 유지)
+    rhythm_mode = _rhythm_fix_mode()
     for part in root.findall(qname(ns, "part")):
         max_staff = _max_staff_in_part(part, ns)
         for measure, divisions, expected in _iter_measures_with_timing(part, ns):
-            stats["voice_consolidated"] += _flatten_underfull_voices_in_measure(
-                measure, ns, expected or 0
-            )
+            if rhythm_mode != "off":
+                stats["voice_consolidated"] += _flatten_underfull_voices_in_measure(
+                    measure, ns, expected or 0
+                )
             stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
             key_fifths = _part_key_fifths(part, ns)
             stats["misplaced_sharp_relocated"] += _repair_misplaced_sharp_via_duplicate(
                 measure, ns, key_fifths
             )
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
-            # Tier A: OMR 구조·세잇단 표기 — exact-fit 마디에서도 허용
-            stats["triplet_quarter_prefix_repaired"] += _repair_two_collapsed_triplet_spans(
-                measure, ns, max_staff, divisions or 0, expected or 0
-            )
-            stats["quarter_chord_triplet_expanded"] += _repair_divergent_quarter_pair_before_triplet_run(
-                measure, ns, max_staff, divisions or 0
-            )
-            stats["quarter_chord_triplet_expanded"] += _repair_quarter_chords_before_triplet_run(
-                measure, ns, max_staff, divisions or 0, expected or 0
-            )
-            stats["quarter_chord_triplet_expanded"] += _repair_beamed_trio_before_triplet_run(
-                measure, ns, max_staff, divisions or 0, expected or 0
-            )
-            stats["quarter_pair_eighth_fixed"] += _repair_quarter_before_eighth_rest_overfull(
-                measure, ns, divisions or 0, expected or 0
-            )
-            if _measure_rhythm_repairable(measure, ns, expected or 0, divisions or 0):
-                stats["three_eighth_triplet_fixed"] += _general_resolve_overfull_measure(
+
+            if rhythm_mode == "legacy":
+                stats["triplet_quarter_prefix_repaired"] += _repair_two_collapsed_triplet_spans(
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )
-                stats["quarter_pair_eighth_fixed"] += _repair_swap_leading_qq_with_beamed_pair(
+                stats["quarter_chord_triplet_expanded"] += _repair_divergent_quarter_pair_before_triplet_run(
+                    measure, ns, max_staff, divisions or 0
+                )
+                stats["quarter_chord_triplet_expanded"] += _repair_quarter_chords_before_triplet_run(
+                    measure, ns, max_staff, divisions or 0, expected or 0
+                )
+                stats["quarter_chord_triplet_expanded"] += _repair_beamed_trio_before_triplet_run(
+                    measure, ns, max_staff, divisions or 0, expected or 0
+                )
+                stats["quarter_pair_eighth_fixed"] += _repair_quarter_before_eighth_rest_overfull(
                     measure, ns, divisions or 0, expected or 0
                 )
+            if rhythm_mode in ("legacy", "beams") and _measure_rhythm_repairable(
+                measure, ns, expected or 0, divisions or 0
+            ):
+                if rhythm_mode == "legacy":
+                    stats["three_eighth_triplet_fixed"] += _general_resolve_overfull_measure(
+                        measure, ns, max_staff, divisions or 0, expected or 0
+                    )
+                    stats["quarter_pair_eighth_fixed"] += _repair_swap_leading_qq_with_beamed_pair(
+                        measure, ns, divisions or 0, expected or 0
+                    )
                 stats["quarter_pair_eighth_fixed"] += _repair_leading_pickup_eighth_misread(
                     measure, ns, divisions or 0, expected or 0
                 )
-                stats["quarter_pair_eighth_fixed"] += _repair_leading_quarter_pair(
-                    measure, ns, divisions or 0, expected or 0
-                )
+                if rhythm_mode == "legacy":
+                    stats["quarter_pair_eighth_fixed"] += _repair_leading_quarter_pair(
+                        measure, ns, divisions or 0, expected or 0
+                    )
                 stats["quarter_pair_eighth_fixed"] += _repair_leading_quarter_pair_on_staff(
                     measure, ns, divisions or 0, expected or 0
                 )
-                stats["quarter_pair_eighth_fixed"] += _repair_quarter_eighth_quarter_lost_final(
-                    measure, ns, divisions or 0, expected or 0
-                )
-                stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
-                    measure, ns, divisions or 0, expected or 0
-                )
+                if rhythm_mode == "legacy":
+                    stats["quarter_pair_eighth_fixed"] += _repair_quarter_eighth_quarter_lost_final(
+                        measure, ns, divisions or 0, expected or 0
+                    )
+                    stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
+                        measure, ns, divisions or 0, expected or 0
+                    )
                 stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_after_beam_run(
                     measure, ns, divisions or 0, expected or 0
                 )
                 stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_to_beamed_eighth_pair_after_beam(
                     measure, ns, divisions or 0, expected or 0
                 )
-                stats["quarter_chord_triplet_expanded"] += _repair_plain_beamed_trio_as_triplet_on_staff(
-                    measure, ns, max_staff, divisions or 0
-                )
-                stats["quarter_chord_triplet_expanded"] += _remove_isolated_quarter_voices_on_staff(
-                    measure, ns, divisions or 0, expected or 0
-                )
-                stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_before_rest(
-                    measure, ns, divisions or 0, expected or 0
-                )
-                stats["two_quarter_voice_eighth_fixed"] += _repair_two_quarter_voice_as_eighths(
-                    measure, ns, divisions or 0, expected or 0
-                )
-                stats["three_eighth_triplet_fixed"] += _repair_three_eighths_as_triplet(
-                    measure, ns, max_staff, divisions or 0, expected or 0
-                )
-                stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
-                    measure, ns, max_staff, divisions or 0, expected or 0
-                )
+                if rhythm_mode == "legacy":
+                    stats["quarter_chord_triplet_expanded"] += _repair_plain_beamed_trio_as_triplet_on_staff(
+                        measure, ns, max_staff, divisions or 0
+                    )
+                    stats["quarter_chord_triplet_expanded"] += _remove_isolated_quarter_voices_on_staff(
+                        measure, ns, divisions or 0, expected or 0
+                    )
+                    stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_before_rest(
+                        measure, ns, divisions or 0, expected or 0
+                    )
+                    stats["two_quarter_voice_eighth_fixed"] += _repair_two_quarter_voice_as_eighths(
+                        measure, ns, divisions or 0, expected or 0
+                    )
+                    stats["three_eighth_triplet_fixed"] += _repair_three_eighths_as_triplet(
+                        measure, ns, max_staff, divisions or 0, expected or 0
+                    )
+                    stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
+                        measure, ns, max_staff, divisions or 0, expected or 0
+                    )
             stats["fermata_from_staccato_fixed"] += _repair_staccato_as_fermata_before_rest(
                 measure, ns
             )
-        dotted_fixed, lost_eighth = _repair_dotted_quarter_misread(part, ns)
-        stats["dotted_quarter_eighth_fixed"] += dotted_fixed
-        stats["lost_eighth_restored"] += lost_eighth
+        if rhythm_mode == "legacy":
+            dotted_fixed, lost_eighth = _repair_dotted_quarter_misread(part, ns)
+            stats["dotted_quarter_eighth_fixed"] += dotted_fixed
+            stats["lost_eighth_restored"] += lost_eighth
 
-        fixed, rest_fixed = _repair_overfull_eighth(part, ns)
-        stats["overfull_eighth_fixed"] += fixed
-        stats["overfull_rest_normalized"] += rest_fixed
+            fixed, rest_fixed = _repair_overfull_eighth(part, ns)
+            stats["overfull_eighth_fixed"] += fixed
+            stats["overfull_rest_normalized"] += rest_fixed
 
-    # 2b) ♩. 보정 등으로 voice 조각·순서 어긋남 — backup 병합·default-x 재정렬
-    for part in root.findall(qname(ns, "part")):
-        for measure in part.findall(qname(ns, "measure")):
-            stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
-            stats["voice_consolidated"] += _consolidate_sequential_voice_after_backup(
-                measure, ns
-            )
-            for staff in _staffs_in_measure(measure, ns):
-                stats["voice_consolidated"] += _reorder_staff_notes_by_default_x(
-                    measure, ns, staff
+    # 2b) 리듬 보정 후 voice 조각·default-x 재정렬 (legacy/beams만)
+    if rhythm_mode != "off":
+        for part in root.findall(qname(ns, "part")):
+            for measure in part.findall(qname(ns, "measure")):
+                stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
+                stats["voice_consolidated"] += _consolidate_sequential_voice_after_backup(
+                    measure, ns
                 )
+                for staff in _staffs_in_measure(measure, ns):
+                    stats["voice_consolidated"] += _reorder_staff_notes_by_default_x(
+                        measure, ns, staff
+                    )
 
     # 3) 음표 발명·성부 재배치 등 최후 수단 패치는 일반화 원칙에 따라 제거되었습니다.
     stats["score_patches_applied"] = 0

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Verify 13 reported regression cases after fix_audiveris_mxl."""
+"""Verify regression cases after fix_audiveris_mxl (legacy rhythm mode)."""
 import io
+import os
 import re
 import sys
 import zipfile
 import xml.etree.ElementTree as ET
+
+os.environ.setdefault("AUDIVERIS_MXL_RHYTHM_FIX", "legacy")
 
 sys.path.insert(0, "scripts")
 import fix_audiveris_mxl as fix

@@ -200,18 +200,41 @@ def run_checks(path):
     ):
         fails.append("PR m45: 3rd-4th beamed eighth pair corrupted")
 
-    # 17 m45 PL (mxl 44 staff2) — 순차 4분 2개는 세잇단 slice로 펼침 (8→12 groups)
+    # 17 m45 PL (mxl 44 staff2) — 순차 4분 2개는 T(A,B,B)로 병합
     m = get_measure(root, ns, 4, 44)
     g = groups(m, ns, "2")
-    if len(g) < 10:
-        fails.append(f"PL m45: expected triplet expansion (>=10 groups), got {len(g)}")
-    triplet_groups = [
-        grp for grp in g if grp[0].find(fix.qname(ns, "time-modification")) is not None
-    ]
-    if len(triplet_groups) < 10:
-        fails.append(f"PL m45: expected >=10 triplet slices, got {len(triplet_groups)}")
+    if len(g) < 9:
+        fails.append(f"PL m45: expected >=9 groups after pair merge, got {len(g)}")
+    sig0 = _chord_pitch_signature_from_group(g, ns)
+    sig1 = _chord_pitch_signature_from_group(g, ns, idx=1)
+    sig2 = _chord_pitch_signature_from_group(g, ns, idx=2)
+    if sig0 == sig1:
+        fails.append("PL m45: 1st triplet slice1/slice2 should differ")
+    if sig1 != sig2:
+        fails.append("PL m45: 1st triplet slice2/slice3 should match")
+
+    # 18 de9c m3 PR — g6 eighth not quarter (overfull pickup)
+    m = get_measure(root, ns, 4, 2)
+    g = groups(m, ns, "1")
+    if len(g) > 6 and leader_type(g[6], ns) != "eighth":
+        fails.append("PR m3: 7th group should be eighth not quarter")
+
+    # 19 de9c m25 PL — first triplet run has T3 bracket
+    m = get_measure(root, ns, 4, 24)
+    g = groups(m, ns, "2")
+    if g and g[0][0].find(fix.qname(ns, "time-modification")) is None:
+        fails.append("PL m25: first group should be tripletized")
+    notations = g[0][0].find(fix.qname(ns, "notations")) if g else None
+    if g and (notations is None or notations.find(fix.qname(ns, "tuplet")) is None):
+        fails.append("PL m25: first triplet missing tuplet number")
 
     return fails
+
+
+def _chord_pitch_signature_from_group(g, ns, idx=0):
+    grp = g[idx]
+    labs = sorted(fix._pitch_label(n, ns) or "?" for n in grp)
+    return tuple(labs)
 
 
 if __name__ == "__main__":

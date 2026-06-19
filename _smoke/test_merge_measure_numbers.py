@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from merge_lyric_sources import (  # noqa: E402
     is_measure_number_item,
+    load_pymupdf_review,
     merge_sources,
     manifest_to_flat_inject_rows,
     resolve_inject_type,
@@ -44,8 +45,8 @@ def test_merge_backup_no_digit_lyrics():
         print("SKIP: sample files missing")
         return True
     extracted = json.loads(EXTRACTED.read_text(encoding="utf-8"))
-    backup = json.loads(BACKUP.read_text(encoding="utf-8"))
-    manifest = merge_sources(extracted, backup, [], min_size=7.0, max_size=17.0)
+    pymupdf_items, manual = load_pymupdf_review(str(BACKUP))
+    manifest = merge_sources(extracted, pymupdf_items, manual, min_size=7.0, max_size=17.0)
     flat = manifest_to_flat_inject_rows(manifest)
     bad = [
         r
@@ -60,10 +61,48 @@ def test_merge_backup_no_digit_lyrics():
     return True
 
 
+def test_flat_uses_pymupdf_review_not_plumber_merge():
+    """flat inject는 pdfplumber IoU 병합이 아니라 PyMuPDF 검토 성부·순서를 그대로 쓴다."""
+    if not BACKUP.is_file() or not EXTRACTED.is_file():
+        print("SKIP: sample files missing")
+        return True
+    from collections import Counter
+
+    extracted = json.loads(EXTRACTED.read_text(encoding="utf-8"))
+    pymupdf_items, manual = load_pymupdf_review(str(BACKUP))
+    manifest = merge_sources(extracted, pymupdf_items, manual, min_size=7.0, max_size=17.0)
+    flat = manifest_to_flat_inject_rows(manifest)
+    backup_lyrics = [x for x in pymupdf_items if x.get("type") == "lyrics"]
+    flat_lyrics = [x for x in flat if x.get("type") == "lyrics"]
+    by_part_backup = Counter(int(x.get("lyricPartIndex", 1) or 1) for x in backup_lyrics)
+    by_part_flat = Counter(int(x.get("lyricPartIndex", 1) or 1) for x in flat_lyrics)
+    if by_part_flat != by_part_backup:
+        print("FAIL: part distribution", dict(by_part_flat), "expected", dict(by_part_backup))
+        return False
+    # page 3 tenor(part 3): 첫 줄 텍스트가 검토 JSON과 동일해야 함
+    def first_p3(items):
+        rows = [
+            x
+            for x in items
+            if x.get("type") == "lyrics" and int(x.get("lyricPartIndex", 1) or 1) == 3 and x.get("page") == 3
+        ]
+        rows.sort(key=lambda it: (it.get("y", 0), it.get("x", 0)))
+        return rows[0].get("text") if rows else None
+
+    if first_p3(flat_lyrics) != first_p3(backup_lyrics):
+        print("FAIL: page3 part3 first line mismatch")
+        print(" flat:", first_p3(flat_lyrics))
+        print(" backup:", first_p3(backup_lyrics))
+        return False
+    print("PASS: flat inject matches pymupdf review part distribution and page3 tenor text")
+    return True
+
+
 def main():
     test_classify_unknown_digits()
     test_classify_real_lyrics()
     ok = test_merge_backup_no_digit_lyrics()
+    ok = test_flat_uses_pymupdf_review_not_plumber_merge() and ok
     return 0 if ok else 1
 
 

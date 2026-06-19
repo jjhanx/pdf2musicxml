@@ -24,13 +24,16 @@ def is_measure_number_item(item: dict[str, Any]) -> bool:
     t = str(item.get("type") or "")
     if t == "measure_number":
         return True
-    if t in ("title", "composer", "copyright", "tempo", "lyrics"):
+    if t in ("title", "composer", "copyright", "tempo"):
         return False
     bbox = item.get("bbox")
     if isinstance(bbox, list) and len(bbox) >= 4:
         w = abs(float(bbox[2]) - float(bbox[0]))
         if w > 100:
             return False
+        # 좁은 bbox 숫자는 UI에서 lyrics로 잘못 태깅돼도 마디 번호로 본다.
+        if w <= 24:
+            return True
     return t in ("", "unknown")
 
 
@@ -314,6 +317,7 @@ def merge_sources(
     min_size: float,
     max_size: float,
 ) -> dict[str, Any]:
+    pymupdf_items = [x for x in pymupdf_items if isinstance(x, dict)]
     sep_items = plumber_pages_to_items(extracted_pages, min_size=min_size, max_size=max_size)
     used_pymupdf: set[str] = set()
     merged_items: list[dict[str, Any]] = []
@@ -354,14 +358,47 @@ def merge_sources(
         },
         "matchStats": match_stats,
         "items": merged_items,
+        "pymupdfReviewItems": [dict(x) for x in pymupdf_items if isinstance(x, dict)],
         "manualLyricRects": manual_rects,
     }
     return manifest
 
 
+def pymupdf_review_to_flat_inject_rows(
+    pymupdf_items: list[dict[str, Any]],
+    manual_rects: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """PyMuPDF 검토 JSON — 가사 주입의 단일 진실 공급원(성부·순서·텍스트)."""
+    rows: list[dict[str, Any]] = []
+    for raw in pymupdf_items:
+        if not isinstance(raw, dict) or is_meta_item(raw):
+            continue
+        item = dict(raw)
+        item["type"] = resolve_inject_type(item)
+        if item["type"] == "measure_number":
+            continue
+        rows.append(item)
+    rows.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))
+    if manual_rects:
+        rows.append(
+            {
+                "id": "__manual_lyric_regions__",
+                "type": "_manual_lyric_mask",
+                "manualRects": manual_rects,
+            }
+        )
+    return rows
+
+
 def manifest_to_flat_inject_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    items = manifest.get("items") or []
+    """inject_ocr.py용 flat 배열 — PyMuPDF 검토가 있으면 그쪽만 사용(pdfplumber IoU 병합 제외)."""
     manual = manifest.get("manualLyricRects") or []
+    sources = manifest.get("sources") or {}
+    review_items = manifest.get("pymupdfReviewItems")
+    if sources.get("pymupdfReview") and isinstance(review_items, list) and review_items:
+        return pymupdf_review_to_flat_inject_rows(review_items, manual)
+
+    items = manifest.get("items") or []
     rows = [
         dict(x)
         for x in items

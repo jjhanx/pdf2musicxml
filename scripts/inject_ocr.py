@@ -455,26 +455,62 @@ def collect_lyric_streams(ocr_data):
     return by_part
 
 
+def _sanitize_flat_inject_rows(rows):
+    """flat ocr_data — 마디 번호·메타 제외, unknown 숫자는 measure_number 처리."""
+    try:
+        _scripts_dir = Path(__file__).resolve().parent
+        if str(_scripts_dir) not in sys.path:
+            sys.path.insert(0, str(_scripts_dir))
+        from merge_lyric_sources import is_measure_number_item, resolve_inject_type
+    except ImportError:
+        is_measure_number_item = None
+        resolve_inject_type = None
+
+    out = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        if _skip_inject_meta_item(raw):
+            continue
+        item = dict(raw)
+        if resolve_inject_type is not None:
+            item["type"] = resolve_inject_type(item)
+            if item["type"] == "measure_number":
+                continue
+        elif is_measure_number_item is not None and is_measure_number_item(item):
+            continue
+        out.append(item)
+    return out
+
+
 def load_ocr_items(json_in_path):
     """flat 배열 또는 v2/v3 manifest에서 inject 대상 항목 배열을 반환."""
     with open(json_in_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     if isinstance(data, list):
-        return data
+        return _sanitize_flat_inject_rows(data)
     if isinstance(data, dict):
         v = data.get("v")
         if v in (2, 3) and isinstance(data.get("items"), list):
-            rows = list(data["items"])
-            manual = data.get("manualLyricRects") or []
-            if manual:
-                rows.append(
-                    {
-                        "id": "__manual_lyric_regions__",
-                        "type": "_manual_lyric_mask",
-                        "manualRects": manual,
-                    }
-                )
-            return rows
+            try:
+                _scripts_dir = Path(__file__).resolve().parent
+                if str(_scripts_dir) not in sys.path:
+                    sys.path.insert(0, str(_scripts_dir))
+                from merge_lyric_sources import manifest_to_flat_inject_rows
+
+                return manifest_to_flat_inject_rows(data)
+            except ImportError:
+                rows = list(data["items"])
+                manual = data.get("manualLyricRects") or []
+                if manual:
+                    rows.append(
+                        {
+                            "id": "__manual_lyric_regions__",
+                            "type": "_manual_lyric_mask",
+                            "manualRects": manual,
+                        }
+                    )
+                return _sanitize_flat_inject_rows(rows)
     print(
         "inject_ocr: ocr_data는 항목 배열이거나 v2/v3 manifest { items: [...] } 여야 합니다.",
         file=sys.stderr,

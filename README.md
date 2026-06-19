@@ -17,9 +17,9 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **OMR 리듬·화음 slur 보정**: 인쇄 마디 ≈ **XML + 1**(pickup). **인쇄 45 PR = XML m44 staff1** — ♩♩–♪♪–♩↔♪♪–♩♩–♩ 스왑. 화음 slur — **E4+G4** 연속 8분 화음만 **E4 `below`·G4 `above`**. OSMD 미리보기는 stem 쪽 이음줄 비활성. **인쇄 45 PL = XML m44 staff2** — 4분 2+세잇단 6 → **12 slice** 복구. **OMR 품질 검토** MusicXML 미리보기(`GET …/score-musicxml`)는 요청마다 `fix_audiveris_mxl` 재적용. [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
 - **OMR 리듬·tie 자동 보정 확대**: `fix_audiveris_mxl.py` 범용 보정 — ① 세잇단 **쉼표 없음→숫자 '3'만**, **쉼표 포함→bracket**, ② **𝄽8+8분 2개** 세잇단·점4분→8분 오인, ③ **E4+G4 연속 8분 화음 slur**(음머리 쪽 placement)·**동음 연장** slur, ④ **세잇단 run 직전 4분 화음→세잇단 3slice** 복원(voice overfull일 때), ⑤ 마디 **첫 화음** `#` 오인 natural→sharp(**duplicate pitch** 시 재배치), ⑥ 잇단 `normal-type` 보강(OSMD), ⑦ 쉼표 전용 voice 병렬 유지. **임시표 역전파 비활성**. 자세히 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
 - **Audiveris 후처리 (최근)**: 세잇단 **쉼표 없음→`show-bracket=no`(숫자만)**, **쉼표 포함→bracket 유지**. 화음 멤버 beam 일괄 제거·마디 임시표 역전파·m50 전용 accidental 패치는 **제거**(범용 오류 유발).
-- **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「PyMuPDF 가사 검증·편집」 체크를 끄면 pdfplumber 추출만으로 병합합니다.
+- **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「PyMuPDF 가사 검증·편집」 체크를 끄면 pdfplumber 추출만으로 병합합니다. **SATB·다성부 가사**는 성부(`lyricPartIndex`)·줄 순서를 검토 UI에서 지정해야 하므로 **PyMuPDF 검증을 켠 채로** 진행하는 것을 권장합니다.
 - **점검 UI**: 완료 후 **마스킹·인식 점검**에서 원본 vs **`clean_score_only.pdf`** PNG 비교, PDF 다운로드, Audiveris 단계별 실행(`pdfSource=clean_score`)을 지원합니다. 단계 의미·디버깅: [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md).
-- **저장 형식 v3**: `lyric_manifest.json` — `items[]`(병합 출처 `provenance`, `fontSize` 등) + `matchStats`. `inject_ocr.py`는 v2/v3 manifest와 flat 배열 모두 읽습니다.
+- **저장 형식 v3**: `lyric_manifest.json` — `items[]`(병합 출처 `provenance`, `fontSize` 등) + `matchStats` + `pymupdfReviewItems`. **`ocr_data.json`(flat)은 PyMuPDF 검토가 있으면 검토 항목만** `inject_ocr.py`에 넘깁니다(pdfplumber IoU 병합 줄은 manifest·마스킹용). 좁은 bbox **마디 번호**(6, 14, 17 …)는 inject에서 제외. `inject_ocr.py`는 v2/v3 manifest와 flat 배열 모두 읽습니다.
 - **한글·ZIP 파일명**: `POST /api/convert` 멀티파트 파일명 디코딩은 그대로 유지합니다.
 - 자세한 품질·호환 대응은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md), 배포 점검은 동 문서 **「서버 배포 후 점검 체크리스트」**를 따르세요.
 

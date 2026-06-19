@@ -87,11 +87,22 @@ def run_checks(path):
         if leader_type(g[1], ns) != "eighth":
             fails.append(f"{label}: 2nd chord should be eighth")
 
-    # 4 PR m25 first two beamed eighths
+    # 4 PR m25 (mxl 24) — 앞 두 4분 유지(병렬 RH), 5번째 4분(g4)도 유지
     m = get_measure(root, ns, 4, 24)
     g = groups(m, ns, "1")
-    if not (leader_type(g[0], ns) == "eighth" and leader_type(g[1], ns) == "eighth"):
-        fails.append("PR m25: first two chords should be beamed eighths")
+    if leader_type(g[0], ns) != "quarter" or leader_type(g[1], ns) != "quarter":
+        fails.append("PR m25: v1 opening quarters changed")
+    if leader_type(g[4], ns) != "quarter":
+        fails.append("PR m25: 5th quarter (v2) should stay quarter")
+
+    # 4b T/B m25 — 2번째·4번째 4분 유지
+    for part_idx, label in [(2, "T m25"), (3, "B m25")]:
+        m = get_measure(root, ns, part_idx, 24)
+        g = groups(m, ns)
+        if leader_type(g[1], ns) != "quarter":
+            fails.append(f"{label}: 2nd quarter should stay quarter")
+        if leader_type(g[4], ns) != "quarter":
+            fails.append(f"{label}: 4th quarter should stay quarter")
 
     # 5-6 PR m26,m27 2nd chord eighth
     for mnum, label in [(25, "PR m26"), (26, "PR m27")]:

@@ -992,11 +992,15 @@ def _repair_leading_quarter_pair_on_staff(
         return 0
     fixed = 0
     quarter = divisions
+    eighth = divisions // 2
     for staff in _staffs_in_measure(measure, ns):
         groups = _staff_chronological_groups(measure, ns, staff)
         if len(groups) < 3:
             continue
         g0, g1, g2 = groups[0], groups[1], groups[2]
+        if g0[3] != g1[3]:
+            continue
+        voice = g0[3]
         if not (
             _is_plain_quarter_group(g0[0], ns, divisions)
             and _is_plain_quarter_group(g1[0], ns, divisions)
@@ -1006,8 +1010,11 @@ def _repair_leading_quarter_pair_on_staff(
             continue
         if _note_has_beam(g0[0], ns) or _note_has_beam(g1[0], ns):
             continue
-        staff_total = _staff_pitched_duration_sum(measure, ns, staff)
-        if staff_total not in (expected + quarter, expected + divisions // 2):
+        voice_total = sum(
+            _note_duration(g[0], ns) or 0
+            for g in _voice_groups(measure, ns)[(staff, voice)]
+        )
+        if voice_total not in (expected + quarter, expected + eighth):
             continue
         _halve_group_to_eighth(g0[1], ns)
         _halve_group_to_eighth(g1[1], ns)
@@ -1761,14 +1768,50 @@ def _split_quarter_chord_to_beamed_eighth_pair(
     return second
 
 
+def _staff_has_isolated_quarter_voice(
+    measure: ET.Element, ns: str, staff: str, divisions: int, expected: int
+) -> bool:
+    """다른 voice가 마디를 채울 때, 단독 plain 4분 1개만 있는 orphan voice."""
+    if not divisions or not expected:
+        return False
+    by_voice: dict[str, list] = {}
+    for (s, voice), groups in _voice_groups(measure, ns).items():
+        if s != staff:
+            continue
+        by_voice[voice] = groups
+    if len(by_voice) < 2:
+        return False
+    totals = {
+        v: sum(_note_duration(g[0], ns) or 0 for g in grps) for v, grps in by_voice.items()
+    }
+    main_total = max(totals.values())
+    if main_total < expected - divisions // 2:
+        return False
+    for v, grps in by_voice.items():
+        if totals[v] != main_total and len(grps) == 1:
+            if _is_plain_quarter_group(grps[0][0], ns, divisions):
+                return True
+    return False
+
+
 def _repair_quarter_chord_to_beamed_eighth_pair_after_beam(
-    measure: ET.Element, ns: str, divisions: int
+    measure: ET.Element, ns: str, divisions: int, expected: int = 0
 ) -> int:
-    """빔 run(잇단 포함) 직후 4분 화음 1개 — 빔 8분 화음 2개로 분할(PL 48 등)."""
-    if not divisions:
+    """빔 run(잇단 포함) 직후 4분 화음 1개 — 빔 8분 화음 2개로 분할(PL 48 등).
+
+    voice가 4분 하나 넘치거나, 같은 staff에 orphan 4분 voice가 있을 때만 (♪♪ ♩ ♪♪ 정상 패턴 제외).
+    """
+    if not divisions or not expected:
         return 0
     fixed = 0
-    for (_, _voice), groups in _voice_groups(measure, ns).items():
+    quarter = divisions
+    for (staff, voice), groups in _voice_groups(measure, ns).items():
+        voice_total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        allow_exact = voice_total == expected and _staff_has_isolated_quarter_voice(
+            measure, ns, staff, divisions, expected
+        )
+        if voice_total != expected + quarter and not allow_exact:
+            continue
         for i in range(1, len(groups) - 1):
             g_prev, g0, g1 = groups[i - 1], groups[i], groups[i + 1]
             if not _is_plain_quarter_group(g0[0], ns, divisions):
@@ -2673,16 +2716,22 @@ def _repair_overfull_eighth(part: ET.Element, ns: str) -> tuple[int, int]:
             continue
         for (_, _voice), groups in _voice_groups(measure, ns).items():
             total = 0
+            pitched_total = 0
             for leader, _, _, _ in groups:
                 dur = _note_duration(leader, ns)
-                if dur is not None:
-                    total += dur
+                if dur is None:
+                    continue
+                total += dur
+                if not _is_rest(leader, ns):
+                    pitched_total += dur
+            if pitched_total == expected:
+                continue
             if total == expected:
                 continue
             if _normalize_overfull_rest_only_voice(groups, ns, expected):
                 rest_fixed += 1
                 continue
-            if total != expected + eighth or total < expected:
+            if pitched_total != expected + eighth or pitched_total < expected:
                 continue
             # 후보: 점·잇단 없음, 순수 4분음표(쉼표 제외)
             candidates: list[tuple[int, int]] = []  # (index, score)
@@ -3826,7 +3875,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     measure, ns, divisions or 0, expected or 0
                 )
                 stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_to_beamed_eighth_pair_after_beam(
-                    measure, ns, divisions or 0
+                    measure, ns, divisions or 0, expected or 0
                 )
                 stats["quarter_chord_triplet_expanded"] += _repair_plain_beamed_trio_as_triplet_on_staff(
                     measure, ns, max_staff, divisions or 0

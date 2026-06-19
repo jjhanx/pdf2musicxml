@@ -100,15 +100,18 @@ def run_checks(path):
         if leader_type(g[1], ns) != "eighth":
             fails.append(f"{label}: 2nd chord should be eighth")
 
-    # 7-8 PL m40,m43 triplet groups distinct (d=4T not collapsed)
+    # 7-8 PL m40,m43 — 1st triplet + 3rd/4th triplet groups
     for mnum, label in [(39, "PL m40"), (42, "PL m43")]:
         m = get_measure(root, ns, 4, mnum)
         g = groups(m, ns, "2")
-        if leader_dur(g[6], ns) != leader_dur(g[7], ns) or leader_dur(g[6], ns) == 0:
-            fails.append(f"{label}: triplet notes overlap")
-        tm6 = g[6][0].find(fix.qname(ns, "time-modification")) is not None
-        if not tm6:
-            fails.append(f"{label}: 3rd triplet missing time-modification")
+        if g[0][0].find(fix.qname(ns, "time-modification")) is None:
+            fails.append(f"{label}: 1st triplet missing time-modification")
+        notations = g[0][0].find(fix.qname(ns, "notations"))
+        if notations is None or notations.find(fix.qname(ns, "tuplet")) is None:
+            fails.append(f"{label}: 1st triplet missing tuplet number")
+        xs = [float(n.get("default-x", 9999)) for grp in (g[5], g[6]) for n in grp]
+        if xs != sorted(xs):
+            fails.append(f"{label}: 3rd/4th triplet notes overlap (default-x)")
 
     # 9-10 T/B m45 no slur g2-g3
     for part_idx, label in [(2, "T m45"), (3, "B m45")]:
@@ -117,11 +120,14 @@ def run_checks(path):
         if has_slur_between(g[2], g[3], ns):
             fails.append(f"{label}: spurious slur between 3rd and 4th notes")
 
-    # 11 PL m48 g8,g9 separate eighth chords (7th/8th notes)
+    # 11 PL m48 — no stray quarter; 7~8th eighth chords separate
     m = get_measure(root, ns, 4, 47)
     g = groups(m, ns, "2")
-    if not (leader_type(g[8], ns) == "eighth" and leader_type(g[9], ns) == "eighth"):
-        fails.append("PL m48: 7-8th eighth chords collapsed")
+    if any(leader_type(grp, ns) == "quarter" for grp in g):
+        fails.append("PL m48: quarter chord remains (7-8th eighths collapsed)")
+    eighth_idxs = [i for i, grp in enumerate(g) if leader_type(grp, ns) == "eighth"]
+    if len(eighth_idxs) < 2 or leader_dur(g[eighth_idxs[-2]], ns) != leader_dur(g[eighth_idxs[-1]], ns):
+        fails.append("PL m48: trailing eighth chords missing")
 
     # 12 PR m50 2nd chord eighth
     m = get_measure(root, ns, 4, 49)
@@ -129,11 +135,14 @@ def run_checks(path):
     if leader_type(g[1], ns) != "eighth":
         fails.append("PR m50: 2nd chord should be eighth")
 
-    # 13 PR m57 g1,g2 not overlapping
+    # 13 PR m57 — 2nd note eighth + default-x chronological order
     m = get_measure(root, ns, 4, 56)
     g = groups(m, ns, "1")
     if leader_type(g[1], ns) != "eighth":
         fails.append("PR m57: 2nd note should be eighth not quarter")
+    xs = [float(grp[0].get("default-x", 9999)) for grp in g]
+    if xs != sorted(xs):
+        fails.append("PR m57: notes out of default-x order (overlap)")
 
     return fails
 

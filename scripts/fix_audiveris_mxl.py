@@ -1673,6 +1673,154 @@ def _repair_quarter_pair_after_beam_run(
     return fixed
 
 
+def _repair_plain_beamed_trio_as_triplet_on_staff(
+    measure: ET.Element, ns: str, max_staff: int, divisions: int
+) -> int:
+    """같은 staff 다른 voice에 세잇단이 있는데, 한 voice만 plain 빔 8분 3개 — 1절 세잇단으로."""
+    if not divisions:
+        return 0
+    triplet_dur = _triplet_eighth_duration(divisions)
+    if not triplet_dur:
+        return 0
+    fixed = 0
+    for staff in _staffs_in_measure(measure, ns):
+        has_triplet = any(
+            g[0].find(qname(ns, "time-modification")) is not None
+            for g in _iter_chord_groups(measure, ns)
+            if g[2] == staff
+        )
+        if not has_triplet:
+            continue
+        for (s, _voice), groups in _voice_groups(measure, ns).items():
+            if s != staff or len(groups) != 3:
+                continue
+            if any(g[0].find(qname(ns, "time-modification")) is not None for g in groups):
+                continue
+            if not all(_is_plain_eighth_group(g[0], ns, divisions) for g in groups):
+                continue
+            if not all(_note_has_beam(g[0], ns) for g in groups):
+                continue
+            for j, grp in enumerate(groups):
+                for n in grp[1]:
+                    _clear_note_staccato(n, ns)
+                    _strip_tuplet_notations(n, ns)
+                    _ensure_time_modification(n, ns)
+                    _set_note_type_duration(n, ns, triplet_dur, "eighth")
+                    _set_beam(
+                        n,
+                        ns,
+                        "begin" if j == 0 else ("end" if j == 2 else "continue"),
+                    )
+                    _ensure_stem_like_reference(n, staff, max_staff, ns, groups[0][0])
+            plc = _infer_tuplet_placement(groups[0][0], ns, max_staff)
+            _ensure_tuplet_bracket(groups[0][0], ns, plc, groups[2][0], has_rest=False)
+            fixed += 1
+    return fixed
+
+
+def _split_quarter_chord_to_beamed_eighth_pair(
+    measure: ET.Element, group: tuple, ns: str, divisions: int, next_x: float
+) -> list[ET.Element]:
+    """plain 4분 화음 1개 → 빔 8분 화음 2개(복제)."""
+    eighth = divisions // 2
+    _halve_group_to_eighth(group[1], ns)
+    x0 = _group_default_x(group[0])
+    second: list[ET.Element] = []
+    for ni, n in enumerate(group[1]):
+        c = copy.deepcopy(n)
+        if ni > 0:
+            ET.SubElement(c, qname(ns, "chord"))
+        else:
+            ch = c.find(qname(ns, "chord"))
+            if ch is not None:
+                c.remove(ch)
+        if ni == 0 and x0 < 9999.0:
+            orphan_x = None
+            staff, voice = _note_voice_staff(group[0][0], ns)
+            staff = staff or "1"
+            for g in _iter_chord_groups(measure, ns):
+                if g[2] != staff or g[0] is group[0][0]:
+                    continue
+                if not _is_plain_quarter_group(g[0], ns, divisions):
+                    continue
+                gx = _group_default_x(g[0])
+                if x0 < gx < next_x + 1:
+                    orphan_x = int(gx)
+                    break
+            c.set(
+                "default-x",
+                str(orphan_x if orphan_x is not None else int(round((x0 + next_x) / 2))),
+            )
+        second.append(c)
+    _rebeam_group(group[1], ns, "begin")
+    anchor = group[1][-1]
+    for sn in second:
+        _insert_after_note(measure, anchor, sn)
+        anchor = sn
+    _rebeam_group(second, ns, "end")
+    return second
+
+
+def _repair_quarter_chord_to_beamed_eighth_pair_after_beam(
+    measure: ET.Element, ns: str, divisions: int
+) -> int:
+    """빔 run(잇단 포함) 직후 4분 화음 1개 — 빔 8분 화음 2개로 분할(PL 48 등)."""
+    if not divisions:
+        return 0
+    fixed = 0
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        for i in range(1, len(groups) - 1):
+            g_prev, g0, g1 = groups[i - 1], groups[i], groups[i + 1]
+            if not _is_plain_quarter_group(g0[0], ns, divisions):
+                continue
+            if not (
+                _is_plain_eighth_group(g1[0], ns, divisions) and _note_has_beam(g1[0], ns)
+            ):
+                continue
+            if _note_has_beam(g0[0], ns):
+                continue
+            prev_beams = g_prev[0].findall(qname(ns, "beam"))
+            if not prev_beams or prev_beams[-1].text not in ("end", "continue"):
+                continue
+            _split_quarter_chord_to_beamed_eighth_pair(
+                measure, g0, ns, divisions, _group_default_x(g1[0])
+            )
+            fixed += 1
+            break
+    return fixed
+
+
+def _remove_isolated_quarter_voices_on_staff(
+    measure: ET.Element, ns: str, divisions: int, expected: int
+) -> int:
+    """한 staff에서 다른 voice가 마디를 채울 때, 단독 4분 1개만 있는 orphan voice 제거."""
+    if not divisions or not expected:
+        return 0
+    removed = 0
+    for staff in _staffs_in_measure(measure, ns):
+        by_voice: dict[str, list] = {}
+        for (s, voice), groups in _voice_groups(measure, ns).items():
+            if s != staff:
+                continue
+            by_voice[voice] = groups
+        if len(by_voice) < 2:
+            continue
+        totals = {
+            v: sum(_note_duration(g[0], ns) or 0 for g in grps) for v, grps in by_voice.items()
+        }
+        main_total = max(totals.values())
+        if main_total < expected - divisions // 2:
+            continue
+        for voice, groups in by_voice.items():
+            if totals[voice] != main_total and len(groups) == 1:
+                g0 = groups[0]
+                if _is_plain_quarter_group(g0[0], ns, divisions):
+                    for n in g0[1]:
+                        measure.remove(n)
+                    removed += 1
+    return removed
+
+
 def _repair_quarter_chord_before_rest(
     measure: ET.Element, ns: str, divisions: int, expected: int
 ) -> int:
@@ -2792,6 +2940,90 @@ def _consolidate_cross_voices_on_staff(measure: ET.Element, ns: str) -> int:
     return merged
 
 
+def _consolidate_sequential_voice_after_backup(measure: ET.Element, ns: str) -> int:
+    """backup 직후( forward 없음) 다른 voice — 순차 조각이면 주 voice로 병합."""
+    merged = 0
+    while True:
+        children = list(measure)
+        found = False
+        for i, el in enumerate(children):
+            if local_tag(el) != "backup":
+                continue
+            j = i + 1
+            while j < len(children) and local_tag(children[j]) == "forward":
+                fd = children[j].find(qname(ns, "duration"))
+                if (
+                    fd is not None
+                    and fd.text
+                    and fd.text.strip().isdigit()
+                    and int(fd.text.strip()) > 0
+                ):
+                    break
+                j += 1
+            if j < len(children) and local_tag(children[j]) == "forward":
+                continue
+            while j < len(children) and local_tag(children[j]) == "forward":
+                j += 1
+            if j >= len(children) or local_tag(children[j]) != "note":
+                continue
+            sec = children[j]
+            sec_v, sec_s = _note_voice_staff(sec, ns)
+            if not sec_v or not sec_s:
+                continue
+            pri_v = None
+            for k in range(i - 1, -1, -1):
+                if (
+                    local_tag(children[k]) != "note"
+                    or children[k].find(qname(ns, "chord")) is not None
+                ):
+                    continue
+                v, s = _note_voice_staff(children[k], ns)
+                if s == sec_s and v and v != sec_v:
+                    pri_v = v
+                    break
+                if s == sec_s:
+                    break
+            if not pri_v:
+                continue
+            measure.remove(el)
+            for note in measure.findall(qname(ns, "note")):
+                v, s = _note_voice_staff(note, ns)
+                if v == sec_v and s == sec_s:
+                    vel = note.find(qname(ns, "voice"))
+                    if vel is not None:
+                        vel.text = pri_v
+            _reorder_staff_notes_by_default_x(measure, ns, sec_s)
+            merged += 1
+            found = True
+            break
+        if not found:
+            break
+    return merged
+
+
+def _reorder_staff_notes_by_default_x(measure: ET.Element, ns: str, staff: str) -> int:
+    """같은 staff 음표를 default-x 순으로 XML 재배치(chord 그룹 유지)."""
+    groups = [g for g in _iter_chord_groups(measure, ns) if g[2] == staff]
+    if len(groups) < 2:
+        return 0
+    xs = [_group_default_x(g[0]) for g in groups]
+    if xs == sorted(xs):
+        return 0
+    groups.sort(key=lambda g: _group_default_x(g[0]))
+    note_set = {n for g in groups for n in g[1]}
+    indices = [list(measure).index(g[1][0]) for g in groups]
+    insert_at = min(indices)
+    for g in groups:
+        for n in g[1]:
+            measure.remove(n)
+    flat: list[ET.Element] = []
+    for g in groups:
+        flat.extend(g[1])
+    for offset, n in enumerate(flat):
+        measure.insert(insert_at + offset, n)
+    return 1
+
+
 def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected: int) -> int:
     """If staff 1 or staff 2 has fragmented voices that sum to <= expected, serialize the entire measure by staff."""
     if not expected:
@@ -3593,6 +3825,15 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_after_beam_run(
                     measure, ns, divisions or 0, expected or 0
                 )
+                stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_to_beamed_eighth_pair_after_beam(
+                    measure, ns, divisions or 0
+                )
+                stats["quarter_chord_triplet_expanded"] += _repair_plain_beamed_trio_as_triplet_on_staff(
+                    measure, ns, max_staff, divisions or 0
+                )
+                stats["quarter_chord_triplet_expanded"] += _remove_isolated_quarter_voices_on_staff(
+                    measure, ns, divisions or 0, expected or 0
+                )
                 stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_before_rest(
                     measure, ns, divisions or 0, expected or 0
                 )
@@ -3621,6 +3862,18 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         fixed, rest_fixed = _repair_overfull_eighth(part, ns)
         stats["overfull_eighth_fixed"] += fixed
         stats["overfull_rest_normalized"] += rest_fixed
+
+    # 2b) ♩. 보정 등으로 voice 조각·순서 어긋남 — backup 병합·default-x 재정렬
+    for part in root.findall(qname(ns, "part")):
+        for measure in part.findall(qname(ns, "measure")):
+            stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
+            stats["voice_consolidated"] += _consolidate_sequential_voice_after_backup(
+                measure, ns
+            )
+            for staff in _staffs_in_measure(measure, ns):
+                stats["voice_consolidated"] += _reorder_staff_notes_by_default_x(
+                    measure, ns, staff
+                )
 
     # 3) 음표 발명·성부 재배치 등 최후 수단 패치는 일반화 원칙에 따라 제거되었습니다.
     stats["score_patches_applied"] = 0

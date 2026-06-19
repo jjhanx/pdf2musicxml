@@ -101,16 +101,16 @@ def run_checks(path):
     if leader_type(v2[2][1], ns) != "quarter":
         fails.append("PR m25: v2 3rd group (5th on staff) should stay quarter")
 
-    # 4b T/B m25 — 1st pitched 8th, 2nd·4th 4분 유지
+    # 4b T/B m25 — 𝄽8 + 첫 8분(4분 오인) + … , 4번째 4분 유지
     for part_idx, label in [(2, "T m25"), (3, "B m25")]:
         m = get_measure(root, ns, part_idx, 24)
         g = [x for x in fix._iter_chord_groups(m, ns)]
-        if fix._is_rest(g[0][0], ns):
-            fails.append(f"{label}: 1st should be pitched eighth not rest")
+        if not fix._is_rest(g[0][0], ns):
+            fails.append(f"{label}: 1st should be eighth rest")
         if leader_type(g[0][1], ns) != "eighth":
-            fails.append(f"{label}: 1st should be eighth")
-        if leader_type(g[1][1], ns) != "quarter":
-            fails.append(f"{label}: 2nd quarter should stay quarter")
+            fails.append(f"{label}: 1st should be eighth rest type")
+        if leader_type(g[1][1], ns) != "eighth":
+            fails.append(f"{label}: 2nd (1st pitched) should be eighth not quarter")
         if leader_type(g[4][1], ns) != "quarter":
             fails.append(f"{label}: 4th quarter should stay quarter")
 

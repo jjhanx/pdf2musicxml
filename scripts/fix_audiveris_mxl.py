@@ -805,10 +805,11 @@ def _rest_note_to_pitched_eighth(
 def _repair_leading_pickup_eighth_misread(
     measure: ET.Element, ns: str, divisions: int, expected: int
 ) -> int:
-    """마디 맨 앞 8분 pickup 오인 복원: 𝄽8→♪(다음 음 pitch) 또는 ♩→♪(1개만).
+    """마디 맨 앞 8분 pickup/쉼표+4분 오인 복원.
 
-    voice pitched 합이 expected+8분 하나일 때, 앞 4분 2개 중 **첫 번째만** 8분으로 줄이는
-    경우(♪♩♪♪…)와, pitched 합이 expected−8분·쉼표 포함 합이 expected인 𝄽8+♩ 패턴을 구분.
+    - 𝄽8 ♩(오인) ♪♪ … (음표 합=마디, 쉼표 포함 8분 1개 넘침): **𝄽8 유지**, 2번째만 ♪.
+    - 𝄽8 … (음표 합=마디−8분, 합=마디): 유실 pickup ♪ 복원(𝄽8→♪, 다음 음 pitch).
+    - ♩♩♪♪ … (음표 합=마디+8분): **첫 ♩만** ♪.
     """
     if not divisions or not expected:
         return 0
@@ -828,10 +829,20 @@ def _repair_leading_pickup_eighth_misread(
         if (
             _is_eighth_rest_group(g0[0], ns, divisions)
             and _is_plain_quarter_group(g1[0], ns, divisions)
-            and (
-                pitched == expected - eighth
-                or (pitched == expected and total == expected + eighth)
-            )
+            and pitched == expected
+            and total == expected + eighth
+            and len(groups) >= 3
+            and _is_plain_eighth_group(groups[2][0], ns, divisions)
+            and _note_has_beam(groups[2][0], ns)
+        ):
+            _halve_group_to_eighth(g1[1], ns)
+            fixed += 1
+            continue
+        if (
+            _is_eighth_rest_group(g0[0], ns, divisions)
+            and _is_plain_quarter_group(g1[0], ns, divisions)
+            and pitched == expected - eighth
+            and total == expected
         ):
             for n in g0[1]:
                 _rest_note_to_pitched_eighth(n, g1[0], ns, eighth)

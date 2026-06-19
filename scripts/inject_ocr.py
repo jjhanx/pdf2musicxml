@@ -338,9 +338,11 @@ def parse_bpm_from_text(text: str):
 
 
 def _skip_inject_meta_item(item):
-    """ocr_data.json 에서 타입 이름이 '_' 로 시작하면 메타(마스킹 전용 등)로 취급."""
+    """ocr_data.json — inject 제외: `_` 메타, 마디 번호."""
     t = item.get("type", "unknown")
-    return isinstance(t, str) and t.startswith("_")
+    if isinstance(t, str) and t.startswith("_"):
+        return True
+    return t == "measure_number"
 
 
 def collect_tempo_bpm(ocr_data):

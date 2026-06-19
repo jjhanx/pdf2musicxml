@@ -13,6 +13,35 @@ DEFAULT_MIN_LYRICS_SIZE = 7.0
 DEFAULT_MAX_LYRICS_SIZE = 17.0
 Y_TOLERANCE_PT = 4.0
 IOU_MATCH_THRESHOLD = 0.25
+_MEASURE_NUM_RE = re.compile(r"^\d{1,3}$")
+
+
+def is_measure_number_item(item: dict[str, Any]) -> bool:
+    """악보 좌측 마디 번호(14, 17 등) — 가사 주입 대상이 아님."""
+    text = strip_pua(str(item.get("text") or "")).strip()
+    if not _MEASURE_NUM_RE.fullmatch(text):
+        return False
+    t = str(item.get("type") or "")
+    if t == "measure_number":
+        return True
+    if t in ("title", "composer", "copyright", "tempo", "lyrics"):
+        return False
+    bbox = item.get("bbox")
+    if isinstance(bbox, list) and len(bbox) >= 4:
+        w = abs(float(bbox[2]) - float(bbox[0]))
+        if w > 100:
+            return False
+    return t in ("", "unknown")
+
+
+def resolve_inject_type(item: dict[str, Any]) -> str:
+    """merge·flat 출력용 type — unknown 숫자는 measure_number, 그 외 unknown은 lyrics."""
+    if is_measure_number_item(item):
+        return "measure_number"
+    t = item.get("type")
+    if t in (None, "", "unknown"):
+        return "lyrics"
+    return str(t)
 
 
 def strip_pua(text: str) -> str:
@@ -247,7 +276,7 @@ def best_pymupdf_match(
 def merge_item(sep_item: dict[str, Any], pymupdf_item: dict[str, Any] | None) -> dict[str, Any]:
     merged = dict(sep_item)
     if pymupdf_item is None:
-        merged["type"] = merged.get("type") if merged.get("type") not in (None, "unknown") else "lyrics"
+        merged["type"] = resolve_inject_type(merged)
         merged["provenance"] = "pdfplumber"
         return merged
 
@@ -267,10 +296,7 @@ def merge_item(sep_item: dict[str, Any], pymupdf_item: dict[str, Any] | None) ->
         if key in pymupdf_item and pymupdf_item[key] not in (None, ""):
             merged[key] = pymupdf_item[key]
 
-    if merged.get("type") in (None, "unknown"):
-        merged["type"] = pymupdf_item.get("type") or "lyrics"
-    if merged.get("type") == "unknown":
-        merged["type"] = "lyrics"
+    merged["type"] = resolve_inject_type(merged)
 
     if "fontSize" not in merged and "fontSize" in sep_item:
         merged["fontSize"] = sep_item["fontSize"]
@@ -300,7 +326,7 @@ def merge_sources(
 
     # PyMuPDF에만 있고 pdfplumber와 매칭되지 않은 항목(제목·작곡 등 다른 크기) 보존
     for it in pymupdf_items:
-        if is_meta_item(it):
+        if is_meta_item(it) or is_measure_number_item(it):
             continue
         iid = str(it.get("id", ""))
         if iid in used_pymupdf:
@@ -336,7 +362,11 @@ def merge_sources(
 def manifest_to_flat_inject_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     items = manifest.get("items") or []
     manual = manifest.get("manualLyricRects") or []
-    rows = [dict(x) for x in items if isinstance(x, dict)]
+    rows = [
+        dict(x)
+        for x in items
+        if isinstance(x, dict) and x.get("type") != "measure_number"
+    ]
     if manual:
         rows.append(
             {

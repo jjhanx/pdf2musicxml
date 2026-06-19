@@ -784,6 +784,74 @@ def _is_quarter_rest_group(leader: ET.Element, ns: str, divisions: int) -> bool:
     )
 
 
+def _rest_note_to_pitched_eighth(
+    rest_note: ET.Element, template: ET.Element, ns: str, eighth_dur: int
+) -> None:
+    """8분 쉼표 → 다음 음 pitch/stem을 본뜬 8분음표(유실 pickup 복원)."""
+    rest_el = rest_note.find(qname(ns, "rest"))
+    if rest_el is not None:
+        rest_note.remove(rest_el)
+    tp = template.find(qname(ns, "pitch"))
+    if tp is not None and rest_note.find(qname(ns, "pitch")) is None:
+        dur_el = rest_note.find(qname(ns, "duration"))
+        idx = list(rest_note).index(dur_el) + 1 if dur_el is not None else 0
+        rest_note.insert(idx, copy.deepcopy(tp))
+    stem = template.find(qname(ns, "stem"))
+    if stem is not None and stem.text and rest_note.find(qname(ns, "stem")) is None:
+        ET.SubElement(rest_note, qname(ns, "stem")).text = stem.text
+    _set_note_type_duration(rest_note, ns, eighth_dur, "eighth")
+
+
+def _repair_leading_pickup_eighth_misread(
+    measure: ET.Element, ns: str, divisions: int, expected: int
+) -> int:
+    """마디 맨 앞 8분 pickup 오인 복원: 𝄽8→♪(다음 음 pitch) 또는 ♩→♪(1개만).
+
+    voice pitched 합이 expected+8분 하나일 때, 앞 4분 2개 중 **첫 번째만** 8분으로 줄이는
+    경우(♪♩♪♪…)와, pitched 합이 expected−8분·쉼표 포함 합이 expected인 𝄽8+♩ 패턴을 구분.
+    """
+    if not divisions or not expected:
+        return 0
+    eighth = divisions // 2
+    quarter = divisions
+    fixed = 0
+    for (_, _voice), groups in _voice_groups(measure, ns).items():
+        if len(groups) < 2:
+            continue
+        pitched = sum(
+            _note_duration(g[0], ns) or 0
+            for g in groups
+            if not _is_rest(g[0], ns)
+        )
+        total = sum(_note_duration(g[0], ns) or 0 for g in groups)
+        g0, g1 = groups[0], groups[1]
+        if (
+            _is_eighth_rest_group(g0[0], ns, divisions)
+            and _is_plain_quarter_group(g1[0], ns, divisions)
+            and (
+                pitched == expected - eighth
+                or (pitched == expected and total == expected + eighth)
+            )
+        ):
+            for n in g0[1]:
+                _rest_note_to_pitched_eighth(n, g1[0], ns, eighth)
+            fixed += 1
+            continue
+        if (
+            len(groups) >= 3
+            and pitched == expected + eighth
+            and _is_plain_quarter_group(g0[0], ns, divisions)
+            and _is_plain_quarter_group(g1[0], ns, divisions)
+            and _is_plain_eighth_group(groups[2][0], ns, divisions)
+            and _note_has_beam(groups[2][0], ns)
+            and not _note_has_beam(g0[0], ns)
+            and not _note_has_beam(g1[0], ns)
+        ):
+            _halve_group_to_eighth(g0[1], ns)
+            fixed += 1
+    return fixed
+
+
 def _voice_backup_after_notes(
     measure: ET.Element, ns: str, staff: str, voice: str
 ) -> tuple[ET.Element | None, int | None]:
@@ -1010,11 +1078,19 @@ def _repair_leading_quarter_pair_on_staff(
             continue
         if _note_has_beam(g0[0], ns) or _note_has_beam(g1[0], ns):
             continue
+        voice_groups = _voice_groups(measure, ns)[(staff, voice)]
         voice_total = sum(
-            _note_duration(g[0], ns) or 0
-            for g in _voice_groups(measure, ns)[(staff, voice)]
+            _note_duration(g[0], ns) or 0 for g in voice_groups
         )
-        if voice_total not in (expected + quarter, expected + eighth):
+        staff_total = _staff_pitched_duration_sum(measure, ns, staff)
+        overfull_voice = voice_total in (expected + quarter, expected + eighth)
+        parallel_leading = (
+            voice_total == 2 * quarter
+            and len(voice_groups) == 2
+            and all(_is_plain_quarter_group(g[0], ns, divisions) for g in voice_groups)
+            and staff_total in (expected + quarter, expected + eighth)
+        )
+        if not (overfull_voice or parallel_leading):
             continue
         _halve_group_to_eighth(g0[1], ns)
         _halve_group_to_eighth(g1[1], ns)
@@ -3857,6 +3933,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     measure, ns, max_staff, divisions or 0, expected or 0
                 )
                 stats["quarter_pair_eighth_fixed"] += _repair_swap_leading_qq_with_beamed_pair(
+                    measure, ns, divisions or 0, expected or 0
+                )
+                stats["quarter_pair_eighth_fixed"] += _repair_leading_pickup_eighth_misread(
                     measure, ns, divisions or 0, expected or 0
                 )
                 stats["quarter_pair_eighth_fixed"] += _repair_leading_quarter_pair(

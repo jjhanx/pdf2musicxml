@@ -87,21 +87,31 @@ def run_checks(path):
         if leader_type(g[1], ns) != "eighth":
             fails.append(f"{label}: 2nd chord should be eighth")
 
-    # 4 PR m25 (mxl 24) — 앞 두 4분 유지(병렬 RH), 5번째 4분(g4)도 유지
+    # 4 PR m25 (mxl 24) — v1 앞 빔 8분 2개, v2 5번째 4분 유지
     m = get_measure(root, ns, 4, 24)
-    g = groups(m, ns, "1")
-    if leader_type(g[0], ns) != "quarter" or leader_type(g[1], ns) != "quarter":
-        fails.append("PR m25: v1 opening quarters changed")
-    if leader_type(g[4], ns) != "quarter":
-        fails.append("PR m25: 5th quarter (v2) should stay quarter")
+    v1 = [g for g in fix._iter_chord_groups(m, ns) if g[2] == "1" and g[3] == "1"]
+    v2 = [g for g in fix._iter_chord_groups(m, ns) if g[2] == "1" and g[3] == "2"]
+    if not (
+        leader_type(v1[0][1], ns) == "eighth"
+        and leader_type(v1[1][1], ns) == "eighth"
+        and v1[0][0].findall(fix.qname(ns, "beam"))
+        and v1[1][0].findall(fix.qname(ns, "beam"))
+    ):
+        fails.append("PR m25: v1 opening should be beamed eighths")
+    if leader_type(v2[2][1], ns) != "quarter":
+        fails.append("PR m25: v2 3rd group (5th on staff) should stay quarter")
 
-    # 4b T/B m25 — 2번째·4번째 4분 유지
+    # 4b T/B m25 — 1st pitched 8th, 2nd·4th 4분 유지
     for part_idx, label in [(2, "T m25"), (3, "B m25")]:
         m = get_measure(root, ns, part_idx, 24)
-        g = groups(m, ns)
-        if leader_type(g[1], ns) != "quarter":
+        g = [x for x in fix._iter_chord_groups(m, ns)]
+        if fix._is_rest(g[0][0], ns):
+            fails.append(f"{label}: 1st should be pitched eighth not rest")
+        if leader_type(g[0][1], ns) != "eighth":
+            fails.append(f"{label}: 1st should be eighth")
+        if leader_type(g[1][1], ns) != "quarter":
             fails.append(f"{label}: 2nd quarter should stay quarter")
-        if leader_type(g[4], ns) != "quarter":
+        if leader_type(g[4][1], ns) != "quarter":
             fails.append(f"{label}: 4th quarter should stay quarter")
 
     # 5-6 PR m26,m27 2nd chord eighth

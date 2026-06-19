@@ -1034,7 +1034,7 @@ def _repair_dotted_quarter_on_staff_timeline(
         over = staff_total > expected
         if len(groups) >= 5:
             g1, g2, g3, g4 = groups[1], groups[2], groups[3], groups[4]
-            if (
+            if over and (
                 _is_plain_quarter_group(g1[0], ns, divisions)
                 and _is_plain_quarter_group(g2[0], ns, divisions)
                 and _note_duration(g3[0], ns) == eighth
@@ -1045,9 +1045,7 @@ def _repair_dotted_quarter_on_staff_timeline(
                 continue
         g1 = groups[1]
         if _is_plain_quarter_group(g1[0], ns, divisions) and g1[3] == g0[3]:
-            if over or _staff_has_dotted_quarter_short_second_voice(
-                measure, ns, staff, divisions, skip_voice=g0[3]
-            ):
+            if over:
                 _halve_group_to_eighth(g1[1], ns)
                 fixed += 1
     return fixed
@@ -1133,52 +1131,7 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                     _halve_group_to_eighth(g1[1], ns)
                     dotted_fixed += 1
                     continue
-                # 패턴 A2: ♩. ♩ ♪ 𝄽8 — 끝 4분→8분, 𝄽8→𝄽4 (마디 합 유지)
-                if (
-                    total == expected
-                    and _is_dotted_quarter_group(g0[0], ns, divisions)
-                    and _is_plain_quarter_group(g1[0], ns, divisions)
-                    and _is_plain_quarter_group(g2[0], ns, divisions)
-                    and _is_eighth_rest_group(g3[0], ns, divisions)
-                ):
-                    _halve_group_to_eighth(g2[1], ns)
-                    _set_note_type_duration(g3[0], ns, divisions, "quarter")
-                    dotted_fixed += 1
-                    continue
-            # 패턴 H: ♩. ♪ ♩ 𝄽8 ♩ (total=expected+8) — 동음 8분+4분 중 4분→8분
-            if len(groups) == 5:
-                g0, g1, g2, g3, g4 = groups
-                total = sum(_note_duration(g[0], ns) or 0 for g in groups)
-                if (
-                    total == expected + eighth
-                    and _is_dotted_quarter_group(g0[0], ns, divisions)
-                    and _is_plain_eighth_group(g1[0], ns, divisions)
-                    and _is_plain_quarter_group(g2[0], ns, divisions)
-                    and _is_eighth_rest_group(g3[0], ns, divisions)
-                    and _is_plain_quarter_group(g4[0], ns, divisions)
-                    and _chord_step_octave_signature(g1, ns) == _chord_step_octave_signature(g2, ns)
-                ):
-                    _halve_group_to_eighth(g2[1], ns)
-                    dotted_fixed += 1
-                    continue
-            # 패턴 J: ♩– ♩ 𝄽8 ♩ (total=expected+8) — 동음 2분+4분 중 4분→8분
-            if len(groups) == 4:
-                g0, g1, g2, g3 = groups
-                total = sum(_note_duration(g[0], ns) or 0 for g in groups)
-                quarter = divisions
-                if (
-                    total == expected + eighth
-                    and (_note_duration(g0[0], ns) or 0) == 2 * quarter
-                    and g0[0].find(qname(ns, "dot")) is None
-                    and _is_plain_quarter_group(g1[0], ns, divisions)
-                    and _is_eighth_rest_group(g2[0], ns, divisions)
-                    and _is_plain_quarter_group(g3[0], ns, divisions)
-                    and _chord_step_octave_signature(g0, ns) == _chord_step_octave_signature(g1, ns)
-                ):
-                    _halve_group_to_eighth(g1[1], ns)
-                    dotted_fixed += 1
-                    continue
-            # 패턴 C: ♩. ♪ ♩. — 가운데 8분이 4분으로, 끝 8분쉼표 유실(피아노 RH 등)
+            # 패턴 C: ♩. ♪ ♩. — 가운데 8분이 4분으로 읽힌 경우만 8분으로 (쉼표 삽입은 하지 않음)
             if len(groups) == 3:
                 g0, g1, g2 = groups
                 total = sum(_note_duration(g[0], ns) or 0 for g in groups)
@@ -1190,18 +1143,7 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                     and (_note_duration(g1[0], ns) or 0) == divisions
                 ):
                     _halve_group_to_eighth(g1[1], ns)
-                    rest = ET.Element(qname(ns, "note"))
-                    ET.SubElement(rest, qname(ns, "rest"))
-                    ET.SubElement(rest, qname(ns, "duration")).text = str(eighth)
-                    v, s = _note_voice_staff(g0[0], ns)
-                    if v:
-                        ET.SubElement(rest, qname(ns, "voice")).text = v
-                    if s:
-                        ET.SubElement(rest, qname(ns, "staff")).text = s
-                    ET.SubElement(rest, qname(ns, "type")).text = "eighth"
-                    _insert_after_note(measure, g2[1][-1], rest)
                     dotted_fixed += 1
-                    rest_fixed += 1
                     continue
             # 패턴 B: ♩. ♩ (피아노 voice1 등, backup 직후 다른 voice) — voice에 4분 2개뿐일 때만
             if len(groups) == 2:
@@ -1290,34 +1232,6 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                 ):
                     _halve_group_to_eighth(g1[1], ns)
                     dotted_fixed += 1
-                    continue
-
-            # 신규 패턴 F: ♩. ♩ ♩ ♪ ♪ — 8분 하나 넘침, ♩ ♩ 둘 다 ♪ ♪로 바꾸고 끝에 𝄽8 보충
-            if len(groups) == 5:
-                g0, g1, g2, g3, g4 = groups
-                total = sum(_note_duration(g[0], ns) or 0 for g in groups)
-                if (
-                    total == expected + eighth
-                    and _is_dotted_quarter_group(g0[0], ns, divisions)
-                    and _is_plain_quarter_group(g1[0], ns, divisions)
-                    and _is_plain_quarter_group(g2[0], ns, divisions)
-                    and _is_plain_eighth_group(g3[0], ns, divisions)
-                    and _is_plain_eighth_group(g4[0], ns, divisions)
-                ):
-                    _halve_group_to_eighth(g1[1], ns)
-                    _halve_group_to_eighth(g2[1], ns)
-                    rest = ET.Element(qname(ns, "note"))
-                    ET.SubElement(rest, qname(ns, "rest"))
-                    ET.SubElement(rest, qname(ns, "duration")).text = str(eighth)
-                    v, s = _note_voice_staff(g0[0], ns)
-                    if v:
-                        ET.SubElement(rest, qname(ns, "voice")).text = v
-                    if s:
-                        ET.SubElement(rest, qname(ns, "staff")).text = s
-                    ET.SubElement(rest, qname(ns, "type")).text = "eighth"
-                    _insert_after_note(measure, g4[1][-1], rest)
-                    dotted_fixed += 2
-                    rest_fixed += 1
                     continue
 
             # 패턴 D: ♩. … ♩(들) ♪♪ — 8분 하나 넘침, 점4분 뒤 4분 하나를 8분으로
@@ -2117,20 +2031,6 @@ def _chord_pitch_signature(group: tuple, ns: str) -> tuple[str, ...]:
     return tuple(labs)
 
 
-def _chord_step_octave_signature(group: tuple, ns: str) -> tuple[str, ...]:
-    """accidental 무시 — OMR 동음 8분+4분 오인(E vs Eb 등) 비교용."""
-    labs: list[str] = []
-    for n in group[1]:
-        p = n.find(qname(ns, "pitch"))
-        if p is None:
-            continue
-        step = p.find(qname(ns, "step"))
-        octv = p.find(qname(ns, "octave"))
-        if step is not None and octv is not None and step.text and octv.text:
-            labs.append(f"{step.text.strip()}{octv.text.strip()}")
-    return tuple(sorted(labs))
-
-
 def _note_has_any_slur(note: ET.Element, ns: str) -> bool:
     for notations in note.findall(qname(ns, "notations")):
         if notations.findall(qname(ns, "slur")):
@@ -2680,13 +2580,14 @@ def _repair_quarter_chords_before_triplet_run(
             start -= 1
         if start == triplet_idx:
             continue
-        # Q(A)+Q(B)+T… 는 prefix repair가 A,B,B 로 처리 — 개별 3slice 펼침 금지
+        # Q(A)+Q(B)+T… — default-x가 붙은 collapsed prefix만 tri2 대상, 순차 4분은 개별 펼침
         if triplet_idx >= 2:
             g_a, g_b = groups[triplet_idx - 2], groups[triplet_idx - 1]
             if (
                 _is_misread_quarter_chord_for_triplet(g_a, ns, divisions)
                 and _is_misread_quarter_chord_for_triplet(g_b, ns, divisions)
                 and _chord_pitch_signature(g_a, ns) != _chord_pitch_signature(g_b, ns)
+                and abs(_group_default_x(g_a[0]) - _group_default_x(g_b[0])) <= divisions
             ):
                 start = triplet_idx
         triplet_dur = _triplet_eighth_duration(divisions)

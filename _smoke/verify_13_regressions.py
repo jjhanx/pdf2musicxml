@@ -80,12 +80,15 @@ def run_checks(path):
         if g[idx][0].find(fix.qname(ns, "time-modification")) is not None:
             fails.append("PL m16: 3rd triplet run wrongly tripletized (overlap with 4th)")
 
-    # 2-3 PR m18,m19 2nd chord eighth
-    for mnum, label in [(17, "PR m18"), (18, "PR m19")]:
-        m = get_measure(root, ns, 4, mnum)
-        g = groups(m, ns, "1")
-        if leader_type(g[1], ns) != "eighth":
-            fails.append(f"{label}: 2nd chord should be eighth")
+    # 2-3 PR m18,m19 — m19는 OMR 유지, m18은 overfull 시 2번째 4분→8분 허용
+    m = get_measure(root, ns, 4, 17)
+    g = groups(m, ns, "1")
+    if leader_type(g[1], ns) != "eighth":
+        fails.append("PR m18: 2nd chord should be eighth when overfull")
+    m = get_measure(root, ns, 4, 18)
+    g = groups(m, ns, "1")
+    if [leader_type(x, ns) for x in g[:4]] != ["quarter", "quarter", "quarter", "eighth"]:
+        fails.append("PR m19: should keep OMR rhythm (no duration rebalance)")
 
     # 4 PR m25 (mxl 24) — v1 앞 빔 8분 2개, v2 5번째 4분 유지
     m = get_measure(root, ns, 4, 24)
@@ -165,26 +168,28 @@ def run_checks(path):
     if xs != sorted(xs):
         fails.append("PR m57: notes out of default-x order (overlap)")
 
-    # 14-16 m19 (mxl 18) — 점4분 뒤 8분/4분 오인, 쉼표 순서·음고
-    for part_idx, label, expect in [
-        (1, "S m19", ["quarter", "eighth", "eighth", "eighth", "quarter"]),
-        (2, "A m19", ["quarter", "quarter", "eighth", "quarter"]),
-        (3, "T m19", ["half", "eighth", "eighth", "quarter"]),
-    ]:
+    # 14 m19 (mxl 18) — OMR 리듬 유지 (duration 맞추기 변환 금지)
+    for part_idx, label in [(1, "S m19"), (2, "A m19"), (3, "T m19"), (4, "B m19")]:
         m = get_measure(root, ns, part_idx, 18)
         g = groups(m, ns)
-        types = [leader_type(grp, ns) for grp in g[: len(expect)]]
-        if types != expect:
-            fails.append(f"{label}: rhythm {types} != {expect}")
-        if label == "S m19" and leader_type(g[2], ns) == "quarter":
-            fails.append("S m19: 3rd note should be eighth not quarter")
-        if label == "A m19":
-            if leader_type(g[2], ns) != "eighth" or not fix._is_rest(g[3][0], ns):
-                fails.append("A m19: 4th note eighth + quarter rest")
-            elif leader_type(g[3], ns) != "quarter":
-                fails.append("A m19: trailing rest should be quarter not eighth")
+        types = [leader_type(grp, ns) for grp in g[:5]]
+        if label == "S m19" and types[:5] != ["quarter", "eighth", "quarter", "eighth", "quarter"]:
+            fails.append(f"S m19: unexpected rhythm {types[:5]}")
+        if label == "A m19" and types[:4] != ["quarter", "quarter", "quarter", "eighth"]:
+            fails.append(f"A m19: unexpected rhythm {types[:4]}")
+        if label == "T m19" and types[:4] != ["half", "quarter", "eighth", "quarter"]:
+            fails.append(f"T m19: unexpected rhythm {types[:4]}")
+        if label == "B m19" and leader_type(g[1], ns) != "quarter":
+            fails.append("B m19: 2nd note should stay quarter")
 
-    # 17 m45 PR (mxl 44) — beamed 8th pair must stay eighths
+    # 15 m25 (mxl 24) — SATB 마지막이 𝄽8로 끝나지 않음
+    for part_idx, label in [(1, "S m25"), (2, "A m25"), (3, "T m25"), (4, "B m25")]:
+        m = get_measure(root, ns, part_idx, 24)
+        g = groups(m, ns)
+        if g and fix._is_rest(g[-1][0], ns) and leader_type(g[-1], ns) == "eighth":
+            fails.append(f"{label}: spurious trailing eighth rest")
+
+    # 16 m45 PR (mxl 44) — beamed 8th pair must stay eighths
     m = get_measure(root, ns, 4, 44)
     g = groups(m, ns, "1")
     if not (
@@ -195,11 +200,16 @@ def run_checks(path):
     ):
         fails.append("PR m45: 3rd-4th beamed eighth pair corrupted")
 
-    # 18 m45 PL (mxl 44 staff2) — 8 groups, no triplet span expansion
+    # 17 m45 PL (mxl 44 staff2) — 순차 4분 2개는 세잇단 slice로 펼침 (8→12 groups)
     m = get_measure(root, ns, 4, 44)
     g = groups(m, ns, "2")
-    if len(g) != 8:
-        fails.append(f"PL m45: expected 8 chord groups, got {len(g)}")
+    if len(g) < 10:
+        fails.append(f"PL m45: expected triplet expansion (>=10 groups), got {len(g)}")
+    triplet_groups = [
+        grp for grp in g if grp[0].find(fix.qname(ns, "time-modification")) is not None
+    ]
+    if len(triplet_groups) < 10:
+        fails.append(f"PL m45: expected >=10 triplet slices, got {len(triplet_groups)}")
 
     return fails
 

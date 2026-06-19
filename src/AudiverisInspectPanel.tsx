@@ -18,7 +18,7 @@ import {
   removeMeasureClickOverlays,
   removeMeasureHover,
 } from './osmdMeasureClick';
-import { repositionStemUpChordSlurs } from './osmdChordSlurFix';
+import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 
 type InspectErrorBoundaryProps = {
   children: ReactNode;
@@ -238,11 +238,6 @@ function scheduleOsmdRender(opts: {
     try {
       osmd.zoom = zoom;
       osmd.render();
-      try {
-        repositionStemUpChordSlurs(osmd);
-      } catch (e) {
-        console.warn('[osmd] chord slur reposition skipped:', e);
-      }
       host.querySelector('[data-osmd-warn="width"]')?.remove();
       onAfterRender?.();
     } catch (e) {
@@ -407,6 +402,11 @@ export function OsmdBlock({
       .load(xmlForOsmd)
       .then(() => {
         if (stale() || !host) return;
+        try {
+          retargetGraphicalChordSlurBeziers(osmd);
+        } catch (e) {
+          console.warn('[osmd] chord slur bezier retarget skipped:', e);
+        }
         const seq = ++paintSeqRef.current;
         scheduleOsmdRender({
           host,

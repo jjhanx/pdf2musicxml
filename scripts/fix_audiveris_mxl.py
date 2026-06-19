@@ -883,6 +883,140 @@ def _replace_rest_group_with_eighth(
     measure.insert(idx, _clone_as_eighth(template, ns, eighth_dur))
 
 
+def _group_default_x(leader: ET.Element) -> float:
+    x = leader.get("default-x")
+    try:
+        return float(x) if x is not None else 9999.0
+    except ValueError:
+        return 9999.0
+
+
+def _staffs_in_measure(measure: ET.Element, ns: str) -> set[str]:
+    return {g[2] for g in _iter_chord_groups(measure, ns)}
+
+
+def _staff_chronological_groups(measure: ET.Element, ns: str, staff: str):
+    groups = [g for g in _iter_chord_groups(measure, ns) if g[2] == staff]
+    groups.sort(key=lambda g: _group_default_x(g[0]))
+    return groups
+
+
+def _staff_pitched_duration_sum(measure: ET.Element, ns: str, staff: str) -> int:
+    return sum(
+        _note_duration(g[0], ns) or 0
+        for g in _staff_chronological_groups(measure, ns, staff)
+        if not _is_rest(g[0], ns)
+    )
+
+
+def _voice_has_mixed_eighth_durations(groups, ns: str) -> bool:
+    durs: set[int] = set()
+    for g in groups:
+        if _is_rest(g[0], ns):
+            continue
+        if _note_type_text(g[0], ns) != "eighth":
+            continue
+        d = _note_duration(g[0], ns)
+        if d:
+            durs.add(d)
+    return len(durs) > 1
+
+
+def _staff_has_dotted_quarter_short_second_voice(
+    measure: ET.Element, ns: str, staff: str, divisions: int, *, skip_voice: str | None = None
+) -> bool:
+    """같은 staff 다른 voice에 ♩. + (♪ 또는 8분 쉼) 패턴이 있으면 True."""
+    eighth = divisions // 2
+    if eighth <= 0:
+        return False
+    for (s, voice), groups in _voice_groups(measure, ns).items():
+        if s != staff or voice == skip_voice or len(groups) < 2:
+            continue
+        if not _is_dotted_quarter_group(groups[0][0], ns, divisions):
+            continue
+        g1 = groups[1][0]
+        d1 = _note_duration(g1, ns) or 0
+        if d1 != eighth:
+            continue
+        if _is_plain_eighth_group(g1, ns, divisions) or _is_rest(g1, ns):
+            return True
+    return False
+
+
+def _repair_dotted_quarter_on_staff_timeline(
+    measure: ET.Element, ns: str, divisions: int, expected: int
+) -> int:
+    """피아노 RH 등 — voice flatten 없이 staff 타임라인에서 ♩. 뒤 잘못된 4분→8분."""
+    fixed = 0
+    eighth = divisions // 2
+    quarter = divisions
+    dotted_quarter = quarter + eighth
+    for staff in _staffs_in_measure(measure, ns):
+        groups = _staff_chronological_groups(measure, ns, staff)
+        if len(groups) < 2:
+            continue
+        voices = {g[3] for g in groups if not _is_rest(g[0], ns)}
+        if len(voices) <= 1:
+            continue
+        g0 = groups[0]
+        if not _is_dotted_quarter_group(g0[0], ns, divisions):
+            continue
+        staff_total = _staff_pitched_duration_sum(measure, ns, staff)
+        over = staff_total > expected
+        if len(groups) >= 5:
+            g1, g2, g3, g4 = groups[1], groups[2], groups[3], groups[4]
+            if (
+                _is_plain_quarter_group(g1[0], ns, divisions)
+                and _is_plain_quarter_group(g2[0], ns, divisions)
+                and _note_duration(g3[0], ns) == eighth
+                and _note_duration(g4[0], ns) == eighth
+            ):
+                _halve_group_to_eighth(g1[1], ns)
+                fixed += 1
+                continue
+        g1 = groups[1]
+        if _is_plain_quarter_group(g1[0], ns, divisions) and g1[3] == g0[3]:
+            if over or _staff_has_dotted_quarter_short_second_voice(
+                measure, ns, staff, divisions, skip_voice=g0[3]
+            ):
+                _halve_group_to_eighth(g1[1], ns)
+                fixed += 1
+    return fixed
+
+
+def _repair_leading_quarter_pair_on_staff(
+    measure: ET.Element, ns: str, divisions: int, expected: int
+) -> int:
+    """staff 앞 연속 4분 2개 + 빔 8분 — voice flatten 없이 ♪♪ 복원(PR 25 등)."""
+    if not divisions or not expected:
+        return 0
+    fixed = 0
+    quarter = divisions
+    for staff in _staffs_in_measure(measure, ns):
+        groups = _staff_chronological_groups(measure, ns, staff)
+        if len(groups) < 3:
+            continue
+        g0, g1, g2 = groups[0], groups[1], groups[2]
+        if not (
+            _is_plain_quarter_group(g0[0], ns, divisions)
+            and _is_plain_quarter_group(g1[0], ns, divisions)
+            and _is_plain_eighth_group(g2[0], ns, divisions)
+            and _note_has_beam(g2[0], ns)
+        ):
+            continue
+        if _note_has_beam(g0[0], ns) or _note_has_beam(g1[0], ns):
+            continue
+        staff_total = _staff_pitched_duration_sum(measure, ns, staff)
+        if staff_total not in (expected + quarter, expected + divisions // 2):
+            continue
+        _halve_group_to_eighth(g0[1], ns)
+        _halve_group_to_eighth(g1[1], ns)
+        _rebeam_group(g0[1], ns, "begin")
+        _rebeam_group(g1[1], ns, "end")
+        fixed += 1
+    return fixed
+
+
 def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]:
     """♩. 뒤 8분음표를 4분으로 읽고 마지막 8분을 쉼표로 대체한 Audiveris 패턴 복구.
 
@@ -1112,6 +1246,9 @@ def _repair_dotted_quarter_misread(part: ET.Element, ns: str) -> tuple[int, int]
                         _halve_group_to_eighth(groups[pick][1], ns)
                         dotted_fixed += 1
                         break
+        dotted_fixed += _repair_dotted_quarter_on_staff_timeline(
+            measure, ns, divisions, expected
+        )
     return dotted_fixed, rest_fixed
 
 
@@ -1703,6 +1840,10 @@ def _repair_same_pitch_continuation_slurs(part: ET.Element, ns: str) -> int:
                     continue
                 d0 = _note_duration(g0[0], ns) or 0
                 d1 = _note_duration(g1[0], ns) or 0
+                t0 = _note_type_text(g0[0], ns)
+                t1 = _note_type_text(g1[0], ns)
+                if t0 != t1:
+                    continue
                 if d1 <= d0:
                     continue
                 if d0 <= 0 or d1 < 2 * d0:
@@ -1974,6 +2115,8 @@ def _general_resolve_overfull_measure(
     for (_, _voice), groups in _voice_groups(measure, ns).items():
         total = sum(_note_duration(g[0], ns) or 0 for g in groups)
         if total <= expected:
+            continue
+        if _voice_has_mixed_eighth_durations(groups, ns):
             continue
         overflow = total - expected
         eighth = divisions // 2
@@ -3436,6 +3579,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     measure, ns, divisions or 0, expected or 0
                 )
                 stats["quarter_pair_eighth_fixed"] += _repair_leading_quarter_pair(
+                    measure, ns, divisions or 0, expected or 0
+                )
+                stats["quarter_pair_eighth_fixed"] += _repair_leading_quarter_pair_on_staff(
                     measure, ns, divisions or 0, expected or 0
                 )
                 stats["quarter_pair_eighth_fixed"] += _repair_quarter_eighth_quarter_lost_final(

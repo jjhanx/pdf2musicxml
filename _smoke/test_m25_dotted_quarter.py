@@ -102,7 +102,7 @@ def test_piano_pr_parallel_voices():
     v1 = by_staff_v.get(("1", "1"), [])
     v2 = by_staff_v.get(("1", "2"), [])
     ok = True
-    if len(v1) != 2 or not (v1[0][2] and v1[0][1] == 18 and v1[1][0] == "quarter" and v1[1][1] == 12):
+    if len(v1) != 2 or not (v1[0][2] and v1[0][1] == 18 and v1[1][0] == "eighth" and v1[1][1] == 6):
         print(f"FAIL PR v1 {v1}")
         ok = False
     if len(v2) != 3 or not (v2[0][0] == "quarter" and v2[0][1] == 12):

@@ -1132,10 +1132,14 @@ def _is_plain_eighth_group(leader: ET.Element, ns: str, divisions: int) -> bool:
 
 
 def _is_quarter_misread_as_eighth(leader: ET.Element, ns: str, divisions: int) -> bool:
-    """4분으로 읽힌 8분(복합박·비표준 duration 포함)."""
+    """4분으로 읽힌 8분(복합박·비표준 duration 포함). 점4분은 제외."""
     if _is_rest(leader, ns):
         return False
     if leader.find(qname(ns, "time-modification")) is not None:
+        return False
+    if leader.find(qname(ns, "dot")) is not None:
+        return False
+    if _is_dotted_quarter_group(leader, ns, divisions):
         return False
     if _note_type_text(leader, ns) != "quarter":
         return False
@@ -1205,6 +1209,10 @@ def _repair_quarter_eighth_quarter_lost_final(
         if total != expected:
             continue
         g0, g1, g2 = groups[0], groups[1], groups[2]
+        if len(g0[1]) < 2 or len(g2[1]) < 2:
+            continue
+        if _is_dotted_quarter_group(g0[0], ns, divisions):
+            continue
         if not (
             _is_quarter_misread_as_eighth(g0[0], ns, divisions)
             and _is_plain_eighth_group(g1[0], ns, divisions)
@@ -2680,6 +2688,8 @@ def _flatten_underfull_voices_in_measure(measure: ET.Element, ns: str, expected:
                 continue  # 쉼표 전용 voice — 멜로디 voice와 병렬
             if sum(v_durs.values()) == expected:
                 continue  # voice 합이 마디 길이와 같으면 병렬 레이어로 간주
+            if sum(v_durs.values()) > expected:
+                continue  # voice 합이 마디를 넘으면 시간상 겹치는 병렬(피아노 RH 등) — flatten 금지
             if sum(v_durs.values()) <= expected + (expected // 4) or max(v_durs.values()) < expected:
                 needs_flatten.add(s)
 

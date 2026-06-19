@@ -311,8 +311,7 @@ def apply_lyric_events(part_el, ns, events, lyric_number=1):
                     break
                 _m, note, _v = notes[idx]
                 idx += 1
-            if char != "-":
-                add_lyric_to_note(note, ns, char, lyric_number)
+            add_lyric_to_note(note, ns, char, lyric_number)
 
 
 def is_tag(el, ns, local):

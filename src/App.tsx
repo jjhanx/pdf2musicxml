@@ -1558,7 +1558,7 @@ bash scripts/install-font-separator-deps.sh`}
 
             <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
-              가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표나 연장선 등으로 인해 <strong>가사가 없는 음표를 건너뛰려면 하이픈( - )을 넣어주세요.</strong> (띄어쓰기는 무시됨)<br/>
+              가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표·연장선 등으로 <strong>가사가 없는 음표</strong>는 해당 음절 자리에 <strong>하이픈( - )</strong>을 넣으세요 — 음표 하나를 소모하고 최종 MXL에도 <code>&lt;text&gt;-&lt;/text&gt;</code>로 표시됩니다. (띄어쓰기는 무시됨)<br/>
               <strong>파트·가사 절·멜로디 줄:</strong> <strong>파트 순번</strong>은 MusicXML의 몇 번째 악기/성부인지(1=첫 파트)입니다. <strong>가사 절</strong>(1절·2절…)은 같은 멜로디에 붙는 <strong>서로 다른 가사 줄</strong>이며, 병합 시 같은 음표에 <code>lyric number=&quot;1&quot;</code>, <code>&quot;2&quot;</code>…로 나뉩니다. <strong>멜로디 줄(voice)</strong>은 같은 마디에서 <strong>동시에 울리는 서로 다른 선율</strong>(성부 2줄 등)에 쓰는 MusicXML <code>&lt;voice&gt;</code>이며 <em>1절/2절과 다릅니다</em>. 한 줄만 있는 성부는 보통 멜로디 줄 1과 가사 절만 쓰면 됩니다. 피아노·2멜로디 한 파트면 <strong>전체 순서 (*)</strong> 또는 해당 <code>&lt;voice&gt;</code> 번호를 지정하세요. 가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 하이픈(<strong>-</strong>)을 쓰세요.<br/>
               <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다.<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다. 수동 가사 지우기 영역은 백업·임시 저장에 포함됩니다.</em>

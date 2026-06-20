@@ -188,6 +188,120 @@ def _measure_events(measure: ET.Element, ns: str) -> list[str]:
     return events
 
 
+def _note_type(note: ET.Element, ns: str) -> str:
+    typ = note.find(_q(ns, "type"))
+    return (typ.text or "").strip() if typ is not None and typ.text else ""
+
+
+def _note_duration(note: ET.Element, ns: str) -> int:
+    dur_el = note.find(_q(ns, "duration"))
+    if dur_el is None or not dur_el.text or not dur_el.text.strip().isdigit():
+        return 0
+    return int(dur_el.text.strip())
+
+
+def _note_beams(note: ET.Element, ns: str) -> list[str]:
+    return [b.text for b in note.findall(_q(ns, "beam")) if b.text]
+
+
+def _is_rest_note(note: ET.Element, ns: str) -> bool:
+    return note.find(_q(ns, "rest")) is not None
+
+
+def _chord_pitch_set(notes: list[ET.Element], ns: str) -> set[str]:
+    out: set[str] = set()
+    for n in notes:
+        pid = _pitch_id(n, ns)
+        if pid and not pid.startswith("rest:"):
+            out.add(pid)
+    return out
+
+
+def _iter_chord_groups(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
+    """마디 내 코드·단음 그룹(문서 순서)."""
+    groups: list[dict[str, Any]] = []
+    for el in measure:
+        if _local(el) != "note":
+            continue
+        note = el
+        if note.find(_q(ns, "grace")) is not None:
+            continue
+        staff_el = note.find(_q(ns, "staff"))
+        voice_el = note.find(_q(ns, "voice"))
+        staff = (staff_el.text or "1").strip() if staff_el is not None else "1"
+        voice = (voice_el.text or "1").strip() if voice_el is not None else "1"
+        if note.find(_q(ns, "chord")) is not None and groups:
+            g = groups[-1]
+            if g["staff"] == staff and g["voice"] == voice:
+                g["notes"].append(note)
+                continue
+        groups.append(
+            {
+                "leader": note,
+                "notes": [note],
+                "staff": staff,
+                "voice": voice,
+                "type": _note_type(note, ns),
+                "duration": _note_duration(note, ns),
+                "beams": _note_beams(note, ns),
+                "rest": _is_rest_note(note, ns),
+                "pitches": _chord_pitch_set([note], ns),
+            }
+        )
+    for g in groups:
+        g["pitches"] = _chord_pitch_set(g["notes"], ns)
+    return groups
+
+
+def _detect_rhythm_suspects(groups: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Audiveris RHYTHMS 흔한 오인 — 자동 수정 없이 HITL 표시만."""
+    out: list[tuple[str, str]] = []
+    for i in range(len(groups) - 1):
+        g0, g1 = groups[i], groups[i + 1]
+        if g0["staff"] != g1["staff"] or g0["voice"] != g1["voice"]:
+            continue
+        if g0["rest"] or g1["rest"]:
+            continue
+        if (
+            g0["type"] == "quarter"
+            and not g0["beams"]
+            and g1["beams"]
+            and g0["pitches"]
+            and g0["pitches"] & g1["pitches"]
+        ):
+            out.append(
+                (
+                    "rhythmQuarterBeforeBeamedEighth",
+                    f"4분(빔 없음) 직후 빔 8분·동일 음정 — Audiveris RHYTHMS 오인 의심",
+                )
+            )
+    for i in range(len(groups) - 3):
+        g0, g1, g2, g3 = groups[i], groups[i + 1], groups[i + 2], groups[i + 3]
+        if not (g0["staff"] == g1["staff"] == g2["staff"] == g3["staff"]):
+            continue
+        if not (g0["voice"] == g1["voice"] == g2["voice"] == g3["voice"]):
+            continue
+        if any(g["rest"] for g in (g0, g1, g2, g3)):
+            continue
+        if (
+            g0["type"] == "quarter"
+            and g1["type"] == "quarter"
+            and not g0["beams"]
+            and not g1["beams"]
+            and "begin" in g2["beams"]
+            and "end" in g3["beams"]
+            and g2["type"] == "eighth"
+            and g3["type"] == "eighth"
+        ):
+            out.append(
+                (
+                    "rhythmPlainQuarterPairBeforeBeams",
+                    "빔 없는 4분 2개 직후 빔 8분 2개 — 빔 8분화음→4분화음 오인 의심",
+                )
+            )
+    return out
+
+
 def _boundary_swap_suspect(tail: list[str], head: list[str]) -> bool:
     if len(tail) < 2 or len(head) < 2:
         return False
@@ -237,6 +351,7 @@ def lint_score_xml(
     boundary_order_suspects: list[dict] = []
     underfull_measures: list[dict] = []
     overfull_measures: list[dict] = []
+    rhythm_suspects: list[dict] = []
     tuplet_starts = 0
 
     per_part_measures: list[list[tuple[str, list[str]]]] = []
@@ -355,6 +470,20 @@ def lint_score_xml(
                                 "expectedDur": measure_len,
                             }
                         )
+
+            groups = _iter_chord_groups(measure, ns)
+            for code, detail in _detect_rhythm_suspects(groups):
+                rhythm_suspects.append(
+                    {
+                        "code": code,
+                        "staff": staff,
+                        "partId": pid,
+                        "measureMxl": mnum,
+                        "measurePrinted": printed,
+                        "pageEstimate": page_est,
+                        "detail": detail,
+                    }
+                )
 
             if len(events) >= 2 and events[-1].startswith("rest:"):
                 rest_type = events[-1].split(":", 1)[1]
@@ -475,6 +604,7 @@ def lint_score_xml(
         + boundary_order_suspects
         + underfull_measures
         + overfull_measures
+        + rhythm_suspects
     )
 
     by_page_staff: dict[str, int] = {}
@@ -504,6 +634,12 @@ def lint_score_xml(
             "measureBoundaryOrderSuspect": len(boundary_order_suspects),
             "measureUnderfull": len(underfull_measures),
             "measureOverfull": len(overfull_measures),
+            "rhythmQuarterBeforeBeamedEighth": sum(
+                1 for x in rhythm_suspects if x["code"] == "rhythmQuarterBeforeBeamedEighth"
+            ),
+            "rhythmPlainQuarterPairBeforeBeams": sum(
+                1 for x in rhythm_suspects if x["code"] == "rhythmPlainQuarterPairBeforeBeams"
+            ),
             "tupletStartTags": tuplet_starts,
         },
         "byPageStaff": [
@@ -512,7 +648,8 @@ def lint_score_xml(
         "pCauses": [
             "TEXTS(OCR)가 SYMBOLS 글리프를 선점 — Audiveris TextWord·OCR eng",
             "다성부 세로 정렬로 tuplet 숫자가 한 staff에만 붙음 — SYMBOLS/BEAMS",
-            "마디 끝 8분 쉼표 — RHYTHMS 마디 채우기(heuristic)",
+            "♩↔♪ 오인(빔 8분→4분 등) — Audiveris RHYTHMS 단계(OMR raw에 이미 존재)",
+            "마디 끝 𝄽8·타 성부 duration 맞추기 — 예전 legacy 후처리(현재 off면 발생 안 함)",
             "마디 경계 음 순서 — LINKS/RHYTHMS(heuristic)",
         ],
     }

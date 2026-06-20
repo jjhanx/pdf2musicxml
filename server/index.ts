@@ -15,6 +15,14 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execCallback);
 
+/** fix_audiveris_mxl — 리듬 duration 변경은 기본 off(OMR 유지). */
+function pythonMxlFixEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    AUDIVERIS_MXL_RHYTHM_FIX: process.env.AUDIVERIS_MXL_RHYTHM_FIX ?? 'off',
+  };
+}
+
 import {
   AUDIVERIS_SHEET_STEPS,
   audiverisExtraCliArgsFromEnv,
@@ -723,6 +731,7 @@ async function fixAudiverisMxlInScoreFile(
   try {
     const { stdout, stderr } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
       maxBuffer: 8 * 1024 * 1024,
+      env: pythonMxlFixEnv(),
     });
     if (stderr?.trim()) console.warn(`fix_audiveris_mxl stderr (${scorePath}): ${stderr.trim()}`);
     const line = String(stdout).trim();

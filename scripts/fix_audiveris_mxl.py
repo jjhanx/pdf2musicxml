@@ -4095,7 +4095,16 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     stats["tuplet_show_number_fixed"] += 1
                 if _ensure_tuplet_normal_fields(note, ns):
                     stats["tuplet_normal_fields_fixed"] += 1
-            stats["spurious_natural_removed"] += _normalize_accidentals(measure, ns, key_fifths)
+            # OMR이 남긴 natural(제자리표) 태그는 그대로 둠 — m13 PR 등
+            if os.environ.get("AUDIVERIS_MXL_STRIP_REDUNDANT_NATURAL", "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            ):
+                stats["spurious_natural_removed"] += _normalize_accidentals(
+                    measure, ns, key_fifths
+                )
 
         stats["chord_ties_completed"] += _extrapolate_chord_ties(part, ns)
         stats["chord_ties_completed"] += _extrapolate_chord_ties(part, ns)

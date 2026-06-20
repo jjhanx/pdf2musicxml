@@ -519,6 +519,9 @@ def load_ocr_items(json_in_path):
 
 def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path):
     """Audiveris MXL → 잔여 P/2P direction·이중 staccato-natural 등 완화."""
+    import os as _os
+
+    _os.environ.setdefault("AUDIVERIS_MXL_RHYTHM_FIX", "off")
     try:
         _scripts_dir = Path(__file__).resolve().parent
         if str(_scripts_dir) not in sys.path:

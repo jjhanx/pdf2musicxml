@@ -89,7 +89,8 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 | `AUDIVERIS_CLEAN_SCORE_OCR_LANG` | `AUDIVERIS_OCR_LANG` 미설정 시 Audiveris OCR 언어(기본 **`eng`**). clean_score에 한글 없을 때 세잇단 `3`→`P` OCR 완화. |
 | `CLEAN_SCORE_REPLACE_TRIPLET_PUA` | `1`이면 `clean_score_only.pdf` strip 직후 PDF 내 U+F073→`3` 치환(기본 **끔** — PyMuPDF 재저장 시 **음표 머리 손실** 위험). 세잇단은 MXL 후처리(`fix_audiveris_mxl`)로 보완. |
 | `AUDIVERIS_MXL_FIX` | 기본 켜짐. `0`/`false`이면 `inject_ocr.py` 직전 `fix_audiveris_mxl.py`(잔여 P/2P direction 등) 생략. **SYMBOLS UI에는 영향 없음.** |
-| `AUDIVERIS_MXL_RHYTHM_FIX` | **`off`(기본)** — OMR 리듬 duration 그대로(HITL에서 수정). `beams`=빔 근거 4분↔8분만. `legacy`=예전 전체 자동 리듬 보정. |
+| `AUDIVERIS_MXL_RHYTHM_FIX` | **`off`(기본)** — OMR 리듬 duration 그대로(HITL에서 수정). `beams`=빔 근거 4분↔8분만. `legacy`=예전 전체 자동 리듬 보정. 서버·inject는 명시적으로 `off`. |
+| `AUDIVERIS_MXL_STRIP_REDUNDANT_NATURAL` | 기본 **끔**. `1`이면 조표상 중복 `<accidental>natural</accidental>`만 제거(OMR 제자리표 유지). |
 | (문서) | SYMBOLS 단계 오인식·Audiveris 소스 패치: [docs/Audiveris_엔진_한계와_대응.md](docs/Audiveris_엔진_한계와_대응.md) |
 | `MASK_PDF_TEXT_REDACT` | (선택) `1`/`true`/`yes`일 때 **제목·작곡가 등 비-가사** 구역에 벡터 텍스트가 있으면 **전체 bbox** 텍스트 리독을 시도합니다. **가사**는 기본이 **글자별 선택 리독**(아래)이라 이 옵션과 별개입니다. |
 | `MASK_PDF_LYRIC_SELECTIVE` | (선택) `0`/`false`면 끔. **기본(설정 없음)**: 타입 **`lyrics`** 만 가사처럼 보이는 유니코드를 **글리프 단위** 리덕. **`MASK_PDF_LYRIC_MUSIC_SAFE`(기본 켜짐)** 는 **면적 비율**로 음표·SMuFL 텍스트와 실제 겹침이 클 때만 가사 리덕 생략(레거시는 **`MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT=1`**). 가사 블록 전체를 흰 사각형으로만 덮으려면 이 옵션을 끕니다. |

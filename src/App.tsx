@@ -10,7 +10,8 @@ import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPan
 
 type Health = {
   ok: boolean;
-  audiverisConfigured: boolean;
+  audiverisConfigured?: boolean;
+  audiverisLegacyEngine?: boolean;
   omrEngine?: string;
   omrEngineReady?: boolean;
   omrEngineDetail?: string;
@@ -360,7 +361,7 @@ export default function App() {
         return r.json() as Promise<Health>;
       })
       .then(setHealth)
-      .catch(() => setHealth({ ok: false, audiverisConfigured: false }));
+      .catch(() => setHealth({ ok: false, omrEngineReady: false }));
   }, []);
 
   useEffect(() => {
@@ -562,11 +563,11 @@ export default function App() {
         setStatus('서버 상태를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
         return;
       }
-      if (!healthArg.omrEngineReady && !healthArg.audiverisConfigured) {
+      if (!healthArg.omrEngineReady) {
         setStatus(
-          healthArg.omrEngine === 'ai'
-            ? `AI OMR 의존성이 없습니다. ${healthArg.aiOmrDepsHint ?? 'pip install -r requirements.txt'}`
-            : 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다. 또는 OMR_ENGINE=ai',
+          healthArg.omrEngine === 'audiveris'
+            ? 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.'
+            : `AI OMR 의존성이 없습니다. ${healthArg.aiOmrDepsHint ?? 'pip install -r requirements.txt'}`,
         );
         return;
       }
@@ -1077,9 +1078,9 @@ export default function App() {
             type="button"
             disabled={
               !files.length ||
-              ((!health?.omrEngineReady && !health?.audiverisConfigured) ||
+              !health?.omrEngineReady ||
               busy ||
-              (pipelineMode === 'font_separator' && health?.fontSeparatorDepsOk === false))
+              (pipelineMode === 'font_separator' && health?.fontSeparatorDepsOk === false)
             }
             onClick={() =>
               void runBatchWith(files, health, autoSave).catch((err: unknown) => {
@@ -1117,8 +1118,8 @@ export default function App() {
                 onChange={() => setPipelineMode('font_separator')}
               />
               <span>
-                <strong>폰트 크기 분리 + Audiveris + 가사 병합</strong> (권장) — pdfplumber·pikepdf로 가사만 제거한{' '}
-                <code>clean_score_only.pdf</code>를 Audiveris에 넣고, 추출 JSON과 검토 결과를 병합해 MusicXML에 주입합니다.
+                <strong>폰트 크기 분리 + AI OMR + 가사 병합</strong> (권장) — pdfplumber·pikepdf로 가사만 제거한{' '}
+                <code>clean_score_only.pdf</code>를 AI OMR에 넣고, 추출 JSON과 검토 결과를 병합해 MusicXML에 주입합니다.
               </span>
             </label>
             <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
@@ -1129,7 +1130,7 @@ export default function App() {
                 onChange={() => setPipelineMode('pymupdf_review')}
               />
               <span>
-                <strong>PyMuPDF 검증 + 마스킹</strong> — 기존 방식. OCR 검토 후 영역 마스킹 → Audiveris → 가사 주입.
+                <strong>PyMuPDF 검증 + 마스킹</strong> — 기존 방식. OCR 검토 후 영역 마스킹 → AI OMR → 가사 주입.
               </span>
             </label>
             <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
@@ -1140,7 +1141,7 @@ export default function App() {
                 onChange={() => setPipelineMode('audiveris_only')}
               />
               <span>
-                <strong>Audiveris만</strong> — 선행 처리·가사 주입 없이 업로드 PDF를 바로 MusicXML로 변환합니다.
+                <strong>OMR만</strong> — 선행 처리·가사 주입 없이 업로드 PDF를 바로 MusicXML로 변환합니다.
               </span>
             </label>
             {pipelineMode === 'font_separator' && (
@@ -1176,7 +1177,7 @@ export default function App() {
               onChange={(e) => setPauseAfterAudiveris(e.target.checked)}
               disabled={busy}
             />
-            Audiveris 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)
+            OMR 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)
           </label>
           <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
             <input
@@ -1185,7 +1186,7 @@ export default function App() {
               onChange={(e) => setEnableOmrStaffReview(e.target.checked)}
               disabled={busy}
             />
-            Audiveris 직후 OMR 품질 검토 (페이지×성부 lint, 기본 켜짐)
+            OMR 직후 품질 검토 (페이지×성부 lint, 기본 켜짐)
           </label>
         </div>
 
@@ -1202,23 +1203,44 @@ export default function App() {
           </ul>
         )}
 
-        <div className={`status ${health?.omrEngineReady || health?.audiverisConfigured ? 'ok' : 'err'}`}>
+        <div className={`status ${health?.omrEngineReady ? 'ok' : 'err'}`}>
           {health === null && '서버 상태 확인 중…'}
-          {health && !health.omrEngineReady && !health.audiverisConfigured && (
+          {health && !health.omrEngineReady && (
             <>
-              OMR 엔진이 준비되지 않았습니다.
+              AI OMR 엔진이 준비되지 않았습니다.
               <br />
-              Audiveris: <code>export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris</code>
-              <br />
-              AI OMR: <code>export OMR_ENGINE=ai</code> (+ <code>pip install -r requirements.txt</code>)
+              <code>pip install -r requirements.txt</code>
+              {health.aiOmrDepsHint ? (
+                <>
+                  <br />
+                  {health.aiOmrDepsHint}
+                </>
+              ) : health.aiOmrMissingModules?.length ? (
+                <>
+                  <br />
+                  누락: {health.aiOmrMissingModules.join(', ')}
+                </>
+              ) : null}
               <br />
               서버를 다시 실행하세요.
+              {health.omrEngine === 'audiveris' && (
+                <>
+                  <br />
+                  (레거시 Audiveris: <code>export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris</code>)
+                </>
+              )}
             </>
           )}
-          {health?.omrEngine === 'ai' && health.omrEngineReady && (
+          {health?.omrEngineReady && (
             <div style={{ marginTop: '0.35rem', fontSize: '0.9rem' }}>
-              OMR: <strong>AI</strong> (backend={health.aiOmrBackend ?? 'mock'}
-              {health.aiOmrCudaAvailable ? ', CUDA' : ''})
+              OMR: <strong>{health.omrEngine === 'audiveris' ? 'Audiveris (레거시)' : 'AI'}</strong>
+              {health.omrEngine !== 'audiveris' && (
+                <>
+                  {' '}
+                  (backend={health.aiOmrBackend ?? 'mock'}
+                  {health.aiOmrCudaAvailable ? ', CUDA' : ''})
+                </>
+              )}
               {health.omrEngineDetail ? ` — ${health.omrEngineDetail}` : ''}
             </div>
           )}
@@ -1264,39 +1286,18 @@ bash scripts/install-font-separator-deps.sh`}
             </div>
           )}
 
-          {health?.audiverisConfigured && (
+          {health?.audiverisLegacyEngine && health.audiverisConfigured && health.audiverisPauseOnWarn && (
             <>
-              Audiveris 준비됨 (로컬 API)
-              {health.fontSeparatorDepsOk === true && (
-                <>
-                  {' '}
-                  · 폰트 분리 준비됨 (
-                  <code style={{ fontSize: '0.82em' }}>{health.fontSeparatorProbeExecutable ?? health.fontSeparatorPythonBin}</code>
-                  )
-                </>
-              )}
-              {health.fontSeparatorDepsOk === false && (
-                <>
-                  <br />
-                  <span style={{ fontSize: '0.9em', color: '#c62828' }}>
-                    폰트 분리 모드는 Python 패키지 설치 후 사용 가능 (위 안내 참고).
-                  </span>
-                </>
-              )}
-              {health.audiverisPauseOnWarn && (
-                <>
-                  <br />
-                  <span style={{ fontSize: '0.9em' }}>
-                    Audiveris 로그에 WARN이 나오면 자동으로 <strong>결과 보정</strong> 단계에서 멈춥니다 (
-                    <code>AUDIVERIS_PAUSE_ON_WARN</code>).
-                  </span>
-                </>
-              )}
+              <br />
+              <span style={{ fontSize: '0.9em' }}>
+                Audiveris 로그에 WARN이 나오면 자동으로 <strong>결과 보정</strong> 단계에서 멈춥니다 (
+                <code>AUDIVERIS_PAUSE_ON_WARN</code>).
+              </span>
             </>
           )}
         </div>
 
-        {health?.audiverisConfigured && (health.jobRetentionNote ?? health.jobRetentionHours != null) && (
+        {health?.omrEngineReady && (health.jobRetentionNote ?? health.jobRetentionHours != null) && (
           <p className="sub retention-note" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
             {health.jobRetentionNote ??
               `변환이 끝난 뒤 서버에 올라온 결과는 최대 ${health.jobRetentionHours}시간 동안만 보관됩니다. 그 안에 다운로드해 주세요.`}

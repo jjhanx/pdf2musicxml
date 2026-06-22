@@ -19,6 +19,7 @@ const exec = promisify(execCallback);
 function pythonMxlFixEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    OMR_ENGINE: process.env.OMR_ENGINE?.trim() || 'ai',
     AUDIVERIS_MXL_RHYTHM_FIX: process.env.AUDIVERIS_MXL_RHYTHM_FIX ?? 'off',
   };
 }
@@ -260,7 +261,9 @@ app.get('/api/health', async (_req, res) => {
       ? undefined
       : omr.engine === 'ai'
         ? aiDeps.hint || `AI OMR deps: ${aiDeps.missing.join(', ')}`
-        : omr.detail || 'Set AUDIVERIS_BIN or OMR_ENGINE=ai',
+        : omr.detail || 'Set AUDIVERIS_BIN (OMR_ENGINE=audiveris)',
+    audiverisConfigured: Boolean(bin),
+    audiverisLegacyEngine: omr.engine === 'audiveris',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:
       '변환 완료 또는 실패 처리 후 서버에 보관되는 작업·파일은 24시간이 지나면 자동으로 삭제됩니다. 완료 직후 다운로드를 받아도 같은 jobId로 마스킹·인식 점검 API는 TTL 전까지 사용할 수 있습니다.',
@@ -1384,7 +1387,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'audiveris',
         current: 0,
         total: pageHint,
-        detail: 'PDF 마스킹 및 Audiveris 준비 중…',
+        detail: resolveOmrEngine() === 'ai' ? 'PDF 마스킹 및 OMR 준비 중…' : 'PDF 마스킹 및 Audiveris 준비 중…',
       });
 
       if (fsSync.existsSync(ocrJsonPath)) {
@@ -1592,15 +1595,24 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   }
 }
 
-app.post('/api/convert', (req, res) => {
+app.post('/api/convert', async (req, res) => {
   const omr = omrEngineConfigured();
   const bin = resolveAudiverisBin() || '';
-  // convert 게이트는 health와 동일 — AI는 deps 프로브를 executeJob 전 health에서 확인
-  if (omr.engine !== 'ai' && !bin) {
+  if (omr.engine === 'ai') {
+    const aiDeps = await probeAiOmrDeps(resolvePythonBin());
+    if (!aiDeps.ok) {
+      res.status(503).json({
+        error: 'AI OMR dependencies are not ready',
+        detail:
+          aiDeps.hint ||
+          `Install Python deps (pip install -r requirements.txt). Missing: ${aiDeps.missing.join(', ')}`,
+      });
+      return;
+    }
+  } else if (!bin) {
     res.status(503).json({
       error: 'AUDIVERIS_BIN is not set',
-      detail:
-        'Linux: export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris  |  또는 OMR_ENGINE=ai',
+      detail: 'Linux: export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris  (레거시: OMR_ENGINE=audiveris)',
     });
     return;
   }

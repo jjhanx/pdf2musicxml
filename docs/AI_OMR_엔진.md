@@ -1,6 +1,6 @@
-# AI OMR 엔진 (Audiveris 대체)
+# AI OMR 엔진 (기본 OMR)
 
-기존 파이프라인의 **80%**(폰트 분리·clean_score·가사 병합·검증·후처리)는 유지하고, **Audiveris OMR 단계만** `ai_engine/`으로 교체합니다.
+**기본 OMR 엔진**입니다. 기존 파이프라인의 **80%**(폰트 분리·clean_score·가사 병합·검증·후처리)는 유지하고, Audiveris 대신 `ai_engine/`으로 악보 인식합니다.
 
 **배포 절차(Windows·Ubuntu):** [AI_OMR_배포_가이드.md](AI_OMR_배포_가이드.md)
 
@@ -61,7 +61,7 @@ python scripts/probe_ai_omr_deps.py
 
 | 변수 | 기본 | 설명 |
 |------|------|------|
-| **`OMR_ENGINE`** | `audiveris` | **`ai`** = AI OMR |
+| **`OMR_ENGINE`** | **`ai`** | AI OMR(기본). `audiveris`=레거시 |
 | `AI_OMR_BACKEND` | `mock` | `mock` \| `tromr` |
 | `AI_OMR_MODEL` | `sanderwood/tr-omr-large` | HuggingFace 모델 ID |
 | `AI_OMR_DPI` | `300` | PDF 렌더 DPI |

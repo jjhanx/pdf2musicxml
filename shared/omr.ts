@@ -1,8 +1,8 @@
 /**
- * OMR engine dispatch — Audiveris(기본) | AI OMR(ai_engine).
+ * OMR engine dispatch — AI OMR(기본) | Audiveris(레거시).
  *
  * 환경 변수:
- *   OMR_ENGINE=audiveris | ai  (기본 audiveris)
+ *   OMR_ENGINE=ai | audiveris  (기본 ai)
  *   AI_OMR_BACKEND=mock | tromr
  */
 
@@ -35,9 +35,9 @@ export interface OmrRunResult {
 }
 
 export function resolveOmrEngine(): OmrEngineId {
-  const raw = (process.env.OMR_ENGINE || 'audiveris').trim().toLowerCase();
-  if (raw === 'ai' || raw === 'ai_omr' || raw === 'tromr') return 'ai';
-  return 'audiveris';
+  const raw = (process.env.OMR_ENGINE || 'ai').trim().toLowerCase();
+  if (raw === 'audiveris') return 'audiveris';
+  return 'ai';
 }
 
 export function omrEngineConfigured(): { engine: OmrEngineId; ready: boolean; detail?: string } {
@@ -49,7 +49,7 @@ export function omrEngineConfigured(): { engine: OmrEngineId; ready: boolean; de
   return {
     engine,
     ready: Boolean(bin),
-    detail: bin ? undefined : 'Set AUDIVERIS_BIN or OMR_ENGINE=ai',
+    detail: bin ? undefined : 'Set AUDIVERIS_BIN (OMR_ENGINE=audiveris)',
   };
 }
 

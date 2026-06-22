@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * CLI: PDF → MusicXML/MXL (Audiveris)
+ * CLI: PDF → MusicXML/MXL (AI OMR 기본)
  *
  * 사용 예:
- *   $env:AUDIVERIS_BIN="D:\Audiveris\bin\Audiveris.bat"
  *   npm run convert -- "D:\scores\piece.pdf"
  *
  * 출력은 기본적으로 사용자 Downloads 폴더에 저장합니다 (-o 로 변경 가능).
@@ -27,11 +26,9 @@ function usage(): never {
   npm run convert -- <input.pdf> [-o <outputFileOrDirectory>]
 
 Environment:
-  AUDIVERIS_BIN   Audiveris 사용 시 필수
-  OMR_ENGINE      audiveris(기본) | ai
-  AI_OMR_BACKEND  mock | tromr (OMR_ENGINE=ai)
-  AUDIVERIS_OCR_LANG  선택. 미설정 시 kor+eng. 비우면 Audiveris 기본(eng).
-  AUDIVERIS_CLI_EXTRA_JSON  선택. JSON 배열로 추가 CLI 토큰 (예: -constant …).
+  OMR_ENGINE      ai(기본) | audiveris (레거시)
+  AI_OMR_BACKEND  mock | tromr
+  AUDIVERIS_BIN   OMR_ENGINE=audiveris 일 때만 필수
 `);
   process.exit(1);
 }
@@ -63,7 +60,7 @@ async function main(): Promise<void> {
   const bin = resolveAudiverisBin();
   if (engine !== 'ai' && !bin) {
     // eslint-disable-next-line no-console
-    console.error('AUDIVERIS_BIN 환경 변수를 설정하거나 OMR_ENGINE=ai 를 사용하세요.');
+    console.error('AUDIVERIS_BIN 환경 변수를 설정하세요 (OMR_ENGINE=audiveris). 기본 AI OMR은 추가 설정 없이 동작합니다.');
     process.exit(3);
   }
 
@@ -113,7 +110,7 @@ async function main(): Promise<void> {
     } else {
       const dir = outArg
         ? path.resolve(outArg)
-        : path.join(defaultDownloadsDir(), `${stem}_audiveris_parts`);
+        : path.join(defaultDownloadsDir(), `${stem}_omr_parts`);
       await fs.mkdir(dir, { recursive: true });
       for (const src of outputs) {
         await fs.copyFile(src, path.join(dir, path.basename(src)));
@@ -124,7 +121,7 @@ async function main(): Promise<void> {
 
     if (result.code !== 0) {
       // eslint-disable-next-line no-console
-      console.warn('Audiveris exited with code', result.code, '(파일은 생성되었을 수 있음)');
+      console.warn(`${engine} OMR exited with code`, result.code, '(파일은 생성되었을 수 있음)');
     }
   } finally {
     await fs.rm(sessionRoot, { recursive: true, force: true });

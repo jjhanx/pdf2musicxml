@@ -1,16 +1,19 @@
-# pdf2musicxml (pdf2mxl-audiveris)
+# pdf2musicxml
 
-PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 내려받는 도구입니다.  
+PDF 악보를 **AI OMR**(`ai_engine/`)으로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 내려받는 도구입니다.  
 프론트는 **Vite + React + TypeScript**, API는 **Express**이며 [mxlplayer](https://github.com/jjhanx/mxlplayer)와 같은 계열의 웹 스택입니다.
 
-- **Audiveris MXL 없음(HTTP 422)**: 출력 폴더에 `.mxl`/`.musicxml`이 없을 때입니다. 로그에 `Can't connect to X11`·`java.awt.AWTError`가 보이면 **헤드리스 Linux**에서 `DISPLAY`만 잡혀 Audiveris가 GUI 초기화에 실패한 경우입니다. 앱은 Audiveris 실행 시 `JAVA_TOOL_OPTIONS`에 `-Djava.awt.headless=true`를 붙이도록 되어 있으며, 그래도 안 되면 `unset DISPLAY` 후 PM2 재시작을 검토하세요. 로그에 `WARN [#10]`·`ERS`가 보이면 **10번째 악보 장(sheet)** 처리 문제인 경우가 많습니다. 동일 PDF를 Audiveris GUI로 열어 해당 장을 확인하세요.
+**기본 OMR 엔진은 AI OMR**입니다(`OMR_ENGINE=ai`). Audiveris는 레거시 옵션(`OMR_ENGINE=audiveris`)으로만 사용합니다. 설계·배포: [docs/AI_OMR_엔진.md](docs/AI_OMR_엔진.md), [docs/AI_OMR_배포_가이드.md](docs/AI_OMR_배포_가이드.md).
 
-## 최근 변경 (폰트 분리 + 가사 병합 파이프라인)
+- **Audiveris MXL 없음(HTTP 422, 레거시)**: `OMR_ENGINE=audiveris` 사용 시 출력 폴더에 `.mxl`/`.musicxml`이 없을 때입니다. 로그에 `Can't connect to X11`·`java.awt.AWTError`가 보이면 **헤드리스 Linux**에서 `DISPLAY`만 잡혀 Audiveris가 GUI 초기화에 실패한 경우입니다.
 
+## 최근 변경 (AI OMR 기본)
+
+- **OMR 엔진 기본값 AI**: `OMR_ENGINE` 미설정 시 **AI OMR**(`mock` 또는 `tromr`)이 동작합니다. Audiveris·Java 설치 **불필요**. 레거시 Audiveris는 `OMR_ENGINE=audiveris` + `AUDIVERIS_BIN`으로만 사용.
 - **변환 방식 선택(웹 UI)**: 업로드 전 **변환 방식**을 고릅니다.
-  - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI**(표·프리셋·사용자 범위) → pikepdf로 `clean_score_only.pdf` 생성 → **원본과 나란히 미리보기·PDF 저장 확인** → (선택) PyMuPDF 가사 검증 → 병합·Audiveris·주입.
-  - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
-  - **Audiveris만**: 선행 처리·가사 주입 없음.
+  - **폰트 크기 분리 + AI OMR + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI** → `clean_score_only.pdf` → AI OMR → 병합·주입.
+  - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → AI OMR → 주입.
+  - **OMR만**: 선행 처리·가사 주입 없음.
 - **OMR 불일치 의심 마디 감지 및 HITL 보정 UI 개선**: Linter(`mxl_quality_lint.py`)를 확장하여 각 보이스별 박자 부족(`measureUnderfull`) 및 박자 초과(`measureOverfull`) 마디를 자동으로 감지합니다(못갖춘마디 제외). 감지된 마디들은 검토 웹 UI 상단에 목록으로 제공되며, 클릭 시 즉시 마디 편집 패널이 열려 편리한 보정이 가능하도록 연동되었습니다. 또한, 특정 악보 전용의 하드코딩 패치 방식을 완전히 비활성화하여 파이프라인을 일반화하였습니다.
 - **범용 화음(Chord) 및 세잇단음 렌더링 버그 수정**: ① 화음 내 중복 피치 제거 시 새로운 리더(Leader) 음표의 `<chord/>` 태그를 제거하여 이어지는 마디와 박자가 겹치거나 음표가 증발하는 치명적인 버그 해결. ② 세잇단음이 쉼표로 시작할 때 빔(Beam) 반대 방향으로 브라켓을 자동 배치하도록 꼬리 방향 추론 로직 개선. ③ MuseScore 레이아웃 엔진과 충돌하여 화음을 뭉개버리던 강제 `bracket="no"` 주입 로직 제거. ④ 피아노 오른손 화음 이음줄(Slur) 보정 확대.
 - **이음줄(Slur) 및 세잇단음표 숫자 누락 버그 수정**: Audiveris 후처리 스크립트(`fix_audiveris_mxl.py`)가 얇은 이음줄(`<bracket>`) 기호를 지우거나 세잇단음표 숫자 '3'을 텍스트 찌꺼기로 오인하여 무차별 삭제하던 문제를 수정하여 정상적으로 출력되도록 개선했습니다.
@@ -25,7 +28,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 ## 기능
 
 - **웹 UI**: PDF 파일 선택(복수), **드래그 앤 드롭**(전용 영역), 일괄 변환(순차 처리), 파일별 진행 표·개별 다운로드(실패 행 **결과** 열에는 서버 오류 메시지 전체를 줄바꿈으로 표시)
-- **진행 표시**: 업로드 단계와 Audiveris 단계의 진행 상황을 표시합니다(Audiveris 로그 형식에 따라 세부 진행은 제한적일 수 있음).
+- **진행 표시**: 업로드 단계와 **AI OMR** 단계의 진행 상황을 표시합니다.
 - **한글 제목·가사(OCR)**: Audiveris는 글자에 Tesseract를 쓰며, **clean_score(악보만) 변환 기본은 `eng`**입니다. PDF에 한글을 Audiveris가 직접 읽게 하려면 **`AUDIVERIS_OCR_LANG=kor+eng`** 등을 설정하세요. `kor.traineddata` 등은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「한글 인식 문제」류 절과 아래 환경 변수 표를 참고하세요.
 - **고해상도 OCR 및 벡터 PDF 직접 추출**: 검토 UI용 글자·좌표 추출은 예전처럼 항상 300 DPI OCR만 쓰면 서버 부하와 중단 위험이 컸습니다. 현재는 `PyMuPDF`로 **벡터 PDF**에 내장된 글자와 좌표를 우선 빠르게 읽고, 텍스트가 없는 **이미지 PDF**일 때만 300 DPI PaddleOCR로 대체 인식합니다.
 - **문자-악보 사전 매핑 및 마스킹 (Pre-Audiveris UI)**: Audiveris 악보 인식 전에 팝업을 띄워 인식된 글자들의 역할을 지정(`제목`, `작사가`, `가사`, **`템포(BPM)`** 등)합니다. 검토 카드에서 **「미리보기」**를 누르면 위 PNG에 해당 줄 **OCR bbox(청록 점선)** 와 귀퉁이 표시가 뜹니다. 귀퉁이·변 근처를 드래그해 bbox를 줄이거나, 안쪽을 드래그해 이동할 수 있습니다(저장된 `bbox`만 갱신하고 **`spans`는 제거**되어 줄 단위 마스킹으로 전환). **추가**로 페이지 빈 공간에서 사각형을 그리면 **수동**(MUSIC SAFE 없음) 지우기 영역이 됩니다(음표·오선 근처는 가능한 좁게). **페이지 미리보기 위에 가사 줄만 추가로 칠해서 지울 영역**(수동 마스킹)과 병행 가능합니다. **템포**로 지정한 영역은 마스킹되고, 검토한 BPM(예: `75`, `♩= 75`)은 `inject_ocr.py`가 첫 마디 MusicXML에 `<sound tempo="…">` 및 metronome으로 넣어 **재생기가 기본 120으로 도는 문제**를 줄입니다. 지정된 영역은 Audiveris에 넘어가기 전 **`mask_pdf.py`** 가 처리합니다. **가사** 블록(선택 리덕 모드 기본 켜짐)은 PyMuPDF로 **복사 가능한 텍스트 글림만** 하나씩 처리하며, `rawdict` 추출에 기본 포함되는 **SIDE_BEARINGS·ASCENDERS**(정확 bbox) 플래그로 과대 글림 bbox를 줄입니다. **`MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK`** 로 페이지 전역 한글 완성형·자모 추가 블랭크가 **기본 켜져** 있습니다(`0`/`false`/`off`로 끔). 리덕의 기본 형태는 **`fill=False` + 공백(또는 `MASK_PDF_LYRIC_REPLACE_CHAR`) 치환**이라 **오선 등 벡터 위에 깔던 흰 리덕 박스**보다 표기가 더 잘 살아남습니다(`MASK_PDF_LYRIC_PLAIN_REDACT=1` 로 예전 흰 fill 리덕 복귀). MuPDF 특성상 **리덕 사각형과 bbox가 겹치는 텍스트**는 지울 수 있어(`set_small_glyph_heights`), **음표·SMuFL 텍스트 글림과 라틴 등 가사 글림이 면적으로 충분히 겹치면**(`MASK_PDF_LYRIC_MUSIC_SAFE` 기본값) 해당 글자만 리덕을 생략합니다. **한글**은 같은 줄 교착 잔류가 생기기 쉬워 **기본으로 이 겹침 검사를 생략**합니다(`MASK_PDF_LYRIC_IGNORE_MUSIC_OVERLAP_FOR_KOREAN`). 교차만으로 예전처럼 생략하려면 `MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT=1` 입니다. 생략된 글자는 남습니다. `MASK_PDF_LYRIC_REDACT_PASSES`·최소 리덕 높이(세로 부족 시 **아래로만** 패딩)·**`MASK_PDF_LYRIC_REDACT_MAX_HEIGHT_EM`(기본 1.14)** 로 리덕 세로를 **폰트 크기 근처**까지 줄여 **위·아래 인접 스태프**(윗 성부 가사 bbox가 과대하게 아래 줄 머리까지 내리꽂거나, 역으로 아래 줄이 위로 비대하게 뻗은 경우)와의 교차 손실을 줄입니다. **벡터** 추출 줄에 **`spans`(span별 bbox)** 가 있으면 기본적으로 **그 세그먼트** 좌표에만 블랭크를 거는 경로가 우선됩니다(`MASK_PDF_LYRIC_USE_EXTRACT_SPANS`). 한글만 아래쪽을 더 남기려면 선택적으로 **`MASK_PDF_LYRIC_REDACT_KOREAN_BOTTOM_KEEP_FRAC`**(예: `0.78`)를 줍니다. 전체 가사 영역을 흰 박스로만 덮는 폴백은 `MASK_PDF_LYRIC_WHITE_FALLBACK=1`입니다. 가사 블록을 통째로 흰 박스로만 덮으려면 `MASK_PDF_LYRIC_SELECTIVE=0`입니다. 제목·템포 등 다른 분류는 종전처럼 bbox 전체를 흰 박스(또는 선택 `MASK_PDF_TEXT_REDACT=1`)로 덮습니다. **가사**는 글자별 하이픈(`-`)으로 “이 음표는 가사 없음”을 표시할 수 있으며, MXL에 합칠 때 **파트 순번**, **가사 절**(1절·2절… → `<lyric number>`), **멜로디 줄**(MusicXML `<voice>`, 동시에 울리는 다른 선율용·1절/2절과 **다름**), **`*`**(문서 순 멜로디), **앞쪽 음표 생략**을 지정합니다. 블록 옆 **신뢰도**는 OCR 참고용입니다. 각 항목의 의미는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「검토 UI → MusicXML 가사 주입」절에 설명합니다.
@@ -43,8 +46,8 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 ## 필요 조건
 
 - **Node.js** 20+ 권장
-- **Python** 3.8+ (PaddleOCR·PyMuPDF·**pdfplumber·pikepdf** 가사 분리·병합·주입 파이프라인용)
-- **Audiveris** (호스트에 설치, 아래 환경 변수로 실행 파일 지정)
+- **Python** 3.8+ (AI OMR·PaddleOCR·PyMuPDF·**pdfplumber·pikepdf** 가사 분리·병합·주입 파이프라인용)
+- **Audiveris** — **선택(레거시)**. `OMR_ENGINE=audiveris` 일 때만 필요
 
 Python 환경에서 다음 명령어로 의존성을 설치해야 합니다. **폰트 분리(권장) 파이프라인**은 `pikepdf`·`pdfplumber`가 **필수**입니다.
 
@@ -62,9 +65,9 @@ pip install pikepdf pdfplumber
 ```
 *(참고: 리눅스 환경에서 PDF 이미지 변환 시 `sudo apt-get install poppler-utils`가 필요할 수 있습니다.)*
 
-### Ubuntu에서 Audiveris (예: 24.04)
+### Ubuntu에서 Audiveris (레거시, 선택)
 
-[GitHub Releases](https://github.com/Audiveris/audiveris/releases)에서 `Audiveris-*-ubuntu24.04-x86_64.deb`(또는 22.04용) 내려받은 뒤:
+`OMR_ENGINE=audiveris` 로 Audiveris를 쓸 때만 필요합니다. [GitHub Releases](https://github.com/Audiveris/audiveris/releases)에서 `.deb` 설치 후:
 
 ```bash
 sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
@@ -75,10 +78,10 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 
 | 변수 | 설명 |
 |------|------|
-| `AUDIVERIS_BIN` | **Audiveris 사용 시 필수**. `OMR_ENGINE=ai` 이면 생략 가능. 예: `/opt/audiveris/bin/Audiveris` |
-| **`OMR_ENGINE`** | **`audiveris`(기본)** \| **`ai`** — AI OMR(`ai_engine/`) 사용. [docs/AI_OMR_엔진.md](docs/AI_OMR_엔진.md) |
+| **`OMR_ENGINE`** | **`ai`(기본)** \| **`audiveris`**(레거시). AI OMR: [docs/AI_OMR_엔진.md](docs/AI_OMR_엔진.md) |
 | `AI_OMR_BACKEND` | `mock`(기본, 파이프라인 검증) \| `tromr`(TrOMR-large, `pip install -r requirements-ai.txt`) |
 | `AI_OMR_SYSTEMS_MODE` | `auto`(잉크 투영) \| `single` \| `fixed` — [AI_OMR_배포_가이드.md](docs/AI_OMR_배포_가이드.md) |
+| `AUDIVERIS_BIN` | **레거시** — `OMR_ENGINE=audiveris` 일 때 필수. 예: `/opt/audiveris/bin/Audiveris` |
 
 **AI OMR 배포(Local PC·Ubuntu):** [docs/AI_OMR_배포_가이드.md](docs/AI_OMR_배포_가이드.md) · 엔진 설계: [docs/AI_OMR_엔진.md](docs/AI_OMR_엔진.md)
 | `AUDIVERIS_OCR_LANG` | Tesseract 언어 사양. **설정 시 이 값이 최우선**(예: `kor+eng`). **미설정**이면 `AUDIVERIS_CLEAN_SCORE_OCR_LANG` 또는 **`eng`**. Audiveris 기본만 쓰려면 빈 값: `AUDIVERIS_OCR_LANG=` |
@@ -123,7 +126,9 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 영구 설정 예 (`~/.bashrc`):
 
 ```bash
-export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
+export OMR_ENGINE=ai
+export AI_OMR_BACKEND=mock   # 실인식: tromr + requirements-ai.txt
+# 레거시 Audiveris: export OMR_ENGINE=audiveris && export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
 # 전역 한글 블랭크는 기본 켜짐. 끄려면: export MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK=0
 ```
 
@@ -132,8 +137,8 @@ export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
 1. **코드 반영**: `git pull origin main` (또는 배포 브랜치).
 2. **의존성**: venv 활성화 후 `pip install -r requirements.txt`, Node는 `npm ci` 또는 `npm install`.
 3. **프론트 빌드**: `npm run build` — `start:prod`는 `dist`를 서빙합니다.
-4. **환경 변수**: `AUDIVERIS_BIN` — PM2/systemd에 반영 후 **프로세스 재시작** (진행 중 변환·HITL 대기 job이 없을 때만).
-5. **동작 확인**: `GET /api/health`, 한글 파일명 PDF + 디버그 ZIP으로 샘플 변환 — 단계별 세부 항목은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md).
+4. **환경 변수**: 기본 **AI OMR**(`OMR_ENGINE=ai`, Python deps). PM2/systemd 반영 후 **프로세스 재시작** (진행 중 변환·HITL 대기 job이 없을 때만).
+5. **동작 확인**: `GET /api/health` → `omrEngineReady: true`. 한글 파일명 PDF 샘플 변환 — [docs/AI_OMR_배포_가이드.md](docs/AI_OMR_배포_가이드.md).
 
 한 줄 점검 (Linux 예):
 
@@ -155,7 +160,7 @@ pip install -r requirements.txt
 ### 개발 (Vite HMR + API)
 
 ```bash
-export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
+pip install -r requirements.txt
 npm run dev
 ```
 
@@ -165,7 +170,7 @@ npm run dev
 ### 운영 (빌드 + 단일 포트)
 
 ```bash
-export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
+npm run build
 npm run start:prod
 ```
 
@@ -181,7 +186,7 @@ npm run start:prod
 sudo npm install -g pm2
 
 # 2. 서버 구동 (이름을 pdf2mxl로 지정)
-AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris pm2 start npm --name "pdf2mxl" -- run start:prod
+pm2 start npm --name "pdf2mxl" -- run start:prod
 
 # 3. 재부팅 시 자동 실행 등록
 pm2 startup
@@ -196,7 +201,6 @@ pm2 save
 ### CLI만
 
 ```bash
-export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris
 npm run convert -- "/path/to/score.pdf"
 npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 ```

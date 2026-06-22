@@ -39,6 +39,11 @@ import {
   runAudiveris,
   runAudiverisArgv,
 } from '../shared/audiveris.js';
+import {
+  omrEngineConfigured,
+  resolveOmrEngine,
+  runOmrEngine,
+} from '../shared/omr.js';
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -160,6 +165,7 @@ function formatFontSeparatorDepsError(depCheck: { missing: string[]; pythonBin: 
 
 app.get('/api/health', async (_req, res) => {
   const bin = resolveAudiverisBin();
+  const omr = omrEngineConfigured();
   const ocrLangEffective = resolvedAudiverisOcrLangSpec();
   const ocrLangConstantInjected = ocrLanguageConstantArgsFromEnv().length > 0;
   const extraCli = audiverisExtraCliArgsFromEnv();
@@ -167,6 +173,10 @@ app.get('/api/health', async (_req, res) => {
   const sepDeps = await probeFontSeparatorDeps(pythonBin);
   res.json({
     ok: true,
+    omrEngine: omr.engine,
+    omrEngineReady: omr.ready,
+    omrEngineDetail: omr.detail,
+    aiOmrBackend: process.env.AI_OMR_BACKEND?.trim() || 'mock',
     audiverisConfigured: Boolean(bin),
     audiverisOcrLangEffective: ocrLangEffective,
     audiverisOcrLangConstantInjected: ocrLangConstantInjected,
@@ -179,7 +189,9 @@ app.get('/api/health', async (_req, res) => {
     fontSeparatorMissingModules: sepDeps.missing.length ? sepDeps.missing : undefined,
     fontSeparatorDepsHint: sepDeps.ok ? undefined : fontSeparatorDepsInstallHint(sepDeps.pythonBin),
     fontSeparatorProbeError: sepDeps.probeError,
-    hint: bin ? undefined : 'Set AUDIVERIS_BIN to Audiveris.bat or bin/Audiveris',
+    hint: omr.ready
+      ? undefined
+      : omr.detail || 'Set AUDIVERIS_BIN or OMR_ENGINE=ai',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:
       '변환 완료 또는 실패 처리 후 서버에 보관되는 작업·파일은 24시간이 지나면 자동으로 삭제됩니다. 완료 직후 다운로드를 받아도 같은 jobId로 마스킹·인식 점검 API는 TTL 전까지 사용할 수 있습니다.',
@@ -1310,15 +1322,23 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       current: 0,
       total: pageHint,
       detail:
-        audiverisInput?.kind === 'clean_score'
-          ? 'clean_score_only.pdf → Audiveris 악보 인식 중…'
-          : 'Audiveris 악보 인식 중…',
+        resolveOmrEngine() === 'ai'
+          ? audiverisInput?.kind === 'clean_score'
+            ? 'clean_score_only.pdf → AI OMR 인식 중…'
+            : 'AI OMR 인식 중…'
+          : audiverisInput?.kind === 'clean_score'
+            ? 'clean_score_only.pdf → Audiveris 악보 인식 중…'
+            : 'Audiveris 악보 인식 중…',
     });
 
-    console.log(`[job ${jobId}] Running Audiveris on ${pdfToProcess} (pipeline=${pipelineMode})…`);
+    const omrEngine = resolveOmrEngine();
+    console.log(
+      `[job ${jobId}] Running ${omrEngine} OMR on ${pdfToProcess} (pipeline=${pipelineMode})…`,
+    );
 
-    const result = await runAudiveris({
+    const result = await runOmrEngine({
       audiverisBin,
+      pythonBin,
       outputBaseDir: outBase,
       inputPdfPath: pdfToProcess,
       onStreamLine: (_stream, line) => {
@@ -1328,20 +1348,20 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             phase: 'audiveris',
             current: parsed.current,
             total: parsed.total,
-            detail: 'Audiveris 처리',
+            detail: omrEngine === 'ai' ? 'AI OMR 처리' : 'Audiveris 처리',
           });
         }
       },
     });
 
-    const outputs = await collectMusicXmlOutputs(outBase);
+    const outputs =
+      result.mxlPaths.length > 0 ? result.mxlPaths : await collectMusicXmlOutputs(outBase);
 
     let mxlForInject = outputs.filter((p) => p.toLowerCase().endsWith('.mxl'));
 
-    const autoPauseFromAudiverisLog = audiverisLogSuggestsHumanReview(
-      result.stdout,
-      result.stderr,
-    );
+    const autoPauseFromAudiverisLog =
+      omrEngine === 'audiveris' &&
+      audiverisLogSuggestsHumanReview(result.stdout, result.stderr);
     if (autoPauseFromAudiverisLog) {
       console.log(
         `[job ${jobId}] AUDIVERIS_PAUSE_ON_WARN: 로그에 WARN 등이 감지되어 Audiveris 보정(HITL) 단계로 전환합니다.`,
@@ -1445,7 +1465,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     if (outputs.length === 0) {
       await fail({
         status: 422,
-        error: 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
+        error:
+          omrEngine === 'ai'
+            ? 'AI OMR이 MusicXML/MXL을 만들지 못했습니다'
+            : 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
         detail:
           'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.',
         exitCode: result.code ?? undefined,
@@ -1489,15 +1512,17 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 }
 
 app.post('/api/convert', (req, res) => {
-  const bin = resolveAudiverisBin();
-  if (!bin) {
+  const omr = omrEngineConfigured();
+  if (!omr.ready) {
     res.status(503).json({
-      error: 'AUDIVERIS_BIN is not set',
+      error: omr.engine === 'ai' ? 'AI OMR is not ready' : 'AUDIVERIS_BIN is not set',
       detail:
-        'Linux: export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris  |  Windows: Audiveris.bat 경로',
+        omr.detail ||
+        'Linux: export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris  |  또는 OMR_ENGINE=ai',
     });
     return;
   }
+  const bin = resolveAudiverisBin() || '';
 
   const ct = req.headers['content-type'] || '';
   if (!ct.toLowerCase().includes('multipart/form-data')) {

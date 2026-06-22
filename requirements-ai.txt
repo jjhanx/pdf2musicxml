@@ -1,0 +1,4 @@
+# Optional — AI OMR (TrOMR). mock backend needs only requirements.txt.
+torch>=2.0
+transformers>=4.36
+Pillow>=10.0

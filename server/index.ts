@@ -163,6 +163,60 @@ function formatFontSeparatorDepsError(depCheck: { missing: string[]; pythonBin: 
   };
 }
 
+async function probeAiOmrDeps(pythonBin: string): Promise<{
+  ok: boolean;
+  backend: string;
+  missing: string[];
+  torchOk: boolean;
+  cudaAvailable: boolean;
+  probeExecutable?: string;
+  probeError?: string;
+  hint?: string;
+}> {
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'probe_ai_omr_deps.py');
+  try {
+    const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptPath}"`, {
+      maxBuffer: 256 * 1024,
+      env: { ...process.env },
+    });
+    if (stderr?.trim()) {
+      console.warn('[health] probe_ai_omr_deps stderr:', stderr.trim());
+    }
+    const parsed = JSON.parse(String(stdout).trim()) as {
+      ok?: boolean;
+      missing?: unknown;
+      backend?: string;
+      torchOk?: boolean;
+      cudaAvailable?: boolean;
+      executable?: string;
+      hint?: string;
+    };
+    const missing = Array.isArray(parsed.missing)
+      ? parsed.missing.filter((m): m is string => typeof m === 'string')
+      : [];
+    return {
+      ok: parsed.ok === true,
+      backend: typeof parsed.backend === 'string' ? parsed.backend : 'mock',
+      missing,
+      torchOk: parsed.torchOk === true,
+      cudaAvailable: parsed.cudaAvailable === true,
+      probeExecutable:
+        typeof parsed.executable === 'string' && parsed.executable ? parsed.executable : pythonBin,
+      hint: typeof parsed.hint === 'string' ? parsed.hint : undefined,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      backend: process.env.AI_OMR_BACKEND?.trim() || 'mock',
+      missing: ['PyMuPDF'],
+      torchOk: false,
+      cudaAvailable: false,
+      probeError: msg,
+    };
+  }
+}
+
 app.get('/api/health', async (_req, res) => {
   const bin = resolveAudiverisBin();
   const omr = omrEngineConfigured();
@@ -171,13 +225,26 @@ app.get('/api/health', async (_req, res) => {
   const extraCli = audiverisExtraCliArgsFromEnv();
   const pythonBin = resolvePythonBin();
   const sepDeps = await probeFontSeparatorDeps(pythonBin);
+  const aiDeps = await probeAiOmrDeps(pythonBin);
+  const omrEngineReady =
+    omr.engine === 'ai' ? aiDeps.ok : Boolean(bin);
   res.json({
     ok: true,
     omrEngine: omr.engine,
-    omrEngineReady: omr.ready,
-    omrEngineDetail: omr.detail,
-    aiOmrBackend: process.env.AI_OMR_BACKEND?.trim() || 'mock',
-    audiverisConfigured: Boolean(bin),
+    omrEngineReady,
+    omrEngineDetail:
+      omr.engine === 'ai'
+        ? aiDeps.ok
+          ? `AI OMR backend=${aiDeps.backend}${aiDeps.cudaAvailable ? ' (CUDA)' : ''}`
+          : aiDeps.hint || `AI OMR deps missing: ${aiDeps.missing.join(', ')}`
+        : omr.detail,
+    aiOmrBackend: aiDeps.backend,
+    aiOmrDepsOk: aiDeps.ok,
+    aiOmrTorchOk: aiDeps.torchOk,
+    aiOmrCudaAvailable: aiDeps.cudaAvailable,
+    aiOmrMissingModules: aiDeps.missing.length ? aiDeps.missing : undefined,
+    aiOmrDepsHint: aiDeps.ok ? undefined : aiDeps.hint,
+    aiOmrProbeError: aiDeps.probeError,
     audiverisOcrLangEffective: ocrLangEffective,
     audiverisOcrLangConstantInjected: ocrLangConstantInjected,
     audiverisCliExtraArgCount: extraCli.length,
@@ -189,9 +256,11 @@ app.get('/api/health', async (_req, res) => {
     fontSeparatorMissingModules: sepDeps.missing.length ? sepDeps.missing : undefined,
     fontSeparatorDepsHint: sepDeps.ok ? undefined : fontSeparatorDepsInstallHint(sepDeps.pythonBin),
     fontSeparatorProbeError: sepDeps.probeError,
-    hint: omr.ready
+    hint: omrEngineReady
       ? undefined
-      : omr.detail || 'Set AUDIVERIS_BIN or OMR_ENGINE=ai',
+      : omr.engine === 'ai'
+        ? aiDeps.hint || `AI OMR deps: ${aiDeps.missing.join(', ')}`
+        : omr.detail || 'Set AUDIVERIS_BIN or OMR_ENGINE=ai',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:
       '변환 완료 또는 실패 처리 후 서버에 보관되는 작업·파일은 24시간이 지나면 자동으로 삭제됩니다. 완료 직후 다운로드를 받아도 같은 jobId로 마스킹·인식 점검 API는 TTL 전까지 사용할 수 있습니다.',
@@ -1082,6 +1151,18 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   job.status = 'processing';
 
   const pythonBin = resolvePythonBin();
+  const omrEngineAtStart = resolveOmrEngine();
+  if (omrEngineAtStart === 'ai') {
+    const aiDeps = await probeAiOmrDeps(pythonBin);
+    if (!aiDeps.ok) {
+      await fail({
+        status: 503,
+        error: 'AI OMR Python 의존성이 없습니다',
+        detail: aiDeps.hint || `누락: ${aiDeps.missing.join(', ')}`,
+      });
+      return;
+    }
+  }
   const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
   const scriptMask = path.join(__dirname, '..', 'scripts', 'mask_pdf.py');
   const scriptSeparator = path.join(__dirname, '..', 'scripts', 'pdf_separator.py');
@@ -1513,16 +1594,16 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
 app.post('/api/convert', (req, res) => {
   const omr = omrEngineConfigured();
-  if (!omr.ready) {
+  const bin = resolveAudiverisBin() || '';
+  // convert 게이트는 health와 동일 — AI는 deps 프로브를 executeJob 전 health에서 확인
+  if (omr.engine !== 'ai' && !bin) {
     res.status(503).json({
-      error: omr.engine === 'ai' ? 'AI OMR is not ready' : 'AUDIVERIS_BIN is not set',
+      error: 'AUDIVERIS_BIN is not set',
       detail:
-        omr.detail ||
         'Linux: export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris  |  또는 OMR_ENGINE=ai',
     });
     return;
   }
-  const bin = resolveAudiverisBin() || '';
 
   const ct = req.headers['content-type'] || '';
   if (!ct.toLowerCase().includes('multipart/form-data')) {

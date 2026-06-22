@@ -11,6 +11,15 @@ import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPan
 type Health = {
   ok: boolean;
   audiverisConfigured: boolean;
+  omrEngine?: string;
+  omrEngineReady?: boolean;
+  omrEngineDetail?: string;
+  aiOmrBackend?: string;
+  aiOmrDepsOk?: boolean;
+  aiOmrTorchOk?: boolean;
+  aiOmrCudaAvailable?: boolean;
+  aiOmrMissingModules?: string[];
+  aiOmrDepsHint?: string;
   audiverisPauseOnWarn?: boolean;
   audiverisWarnPattern?: string | null;
   fontSeparatorDepsOk?: boolean;
@@ -277,7 +286,7 @@ function sleep(ms: number): Promise<void> {
 function taskProgressPhaseLabel(phase: string): string {
   if (phase === 'upload') return 'PDF 업로드';
   if (phase === 'separator') return '가사·악보 분리';
-  if (phase === 'audiveris') return '악보 인식(Audiveris)';
+  if (phase === 'audiveris') return '악보 인식(OMR)';
   return phase;
 }
 
@@ -553,8 +562,12 @@ export default function App() {
         setStatus('서버 상태를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
         return;
       }
-      if (!healthArg.audiverisConfigured) {
-        setStatus('Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.');
+      if (!healthArg.omrEngineReady && !healthArg.audiverisConfigured) {
+        setStatus(
+          healthArg.omrEngine === 'ai'
+            ? `AI OMR 의존성이 없습니다. ${healthArg.aiOmrDepsHint ?? 'pip install -r requirements.txt'}`
+            : 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다. 또는 OMR_ENGINE=ai',
+        );
         return;
       }
       if (pipelineMode === 'font_separator' && healthArg.fontSeparatorDepsOk === false) {
@@ -1064,9 +1077,9 @@ export default function App() {
             type="button"
             disabled={
               !files.length ||
-              !health?.audiverisConfigured ||
+              ((!health?.omrEngineReady && !health?.audiverisConfigured) ||
               busy ||
-              (pipelineMode === 'font_separator' && health?.fontSeparatorDepsOk === false)
+              (pipelineMode === 'font_separator' && health?.fontSeparatorDepsOk === false))
             }
             onClick={() =>
               void runBatchWith(files, health, autoSave).catch((err: unknown) => {
@@ -1189,16 +1202,25 @@ export default function App() {
           </ul>
         )}
 
-        <div className={`status ${health?.audiverisConfigured ? 'ok' : 'err'}`}>
+        <div className={`status ${health?.omrEngineReady || health?.audiverisConfigured ? 'ok' : 'err'}`}>
           {health === null && '서버 상태 확인 중…'}
-          {health && !health.audiverisConfigured && (
+          {health && !health.omrEngineReady && !health.audiverisConfigured && (
             <>
-              Audiveris 경로가 설정되지 않았습니다.
+              OMR 엔진이 준비되지 않았습니다.
               <br />
-              Linux 예: <code>export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris</code>
+              Audiveris: <code>export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris</code>
+              <br />
+              AI OMR: <code>export OMR_ENGINE=ai</code> (+ <code>pip install -r requirements.txt</code>)
               <br />
               서버를 다시 실행하세요.
             </>
+          )}
+          {health?.omrEngine === 'ai' && health.omrEngineReady && (
+            <div style={{ marginTop: '0.35rem', fontSize: '0.9rem' }}>
+              OMR: <strong>AI</strong> (backend={health.aiOmrBackend ?? 'mock'}
+              {health.aiOmrCudaAvailable ? ', CUDA' : ''})
+              {health.omrEngineDetail ? ` — ${health.omrEngineDetail}` : ''}
+            </div>
           )}
           {health?.fontSeparatorDepsOk === false && (
             <div

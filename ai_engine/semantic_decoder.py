@@ -1,18 +1,20 @@
-"""TrOMR 토큰 → SymbolGraph."""
+"""TrOMR 토큰 → SymbolGraph (staff 접두사 지원)."""
 from __future__ import annotations
 
 import re
 
 from ai_engine.symbol_graph import SymbolGraph, SymbolNode
 
+_STAFF_PREFIX_RE = re.compile(r"^staff(\d+)-", re.IGNORECASE)
+
 _TOKEN_RE = re.compile(
-    r"^(?P<kind>clef|timeSignature|keySignature|note|rest|barline)"
+    r"^(?P<kind>clef|timeSignature|keySignature|note|rest|barline|beam)"
     r"(?:-(?P<body>.+))?$",
     re.IGNORECASE,
 )
 
 _PITCH_DUR_RE = re.compile(
-    r"^(?P<pitch>[A-Ga-g][#b]?-?\d+)-(?P<dur>whole|half|quarter|eighth|16th|32nd)$"
+    r"^(?P<pitch>[A-Ga-g][#b]?\d*)-(?P<dur>whole|half|quarter|eighth|16th|32nd)$"
 )
 _REST_DUR_RE = re.compile(r"^(?P<dur>whole|half|quarter|eighth|16th|32nd)$")
 
@@ -26,6 +28,13 @@ _DURATION_QUARTERS = {
 }
 
 
+def _strip_staff_prefix(token: str) -> tuple[str, int | None]:
+    m = _STAFF_PREFIX_RE.match(token.strip())
+    if not m:
+        return token.strip(), None
+    return token[m.end() :].strip(), int(m.group(1))
+
+
 def decode_tokens(
     tokens: list[str],
     *,
@@ -34,17 +43,29 @@ def decode_tokens(
     page: int = 1,
     system: int = 0,
     x_start: float = 0.0,
+    default_staff: int | None = None,
 ) -> list[SymbolNode]:
     nodes: list[SymbolNode] = []
     x = x_start
-    for tok in tokens:
-        m = _TOKEN_RE.match(tok.strip())
+    beam_open = False
+    for raw_tok in tokens:
+        tok, staff_from_prefix = _strip_staff_prefix(raw_tok)
+        staff_id = staff_from_prefix if staff_from_prefix is not None else staff
+        if default_staff is not None and staff_from_prefix is None:
+            staff_id = default_staff
+
+        m = _TOKEN_RE.match(tok)
         if not m:
             continue
         kind = m.group("kind").lower()
         body = (m.group("body") or "").strip()
 
         if kind == "barline":
+            beam_open = False
+            continue
+
+        if kind == "beam":
+            beam_open = body.lower() in ("begin", "continue", "")
             continue
 
         if kind == "clef":
@@ -52,7 +73,7 @@ def decode_tokens(
             nodes.append(
                 SymbolNode(
                     measure=measure,
-                    staff=staff,
+                    staff=staff_id,
                     kind="clef",
                     clef_sign=sign,
                     clef_line=line,
@@ -69,7 +90,7 @@ def decode_tokens(
             nodes.append(
                 SymbolNode(
                     measure=measure,
-                    staff=staff,
+                    staff=staff_id,
                     kind="timeSignature",
                     time_beats=beats,
                     time_beat_type=beat_type,
@@ -89,7 +110,7 @@ def decode_tokens(
             nodes.append(
                 SymbolNode(
                     measure=measure,
-                    staff=staff,
+                    staff=staff_id,
                     kind="rest",
                     rest=True,
                     duration_type=dur_type or "quarter",
@@ -106,12 +127,12 @@ def decode_tokens(
             pm = _PITCH_DUR_RE.match(body)
             if not pm:
                 continue
-            pitch = pm.group("pitch").replace("-", "")
+            pitch = pm.group("pitch")
             dur_type = pm.group("dur")
             nodes.append(
                 SymbolNode(
                     measure=measure,
-                    staff=staff,
+                    staff=staff_id,
                     kind="note",
                     pitch=_normalize_pitch(pitch),
                     duration_type=dur_type,
@@ -132,7 +153,16 @@ def merge_token_streams_to_graph(
     """(tokens, measure, staff, page, system) 목록 → SymbolGraph."""
     g = graph or SymbolGraph()
     for tokens, measure, staff, page, system in streams:
-        g.extend(decode_tokens(tokens, measure=measure, staff=staff, page=page, system=system))
+        g.extend(
+            decode_tokens(
+                tokens,
+                measure=measure,
+                staff=staff,
+                page=page,
+                system=system,
+                default_staff=staff,
+            )
+        )
     return g
 
 
@@ -156,7 +186,6 @@ def _parse_time(body: str) -> tuple[int, int]:
 
 
 def _normalize_pitch(pitch: str) -> str:
-    """C#4, Bb3 형식."""
     pitch = pitch.strip()
     if len(pitch) < 2:
         return pitch

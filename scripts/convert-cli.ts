@@ -18,8 +18,8 @@ import {
   collectMusicXmlOutputs,
   defaultDownloadsDir,
   resolveAudiverisBin,
-  runAudiveris,
 } from '../shared/audiveris.js';
+import { resolveOmrEngine, runOmrEngine } from '../shared/omr.js';
 
 function usage(): never {
   // eslint-disable-next-line no-console
@@ -27,7 +27,9 @@ function usage(): never {
   npm run convert -- <input.pdf> [-o <outputFileOrDirectory>]
 
 Environment:
-  AUDIVERIS_BIN   필수. Audiveris 실행 파일 경로 (Windows: Audiveris.bat)
+  AUDIVERIS_BIN   Audiveris 사용 시 필수
+  OMR_ENGINE      audiveris(기본) | ai
+  AI_OMR_BACKEND  mock | tromr (OMR_ENGINE=ai)
   AUDIVERIS_OCR_LANG  선택. 미설정 시 kor+eng. 비우면 Audiveris 기본(eng).
   AUDIVERIS_CLI_EXTRA_JSON  선택. JSON 배열로 추가 CLI 토큰 (예: -constant …).
 `);
@@ -57,10 +59,11 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
+  const engine = resolveOmrEngine();
   const bin = resolveAudiverisBin();
-  if (!bin) {
+  if (engine !== 'ai' && !bin) {
     // eslint-disable-next-line no-console
-    console.error('AUDIVERIS_BIN 환경 변수를 설정하세요.');
+    console.error('AUDIVERIS_BIN 환경 변수를 설정하거나 OMR_ENGINE=ai 를 사용하세요.');
     process.exit(3);
   }
 
@@ -70,16 +73,17 @@ async function main(): Promise<void> {
 
   try {
     await fs.mkdir(outBase, { recursive: true });
-    const result = await runAudiveris({
+    const result = await runOmrEngine({
       audiverisBin: bin,
       outputBaseDir: outBase,
       inputPdfPath: pdfPath,
     });
 
-    const outputs = await collectMusicXmlOutputs(outBase);
+    const outputs =
+      result.mxlPaths.length > 0 ? result.mxlPaths : await collectMusicXmlOutputs(outBase);
     if (outputs.length === 0) {
       // eslint-disable-next-line no-console
-      console.error('Audiveris finished but no .mxl/.musicxml was found.');
+      console.error(`${engine} OMR finished but no .mxl/.musicxml was found.`);
       // eslint-disable-next-line no-console
       console.error('exit:', result.code);
       // eslint-disable-next-line no-console
@@ -92,7 +96,7 @@ async function main(): Promise<void> {
       const ext = path.extname(src);
       let dest: string;
       if (!outArg) {
-        dest = path.join(defaultDownloadsDir(), `${stem}_audiveris${ext}`);
+        dest = path.join(defaultDownloadsDir(), `${stem}_${engine}${ext}`);
       } else {
         const resolved = path.resolve(outArg);
         if (/\.(mxl|musicxml)$/i.test(resolved)) {

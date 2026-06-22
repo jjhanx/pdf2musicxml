@@ -10,6 +10,7 @@ from ai_engine.image_loader import load_pdf_pages
 from ai_engine.musicxml_builder import write_mxl
 from ai_engine.rhythm_corrector import correct_rhythm
 from ai_engine.semantic_decoder import merge_token_streams_to_graph
+from ai_engine.staff_splitter import split_system_into_staves
 from ai_engine.symbol_graph import SymbolGraph
 from ai_engine.system_splitter import split_page_into_systems
 from ai_engine.tr_omr_engine import TrOmrEngine
@@ -41,17 +42,54 @@ def run_ai_omr_pipeline(
     streams: list[tuple[list[str], int, int, int, int]] = []
     measure_counter = 1
     backends: set[str] = set()
+    system_count = 0
+    staff_crop_count = 0
+
+    fixed = cfg.systems_per_page_fixed if cfg.systems_mode == "fixed" else 1
 
     for page in pages:
-        systems = split_page_into_systems(page, max_systems=1)
+        systems = split_page_into_systems(
+            page,
+            mode=cfg.systems_mode,
+            fixed_count=fixed,
+        )
         for system in systems:
-            result = engine.recognize_system(system)
-            backends.add(result.backend)
-            staff = min(system.system_index, max(0, cfg.total_staves() - 1))
-            streams.append(
-                (result.tokens, measure_counter, staff, page.page_index + 1, system.system_index)
-            )
+            system_count += 1
+            measure_no = measure_counter
             measure_counter += 1
+
+            if cfg.split_staves:
+                staff_images = split_system_into_staves(
+                    system,
+                    staves_per_system=cfg.staves_per_system,
+                    margin_px=cfg.staff_margin_px,
+                )
+                for staff_img in staff_images:
+                    staff_crop_count += 1
+                    global_staff = cfg.global_staff_index(staff_img.staff_index)
+                    result = engine.recognize(staff_img, staff_index=global_staff)
+                    backends.add(result.backend)
+                    streams.append(
+                        (
+                            result.tokens,
+                            measure_no,
+                            global_staff,
+                            page.page_index + 1,
+                            system.system_index,
+                        )
+                    )
+            else:
+                result = engine.recognize_system(system)
+                backends.add(result.backend)
+                streams.append(
+                    (
+                        result.tokens,
+                        measure_no,
+                        0,
+                        page.page_index + 1,
+                        system.system_index,
+                    )
+                )
 
     graph: SymbolGraph = merge_token_streams_to_graph(streams)
     graph.metadata.update(
@@ -59,6 +97,9 @@ def run_ai_omr_pipeline(
             "source_pdf": str(pdf_path),
             "backend": ",".join(sorted(backends)) or cfg.backend,
             "dpi": cfg.dpi,
+            "systems_mode": cfg.systems_mode,
+            "split_staves": cfg.split_staves,
+            "staves_per_system": cfg.staves_per_system,
         }
     )
     assign_voices(graph, cfg)
@@ -78,5 +119,9 @@ def run_ai_omr_pipeline(
         backend=",".join(sorted(backends)) or cfg.backend,
         measure_count=graph.max_measure(),
         node_count=len(graph.nodes),
-        stats={"pages": len(pages), "systems": len(streams)},
+        stats={
+            "pages": len(pages),
+            "systems": system_count,
+            "staff_crops": staff_crop_count,
+        },
     )

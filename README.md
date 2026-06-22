@@ -77,7 +77,10 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 |------|------|
 | `AUDIVERIS_BIN` | **Audiveris 사용 시 필수**. `OMR_ENGINE=ai` 이면 생략 가능. 예: `/opt/audiveris/bin/Audiveris` |
 | **`OMR_ENGINE`** | **`audiveris`(기본)** \| **`ai`** — AI OMR(`ai_engine/`) 사용. [docs/AI_OMR_엔진.md](docs/AI_OMR_엔진.md) |
-| `AI_OMR_BACKEND` | `mock`(기본, 파이프라인 검증) \| `tromr`(TrOMR-large, torch/transformers 필요) |
+| `AI_OMR_BACKEND` | `mock`(기본, 파이프라인 검증) \| `tromr`(TrOMR-large, `pip install -r requirements-ai.txt`) |
+| `AI_OMR_SYSTEMS_MODE` | `auto`(잉크 투영) \| `single` \| `fixed` — [AI_OMR_배포_가이드.md](docs/AI_OMR_배포_가이드.md) |
+
+**AI OMR 배포(Local PC·Ubuntu):** [docs/AI_OMR_배포_가이드.md](docs/AI_OMR_배포_가이드.md) · 엔진 설계: [docs/AI_OMR_엔진.md](docs/AI_OMR_엔진.md)
 | `AUDIVERIS_OCR_LANG` | Tesseract 언어 사양. **설정 시 이 값이 최우선**(예: `kor+eng`). **미설정**이면 `AUDIVERIS_CLEAN_SCORE_OCR_LANG` 또는 **`eng`**. Audiveris 기본만 쓰려면 빈 값: `AUDIVERIS_OCR_LANG=` |
 | `AUDIVERIS_PAUSE_ON_WARN` | `1`/`true`/`yes`이면 Audiveris 표준출력·에러에 `WARN`(또는 `AUDIVERIS_WARN_PATTERN`)이 **한 번이라도** 보이면 **`pauseAfterAudiveris` 없이도** `audiveris_review_needed`로 멈춤(HITL). |
 | `AUDIVERIS_WARN_PATTERN` | (선택) Audiveris 로그를 스캔할 정규식. 미설정 시 `\bWARN\b`(대소문자 무시). |

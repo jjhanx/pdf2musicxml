@@ -37,25 +37,17 @@ npm install
 npm run build
 ```
 
-### 1-2. AI OMR (TrOMR, 기본)
+### 1-2. AI OMR (homr, 기본)
 
 ```powershell
 pip install -r requirements-ai.txt
+python -m homr --init
 $env:OMR_ENGINE = "ai"
-$env:AI_OMR_MODEL = "sanderwood/tr-omr-large"   # 사용 가능한 HF 체크포인트로 변경
-$env:AI_OMR_DPI = "300"
 $env:AUDIVERIS_MXL_RHYTHM_FIX = "off"
 npm run start:server
 ```
 
-브라우저 → `http://localhost:8787` → `GET /api/health` 에서:
-
-- `omrEngine`: `"ai"`
-- `omrEngineReady`: `true`
-- `aiOmrBackend`: `"tromr"`
-- `aiOmrDepsOk`: `true`
-
-**CUDA GPU**가 있으면 PyTorch가 자동으로 GPU를 사용합니다 (`aiOmrCudaAvailable: true`).
+- `aiOmrBackend`: `"homr"`
 
 ### 1-3. CLI 단독 테스트
 
@@ -94,8 +86,7 @@ npm run build
 
 ```bash
 export OMR_ENGINE=ai
-export AI_OMR_BACKEND=tromr
-export AI_OMR_MODEL=sanderwood/tr-omr-large
+export AI_OMR_BACKEND=homr
 export AUDIVERIS_MXL_RHYTHM_FIX=off
 export PORT=8787
 export PYTHON_BIN=/opt/pdf2musicxml/venv/bin/python

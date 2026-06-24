@@ -7,13 +7,18 @@ import os
 import sys
 
 BASE_MODULES = [("fitz", "PyMuPDF"), ("lxml", "lxml")]
+HOMR_MODULES = [
+    ("homr", "homr"),
+    ("onnxruntime", "onnxruntime"),
+    ("cv2", "opencv-python-headless"),
+]
 TROMR_MODULES = [("torch", "torch"), ("transformers", "transformers"), ("PIL", "Pillow")]
 
 
 def main() -> int:
-    backend = (os.environ.get("AI_OMR_BACKEND") or "tromr").strip().lower()
-    if backend not in ("mock", "tromr"):
-        backend = "tromr"
+    backend = (os.environ.get("AI_OMR_BACKEND") or "homr").strip().lower()
+    if backend not in ("mock", "tromr", "homr"):
+        backend = "homr"
     missing: list[str] = []
     for mod, label in BASE_MODULES:
         try:
@@ -23,8 +28,13 @@ def main() -> int:
 
     torch_ok = False
     cuda = False
-    # 기본 backend=tromr — TrOMR 의존성 항상 검사
-    if backend != "mock":
+    if backend == "homr":
+        for mod, label in HOMR_MODULES:
+            try:
+                __import__(mod)
+            except ImportError:
+                missing.append(label)
+    elif backend != "mock":
         for mod, label in TROMR_MODULES:
             try:
                 __import__(mod)
@@ -40,9 +50,12 @@ def main() -> int:
 
     hint = None
     if missing:
-        hint = "pip install -r requirements.txt && pip install -r requirements-ai.txt"
         if backend == "mock":
             hint = "pip install -r requirements.txt"
+        elif backend == "homr":
+            hint = "pip install -r requirements.txt && pip install -r requirements-ai.txt && python -m homr --init"
+        else:
+            hint = "pip install -r requirements.txt && pip install -r requirements-ai.txt"
 
     out = {
         "ok": len(missing) == 0,

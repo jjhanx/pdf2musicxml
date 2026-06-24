@@ -20,7 +20,7 @@ function pythonMxlFixEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
     OMR_ENGINE: process.env.OMR_ENGINE?.trim() || 'ai',
-    AI_OMR_BACKEND: process.env.AI_OMR_BACKEND?.trim() || 'tromr',
+    AI_OMR_BACKEND: process.env.AI_OMR_BACKEND?.trim() || 'homr',
     AUDIVERIS_MXL_RHYTHM_FIX: process.env.AUDIVERIS_MXL_RHYTHM_FIX ?? 'off',
   };
 }
@@ -198,7 +198,7 @@ async function probeAiOmrDeps(pythonBin: string): Promise<{
       : [];
     return {
       ok: parsed.ok === true,
-      backend: typeof parsed.backend === 'string' ? parsed.backend : 'tromr',
+      backend: typeof parsed.backend === 'string' ? parsed.backend : 'homr',
       missing,
       torchOk: parsed.torchOk === true,
       cudaAvailable: parsed.cudaAvailable === true,
@@ -210,7 +210,7 @@ async function probeAiOmrDeps(pythonBin: string): Promise<{
     const msg = e instanceof Error ? e.message : String(e);
     return {
       ok: false,
-      backend: process.env.AI_OMR_BACKEND?.trim() || 'tromr',
+      backend: process.env.AI_OMR_BACKEND?.trim() || 'homr',
       missing: ['PyMuPDF'],
       torchOk: false,
       cudaAvailable: false,
@@ -1070,6 +1070,24 @@ function parseAudiverisProgressLine(line: string, pageFallback: number): { curre
   return null;
 }
 
+function aiOmrFailureDetail(): string {
+  const backend = (process.env.AI_OMR_BACKEND || 'homr').trim().toLowerCase();
+  if (backend === 'homr') {
+    return (
+      'homr OMR이 MXL을 생성하지 못했습니다. 서버 venv에서 ' +
+      '`pip install -r requirements-ai.txt` 후 `python -m homr --init` 으로 가중치를 받았는지 확인하세요. ' +
+      '아래 로그를 검토하세요.'
+    );
+  }
+  if (backend === 'tromr') {
+    return (
+      'TrOMR(HuggingFace) OMR 실패. `AI_OMR_MODEL`이 유효한 공개 체크포인트인지 확인하거나 ' +
+      '`AI_OMR_BACKEND=homr`(기본)로 전환하세요. 아래 로그를 검토하세요.'
+    );
+  }
+  return 'AI OMR이 MXL을 생성하지 못했습니다. 아래 로그를 검토하세요.';
+}
+
 function tail(s: string, max = 8000): string {
   if (s.length <= max) return s;
   return s.slice(-max);
@@ -1555,7 +1573,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             ? 'AI OMR이 MusicXML/MXL을 만들지 못했습니다'
             : 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
         detail:
-          'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.',
+          omrEngine === 'ai'
+            ? aiOmrFailureDetail()
+            : 'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.',
         exitCode: result.code ?? undefined,
         stdoutTail: tail(result.stdout),
         stderrTail: tail(result.stderr),

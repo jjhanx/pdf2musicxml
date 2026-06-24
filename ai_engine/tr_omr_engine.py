@@ -73,7 +73,12 @@ class TrOmrEngine:
         if self._model is None:
             from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
-            model_id = self.config.model_id
+            model_id = self.config.model_id.strip()
+            if not model_id:
+                raise RuntimeError(
+                    "AI_OMR_BACKEND=tromr requires AI_OMR_MODEL (valid HuggingFace TrOCR checkpoint). "
+                    "Use AI_OMR_BACKEND=homr (default) for homr OMR with auto-downloaded weights."
+                )
             logger.info("Loading TrOMR model %s …", model_id)
             processor = TrOCRProcessor.from_pretrained(model_id)
             model = VisionEncoderDecoderModel.from_pretrained(model_id)

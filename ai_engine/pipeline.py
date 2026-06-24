@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from ai_engine.config import AiOmrConfig, load_config
 from ai_engine.image_loader import load_pdf_pages
 from ai_engine.musicxml_builder import write_mxl
 from ai_engine.rhythm_corrector import correct_rhythm
+from ai_engine.run_result import RunResult
+
+__all__ = ["RunResult", "run_ai_omr_pipeline"]
 from ai_engine.semantic_decoder import merge_token_streams_to_graph
 from ai_engine.staff_splitter import split_system_into_staves
 from ai_engine.symbol_graph import SymbolGraph
@@ -19,26 +21,20 @@ from ai_engine.voice_assigner import assign_voices
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class RunResult:
-    mxl_paths: list[str]
-    symbol_graph_path: str | None = None
-    backend: str = "tromr"
-    measure_count: int = 0
-    node_count: int = 0
-    stats: dict = field(default_factory=dict)
-
-
-def run_ai_omr_pipeline(
-    pdf_path: Path,
+def run_ai_omr_pipeline(    pdf_path: Path,
     output_dir: Path,
     config: AiOmrConfig | None = None,
 ) -> RunResult:
     cfg = config or load_config()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    pages = load_pdf_pages(pdf_path, dpi=cfg.dpi)
+    if cfg.backend == "homr":
+        from ai_engine.homr_pipeline import run_homr_pdf_pipeline
+
+        return run_homr_pdf_pipeline(pdf_path, output_dir, cfg)
+
     engine = TrOmrEngine(cfg)
+    pages = load_pdf_pages(pdf_path, dpi=cfg.dpi)
     streams: list[tuple[list[str], int, int, int, int]] = []
     measure_counter = 1
     backends: set[str] = set()

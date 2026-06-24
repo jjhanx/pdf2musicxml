@@ -522,7 +522,7 @@ def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path):
     import os as _os
 
     _os.environ.setdefault("OMR_ENGINE", "ai")
-    _os.environ.setdefault("AI_OMR_BACKEND", "tromr")
+    _os.environ.setdefault("AI_OMR_BACKEND", "homr")
     _os.environ.setdefault("AUDIVERIS_MXL_RHYTHM_FIX", "off")
     try:
         _scripts_dir = Path(__file__).resolve().parent

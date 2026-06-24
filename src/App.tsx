@@ -1237,7 +1237,7 @@ export default function App() {
               {health.omrEngine !== 'audiveris' && (
                 <>
                   {' '}
-                  (backend={health.aiOmrBackend ?? 'tromr'}
+                  (backend={health.aiOmrBackend ?? 'homr'}
                   {health.aiOmrCudaAvailable ? ', CUDA' : ''})
                 </>
               )}

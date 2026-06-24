@@ -1,5 +1,4 @@
 import sys
-import os
 import json
 import re
 
@@ -107,51 +106,60 @@ def extract_vector(pdf_path, output_json_path, doc):
         json.dump(results, f, ensure_ascii=False, indent=2)
 
 def extract_image(pdf_path, output_json_path):
-    os.environ['FLAGS_enable_pir_api'] = '0'
-    os.environ['PADDLE_DISABLE_PIR'] = '1'
-    from paddleocr import PaddleOCR
     from pdf2image import convert_from_path
     import numpy as np
-    
-    ocr = PaddleOCR(use_angle_cls=False, lang='korean', det_limit_side_len=2560)
+    from rapidocr import EngineType, LangRec, ModelType, RapidOCR
+    from rapidocr.utils.typings import OCRVersion
+
+    # PaddleOCR는 numpy<2 전용이라 homr(numpy>=2.2.6)과 공존할 수 없음 → RapidOCR(한국어 PP-OCRv5).
+    engine = RapidOCR(
+        params={
+            "Rec.lang_type": LangRec.KOREAN,
+            "Rec.engine_type": EngineType.ONNXRUNTIME,
+            "Rec.ocr_version": OCRVersion.PPOCRV5,
+            "Rec.model_type": ModelType.MOBILE,
+            "Global.use_cls": False,
+            "Det.limit_side_len": 2560,
+        }
+    )
     images = convert_from_path(pdf_path, dpi=300)
-    
+
     ocr_results = []
-    
+
     for page_idx, img in enumerate(images):
         img_cv = np.array(img)
-        result = ocr.ocr(img_cv)
-        if result and result[0]:
-            for item_idx, line in enumerate(result[0]):
-                bbox = line[0]
-                text = strip_pua(line[1][0])
-                confidence = line[1][1]
-                
-                # Exclude if it's completely empty or whitespace
-                if not text.strip(): continue
-                
-                xs = [p[0] for p in bbox]
-                ys = [p[1] for p in bbox]
-                x_min, x_max = int(min(xs)), int(max(xs))
-                y_min, y_max = int(min(ys)), int(max(ys))
-                
-                x_center = sum(p[0] for p in bbox) / 4
-                y_center = sum(p[1] for p in bbox) / 4
-                
-                # Original extraction was at 300 DPI, convert back to points for masking
-                zoom = 300 / 72
-                bbox_points = [x_min / zoom, y_min / zoom, x_max / zoom, y_max / zoom]
-                
-                ocr_results.append({
-                    "id": f"p{page_idx+1}_{item_idx}",
-                    "page": page_idx + 1,
-                    "text": text,
-                    "confidence": float(confidence),
-                    "x": float(x_center),
-                    "y": float(y_center),
-                    "bbox": bbox_points,
-                    "type": "unknown",
-                })
+        result = engine(img_cv, use_cls=False)
+        if result is None or not result.txts:
+            continue
+        for item_idx, (bbox, text, confidence) in enumerate(
+            zip(result.boxes, result.txts, result.scores)
+        ):
+            text = strip_pua(text)
+
+            if not text.strip():
+                continue
+
+            xs = [p[0] for p in bbox]
+            ys = [p[1] for p in bbox]
+            x_min, x_max = int(min(xs)), int(max(xs))
+            y_min, y_max = int(min(ys)), int(max(ys))
+
+            x_center = sum(p[0] for p in bbox) / 4
+            y_center = sum(p[1] for p in bbox) / 4
+
+            zoom = 300 / 72
+            bbox_points = [x_min / zoom, y_min / zoom, x_max / zoom, y_max / zoom]
+
+            ocr_results.append({
+                "id": f"p{page_idx+1}_{item_idx}",
+                "page": page_idx + 1,
+                "text": text,
+                "confidence": float(confidence),
+                "x": float(x_center),
+                "y": float(y_center),
+                "bbox": bbox_points,
+                "type": "unknown",
+            })
                     
     with open(output_json_path, 'w', encoding='utf-8') as f:
         json.dump(ocr_results, f, ensure_ascii=False, indent=2)
@@ -174,7 +182,7 @@ def main():
         print(f"Detected vector PDF ({text_length} chars). Using PyMuPDF.")
         extract_vector(pdf_path, output_json_path, doc)
     else:
-        print("Detected image PDF. Falling back to PaddleOCR.")
+        print("Detected image PDF. Falling back to RapidOCR (Korean).")
         extract_image(pdf_path, output_json_path)
 
 if __name__ == '__main__':

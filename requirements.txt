@@ -1,7 +1,9 @@
-paddlepaddle==2.6.2
-paddleocr==2.8.0
+# homr(AI OMR)와 동일하게 numpy 2.x. PaddleOCR(numpy<2)는 제거됨.
+numpy>=2.2.6,<3.0
+rapidocr>=3.3.0
+onnxruntime>=1.16
 pdf2image
-opencv-python
+opencv-python-headless
 lxml
 PyMuPDF
 pdfplumber

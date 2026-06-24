@@ -1,4 +1,5 @@
 # AI OMR (기본: homr). mock은 AI_OMR_BACKEND=mock 일 때만.
+# numpy>=2.2.6 은 requirements.txt 와 동일하게 맞춥니다 (PaddleOCR 과 공존 불가).
 homr>=0.6.0
 onnxruntime>=1.16
 

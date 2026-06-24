@@ -1380,7 +1380,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'upload',
         current: 1,
         total: 1,
-        detail: 'PDF에서 문자 추출 중 (PyMuPDF / PaddleOCR)…',
+        detail: 'PDF에서 문자 추출 중 (PyMuPDF / RapidOCR)…',
       });
 
       console.log(`[job ${jobId}] Running extract_text.py using ${pythonBin}`);

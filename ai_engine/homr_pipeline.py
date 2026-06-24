@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -93,11 +94,27 @@ def _render_pdf_pages(pdf_path: Path, out_dir: Path, dpi: int) -> list[Path]:
     return paths
 
 
+def _homr_executable(python_bin: str) -> str:
+    venv_bin = Path(python_bin).resolve().parent
+    for name in ("homr.exe", "homr"):
+        candidate = venv_bin / name
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which("homr", path=str(venv_bin))
+    if found:
+        return found
+    raise RuntimeError(
+        f"homr CLI not found beside {python_bin}. "
+        "Run: pip install -r requirements-ai.txt && homr --init"
+    )
+
+
 def _run_homr_on_image(image_path: Path, python_bin: str) -> Path:
     xml_path = image_path.with_suffix(".musicxml")
     if xml_path.exists():
         xml_path.unlink()
-    cmd = [python_bin, "-m", "homr", str(image_path)]
+    homr_bin = _homr_executable(python_bin)
+    cmd = [homr_bin, str(image_path)]
     logger.info("Running homr on %s", image_path.name)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:

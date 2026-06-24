@@ -9,7 +9,7 @@ PDF 악보를 **AI OMR**(`ai_engine/`)으로 변환해 **MusicXML(`.mxl` / `.mus
 
 ## 최근 변경 (AI OMR 기본)
 
-- **OMR 엔진 기본값 AI + homr**: `OMR_ENGINE` 미설정 시 **homr** OMR(실제 가중치, GitHub 자동 다운로드)이 동작합니다. `pip install -r requirements-ai.txt` 및 `python -m homr --init` 필요.
+- **OMR 엔진 기본값 AI + homr**: `OMR_ENGINE` 미설정 시 **homr** OMR(실제 가중치, GitHub 자동 다운로드)이 동작합니다. `pip install -r requirements-ai.txt` 및 `homr --init` 필요.
 - **변환 방식 선택(웹 UI)**: 업로드 전 **변환 방식**을 고릅니다.
   - **폰트 크기 분리 + AI OMR + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI** → `clean_score_only.pdf` → AI OMR → 병합·주입.
   - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → AI OMR → 주입.
@@ -56,7 +56,7 @@ cd /path/to/pdf2musicxml
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 pip install -r requirements-ai.txt
-python -m homr --init   # homr 가중치 1회 다운로드
+homr --init   # homr 가중치 1회 다운로드
 ```
 
 **기존 venv에 `paddlepaddle`/`paddleocr`가 남아 있으면** homr(`numpy>=2.2.6`)과 충돌합니다. 한 번 제거한 뒤 위 명령을 다시 실행하세요: `pip uninstall -y paddlepaddle paddleocr paddlex`. 이미지 PDF OCR은 **RapidOCR**(한국어 PP-OCRv5)을 씁니다.

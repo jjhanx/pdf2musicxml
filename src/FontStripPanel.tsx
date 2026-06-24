@@ -182,11 +182,11 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
   return (
     <div className="font-strip-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: '0 0 0.5rem' }}>Audiveris 입력 PDF — 지울 폰트 크기</h2>
+        <h2 style={{ margin: '0 0 0.5rem' }}>OMR 입력 PDF — 지울 폰트 크기</h2>
         <p className="font-strip-muted" style={{ margin: 0, fontSize: '0.92rem', lineHeight: 1.5 }}>
           <code>clean_score_only.pdf</code>에서 선택한 크기의 텍스트만 제거합니다.{' '}
           <strong>제목·작곡·가사·저작권</strong> 등은 검토 후{' '}
-          <code>inject_ocr.py</code>가 MusicXML에 넣으므로 Audiveris 악보 PDF에는 남기지 않는 편이 좋습니다.{' '}
+          <code>inject_ocr.py</code>가 MusicXML에 넣으므로 OMR용 악보 PDF에는 남기지 않는 편이 좋습니다.{' '}
           <strong>20pt 이상</strong>은 높은음자리표 등 음표 글림과 겹칠 수 있어 주의하세요.
         </p>
         {stats?.note && (

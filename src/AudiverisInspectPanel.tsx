@@ -119,7 +119,7 @@ export function parseScoreParts(xml: string): { id: string; name: string }[] {
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return [];
-    const nodes = doc.querySelectorAll('part-list > score-part');
+    const nodes = doc.querySelectorAll('part-list > score-part, part-list > *|score-part');
     const out: { id: string; name: string }[] = [];
     nodes.forEach((sp) => {
       const id = sp.getAttribute('id');
@@ -140,14 +140,16 @@ export function filterMusicXmlToPart(xml: string, partId: string | null): string
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
     const root = doc.documentElement;
-    if (root.tagName !== 'score-partwise') return xml;
-    const partList = root.querySelector('part-list');
+    const rootName = root.localName || root.tagName.replace(/^.*:/, '');
+    if (rootName !== 'score-partwise') return xml;
+    const partList = root.querySelector('part-list, *|part-list');
     if (!partList) return xml;
-    partList.querySelectorAll(':scope > score-part').forEach((n) => {
+    partList.querySelectorAll(':scope > score-part, :scope > *|score-part').forEach((n) => {
       if (n.getAttribute('id') !== partId) n.remove();
     });
     for (const el of Array.from(root.children)) {
-      if (el.tagName === 'part' && el.getAttribute('id') !== partId) el.remove();
+      const tag = el.localName || el.tagName.replace(/^.*:/, '');
+      if (tag === 'part' && el.getAttribute('id') !== partId) el.remove();
     }
     return new XMLSerializer().serializeToString(doc);
   } catch {
@@ -723,7 +725,7 @@ function AudiverisStepProbeSection({
                   checked={pdfSource === 'clean_score'}
                   onChange={() => setPdfSource('clean_score')}
                 />
-                <span style={{ color: '#e8eaed' }}>clean_score (Audiveris 입력)</span>
+                <span style={{ color: '#e8eaed' }}>clean_score (OMR 입력)</span>
               </label>
             )}
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: maskedPdfExists ? 'pointer' : 'not-allowed' }}>
@@ -839,6 +841,16 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
   /** 기본 끔 — 탭 전환 직후 OSMD가 멈추거나 빈 검은 영역처럼 보이는 경우 방지 */
   const [showOsmdPreview, setShowOsmdPreview] = useState(false);
   const [pngBust, setPngBust] = useState(0);
+  const [audiverisLegacy, setAudiverisLegacy] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/health', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h: { omrEngine?: string; audiverisConfigured?: boolean } | null) => {
+        setAudiverisLegacy(h?.omrEngine === 'audiveris' && Boolean(h?.audiverisConfigured));
+      })
+      .catch(() => setAudiverisLegacy(false));
+  }, []);
 
   useEffect(() => {
     setShowOsmdPreview(false);
@@ -909,7 +921,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
       : '';
   const audiverisCompareSrc = cleanScoreSrc || maskedSrc;
   const audiverisCompareLabel = summary?.cleanScorePdf?.exists
-    ? 'clean_score PDF (Audiveris 입력)'
+    ? 'clean_score PDF (OMR 입력)'
     : '마스킹 PDF';
 
   useEffect(() => {
@@ -944,11 +956,11 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ margin: '0 0 6px', color: 'var(--text-color, #e8eaed)' }}>마스킹·Audiveris 인식 점검</h3>
+          <h3 style={{ margin: '0 0 6px', color: 'var(--text-color, #e8eaed)' }}>마스킹·OMR 인식 점검</h3>
           <p style={{ margin: 0, fontSize: '0.9rem', color: '#bdc1c6', lineHeight: 1.45 }}>
-            같은 <strong>페이지</strong>에서 <strong>원본 PDF</strong>와 Audiveris에 넘긴 PDF(
+            같은 <strong>페이지</strong>에서 <strong>원본 PDF</strong>와 OMR에 넘긴 PDF(
             <code>clean_score_only.pdf</code> 또는 <code>masked_input.pdf</code>)를 나란히 보고, 가사·제목 등이 과하게 지워졌는지·음표가 보존됐는지 확인하세요.
-            오른쪽은 Audiveris가 낸 악보(MusicXML) 미리보기입니다.
+            오른쪽은 OMR이 낸 악보(MusicXML) 미리보기입니다.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -993,19 +1005,19 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
             <>
               {' '}
               · <strong>clean_score</strong> 페이지 수 {summary.cleanScorePdf.pageCount ?? '(알 수 없음)'}
-              {summary.audiverisInputPdf === 'clean_score' && ' (Audiveris 입력)'}
+              {summary.audiverisInputPdf === 'clean_score' && ' (OMR 입력)'}
             </>
           ) : null}
           {summary.maskedPdf.exists ? (
             <>
               {' '}
               · <strong>마스킹</strong> 페이지 수 {summary.maskedPdf.pageCount ?? '(알 수 없음)'}
-              {summary.audiverisInputPdf === 'masked' && ' (Audiveris 입력)'}
+              {summary.audiverisInputPdf === 'masked' && ' (OMR 입력)'}
             </>
           ) : !summary.cleanScorePdf?.exists ? (
             <>
               {' '}
-              · <strong>Audiveris 입력 PDF 없음</strong>(선행 처리 없이 원본만 사용한 경우 등)
+              · <strong>OMR 입력 PDF 없음</strong>(선행 처리 없이 원본만 사용한 경우 등)
             </>
           ) : null}
           {summary.lyricManifestStats && (
@@ -1039,7 +1051,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               }}
             >
               <div style={{ marginBottom: 8, color: '#e8eaed', lineHeight: 1.45 }}>
-                <strong>Audiveris 입력 PDF</strong> — <code style={{ fontSize: '0.82rem' }}>clean_score_only.pdf</code>
+                <strong>OMR 입력 PDF</strong> — <code style={{ fontSize: '0.82rem' }}>clean_score_only.pdf</code>
                 (폰트 크기로 가사만 제거). 음표·오선이 원본과 같아야 합니다.
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', alignItems: 'center' }}>
@@ -1072,7 +1084,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               }}
             >
               <div style={{ marginBottom: 8, color: '#e8eaed', lineHeight: 1.45 }}>
-                <strong>Audiveris 입력 PDF</strong> — 서버의 <code style={{ fontSize: '0.82rem' }}>masked_input.pdf</code>와 동일합니다. MXL·MusicXML이 이미 잘못돼
+                <strong>OMR 입력 PDF</strong> — 서버의 <code style={{ fontSize: '0.82rem' }}>masked_input.pdf</code>와 동일합니다. MXL·MusicXML이 이미 잘못돼
                 있어도, <strong>OCR 마스킹 직후</strong> 악보가 맞는지 여기서 먼저 확인하세요.
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', alignItems: 'center' }}>
@@ -1111,11 +1123,13 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               </a>
             </div>
           )}
+          {audiverisLegacy && (
           <AudiverisStepProbeSection
             jobId={jobId}
             maskedPdfExists={summary.maskedPdf.exists}
             cleanScorePdfExists={Boolean(summary.cleanScorePdf?.exists)}
           />
+          )}
         </div>
       )}
 
@@ -1249,7 +1263,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
           <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-color, #e8eaed)' }}>
             {audiverisCompareLabel} (페이지 {page})
           </div>
-          {!audiverisCompareSrc && <div className="sub">Audiveris 입력 PDF 없음 — 비교 불가</div>}
+          {!audiverisCompareSrc && <div className="sub">OMR 입력 PDF 없음 — 비교 불가</div>}
           {audiverisCompareSrc && (
             <>
               <div
@@ -1264,7 +1278,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
                 <img
                   key={audiverisCompareSrc}
                   src={audiverisCompareSrc}
-                  alt={`Audiveris 입력 ${page}p`}
+                  alt={`OMR 입력 ${page}p`}
                   decoding="async"
                   loading="eager"
                   style={{
@@ -1285,7 +1299,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               </div>
               {(cleanScoreSrc ? pngFailClean : pngFailMasked) && (
                 <div className="err" style={{ fontSize: '0.82rem', lineHeight: 1.35 }}>
-                  Audiveris 입력 PDF PNG 미리보기 로드 실패. 위쪽 PDF 링크로 직접 열어 확인하세요.{' '}
+                  OMR 입력 PDF PNG 미리보기 로드 실패. 위쪽 PDF 링크로 직접 열어 확인하세요.{' '}
                   <button type="button" className="btn-muted" style={{ marginTop: 6 }} onClick={() => setPngBust((n) => n + 1)}>
                     PNG 다시 불러오기
                   </button>
@@ -1296,7 +1310,7 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
         </div>
         {summary?.scoreMusicXmlAvailable && showOsmdPreview && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, maxHeight: '70vh' }}>
-            <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-color, #e8eaed)' }}>Audiveris 악보(파트 필터)</div>
+            <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-color, #e8eaed)' }}>OMR 악보(파트 필터)</div>
             {filteredXml ? (
               <OsmdBlock xml={filteredXml} zoom={scoreZoom} />
             ) : (

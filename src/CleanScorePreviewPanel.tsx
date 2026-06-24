@@ -89,7 +89,7 @@ export function CleanScorePreviewPanel({ jobId, onContinue, onRedoFontStrip }: P
       <div>
         <h2 style={{ margin: '0 0 0.5rem' }}>clean_score_only.pdf 확인</h2>
         <p className="font-strip-muted" style={{ margin: 0, fontSize: '0.92rem', lineHeight: 1.5 }}>
-          Audiveris에 넣기 전 <strong>원본</strong>과 <strong>clean_score</strong>를 나란히 확인하세요.{' '}
+          OMR에 넣기 전 <strong>원본</strong>과 <strong>clean_score</strong>를 나란히 확인하세요.{' '}
           <strong>음표 머리·오선·조표</strong>가 사라졌으면 「폰트 범위 다시 선택」으로 pt 범위를 좁히세요.{' '}
           (22.8pt 등 SMuFL 음표 글림은 제거 범위에 넣지 마세요.)
         </p>
@@ -156,7 +156,7 @@ export function CleanScorePreviewPanel({ jobId, onContinue, onRedoFontStrip }: P
 
           <div className="row" style={{ gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
             <button type="button" disabled={busy} onClick={() => void continueFlow()}>
-              {busy ? '처리 중…' : '확인 — Audiveris로 계속'}
+              {busy ? '처리 중…' : '확인 — OMR로 계속'}
             </button>
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => void redoFontStrip()}>
               폰트 범위 다시 선택

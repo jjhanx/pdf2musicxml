@@ -563,7 +563,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         <div className="omr-compare-col omr-compare-col--mxl">
           <div className="omr-mxl-preview-head">
             <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#333' }}>
-              MusicXML (Audiveris MXL)
+              MusicXML (OMR MXL)
               {osmdPartId && staffFilter ? ` · ${staffFilter}` : ' · 전체 파트'}
             </span>
             <div className="omr-mxl-preview-controls">
@@ -651,7 +651,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 ⚠️ OMR 불일치 의심 마디 ({suspiciousIssues.length}건)
               </h3>
               <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: '#666', lineHeight: 1.4 }}>
-                Audiveris 변환 결과 중 박자 미달, 초과 또는 마디 경계 오류가 의심되는 곳입니다. 각 항목을 클릭하여 바로 편집 창을 열고 보정할 수 있습니다.
+                OMR 변환 결과 중 박자 미달, 초과 또는 마디 경계 오류가 의심되는 곳입니다. 각 항목을 클릭하여 바로 편집 창을 열고 보정할 수 있습니다.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
                 {suspiciousIssues.map((iss: any, idx: number) => {
@@ -762,7 +762,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       <div className="omr-hitl-panel">
         <div className="omr-hitl-panel-title">대기 중인 MXL 보정 ({pendingFixes.length}건)</div>
         <p className="omr-hitl-panel-hint">
-          마디 편집에서 추가한 보정이 여기 쌓입니다. <strong>「MXL에 반영·미리보기」</strong>로 Audiveris MXL을
+          마디 편집에서 추가한 보정이 여기 쌓입니다. <strong>「MXL에 반영·미리보기」</strong>로 OMR MXL을
           갱신하고 오른쪽 악보에서 확인하세요. 패널을 열면 원본 MXL에서 후처리·보정을 자동 동기화합니다.
           중단 후 이어하려면 <strong>「작업 저장(ZIP)」</strong> → 나중에 <strong>「작업 불러오기」</strong>.
         </p>
@@ -791,7 +791,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             className="btn-muted"
             disabled={applyBusy}
             onClick={() => void normalizeRests()}
-            title="쉼표·이음줄·세잇단 숫자 등 Audiveris OMR 오류를 전체 성부에서 한 번에 정리합니다"
+            title="쉼표·이음줄·세잇단 숫자 등 OMR 오류를 전체 성부에서 한 번에 정리합니다"
           >
             {applyBusy ? '정리 중…' : 'OMR 자동 정리 (전체 성부)'}
           </button>

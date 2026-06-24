@@ -950,7 +950,7 @@ export default function App() {
       if (audiverisReplaceRef.current) audiverisReplaceRef.current.value = '';
     } catch (e) {
       console.error(e);
-      alert('Audiveris 이어하기 요청 실패');
+      alert('OMR 이어하기 요청 실패');
     }
   };
 
@@ -1037,10 +1037,10 @@ export default function App() {
   return (
     <div className="page">
       <div className="card">
-        <h1>PDF → MusicXML (Audiveris)</h1>
+        <h1>PDF → MusicXML (AI OMR)</h1>
         <p className="sub">
-          mxlplayer와 동일하게 <strong>Vite + React + TypeScript</strong>입니다. 변환은 로컬{' '}
-          <strong>Audiveris</strong> CLI를 호출합니다. 결과는 표준 <code>.mxl</code> /
+          mxlplayer와 동일하게 <strong>Vite + React + TypeScript</strong>입니다. 악보 인식은{' '}
+          <strong>AI OMR</strong>(<code>ai_engine/</code>)을 사용합니다. 결과는 표준 <code>.mxl</code> /
           <code>.musicxml</code> 이라 mxlplayer의 업로드(.xml / .musicxml / .mxl)와 호환됩니다.
         </p>
 
@@ -1479,7 +1479,7 @@ bash scripts/install-font-separator-deps.sh`}
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 0 }}>
-               <h2 style={{ margin: 0 }}>문자 검토 및 매핑 (Audiveris 실행 전)</h2>
+               <h2 style={{ margin: 0 }}>문자 검토 및 매핑 (OMR 실행 전)</h2>
                <div style={{ display: 'flex', gap: '0.5rem' }}>
                   {hasSavedData && (
                      <button onClick={handleLoadPrevious} style={{ padding: '0.5rem 1rem', background: '#f57c00', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
@@ -1507,7 +1507,7 @@ bash scripts/install-font-separator-deps.sh`}
               ) : (
                 <>
                   {' '}
-                  지정된 영역은 Audiveris에 넘어가기 전 하얗게 마스킹됩니다.
+                  지정된 영역은 OMR에 넘어가기 전 하얗게 마스킹됩니다.
                 </>
               )}
               {' '}
@@ -1526,7 +1526,7 @@ bash scripts/install-font-separator-deps.sh`}
                 성부 라벨 (PDF 페이지 번호와 구분)
               </div>
               <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: '#444', lineHeight: 1.45 }}>
-                가사를 붙일 <strong>성부</strong>를 S/A/T/B/PR/PL 등으로 미리 정합니다. Audiveris 이후 OMR
+                가사를 붙일 <strong>성부</strong>를 S/A/T/B/PR/PL 등으로 미리 정합니다. OMR
                 lint에서도 동일 라벨을 씁니다.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
@@ -1809,7 +1809,7 @@ bash scripts/install-font-separator-deps.sh`}
 
             <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={submitReview} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', background: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                {pipelineMode === 'font_separator' ? '병합 후 Audiveris 실행' : 'Audiveris 실행 (악보 인식 시작)'}
+                {pipelineMode === 'font_separator' ? '병합 후 OMR 실행' : 'OMR 실행 (악보 인식 시작)'}
               </button>
             </div>
           </div>
@@ -1913,8 +1913,8 @@ bash scripts/install-font-separator-deps.sh`}
               aria-modal="true"
               aria-label={
                 audiverisModalTab === 'inspect'
-                  ? '마스킹·Audiveris 인식 점검'
-                  : 'Audiveris 결과 보정'
+                  ? '마스킹·OMR 인식 점검'
+                  : 'OMR 결과 보정'
               }
               style={{
                 background: audiverisModalTab === 'inspect' ? '#1e222a' : '#fff',
@@ -1971,7 +1971,7 @@ bash scripts/install-font-separator-deps.sh`}
               </div>
             ) : (
               <>
-                <h2 style={{ margin: '0 0 0.75rem' }}>Audiveris 결과 보정</h2>
+                <h2 style={{ margin: '0 0 0.75rem' }}>OMR 결과 보정</h2>
                 <p style={{ margin: '0 0 1rem', lineHeight: 1.55, color: '#444' }}>
                   인식된 악보를 들어보거나 악보 편집기로 연 뒤, <strong>음높이·음표</strong>를 정한 다음 이어가세요. MXL은 아래에서 받거나, MuseScore 등에서 고친 파일을 교체 업로드할 수 있습니다.
                 </p>
@@ -1987,7 +1987,7 @@ bash scripts/install-font-separator-deps.sh`}
                     download
                     style={{ color: '#1565c0', fontWeight: 600 }}
                   >
-                    Audiveris 원본 MXL 다운로드
+                    OMR 원본 MXL 다운로드
                   </a>
                   <div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -2060,7 +2060,7 @@ bash scripts/install-font-separator-deps.sh`}
             <div
               role="dialog"
               aria-modal="true"
-              aria-label="마스킹·Audiveris 인식 점검"
+              aria-label="마스킹·OMR 인식 점검"
               style={{
                 background: '#1e222a',
                 color: '#e8eaed',

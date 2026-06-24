@@ -10,11 +10,7 @@ from xml.etree import ElementTree as ET
 from ai_engine.config import AiOmrConfig
 from ai_engine.symbol_graph import SymbolGraph, SymbolNode
 
-_MXL_NS = "http://www.musicxml.org/ns/3.1/score-partwise"
-
-
-def _q(tag: str) -> str:
-    return f"{{{_MXL_NS}}}{tag}"
+# OSMD·MuseScore 등은 접두사 없는 표준 MusicXML 3.1 partwise를 기대함 (네임스페이스 금지).
 
 
 def _duration_units(node: SymbolNode, divisions: int) -> int:
@@ -47,16 +43,16 @@ def _parse_pitch(pitch: str) -> tuple[str, int, int | None]:
 
 
 def build_musicxml_tree(graph: SymbolGraph, config: AiOmrConfig) -> ET.Element:
-    root = ET.Element(_q("score-partwise"), {"version": "3.1"})
-    ET.SubElement(root, _q("work"))
-    part_list = ET.SubElement(root, _q("part-list"))
+    root = ET.Element("score-partwise", {"version": "3.1"})
+    ET.SubElement(root, "work")
+    part_list = ET.SubElement(root, "part-list")
 
     part_ids: list[str] = []
     for i, pl in enumerate(config.part_layout):
         pid = f"P{i + 1}"
         part_ids.append(pid)
-        sp = ET.SubElement(part_list, _q("score-part"), {"id": pid})
-        pn = ET.SubElement(sp, _q("part-name"))
+        sp = ET.SubElement(part_list, "score-part", {"id": pid})
+        pn = ET.SubElement(sp, "part-name")
         pn.text = pl.part_name
 
     max_measure = max(1, graph.max_measure())
@@ -69,32 +65,32 @@ def build_musicxml_tree(graph: SymbolGraph, config: AiOmrConfig) -> ET.Element:
         nodes_by_part_measure.setdefault((pi, n.measure), []).append(n)
 
     for pi, pid in enumerate(part_ids):
-        part_el = ET.SubElement(root, _q("part"), {"id": pid})
+        part_el = ET.SubElement(root, "part", {"id": pid})
         pl = config.part_layout[pi]
         for mnum in range(1, max_measure + 1):
-            measure_el = ET.SubElement(part_el, _q("measure"), {"number": str(mnum)})
+            measure_el = ET.SubElement(part_el, "measure", {"number": str(mnum)})
             if mnum == 1:
-                attrs = ET.SubElement(measure_el, _q("attributes"))
-                ET.SubElement(attrs, _q("divisions")).text = str(config.divisions)
+                attrs = ET.SubElement(measure_el, "attributes")
+                ET.SubElement(attrs, "divisions").text = str(config.divisions)
                 for st in range(1, pl.staff_count + 1):
                     if pl.staff_count > 1:
-                        staves = attrs.find(_q("staves"))
+                        staves = attrs.find("staves")
                         if staves is None:
-                            staves = ET.SubElement(attrs, _q("staves"))
+                            staves = ET.SubElement(attrs, "staves")
                         staves.text = str(pl.staff_count)
-                    clef = ET.SubElement(attrs, _q("clef"))
+                    clef = ET.SubElement(attrs, "clef")
                     if pl.staff_count > 1:
                         clef.set("number", str(st))
-                    sign = ET.SubElement(clef, _q("sign"))
+                    sign = ET.SubElement(clef, "sign")
                     sign.text = "G" if st == 1 else "F"
-                    line = ET.SubElement(clef, _q("line"))
+                    line = ET.SubElement(clef, "line")
                     line.text = "2" if st == 1 else "4"
-                time_el = ET.SubElement(attrs, _q("time"))
-                ET.SubElement(time_el, _q("beats")).text = str(config.beats)
-                ET.SubElement(time_el, _q("beat-type")).text = str(config.beat_type)
+                time_el = ET.SubElement(attrs, "time")
+                ET.SubElement(time_el, "beats").text = str(config.beats)
+                ET.SubElement(time_el, "beat-type").text = str(config.beat_type)
                 if config.key_fifths:
-                    key_el = ET.SubElement(attrs, _q("key"))
-                    ET.SubElement(key_el, _q("fifths")).text = str(config.key_fifths)
+                    key_el = ET.SubElement(attrs, "key")
+                    ET.SubElement(key_el, "fifths").text = str(config.key_fifths)
 
             bucket = nodes_by_part_measure.get((pi, mnum), [])
             bucket.sort(key=lambda n: (n.staff, n.x, n.y))
@@ -104,30 +100,30 @@ def build_musicxml_tree(graph: SymbolGraph, config: AiOmrConfig) -> ET.Element:
                 if node.kind not in ("note", "rest"):
                     continue
                 _, staff_in_part = config.staff_to_part(node.staff)
-                note_el = ET.SubElement(measure_el, _q("note"))
+                note_el = ET.SubElement(measure_el, "note")
                 if node.rest:
-                    ET.SubElement(note_el, _q("rest"))
+                    ET.SubElement(note_el, "rest")
                 elif node.pitch:
                     step, octave, alter = _parse_pitch(node.pitch)
-                    pitch_el = ET.SubElement(note_el, _q("pitch"))
-                    ET.SubElement(pitch_el, _q("step")).text = step
+                    pitch_el = ET.SubElement(note_el, "pitch")
+                    ET.SubElement(pitch_el, "step").text = step
                     if alter is not None:
-                        ET.SubElement(pitch_el, _q("alter")).text = str(alter)
-                    ET.SubElement(pitch_el, _q("octave")).text = str(octave)
+                        ET.SubElement(pitch_el, "alter").text = str(alter)
+                    ET.SubElement(pitch_el, "octave").text = str(octave)
                 dur = _duration_units(node, config.divisions)
-                ET.SubElement(note_el, _q("duration")).text = str(dur)
+                ET.SubElement(note_el, "duration").text = str(dur)
                 if node.duration_type:
-                    typ = ET.SubElement(note_el, _q("type"))
+                    typ = ET.SubElement(note_el, "type")
                     typ.text = node.duration_type
                 voice = node.voice or 1
-                ET.SubElement(note_el, _q("voice")).text = str(voice)
+                ET.SubElement(note_el, "voice").text = str(voice)
                 if pl.staff_count > 1 or config.total_staves() > 1:
-                    st_el = ET.SubElement(note_el, _q("staff"))
+                    st_el = ET.SubElement(note_el, "staff")
                     st_el.text = str(staff_in_part)
                 if node.lyric:
-                    lyric_el = ET.SubElement(note_el, _q("lyric"))
-                    ET.SubElement(lyric_el, _q("syllabic")).text = "single"
-                    text_el = ET.SubElement(lyric_el, _q("text"))
+                    lyric_el = ET.SubElement(note_el, "lyric")
+                    ET.SubElement(lyric_el, "syllabic").text = "single"
+                    text_el = ET.SubElement(lyric_el, "text")
                     text_el.text = node.lyric
 
     return root

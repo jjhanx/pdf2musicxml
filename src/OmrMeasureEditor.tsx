@@ -388,7 +388,7 @@ function MeasureNoteEditor({
             className={`omr-hitl-fix-btn${likelyTupletDigit ? ' omr-hitl-fix-btn--primary' : ''}`}
             title={
               likelyTupletDigit
-                ? '잇단 숫자(3)를 가리는 점 — Audiveris가 숫자를 스타카토로 오인한 것일 가능성이 높습니다'
+                ? '잇단 숫자(3)를 가리는 점 — OMR이 숫자를 스타카토로 오인한 것일 가능성이 높습니다'
                 : `이 음표의 ${name} 표를 제거합니다`
             }
             onClick={() => onFix({ kind: 'removeArticulation', noteIndex: el.index, articulation: name })}

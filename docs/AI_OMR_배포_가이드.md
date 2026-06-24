@@ -141,8 +141,8 @@ pip install pikepdf pdfplumber
 | 변수 | 기본 | 설명 |
 |------|------|------|
 | **`OMR_ENGINE`** | **`ai`** | AI OMR(기본). `audiveris`=레거시 |
-| `AI_OMR_BACKEND` | **`tromr`** | TrOMR(기본). `mock`=개발용 |
-| `AI_OMR_MODEL` | `sanderwood/tr-omr-large` | HuggingFace 모델 ID |
+| `AI_OMR_BACKEND` | **`homr`** | homr(기본). `tromr`=HF TrOCR |
+| `AI_OMR_MODEL` | (tromr만) | HuggingFace TrOCR 체크포인트 |
 | `AI_OMR_DPI` | `300` | PDF 렌더 해상도 |
 | `AI_OMR_SYSTEMS_MODE` | `auto` | `auto` \| `single` \| `fixed` |
 | `AI_OMR_SYSTEMS_PER_PAGE` | `4` | `fixed` 모드 시 시스템 수 |

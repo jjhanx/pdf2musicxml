@@ -36,7 +36,8 @@ PDF → 폰트분리 → clean_score_only.pdf
 | `image_loader.py` | PDF → 페이지 RGB (PyMuPDF) |
 | `system_splitter.py` | 페이지 → 시스템(마디 줄) — **수평 잉크 투영** |
 | `staff_splitter.py` | 시스템 → 6 staff 크롭 |
-| `tr_omr_engine.py` | TrOMR-large (`AI_OMR_BACKEND=tromr`, 기본) |
+| `homr_pipeline.py` | homr 페이지 OMR → MXL 병합 (기본) |
+| `tr_omr_engine.py` | HF TrOCR (`AI_OMR_BACKEND=tromr`) |
 | `semantic_decoder.py` | `staff0-note-C5-quarter` → SymbolNode |
 | `symbol_graph.py` | Audiveris XML 대체 내부 표현 |
 | `voice_assigner.py` | 규칙 기반 voice (후속 GATv2) |
@@ -62,8 +63,8 @@ python scripts/probe_ai_omr_deps.py
 | 변수 | 기본 | 설명 |
 |------|------|------|
 | **`OMR_ENGINE`** | **`ai`** | AI OMR(기본). `audiveris`=레거시 |
-| **`AI_OMR_BACKEND`** | **`tromr`** | TrOMR(기본). `mock`=개발용 더미 |
-| `AI_OMR_MODEL` | `sanderwood/tr-omr-large` | HuggingFace 모델 ID |
+| **`AI_OMR_BACKEND`** | **`homr`** | homr(기본). `tromr`=HF TrOCR |
+| `AI_OMR_MODEL` | (tromr만) | HuggingFace TrOCR 체크포인트 |
 | `AI_OMR_DPI` | `300` | PDF 렌더 DPI |
 | `AI_OMR_SYSTEMS_MODE` | `auto` | `auto` \| `single` \| `fixed` |
 | `AI_OMR_SYSTEMS_PER_PAGE` | `4` | `fixed` 모드 시 |

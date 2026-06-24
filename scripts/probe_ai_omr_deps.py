@@ -52,8 +52,11 @@ def main() -> int:
     if missing:
         if backend == "mock":
             hint = "pip install -r requirements.txt"
-        elif backend == "homr":
-            hint = "pip install -r requirements.txt && pip install -r requirements-ai.txt && homr --init"
+    elif backend == "homr":
+            hint = (
+                "pip install -r requirements.txt && pip install -r requirements-ai.txt && "
+                "(homr --init || python scripts/run_homr.py --init)"
+            )
         else:
             hint = "pip install -r requirements.txt && pip install -r requirements-ai.txt"
 

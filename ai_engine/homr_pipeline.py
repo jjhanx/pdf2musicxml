@@ -94,27 +94,42 @@ def _render_pdf_pages(pdf_path: Path, out_dir: Path, dpi: int) -> list[Path]:
     return paths
 
 
-def _homr_executable(python_bin: str) -> str:
+def _homr_cli_path(python_bin: str) -> str | None:
     venv_bin = Path(python_bin).resolve().parent
     for name in ("homr.exe", "homr"):
         candidate = venv_bin / name
         if candidate.is_file():
             return str(candidate)
-    found = shutil.which("homr", path=str(venv_bin))
-    if found:
-        return found
-    raise RuntimeError(
-        f"homr CLI not found beside {python_bin}. "
-        "Run: pip install -r requirements-ai.txt && homr --init"
-    )
+    return shutil.which("homr", path=str(venv_bin))
+
+
+def _homr_runner_script() -> Path:
+    return Path(__file__).resolve().parent.parent / "scripts" / "run_homr.py"
+
+
+def _homr_argv(python_bin: str, *args: str) -> list[str]:
+    cli = _homr_cli_path(python_bin)
+    if cli:
+        return [cli, *args]
+    try:
+        import homr.main  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            f"homr package not installed for {python_bin}. "
+            "Run: pip install -r requirements-ai.txt && homr --init "
+            "(or: python scripts/run_homr.py --init)"
+        ) from exc
+    runner = _homr_runner_script()
+    if not runner.is_file():
+        raise RuntimeError(f"homr runner missing: {runner}")
+    return [python_bin, str(runner), *args]
 
 
 def _run_homr_on_image(image_path: Path, python_bin: str) -> Path:
     xml_path = image_path.with_suffix(".musicxml")
     if xml_path.exists():
         xml_path.unlink()
-    homr_bin = _homr_executable(python_bin)
-    cmd = [homr_bin, str(image_path)]
+    cmd = _homr_argv(python_bin, str(image_path))
     logger.info("Running homr on %s", image_path.name)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:

@@ -56,7 +56,7 @@ cd /path/to/pdf2musicxml
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 pip install -r requirements-ai.txt
-homr --init   # homr 가중치 1회 다운로드
+homr --init   # homr 가중치 1회 다운로드 (CLI 없으면: python scripts/run_homr.py --init)
 ```
 
 **기존 venv에 `paddlepaddle`/`paddleocr`가 남아 있으면** homr(`numpy>=2.2.6`)과 충돌합니다. 한 번 제거한 뒤 위 명령을 다시 실행하세요: `pip uninstall -y paddlepaddle paddleocr paddlex`. 이미지 PDF OCR은 **RapidOCR**(한국어 PP-OCRv5)을 씁니다.

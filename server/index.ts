@@ -1075,7 +1075,7 @@ function aiOmrFailureDetail(): string {
   if (backend === 'homr') {
     return (
       'homr OMR이 MXL을 생성하지 못했습니다. 서버 venv에서 ' +
-      '`pip install -r requirements-ai.txt` 후 `homr --init` 으로 가중치를 받았는지 확인하세요. ' +
+      '`pip install -r requirements-ai.txt` 후 `homr --init`(또는 `python scripts/run_homr.py --init`)으로 가중치를 받았는지 확인하세요. ' +
       '아래 로그를 검토하세요.'
     );
   }

@@ -27,7 +27,7 @@ function usage(): never {
 
 Environment:
   OMR_ENGINE      ai(기본) | audiveris (레거시)
-  AI_OMR_BACKEND  mock | tromr
+  AI_OMR_BACKEND  tromr(기본) | mock(개발용)
   AUDIVERIS_BIN   OMR_ENGINE=audiveris 일 때만 필수
 `);
   process.exit(1);

@@ -1,6 +1,6 @@
 """AI OMR engine — Audiveris 대체 내부 파이프라인.
 
-PDF(clean_score) → TrOMR(또는 mock) → SymbolGraph → Voice → MusicXML
+PDF(clean_score) → TrOMR → SymbolGraph → Voice → MusicXML
 """
 from ai_engine.config import AiOmrConfig, load_config
 from ai_engine.pipeline import RunResult, run_ai_omr_pipeline

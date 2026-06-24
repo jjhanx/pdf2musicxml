@@ -3,7 +3,7 @@
  *
  * 환경 변수:
  *   OMR_ENGINE=ai | audiveris  (기본 ai)
- *   AI_OMR_BACKEND=mock | tromr
+ *   AI_OMR_BACKEND=tromr(기본) | mock(개발용)
  */
 
 import { spawn } from 'node:child_process';
@@ -43,7 +43,7 @@ export function resolveOmrEngine(): OmrEngineId {
 export function omrEngineConfigured(): { engine: OmrEngineId; ready: boolean; detail?: string } {
   const engine = resolveOmrEngine();
   if (engine === 'ai') {
-    return { engine, ready: true, detail: `AI OMR backend=${process.env.AI_OMR_BACKEND || 'mock'}` };
+    return { engine, ready: true, detail: `AI OMR backend=${process.env.AI_OMR_BACKEND || 'tromr'}` };
   }
   const bin = resolveAudiverisBin();
   return {

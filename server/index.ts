@@ -20,6 +20,7 @@ function pythonMxlFixEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
     OMR_ENGINE: process.env.OMR_ENGINE?.trim() || 'ai',
+    AI_OMR_BACKEND: process.env.AI_OMR_BACKEND?.trim() || 'tromr',
     AUDIVERIS_MXL_RHYTHM_FIX: process.env.AUDIVERIS_MXL_RHYTHM_FIX ?? 'off',
   };
 }
@@ -197,7 +198,7 @@ async function probeAiOmrDeps(pythonBin: string): Promise<{
       : [];
     return {
       ok: parsed.ok === true,
-      backend: typeof parsed.backend === 'string' ? parsed.backend : 'mock',
+      backend: typeof parsed.backend === 'string' ? parsed.backend : 'tromr',
       missing,
       torchOk: parsed.torchOk === true,
       cudaAvailable: parsed.cudaAvailable === true,
@@ -209,7 +210,7 @@ async function probeAiOmrDeps(pythonBin: string): Promise<{
     const msg = e instanceof Error ? e.message : String(e);
     return {
       ok: false,
-      backend: process.env.AI_OMR_BACKEND?.trim() || 'mock',
+      backend: process.env.AI_OMR_BACKEND?.trim() || 'tromr',
       missing: ['PyMuPDF'],
       torchOk: false,
       cudaAvailable: false,

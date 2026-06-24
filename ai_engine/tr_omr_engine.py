@@ -35,9 +35,9 @@ class TrOmrEngine:
 
     def recognize(self, image: OmrImage, staff_index: int | None = None) -> OmrTokenResult:
         backend = self.config.backend
-        if backend == "tromr":
-            return self._recognize_tromr(image, staff_index)
-        return self._recognize_mock(image, staff_index)
+        if backend == "mock":
+            return self._recognize_mock(image, staff_index)
+        return self._recognize_tromr(image, staff_index)
 
     def recognize_system(self, system: SystemImage) -> OmrTokenResult:
         return self.recognize(system, staff_index=None)
@@ -63,8 +63,8 @@ class TrOmrEngine:
                 tokens=tokens, backend="tromr", confidence=0.85, staff_index=staff_index
             )
         except Exception as exc:
-            logger.warning("TrOMR failed (%s), falling back to mock", exc)
-            return self._recognize_mock(image, staff_index)
+            logger.error("TrOMR failed (%s)", exc)
+            raise RuntimeError(f"TrOMR inference failed: {exc}") from exc
 
     def _run_tromr_model(self, image: OmrImage) -> list[str]:
         import torch

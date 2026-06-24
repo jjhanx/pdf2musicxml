@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class RunResult:
     mxl_paths: list[str]
     symbol_graph_path: str | None = None
-    backend: str = "mock"
+    backend: str = "tromr"
     measure_count: int = 0
     node_count: int = 0
     stats: dict = field(default_factory=dict)

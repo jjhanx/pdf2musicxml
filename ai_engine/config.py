@@ -16,7 +16,7 @@ class PartLayout:
 class AiOmrConfig:
     """SATB+피아노(6 staff) 기본. staff 0–3=S/A/T/B, 4=PR, 5=PL."""
 
-    backend: str = "mock"  # mock | tromr
+    backend: str = "tromr"  # tromr(기본) | mock(개발용)
     model_id: str = "sanderwood/tr-omr-large"
     dpi: int = 300
     divisions: int = 6
@@ -68,7 +68,9 @@ def _env_bool(name: str, default: bool = True) -> bool:
 
 
 def load_config() -> AiOmrConfig:
-    backend = (os.environ.get("AI_OMR_BACKEND") or "mock").strip().lower()
+    backend = (os.environ.get("AI_OMR_BACKEND") or "tromr").strip().lower()
+    if backend not in ("mock", "tromr"):
+        backend = "tromr"
     model_id = (os.environ.get("AI_OMR_MODEL") or "sanderwood/tr-omr-large").strip()
     dpi = int(os.environ.get("AI_OMR_DPI") or "300")
     divisions = int(os.environ.get("AI_OMR_DIVISIONS") or "6")

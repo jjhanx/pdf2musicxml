@@ -13,8 +13,10 @@ import sys
 def main() -> None:
     from homr.main import main as homr_main
 
-    if not sys.argv or sys.argv[0].endswith("run_homr.py"):
-        sys.argv.insert(0, "homr")
+    # homr.main 은 sys.argv[1]을 이미지 경로로 기대함. insert(0) 하면 run_homr.py 경로가
+    # positional image 로 들어가 page_001.png 가 "unrecognized arguments" 가 됨.
+    if sys.argv and sys.argv[0].endswith(("run_homr.py", "run_homr")):
+        sys.argv[0] = "homr"
     homr_main()
 
 

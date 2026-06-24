@@ -84,6 +84,7 @@ sudo apt install -y ./Audiveris-*-ubuntu24.04-x86_64.deb
 |------|------|
 | **`OMR_ENGINE`** | **`ai`(기본)** \| **`audiveris`**(레거시). AI OMR: [docs/AI_OMR_엔진.md](docs/AI_OMR_엔진.md) |
 | `AI_OMR_BACKEND` | **`homr`(기본)** \| `tromr`(HF TrOCR, `AI_OMR_MODEL` 필요) \| `mock`(개발용) |
+| `AI_OMR_MODEL` | **homr 에서 설정 안 함** | `tromr` 전용 HuggingFace TrOCR 체크포인트 |
 | `AI_OMR_SYSTEMS_MODE` | `auto`(잉크 투영) \| `single` \| `fixed` — [AI_OMR_배포_가이드.md](docs/AI_OMR_배포_가이드.md) |
 | `AUDIVERIS_BIN` | **레거시** — `OMR_ENGINE=audiveris` 일 때 필수. 예: `/opt/audiveris/bin/Audiveris` |
 

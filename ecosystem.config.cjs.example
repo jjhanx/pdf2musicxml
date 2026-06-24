@@ -1,0 +1,23 @@
+/** pm2 예시 — 복사: cp ecosystem.config.cjs.example ecosystem.config.cjs 후 경로·env 수정 */
+module.exports = {
+  apps: [
+    {
+      name: 'pdf2mxl',
+      cwd: '/mnt/jj/pdf2musicxml',
+      script: 'dist/server/index.js',
+      interpreter: 'node',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 8787,
+        LISTEN_HOST: '0.0.0.0',
+        PYTHON_BIN: '/mnt/jj/pdf2musicxml/venv/bin/python',
+        OMR_ENGINE: 'ai',
+        /** homr(기본). tromr 쓸 때만 AI_OMR_MODEL 필요 */
+        AI_OMR_BACKEND: 'homr',
+        /** homr 에서는 설정하지 않음 (삭제 또는 주석) */
+        // AI_OMR_MODEL: '',
+        AUDIVERIS_MXL_RHYTHM_FIX: 'off',
+      },
+    },
+  ],
+};

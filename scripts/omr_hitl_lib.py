@@ -325,6 +325,169 @@ def _from_diatonic_index(idx: int) -> tuple[str, int]:
     return step, octave
 
 
+def _note_staff_number(note: ET.Element, ns: str) -> int | None:
+    staff_el = note.find(_q(ns, "staff"))
+    if staff_el is None or not staff_el.text or not staff_el.text.strip().isdigit():
+        return None
+    return int(staff_el.text.strip())
+
+
+def _infer_voice_stem_from_neighbors(
+    notes: list[ET.Element], ns: str, after_idx: int, staff_n: int
+) -> tuple[str, str | None]:
+    """삽입 위치 앞·뒤·같은 스태프 이웃에서 voice·stem을 복사."""
+    candidates: list[ET.Element] = []
+    if 0 <= after_idx < len(notes):
+        candidates.append(notes[after_idx])
+    if after_idx + 1 < len(notes):
+        candidates.append(notes[after_idx + 1])
+    if after_idx - 1 >= 0:
+        candidates.append(notes[after_idx - 1])
+    voice = "1"
+    stem: str | None = None
+    for note in candidates:
+        st = _note_staff_number(note, ns)
+        if st is not None and st != staff_n:
+            continue
+        voice_el = note.find(_q(ns, "voice"))
+        if voice_el is not None and voice_el.text and voice_el.text.strip():
+            voice = voice_el.text.strip()
+        stem_el = note.find(_q(ns, "stem"))
+        if stem_el is not None and stem_el.text:
+            stem_val = stem_el.text.strip().lower()
+            if stem_val in ("up", "down"):
+                stem = stem_val
+        if voice != "1" and stem is not None:
+            break
+    return voice, stem
+
+
+def _infer_stem_from_pitch(step: str, octave: int) -> str:
+    """오선 중간(B4) 기준으로 stem 방향 추정 — OSMD·악보 관례."""
+    try:
+        idx = _diatonic_index(step, octave)
+    except ValueError:
+        return "up"
+    return "down" if idx >= _diatonic_index("B", 4) else "up"
+
+
+def _build_inserted_pitched_note(
+    ns: str,
+    *,
+    step: str,
+    octave: int,
+    alter: int | None,
+    note_type: str,
+    divisions: int,
+    staff_n: int,
+    voice: str,
+    stem: str | None,
+    dot_count: int = 0,
+) -> ET.Element:
+    """MusicXML 순서(pitch→duration→voice→type→stem→staff)로 일반 크기 음표 생성."""
+    new_note = ET.Element(_q(ns, "note"))
+    pitch_el = ET.SubElement(new_note, _q(ns, "pitch"))
+    ET.SubElement(pitch_el, _q(ns, "step")).text = step
+    ET.SubElement(pitch_el, _q(ns, "octave")).text = str(octave)
+    if alter is not None:
+        ET.SubElement(pitch_el, _q(ns, "alter")).text = str(int(alter))
+    target_dur = _duration_for_type_dots(note_type, divisions, dot_count)
+    if target_dur > 0:
+        ET.SubElement(new_note, _q(ns, "duration")).text = str(target_dur)
+    ET.SubElement(new_note, _q(ns, "voice")).text = voice
+    ET.SubElement(new_note, _q(ns, "type")).text = note_type
+    for _ in range(dot_count):
+        ET.SubElement(new_note, _q(ns, "dot"))
+    stem_val = stem if stem in ("up", "down") else _infer_stem_from_pitch(step, octave)
+    ET.SubElement(new_note, _q(ns, "stem")).text = stem_val
+    ET.SubElement(new_note, _q(ns, "staff")).text = str(staff_n)
+    return new_note
+
+
+def _build_inserted_rest_note(
+    ns: str,
+    *,
+    rest_type: str,
+    divisions: int,
+    staff_n: int,
+    voice: str,
+    display_step: str = "B",
+    display_octave: int = 4,
+) -> ET.Element:
+    new_note = ET.Element(_q(ns, "note"))
+    rest_el = ET.SubElement(new_note, _q(ns, "rest"))
+    target_dur = _duration_for_type_dots(rest_type, divisions, 0)
+    if target_dur > 0:
+        ET.SubElement(new_note, _q(ns, "duration")).text = str(target_dur)
+    ET.SubElement(new_note, _q(ns, "voice")).text = voice
+    ET.SubElement(new_note, _q(ns, "type")).text = rest_type
+    if rest_type in ("whole", "half"):
+        ET.SubElement(rest_el, _q(ns, "display-step")).text = display_step
+        ET.SubElement(rest_el, _q(ns, "display-octave")).text = str(display_octave)
+    ET.SubElement(new_note, _q(ns, "staff")).text = str(staff_n)
+    return new_note
+
+
+def _normalize_measure_note_engraving(
+    part: ET.Element, ns: str, measure: ET.Element
+) -> bool:
+    """HITL로 넣은 음·쉼표에 빠진 duration·voice·stem을 보강(일반 크기 렌더링)."""
+    divisions, _, _ = _effective_divisions_and_time(part, ns, measure)
+    notes = list_note_elements(measure, ns)
+    if not notes:
+        return False
+    default_voice = "1"
+    for note in notes:
+        voice_el = note.find(_q(ns, "voice"))
+        if voice_el is not None and voice_el.text and voice_el.text.strip():
+            default_voice = voice_el.text.strip()
+            break
+    changed = False
+    for note in notes:
+        if note.find(_q(ns, "grace")) is not None or note.get("cue") == "yes":
+            continue
+        type_el = note.find(_q(ns, "type"))
+        note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+        if not note_type:
+            continue
+        dot_count = len(note.findall(_q(ns, "dot")))
+        target_dur = _duration_for_type_dots(note_type, divisions, dot_count)
+        dur_el = note.find(_q(ns, "duration"))
+        if target_dur > 0 and (
+            dur_el is None or not (dur_el.text or "").strip().isdigit()
+        ):
+            if dur_el is None:
+                dur_el = ET.Element(_q(ns, "duration"))
+                pitch_or_rest = note.find(_q(ns, "pitch")) or note.find(_q(ns, "rest"))
+                if pitch_or_rest is not None:
+                    note.insert(list(note).index(pitch_or_rest) + 1, dur_el)
+                else:
+                    note.insert(0, dur_el)
+            dur_el.text = str(target_dur)
+            changed = True
+        voice_el = note.find(_q(ns, "voice"))
+        if voice_el is None:
+            voice_el = ET.SubElement(note, _q(ns, "voice"))
+            voice_el.text = default_voice
+            changed = True
+        elif not (voice_el.text or "").strip():
+            voice_el.text = default_voice
+            changed = True
+        if note.find(_q(ns, "pitch")) is not None and note.find(_q(ns, "stem")) is None:
+            pitch_el = note.find(_q(ns, "pitch"))
+            step_el = pitch_el.find(_q(ns, "step")) if pitch_el is not None else None
+            oct_el = pitch_el.find(_q(ns, "octave")) if pitch_el is not None else None
+            step = (step_el.text or "C").strip() if step_el is not None and step_el.text else "C"
+            try:
+                octave = int(oct_el.text.strip()) if oct_el is not None and oct_el.text else 4
+            except ValueError:
+                octave = 4
+            stem_el = ET.SubElement(note, _q(ns, "stem"))
+            stem_el.text = _infer_stem_from_pitch(step, octave)
+            changed = True
+    return changed
+
+
 def _insert_note_element(measure: ET.Element, ns: str, new_note: ET.Element, after_note_index: int) -> None:
     """after_note_index=-1 이면 첫 note 앞, 그 외에는 해당 note 바로 뒤."""
     children = list(measure)
@@ -848,23 +1011,24 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             after_idx = int(fix.get("afterNoteIndex", -1))
         except (TypeError, ValueError):
             return False
-        new_note = ET.Element(_q(ns, "note"))
-        ET.SubElement(new_note, _q(ns, "rest"))
-        type_el = ET.SubElement(new_note, _q(ns, "type"))
-        type_el.text = rest_type
-        staff_el = ET.SubElement(new_note, _q(ns, "staff"))
-        staff_el.text = str(staff_n)
-        if rest_type in ("whole", "half"):
-            rest_el = new_note.find(_q(ns, "rest"))
-            if rest_el is not None:
-                step = str(fix.get("displayStep") or "B").strip()
-                try:
-                    octave = int(fix.get("displayOctave", 4))
-                except (TypeError, ValueError):
-                    octave = 4
-                ET.SubElement(rest_el, _q(ns, "display-step")).text = step
-                ET.SubElement(rest_el, _q(ns, "display-octave")).text = str(octave)
+        divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
+        voice, _stem = _infer_voice_stem_from_neighbors(notes, ns, after_idx, staff_n)
+        step = str(fix.get("displayStep") or "B").strip()
+        try:
+            octave = int(fix.get("displayOctave", 4))
+        except (TypeError, ValueError):
+            octave = 4
+        new_note = _build_inserted_rest_note(
+            ns,
+            rest_type=rest_type,
+            divisions=divisions,
+            staff_n=staff_n,
+            voice=voice,
+            display_step=step,
+            display_octave=octave,
+        )
         _insert_note_element(measure, ns, new_note, after_idx)
+        _normalize_measure_note_engraving(part, ns, measure)
         return True
 
     if kind == "insertNote":
@@ -878,25 +1042,28 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         except (TypeError, ValueError):
             return False
         note_type = str(fix.get("noteType") or "quarter").strip()
-        new_note = ET.Element(_q(ns, "note"))
-        pitch_el = ET.SubElement(new_note, _q(ns, "pitch"))
-        ET.SubElement(pitch_el, _q(ns, "step")).text = step
-        ET.SubElement(pitch_el, _q(ns, "octave")).text = str(octave)
+        divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
+        voice, stem = _infer_voice_stem_from_neighbors(notes, ns, after_idx, staff_n)
         alter = fix.get("pitchAlter")
+        alter_n: int | None = None
         if alter is not None and alter != "":
             try:
-                ET.SubElement(pitch_el, _q(ns, "alter")).text = str(int(alter))
+                alter_n = int(alter)
             except (TypeError, ValueError):
-                pass
-        ET.SubElement(new_note, _q(ns, "type")).text = note_type
-        ET.SubElement(new_note, _q(ns, "staff")).text = str(staff_n)
-        duration = fix.get("duration")
-        if duration is not None:
-            try:
-                ET.SubElement(new_note, _q(ns, "duration")).text = str(int(duration))
-            except (TypeError, ValueError):
-                pass
+                alter_n = None
+        new_note = _build_inserted_pitched_note(
+            ns,
+            step=step,
+            octave=octave,
+            alter=alter_n,
+            note_type=note_type,
+            divisions=divisions,
+            staff_n=staff_n,
+            voice=voice,
+            stem=stem,
+        )
         _insert_note_element(measure, ns, new_note, after_idx)
+        _normalize_measure_note_engraving(part, ns, measure)
         return True
 
     if kind == "applyTriplet":
@@ -1116,11 +1283,23 @@ def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
 def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[str, int]:
     ns = _ns(root)
     stats = {"applied": 0, "skipped": 0}
+    touched: set[tuple[str, str]] = set()
     for fix in fixes:
+        part_id = str(fix.get("partId") or "").strip()
+        measure_mxl = str(fix.get("measureMxl") or "").strip()
+        if part_id and measure_mxl:
+            touched.add((part_id, measure_mxl))
         if apply_fix(root, ns, fix):
             stats["applied"] += 1
         else:
             stats["skipped"] += 1
+    for part_id, measure_mxl in touched:
+        part = find_part(root, ns, part_id)
+        if part is None:
+            continue
+        measure = find_measure(part, ns, measure_mxl)
+        if measure is not None:
+            _normalize_measure_note_engraving(part, ns, measure)
     return stats
 
 

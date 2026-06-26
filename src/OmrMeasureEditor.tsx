@@ -39,6 +39,28 @@ function parseNoteTypeValue(value: string): { type: string; dots: number } {
   return { type: type || 'quarter', dots };
 }
 
+function defaultTripletEndIndex(elIndex: number, noteEls: MeasureNoteEl[]): number {
+  const startPos = noteEls.findIndex((n) => n.index === elIndex);
+  if (startPos < 0) return elIndex;
+  const endNote = noteEls[Math.min(startPos + 2, noteEls.length - 1)];
+  return endNote?.index ?? elIndex;
+}
+
+function tripletRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: number; to: number } {
+  if (!el.timeMod) return { from: el.index, to: el.index };
+  const pos = noteEls.findIndex((n) => n.index === el.index);
+  if (pos < 0) return { from: el.index, to: el.index };
+  let start = pos;
+  while (start > 0 && noteEls[start - 1].timeMod === el.timeMod) start -= 1;
+  let end = pos;
+  while (end + 1 < noteEls.length && noteEls[end + 1].timeMod === el.timeMod) end += 1;
+  return { from: noteEls[start].index, to: noteEls[end].index };
+}
+
+function countNotesInRange(from: number, to: number, noteEls: MeasureNoteEl[]): number {
+  return noteEls.filter((n) => n.index >= from && n.index <= to).length;
+}
+
 export type MeasureDirectionEl = {
   elementKind: 'direction';
   directionIndex: number;
@@ -325,6 +347,10 @@ function MeasureNoteEditor({
   );
   const [staffN, setStaffN] = useState(el.staff ?? 1);
   const [tieTo, setTieTo] = useState('');
+  const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(el.index, noteEls));
+  const [tripletNormalType, setTripletNormalType] = useState(
+    el.type === '16th' || el.type === '32nd' ? el.type : 'eighth',
+  );
 
   useEffect(() => {
     const p = parsePitch(el.pitch);
@@ -334,10 +360,15 @@ function MeasureNoteEditor({
       noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
     );
     setStaffN(el.staff ?? 1);
-  }, [el.index, el.pitch, el.type, el.staff]);
+    setTripletEnd(defaultTripletEndIndex(el.index, noteEls));
+    setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
+  }, [el.index, el.pitch, el.type, el.staff, el.isDotted, el.dotCount, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
+  const tripletCandidates = noteEls.filter((n) => n.index >= el.index).slice(0, 8);
+  const tripletNoteCount = countNotesInRange(el.index, tripletEnd, noteEls);
+  const existingTriplet = tripletRangeFor(el, noteEls);
   const spuriousAfterRest =
     el.kind === 'rest' &&
     nextNote &&
@@ -561,6 +592,64 @@ function MeasureNoteEditor({
           <button type="button" className="omr-hitl-fix-btn" onClick={() => onFix({ kind: 'setNoteStem', noteIndex: el.index, stem: 'down' })}>
             줄기 아래
           </button>
+        </div>
+      )}
+      {tripletCandidates.length >= 2 && (
+        <div className="omr-measure-tuplet-row">
+          <label className="omr-measure-inline-field">
+            세잇단 끝
+            <select value={String(tripletEnd)} onChange={(e) => setTripletEnd(parseInt(e.target.value, 10))}>
+              {tripletCandidates.map((n) => (
+                <option key={n.index} value={String(n.index)}>
+                  #{n.index} {n.kind === 'rest' ? `${n.type ?? 'rest'}쉼표` : (n.pitch ?? '')}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="omr-measure-inline-field">
+            기준 박자
+            <select value={tripletNormalType} onChange={(e) => setTripletNormalType(e.target.value)}>
+              <option value="eighth">8분음표</option>
+              <option value="16th">16분음표</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+            disabled={tripletNoteCount < 2}
+            title={
+              tripletNoteCount < 2
+                ? '세잇단은 연속 음·쉼표 2개 이상이 필요합니다'
+                : `${tripletNoteCount}개를 ${tripletNoteCount}:2 ${tripletNormalType === '16th' ? '16분' : '8분'} 잇단으로 표시`
+            }
+            onClick={() =>
+              onFix({
+                kind: 'applyTriplet',
+                fromNoteIndex: el.index,
+                toNoteIndex: tripletEnd,
+                actualNotes: tripletNoteCount,
+                normalNotes: 2,
+                normalType: tripletNormalType,
+              })
+            }
+          >
+            세잇단 적용 ({tripletNoteCount}개)
+          </button>
+          {el.timeMod ? (
+            <button
+              type="button"
+              className="omr-hitl-fix-btn"
+              onClick={() =>
+                onFix({
+                  kind: 'removeTriplet',
+                  fromNoteIndex: existingTriplet.from,
+                  toNoteIndex: existingTriplet.to,
+                })
+              }
+            >
+              세잇단 해제 (#{existingTriplet.from}→#{existingTriplet.to})
+            </button>
+          ) : null}
         </div>
       )}
       <button type="button" className="omr-hitl-fix-btn omr-hitl-fix-btn--danger" onClick={() => onFix({ kind: 'removeNote', noteIndex: el.index })}>

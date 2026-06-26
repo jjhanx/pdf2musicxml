@@ -354,6 +354,115 @@ def _ensure_notations(note: ET.Element, ns: str) -> ET.Element:
     return notations
 
 
+def _strip_tuplet_from_note(note: ET.Element, ns: str) -> bool:
+    changed = False
+    tm = note.find(_q(ns, "time-modification"))
+    if tm is not None:
+        note.remove(tm)
+        changed = True
+    for notations in list(note.findall(_q(ns, "notations"))):
+        for tup in list(notations.findall(_q(ns, "tuplet"))):
+            notations.remove(tup)
+            changed = True
+        if len(notations) == 0:
+            note.remove(notations)
+    return changed
+
+
+def _set_time_modification(
+    note: ET.Element,
+    ns: str,
+    actual_notes: int,
+    normal_notes: int,
+    normal_type: str,
+) -> None:
+    tm = note.find(_q(ns, "time-modification"))
+    if tm is None:
+        tm = ET.SubElement(note, _q(ns, "time-modification"))
+    for tag in ("actual-notes", "normal-notes", "normal-type"):
+        el = tm.find(_q(ns, tag))
+        if el is not None:
+            tm.remove(el)
+    ET.SubElement(tm, _q(ns, "actual-notes")).text = str(actual_notes)
+    ET.SubElement(tm, _q(ns, "normal-notes")).text = str(normal_notes)
+    ET.SubElement(tm, _q(ns, "normal-type")).text = normal_type
+
+
+def _tuplet_group_has_rest(notes: list[ET.Element], indices: list[int], ns: str) -> bool:
+    for i in indices:
+        if notes[i].find(_q(ns, "rest")) is not None:
+            return True
+    return False
+
+
+def _infer_tuplet_placement(note: ET.Element, ns: str) -> str:
+    stem_el = note.find(_q(ns, "stem"))
+    stem = (stem_el.text or "").strip().lower() if stem_el is not None and stem_el.text else ""
+    if stem == "up":
+        return "below"
+    if stem == "down":
+        return "above"
+    return "above"
+
+
+def _apply_triplet_to_range(
+    notes: list[ET.Element],
+    ns: str,
+    indices: list[int],
+    divisions: int,
+    actual_notes: int,
+    normal_notes: int,
+    normal_type: str,
+) -> bool:
+    if len(indices) < 2 or actual_notes < 2 or normal_notes < 1:
+        return False
+    normal_dur = _duration_for_type_dots(normal_type, divisions, 0)
+    if normal_dur <= 0:
+        return False
+    total = normal_dur * normal_notes
+    per_note = max(1, total // actual_notes)
+    has_rest = _tuplet_group_has_rest(notes, indices, ns)
+    placement = _infer_tuplet_placement(notes[indices[0]], ns)
+    changed = False
+    for pos, idx in enumerate(indices):
+        note = notes[idx]
+        if note.find(_q(ns, "rest")) is not None and note.find(_q(ns, "pitch")) is None:
+            pass
+        type_el = note.find(_q(ns, "type"))
+        if type_el is None:
+            type_el = ET.SubElement(note, _q(ns, "type"))
+        if (type_el.text or "").strip() != normal_type:
+            type_el.text = normal_type
+            changed = True
+        _set_time_modification(note, ns, actual_notes, normal_notes, normal_type)
+        dur_el = note.find(_q(ns, "duration"))
+        if dur_el is None:
+            dur_el = ET.SubElement(note, _q(ns, "duration"))
+        if (dur_el.text or "").strip() != str(per_note):
+            dur_el.text = str(per_note)
+            changed = True
+        for old_tm in list(note.findall(_q(ns, "notations"))):
+            for tup in list(old_tm.findall(_q(ns, "tuplet"))):
+                old_tm.remove(tup)
+        notations = _ensure_notations(note, ns)
+        if pos == 0:
+            tuplet = ET.SubElement(notations, _q(ns, "tuplet"), {"type": "start"})
+            tuplet.set("number", "1")
+            tuplet.set("show-number", "actual")
+            if has_rest:
+                tuplet.set("show-bracket", "yes")
+                tuplet.set("bracket", "yes")
+                tuplet.set("placement", placement)
+            else:
+                tuplet.set("show-bracket", "no")
+                tuplet.set("placement", placement)
+            changed = True
+        elif pos == len(indices) - 1:
+            ET.SubElement(notations, _q(ns, "tuplet"), {"type": "stop"})
+            changed = True
+    return changed
+
+
 def nudge_display_step(step: str, octave: int, line_delta: int) -> tuple[str, int]:
     """오선에서 한 줄(line_delta=1은 아래쪽 줄) 이동."""
     base = _diatonic_index(step, octave)
@@ -789,6 +898,52 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 pass
         _insert_note_element(measure, ns, new_note, after_idx)
         return True
+
+    if kind == "applyTriplet":
+        try:
+            from_idx = int(fix.get("fromNoteIndex"))
+            to_idx = int(fix.get("toNoteIndex"))
+            actual_notes = int(fix.get("actualNotes", 3))
+            normal_notes = int(fix.get("normalNotes", 2))
+        except (TypeError, ValueError):
+            return False
+        normal_type = str(fix.get("normalType") or "eighth").strip()
+        if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
+            return False
+        indices = list(range(from_idx, to_idx + 1))
+        if len(indices) < 2:
+            return False
+        divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
+        return _apply_triplet_to_range(
+            notes, ns, indices, divisions, actual_notes, normal_notes, normal_type
+        )
+
+    if kind == "removeTriplet":
+        try:
+            from_idx = int(fix.get("fromNoteIndex"))
+            to_idx = int(fix.get("toNoteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
+            return False
+        changed = False
+        for idx in range(from_idx, to_idx + 1):
+            if _strip_tuplet_from_note(notes[idx], ns):
+                changed = True
+            note = notes[idx]
+            type_el = note.find(_q(ns, "type"))
+            note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else "eighth"
+            dot_count = len(note.findall(_q(ns, "dot")))
+            divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
+            target_dur = _duration_for_type_dots(note_type, divisions, dot_count)
+            if target_dur > 0:
+                dur_el = note.find(_q(ns, "duration"))
+                if dur_el is None:
+                    dur_el = ET.SubElement(note, _q(ns, "duration"))
+                if (dur_el.text or "").strip() != str(target_dur):
+                    dur_el.text = str(target_dur)
+                    changed = True
+        return changed
 
     return False
 

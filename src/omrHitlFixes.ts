@@ -34,6 +34,9 @@ export type OmrHitlFix = {
   afterNoteIndex?: number;
   removeFollowingNote?: boolean;
   articulation?: string;
+  actualNotes?: number;
+  normalNotes?: number;
+  normalType?: string;
   source?: string;
   lintCode?: string;
 };
@@ -56,6 +59,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   insertRest: '쉼표 추가',
   insertNote: '음표 추가',
   removeArticulation: '표(스타카토 등) 제거',
+  applyTriplet: '세잇단(잇단) 적용',
+  removeTriplet: '세잇단(잇단) 해제',
 };
 
 export function fixDedupeKey(fix: OmrHitlFix): string {
@@ -77,6 +82,9 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.afterNoteIndex ?? '',
     fix.tieEnd ?? '',
     fix.articulation ?? '',
+    fix.actualNotes ?? '',
+    fix.normalNotes ?? '',
+    fix.normalType ?? '',
   ].join('|');
 }
 

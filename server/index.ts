@@ -19,7 +19,7 @@ const exec = promisify(execCallback);
 function pythonMxlFixEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    OMR_ENGINE: process.env.OMR_ENGINE?.trim() || 'ai',
+    OMR_ENGINE: process.env.OMR_ENGINE?.trim() || 'audiveris',
     AI_OMR_BACKEND: process.env.AI_OMR_BACKEND?.trim() || 'homr',
     AUDIVERIS_MXL_RHYTHM_FIX: process.env.AUDIVERIS_MXL_RHYTHM_FIX ?? 'off',
   };
@@ -43,7 +43,9 @@ import {
 } from '../shared/audiveris.js';
 import {
   omrEngineConfigured,
+  p2mpInstallHint,
   resolveOmrEngine,
+  resolveP2mpBin,
   runOmrEngine,
 } from '../shared/omr.js';
 
@@ -219,6 +221,45 @@ async function probeAiOmrDeps(pythonBin: string): Promise<{
   }
 }
 
+async function probePdfToMusicDeps(): Promise<{
+  ok: boolean;
+  p2mpBin?: string;
+  probeError?: string;
+  hint?: string;
+}> {
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'probe_pdftomusic_deps.py');
+  const pythonBin = resolvePythonBin();
+  try {
+    const { stdout, stderr } = await exec(`"${pythonBin}" "${scriptPath}"`, {
+      maxBuffer: 256 * 1024,
+      env: { ...process.env },
+    });
+    if (stderr?.trim()) {
+      console.warn('[health] probe_pdftomusic_deps stderr:', stderr.trim());
+    }
+    const parsed = JSON.parse(String(stdout).trim()) as {
+      ok?: boolean;
+      p2mpBin?: string;
+      hint?: string;
+      probeError?: string;
+    };
+    return {
+      ok: parsed.ok === true,
+      p2mpBin: parsed.p2mpBin,
+      hint: parsed.hint,
+      probeError: parsed.probeError,
+    };
+  } catch (e) {
+    const bin = resolveP2mpBin();
+    return {
+      ok: Boolean(bin),
+      p2mpBin: bin,
+      probeError: e instanceof Error ? e.message : String(e),
+      hint: p2mpInstallHint(),
+    };
+  }
+}
+
 app.get('/api/health', async (_req, res) => {
   const bin = resolveAudiverisBin();
   const omr = omrEngineConfigured();
@@ -228,8 +269,13 @@ app.get('/api/health', async (_req, res) => {
   const pythonBin = resolvePythonBin();
   const sepDeps = await probeFontSeparatorDeps(pythonBin);
   const aiDeps = await probeAiOmrDeps(pythonBin);
+  const p2mDeps = await probePdfToMusicDeps();
   const omrEngineReady =
-    omr.engine === 'ai' ? aiDeps.ok : Boolean(bin);
+    omr.engine === 'ai'
+      ? aiDeps.ok
+      : omr.engine === 'pdftomusic'
+        ? p2mDeps.ok
+        : Boolean(bin);
   res.json({
     ok: true,
     omrEngine: omr.engine,
@@ -239,7 +285,15 @@ app.get('/api/health', async (_req, res) => {
         ? aiDeps.ok
           ? `AI OMR backend=${aiDeps.backend}${aiDeps.cudaAvailable ? ' (CUDA)' : ''}`
           : aiDeps.hint || `AI OMR deps missing: ${aiDeps.missing.join(', ')}`
-        : omr.detail,
+        : omr.engine === 'pdftomusic'
+          ? p2mDeps.ok
+            ? `PDFtoMusic Pro (${p2mDeps.p2mpBin ?? resolveP2mpBin()})`
+            : p2mDeps.hint || p2mpInstallHint()
+          : omr.detail,
+    pdftomusicConfigured: p2mDeps.ok,
+    pdftomusicBin: p2mDeps.p2mpBin ?? resolveP2mpBin() ?? undefined,
+    pdftomusicDepsHint: p2mDeps.ok ? undefined : p2mDeps.hint || p2mpInstallHint(),
+    pdftomusicProbeError: p2mDeps.probeError,
     aiOmrBackend: aiDeps.backend,
     aiOmrDepsOk: aiDeps.ok,
     aiOmrTorchOk: aiDeps.torchOk,
@@ -262,7 +316,9 @@ app.get('/api/health', async (_req, res) => {
       ? undefined
       : omr.engine === 'ai'
         ? aiDeps.hint || `AI OMR deps: ${aiDeps.missing.join(', ')}`
-        : omr.detail || 'Set AUDIVERIS_BIN (OMR_ENGINE=audiveris)',
+        : omr.engine === 'pdftomusic'
+          ? p2mDeps.hint || p2mpInstallHint()
+          : omr.detail || 'Set AUDIVERIS_BIN (OMR_ENGINE=audiveris)',
     audiverisConfigured: Boolean(bin),
     audiverisLegacyEngine: omr.engine === 'audiveris',
     jobRetentionHours: JOB_RETENTION_HOURS,
@@ -1070,6 +1126,15 @@ function parseAudiverisProgressLine(line: string, pageFallback: number): { curre
   return null;
 }
 
+function pdftomusicFailureDetail(): string {
+  return (
+    'PDFtoMusic Pro(p2mp)가 MXL을 생성하지 못했습니다. ' +
+    'clean_score_only.pdf가 **벡터 PDF**(악보 편집기에서 내보낸 PDF)인지, ' +
+    'P2MP_BIN이 올바른지 확인하세요. 스캔/비트맵 PDF는 PDFtoMusic Pro로 처리할 수 없습니다. ' +
+    '아래 로그를 검토하세요.'
+  );
+}
+
 function aiOmrFailureDetail(): string {
   const backend = (process.env.AI_OMR_BACKEND || 'homr').trim().toLowerCase();
   if (backend === 'homr') {
@@ -1181,6 +1246,16 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         status: 503,
         error: 'AI OMR Python 의존성이 없습니다',
         detail: aiDeps.hint || `누락: ${aiDeps.missing.join(', ')}`,
+      });
+      return;
+    }
+  } else if (omrEngineAtStart === 'pdftomusic') {
+    const p2mDeps = await probePdfToMusicDeps();
+    if (!p2mDeps.ok) {
+      await fail({
+        status: 503,
+        error: 'PDFtoMusic Pro(p2mp)가 준비되지 않았습니다',
+        detail: p2mDeps.hint || p2mpInstallHint(),
       });
       return;
     }
@@ -1425,22 +1500,28 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       current: 0,
       total: pageHint,
       detail:
-        resolveOmrEngine() === 'ai'
+        resolveOmrEngine() === 'pdftomusic'
           ? audiverisInput?.kind === 'clean_score'
-            ? 'clean_score_only.pdf → AI OMR 인식 중…'
-            : 'AI OMR 인식 중…'
-          : audiverisInput?.kind === 'clean_score'
-            ? 'clean_score_only.pdf → Audiveris 악보 인식 중…'
-            : 'Audiveris 악보 인식 중…',
+            ? 'clean_score_only.pdf → PDFtoMusic Pro 인식 중…'
+            : 'PDFtoMusic Pro 악보 인식 중…'
+          : resolveOmrEngine() === 'ai'
+            ? audiverisInput?.kind === 'clean_score'
+              ? 'clean_score_only.pdf → AI OMR 인식 중…'
+              : 'AI OMR 인식 중…'
+            : audiverisInput?.kind === 'clean_score'
+              ? 'clean_score_only.pdf → Audiveris 악보 인식 중…'
+              : 'Audiveris 악보 인식 중…',
     });
 
     const omrEngine = resolveOmrEngine();
+    const p2mpBin = resolveP2mpBin();
     console.log(
       `[job ${jobId}] Running ${omrEngine} OMR on ${pdfToProcess} (pipeline=${pipelineMode})…`,
     );
 
     const result = await runOmrEngine({
       audiverisBin,
+      p2mpBin,
       pythonBin,
       outputBaseDir: outBase,
       inputPdfPath: pdfToProcess,
@@ -1451,7 +1532,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             phase: 'audiveris',
             current: parsed.current,
             total: parsed.total,
-            detail: omrEngine === 'ai' ? 'AI OMR 처리' : 'Audiveris 처리',
+            detail:
+              omrEngine === 'pdftomusic'
+                ? 'PDFtoMusic Pro 처리'
+                : omrEngine === 'ai'
+                  ? 'AI OMR 처리'
+                  : 'Audiveris 처리',
           });
         }
       },
@@ -1569,13 +1655,17 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       await fail({
         status: 422,
         error:
-          omrEngine === 'ai'
-            ? 'AI OMR이 MusicXML/MXL을 만들지 못했습니다'
-            : 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
+          omrEngine === 'pdftomusic'
+            ? 'PDFtoMusic Pro가 MusicXML/MXL을 만들지 못했습니다'
+            : omrEngine === 'ai'
+              ? 'AI OMR이 MusicXML/MXL을 만들지 못했습니다'
+              : 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
         detail:
-          omrEngine === 'ai'
-            ? aiOmrFailureDetail()
-            : 'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.',
+          omrEngine === 'pdftomusic'
+            ? pdftomusicFailureDetail()
+            : omrEngine === 'ai'
+              ? aiOmrFailureDetail()
+              : 'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.',
         exitCode: result.code ?? undefined,
         stdoutTail: tail(result.stdout),
         stderrTail: tail(result.stderr),
@@ -1627,6 +1717,15 @@ app.post('/api/convert', async (req, res) => {
         detail:
           aiDeps.hint ||
           `Install Python deps (pip install -r requirements.txt). Missing: ${aiDeps.missing.join(', ')}`,
+      });
+      return;
+    }
+  } else if (omr.engine === 'pdftomusic') {
+    const p2mDeps = await probePdfToMusicDeps();
+    if (!p2mDeps.ok) {
+      res.status(503).json({
+        error: 'PDFtoMusic Pro (p2mp) is not ready',
+        detail: p2mDeps.hint || p2mpInstallHint(),
       });
       return;
     }

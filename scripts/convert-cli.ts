@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI: PDF → MusicXML/MXL (AI OMR 기본)
+ * CLI: PDF → MusicXML/MXL (Audiveris 기본)
  *
  * 사용 예:
  *   npm run convert -- "D:\scores\piece.pdf"
@@ -18,7 +18,7 @@ import {
   defaultDownloadsDir,
   resolveAudiverisBin,
 } from '../shared/audiveris.js';
-import { resolveOmrEngine, runOmrEngine } from '../shared/omr.js';
+import { resolveOmrEngine, resolveP2mpBin, runOmrEngine } from '../shared/omr.js';
 
 function usage(): never {
   // eslint-disable-next-line no-console
@@ -26,9 +26,9 @@ function usage(): never {
   npm run convert -- <input.pdf> [-o <outputFileOrDirectory>]
 
 Environment:
-  OMR_ENGINE      ai(기본) | audiveris (레거시)
-  AI_OMR_BACKEND  homr(기본) | tromr | mock(개발용)
-  AUDIVERIS_BIN   OMR_ENGINE=audiveris 일 때만 필수
+  OMR_ENGINE      audiveris(기본) | pdftomusic (선택) | ai (실험)
+  AUDIVERIS_BIN   OMR_ENGINE=audiveris 일 때 필수
+  P2MP_BIN        OMR_ENGINE=pdftomusic 일 때
 `);
   process.exit(1);
 }
@@ -58,9 +58,15 @@ async function main(): Promise<void> {
 
   const engine = resolveOmrEngine();
   const bin = resolveAudiverisBin();
-  if (engine !== 'ai' && !bin) {
+  const p2mpBin = resolveP2mpBin();
+  if (engine === 'audiveris' && !bin) {
     // eslint-disable-next-line no-console
-    console.error('AUDIVERIS_BIN 환경 변수를 설정하세요 (OMR_ENGINE=audiveris). 기본 AI OMR은 추가 설정 없이 동작합니다.');
+    console.error('AUDIVERIS_BIN 환경 변수를 설정하세요 (OMR_ENGINE=audiveris).');
+    process.exit(3);
+  }
+  if (engine === 'pdftomusic' && !p2mpBin) {
+    // eslint-disable-next-line no-console
+    console.error('P2MP_BIN을 설정하거나 PDFtoMusic Pro를 설치하세요 (OMR_ENGINE=pdftomusic).');
     process.exit(3);
   }
 
@@ -72,6 +78,7 @@ async function main(): Promise<void> {
     await fs.mkdir(outBase, { recursive: true });
     const result = await runOmrEngine({
       audiverisBin: bin,
+      p2mpBin,
       outputBaseDir: outBase,
       inputPdfPath: pdfPath,
     });

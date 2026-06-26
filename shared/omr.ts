@@ -1,9 +1,11 @@
 /**
- * OMR engine dispatch — AI OMR(기본) | Audiveris(레거시).
+ * OMR engine dispatch — Audiveris(기본) | PDFtoMusic Pro(선택) | AI(실험).
  *
  * 환경 변수:
- *   OMR_ENGINE=ai | audiveris  (기본 ai)
- *   AI_OMR_BACKEND=homr(기본) | tromr | mock(개발용)
+ *   OMR_ENGINE=audiveris | pdftomusic | ai  (기본 audiveris)
+ *   AUDIVERIS_BIN — Audiveris 실행 파일 (기본 엔진)
+ *   P2MP_BIN — PDFtoMusic Pro p2mp (OMR_ENGINE=pdftomusic, 개인용·상용 SaaS 비권장)
+ *   AI_OMR_BACKEND=homr | tromr | mock  (OMR_ENGINE=ai 일 때만)
  */
 
 import { spawn } from 'node:child_process';
@@ -11,16 +13,23 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { collectMusicXmlOutputs, resolveAudiverisBin, runAudiveris } from './audiveris.js';
+import {
+  collectPdfToMusicOutputs,
+  p2mpInstallHint,
+  resolveP2mpBin,
+  runPdfToMusicPro,
+} from './pdftomusic.js';
 
 const __omrDir = path.dirname(fileURLToPath(import.meta.url));
 const AI_OMR_SCRIPT = path.join(__omrDir, '..', 'scripts', 'run_ai_omr.py');
 
-export type OmrEngineId = 'audiveris' | 'ai';
+export type OmrEngineId = 'pdftomusic' | 'audiveris' | 'ai';
 
 export interface OmrRunOptions {
   outputBaseDir: string;
   inputPdfPath: string;
   audiverisBin?: string;
+  p2mpBin?: string;
   pythonBin?: string;
   extraArgs?: string[];
   onStreamLine?: (stream: 'stdout' | 'stderr', line: string) => void;
@@ -35,13 +44,22 @@ export interface OmrRunResult {
 }
 
 export function resolveOmrEngine(): OmrEngineId {
-  const raw = (process.env.OMR_ENGINE || 'ai').trim().toLowerCase();
-  if (raw === 'audiveris') return 'audiveris';
-  return 'ai';
+  const raw = (process.env.OMR_ENGINE || 'audiveris').trim().toLowerCase();
+  if (raw === 'pdftomusic') return 'pdftomusic';
+  if (raw === 'ai') return 'ai';
+  return 'audiveris';
 }
 
 export function omrEngineConfigured(): { engine: OmrEngineId; ready: boolean; detail?: string } {
   const engine = resolveOmrEngine();
+  if (engine === 'pdftomusic') {
+    const bin = resolveP2mpBin();
+    return {
+      engine,
+      ready: Boolean(bin),
+      detail: bin ? undefined : p2mpInstallHint(),
+    };
+  }
   if (engine === 'ai') {
     return { engine, ready: true, detail: `AI OMR backend=${process.env.AI_OMR_BACKEND || 'homr'}` };
   }
@@ -55,6 +73,9 @@ export function omrEngineConfigured(): { engine: OmrEngineId; ready: boolean; de
 
 export async function runOmrEngine(opts: OmrRunOptions): Promise<OmrRunResult> {
   const engine = resolveOmrEngine();
+  if (engine === 'pdftomusic') {
+    return runPdfToMusicEngine(opts);
+  }
   if (engine === 'ai') {
     return runAiOmrEngine(opts);
   }
@@ -77,6 +98,38 @@ export async function runOmrEngine(opts: OmrRunOptions): Promise<OmrRunResult> {
   });
   const mxlPaths = await collectMusicXmlOutputs(opts.outputBaseDir);
   return { ...result, engine: 'audiveris', mxlPaths };
+}
+
+async function runPdfToMusicEngine(opts: OmrRunOptions): Promise<OmrRunResult> {
+  const p2mpBin = opts.p2mpBin ?? resolveP2mpBin();
+  if (!p2mpBin) {
+    return {
+      code: 1,
+      stdout: '',
+      stderr: 'P2MP_BIN is not set and p2mp was not found',
+      engine: 'pdftomusic',
+      mxlPaths: [],
+    };
+  }
+
+  await fs.mkdir(opts.outputBaseDir, { recursive: true });
+  const result = await runPdfToMusicPro({
+    p2mpBin,
+    inputPdfPath: opts.inputPdfPath,
+    outputDir: opts.outputBaseDir,
+    onStreamLine: opts.onStreamLine,
+  });
+
+  let mxlPaths = await collectPdfToMusicOutputs(opts.outputBaseDir, opts.inputPdfPath);
+  if (mxlPaths.length === 0) {
+    mxlPaths = await collectMusicXmlOutputs(opts.outputBaseDir);
+  }
+
+  return {
+    ...result,
+    engine: 'pdftomusic',
+    mxlPaths,
+  };
 }
 
 async function runAiOmrEngine(opts: OmrRunOptions): Promise<OmrRunResult> {
@@ -133,4 +186,4 @@ async function runAiOmrEngine(opts: OmrRunOptions): Promise<OmrRunResult> {
   });
 }
 
-export { collectMusicXmlOutputs };
+export { collectMusicXmlOutputs, resolveP2mpBin, p2mpInstallHint };

@@ -1,6 +1,8 @@
-# AI OMR 엔진 (기본 OMR)
+# AI OMR 엔진 (실험)
 
-**기본 OMR 엔진**입니다. 기존 파이프라인의 **80%**(폰트 분리·clean_score·가사 병합·검증·후처리)는 유지하고, Audiveris 대신 `ai_engine/`으로 악보 인식합니다.
+> **기본 OMR은 Audiveris**입니다. `OMR_ENGINE=ai`일 때만 이 모듈이 사용됩니다.
+
+기존 파이프라인의 **80%**(폰트 분리·clean_score·가사 병합·검증·후처리)는 유지하고, OMR 단계만 `ai_engine/`으로 대체합니다.
 
 **배포 절차(Windows·Ubuntu):** [AI_OMR_배포_가이드.md](AI_OMR_배포_가이드.md)
 
@@ -62,7 +64,7 @@ python scripts/probe_ai_omr_deps.py
 
 | 변수 | 기본 | 설명 |
 |------|------|------|
-| **`OMR_ENGINE`** | **`ai`** | AI OMR(기본). `audiveris`=레거시 |
+| **`OMR_ENGINE`** | **`audiveris`(기본)** | AI OMR은 `OMR_ENGINE=ai` |
 | **`AI_OMR_BACKEND`** | **`homr`** | homr(기본). `tromr`=HF TrOCR |
 | `AI_OMR_MODEL` | (tromr만) | HuggingFace TrOCR 체크포인트 |
 | `AI_OMR_DPI` | `300` | PDF 렌더 DPI |

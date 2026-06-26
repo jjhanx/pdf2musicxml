@@ -15,6 +15,9 @@ type Health = {
   omrEngine?: string;
   omrEngineReady?: boolean;
   omrEngineDetail?: string;
+  pdftomusicConfigured?: boolean;
+  pdftomusicBin?: string;
+  pdftomusicDepsHint?: string;
   aiOmrBackend?: string;
   aiOmrDepsOk?: boolean;
   aiOmrTorchOk?: boolean;
@@ -565,9 +568,11 @@ export default function App() {
       }
       if (!healthArg.omrEngineReady) {
         setStatus(
-          healthArg.omrEngine === 'audiveris'
-            ? 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.'
-            : `AI OMR 의존성이 없습니다. ${healthArg.aiOmrDepsHint ?? 'pip install -r requirements.txt'}`,
+          healthArg.omrEngine === 'pdftomusic'
+            ? `PDFtoMusic Pro(p2mp)가 준비되지 않았습니다. ${healthArg.pdftomusicDepsHint ?? 'P2MP_BIN을 설정하세요.'}`
+            : healthArg.omrEngine === 'ai'
+              ? `AI OMR 의존성이 없습니다. ${healthArg.aiOmrDepsHint ?? 'pip install -r requirements.txt'}`
+              : 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.',
         );
         return;
       }
@@ -1037,10 +1042,11 @@ export default function App() {
   return (
     <div className="page">
       <div className="card">
-        <h1>PDF → MusicXML (AI OMR)</h1>
+        <h1>PDF → MusicXML (Audiveris)</h1>
         <p className="sub">
           mxlplayer와 동일하게 <strong>Vite + React + TypeScript</strong>입니다. 악보 인식은{' '}
-          <strong>AI OMR</strong>(<code>ai_engine/</code>)을 사용합니다. 결과는 표준 <code>.mxl</code> /
+          <strong>Audiveris</strong>로 <code>clean_score_only.pdf</code>를 MusicXML로 변환하고, 검증된
+          가사(<code>inject_ocr.py</code>)를 병합합니다. 결과는 표준 <code>.mxl</code> /
           <code>.musicxml</code> 이라 mxlplayer의 업로드(.xml / .musicxml / .mxl)와 호환됩니다.
         </p>
 
@@ -1118,8 +1124,8 @@ export default function App() {
                 onChange={() => setPipelineMode('font_separator')}
               />
               <span>
-                <strong>폰트 크기 분리 + AI OMR + 가사 병합</strong> (권장) — pdfplumber·pikepdf로 가사만 제거한{' '}
-                <code>clean_score_only.pdf</code>를 AI OMR에 넣고, 추출 JSON과 검토 결과를 병합해 MusicXML에 주입합니다.
+                <strong>폰트 크기 분리 + Audiveris + 가사 병합</strong> (권장) — pdfplumber·pikepdf로 가사만 제거한{' '}
+                <code>clean_score_only.pdf</code>를 Audiveris에 넣고, 추출 JSON과 검토 결과를 병합해 MusicXML에 주입합니다.
               </span>
             </label>
             <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
@@ -1130,7 +1136,7 @@ export default function App() {
                 onChange={() => setPipelineMode('pymupdf_review')}
               />
               <span>
-                <strong>PyMuPDF 검증 + 마스킹</strong> — 기존 방식. OCR 검토 후 영역 마스킹 → AI OMR → 가사 주입.
+                <strong>PyMuPDF 검증 + 마스킹</strong> — 기존 방식. OCR 검토 후 영역 마스킹 → Audiveris → 가사 주입.
               </span>
             </label>
             <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
@@ -1207,34 +1213,62 @@ export default function App() {
           {health === null && '서버 상태 확인 중…'}
           {health && !health.omrEngineReady && (
             <>
-              AI OMR 엔진이 준비되지 않았습니다.
+              {health.omrEngine === 'pdftomusic' ? (
+                <>PDFtoMusic Pro(p2mp)가 준비되지 않았습니다.</>
+              ) : health.omrEngine === 'ai' ? (
+                <>AI OMR 엔진이 준비되지 않았습니다.</>
+              ) : (
+                <>Audiveris가 준비되지 않았습니다.</>
+              )}
               <br />
-              <code>pip install -r requirements.txt</code>
-              {health.aiOmrDepsHint ? (
+              {health.omrEngine === 'audiveris' || !health.omrEngine ? (
                 <>
-                  <br />
-                  {health.aiOmrDepsHint}
+                  <code>export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris</code>
                 </>
-              ) : health.aiOmrMissingModules?.length ? (
+              ) : health.omrEngine === 'pdftomusic' ? (
+                health.pdftomusicDepsHint ? (
+                  <>
+                    {health.pdftomusicDepsHint}
+                    <br />
+                    <code>P2MP_BIN</code> 예: Linux <code>/usr/bin/p2mp</code>, Windows{' '}
+                    <code>C:\Program Files\PDFtoMusic Pro\p2mp.exe</code>
+                  </>
+                ) : (
+                  <>
+                    <code>P2MP_BIN</code>을 설정하세요. 벡터 PDF(악보 편집기 내보내기) 전용입니다.
+                  </>
+                )
+              ) : health.omrEngine === 'ai' ? (
                 <>
-                  <br />
-                  누락: {health.aiOmrMissingModules.join(', ')}
+                  <code>pip install -r requirements.txt</code>
+                  {health.aiOmrDepsHint ? (
+                    <>
+                      <br />
+                      {health.aiOmrDepsHint}
+                    </>
+                  ) : health.aiOmrMissingModules?.length ? (
+                    <>
+                      <br />
+                      누락: {health.aiOmrMissingModules.join(', ')}
+                    </>
+                  ) : null}
                 </>
               ) : null}
               <br />
               서버를 다시 실행하세요.
-              {health.omrEngine === 'audiveris' && (
-                <>
-                  <br />
-                  (레거시 Audiveris: <code>export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris</code>)
-                </>
-              )}
             </>
           )}
           {health?.omrEngineReady && (
             <div style={{ marginTop: '0.35rem', fontSize: '0.9rem' }}>
-              OMR: <strong>{health.omrEngine === 'audiveris' ? 'Audiveris (레거시)' : 'AI'}</strong>
-              {health.omrEngine !== 'audiveris' && (
+              OMR:{' '}
+              <strong>
+                {health.omrEngine === 'pdftomusic'
+                  ? 'PDFtoMusic Pro (선택)'
+                  : health.omrEngine === 'ai'
+                    ? 'AI (실험)'
+                    : 'Audiveris'}
+              </strong>
+              {health.omrEngine === 'ai' && (
                 <>
                   {' '}
                   (backend={health.aiOmrBackend ?? 'homr'}

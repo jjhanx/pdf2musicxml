@@ -671,7 +671,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         <p className="omr-hitl-panel-hint">
           마디 편집에서 추가한 보정이 여기 쌓입니다. <strong>「MXL에 반영·미리보기」</strong>로 OMR MXL을
           갱신하고 오른쪽 악보에서 확인하세요. 패널을 열면 원본 MXL에서 후처리·보정을 자동 동기화합니다.
-          중단 후 이어하려면 <strong>「작업 저장(ZIP)」</strong> → 나중에 <strong>「작업 불러오기」</strong>.
+          중단 후 이어하려면 <strong>「작업 저장(ZIP)」</strong> → 같은 job에서 <strong>「작업 불러오기」</strong>.
+          서버·브라우저를 닫았다면 변환 화면에서 <strong>「OMR 검토 이어하기」</strong> + ZIP으로 새 변환을 시작하세요.
         </p>
         {pendingFixes.length > 0 ? (
           <ul className="omr-hitl-fix-list">

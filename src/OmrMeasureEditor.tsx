@@ -57,6 +57,47 @@ function tripletRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: n
   return { from: noteEls[start].index, to: noteEls[end].index };
 }
 
+function isBeamableNoteEl(n: MeasureNoteEl): boolean {
+  return n.kind === 'note' && !n.chord;
+}
+
+function defaultBeamEndIndex(elIndex: number, noteEls: MeasureNoteEl[]): number {
+  const startPos = noteEls.findIndex((n) => n.index === elIndex);
+  if (startPos < 0) return elIndex;
+  let count = 0;
+  let endIdx = elIndex;
+  for (let i = startPos; i < noteEls.length && count < 3; i++) {
+    if (isBeamableNoteEl(noteEls[i])) {
+      count += 1;
+      endIdx = noteEls[i].index;
+    }
+  }
+  return endIdx;
+}
+
+function beamRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: number; to: number } {
+  if (!el.beams?.length) return { from: el.index, to: el.index };
+  const pos = noteEls.findIndex((n) => n.index === el.index);
+  if (pos < 0) return { from: el.index, to: el.index };
+  let start = pos;
+  while (start > 0) {
+    const b = noteEls[start - 1].beams ?? [];
+    if (b.includes('continue') || b.includes('begin')) start -= 1;
+    else break;
+  }
+  let end = pos;
+  while (end + 1 < noteEls.length) {
+    const b = noteEls[end + 1].beams ?? [];
+    if (b.includes('continue') || b.includes('end')) end += 1;
+    else break;
+  }
+  return { from: noteEls[start].index, to: noteEls[end].index };
+}
+
+function countBeamableInRange(from: number, to: number, noteEls: MeasureNoteEl[]): number {
+  return noteEls.filter((n) => n.index >= from && n.index <= to && isBeamableNoteEl(n)).length;
+}
+
 function countNotesInRange(from: number, to: number, noteEls: MeasureNoteEl[]): number {
   return noteEls.filter((n) => n.index >= from && n.index <= to).length;
 }
@@ -150,7 +191,8 @@ function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
     ? ` ${el.timeMod === '3:2' ? '세잇단' : `잇단 ${el.timeMod}`}${el.tuplet === 'start' ? '▸' : el.tuplet === 'stop' ? '◂' : ''}`
     : '';
   const arts = el.articulations?.length ? ` [${el.articulations.join(', ')}]` : '';
-  return `#${idx} ${el.pitch ?? '?'} ${el.type ?? ''}${dots}${tie}${chord}${tuplet}${arts}${el.stem ? ` stem=${el.stem}` : ''}`;
+  const beam = el.beams?.length ? ` beam=[${el.beams.join(',')}]` : '';
+  return `#${idx} ${el.pitch ?? '?'} ${el.type ?? ''}${dots}${tie}${chord}${tuplet}${beam}${arts}${el.stem ? ` stem=${el.stem}` : ''}`;
 }
 
 export function OmrMeasureEditor({
@@ -351,6 +393,8 @@ function MeasureNoteEditor({
   const [tripletNormalType, setTripletNormalType] = useState(
     el.type === '16th' || el.type === '32nd' ? el.type : 'eighth',
   );
+  const [beamEnd, setBeamEnd] = useState(() => defaultBeamEndIndex(el.index, noteEls));
+  const [beamNumber, setBeamNumber] = useState(1);
 
   useEffect(() => {
     const p = parsePitch(el.pitch);
@@ -362,6 +406,7 @@ function MeasureNoteEditor({
     setStaffN(el.staff ?? 1);
     setTripletEnd(defaultTripletEndIndex(el.index, noteEls));
     setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
+    setBeamEnd(defaultBeamEndIndex(el.index, noteEls));
   }, [el.index, el.pitch, el.type, el.staff, el.isDotted, el.dotCount, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
@@ -369,6 +414,9 @@ function MeasureNoteEditor({
   const tripletCandidates = noteEls.filter((n) => n.index >= el.index).slice(0, 8);
   const tripletNoteCount = countNotesInRange(el.index, tripletEnd, noteEls);
   const existingTriplet = tripletRangeFor(el, noteEls);
+  const beamCandidates = noteEls.filter((n) => n.index >= el.index && isBeamableNoteEl(n)).slice(0, 8);
+  const beamNoteCount = countBeamableInRange(el.index, beamEnd, noteEls);
+  const existingBeam = beamRangeFor(el, noteEls);
   const spuriousAfterRest =
     el.kind === 'rest' &&
     nextNote &&
@@ -592,6 +640,63 @@ function MeasureNoteEditor({
           <button type="button" className="omr-hitl-fix-btn" onClick={() => onFix({ kind: 'setNoteStem', noteIndex: el.index, stem: 'down' })}>
             줄기 아래
           </button>
+        </div>
+      )}
+      {isBeamableNoteEl(el) && beamCandidates.length >= 2 && (
+        <div className="omr-measure-beam-row">
+          <label className="omr-measure-inline-field">
+            빔 끝
+            <select value={String(beamEnd)} onChange={(e) => setBeamEnd(parseInt(e.target.value, 10))}>
+              {beamCandidates.map((n) => (
+                <option key={n.index} value={String(n.index)}>
+                  #{n.index} {n.pitch ?? ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="omr-measure-inline-field">
+            빔 단
+            <select value={String(beamNumber)} onChange={(e) => setBeamNumber(parseInt(e.target.value, 10))}>
+              <option value="1">1</option>
+              <option value="2">2</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+            disabled={beamNoteCount < 2}
+            title={
+              beamNoteCount < 2
+                ? '빔 연결은 음표 2개 이상이 필요합니다 (쉼표·화음 하위음 제외)'
+                : `${beamNoteCount}개 음표를 빔 ${beamNumber}로 연결`
+            }
+            onClick={() =>
+              onFix({
+                kind: 'applyBeam',
+                fromNoteIndex: el.index,
+                toNoteIndex: beamEnd,
+                beamNumber,
+              })
+            }
+          >
+            빔 연결 ({beamNoteCount}개)
+          </button>
+          {el.beams?.length ? (
+            <button
+              type="button"
+              className="omr-hitl-fix-btn"
+              onClick={() =>
+                onFix({
+                  kind: 'removeBeam',
+                  fromNoteIndex: existingBeam.from,
+                  toNoteIndex: existingBeam.to,
+                  beamNumber,
+                })
+              }
+            >
+              빔 해제 (#{existingBeam.from}→#{existingBeam.to})
+            </button>
+          ) : null}
         </div>
       )}
       {tripletCandidates.length >= 2 && (

@@ -517,6 +517,73 @@ def _ensure_notations(note: ET.Element, ns: str) -> ET.Element:
     return notations
 
 
+def _is_beamable_pitched_note(note: ET.Element, ns: str) -> bool:
+    if note.find(_q(ns, "rest")) is not None or note.find(_q(ns, "pitch")) is None:
+        return False
+    if note.find(_q(ns, "chord")) is not None:
+        return False
+    return True
+
+
+def _strip_beams_from_note(
+    note: ET.Element, ns: str, beam_number: int | None = None
+) -> bool:
+    changed = False
+    for notations in list(note.findall(_q(ns, "notations"))):
+        for beam in list(notations.findall(_q(ns, "beam"))):
+            if beam_number is not None:
+                try:
+                    if int(beam.get("number") or "1") != beam_number:
+                        continue
+                except ValueError:
+                    if beam_number != 1:
+                        continue
+            notations.remove(beam)
+            changed = True
+        if len(notations) == 0:
+            note.remove(notations)
+    return changed
+
+
+def _set_beam_on_note(note: ET.Element, ns: str, beam_number: int, value: str) -> None:
+    notations = _ensure_notations(note, ns)
+    for beam in list(notations.findall(_q(ns, "beam"))):
+        try:
+            n = int(beam.get("number") or "1")
+        except ValueError:
+            n = 1
+        if n == beam_number:
+            notations.remove(beam)
+    beam_el = ET.SubElement(notations, _q(ns, "beam"))
+    if beam_number != 1:
+        beam_el.set("number", str(beam_number))
+    beam_el.text = value
+
+
+def _apply_beam_to_range(
+    notes: list[ET.Element],
+    ns: str,
+    indices: list[int],
+    beam_number: int = 1,
+) -> bool:
+    pitched = [
+        i
+        for i in indices
+        if 0 <= i < len(notes) and _is_beamable_pitched_note(notes[i], ns)
+    ]
+    if len(pitched) < 2:
+        return False
+    for pos, idx in enumerate(pitched):
+        if pos == 0:
+            val = "begin"
+        elif pos == len(pitched) - 1:
+            val = "end"
+        else:
+            val = "continue"
+        _set_beam_on_note(notes[idx], ns, beam_number, val)
+    return True
+
+
 def _strip_tuplet_from_note(note: ET.Element, ns: str) -> bool:
     changed = False
     tm = note.find(_q(ns, "time-modification"))
@@ -1110,6 +1177,44 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 if (dur_el.text or "").strip() != str(target_dur):
                     dur_el.text = str(target_dur)
                     changed = True
+        return changed
+
+    if kind == "applyBeam":
+        try:
+            from_idx = int(fix.get("fromNoteIndex"))
+            to_idx = int(fix.get("toNoteIndex"))
+            beam_number = int(fix.get("beamNumber", 1))
+        except (TypeError, ValueError):
+            return False
+        if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
+            return False
+        if beam_number < 1 or beam_number > 4:
+            return False
+        indices = list(range(from_idx, to_idx + 1))
+        return _apply_beam_to_range(notes, ns, indices, beam_number)
+
+    if kind == "removeBeam":
+        try:
+            from_idx = int(fix.get("fromNoteIndex"))
+            to_idx = int(fix.get("toNoteIndex"))
+        except (TypeError, ValueError):
+            try:
+                from_idx = to_idx = int(fix.get("noteIndex"))
+            except (TypeError, ValueError):
+                return False
+        if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
+            return False
+        beam_number_raw = fix.get("beamNumber")
+        beam_number: int | None = None
+        if beam_number_raw is not None and beam_number_raw != "":
+            try:
+                beam_number = int(beam_number_raw)
+            except (TypeError, ValueError):
+                return False
+        changed = False
+        for idx in range(from_idx, to_idx + 1):
+            if _strip_beams_from_note(notes[idx], ns, beam_number):
+                changed = True
         return changed
 
     return False

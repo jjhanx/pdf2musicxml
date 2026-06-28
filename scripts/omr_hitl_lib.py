@@ -181,10 +181,16 @@ def _note_tie_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
 
 
 def _note_beams(note: ET.Element, ns: str) -> list[str]:
+    """MusicXML `<beam>`는 `<note>` 직계 자식. 예전 HITL은 `<notations>` 아래에 쓴 경우도 읽는다."""
+    out: list[str] = []
+    for beam in note.findall(_q(ns, "beam")):
+        if beam.text and beam.text.strip():
+            out.append(beam.text.strip())
+    if out:
+        return out
     notations = note.find(_q(ns, "notations"))
     if notations is None:
         return []
-    out: list[str] = []
     for beam in notations.findall(_q(ns, "beam")):
         if beam.text and beam.text.strip():
             out.append(beam.text.strip())
@@ -529,35 +535,72 @@ def _strip_beams_from_note(
     note: ET.Element, ns: str, beam_number: int | None = None
 ) -> bool:
     changed = False
-    for notations in list(note.findall(_q(ns, "notations"))):
-        for beam in list(notations.findall(_q(ns, "beam"))):
-            if beam_number is not None:
-                try:
-                    if int(beam.get("number") or "1") != beam_number:
-                        continue
-                except ValueError:
-                    if beam_number != 1:
-                        continue
-            notations.remove(beam)
+
+    def _should_remove(beam: ET.Element) -> bool:
+        if beam_number is None:
+            return True
+        try:
+            return int(beam.get("number") or "1") == beam_number
+        except ValueError:
+            return beam_number == 1
+
+    for beam in list(note.findall(_q(ns, "beam"))):
+        if _should_remove(beam):
+            note.remove(beam)
             changed = True
+    notations = note.find(_q(ns, "notations"))
+    if notations is not None:
+        for beam in list(notations.findall(_q(ns, "beam"))):
+            if _should_remove(beam):
+                notations.remove(beam)
+                changed = True
         if len(notations) == 0:
             note.remove(notations)
     return changed
 
 
 def _set_beam_on_note(note: ET.Element, ns: str, beam_number: int, value: str) -> None:
-    notations = _ensure_notations(note, ns)
-    for beam in list(notations.findall(_q(ns, "beam"))):
+    if note.find(_q(ns, "rest")) is not None:
+        return
+    for beam in list(note.findall(_q(ns, "beam"))):
         try:
             n = int(beam.get("number") or "1")
         except ValueError:
             n = 1
         if n == beam_number:
-            notations.remove(beam)
-    beam_el = ET.SubElement(notations, _q(ns, "beam"))
+            note.remove(beam)
+    notations = note.find(_q(ns, "notations"))
+    if notations is not None:
+        for beam in list(notations.findall(_q(ns, "beam"))):
+            try:
+                n = int(beam.get("number") or "1")
+            except ValueError:
+                n = 1
+            if n == beam_number:
+                notations.remove(beam)
+    beam_el = ET.Element(_q(ns, "beam"))
     if beam_number != 1:
         beam_el.set("number", str(beam_number))
     beam_el.text = value
+    anchor = (
+        note.find(_q(ns, "stem"))
+        or note.find(_q(ns, "staff"))
+        or note.find(_q(ns, "type"))
+    )
+    if anchor is not None:
+        note.insert(list(note).index(anchor) + 1, beam_el)
+    else:
+        note.append(beam_el)
+
+
+def _chord_follower_indices(notes: list[ET.Element], ns: str, leader_idx: int) -> list[int]:
+    out: list[int] = []
+    for j in range(leader_idx + 1, len(notes)):
+        if notes[j].find(_q(ns, "chord")) is not None:
+            out.append(j)
+        else:
+            break
+    return out
 
 
 def _apply_beam_to_range(
@@ -580,7 +623,9 @@ def _apply_beam_to_range(
             val = "end"
         else:
             val = "continue"
-        _set_beam_on_note(notes[idx], ns, beam_number, val)
+        targets = [idx, *_chord_follower_indices(notes, ns, idx)]
+        for tidx in targets:
+            _set_beam_on_note(notes[tidx], ns, beam_number, val)
     return True
 
 
@@ -1215,6 +1260,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         for idx in range(from_idx, to_idx + 1):
             if _strip_beams_from_note(notes[idx], ns, beam_number):
                 changed = True
+            for fidx in _chord_follower_indices(notes, ns, idx):
+                if _strip_beams_from_note(notes[fidx], ns, beam_number):
+                    changed = True
         return changed
 
     return False

@@ -81,13 +81,23 @@ function beamRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: numb
   if (pos < 0) return { from: el.index, to: el.index };
   let start = pos;
   while (start > 0) {
-    const b = noteEls[start - 1].beams ?? [];
+    const prev = noteEls[start - 1];
+    if (prev.chord) {
+      start -= 1;
+      continue;
+    }
+    const b = prev.beams ?? [];
     if (b.includes('continue') || b.includes('begin')) start -= 1;
     else break;
   }
   let end = pos;
   while (end + 1 < noteEls.length) {
-    const b = noteEls[end + 1].beams ?? [];
+    const next = noteEls[end + 1];
+    if (next.chord) {
+      end += 1;
+      continue;
+    }
+    const b = next.beams ?? [];
     if (b.includes('continue') || b.includes('end')) end += 1;
     else break;
   }

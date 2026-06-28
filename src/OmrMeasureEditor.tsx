@@ -61,7 +61,15 @@ function isBeamableNoteEl(n: MeasureNoteEl): boolean {
   return n.kind === 'note' && !n.chord;
 }
 
-function defaultBeamEndIndex(elIndex: number, noteEls: MeasureNoteEl[]): number {
+function defaultBeamEndIndex(
+  elIndex: number,
+  noteEls: MeasureNoteEl[],
+  el?: MeasureNoteEl,
+): number {
+  if (el?.beams?.length) {
+    const existing = beamRangeFor(el, noteEls);
+    if (existing.to > existing.from) return existing.to;
+  }
   const startPos = noteEls.findIndex((n) => n.index === elIndex);
   if (startPos < 0) return elIndex;
   let count = 0;
@@ -247,7 +255,7 @@ export function OmrMeasureEditor({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, previewRevision]);
 
   const elements = useMemo(() => {
     if (snapshot?.elements?.length) return snapshot.elements;
@@ -403,7 +411,7 @@ function MeasureNoteEditor({
   const [tripletNormalType, setTripletNormalType] = useState(
     el.type === '16th' || el.type === '32nd' ? el.type : 'eighth',
   );
-  const [beamEnd, setBeamEnd] = useState(() => defaultBeamEndIndex(el.index, noteEls));
+  const [beamEnd, setBeamEnd] = useState(() => defaultBeamEndIndex(el.index, noteEls, el));
   const [beamNumber, setBeamNumber] = useState(1);
 
   useEffect(() => {
@@ -416,8 +424,8 @@ function MeasureNoteEditor({
     setStaffN(el.staff ?? 1);
     setTripletEnd(defaultTripletEndIndex(el.index, noteEls));
     setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
-    setBeamEnd(defaultBeamEndIndex(el.index, noteEls));
-  }, [el.index, el.pitch, el.type, el.staff, el.isDotted, el.dotCount, noteEls]);
+    setBeamEnd(defaultBeamEndIndex(el.index, noteEls, el));
+  }, [el.index, el.pitch, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
@@ -425,6 +433,7 @@ function MeasureNoteEditor({
   const tripletNoteCount = countNotesInRange(el.index, tripletEnd, noteEls);
   const existingTriplet = tripletRangeFor(el, noteEls);
   const beamCandidates = noteEls.filter((n) => n.index >= el.index && isBeamableNoteEl(n)).slice(0, 8);
+  const beamEndNote = noteEls.find((n) => n.index === beamEnd);
   const beamNoteCount = countBeamableInRange(el.index, beamEnd, noteEls);
   const existingBeam = beamRangeFor(el, noteEls);
   const spuriousAfterRest =
@@ -685,6 +694,8 @@ function MeasureNoteEditor({
                 kind: 'applyBeam',
                 fromNoteIndex: el.index,
                 toNoteIndex: beamEnd,
+                fromPitch: el.pitch ?? undefined,
+                toPitch: beamEndNote?.pitch ?? undefined,
                 beamNumber,
               })
             }

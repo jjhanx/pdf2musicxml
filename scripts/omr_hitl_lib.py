@@ -523,6 +523,60 @@ def _ensure_notations(note: ET.Element, ns: str) -> ET.Element:
     return notations
 
 
+def _note_pitch_str(note: ET.Element, ns: str) -> str | None:
+    pitch_el = note.find(_q(ns, "pitch"))
+    if pitch_el is None:
+        return None
+    step_el = pitch_el.find(_q(ns, "step"))
+    oct_el = pitch_el.find(_q(ns, "octave"))
+    alter_el = pitch_el.find(_q(ns, "alter"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return None
+    step = step_el.text.strip()
+    octave = oct_el.text.strip()
+    if alter_el is not None and alter_el.text:
+        try:
+            alter = int(float(alter_el.text.strip()))
+            if alter > 0:
+                return f"{step}#{octave}"
+            if alter < 0:
+                return f"{step}b{octave}"
+        except ValueError:
+            pass
+    return f"{step}{octave}"
+
+
+def _note_voice_staff(note: ET.Element, ns: str) -> tuple[str, str]:
+    voice_el = note.find(_q(ns, "voice"))
+    staff_el = note.find(_q(ns, "staff"))
+    voice = (voice_el.text or "1").strip() if voice_el is not None and voice_el.text else "1"
+    staff = (staff_el.text or "1").strip() if staff_el is not None and staff_el.text else "1"
+    return voice, staff
+
+
+def _resolve_beam_endpoint(
+    notes: list[ET.Element],
+    ns: str,
+    idx: int,
+    pitch_hint: Any,
+) -> int:
+    hint = str(pitch_hint or "").strip()
+    if 0 <= idx < len(notes) and (not hint or _note_pitch_str(notes[idx], ns) == hint):
+        return idx
+    if not hint:
+        return idx
+    matches = [
+        i
+        for i, n in enumerate(notes)
+        if _is_beamable_pitched_note(n, ns) and _note_pitch_str(n, ns) == hint
+    ]
+    if not matches:
+        return idx
+    if len(matches) == 1:
+        return matches[0]
+    return min(matches, key=lambda i: abs(i - idx))
+
+
 def _is_beamable_pitched_note(note: ET.Element, ns: str) -> bool:
     if note.find(_q(ns, "rest")) is not None or note.find(_q(ns, "pitch")) is None:
         return False
@@ -616,6 +670,14 @@ def _apply_beam_to_range(
     ]
     if len(pitched) < 2:
         return False
+    group_keys = {_note_voice_staff(notes[i], ns) for i in pitched}
+    if len(group_keys) != 1:
+        return False
+    voice, staff = next(iter(group_keys))
+    for note in notes:
+        v, s = _note_voice_staff(note, ns)
+        if v == voice and s == staff:
+            _strip_beams_from_note(note, ns, beam_number)
     for pos, idx in enumerate(pitched):
         if pos == 0:
             val = "begin"
@@ -1231,6 +1293,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             beam_number = int(fix.get("beamNumber", 1))
         except (TypeError, ValueError):
             return False
+        from_idx = _resolve_beam_endpoint(notes, ns, from_idx, fix.get("fromPitch"))
+        to_idx = _resolve_beam_endpoint(notes, ns, to_idx, fix.get("toPitch"))
         if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
             return False
         if beam_number < 1 or beam_number > 4:
@@ -1437,11 +1501,28 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
     ns = _ns(root)
     stats = {"applied": 0, "skipped": 0}
     touched: set[tuple[str, str]] = set()
+    deferred_kinds = {
+        "applyBeam",
+        "removeBeam",
+        "addTie",
+        "removeTie",
+        "applyTriplet",
+        "removeTriplet",
+    }
+    deferred: list[dict[str, Any]] = []
     for fix in fixes:
         part_id = str(fix.get("partId") or "").strip()
         measure_mxl = str(fix.get("measureMxl") or "").strip()
         if part_id and measure_mxl:
             touched.add((part_id, measure_mxl))
+        if fix.get("kind") in deferred_kinds:
+            deferred.append(fix)
+            continue
+        if apply_fix(root, ns, fix):
+            stats["applied"] += 1
+        else:
+            stats["skipped"] += 1
+    for fix in deferred:
         if apply_fix(root, ns, fix):
             stats["applied"] += 1
         else:

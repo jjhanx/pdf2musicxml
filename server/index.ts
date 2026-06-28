@@ -2590,8 +2590,10 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
     const cacheDir = path.join(job.sessionRoot, '.diag-cache');
     await fs.mkdir(cacheDir, { recursive: true });
     const outXml = path.join(cacheDir, 'inspect-score.musicxml');
-    // OMR 품질 검토·진단 미리보기: 항상 최신 fix_audiveris_mxl 반영 후 XML 추출
-    await fixAudiverisMxlInScoreFile(mxlPath, pythonBin);
+    // OMR HITL 검토 MXL은 rebuildOmrReviewMxl(raw→후처리→HITL)로 이미 최신 상태 — 재후처리 시 HITL 빔·리듬 보정이 사라질 수 있음
+    if (job.status !== 'omr_staff_review_needed') {
+      await fixAudiverisMxlInScoreFile(mxlPath, pythonBin);
+    }
     if (fsSync.existsSync(outXml)) await fs.unlink(outXml).catch(() => {});
     const mxlScript = path.join(__dirname, '..', 'scripts', 'mxl_to_musicxml_file.py');
     await exec(`"${pythonBin}" "${mxlScript}" "${mxlPath}" "${outXml}"`, {

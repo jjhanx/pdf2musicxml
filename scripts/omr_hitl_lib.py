@@ -1093,28 +1093,34 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         if idx < 0 or idx >= len(notes):
             return False
-        note = notes[idx]
         dot_count = 0
         if fix.get("dotCount") is not None:
             try:
                 dot_count = max(0, min(2, int(fix.get("dotCount"))))
             except (TypeError, ValueError):
                 dot_count = 0
-        type_el = note.find(_q(ns, "type"))
-        if type_el is None:
-            type_el = ET.SubElement(note, _q(ns, "type"))
-        type_el.text = note_type
-        for dot in list(note.findall(_q(ns, "dot"))):
-            note.remove(dot)
-        for _ in range(dot_count):
-            ET.SubElement(note, _q(ns, "dot"))
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
         target_dur = _duration_for_type_dots(note_type, divisions, dot_count)
-        if target_dur > 0:
-            dur_el = note.find(_q(ns, "duration"))
-            if dur_el is None:
-                dur_el = ET.SubElement(note, _q(ns, "duration"))
-            dur_el.text = str(target_dur)
+        targets = [idx]
+        if notes[idx].find(_q(ns, "chord")) is None:
+            targets.extend(_chord_follower_indices(notes, ns, idx))
+        for tidx in targets:
+            if tidx < 0 or tidx >= len(notes):
+                continue
+            note = notes[tidx]
+            type_el = note.find(_q(ns, "type"))
+            if type_el is None:
+                type_el = ET.SubElement(note, _q(ns, "type"))
+            type_el.text = note_type
+            for dot in list(note.findall(_q(ns, "dot"))):
+                note.remove(dot)
+            for _ in range(dot_count):
+                ET.SubElement(note, _q(ns, "dot"))
+            if target_dur > 0:
+                dur_el = note.find(_q(ns, "duration"))
+                if dur_el is None:
+                    dur_el = ET.SubElement(note, _q(ns, "duration"))
+                dur_el.text = str(target_dur)
         return True
 
     if kind == "setNoteStem":

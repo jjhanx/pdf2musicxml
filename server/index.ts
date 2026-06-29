@@ -493,6 +493,77 @@ function sessionOmrHitlCheckpointPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'omr_hitl_checkpoint.json');
 }
 
+function sessionHitlBaselineMxlPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'omr_hitl_baseline.mxl');
+}
+
+async function readOmrHitlFixes(sessionRoot: string): Promise<unknown[]> {
+  const fixesPath = sessionOmrHitlFixesPath(sessionRoot);
+  if (!fsSync.existsSync(fixesPath)) return [];
+  try {
+    const raw = JSON.parse(await fs.readFile(fixesPath, 'utf8')) as { fixes?: unknown };
+    return Array.isArray(raw.fixes) ? raw.fixes : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeOmrHitlFixes(sessionRoot: string, fixes: unknown[]): Promise<void> {
+  await fs.writeFile(
+    sessionOmrHitlFixesPath(sessionRoot),
+    JSON.stringify({ version: 1, fixes, savedAt: new Date().toISOString() }, null, 2),
+    'utf8',
+  );
+}
+
+async function runOmrHitlAutoNormalize(
+  sessionRoot: string,
+  scorePath: string,
+  pythonBin: string,
+): Promise<{
+  restsFixed: number;
+  measuresChanged: number;
+  restDisplayCleared: number;
+  tupletStaccatoRemoved: number;
+  slursInjected: number;
+  tupletShowNumberFixed: number;
+  directionsRemoved: number;
+  hitlApplied: number;
+  hitlSkipped: number;
+  pendingCleared: number;
+}> {
+  await ensureAudiverisRawBackup(scorePath, sessionRoot);
+  const baselinePath = sessionHitlBaselineMxlPath(sessionRoot);
+  const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
+  if (fsSync.existsSync(baselinePath)) {
+    await fs.copyFile(baselinePath, scorePath);
+  } else if (fsSync.existsSync(rawPath)) {
+    await fs.copyFile(rawPath, scorePath);
+  }
+  const postStats = await postprocessAudiverisMxlInScoreFile(scorePath, pythonBin);
+  const fixes = await readOmrHitlFixes(sessionRoot);
+  let hitlApplied = 0;
+  let hitlSkipped = 0;
+  let pendingCleared = 0;
+  if (fixes.length > 0) {
+    const hitlStats = (await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin)) ?? {
+      applied: 0,
+      skipped: 0,
+    };
+    hitlApplied = hitlStats.applied;
+    hitlSkipped = hitlStats.skipped;
+    pendingCleared = fixes.length;
+    await writeOmrHitlFixes(sessionRoot, []);
+  }
+  await saveHitlBaseline(sessionRoot, scorePath);
+  return {
+    ...postStats,
+    hitlApplied,
+    hitlSkipped,
+    pendingCleared,
+  };
+}
+
 async function ensureAudiverisRawBackup(scorePath: string, sessionRoot: string): Promise<void> {
   const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
   if (fsSync.existsSync(rawPath)) return;
@@ -510,6 +581,98 @@ async function invalidateInspectScoreCache(sessionRoot: string): Promise<void> {
   if (fsSync.existsSync(fixStamp)) await fs.unlink(fixStamp).catch(() => {});
 }
 
+async function syncOmrReviewMxl(
+  sessionRoot: string,
+  scorePath: string,
+  pythonBin: string,
+): Promise<{
+  restsFixed: number;
+  measuresChanged: number;
+  restDisplayCleared: number;
+  tupletStaccatoRemoved: number;
+  slursInjected: number;
+  tupletShowNumberFixed: number;
+  directionsRemoved: number;
+  hitlApplied: number;
+  hitlSkipped: number;
+  pendingCleared: number;
+  syncMode: 'full' | 'incremental' | 'restore' | 'init';
+}> {
+  await ensureAudiverisRawBackup(scorePath, sessionRoot);
+  const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
+  const baselinePath = sessionHitlBaselineMxlPath(sessionRoot);
+  const fixes = await readOmrHitlFixes(sessionRoot);
+  const hasBaseline = fsSync.existsSync(baselinePath);
+  const emptyPost = {
+    restsFixed: 0,
+    measuresChanged: 0,
+    restDisplayCleared: 0,
+    tupletStaccatoRemoved: 0,
+    slursInjected: 0,
+    tupletShowNumberFixed: 0,
+    directionsRemoved: 0,
+  };
+
+  let syncMode: 'full' | 'incremental' | 'restore' | 'init';
+  let postStats = { ...emptyPost };
+  let hitlApplied = 0;
+  let hitlSkipped = 0;
+  let pendingCleared = 0;
+
+  if (!hasBaseline && fixes.length > 0) {
+    syncMode = 'full';
+    if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
+    postStats = await postprocessAudiverisMxlInScoreFile(scorePath, pythonBin);
+    const hitlStats = (await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin)) ?? {
+      applied: 0,
+      skipped: 0,
+    };
+    hitlApplied = hitlStats.applied;
+    hitlSkipped = hitlStats.skipped;
+    pendingCleared = fixes.length;
+    await saveHitlBaseline(sessionRoot, scorePath);
+    await writeOmrHitlFixes(sessionRoot, []);
+  } else if (hasBaseline && fixes.length > 0) {
+    syncMode = 'incremental';
+    await fs.copyFile(baselinePath, scorePath);
+    const hitlStats = (await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin)) ?? {
+      applied: 0,
+      skipped: 0,
+    };
+    hitlApplied = hitlStats.applied;
+    hitlSkipped = hitlStats.skipped;
+    pendingCleared = fixes.length;
+    await saveHitlBaseline(sessionRoot, scorePath);
+    await writeOmrHitlFixes(sessionRoot, []);
+  } else if (hasBaseline) {
+    syncMode = 'restore';
+    await fs.copyFile(baselinePath, scorePath);
+  } else {
+    syncMode = 'init';
+    if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
+    postStats = await postprocessAudiverisMxlInScoreFile(scorePath, pythonBin);
+    await saveHitlBaseline(sessionRoot, scorePath);
+  }
+
+  const checkpoint = {
+    version: 2,
+    rebuiltAt: new Date().toISOString(),
+    syncMode,
+    hitlApplied,
+    hitlSkipped,
+    pendingCleared,
+  };
+  await fs.writeFile(sessionOmrHitlCheckpointPath(sessionRoot), JSON.stringify(checkpoint, null, 2), 'utf8');
+  return {
+    ...postStats,
+    hitlApplied,
+    hitlSkipped,
+    pendingCleared,
+    syncMode,
+  };
+}
+
+/** @deprecated alias — syncOmrReviewMxl 사용 */
 async function rebuildOmrReviewMxl(
   sessionRoot: string,
   scorePath: string,
@@ -525,27 +688,17 @@ async function rebuildOmrReviewMxl(
   hitlApplied: number;
   hitlSkipped: number;
 }> {
-  await ensureAudiverisRawBackup(scorePath, sessionRoot);
-  const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
-  if (fsSync.existsSync(rawPath)) {
-    await fs.copyFile(rawPath, scorePath);
-  }
-  const postStats = await postprocessAudiverisMxlInScoreFile(scorePath, pythonBin);
-  const hitlStats = (await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin)) ?? {
-    applied: 0,
-    skipped: 0,
-  };
-  const checkpoint = {
-    version: 1,
-    rebuiltAt: new Date().toISOString(),
-    hitlApplied: hitlStats.applied,
-    hitlSkipped: hitlStats.skipped,
-  };
-  await fs.writeFile(sessionOmrHitlCheckpointPath(sessionRoot), JSON.stringify(checkpoint, null, 2), 'utf8');
+  const stats = await syncOmrReviewMxl(sessionRoot, scorePath, pythonBin);
   return {
-    ...postStats,
-    hitlApplied: hitlStats.applied,
-    hitlSkipped: hitlStats.skipped,
+    restsFixed: stats.restsFixed,
+    measuresChanged: stats.measuresChanged,
+    restDisplayCleared: stats.restDisplayCleared,
+    tupletStaccatoRemoved: stats.tupletStaccatoRemoved,
+    slursInjected: stats.slursInjected,
+    tupletShowNumberFixed: stats.tupletShowNumberFixed,
+    directionsRemoved: stats.directionsRemoved,
+    hitlApplied: stats.hitlApplied,
+    hitlSkipped: stats.hitlSkipped,
   };
 }
 
@@ -1143,7 +1296,7 @@ async function importOmrWorkFromExtractDir(
   extractDir: string,
   scorePath: string,
   pythonBin: string,
-): Promise<{ fixCount: number }> {
+): Promise<{ fixCount: number; stats: Awaited<ReturnType<typeof syncOmrReviewMxl>> }> {
   const pick = (name: string) => {
     const p = path.join(extractDir, name);
     return fsSync.existsSync(p) ? p : null;
@@ -1160,12 +1313,18 @@ async function importOmrWorkFromExtractDir(
   else {
     throw new Error('ZIP에 review.mxl 또는 audiveris_raw.mxl이 없습니다');
   }
-  await rebuildOmrReviewMxl(sessionRoot, scorePath, pythonBin);
+  const baselineSrc = pick('omr_hitl_baseline.mxl');
+  if (baselineSrc) await fs.copyFile(baselineSrc, sessionHitlBaselineMxlPath(sessionRoot));
+  const fixesAfterImport = await readOmrHitlFixes(sessionRoot);
+  let stats: Awaited<ReturnType<typeof syncOmrReviewMxl>>;
+  if (fixesAfterImport.length > 0) {
+    stats = await syncOmrReviewMxl(sessionRoot, scorePath, pythonBin);
+  } else {
+    await saveHitlBaseline(sessionRoot, scorePath);
+    stats = await syncOmrReviewMxl(sessionRoot, scorePath, pythonBin);
+  }
   await invalidateInspectScoreCache(sessionRoot);
-  const fixesRaw = JSON.parse(
-    await fs.readFile(sessionOmrHitlFixesPath(sessionRoot), 'utf8').catch(() => '{"fixes":[]}'),
-  ) as { fixes?: unknown[] };
-  return { fixCount: Array.isArray(fixesRaw.fixes) ? fixesRaw.fixes.length : 0 };
+  return { fixCount: fixesAfterImport.length, stats };
 }
 
 async function bootstrapFromOmrWorkZip(
@@ -2590,7 +2749,7 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
     const cacheDir = path.join(job.sessionRoot, '.diag-cache');
     await fs.mkdir(cacheDir, { recursive: true });
     const outXml = path.join(cacheDir, 'inspect-score.musicxml');
-    // OMR HITL 검토 MXL은 rebuildOmrReviewMxl(raw→후처리→HITL)로 이미 최신 상태 — 재후처리 시 HITL 빔·리듬 보정이 사라질 수 있음
+    // OMR HITL: review.mxl(및 omr_hitl_baseline.mxl)이 반영된 악보 — 재후처리 시 HITL 보정이 사라질 수 있음
     if (job.status !== 'omr_staff_review_needed') {
       await fixAudiverisMxlInScoreFile(mxlPath, pythonBin);
     }
@@ -3548,7 +3707,7 @@ app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
   }
   const pythonBin = resolvePythonBin();
   try {
-    const stats = await rebuildOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+    const stats = await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
     await invalidateInspectScoreCache(job.sessionRoot);
     let lintReport: Record<string, unknown> | null = null;
     try {
@@ -3559,7 +3718,12 @@ app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
     }
     res.json({
       ok: true,
-      stats: { applied: stats.hitlApplied, skipped: stats.hitlSkipped },
+      stats: {
+        applied: stats.hitlApplied,
+        skipped: stats.hitlSkipped,
+        pendingCleared: stats.pendingCleared,
+        syncMode: stats.syncMode,
+      },
       postprocess: stats,
       lint: lintReport,
     });
@@ -3582,7 +3746,7 @@ app.post('/api/omr-hitl/:jobId/normalize-rests', async (req, res) => {
   }
   const pythonBin = resolvePythonBin();
   try {
-    const stats = await rebuildOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+    const stats = await runOmrHitlAutoNormalize(job.sessionRoot, mxlPath, pythonBin);
     await invalidateInspectScoreCache(job.sessionRoot);
     res.json({ ok: true, stats });
   } catch (e) {
@@ -3604,7 +3768,7 @@ app.post('/api/omr-hitl/:jobId/sync-preview', async (req, res) => {
   }
   const pythonBin = resolvePythonBin();
   try {
-    const stats = await rebuildOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+    const stats = await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
     await invalidateInspectScoreCache(job.sessionRoot);
     res.json({ ok: true, stats });
   } catch (e) {
@@ -3635,6 +3799,8 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
   archive.file(mxlPath, { name: 'review.mxl' });
   const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
   if (fsSync.existsSync(rawPath)) archive.file(rawPath, { name: 'audiveris_raw.mxl' });
+  const baselinePath = sessionHitlBaselineMxlPath(job.sessionRoot);
+  if (fsSync.existsSync(baselinePath)) archive.file(baselinePath, { name: 'omr_hitl_baseline.mxl' });
   const fixesPath = sessionOmrHitlFixesPath(job.sessionRoot);
   if (fsSync.existsSync(fixesPath)) archive.file(fixesPath, { name: 'omr_hitl_fixes.json' });
   const labelsPath = sessionPartLabelsPath(job.sessionRoot);
@@ -3714,18 +3880,18 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
         if (fixesSrc) await fs.copyFile(fixesSrc, sessionOmrHitlFixesPath(job.sessionRoot));
         if (labelsSrc) await fs.copyFile(labelsSrc, sessionPartLabelsPath(job.sessionRoot));
         if (rawSrc) await fs.copyFile(rawSrc, sessionAudiverisRawMxlPath(job.sessionRoot));
-        if (reviewSrc) await fs.copyFile(reviewSrc, mxlPath);
-        else if (rawSrc) await fs.copyFile(rawSrc, mxlPath);
-        const stats = await rebuildOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+        const { fixCount, stats } = await importOmrWorkFromExtractDir(
+          job.sessionRoot,
+          extractDir,
+          mxlPath,
+          pythonBin,
+        );
         await invalidateInspectScoreCache(job.sessionRoot);
         await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
         await fs.unlink(zipPath).catch(() => {});
-        const fixesRaw = JSON.parse(
-          await fs.readFile(sessionOmrHitlFixesPath(job.sessionRoot), 'utf8').catch(() => '{"fixes":[]}'),
-        ) as { fixes?: unknown[] };
         res.json({
           ok: true,
-          fixCount: Array.isArray(fixesRaw.fixes) ? fixesRaw.fixes.length : 0,
+          fixCount,
           stats,
         });
       } catch (e) {

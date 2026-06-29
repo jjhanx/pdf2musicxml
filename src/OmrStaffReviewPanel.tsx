@@ -104,8 +104,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     if (!r.ok) return pendingFixesRef.current;
     const j = (await r.json()) as { fixes?: OmrHitlFix[] };
     const list = Array.isArray(j.fixes) ? j.fixes : [];
-    setPendingFixes((prev) => (prev.length >= list.length ? prev : list));
-    return list.length > 0 ? list : pendingFixesRef.current;
+    setPendingFixes(list);
+    return list;
   }, [jobId]);
 
   const persistFixes = useCallback(
@@ -142,7 +142,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           fixesHydratedRef.current = true;
           const fj = (await fixesRes.json()) as { fixes?: OmrHitlFix[] };
           if (Array.isArray(fj.fixes)) {
-            setPendingFixes((prev) => (prev.length > 0 ? prev : fj.fixes!));
+            setPendingFixes(fj.fixes);
           }
         }
         if (partsRes.ok) {
@@ -396,16 +396,24 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         const j = (await r.json()) as { error?: string };
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
-      const j = (await r.json()) as { stats?: { applied?: number; skipped?: number } };
+      const j = (await r.json()) as {
+        stats?: { applied?: number; skipped?: number; pendingCleared?: number; syncMode?: string };
+      };
       await refreshScoreXml();
       setPreviewRevision((n) => n + 1);
       setEditorKey((k) => k + 1);
+      setPendingFixes([]);
+      pendingFixesRef.current = [];
       const applied = j.stats?.applied ?? 0;
       const skipped = j.stats?.skipped ?? 0;
+      const cleared = j.stats?.pendingCleared ?? 0;
+      const mode = j.stats?.syncMode ?? '';
       const msg =
         applied === 0 && skipped > 0
           ? `반영된 보정이 없습니다 (건너뜀 ${skipped}). 이미 반영됐거나 대상 요소를 찾지 못한 보정입니다 — 마디 편집을 다시 열어 현재 상태를 확인하세요.`
-          : `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 오른쪽 MusicXML에서 확인하세요.`;
+          : cleared > 0
+            ? `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}) — 대기 목록 ${cleared}건 제거${mode ? ` · ${mode}` : ''}. 오른쪽 MusicXML에서 확인하세요.`
+            : `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 오른쪽 MusicXML에서 확인하세요.`;
       setApplyMsg(msg);
       setLastPreviewMsg(msg);
     } catch (e) {
@@ -667,10 +675,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       )}
 
       <div className="omr-hitl-panel">
+        <p className="omr-hitl-panel-hint" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', color: '#555' }}>
+          <strong>「MXL에 반영·미리보기」</strong> 후 반영된 보정은 대기 목록에서 자동으로 제거됩니다(누적 재적용 방지). 이후 수정은 새로 추가한 보정만 다시 반영하면 됩니다.
+        </p>
         <div className="omr-hitl-panel-title">대기 중인 MXL 보정 ({pendingFixes.length}건)</div>
         <p className="omr-hitl-panel-hint">
           마디 편집에서 추가한 보정이 여기 쌓입니다. <strong>「MXL에 반영·미리보기」</strong>로 OMR MXL을
-          갱신하고 오른쪽 악보에서 확인하세요. 패널을 열면 원본 MXL에서 후처리·보정을 자동 동기화합니다.
+          갱신하고 오른쪽 악보에서 확인하세요. 반영이 끝난 보정은 목록에서 비워지며, 다음 보정만 다시 쌓으면 됩니다.
+          패널을 열면 저장된 baseline과 대기 보정을 자동 동기화합니다.
           중단 후 이어하려면 <strong>「작업 저장(ZIP)」</strong> → 같은 job에서 <strong>「작업 불러오기」</strong>.
           서버·브라우저를 닫았다면 변환 화면에서 <strong>「OMR 검토 이어하기」</strong> + ZIP으로 새 변환을 시작하세요.
         </p>

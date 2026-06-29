@@ -1,0 +1,1905 @@
+Found ZIP files: ['_�@���4��10�-debug.zip']
+
+--- Inspecting _�@���4��10�-debug.zip ---
+Files inside zip: ['masked_input.pdf', 'text_data.json', 'masked_input.mvt1.mxl', 'masked_input.mvt2.mxl', 'masked_input.mvt1_merged.mxl', 'masked_input.mvt2_merged.mxl'] (total 6 files)
+MXL files inside zip: ['masked_input.mvt1.mxl', 'masked_input.mvt2.mxl', 'masked_input.mvt1_merged.mxl', 'masked_input.mvt2_merged.mxl']
+
+Inspecting MXL: _�@���4��10�-debug.zip -> masked_input.mvt1.mxl
+Part count: 5
+Score Part ID: P1, Name: Voice
+Score Part ID: P2, Name: Voice
+Score Part ID: P3, Name: Voice
+Score Part ID: P4, Name: Voice
+Score Part ID: P5, Name: Piano
+
+Part P1:
+Measure count: 56
+  Measure number 5:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 5
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 2
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 6
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 2
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 10:
+    Note count: 5
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 4
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 12:
+    Note count: 6
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 2
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 17:
+    Note count: 4
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+
+Part P2:
+Measure count: 56
+  Measure number 5:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 5
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+    Direction [1]: 
+  Measure number 7:
+    Note count: 2
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 6
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 5
+      [0] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 10:
+    Note count: 4
+      [0] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 4
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+    Direction [1]: 
+  Measure number 12:
+    Note count: 6
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 5
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 17:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+
+Part P3:
+Measure count: 56
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 6
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 2
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 6
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+    Direction [1]: 
+  Measure number 17:
+    Note count: 2
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+
+Part P4:
+Measure count: 56
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 6
+      [0] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: F(1)3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 3
+      [0] Pitch: G3, Voice: 1, Slurs: ['Slur(start, num=1)'], Tuplets: []
+      [1] Pitch: E3, Voice: 1, Slurs: ['Slur(stop, num=1)'], Tuplets: []
+      [2] Pitch: E3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 6
+      [0] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C(1)3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C(1)3, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: E3, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+    Direction [1]: 
+    Direction [2]: 
+  Measure number 17:
+    Note count: 2
+      [0] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+
+Part P5:
+Measure count: 56
+  Measure number 5:
+    Note count: 16
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 18
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: D(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: D(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: F(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: F(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 18
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 18
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: C2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: C2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: C(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: C(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 17
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 18
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: G(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: G(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: G(1)3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 18
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: E6, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: A2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [16] Pitch: B2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: C3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+  Measure number 12:
+    Note count: 14
+      [0] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D6, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C(1)6, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [5] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [6] Pitch: D4, Voice: 5, Slurs: [], Tuplets: []
+      [7] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: E4, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 14
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C6, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [5] Pitch: D4, Voice: 5, Slurs: [], Tuplets: []
+      [6] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [7] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: D2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [11] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: F(1)2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+  Measure number 14:
+    Note count: 19
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [7] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: B2, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: D3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [10] Pitch: G3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [11] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: B2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [13] Pitch: A2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [14] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [16] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [17] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [18] Pitch: A2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+  Measure number 15:
+    Note count: 16
+      [0] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B3, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [3] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: B3, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [5] Pitch: E4, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [6] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: B4, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [8] Pitch: G2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [9] Pitch: B2, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: E3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [11] Pitch: G3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [12] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [14] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 18
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: C3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [7] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: E3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [9] Pitch: A3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [10] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: C3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [12] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: G3, Voice: 6, Slurs: [], Tuplets: ['Tuplet(start)']
+      [16] Pitch: E3, Voice: 6, Slurs: [], Tuplets: []
+      [17] Pitch: C(1)3, Voice: 6, Slurs: [], Tuplets: ['Tuplet(stop)']
+    Direction [0]: 
+  Measure number 17:
+    Note count: 17
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: F(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [3] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: A4, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [5] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: D6, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: C6, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: D2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [10] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: F(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: A2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [13] Pitch: D3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [14] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: A3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [16] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+
+Inspecting MXL: _�@���4��10�-debug.zip -> masked_input.mvt2.mxl
+Part count: 6
+Score Part ID: P1, Name: Voice
+Score Part ID: P2, Name: Voice
+Score Part ID: P3, Name: Voice
+Score Part ID: P4, Name: Voice
+Score Part ID: P5, Name: Piano
+Score Part ID: P6, Name: Voice
+
+Part P1:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 5
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 6
+      [0] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Part P2:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 4
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 6
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Part P3:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 4
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 6
+      [0] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Part P4:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 3
+      [0] Pitch: A2, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C3, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 6
+      [0] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Part P5:
+Measure count: 15
+  Measure number 5:
+    Note count: 18
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 18
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: C2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: C2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: C(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: C(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 17
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 13
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [6] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [7] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: B2, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: G(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 15
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: A5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B5, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: A4, Voice: 2, Slurs: [], Tuplets: []
+      [7] Pitch: E4, Voice: 2, Slurs: [], Tuplets: []
+      [8] Pitch: E5, Voice: 2, Slurs: [], Tuplets: []
+      [9] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: C4, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: Rest, Voice: 6, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 4
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [2] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [3] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 16
+      [0] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 19
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [13] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: F2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: F2, Voice: 5, Slurs: [], Tuplets: []
+      [18] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 16
+      [0] Pitch: E5, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C5, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [3] Pitch: F(1)5, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [4] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: C5, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [6] Pitch: A(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: C(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: G5, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: A5, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: E(-1)2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: E(-1)3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: Rest, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 14
+      [0] Pitch: B5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [5] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [6] Pitch: D4, Voice: 5, Slurs: [], Tuplets: []
+      [7] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: C4, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 13
+      [0] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: B5, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: D6, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G6, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: D4, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: G4, Voice: 5, Slurs: [], Tuplets: []
+
+Part P6:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Inspecting MXL: _�@���4��10�-debug.zip -> masked_input.mvt1_merged.mxl
+Part count: 5
+Score Part ID: P1, Name: Voice
+Score Part ID: P2, Name: Voice
+Score Part ID: P3, Name: Voice
+Score Part ID: P4, Name: Voice
+Score Part ID: P5, Name: Piano
+
+Part P1:
+Measure count: 56
+  Measure number 5:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 5
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 2
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 6
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 2
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 10:
+    Note count: 5
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 4
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 12:
+    Note count: 6
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 2
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 17:
+    Note count: 4
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+
+Part P2:
+Measure count: 56
+  Measure number 5:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 5
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+    Direction [1]: 
+  Measure number 7:
+    Note count: 2
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 6
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 5
+      [0] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 10:
+    Note count: 4
+      [0] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 4
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+    Direction [1]: 
+  Measure number 12:
+    Note count: 6
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 5
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 17:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+
+Part P3:
+Measure count: 56
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 6
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 2
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 6
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+    Direction [1]: 
+  Measure number 17:
+    Note count: 2
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+
+Part P4:
+Measure count: 56
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 6
+      [0] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: F(1)3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 3
+      [0] Pitch: G3, Voice: 1, Slurs: ['Slur(start, num=1)'], Tuplets: []
+      [1] Pitch: E3, Voice: 1, Slurs: ['Slur(stop, num=1)'], Tuplets: []
+      [2] Pitch: E3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 6
+      [0] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C(1)3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C(1)3, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: E3, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+    Direction [1]: 
+    Direction [2]: 
+  Measure number 17:
+    Note count: 2
+      [0] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+
+Part P5:
+Measure count: 56
+  Measure number 5:
+    Note count: 16
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 18
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: D(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: A3, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: D(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: F(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: F(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 18
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 18
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: C2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: C2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: C(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: C(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 17
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 18
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: G(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: G(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: G(1)3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 18
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: E6, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: A2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [16] Pitch: B2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: C3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+  Measure number 12:
+    Note count: 14
+      [0] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D6, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C(1)6, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [5] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [6] Pitch: D4, Voice: 5, Slurs: [], Tuplets: []
+      [7] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: E4, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 14
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C6, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [5] Pitch: D4, Voice: 5, Slurs: [], Tuplets: []
+      [6] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [7] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: D2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [11] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: F(1)2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+  Measure number 14:
+    Note count: 19
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [7] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: B2, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: D3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [10] Pitch: G3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [11] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: B2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [13] Pitch: A2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [14] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [16] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [17] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [18] Pitch: A2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+  Measure number 15:
+    Note count: 16
+      [0] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B3, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [3] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: B3, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [5] Pitch: E4, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [6] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: B4, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [8] Pitch: G2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [9] Pitch: B2, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: E3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [11] Pitch: G3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [12] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [14] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 16:
+    Note count: 18
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: C3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [7] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: E3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [9] Pitch: A3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [10] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: C3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [12] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: G3, Voice: 6, Slurs: [], Tuplets: ['Tuplet(start)']
+      [16] Pitch: E3, Voice: 6, Slurs: [], Tuplets: []
+      [17] Pitch: C(1)3, Voice: 6, Slurs: [], Tuplets: ['Tuplet(stop)']
+    Direction [0]: 
+  Measure number 17:
+    Note count: 17
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: F(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [3] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: A4, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [5] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: D6, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: C6, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: D2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [10] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: F(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: A2, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [13] Pitch: D3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(start)']
+      [14] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: A3, Voice: 5, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [16] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+
+Inspecting MXL: _�@���4��10�-debug.zip -> masked_input.mvt2_merged.mxl
+Part count: 6
+Score Part ID: P1, Name: Voice
+Score Part ID: P2, Name: Voice
+Score Part ID: P3, Name: Voice
+Score Part ID: P4, Name: Voice
+Score Part ID: P5, Name: Piano
+Score Part ID: P6, Name: Voice
+
+Part P1:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 5
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 6
+      [0] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Part P2:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 4
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 6
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Part P3:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 4
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 6
+      [0] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Part P4:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 3
+      [0] Pitch: A2, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C3, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 3
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 6
+      [0] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: D3, Voice: 1, Slurs: [], Tuplets: []
+    Direction [0]: 
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Part P5:
+Measure count: 15
+  Measure number 5:
+    Note count: 18
+      [0] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: G3, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 18
+      [0] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: C(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: C2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: C2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: C(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: C(1)2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 17
+      [0] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: E4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: C(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 13
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [6] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [7] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: B2, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: G(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 15
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: A5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B5, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: A4, Voice: 2, Slurs: [], Tuplets: []
+      [7] Pitch: E4, Voice: 2, Slurs: [], Tuplets: []
+      [8] Pitch: E5, Voice: 2, Slurs: [], Tuplets: []
+      [9] Pitch: A2, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: E3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: C4, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: Rest, Voice: 6, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 4
+      [0] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [2] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [3] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 16
+      [0] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: E5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: C4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: D2, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 19
+      [0] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: C5, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: B4, Voice: 1, Slurs: [], Tuplets: []
+      [12] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [13] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [16] Pitch: F2, Voice: 5, Slurs: [], Tuplets: []
+      [17] Pitch: F2, Voice: 5, Slurs: [], Tuplets: []
+      [18] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 16
+      [0] Pitch: E5, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [1] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: C5, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [3] Pitch: F(1)5, Voice: 1, Slurs: [], Tuplets: ['Tuplet(start)']
+      [4] Pitch: A4, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: C5, Voice: 1, Slurs: [], Tuplets: ['Tuplet(stop)']
+      [6] Pitch: A(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: C(1)5, Voice: 1, Slurs: [], Tuplets: []
+      [8] Pitch: G5, Voice: 1, Slurs: [], Tuplets: []
+      [9] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+      [10] Pitch: A5, Voice: 1, Slurs: [], Tuplets: []
+      [11] Pitch: E2, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: C3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: E(-1)2, Voice: 5, Slurs: [], Tuplets: []
+      [14] Pitch: E(-1)3, Voice: 5, Slurs: [], Tuplets: []
+      [15] Pitch: Rest, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 14
+      [0] Pitch: B5, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: G5, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: D5, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: F(1)4, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [5] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [6] Pitch: D4, Voice: 5, Slurs: [], Tuplets: []
+      [7] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: D3, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: C4, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: F(1)3, Voice: 5, Slurs: [], Tuplets: []
+      [13] Pitch: A3, Voice: 5, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 13
+      [0] Pitch: B3, Voice: 1, Slurs: [], Tuplets: []
+      [1] Pitch: D4, Voice: 1, Slurs: [], Tuplets: []
+      [2] Pitch: G4, Voice: 1, Slurs: [], Tuplets: []
+      [3] Pitch: G5, Voice: 1, Slurs: [], Tuplets: []
+      [4] Pitch: B5, Voice: 1, Slurs: [], Tuplets: []
+      [5] Pitch: D6, Voice: 1, Slurs: [], Tuplets: []
+      [6] Pitch: G6, Voice: 1, Slurs: [], Tuplets: []
+      [7] Pitch: G2, Voice: 5, Slurs: [], Tuplets: []
+      [8] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [9] Pitch: G3, Voice: 5, Slurs: [], Tuplets: []
+      [10] Pitch: B3, Voice: 5, Slurs: [], Tuplets: []
+      [11] Pitch: D4, Voice: 5, Slurs: [], Tuplets: []
+      [12] Pitch: G4, Voice: 5, Slurs: [], Tuplets: []
+
+Part P6:
+Measure count: 15
+  Measure number 5:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 6:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 7:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 8:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 9:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 10:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 11:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 12:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 13:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 14:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+  Measure number 15:
+    Note count: 1
+      [0] Pitch: Rest, Voice: 1, Slurs: [], Tuplets: []
+
+Found MXL files in root: []

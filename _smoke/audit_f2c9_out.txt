@@ -1,0 +1,556 @@
+﻿python : fix_audiveris_mxl: chord_duplicates_removed=0 chord_slurs_completed=0 chord_ties_completed=5 continuation_slur
+s_added=0 directions_removed=0 dotted_quarter_eighth_fixed=41 fermata_from_staccato_fixed=2 lost_eighth_restored=0 misp
+laced_sharp_relocated=4 misread_natural_to_sharp=0 natural_from_staccato_removed=0 overfull_eighth_fixed=5 overfull_res
+t_normalized=16 piano_stems_fixed=0 quarter_chord_triplet_expanded=5 quarter_pair_eighth_fixed=10 repeated_chord_slurs_
+added=6 rest_eighth_triplet_fixed=1 score_patches_applied=0 slur_placements_fixed=0 slurs_injected=0 spurious_natural_r
+emoved=4 system_break_ties_added=2 text_nodes_cleared=0 three_eighth_triplet_fixed=1 triplet_quarter_prefix_repaired=0 
+tuplet_brackets_adjusted=168 tuplet_dynamics_removed=3 tuplet_normal_fields_fixed=667 tuplet_notations_added=0 tuplet_s
+how_number_fixed=108 tuplet_staccato_removed=35 two_quarter_voice_eighth_fixed=0 voice_consolidated=4
+위치 C:\Users\jjhan\AppData\Local\Temp\ps-script-08817cad-1fae-4e4e-9463-e1e64b1d899a.ps1:79 문자:21
++ cd D:\pdf2musicxml; python _smoke/audit_f2c9.py 2>&1 | Out-File -Enco ...
++                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (fix_audiveris_m..._consolidated=4:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+======== RAW ========
+
+--- RAW m3 PR mxl2 exp=24 ---
+ g 0 v1 eighth   d= 2 stem=down E5               T3 b=['begin'] x=22
+ g 1 v1 eighth   d= 2 stem=down G4               b=['continue'] x=49
+ g 2 v1 eighth   d= 2 stem=down C5               T3 b=['end'] x=76
+ g 3 v1 eighth   d= 2 stem=down F#5              T3 b=['begin'] x=104
+ g 4 v1 eighth   d= 2 stem=down A4               b=['continue'] x=130
+ g 5 v1 eighth   d= 2 stem=down C5               T3 b=['end'] x=158
+ g 6 v1 quarter  d= 6 stem=down A#4+C#5+G5       b=[] x=211
+ g 7 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=251
+ g 8 v1 quarter  d= 6 stem=down A5               b=[] x=277
+
+--- RAW m19 S mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=up   F#4              b=[] x=26
+ g 1 v1 eighth   d= 3 stem=up   E4               b=[] x=164
+ g 2 v1 quarter  d= 6 stem=up   Eb4              b=[] x=225
+ g 3 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+ g 4 v1 quarter  d= 6 stem=down B4               b=[] x=296
+
+--- RAW m19 A mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=down C5               b=[] x=25
+ g 1 v1 quarter  d= 6 stem=down B4               b=[] x=164
+ g 2 v1 quarter  d= 6 stem=up   A4               b=[] x=225
+ g 3 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+
+--- RAW m19 T mxl18 exp=24 ---
+ g 0 v1 half     d=12 stem=down A3               b=[] x=25
+ g 1 v1 quarter  d= 6 stem=down A3               b=[] x=225
+ g 2 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+ g 3 v1 quarter  d= 6 stem=down B3               b=[] x=296
+
+--- RAW m19 B mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=down B5+C5            b=[] x=24
+ g 1 v1 quarter  d= 6 stem=down A5+B4            b=[] x=163
+ g 2 v2 quarter  d= 9 stem=down A4+A5            b=[] x=224
+ g 3 v2 eighth   d= 3 stem=?    R-eighth         b=[] x=295
+ g 4 v5 eighth   d= 2 stem=up   A2               T3 b=['begin'] x=26
+ g 5 v5 eighth   d= 2 stem=up   C3               b=['continue'] x=56
+ g 6 v5 eighth   d= 2 stem=up   E3               T3 b=['end'] x=86
+ g 7 v5 eighth   d= 2 stem=down A3               T3 b=['begin'] x=116
+ g 8 v5 eighth   d= 2 stem=down E3               b=['continue'] x=145
+ g 9 v5 eighth   d= 2 stem=down C3               T3 b=['end'] x=182
+ g10 v5 quarter  d= 9 stem=down A3+C4+Eb4+F#3    b=[] x=224
+ g11 v5 eighth   d= 3 stem=?    R-eighth         b=[] x=295
+
+--- RAW m25 S mxl24 exp=48 ---
+ g 0 v1 half     d=24 stem=up   G4               b=[] x=23
+ g 1 v1 quarter  d=12 stem=up   G#4              b=[] x=214
+ g 2 v1 eighth   d= 6 stem=up   F#4              b=['begin'] x=254
+ g 3 v1 eighth   d= 6 stem=up   G#4              b=['end'] x=297
+
+--- RAW m25 A mxl24 exp=48 ---
+ g 0 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=23
+ g 1 v1 quarter  d=12 stem=down E5               b=[] x=67
+ g 2 v1 eighth   d= 6 stem=down D5               b=['begin'] x=112
+ g 3 v1 eighth   d= 6 stem=down C5               b=['end'] x=155
+ g 4 v1 quarter  d=12 stem=down B4               b=[] x=213
+ g 5 v1 eighth   d= 6 stem=down C5               b=['begin'] x=254
+ g 6 v1 eighth   d= 6 stem=down D5               b=['end'] x=296
+
+--- RAW m25 T mxl24 exp=48 ---
+ g 0 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=23
+ g 1 v1 quarter  d=12 stem=down G3               b=[] x=67
+ g 2 v1 eighth   d= 6 stem=down G3               b=['begin'] x=112
+ g 3 v1 eighth   d= 6 stem=down G3               b=['end'] x=155
+ g 4 v1 quarter  d=12 stem=down E3               b=[] x=213
+ g 5 v1 eighth   d= 6 stem=down A3               b=['begin'] x=254
+ g 6 v1 eighth   d= 6 stem=down G#3              b=['end'] x=296
+
+--- RAW m25 B mxl24 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down D4+D5            b=[] x=23
+ g 1 v1 quarter  d=12 stem=down B4+B5            b=[] x=67
+ g 2 v2 eighth   d= 6 stem=down B4+B5            b=['begin'] x=112
+ g 3 v2 eighth   d= 6 stem=down A4+A5            b=['end'] x=155
+ g 4 v2 quarter  d=12 stem=down G#4+G#5          b=[] x=213
+ g 5 v2 eighth   d= 6 stem=down A4+A5            b=['begin'] x=253
+ g 6 v2 eighth   d= 6 stem=down B4+B5            b=['end'] x=296
+ g 7 v5 eighth   d= 6 stem=up   E2+E3            b=['begin'] x=24
+ g 8 v5 eighth   d= 6 stem=up   B3+E3+G3         b=['continue'] x=52
+ g 9 v5 eighth   d= 6 stem=up   B3+E3+G3         b=['end'] x=84
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=111
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=139
+ g12 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=172
+ g13 v5 quarter  d=12 stem=down B3+D4+E3+G#3     b=[] x=213
+ g14 v5 quarter  d=12 stem=?    R-quarter        b=[] x=253
+
+--- RAW m25 PR mxl24 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down D4+D5            b=[] x=23
+ g 1 v1 quarter  d=12 stem=down B4+B5            b=[] x=67
+ g 2 v2 eighth   d= 6 stem=down B4+B5            b=['begin'] x=112
+ g 3 v2 eighth   d= 6 stem=down A4+A5            b=['end'] x=155
+ g 4 v2 quarter  d=12 stem=down G#4+G#5          b=[] x=213
+ g 5 v2 eighth   d= 6 stem=down A4+A5            b=['begin'] x=253
+ g 6 v2 eighth   d= 6 stem=down B4+B5            b=['end'] x=296
+
+--- RAW m25 PL mxl24 exp=48 ---
+ g 0 v5 eighth   d= 6 stem=up   E2+E3            b=['begin'] x=24
+ g 1 v5 eighth   d= 6 stem=up   B3+E3+G3         b=['continue'] x=52
+ g 2 v5 eighth   d= 6 stem=up   B3+E3+G3         b=['end'] x=84
+ g 3 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=111
+ g 4 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=139
+ g 5 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=172
+ g 6 v5 quarter  d=12 stem=down B3+D4+E3+G#3     b=[] x=213
+ g 7 v5 quarter  d=12 stem=?    R-quarter        b=[] x=253
+
+--- RAW m42 S mxl41 exp=48 ---
+ g 0 v1 half     d=24 stem=up   E4               b=[] x=23
+ g 1 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=215
+ g 2 v1 eighth   d= 6 stem=up   G4               b=[] x=261
+ g 3 v1 eighth   d= 6 stem=up   F#4              b=['begin'] x=305
+ g 4 v1 eighth   d= 6 stem=up   E4               b=['end'] x=349
+
+--- RAW m42 A mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4               b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4               b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4               b=[] x=215
+
+--- RAW m42 T mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down G3               b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down F#3              b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down E3               b=[] x=216
+
+--- RAW m42 B mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4+B5            b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4+B5            b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4+B5            b=[] x=215
+ g 4 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 5 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=53
+ g 6 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=81
+ g 7 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=108
+ g 8 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=135
+ g 9 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=164
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=215
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=243
+ g12 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=276
+ g13 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=304
+ g14 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=331
+ g15 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=364
+
+--- RAW m42 PR mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4+B5            b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4+B5            b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4+B5            b=[] x=215
+
+--- RAW m42 PL mxl41 exp=48 ---
+ g 0 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 1 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=53
+ g 2 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=81
+ g 3 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=108
+ g 4 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=135
+ g 5 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=164
+ g 6 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=215
+ g 7 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=243
+ g 8 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=276
+ g 9 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=304
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=331
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=364
+
+--- RAW m45 PR mxl44 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down A4+A5            b=[] x=36
+ g 1 v1 quarter  d=12 stem=down F#4+F#5          b=[] x=92
+ g 2 v1 eighth   d= 6 stem=down G4+G5            b=['begin'] x=135
+ g 3 v1 eighth   d= 6 stem=down A4+A5            b=['end'] x=177
+ g 4 v1 quarter  d=12 stem=down B4+B5            b=[] x=220
+
+--- RAW m45 PL mxl44 exp=48 ---
+ g 0 v5 quarter  d=12 stem=up   B1+B2            b=[] x=37
+ g 1 v5 quarter  d=12 stem=up   B3+D3+G3         b=[] x=108
+ g 2 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['begin'] x=135
+ g 3 v5 eighth   d= 4 stem=down B3+D3+G3         b=['continue'] x=162
+ g 4 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['end'] x=193
+ g 5 v5 eighth   d= 4 stem=down B2+B3+D3+G3      T3 b=['begin'] x=220
+ g 6 v5 eighth   d= 4 stem=down B3+D3+G3         b=['continue'] x=247
+ g 7 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['end'] x=275
+
+======== FIX ========
+
+--- FIX m3 PR mxl2 exp=24 ---
+ g 0 v1 eighth   d= 2 stem=down E5               T3 b=['begin'] x=22
+ g 1 v1 eighth   d= 2 stem=down G4               b=['continue'] x=49
+ g 2 v1 eighth   d= 2 stem=down C5               T3 b=['end'] x=76
+ g 3 v1 eighth   d= 2 stem=down F#5              T3 b=['begin'] x=104
+ g 4 v1 eighth   d= 2 stem=down A4               b=['continue'] x=130
+ g 5 v1 eighth   d= 2 stem=down C5               T3 b=['end'] x=158
+ g 6 v1 eighth   d= 3 stem=down A#4+C#5+G5       b=[] x=211
+ g 7 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=251
+ g 8 v1 quarter  d= 6 stem=down A5               b=[] x=277
+
+--- FIX m19 S mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=up   F#4              b=[] x=26
+ g 1 v1 eighth   d= 3 stem=up   E4               b=[] x=164
+ g 2 v1 quarter  d= 6 stem=up   Eb4              b=[] x=225
+ g 3 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+ g 4 v1 quarter  d= 6 stem=down B4               b=[] x=296
+
+--- FIX m19 A mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=down C5               b=[] x=25
+ g 1 v1 quarter  d= 6 stem=down B4               b=[] x=164
+ g 2 v1 quarter  d= 6 stem=up   A4               b=[] x=225
+ g 3 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+
+--- FIX m19 T mxl18 exp=24 ---
+ g 0 v1 half     d=12 stem=down A3               b=[] x=25
+ g 1 v1 quarter  d= 6 stem=down A3               b=[] x=225
+ g 2 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+ g 3 v1 quarter  d= 6 stem=down B3               b=[] x=296
+
+--- FIX m19 B mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=down B5+C5            b=[] x=24
+ g 1 v1 quarter  d= 6 stem=down A5+B4            b=[] x=163
+ g 2 v2 quarter  d= 9 stem=down A4+A5            b=[] x=224
+ g 3 v2 eighth   d= 3 stem=?    R-eighth         b=[] x=295
+ g 4 v5 eighth   d= 2 stem=up   A2               T3 b=['begin'] x=26
+ g 5 v5 eighth   d= 2 stem=up   C3               b=['continue'] x=56
+ g 6 v5 eighth   d= 2 stem=up   E3               T3 b=['end'] x=86
+ g 7 v5 eighth   d= 2 stem=down A3               T3 b=['begin'] x=116
+ g 8 v5 eighth   d= 2 stem=down E3               b=['continue'] x=145
+ g 9 v5 eighth   d= 2 stem=down C3               T3 b=['end'] x=182
+ g10 v5 quarter  d= 9 stem=down A3+C4+Eb4+F#3    b=[] x=224
+ g11 v5 eighth   d= 3 stem=?    R-eighth         b=[] x=295
+
+--- FIX m25 S mxl24 exp=48 ---
+ g 0 v1 half     d=24 stem=up   G4               b=[] x=23
+ g 1 v1 quarter  d=12 stem=up   G#4              b=[] x=214
+ g 2 v1 eighth   d= 6 stem=up   F#4              b=['begin'] x=254
+ g 3 v1 eighth   d= 6 stem=up   G#4              b=['end'] x=297
+
+--- FIX m25 A mxl24 exp=48 ---
+ g 0 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=23
+ g 1 v1 eighth   d= 6 stem=down E5               b=[] x=67
+ g 2 v1 eighth   d= 6 stem=down D5               b=['begin'] x=112
+ g 3 v1 eighth   d= 6 stem=down C5               b=['end'] x=155
+ g 4 v1 quarter  d=12 stem=down B4               b=[] x=213
+ g 5 v1 eighth   d= 6 stem=down C5               b=['begin'] x=254
+ g 6 v1 eighth   d= 6 stem=down D5               b=['end'] x=296
+
+--- FIX m25 T mxl24 exp=48 ---
+ g 0 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=23
+ g 1 v1 eighth   d= 6 stem=down G3               b=[] x=67
+ g 2 v1 eighth   d= 6 stem=down G3               b=['begin'] x=112
+ g 3 v1 eighth   d= 6 stem=down G3               b=['end'] x=155
+ g 4 v1 quarter  d=12 stem=down E3               b=[] x=213
+ g 5 v1 eighth   d= 6 stem=down A3               b=['begin'] x=254
+ g 6 v1 eighth   d= 6 stem=down G#3              b=['end'] x=296
+
+--- FIX m25 B mxl24 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down D4+D5            b=[] x=23
+ g 1 v1 quarter  d=12 stem=down B4+B5            b=[] x=67
+ g 2 v2 eighth   d= 6 stem=down B4+B5            b=['begin'] x=112
+ g 3 v2 eighth   d= 6 stem=down A4+A5            b=['end'] x=155
+ g 4 v2 quarter  d=12 stem=down G#4+G#5          b=[] x=213
+ g 5 v2 eighth   d= 6 stem=down A4+A5            b=['begin'] x=253
+ g 6 v2 eighth   d= 6 stem=down B4+B5            b=['end'] x=296
+ g 7 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 8 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=52
+ g 9 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=84
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=111
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=139
+ g12 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=172
+ g13 v5 quarter  d=12 stem=down B3+D4+E3+G#3     b=[] x=213
+ g14 v5 quarter  d=12 stem=?    R-quarter        b=[] x=253
+
+--- FIX m25 PR mxl24 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down D4+D5            b=[] x=23
+ g 1 v1 quarter  d=12 stem=down B4+B5            b=[] x=67
+ g 2 v2 eighth   d= 6 stem=down B4+B5            b=['begin'] x=112
+ g 3 v2 eighth   d= 6 stem=down A4+A5            b=['end'] x=155
+ g 4 v2 quarter  d=12 stem=down G#4+G#5          b=[] x=213
+ g 5 v2 eighth   d= 6 stem=down A4+A5            b=['begin'] x=253
+ g 6 v2 eighth   d= 6 stem=down B4+B5            b=['end'] x=296
+
+--- FIX m25 PL mxl24 exp=48 ---
+ g 0 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 1 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=52
+ g 2 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=84
+ g 3 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=111
+ g 4 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=139
+ g 5 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=172
+ g 6 v5 quarter  d=12 stem=down B3+D4+E3+G#3     b=[] x=213
+ g 7 v5 quarter  d=12 stem=?    R-quarter        b=[] x=253
+
+--- FIX m42 S mxl41 exp=48 ---
+ g 0 v1 half     d=24 stem=up   E4               b=[] x=23
+ g 1 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=215
+ g 2 v1 eighth   d= 6 stem=up   G4               b=[] x=261
+ g 3 v1 eighth   d= 6 stem=up   F#4              b=['begin'] x=305
+ g 4 v1 eighth   d= 6 stem=up   E4               b=['end'] x=349
+
+--- FIX m42 A mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4               b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4               b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4               b=[] x=215
+
+--- FIX m42 T mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down G3               b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down F#3              b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down E3               b=[] x=216
+
+--- FIX m42 B mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4+B5            b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4+B5            b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4+B5            b=[] x=215
+ g 4 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 5 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=53
+ g 6 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=81
+ g 7 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=108
+ g 8 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=135
+ g 9 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=164
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=215
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=243
+ g12 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=276
+ g13 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=304
+ g14 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=331
+ g15 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=364
+
+--- FIX m42 PR mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4+B5            b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4+B5            b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4+B5            b=[] x=215
+
+--- FIX m42 PL mxl41 exp=48 ---
+ g 0 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 1 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=53
+ g 2 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=81
+ g 3 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=108
+ g 4 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=135
+ g 5 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=164
+ g 6 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=215
+ g 7 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=243
+ g 8 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=276
+ g 9 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=304
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=331
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=364
+
+--- FIX m45 PR mxl44 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down A4+A5            b=[] x=36
+ g 1 v1 quarter  d=12 stem=down F#4+F#5          b=[] x=92
+ g 2 v1 eighth   d= 6 stem=down G4+G5            b=['begin'] x=135
+ g 3 v1 eighth   d= 6 stem=down A4+A5            b=['end'] x=177
+ g 4 v1 quarter  d=12 stem=down B4+B5            b=[] x=220
+
+--- FIX m45 PL mxl44 exp=48 ---
+ g 0 v5 eighth   d= 4 stem=down B1+B2            T3 b=['begin'] x=37
+ g 1 v5 eighth   d= 4 stem=down B3+D3+G3         b=['continue'] x=108
+ g 2 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['end'] x=108
+ g 3 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['begin'] x=135
+ g 4 v5 eighth   d= 4 stem=down B3+D3+G3         b=['continue'] x=162
+ g 5 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['end'] x=193
+ g 6 v5 eighth   d= 4 stem=down B2+B3+D3+G3      T3 b=['begin'] x=220
+ g 7 v5 eighth   d= 4 stem=down B3+D3+G3         b=['continue'] x=247
+ g 8 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['end'] x=275
+
+======== REV ========
+
+--- REV m3 PR mxl2 exp=24 ---
+ g 0 v1 eighth   d= 2 stem=down E5               T3 b=['begin'] x=22
+ g 1 v1 eighth   d= 2 stem=down G4               b=['continue'] x=49
+ g 2 v1 eighth   d= 2 stem=down C5               T3 b=['end'] x=76
+ g 3 v1 eighth   d= 2 stem=down F#5              T3 b=['begin'] x=104
+ g 4 v1 eighth   d= 2 stem=down A4               b=['continue'] x=130
+ g 5 v1 eighth   d= 2 stem=down C5               T3 b=['end'] x=158
+ g 6 v1 eighth   d= 3 stem=down A#4+C#5+G5       b=[] x=211
+ g 7 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=251
+ g 8 v1 quarter  d= 6 stem=down A5               b=[] x=277
+
+--- REV m19 S mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=up   F#4              b=[] x=26
+ g 1 v1 eighth   d= 3 stem=up   E4               b=[] x=164
+ g 2 v1 quarter  d= 6 stem=up   Eb4              b=[] x=225
+ g 3 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+ g 4 v1 quarter  d= 6 stem=down B4               b=[] x=296
+
+--- REV m19 A mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=down C5               b=[] x=25
+ g 1 v1 quarter  d= 6 stem=down B4               b=[] x=164
+ g 2 v1 quarter  d= 6 stem=up   A4               b=[] x=225
+ g 3 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+
+--- REV m19 T mxl18 exp=24 ---
+ g 0 v1 half     d=12 stem=down A3               b=[] x=25
+ g 1 v1 quarter  d= 6 stem=down A3               b=[] x=225
+ g 2 v1 eighth   d= 3 stem=?    R-eighth         b=[] x=266
+ g 3 v1 quarter  d= 6 stem=down B3               b=[] x=296
+
+--- REV m19 B mxl18 exp=24 ---
+ g 0 v1 quarter  d= 9 stem=down B5+C5            b=[] x=24
+ g 1 v1 quarter  d= 6 stem=down A5+B4            b=[] x=163
+ g 2 v2 quarter  d= 9 stem=down A4+A5            b=[] x=224
+ g 3 v2 eighth   d= 3 stem=?    R-eighth         b=[] x=295
+ g 4 v5 eighth   d= 2 stem=up   A2               T3 b=['begin'] x=26
+ g 5 v5 eighth   d= 2 stem=up   C3               b=['continue'] x=56
+ g 6 v5 eighth   d= 2 stem=up   E3               T3 b=['end'] x=86
+ g 7 v5 eighth   d= 2 stem=down A3               T3 b=['begin'] x=116
+ g 8 v5 eighth   d= 2 stem=down E3               b=['continue'] x=145
+ g 9 v5 eighth   d= 2 stem=down C3               T3 b=['end'] x=182
+ g10 v5 quarter  d= 9 stem=down A3+C4+Eb4+F#3    b=[] x=224
+ g11 v5 eighth   d= 3 stem=?    R-eighth         b=[] x=295
+
+--- REV m25 S mxl24 exp=48 ---
+ g 0 v1 half     d=24 stem=up   G4               b=[] x=23
+ g 1 v1 quarter  d=12 stem=up   G#4              b=[] x=214
+ g 2 v1 eighth   d= 6 stem=up   F#4              b=['begin'] x=254
+ g 3 v1 eighth   d= 6 stem=up   G#4              b=['end'] x=297
+
+--- REV m25 A mxl24 exp=48 ---
+ g 0 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=23
+ g 1 v1 eighth   d= 6 stem=down E5               b=[] x=67
+ g 2 v1 eighth   d= 6 stem=down D5               b=['begin'] x=112
+ g 3 v1 eighth   d= 6 stem=down C5               b=['end'] x=155
+ g 4 v1 quarter  d=12 stem=down B4               b=[] x=213
+ g 5 v1 eighth   d= 6 stem=down C5               b=['begin'] x=254
+ g 6 v1 eighth   d= 6 stem=down D5               b=['end'] x=296
+
+--- REV m25 T mxl24 exp=48 ---
+ g 0 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=23
+ g 1 v1 eighth   d= 6 stem=down G3               b=[] x=67
+ g 2 v1 eighth   d= 6 stem=down G3               b=['begin'] x=112
+ g 3 v1 eighth   d= 6 stem=down G3               b=['end'] x=155
+ g 4 v1 quarter  d=12 stem=down E3               b=[] x=213
+ g 5 v1 eighth   d= 6 stem=down A3               b=['begin'] x=254
+ g 6 v1 eighth   d= 6 stem=down G#3              b=['end'] x=296
+
+--- REV m25 B mxl24 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down D4+D5            b=[] x=23
+ g 1 v1 quarter  d=12 stem=down B4+B5            b=[] x=67
+ g 2 v2 eighth   d= 6 stem=down B4+B5            b=['begin'] x=112
+ g 3 v2 eighth   d= 6 stem=down A4+A5            b=['end'] x=155
+ g 4 v2 quarter  d=12 stem=down G#4+G#5          b=[] x=213
+ g 5 v2 eighth   d= 6 stem=down A4+A5            b=['begin'] x=253
+ g 6 v2 eighth   d= 6 stem=down B4+B5            b=['end'] x=296
+ g 7 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 8 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=52
+ g 9 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=84
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=111
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=139
+ g12 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=172
+ g13 v5 quarter  d=12 stem=down B3+D4+E3+G#3     b=[] x=213
+ g14 v5 quarter  d=12 stem=?    R-quarter        b=[] x=253
+
+--- REV m25 PR mxl24 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down D4+D5            b=[] x=23
+ g 1 v1 quarter  d=12 stem=down B4+B5            b=[] x=67
+ g 2 v2 eighth   d= 6 stem=down B4+B5            b=['begin'] x=112
+ g 3 v2 eighth   d= 6 stem=down A4+A5            b=['end'] x=155
+ g 4 v2 quarter  d=12 stem=down G#4+G#5          b=[] x=213
+ g 5 v2 eighth   d= 6 stem=down A4+A5            b=['begin'] x=253
+ g 6 v2 eighth   d= 6 stem=down B4+B5            b=['end'] x=296
+
+--- REV m25 PL mxl24 exp=48 ---
+ g 0 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 1 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=52
+ g 2 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=84
+ g 3 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=111
+ g 4 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=139
+ g 5 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=172
+ g 6 v5 quarter  d=12 stem=down B3+D4+E3+G#3     b=[] x=213
+ g 7 v5 quarter  d=12 stem=?    R-quarter        b=[] x=253
+
+--- REV m42 S mxl41 exp=48 ---
+ g 0 v1 half     d=24 stem=up   E4               b=[] x=23
+ g 1 v1 eighth   d= 6 stem=?    R-eighth         b=[] x=215
+ g 2 v1 eighth   d= 6 stem=up   G4               b=[] x=261
+ g 3 v1 eighth   d= 6 stem=up   F#4              b=['begin'] x=305
+ g 4 v1 eighth   d= 6 stem=up   E4               b=['end'] x=349
+
+--- REV m42 A mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4               b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4               b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4               b=[] x=215
+
+--- REV m42 T mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down G3               b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down F#3              b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down E3               b=[] x=216
+
+--- REV m42 B mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4+B5            b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4+B5            b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4+B5            b=[] x=215
+ g 4 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 5 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=53
+ g 6 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=81
+ g 7 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=108
+ g 8 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=135
+ g 9 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=164
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=215
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=243
+ g12 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=276
+ g13 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=304
+ g14 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=331
+ g15 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=364
+
+--- REV m42 PR mxl41 exp=48 ---
+ g 0 v1 quarter  d=12 stem=?    R-quarter        b=[] x=23
+ g 1 v1 eighth   d= 9 stem=down B4+B5            b=['begin'] x=108
+ g 2 v1 16th     d= 3 stem=down B4+B5            b=['end', 'backward hook'] x=179
+ g 3 v1 half     d=24 stem=down B4+B5            b=[] x=215
+
+--- REV m42 PL mxl41 exp=48 ---
+ g 0 v5 eighth   d= 4 stem=up   E2+E3            T3 b=['begin'] x=24
+ g 1 v5 eighth   d= 4 stem=up   B3+E3+G3         b=['continue'] x=53
+ g 2 v5 eighth   d= 4 stem=up   B3+E3+G3         T3 b=['end'] x=81
+ g 3 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=108
+ g 4 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=135
+ g 5 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=164
+ g 6 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=215
+ g 7 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=243
+ g 8 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=276
+ g 9 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['begin'] x=304
+ g10 v5 eighth   d= 4 stem=down B3+E3+G3         b=['continue'] x=331
+ g11 v5 eighth   d= 4 stem=down B3+E3+G3         T3 b=['end'] x=364
+
+--- REV m45 PR mxl44 exp=48 ---
+ g 0 v1 quarter  d=12 stem=down A4+A5            b=[] x=36
+ g 1 v1 quarter  d=12 stem=down F#4+F#5          b=[] x=92
+ g 2 v1 eighth   d= 6 stem=down G4+G5            b=['begin'] x=135
+ g 3 v1 eighth   d= 6 stem=down A4+A5            b=['end'] x=177
+ g 4 v1 quarter  d=12 stem=down B4+B5            b=[] x=220
+
+--- REV m45 PL mxl44 exp=48 ---
+ g 0 v5 eighth   d= 4 stem=down B1+B2            T3 b=['begin'] x=37
+ g 1 v5 eighth   d= 4 stem=down B3+D3+G3         b=['continue'] x=108
+ g 2 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['end'] x=108
+ g 3 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['begin'] x=135
+ g 4 v5 eighth   d= 4 stem=down B3+D3+G3         b=['continue'] x=162
+ g 5 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['end'] x=193
+ g 6 v5 eighth   d= 4 stem=down B2+B3+D3+G3      T3 b=['begin'] x=220
+ g 7 v5 eighth   d= 4 stem=down B3+D3+G3         b=['continue'] x=247
+ g 8 v5 eighth   d= 4 stem=down B3+D3+G3         T3 b=['end'] x=275

@@ -659,6 +659,11 @@ async function syncOmrReviewMxl(
     await saveHitlBaseline(sessionRoot, scorePath);
   }
 
+  const chordBeamCleaned = await cleanupChordBeamsInScoreFile(scorePath, pythonBin);
+  if (chordBeamCleaned > 0) {
+    await saveHitlBaseline(sessionRoot, scorePath);
+  }
+
   const checkpoint = {
     version: 2,
     rebuiltAt: new Date().toISOString(),
@@ -1021,6 +1026,27 @@ async function applyOmrHitlFixesToScoreFile(
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`apply_omr_hitl_fixes failed (${scorePath}): ${msg}`);
     return null;
+  }
+}
+
+async function cleanupChordBeamsInScoreFile(
+  scorePath: string,
+  pythonBin: string,
+): Promise<number> {
+  const script = path.join(__dirname, '..', 'scripts', 'cleanup_chord_beams_mxl.py');
+  if (!fsSync.existsSync(script) || !fsSync.existsSync(scorePath)) return 0;
+  try {
+    const { stdout } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const line = String(stdout).trim();
+    if (!line) return 0;
+    const parsed = JSON.parse(line) as { chordBeamMeasuresCleaned?: number };
+    return parsed.chordBeamMeasuresCleaned ?? 0;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`cleanup_chord_beams_mxl failed (${scorePath}): ${msg}`);
+    return 0;
   }
 }
 

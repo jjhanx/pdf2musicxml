@@ -1,0 +1,405 @@
+
+==================== INSPECTING RAW AUDIVERIS: omr-work-ec9f6685/audiveris_raw.xml ====================
+Piano Part Key Fifths: 1
+
+--- Measure 7 ---
+Total notes: 18
+[ 0]       Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 1] Chord Pitch:C5       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 2]       Pitch:E4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 3]       Pitch:C4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 4]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 5] Chord Pitch:B4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 6]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 7] Chord Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 8]       Pitch:E4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 9]       Pitch:C(1)4    Voice:1  Staff:1  Dur:3   Type:eighth   Acc:sharp Beams:['begin']
+[10]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[11] Chord Pitch:B4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[12]       Pitch:C2       Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(start)']
+[13]       Pitch:C2       Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[14] Chord Pitch:C3       Voice:5  Staff:2  Dur:6   Type:quarter 
+[15]       Pitch:C(1)2    Voice:5  Staff:2  Dur:6   Type:quarter  Acc:sharp Ties:['Tied(start)']
+[16]       Pitch:C(1)2    Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[17] Chord Pitch:C(1)3    Voice:5  Staff:2  Dur:6   Type:quarter  Acc:sharp
+
+--- Measure 31 ---
+Total notes: 18
+[ 0]       Pitch:A4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 1] Chord Pitch:C5       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 2]       Pitch:E4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[ 3]       Pitch:C4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 4]       Pitch:G4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[ 5] Chord Pitch:B4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[ 6]       Pitch:G4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 7] Chord Pitch:A4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 8]       Pitch:E4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[ 9]       Pitch:C(1)4    Voice:1  Staff:1  Dur:6   Type:eighth   Acc:sharp Beams:['begin']
+[10]       Pitch:G4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[11] Chord Pitch:B4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[12]       Pitch:C2       Voice:5  Staff:2  Dur:12  Type:quarter  Ties:['Tied(start)']
+[13]       Pitch:C2       Voice:5  Staff:2  Dur:12  Type:quarter  Ties:['Tied(stop)']
+[14] Chord Pitch:C3       Voice:5  Staff:2  Dur:12  Type:quarter 
+[15]       Pitch:C(1)2    Voice:5  Staff:2  Dur:12  Type:quarter  Acc:sharp Ties:['Tied(start)']
+[16]       Pitch:C(1)2    Voice:5  Staff:2  Dur:12  Type:quarter  Ties:['Tied(stop)']
+[17] Chord Pitch:C(1)3    Voice:5  Staff:2  Dur:12  Type:quarter  Acc:sharp
+
+--- Measure 45 ---
+Total notes: 45
+[ 0]       Pitch:E4       Voice:1  Staff:1  Dur:9   Type:quarter 
+[ 1] Chord Pitch:E5       Voice:1  Staff:1  Dur:9   Type:quarter 
+[ 2]       Pitch:D(1)4    Voice:1  Staff:1  Dur:3   Type:eighth   Acc:sharp
+[ 3] Chord Pitch:D(1)5    Voice:1  Staff:1  Dur:3   Type:eighth   Acc:sharp
+[ 4]       Pitch:E4       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 5] Chord Pitch:E5       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 6]       Pitch:E4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 7] Chord Pitch:E5       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 8]       Pitch:E4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 9] Chord Pitch:E5       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[10]       Pitch:E2       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[11] Chord Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[12]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[13] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[14] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[15]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[16] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[17] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[18]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[19] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[20] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[21]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[22] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[23] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[24]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[25] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[26] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[27]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[28] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[29] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[30]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[31] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[32] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[33]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[34] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[35] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[36]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[37] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[38] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[39]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[40] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[41] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[42]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[43] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[44] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+
+--- Measure 47 ---
+Total notes: 42
+[ 0]       Pitch:A4       Voice:1  Staff:1  Dur:9   Type:quarter 
+[ 1] Chord Pitch:A5       Voice:1  Staff:1  Dur:9   Type:quarter 
+[ 2]       Pitch:A4       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 3] Chord Pitch:A5       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 4]       Pitch:D(1)3    Voice:1  Staff:2  Dur:6   Type:quarter  Acc:sharp
+[ 5] Chord Pitch:F(1)3    Voice:1  Staff:2  Dur:6   Type:quarter 
+[ 6] Chord Pitch:A3       Voice:1  Staff:2  Dur:6   Type:quarter 
+[ 7] Chord Pitch:C4       Voice:1  Staff:2  Dur:6   Type:quarter 
+[ 8]       Pitch:A4       Voice:2  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 9] Chord Pitch:A5       Voice:2  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[10]       Pitch:F(1)4    Voice:2  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[11] Chord Pitch:F(1)5    Voice:2  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[12]       Pitch:G4       Voice:2  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[13] Chord Pitch:G5       Voice:2  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[14]       Pitch:A4       Voice:2  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[15] Chord Pitch:A5       Voice:2  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[16]       Pitch:A2       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[17]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[18] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[19] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[20]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[21] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[22] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[23]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[24] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[25] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[26]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[27] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[28] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[29]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[30] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[31] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[32]       Pitch:F(1)1    Voice:5  Staff:2  Dur:6   Type:quarter 
+[33] Chord Pitch:F(1)2    Voice:5  Staff:2  Dur:6   Type:quarter 
+[34]       Pitch:D(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[35] Chord Pitch:F(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[36] Chord Pitch:A3       Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[37] Chord Pitch:C4       Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[38]       Pitch:D(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['end']
+[39] Chord Pitch:F(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['end']
+[40] Chord Pitch:A3       Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['end']
+[41] Chord Pitch:C4       Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['end']
+
+--- Measure 48 ---
+Total notes: 41
+[ 0]       Pitch:D5       Voice:1  Staff:1  Dur:12  Type:half    
+[ 1] Chord Pitch:D5       Voice:1  Staff:1  Dur:12  Type:half    
+[ 2] Chord Pitch:G5       Voice:1  Staff:1  Dur:12  Type:half     Acc:natural
+[ 3] Chord Pitch:B5       Voice:1  Staff:1  Dur:12  Type:half     Ties:['Tied(start)']
+[ 4]       Pitch:D5       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 5] Chord Pitch:F(1)5    Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 6] Chord Pitch:B5       Voice:1  Staff:1  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[ 7]       Pitch:F(1)4    Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 8] Chord Pitch:F(1)5    Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 9]       Pitch:B1       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[10] Chord Pitch:B2       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[11]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['continue'] TM:3/2
+[12] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[13] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[14]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[15] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[16] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[17]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[18] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[19] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[20]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[21] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[22] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[23]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[24] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[25] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[26]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[27] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[28] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[29]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[30] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[31] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[32]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[33] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[34] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[35]       Pitch:B1       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[36] Chord Pitch:B2       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[37]       Pitch:C(1)2    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['continue'] TM:3/2
+[38] Chord Pitch:C(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['continue'] TM:3/2
+[39]       Pitch:D(1)2    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[40] Chord Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['end'] TM:3/2
+
+--- Measure 51 ---
+Total notes: 18
+[ 0]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 1] Chord Pitch:B4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 2]       Pitch:D4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 3]       Pitch:B3       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 4]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 5] Chord Pitch:B4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 6]       Pitch:D(1)4    Voice:1  Staff:1  Dur:3   Type:eighth   Acc:sharp Beams:['begin']
+[ 7] Chord Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 8]       Pitch:B3       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 9]       Pitch:A3       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[10]       Pitch:D(1)4    Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[11] Chord Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[12]       Pitch:G2       Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(start)']
+[13]       Pitch:G2       Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[14] Chord Pitch:G3       Voice:5  Staff:2  Dur:6   Type:quarter 
+[15]       Pitch:F(1)2    Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(start)']
+[16]       Pitch:F(1)2    Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[17] Chord Pitch:F(1)3    Voice:5  Staff:2  Dur:6   Type:quarter 
+
+==================== INSPECTING REVIEW XML (CURRENT): omr-work-ec9f6685/review.xml ====================
+Piano Part Key Fifths: 1
+
+--- Measure 7 ---
+Total notes: 18
+[ 0]       Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 1] Chord Pitch:C5       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 2]       Pitch:E4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 3]       Pitch:C4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 4]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 5] Chord Pitch:B4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end'] Slurs:['Slur(start,1)']
+[ 6]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 7] Chord Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin'] Slurs:['Slur(stop,1)']
+[ 8]       Pitch:E4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 9]       Pitch:C(1)4    Voice:1  Staff:1  Dur:3   Type:eighth   Acc:sharp Beams:['begin']
+[10]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[11] Chord Pitch:B4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[12]       Pitch:C2       Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(start)']
+[13]       Pitch:C2       Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[14] Chord Pitch:C3       Voice:5  Staff:2  Dur:6   Type:quarter 
+[15]       Pitch:C(1)2    Voice:5  Staff:2  Dur:6   Type:quarter  Acc:sharp Ties:['Tied(start)']
+[16]       Pitch:C(1)2    Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[17] Chord Pitch:C(1)3    Voice:5  Staff:2  Dur:6   Type:quarter  Acc:sharp
+
+--- Measure 31 ---
+Total notes: 18
+[ 0]       Pitch:A4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 1] Chord Pitch:C5       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 2]       Pitch:E4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[ 3]       Pitch:C4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 4]       Pitch:G4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[ 5] Chord Pitch:B4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end'] Slurs:['Slur(start,1)']
+[ 6]       Pitch:G4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin']
+[ 7] Chord Pitch:A4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['begin'] Slurs:['Slur(stop,1)']
+[ 8]       Pitch:E4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[ 9]       Pitch:C(1)4    Voice:1  Staff:1  Dur:6   Type:eighth   Acc:sharp Beams:['begin']
+[10]       Pitch:G4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[11] Chord Pitch:B4       Voice:1  Staff:1  Dur:6   Type:eighth   Beams:['end']
+[12]       Pitch:C2       Voice:5  Staff:2  Dur:12  Type:quarter  Ties:['Tied(start)']
+[13]       Pitch:C2       Voice:5  Staff:2  Dur:12  Type:quarter  Ties:['Tied(stop)']
+[14] Chord Pitch:C3       Voice:5  Staff:2  Dur:12  Type:quarter 
+[15]       Pitch:C(1)2    Voice:5  Staff:2  Dur:12  Type:quarter  Acc:sharp Ties:['Tied(start)']
+[16]       Pitch:C(1)2    Voice:5  Staff:2  Dur:12  Type:quarter  Ties:['Tied(stop)']
+[17] Chord Pitch:C(1)3    Voice:5  Staff:2  Dur:12  Type:quarter  Acc:sharp
+
+--- Measure 45 ---
+Total notes: 45
+[ 0]       Pitch:E4       Voice:1  Staff:1  Dur:9   Type:quarter 
+[ 1] Chord Pitch:E5       Voice:1  Staff:1  Dur:9   Type:quarter 
+[ 2]       Pitch:D(1)4    Voice:1  Staff:1  Dur:3   Type:eighth   Acc:sharp
+[ 3] Chord Pitch:D(1)5    Voice:1  Staff:1  Dur:3   Type:eighth   Acc:sharp
+[ 4]       Pitch:E4       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 5] Chord Pitch:E5       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 6]       Pitch:E4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin'] Slurs:['Slur(start,30)']
+[ 7] Chord Pitch:E5       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin'] Slurs:['Slur(start,31)']
+[ 8]       Pitch:E4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end'] Slurs:['Slur(stop,30)']
+[ 9] Chord Pitch:E5       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end'] Slurs:['Slur(stop,31)']
+[10]       Pitch:E2       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[11] Chord Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[12]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[13] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[14] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[15]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[16] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[17] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[18]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[19] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[20] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[21]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[22] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[23] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[24]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[25] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[26] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[27]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[28] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[29] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[30]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[31] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[32] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[33]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[34] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[35] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[36]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[37] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[38] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[39]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[40] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[41] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[42]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[43] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[44] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+
+--- Measure 47 ---
+Total notes: 42
+[ 0]       Pitch:A4       Voice:1  Staff:1  Dur:9   Type:quarter 
+[ 1] Chord Pitch:A5       Voice:1  Staff:1  Dur:9   Type:quarter 
+[ 2]       Pitch:A4       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 3] Chord Pitch:A5       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 4]       Pitch:A4       Voice:1  Staff:1  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,None)'] TM:3/2
+[ 5] Chord Pitch:A5       Voice:1  Staff:1  Dur:2   Type:eighth   TM:3/2
+[ 6]       Pitch:F(1)4    Voice:1  Staff:1  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[ 7] Chord Pitch:F(1)5    Voice:1  Staff:1  Dur:2   Type:eighth   TM:3/2
+[ 8]       Pitch:G4       Voice:1  Staff:1  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,None)'] TM:3/2
+[ 9] Chord Pitch:G5       Voice:1  Staff:1  Dur:2   Type:eighth   TM:3/2
+[10]       Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[11] Chord Pitch:A5       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[12]       Pitch:A2       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[13]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[14] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[15] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[16]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[17] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[18] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[19]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[20] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[21] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[22]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[23] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[24] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[25]       Pitch:E3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[26] Chord Pitch:A3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[27] Chord Pitch:C4       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[28]       Pitch:F(1)1    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[29] Chord Pitch:F(1)2    Voice:5  Staff:2  Dur:3   Type:eighth  
+[30]       Pitch:D(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Acc:sharp Beams:['end']
+[31] Chord Pitch:F(1)3    Voice:5  Staff:2  Dur:3   Type:eighth  
+[32] Chord Pitch:A3       Voice:5  Staff:2  Dur:3   Type:eighth  
+[33] Chord Pitch:C4       Voice:5  Staff:2  Dur:3   Type:eighth  
+[34]       Pitch:D(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[35] Chord Pitch:F(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[36] Chord Pitch:A3       Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[37] Chord Pitch:C4       Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['begin']
+[38]       Pitch:D(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['end']
+[39] Chord Pitch:F(1)3    Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['end']
+[40] Chord Pitch:A3       Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['end']
+[41] Chord Pitch:C4       Voice:5  Staff:2  Dur:3   Type:eighth   Beams:['end']
+
+--- Measure 48 ---
+Total notes: 40
+[ 0]       Pitch:D(1)5    Voice:1  Staff:1  Dur:12  Type:half     Acc:sharp
+[ 1] Chord Pitch:G5       Voice:1  Staff:1  Dur:12  Type:half    
+[ 2] Chord Pitch:B5       Voice:1  Staff:1  Dur:12  Type:half     Ties:['Tied(start)']
+[ 3]       Pitch:D5       Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 4] Chord Pitch:F(1)5    Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 5] Chord Pitch:B5       Voice:1  Staff:1  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[ 6]       Pitch:F(1)4    Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 7] Chord Pitch:F(1)5    Voice:1  Staff:1  Dur:6   Type:quarter 
+[ 8]       Pitch:B1       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[ 9] Chord Pitch:B2       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[10]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['continue'] TM:3/2
+[11] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[12] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[13]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[14] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[15] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[16]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[17] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[18] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[19]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[20] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[21] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[22]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[23] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[24] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[25]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[26] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[27] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[28]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[29] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[30] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['continue'] TM:3/2
+[31]       Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[32] Chord Pitch:G3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[33] Chord Pitch:B3       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['end'] TM:3/2
+[34]       Pitch:B1       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] Tuplets:['Tuplet(start,1)'] TM:3/2
+[35] Chord Pitch:B2       Voice:5  Staff:2  Dur:2   Type:eighth   Beams:['begin'] TM:3/2
+[36]       Pitch:C(1)2    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['continue'] TM:3/2
+[37] Chord Pitch:C(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['continue'] TM:3/2
+[38]       Pitch:D(1)2    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['end'] Tuplets:['Tuplet(stop,1)'] TM:3/2
+[39] Chord Pitch:D(1)3    Voice:5  Staff:2  Dur:2   Type:eighth   Acc:sharp Beams:['end'] TM:3/2
+
+--- Measure 51 ---
+Total notes: 18
+[ 0]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 1] Chord Pitch:B4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 2]       Pitch:D4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 3]       Pitch:B3       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 4]       Pitch:G4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 5] Chord Pitch:B4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 6]       Pitch:D(1)4    Voice:1  Staff:1  Dur:3   Type:eighth   Acc:sharp Beams:['begin']
+[ 7] Chord Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[ 8]       Pitch:B3       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[ 9]       Pitch:A3       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['begin']
+[10]       Pitch:D(1)4    Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[11] Chord Pitch:A4       Voice:1  Staff:1  Dur:3   Type:eighth   Beams:['end']
+[12]       Pitch:G2       Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(start)']
+[13]       Pitch:G2       Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[14] Chord Pitch:G3       Voice:5  Staff:2  Dur:6   Type:quarter 
+[15]       Pitch:F(1)2    Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(start)']
+[16]       Pitch:F(1)2    Voice:5  Staff:2  Dur:6   Type:quarter  Ties:['Tied(stop)']
+[17] Chord Pitch:F(1)3    Voice:5  Staff:2  Dur:6   Type:quarter 

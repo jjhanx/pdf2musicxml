@@ -1,0 +1,644 @@
+2026-06-10 17:53:54,551 INFO [test_masked_pipeline]                 Book.java:560  | 10 sheets in D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:53:54,751 INFO []                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:53:54,751 INFO []                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:53:54,757 INFO []                 Book.java:1929 | Book reaching PAGE on sheets:[#1#2#3#4#5#6#7#8#9#10]
+2026-06-10 17:53:54,759 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:53:55,345 INFO [test_masked_pipeline#1] FileSystemFontProvider.java:668  | 600 new font files found, font cache will be re-built
+2026-06-10 17:53:55,346 INFO [test_masked_pipeline#1] FileSystemFontProvider.java:370  | Building on-disk font cache, this may take a while
+2026-06-10 17:53:59,113 WARN [test_masked_pipeline#1] FileSystemFontProvider.java:805  | Missing 'name' entry for PostScript name in font C:\Users\jjhan\AppData\Local\Microsoft\Windows\Fonts\TT1.TTF
+2026-06-10 17:53:59,126 WARN [test_masked_pipeline#1] FileSystemFontProvider.java:805  | Missing 'name' entry for PostScript name in font C:\Users\jjhan\AppData\Local\Microsoft\Windows\Fonts\TT1001.ttf
+2026-06-10 17:53:59,144 WARN [test_masked_pipeline#1] FileSystemFontProvider.java:805  | Missing 'name' entry for PostScript name in font C:\Users\jjhan\AppData\Local\Microsoft\Windows\Fonts\TT2.TTF
+2026-06-10 17:53:59,168 WARN [test_masked_pipeline#1] FileSystemFontProvider.java:805  | Missing 'name' entry for PostScript name in font C:\Users\jjhan\AppData\Local\Microsoft\Windows\Fonts\TT44.TTF
+2026-06-10 17:53:59,187 WARN [test_masked_pipeline#1] FileSystemFontProvider.java:805  | Missing 'name' entry for PostScript name in font C:\Users\jjhan\AppData\Local\Microsoft\Windows\Fonts\TT9.TTF
+2026-06-10 17:53:59,255 INFO [test_masked_pipeline#1] FileSystemFontProvider.java:373  | Finished building on-disk font cache, found 644 fonts
+2026-06-10 17:53:59,289 INFO [test_masked_pipeline#1]            SheetStub.java:1278 | Loaded image #1 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:53:59,292 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:54:00,088 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:54:00,114 INFO [test_masked_pipeline#1]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:54:00,116 INFO [test_masked_pipeline#1]         ScaleBuilder.java:271  | Beam measured height: 12 -- 0.54 of [5..18] range at 107% of needed quorum
+2026-06-10 17:54:00,117 INFO [test_masked_pipeline#1]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:54:00,117 INFO [test_masked_pipeline#1]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(12)}
+2026-06-10 17:54:00,118 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | GRID
+2026-06-10 17:54:00,456 INFO [test_masked_pipeline#1]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:54:00,485 INFO [test_masked_pipeline#1]    ClustersRetriever.java:326  | Retrieved raw line clusters: 6 of sizes [5] with interline(19,19,19)
+2026-06-10 17:54:00,594 INFO [test_masked_pipeline#1]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6]
+2026-06-10 17:54:00,823 INFO [test_masked_pipeline#1]        SystemManager.java:779  | 5 parts along 1 system
+2026-06-10 17:54:00,823 INFO [test_masked_pipeline#1]                 Book.java:543  | Created scores: [{Score 1}]
+2026-06-10 17:54:00,824 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:54:02,330 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:54:02,377 INFO [test_masked_pipeline#1]        StemSeedsStep.java:86   | stem(2 max:3)
+2026-06-10 17:54:02,411 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:54:06,384 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:54:06,685 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:54:09,393 INFO [test_masked_pipeline#1]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_BLACK[L:-0.4,R:-0.5]}
+2026-06-10 17:54:09,393 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:54:10,047 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:54:10,125 INFO [test_masked_pipeline#1]        ReductionStep.java:105  | Stems free length median value: 66 pixels, 3.5 interlines
+2026-06-10 17:54:10,128 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:54:10,128 INFO [test_masked_pipeline#1]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:54:10,128 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:54:11,203 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:54:11,212 INFO [test_masked_pipeline#1]                 Page.java:307  | 5 raw measures: [5 in system#1]
+2026-06-10 17:54:11,212 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:54:11,226 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:54:12,030 INFO [test_masked_pipeline#1]         SlursBuilder.java:240  | Slurs: 2
+2026-06-10 17:54:12,040 INFO [test_masked_pipeline#1]      SegmentsBuilder.java:155  | Segments: 4
+2026-06-10 17:54:12,057 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:54:12,407 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:54:12,411 INFO [test_masked_pipeline#1]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#1719{(0.151) staff:1 QUINDICESIMA ALTA} at java.awt.Point[x=436,y=1162]
+2026-06-10 17:54:12,448 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:54:12,492 INFO [test_masked_pipeline#1]                Voice.java:257  | Measure{#3P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:12,493 INFO [test_masked_pipeline#1]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-06-10 17:54:12,506 INFO [test_masked_pipeline#1]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:54:12,511 INFO [test_masked_pipeline#1]                Voice.java:257  | Measure{#3P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:12,512 INFO [test_masked_pipeline#1]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:54:12,561 INFO [test_masked_pipeline#1]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:54:12,691 INFO [test_masked_pipeline#1]           DataHolder.java:348  | Stored /sheet#1/BINARY.png
+2026-06-10 17:54:13,162 INFO [test_masked_pipeline#1]                Sheet.java:1583 | Stored /sheet#1/sheet#1.xml
+2026-06-10 17:54:13,162 INFO [test_masked_pipeline#1]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:54:13,169 INFO [test_masked_pipeline#1]            SheetStub.java:1655 | Sheet#1 disposed
+2026-06-10 17:54:13,208 INFO [test_masked_pipeline#1]                 Book.java:2050 | End of Stub#1
+2026-06-10 17:54:13,209 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:54:13,354 INFO [test_masked_pipeline#2]            SheetStub.java:1278 | Loaded image #2 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:54:13,355 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:54:14,225 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:54:14,247 INFO [test_masked_pipeline#2]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:54:14,248 INFO [test_masked_pipeline#2]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 144% of needed quorum
+2026-06-10 17:54:14,249 INFO [test_masked_pipeline#2]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:54:14,249 INFO [test_masked_pipeline#2]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-06-10 17:54:14,251 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | GRID
+2026-06-10 17:54:14,569 INFO [test_masked_pipeline#2]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:54:14,610 INFO [test_masked_pipeline#2]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-06-10 17:54:14,718 INFO [test_masked_pipeline#2]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-06-10 17:54:14,931 INFO [test_masked_pipeline#2]        SystemManager.java:779  | 5 parts along 2 systems
+2026-06-10 17:54:14,931 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:54:15,272 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:54:15,318 INFO [test_masked_pipeline#2]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-06-10 17:54:15,336 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:54:18,537 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:54:18,623 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:54:23,040 INFO [test_masked_pipeline#2]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_BLACK[L:-0.3,R:-0.5]}
+2026-06-10 17:54:23,040 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:54:23,586 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:54:23,678 INFO [test_masked_pipeline#2]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:54:23,680 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:54:23,681 INFO [test_masked_pipeline#2]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:54:23,681 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:54:24,327 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:54:24,330 INFO [test_masked_pipeline#2]                 Page.java:307  | 8 raw measures: [4 in system#1, 4 in system#2]
+2026-06-10 17:54:24,331 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:54:24,343 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:54:25,059 INFO [test_masked_pipeline#2]         SlursBuilder.java:240  | Slurs: 10
+2026-06-10 17:54:25,065 INFO [test_masked_pipeline#2]      SegmentsBuilder.java:155  | Segments: 18
+2026-06-10 17:54:25,066 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:54:25,318 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:54:25,371 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:54:25,372 INFO [test_masked_pipeline#2]           PageRhythm.java:199  | {Page#2.1} Time value reused from sheet#1
+2026-06-10 17:54:25,391 INFO [test_masked_pipeline#2]                Voice.java:257  | Measure{#3P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:25,396 INFO [test_masked_pipeline#2]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-06-10 17:54:25,412 INFO [test_masked_pipeline#2]                Voice.java:257  | Measure{#6P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:25,419 INFO [test_masked_pipeline#2]          StackRhythm.java:224  | S2 MeasureStack#6 no correct rhythm
+2026-06-10 17:54:25,420 INFO [test_masked_pipeline#2]                Voice.java:257  | Measure{#7P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:25,424 INFO [test_masked_pipeline#2]          StackRhythm.java:224  | S2 MeasureStack#7 no correct rhythm
+2026-06-10 17:54:25,427 INFO [test_masked_pipeline#2]                Voice.java:257  | Measure{#8P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:54:25,428 INFO [test_masked_pipeline#2]          StackRhythm.java:224  | S2 MeasureStack#8 no correct rhythm
+2026-06-10 17:54:25,429 INFO [test_masked_pipeline#2]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:54:25,430 INFO [test_masked_pipeline#2]                Voice.java:257  | Measure{#3P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:25,431 INFO [test_masked_pipeline#2]                Voice.java:257  | Measure{#6P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:25,432 INFO [test_masked_pipeline#2]                Voice.java:257  | Measure{#7P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:25,432 INFO [test_masked_pipeline#2]                Voice.java:257  | Measure{#8P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:54:25,433 INFO [test_masked_pipeline#2]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:54:25,488 INFO [test_masked_pipeline#2]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:54:25,581 INFO [test_masked_pipeline#2]           DataHolder.java:348  | Stored /sheet#2/BINARY.png
+2026-06-10 17:54:26,009 INFO [test_masked_pipeline#2]                Sheet.java:1583 | Stored /sheet#2/sheet#2.xml
+2026-06-10 17:54:26,009 INFO [test_masked_pipeline#2]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:54:26,047 INFO [test_masked_pipeline#2]            SheetStub.java:1655 | Sheet#2 disposed
+2026-06-10 17:54:26,079 INFO [test_masked_pipeline#2]                 Book.java:2050 | End of Stub#2
+2026-06-10 17:54:26,080 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:54:26,160 INFO [test_masked_pipeline#3]            SheetStub.java:1278 | Loaded image #3 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:54:26,161 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:54:26,838 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:54:26,845 INFO [test_masked_pipeline#3]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:54:26,846 INFO [test_masked_pipeline#3]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 148% of needed quorum
+2026-06-10 17:54:26,846 INFO [test_masked_pipeline#3]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:54:26,846 INFO [test_masked_pipeline#3]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-06-10 17:54:26,847 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | GRID
+2026-06-10 17:54:26,926 INFO [test_masked_pipeline#3]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:54:26,938 INFO [test_masked_pipeline#3]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-06-10 17:54:26,989 INFO [test_masked_pipeline#3]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-06-10 17:54:27,139 INFO [test_masked_pipeline#3]        SystemManager.java:779  | 5 parts along 2 systems
+2026-06-10 17:54:27,140 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:54:27,405 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:54:27,448 INFO [test_masked_pipeline#3]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-06-10 17:54:27,454 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:54:30,553 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:54:30,618 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:54:34,451 INFO [test_masked_pipeline#3]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_BLACK[L:-0.1,R:-0.5]}
+2026-06-10 17:54:34,452 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:54:34,772 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:54:34,821 INFO [test_masked_pipeline#3]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:54:34,822 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:54:34,823 INFO [test_masked_pipeline#3]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:54:34,823 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:54:35,439 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:54:35,441 INFO [test_masked_pipeline#3]                 Page.java:307  | 6 raw measures: [3 in system#1, 3 in system#2]
+2026-06-10 17:54:35,441 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:54:35,444 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:54:36,006 INFO [test_masked_pipeline#3]         SlursBuilder.java:240  | Slurs: 0
+2026-06-10 17:54:36,009 INFO [test_masked_pipeline#3]      SegmentsBuilder.java:155  | Segments: 11
+2026-06-10 17:54:36,010 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:54:36,271 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:54:36,299 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:54:36,299 INFO [test_masked_pipeline#3]           PageRhythm.java:199  | {Page#3.1} Time value reused from sheet#1
+2026-06-10 17:54:36,315 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#3P5} Voice{#6 excess:1/8} too long
+2026-06-10 17:54:36,315 INFO [test_masked_pipeline#3]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-06-10 17:54:36,316 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#4P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:36,321 INFO [test_masked_pipeline#3]        MeasureRhythm.java:1044 | Measure{#4P5} No timeOffset for HeadChordInter#2975{(0.959/0.959) staff:11 slot#9 dur:1/8}
+2026-06-10 17:54:36,322 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#4P5} Voice{#5 excess:1/4} too long
+2026-06-10 17:54:36,322 INFO [test_masked_pipeline#3]          StackRhythm.java:224  | S2 MeasureStack#4 no correct rhythm
+2026-06-10 17:54:36,325 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#5P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:36,326 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#5P5} Voice{#5 excess:1/4} too long
+2026-06-10 17:54:36,326 INFO [test_masked_pipeline#3]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-06-10 17:54:36,327 INFO [test_masked_pipeline#3]        MeasureRhythm.java:1044 | Measure{#6P1} No timeOffset for HeadChordInter#2949{(0.918/0.918) staff:7 slot#5 dur:1/4}
+2026-06-10 17:54:36,328 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#6P2} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:36,330 INFO [test_masked_pipeline#3]        MeasureRhythm.java:1044 | Measure{#6P5} No timeOffset for RestChordInter#3336{(0.800/0.800) staff:11 slot#8 dur:1/8}
+2026-06-10 17:54:36,330 INFO [test_masked_pipeline#3]        MeasureRhythm.java:1044 | Measure{#6P5} No timeOffset for RestChordInter#3337{(0.800/0.800) staff:12 slot#8 dur:1/8}
+2026-06-10 17:54:36,330 INFO [test_masked_pipeline#3]          StackRhythm.java:224  | S2 MeasureStack#6 no correct rhythm
+2026-06-10 17:54:36,331 INFO [test_masked_pipeline#3]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:54:36,331 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#3P5} Voice{#6 excess:1/8} too long
+2026-06-10 17:54:36,332 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#4P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:36,332 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#4P5} Voice{#5 excess:1/4} too long
+2026-06-10 17:54:36,332 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#5P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:36,333 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#5P5} Voice{#5 excess:1/4} too long
+2026-06-10 17:54:36,333 INFO [test_masked_pipeline#3]                Voice.java:257  | Measure{#6P2} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:36,333 INFO [test_masked_pipeline#3]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:54:36,378 INFO [test_masked_pipeline#3]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:54:36,459 INFO [test_masked_pipeline#3]           DataHolder.java:348  | Stored /sheet#3/BINARY.png
+2026-06-10 17:54:36,697 INFO [test_masked_pipeline#3]                Sheet.java:1583 | Stored /sheet#3/sheet#3.xml
+2026-06-10 17:54:36,698 INFO [test_masked_pipeline#3]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:54:36,706 INFO [test_masked_pipeline#3]            SheetStub.java:1655 | Sheet#3 disposed
+2026-06-10 17:54:36,740 INFO [test_masked_pipeline#3]                 Book.java:2050 | End of Stub#3
+2026-06-10 17:54:36,741 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:54:36,826 INFO [test_masked_pipeline#4]            SheetStub.java:1278 | Loaded image #4 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:54:36,826 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:54:37,498 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:54:37,502 INFO [test_masked_pipeline#4]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:54:37,503 INFO [test_masked_pipeline#4]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 211% of needed quorum
+2026-06-10 17:54:37,503 INFO [test_masked_pipeline#4]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:54:37,503 INFO [test_masked_pipeline#4]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-06-10 17:54:37,505 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | GRID
+2026-06-10 17:54:37,596 INFO [test_masked_pipeline#4]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:54:37,607 INFO [test_masked_pipeline#4]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-06-10 17:54:37,653 INFO [test_masked_pipeline#4]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-06-10 17:54:37,803 INFO [test_masked_pipeline#4]        SystemManager.java:779  | 5 parts along 2 systems
+2026-06-10 17:54:37,803 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:54:38,053 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:54:38,091 INFO [test_masked_pipeline#4]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-06-10 17:54:38,103 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:54:41,305 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:54:41,390 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:54:45,932 INFO [test_masked_pipeline#4]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.2,R:-0.4] NOTEHEAD_BLACK[L:-0.4,R:-0.5]}
+2026-06-10 17:54:45,933 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:54:46,823 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:54:46,973 INFO [test_masked_pipeline#4]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:54:46,974 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:54:46,975 INFO [test_masked_pipeline#4]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:54:46,975 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:54:47,642 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:54:47,644 INFO [test_masked_pipeline#4]                 Page.java:307  | 6 raw measures: [3 in system#1, 3 in system#2]
+2026-06-10 17:54:47,644 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:54:47,648 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:54:48,284 INFO [test_masked_pipeline#4]         SlursBuilder.java:240  | Slurs: 9
+2026-06-10 17:54:48,291 INFO [test_masked_pipeline#4]      SegmentsBuilder.java:155  | Segments: 22
+2026-06-10 17:54:48,292 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:54:48,658 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:54:48,700 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:54:48,700 INFO [test_masked_pipeline#4]           PageRhythm.java:199  | {Page#4.1} Time value reused from sheet#1
+2026-06-10 17:54:48,704 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#1P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:48,707 INFO [test_masked_pipeline#4]          StackRhythm.java:224  | S1 MeasureStack#1 no correct rhythm
+2026-06-10 17:54:48,712 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#2P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:54:48,712 INFO [test_masked_pipeline#4]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-06-10 17:54:48,719 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#3P5} Voice{#7 excess:1/4} too long
+2026-06-10 17:54:48,720 INFO [test_masked_pipeline#4]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-06-10 17:54:48,727 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#5P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:48,731 INFO [test_masked_pipeline#4]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-06-10 17:54:48,732 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#6P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:48,736 INFO [test_masked_pipeline#4]          StackRhythm.java:224  | S2 MeasureStack#6 no correct rhythm
+2026-06-10 17:54:48,737 INFO [test_masked_pipeline#4]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:54:48,739 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#1P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:48,739 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#2P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:54:48,739 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#3P5} Voice{#7 excess:1/4} too long
+2026-06-10 17:54:48,740 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#5P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:48,740 INFO [test_masked_pipeline#4]                Voice.java:257  | Measure{#6P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:54:48,741 INFO [test_masked_pipeline#4]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:54:48,800 INFO [test_masked_pipeline#4]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:54:48,885 INFO [test_masked_pipeline#4]           DataHolder.java:348  | Stored /sheet#4/BINARY.png
+2026-06-10 17:54:49,227 INFO [test_masked_pipeline#4]                Sheet.java:1583 | Stored /sheet#4/sheet#4.xml
+2026-06-10 17:54:49,228 INFO [test_masked_pipeline#4]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:54:49,253 INFO [test_masked_pipeline#4]            SheetStub.java:1655 | Sheet#4 disposed
+2026-06-10 17:54:49,286 INFO [test_masked_pipeline#4]                 Book.java:2050 | End of Stub#4
+2026-06-10 17:54:49,287 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:54:49,348 INFO [test_masked_pipeline#5]            SheetStub.java:1278 | Loaded image #5 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:54:49,348 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:54:49,997 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:54:49,999 INFO [test_masked_pipeline#5]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:54:50,000 INFO [test_masked_pipeline#5]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 221% of needed quorum
+2026-06-10 17:54:50,000 INFO [test_masked_pipeline#5]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:54:50,000 INFO [test_masked_pipeline#5]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-06-10 17:54:50,000 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | GRID
+2026-06-10 17:54:50,097 INFO [test_masked_pipeline#5]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:54:50,108 INFO [test_masked_pipeline#5]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-06-10 17:54:50,149 INFO [test_masked_pipeline#5]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-06-10 17:54:50,305 INFO [test_masked_pipeline#5]        SystemManager.java:779  | 5 parts along 2 systems
+2026-06-10 17:54:50,305 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:54:50,540 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:54:50,579 INFO [test_masked_pipeline#5]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-06-10 17:54:50,584 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:54:53,749 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:54:53,842 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:54:58,573 INFO [test_masked_pipeline#5]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.5,R:-0.5] NOTEHEAD_BLACK[L:-0.4,R:-0.5]}
+2026-06-10 17:54:58,574 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:54:59,461 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:54:59,611 INFO [test_masked_pipeline#5]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:54:59,613 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:54:59,613 INFO [test_masked_pipeline#5]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:54:59,613 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:55:00,221 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:55:00,222 INFO [test_masked_pipeline#5]                 Page.java:307  | 7 raw measures: [3 in system#1, 4 in system#2]
+2026-06-10 17:55:00,223 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:55:00,228 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:55:00,862 INFO [test_masked_pipeline#5]         SlursBuilder.java:240  | Slurs: 8
+2026-06-10 17:55:00,869 INFO [test_masked_pipeline#5]      SegmentsBuilder.java:155  | Segments: 35
+2026-06-10 17:55:00,871 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:55:01,212 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:55:01,268 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:55:01,269 INFO [test_masked_pipeline#5]           PageRhythm.java:199  | {Page#5.1} Time value reused from sheet#1
+2026-06-10 17:55:01,271 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#1P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,272 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#1P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,275 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#1P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,275 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#1P5} Voice{#6 excess:1/4} too long
+2026-06-10 17:55:01,275 INFO [test_masked_pipeline#5]          StackRhythm.java:224  | S1 MeasureStack#1 no correct rhythm
+2026-06-10 17:55:01,276 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#2P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,277 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#2P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,279 INFO [test_masked_pipeline#5]        MeasureRhythm.java:1044 | Measure{#2P5} No timeOffset for HeadChordInter#5537{(0.941/0.941) staff:5 slot#6 dur:1/4}
+2026-06-10 17:55:01,279 INFO [test_masked_pipeline#5]   AbstractChordInter.java:627  | Measure{#2P5} No timeOffset for HeadChordInter#5537{(0.941/0.941) staff:5 slot#6 dur:1/4}
+2026-06-10 17:55:01,279 INFO [test_masked_pipeline#5]   AbstractChordInter.java:627  | Measure{#2P5} No timeOffset for HeadChordInter#5538{(0.955/0.955) staff:5 slot#8 dur:1/4}
+2026-06-10 17:55:01,280 INFO [test_masked_pipeline#5]        MeasureRhythm.java:1044 | Measure{#2P5} No timeOffset for HeadChordInter#5564{(0.967/0.967) staff:6 slot#11 dur:1/8}
+2026-06-10 17:55:01,280 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#2P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:55:01,280 INFO [test_masked_pipeline#5]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-06-10 17:55:01,281 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,282 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,282 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P4} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,284 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:55:01,284 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,284 INFO [test_masked_pipeline#5]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-06-10 17:55:01,289 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#4P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:55:01,290 INFO [test_masked_pipeline#5]          StackRhythm.java:224  | S2 MeasureStack#4 no correct rhythm
+2026-06-10 17:55:01,291 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#5P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,293 INFO [test_masked_pipeline#5]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-06-10 17:55:01,295 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#7P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,296 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#7P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,297 INFO [test_masked_pipeline#5]          StackRhythm.java:224  | S2 MeasureStack#7 no correct rhythm
+2026-06-10 17:55:01,298 INFO [test_masked_pipeline#5]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:55:01,299 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#1P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,299 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#1P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,299 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#1P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,299 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#1P5} Voice{#6 excess:1/4} too long
+2026-06-10 17:55:01,299 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#2P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,300 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#2P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,300 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#2P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:55:01,300 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,300 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,300 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P4} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,300 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,300 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#3P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:55:01,301 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#4P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:55:01,301 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#5P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,302 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#7P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,303 INFO [test_masked_pipeline#5]                Voice.java:257  | Measure{#7P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:01,304 INFO [test_masked_pipeline#5]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:55:01,360 INFO [test_masked_pipeline#5]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:55:01,444 INFO [test_masked_pipeline#5]           DataHolder.java:348  | Stored /sheet#5/BINARY.png
+2026-06-10 17:55:01,814 INFO [test_masked_pipeline#5]                Sheet.java:1583 | Stored /sheet#5/sheet#5.xml
+2026-06-10 17:55:01,814 INFO [test_masked_pipeline#5]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:55:01,823 INFO [test_masked_pipeline#5]            SheetStub.java:1655 | Sheet#5 disposed
+2026-06-10 17:55:01,855 INFO [test_masked_pipeline#5]                 Book.java:2050 | End of Stub#5
+2026-06-10 17:55:01,856 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:55:01,912 INFO [test_masked_pipeline#6]            SheetStub.java:1278 | Loaded image #6 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:55:01,913 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:55:02,569 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:55:02,572 INFO [test_masked_pipeline#6]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:55:02,572 INFO [test_masked_pipeline#6]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 155% of needed quorum
+2026-06-10 17:55:02,572 INFO [test_masked_pipeline#6]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:55:02,572 INFO [test_masked_pipeline#6]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-06-10 17:55:02,572 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | GRID
+2026-06-10 17:55:02,644 INFO [test_masked_pipeline#6]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:55:02,651 INFO [test_masked_pipeline#6]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-06-10 17:55:02,695 INFO [test_masked_pipeline#6]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-06-10 17:55:02,844 INFO [test_masked_pipeline#6]        SystemManager.java:779  | 5 parts along 2 systems
+2026-06-10 17:55:02,844 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:55:03,085 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:55:03,124 INFO [test_masked_pipeline#6]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-06-10 17:55:03,128 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:55:06,174 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:55:06,238 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:55:10,124 INFO [test_masked_pipeline#6]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_BLACK[L:-0.2,R:-0.5]}
+2026-06-10 17:55:10,125 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:55:10,460 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:55:10,501 INFO [test_masked_pipeline#6]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:55:10,502 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:55:10,503 INFO [test_masked_pipeline#6]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:55:10,503 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:55:11,114 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:55:11,115 INFO [test_masked_pipeline#6]                 Page.java:307  | 7 raw measures: [4 in system#1, 3 in system#2]
+2026-06-10 17:55:11,115 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:55:11,118 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:55:11,719 INFO [test_masked_pipeline#6]         SlursBuilder.java:240  | Slurs: 4
+2026-06-10 17:55:11,723 INFO [test_masked_pipeline#6]      SegmentsBuilder.java:155  | Segments: 17
+2026-06-10 17:55:11,724 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:55:12,250 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:55:12,293 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:55:12,293 INFO [test_masked_pipeline#6]           PageRhythm.java:199  | {Page#6.1} Time value reused from sheet#1
+2026-06-10 17:55:12,298 INFO [test_masked_pipeline#6]                Voice.java:257  | Measure{#2P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:12,300 INFO [test_masked_pipeline#6]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-06-10 17:55:12,300 INFO [test_masked_pipeline#6]                Voice.java:257  | Measure{#3P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:12,303 INFO [test_masked_pipeline#6]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-06-10 17:55:12,305 INFO [test_masked_pipeline#6]                Voice.java:257  | Measure{#4P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:12,307 INFO [test_masked_pipeline#6]          StackRhythm.java:224  | S1 MeasureStack#4 no correct rhythm
+2026-06-10 17:55:12,307 INFO [test_masked_pipeline#6]                Voice.java:257  | Measure{#5P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:12,309 INFO [test_masked_pipeline#6]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-06-10 17:55:12,311 INFO [test_masked_pipeline#6]        MeasureRhythm.java:1276 | Measure{#6P5} Time inconsistency in {3/8=[HeadChordInter#3485{(0.938/0.938) staff:11 slot#5 off:3/8 dur:1/8}], 1/2=[HeadChordInter#3509{(0.892/0.892) staff:12 slot#5 off:1/2 dur:1/8}]}
+2026-06-10 17:55:12,312 INFO [test_masked_pipeline#6]        MeasureRhythm.java:1276 | Measure{#6P5} Time inconsistency in {5/8=[HeadChordInter#3511{(0.933/0.933) staff:12 slot#8 off:5/8 dur:1/8}], 3/4=[HeadChordInter#3488{(0.932/0.932) staff:11 slot#8 off:3/4 dur:1/8}]}
+2026-06-10 17:55:12,315 INFO [test_masked_pipeline#6]        MeasureRhythm.java:1276 | Measure{#7P5} Time inconsistency in {1/8=[HeadChordInter#3516{(0.949/0.949) staff:12 slot#3 off:1/8 dur:1/8}], 1/4=[HeadChordInter#3493{(0.930/0.930) staff:11 slot#3 off:1/4 dur:1/8}]}
+2026-06-10 17:55:12,316 INFO [test_masked_pipeline#6]        MeasureRhythm.java:1276 | Measure{#7P5} Time inconsistency in {3/8=[HeadChordInter#3495{(0.938/0.938) staff:11 slot#6 off:3/8 dur:1/8}], 1/2=[HeadChordInter#3519{(0.928/0.928) staff:12 slot#6 off:1/2 dur:1/8}]}
+2026-06-10 17:55:12,316 INFO [test_masked_pipeline#6]        MeasureRhythm.java:1276 | Measure{#7P5} Time inconsistency in {5/8=[HeadChordInter#3497{(0.949/0.953) staff:11 slot#9 off:5/8 dur:1/8}], 3/4=[HeadChordInter#3522{(0.943/0.943) staff:12 slot#9 off:3/4 dur:1/8}]}
+2026-06-10 17:55:12,317 INFO [test_masked_pipeline#6]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:55:12,318 INFO [test_masked_pipeline#6]                Voice.java:257  | Measure{#2P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:12,318 INFO [test_masked_pipeline#6]                Voice.java:257  | Measure{#3P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:12,318 INFO [test_masked_pipeline#6]                Voice.java:257  | Measure{#4P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:12,318 INFO [test_masked_pipeline#6]                Voice.java:257  | Measure{#5P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:12,319 INFO [test_masked_pipeline#6]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:55:12,375 INFO [test_masked_pipeline#6]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:55:12,457 INFO [test_masked_pipeline#6]           DataHolder.java:348  | Stored /sheet#6/BINARY.png
+2026-06-10 17:55:12,706 INFO [test_masked_pipeline#6]                Sheet.java:1583 | Stored /sheet#6/sheet#6.xml
+2026-06-10 17:55:12,706 INFO [test_masked_pipeline#6]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:55:12,715 INFO [test_masked_pipeline#6]            SheetStub.java:1655 | Sheet#6 disposed
+2026-06-10 17:55:12,749 INFO [test_masked_pipeline#6]                 Book.java:2050 | End of Stub#6
+2026-06-10 17:55:12,749 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:55:12,801 INFO [test_masked_pipeline#7]            SheetStub.java:1278 | Loaded image #7 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:55:12,802 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:55:13,482 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:55:13,483 INFO [test_masked_pipeline#7]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:55:13,484 INFO [test_masked_pipeline#7]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 198% of needed quorum
+2026-06-10 17:55:13,484 INFO [test_masked_pipeline#7]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:55:13,484 INFO [test_masked_pipeline#7]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-06-10 17:55:13,484 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | GRID
+2026-06-10 17:55:13,561 INFO [test_masked_pipeline#7]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:55:13,569 INFO [test_masked_pipeline#7]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-06-10 17:55:13,607 INFO [test_masked_pipeline#7]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-06-10 17:55:13,747 INFO [test_masked_pipeline#7]        SystemManager.java:779  | 5 parts along 2 systems
+2026-06-10 17:55:13,747 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:55:13,976 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:55:14,013 INFO [test_masked_pipeline#7]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-06-10 17:55:14,017 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:55:17,181 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:55:17,256 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:55:21,672 INFO [test_masked_pipeline#7]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.1,R:-0.5] NOTEHEAD_BLACK[L:-0.4,R:-0.5]}
+2026-06-10 17:55:21,672 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:55:22,382 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:55:22,510 INFO [test_masked_pipeline#7]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:55:22,511 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:55:22,511 INFO [test_masked_pipeline#7]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:55:22,512 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:55:23,118 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:55:23,119 INFO [test_masked_pipeline#7]                 Page.java:307  | 6 raw measures: [3 in system#1, 3 in system#2]
+2026-06-10 17:55:23,119 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:55:23,125 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:55:23,834 INFO [test_masked_pipeline#7]         SlursBuilder.java:240  | Slurs: 5
+2026-06-10 17:55:23,843 INFO [test_masked_pipeline#7]      SegmentsBuilder.java:155  | Segments: 32
+2026-06-10 17:55:23,844 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:55:24,293 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:55:24,350 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:55:24,351 INFO [test_masked_pipeline#7]           PageRhythm.java:199  | {Page#7.1} Time value reused from sheet#1
+2026-06-10 17:55:24,354 INFO [test_masked_pipeline#7]        MeasureRhythm.java:1276 | Measure{#1P5} Time inconsistency in {1/8=[HeadChordInter#4620{(0.931/0.931) staff:6 slot#3 off:1/8 dur:1/8}], 1/6=[HeadChordInter#4603{(0.938/0.938) staff:5 slot#3 off:1/6 dur:1/12}]}
+2026-06-10 17:55:24,358 INFO [test_masked_pipeline#7]        MeasureRhythm.java:1044 | Measure{#2P5} No timeOffset for RestChordInter#5089{(0.797/0.797) staff:5 slot#8 dur:1/4}
+2026-06-10 17:55:24,359 INFO [test_masked_pipeline#7]        MeasureRhythm.java:1044 | Measure{#2P5} No timeOffset for RestChordInter#5090{(0.797/0.797) staff:6 slot#8 dur:1/4}
+2026-06-10 17:55:24,359 INFO [test_masked_pipeline#7]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-06-10 17:55:24,360 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#3P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:24,363 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#3P5} Voice{#6 excess:1/4} too long
+2026-06-10 17:55:24,364 INFO [test_masked_pipeline#7]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-06-10 17:55:24,367 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#4P5} Voice{#6 excess:1/4} too long
+2026-06-10 17:55:24,368 INFO [test_masked_pipeline#7]          StackRhythm.java:224  | S2 MeasureStack#4 no correct rhythm
+2026-06-10 17:55:24,373 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#5P5} Voice{#6 excess:1/4} too long
+2026-06-10 17:55:24,374 INFO [test_masked_pipeline#7]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-06-10 17:55:24,375 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#6P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:24,376 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#6P4} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:24,378 INFO [test_masked_pipeline#7]        MeasureRhythm.java:1044 | Measure{#6P5} No timeOffset for HeadChordInter#4693{(0.955/0.955) staff:11 slot#11 dur:1/4}
+2026-06-10 17:55:24,379 INFO [test_masked_pipeline#7]        MeasureRhythm.java:1044 | Measure{#6P5} No timeOffset for HeadChordInter#4724{(0.958/0.958) staff:12 slot#11 dur:1/8}
+2026-06-10 17:55:24,379 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#6P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:55:24,379 INFO [test_masked_pipeline#7]          StackRhythm.java:224  | S2 MeasureStack#6 no correct rhythm
+2026-06-10 17:55:24,379 INFO [test_masked_pipeline#7]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:55:24,381 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#3P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:24,381 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#3P5} Voice{#6 excess:1/4} too long
+2026-06-10 17:55:24,381 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#4P5} Voice{#6 excess:1/4} too long
+2026-06-10 17:55:24,381 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#5P5} Voice{#6 excess:1/4} too long
+2026-06-10 17:55:24,381 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#6P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:24,381 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#6P4} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:24,382 INFO [test_masked_pipeline#7]                Voice.java:257  | Measure{#6P5} Voice{#5 excess:1/8} too long
+2026-06-10 17:55:24,382 INFO [test_masked_pipeline#7]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:55:24,441 INFO [test_masked_pipeline#7]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:55:24,526 INFO [test_masked_pipeline#7]           DataHolder.java:348  | Stored /sheet#7/BINARY.png
+2026-06-10 17:55:24,949 INFO [test_masked_pipeline#7]                Sheet.java:1583 | Stored /sheet#7/sheet#7.xml
+2026-06-10 17:55:24,949 INFO [test_masked_pipeline#7]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:55:24,964 INFO [test_masked_pipeline#7]            SheetStub.java:1655 | Sheet#7 disposed
+2026-06-10 17:55:25,003 INFO [test_masked_pipeline#7]                 Book.java:2050 | End of Stub#7
+2026-06-10 17:55:25,004 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:55:25,082 INFO [test_masked_pipeline#8]            SheetStub.java:1278 | Loaded image #8 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:55:25,083 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:55:25,923 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:55:25,925 INFO [test_masked_pipeline#8]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:55:25,926 INFO [test_masked_pipeline#8]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 192% of needed quorum
+2026-06-10 17:55:25,926 INFO [test_masked_pipeline#8]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:55:25,926 INFO [test_masked_pipeline#8]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-06-10 17:55:25,926 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | GRID
+2026-06-10 17:55:26,014 INFO [test_masked_pipeline#8]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:55:26,024 INFO [test_masked_pipeline#8]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-06-10 17:55:26,066 INFO [test_masked_pipeline#8]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-06-10 17:55:26,219 INFO [test_masked_pipeline#8]        SystemManager.java:779  | 5 parts along 2 systems
+2026-06-10 17:55:26,219 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:55:26,455 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:55:26,493 INFO [test_masked_pipeline#8]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-06-10 17:55:26,497 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:55:29,853 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:55:29,940 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:55:35,126 INFO [test_masked_pipeline#8]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.1] NOTEHEAD_BLACK[L:-0.3,R:-0.5]}
+2026-06-10 17:55:35,127 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:55:35,997 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:55:36,145 INFO [test_masked_pipeline#8]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:55:36,147 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:55:36,147 INFO [test_masked_pipeline#8]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:55:36,147 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:55:36,768 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:55:36,769 INFO [test_masked_pipeline#8]                 Page.java:307  | 7 raw measures: [3 in system#1, 4 in system#2]
+2026-06-10 17:55:36,769 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:55:36,777 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:55:37,375 INFO [test_masked_pipeline#8]         SlursBuilder.java:240  | Slurs: 3
+2026-06-10 17:55:37,380 INFO [test_masked_pipeline#8]      SegmentsBuilder.java:155  | Segments: 24
+2026-06-10 17:55:37,380 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:55:37,728 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:55:37,774 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:55:37,775 INFO [test_masked_pipeline#8]           PageRhythm.java:199  | {Page#8.1} Time value reused from sheet#1
+2026-06-10 17:55:37,776 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#1P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,777 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#1P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,778 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#1P4} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,780 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#1P5} Voice{#7 excess:1/8} too long
+2026-06-10 17:55:37,780 INFO [test_masked_pipeline#8]          StackRhythm.java:224  | S1 MeasureStack#1 no correct rhythm
+2026-06-10 17:55:37,780 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#2P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,781 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#2P2} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,783 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#2P5} Voice{#7 excess:1/8} too long
+2026-06-10 17:55:37,783 INFO [test_masked_pipeline#8]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-06-10 17:55:37,784 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#3P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,786 INFO [test_masked_pipeline#8]        MeasureRhythm.java:1044 | Measure{#3P5} No timeOffset for HeadChordInter#5244{(0.942/0.942) staff:5 slot#6 dur:1/4}
+2026-06-10 17:55:37,786 INFO [test_masked_pipeline#8]   AbstractChordInter.java:627  | Measure{#3P5} No timeOffset for HeadChordInter#5244{(0.942/0.942) staff:5 slot#6 dur:1/4}
+2026-06-10 17:55:37,787 INFO [test_masked_pipeline#8]   AbstractChordInter.java:627  | Measure{#3P5} No timeOffset for HeadChordInter#5246{(0.960/0.960) staff:5 slot#9 dur:1/8}
+2026-06-10 17:55:37,787 INFO [test_masked_pipeline#8]   AbstractChordInter.java:627  | Measure{#3P5} No timeOffset for HeadChordInter#5278{(0.963/0.963) staff:6 slot#9 dur:1/4}
+2026-06-10 17:55:37,787 INFO [test_masked_pipeline#8]        MeasureRhythm.java:1044 | Measure{#3P5} No timeOffset for HeadChordInter#5247{(0.958/0.958) staff:5 slot#10 dur:1/8}
+2026-06-10 17:55:37,788 INFO [test_masked_pipeline#8]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-06-10 17:55:37,799 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#7P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,801 INFO [test_masked_pipeline#8]          StackRhythm.java:224  | S2 MeasureStack#7 no correct rhythm
+2026-06-10 17:55:37,802 INFO [test_masked_pipeline#8]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:55:37,804 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#1P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,805 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#1P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,805 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#1P4} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,805 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#1P5} Voice{#7 excess:1/8} too long
+2026-06-10 17:55:37,805 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#2P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,805 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#2P2} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,806 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#2P5} Voice{#7 excess:1/8} too long
+2026-06-10 17:55:37,806 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#3P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,806 INFO [test_masked_pipeline#8]                Voice.java:257  | Measure{#7P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:37,807 INFO [test_masked_pipeline#8]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:55:37,868 INFO [test_masked_pipeline#8]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:55:37,962 INFO [test_masked_pipeline#8]           DataHolder.java:348  | Stored /sheet#8/BINARY.png
+2026-06-10 17:55:38,293 INFO [test_masked_pipeline#8]                Sheet.java:1583 | Stored /sheet#8/sheet#8.xml
+2026-06-10 17:55:38,294 INFO [test_masked_pipeline#8]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:55:38,305 INFO [test_masked_pipeline#8]            SheetStub.java:1655 | Sheet#8 disposed
+2026-06-10 17:55:38,341 INFO [test_masked_pipeline#8]                 Book.java:2050 | End of Stub#8
+2026-06-10 17:55:38,342 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:55:38,391 INFO [test_masked_pipeline#9]            SheetStub.java:1278 | Loaded image #9 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:55:38,392 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:55:39,046 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:55:39,049 INFO [test_masked_pipeline#9]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:55:39,049 INFO [test_masked_pipeline#9]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 165% of needed quorum
+2026-06-10 17:55:39,049 INFO [test_masked_pipeline#9]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:55:39,049 INFO [test_masked_pipeline#9]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-06-10 17:55:39,050 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | GRID
+2026-06-10 17:55:39,125 INFO [test_masked_pipeline#9]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:55:39,131 INFO [test_masked_pipeline#9]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-06-10 17:55:39,191 INFO [test_masked_pipeline#9]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-06-10 17:55:39,337 INFO [test_masked_pipeline#9]        SystemManager.java:779  | 5 parts along 2 systems
+2026-06-10 17:55:39,338 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:55:39,579 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:55:39,616 INFO [test_masked_pipeline#9]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-06-10 17:55:39,621 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:55:42,634 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:55:42,701 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:55:46,722 INFO [test_masked_pipeline#9]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[R:-0.5] NOTEHEAD_BLACK[L:-0.2,R:-0.5]}
+2026-06-10 17:55:46,722 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:55:47,097 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:55:47,141 INFO [test_masked_pipeline#9]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:55:47,142 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:55:47,142 INFO [test_masked_pipeline#9]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:55:47,143 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:55:47,775 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:55:47,776 INFO [test_masked_pipeline#9]                 Page.java:307  | 8 raw measures: [4 in system#1, 4 in system#2]
+2026-06-10 17:55:47,776 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:55:47,779 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:55:48,351 INFO [test_masked_pipeline#9]         SlursBuilder.java:240  | Slurs: 7
+2026-06-10 17:55:48,353 INFO [test_masked_pipeline#9]      SegmentsBuilder.java:155  | Segments: 10
+2026-06-10 17:55:48,354 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:55:48,639 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:55:48,660 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:55:48,660 INFO [test_masked_pipeline#9]           PageRhythm.java:199  | {Page#9.1} Time value reused from sheet#1
+2026-06-10 17:55:48,663 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#2P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,664 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#2P2} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,664 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#2P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,665 INFO [test_masked_pipeline#9]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-06-10 17:55:48,669 INFO [test_masked_pipeline#9]        MeasureRhythm.java:1044 | Measure{#5P1} No timeOffset for RestChordInter#4027{(0.797/0.797) staff:7 slot#5 dur:1/4}
+2026-06-10 17:55:48,670 INFO [test_masked_pipeline#9]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-06-10 17:55:48,673 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#7P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,674 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#7P2} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,675 INFO [test_masked_pipeline#9]          StackRhythm.java:224  | S2 MeasureStack#7 no correct rhythm
+2026-06-10 17:55:48,678 INFO [test_masked_pipeline#9]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:55:48,679 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#2P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,679 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#2P2} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,679 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#2P3} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,680 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#7P1} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,680 INFO [test_masked_pipeline#9]                Voice.java:257  | Measure{#7P2} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:48,680 INFO [test_masked_pipeline#9]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:55:48,734 INFO [test_masked_pipeline#9]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:55:48,818 INFO [test_masked_pipeline#9]           DataHolder.java:348  | Stored /sheet#9/BINARY.png
+2026-06-10 17:55:49,063 INFO [test_masked_pipeline#9]                Sheet.java:1583 | Stored /sheet#9/sheet#9.xml
+2026-06-10 17:55:49,063 INFO [test_masked_pipeline#9]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:55:49,075 INFO [test_masked_pipeline#9]            SheetStub.java:1655 | Sheet#9 disposed
+2026-06-10 17:55:49,108 INFO [test_masked_pipeline#9]                 Book.java:2050 | End of Stub#9
+2026-06-10 17:55:49,109 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | LOAD
+2026-06-10 17:55:49,147 INFO [test_masked_pipeline#10]            SheetStub.java:1278 | Loaded image #10 2480x3508 from D:\pdf2musicxml\_smoke\dbgzip\test_masked_pipeline.pdf
+2026-06-10 17:55:49,148 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | BINARY
+2026-06-10 17:55:49,832 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | SCALE
+2026-06-10 17:55:49,833 INFO [test_masked_pipeline#10]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-06-10 17:55:49,833 INFO [test_masked_pipeline#10]         ScaleBuilder.java:271  | Beam measured height: 12 -- 0.54 of [5..18] range at 88% of needed quorum
+2026-06-10 17:55:49,834 INFO [test_masked_pipeline#10]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-06-10 17:55:49,834 INFO [test_masked_pipeline#10]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(12)}
+2026-06-10 17:55:49,834 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | GRID
+2026-06-10 17:55:49,875 INFO [test_masked_pipeline#10]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-06-10 17:55:49,878 INFO [test_masked_pipeline#10]    ClustersRetriever.java:326  | Retrieved raw line clusters: 6 of sizes [5] with interline(19,19,19)
+2026-06-10 17:55:49,894 INFO [test_masked_pipeline#10]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6]
+2026-06-10 17:55:50,006 INFO [test_masked_pipeline#10]        SystemManager.java:779  | 5 parts along 1 system
+2026-06-10 17:55:50,007 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | HEADERS
+2026-06-10 17:55:50,120 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | STEM_SEEDS
+2026-06-10 17:55:50,156 INFO [test_masked_pipeline#10]        StemSeedsStep.java:86   | stem(2 max:3)
+2026-06-10 17:55:50,157 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | BEAMS
+2026-06-10 17:55:53,583 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | LEDGERS
+2026-06-10 17:55:53,620 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | HEADS
+2026-06-10 17:55:55,382 INFO [test_masked_pipeline#10]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_BLACK[L:-0.5]}
+2026-06-10 17:55:55,382 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | STEMS
+2026-06-10 17:55:55,436 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | REDUCTION
+2026-06-10 17:55:55,449 INFO [test_masked_pipeline#10]        ReductionStep.java:105  | Stems free length median value: 67 pixels, 3.5 interlines
+2026-06-10 17:55:55,450 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | CUE_BEAMS
+2026-06-10 17:55:55,450 INFO [test_masked_pipeline#10]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-06-10 17:55:55,450 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | TEXTS
+2026-06-10 17:55:56,014 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | MEASURES
+2026-06-10 17:55:56,014 INFO [test_masked_pipeline#10]                 Page.java:307  | 3 raw measures: [3 in system#1]
+2026-06-10 17:55:56,015 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | CHORDS
+2026-06-10 17:55:56,015 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | CURVES
+2026-06-10 17:55:56,525 INFO [test_masked_pipeline#10]         SlursBuilder.java:240  | Slurs: 0
+2026-06-10 17:55:56,526 INFO [test_masked_pipeline#10]      SegmentsBuilder.java:155  | Segments: 4
+2026-06-10 17:55:56,526 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | SYMBOLS
+2026-06-10 17:55:56,665 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | LINKS
+2026-06-10 17:55:56,671 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | RHYTHMS
+2026-06-10 17:55:56,671 INFO [test_masked_pipeline#10]           PageRhythm.java:199  | {Page#10.1} Time value reused from sheet#1
+2026-06-10 17:55:56,674 INFO [test_masked_pipeline#10]                Voice.java:257  | Measure{#1P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:56,674 INFO [test_masked_pipeline#10]          StackRhythm.java:224  | S1 MeasureStack#1 no correct rhythm
+2026-06-10 17:55:56,676 INFO [test_masked_pipeline#10]       StepMonitoring.java:98   | PAGE
+2026-06-10 17:55:56,677 INFO [test_masked_pipeline#10]                Voice.java:257  | Measure{#1P5} Voice{#1 excess:1/8} too long
+2026-06-10 17:55:56,677 INFO [test_masked_pipeline#10]                 Book.java:2584 | Book{test_masked_pipeline} storing
+2026-06-10 17:55:56,728 INFO [test_masked_pipeline#10]                 Book.java:2565 | Stored /book.xml
+2026-06-10 17:55:56,804 INFO [test_masked_pipeline#10]           DataHolder.java:348  | Stored /sheet#10/BINARY.png
+2026-06-10 17:55:56,871 INFO [test_masked_pipeline#10]                Sheet.java:1583 | Stored /sheet#10/sheet#10.xml
+2026-06-10 17:55:56,871 INFO [test_masked_pipeline#10]                 Book.java:2525 | Book stored as _smoke\dbgzip\test_out\test_masked_pipeline.omr
+2026-06-10 17:55:56,883 INFO [test_masked_pipeline#10]            SheetStub.java:1655 | Sheet#10 disposed
+2026-06-10 17:55:56,918 INFO [test_masked_pipeline#10]                 Book.java:2050 | End of Stub#10
+2026-06-10 17:55:56,918 INFO [test_masked_pipeline]                 Book.java:2057 | End of Book{test_masked_pipeline}
+2026-06-10 17:55:57,215 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#1/sheet#1.xml
+2026-06-10 17:55:57,552 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#2/sheet#2.xml
+2026-06-10 17:55:57,802 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#3/sheet#3.xml
+2026-06-10 17:55:58,088 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#4/sheet#4.xml
+2026-06-10 17:55:58,372 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#5/sheet#5.xml
+2026-06-10 17:55:58,612 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#6/sheet#6.xml
+2026-06-10 17:55:58,846 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#7/sheet#7.xml
+2026-06-10 17:55:59,116 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#8/sheet#8.xml
+2026-06-10 17:55:59,365 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#9/sheet#9.xml
+2026-06-10 17:55:59,544 INFO [test_masked_pipeline]            SheetStub.java:1000 | Loaded /sheet#10/sheet#10.xml
+2026-06-10 17:55:59,929 INFO [test_masked_pipeline]      PartwiseBuilder.java:2706 | Exporting sheet(s): [#1#2#3#4#5#6#7#8#9#10]
+2026-06-10 17:56:00,326 INFO [test_masked_pipeline]        ScoreExporter.java:164  | Score test_masked_pipeline exported to _smoke\dbgzip\test_out\test_masked_pipeline.mxl
+2026-06-10 17:56:00,404 INFO [test_masked_pipeline]                Score.java:181  | Closing {Score 1}

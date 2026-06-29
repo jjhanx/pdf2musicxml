@@ -1,0 +1,2054 @@
+[
+  {
+    "id": "sep_p1_0",
+    "page": 1,
+    "text": "AllRightsReserved",
+    "confidence": 1.0,
+    "x": 1269.9583333333333,
+    "y": 73.16666666666669,
+    "bbox": [
+      272.28,
+      13.48,
+      337.3,
+      21.64
+    ],
+    "type": "lyrics",
+    "fontSize": 8.16,
+    "fontname": "CIDFont+F3",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p1_1",
+    "page": 1,
+    "text": "Copyright©<Year>by<Name>",
+    "confidence": 1.0,
+    "x": 1269.875,
+    "y": 106.66666666666669,
+    "bbox": [
+      250.56,
+      21.52,
+      358.98,
+      29.68
+    ],
+    "type": "lyrics",
+    "fontSize": 8.16,
+    "fontname": "CIDFont+F3",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p1_2",
+    "page": 1,
+    "text": "솔",
+    "confidence": 1.0,
+    "x": 2297.0,
+    "y": 1865.8750000000002,
+    "bbox": [
+      546.24,
+      442.77,
+      556.32,
+      452.85
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p1_3",
+    "page": 1,
+    "text": "조",
+    "confidence": 1.0,
+    "x": 2297.0,
+    "y": 1913.3750000000002,
+    "bbox": [
+      546.24,
+      454.17,
+      556.32,
+      464.25
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p1_4",
+    "page": 1,
+    "text": "조",
+    "confidence": 1.0,
+    "x": 2297.0,
+    "y": 2179.375,
+    "bbox": [
+      546.24,
+      518.01,
+      556.32,
+      528.09
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p1_5",
+    "page": 1,
+    "text": "=75",
+    "confidence": 1.0,
+    "x": 424.83333333333337,
+    "y": 2344.2916666666674,
+    "bbox": [
+      94.8,
+      558.07,
+      109.12,
+      567.19
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p1_6",
+    "page": 1,
+    "text": "<Name>김효근",
+    "confidence": 1.0,
+    "x": 2238.2500000000005,
+    "y": 3176.833333333334,
+    "bbox": [
+      500.76,
+      756.38,
+      573.6,
+      768.5
+    ],
+    "type": "lyrics",
+    "fontSize": 11.44,
+    "fontname": "CIDFont+F3",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_0",
+    "page": 2,
+    "text": "솔",
+    "confidence": 1.0,
+    "x": 2246.5000000000005,
+    "y": 650.3750000000001,
+    "bbox": [
+      534.12,
+      151.05,
+      544.2,
+      161.13
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_1",
+    "page": 2,
+    "text": "내",
+    "confidence": 1.0,
+    "x": 2246.5000000000005,
+    "y": 697.8750000000001,
+    "bbox": [
+      534.12,
+      162.45,
+      544.2,
+      172.53
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_2",
+    "page": 2,
+    "text": "내",
+    "confidence": 1.0,
+    "x": 2246.5000000000005,
+    "y": 916.3750000000001,
+    "bbox": [
+      534.12,
+      214.89,
+      544.2,
+      224.97
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_3",
+    "page": 2,
+    "text": "미 디 레 디 라 디 레 레 도 도 라 라 피 라 시 레 도 시",
+    "confidence": 1.0,
+    "x": 1255.6875000000002,
+    "y": 1144.375,
+    "bbox": [
+      76.32,
+      269.61,
+      526.41,
+      279.69
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_4",
+    "page": 2,
+    "text": "작 은 발 - 자 국 을 영 원 히 남 기 고 싶 소 싶 - 소",
+    "confidence": 1.0,
+    "x": 1255.75,
+    "y": 1195.3333333333335,
+    "bbox": [
+      76.32,
+      280.82,
+      526.44,
+      292.94
+    ],
+    "type": "lyrics",
+    "fontSize": 10.31,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_5",
+    "page": 2,
+    "text": "작 - 은 발 - 자 국 을 영 원 히 남 기 고 싶 소",
+    "confidence": 1.0,
+    "x": 1140.6666666666667,
+    "y": 1461.3333333333335,
+    "bbox": [
+      76.32,
+      344.66,
+      471.2,
+      356.78
+    ],
+    "type": "lyrics",
+    "fontSize": 10.34,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_6",
+    "page": 2,
+    "text": "10",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 1641.7916666666667,
+    "bbox": [
+      42.48,
+      389.47,
+      51.6,
+      398.59
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_7",
+    "page": 2,
+    "text": "미 레 레 도 시 라 라 레 도 라 라 피 피 솔 솔 파 레 파",
+    "confidence": 1.0,
+    "x": 1315.75,
+    "y": 2737.3750000000005,
+    "bbox": [
+      76.32,
+      651.93,
+      555.24,
+      662.01
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_8",
+    "page": 2,
+    "text": "그 만 산 길 - 에 힌 눈 이 곱 게 쌓 이 면 쌓 이 면 내",
+    "confidence": 1.0,
+    "x": 1315.7708333333333,
+    "y": 2788.333333333334,
+    "bbox": [
+      76.32,
+      663.14,
+      555.25,
+      675.26
+    ],
+    "type": "lyrics",
+    "fontSize": 10.19,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_9",
+    "page": 2,
+    "text": "그 만 산 길 - 에 힌 눈 이 곱 게 쌓 이 면 내",
+    "confidence": 1.0,
+    "x": 1315.7708333333333,
+    "y": 3054.3333333333335,
+    "bbox": [
+      76.32,
+      726.98,
+      555.25,
+      739.1
+    ],
+    "type": "lyrics",
+    "fontSize": 10.22,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p2_10",
+    "page": 2,
+    "text": "6",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 3234.7916666666665,
+    "bbox": [
+      44.76,
+      771.79,
+      49.32,
+      780.91
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_0",
+    "page": 3,
+    "text": "솔 솔 도 시 라 라 레 레 미",
+    "confidence": 1.0,
+    "x": 1340.7291666666667,
+    "y": 650.3750000000001,
+    "bbox": [
+      76.32,
+      151.05,
+      567.23,
+      161.13
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_1",
+    "page": 3,
+    "text": "지 새 하 - 얀 산 길 을 헤",
+    "confidence": 1.0,
+    "x": 1340.8541666666665,
+    "y": 701.3333333333334,
+    "bbox": [
+      76.32,
+      162.26,
+      567.29,
+      174.38
+    ],
+    "type": "lyrics",
+    "fontSize": 10.31,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_2",
+    "page": 3,
+    "text": "지 새 하 - 얀 산 - 길 - 을 헤",
+    "confidence": 1.0,
+    "x": 1340.7083333333333,
+    "y": 919.8333333333334,
+    "bbox": [
+      76.32,
+      214.7,
+      567.22,
+      226.82
+    ],
+    "type": "lyrics",
+    "fontSize": 10.64,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_3",
+    "page": 3,
+    "text": "솔 솔 라 라 시 라 리 미",
+    "confidence": 1.0,
+    "x": 1599.5,
+    "y": 1144.375,
+    "bbox": [
+      200.52,
+      269.61,
+      567.24,
+      279.69
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_4",
+    "page": 3,
+    "text": "새 하 얀 산 길 - 을 헤",
+    "confidence": 1.0,
+    "x": 1599.4583333333335,
+    "y": 1195.3333333333335,
+    "bbox": [
+      200.52,
+      280.82,
+      567.22,
+      292.94
+    ],
+    "type": "lyrics",
+    "fontSize": 10.34,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_5",
+    "page": 3,
+    "text": "새 하 - 얀 산 - 길 - 을 헤",
+    "confidence": 1.0,
+    "x": 1599.4583333333335,
+    "y": 1461.3333333333335,
+    "bbox": [
+      200.52,
+      344.66,
+      567.22,
+      356.78
+    ],
+    "type": "lyrics",
+    "fontSize": 10.69,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_6",
+    "page": 3,
+    "text": "17",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 1641.7916666666667,
+    "bbox": [
+      42.48,
+      389.47,
+      51.6,
+      398.59
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_7",
+    "page": 3,
+    "text": "미 레 레 도 도 시 도라 라 레 도 라 피 피 라",
+    "confidence": 1.0,
+    "x": 1328.3541666666665,
+    "y": 2243.3750000000005,
+    "bbox": [
+      76.32,
+      533.37,
+      561.29,
+      543.45
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_8",
+    "page": 3,
+    "text": "작 은 마 - 음 - 이 하 얗 게 물 들 때 까",
+    "confidence": 1.0,
+    "x": 1328.2291666666667,
+    "y": 2294.333333333334,
+    "bbox": [
+      76.32,
+      544.58,
+      561.23,
+      556.7
+    ],
+    "type": "lyrics",
+    "fontSize": 10.37,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_9",
+    "page": 3,
+    "text": "작 은 마 - 음 - 이 하 얗 게 물 들 때 까",
+    "confidence": 1.0,
+    "x": 1328.3125,
+    "y": 2512.833333333333,
+    "bbox": [
+      76.32,
+      597.02,
+      561.27,
+      609.14
+    ],
+    "type": "lyrics",
+    "fontSize": 10.37,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p3_10",
+    "page": 3,
+    "text": "14",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 3234.7916666666665,
+    "bbox": [
+      42.48,
+      771.79,
+      51.6,
+      780.91
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_0",
+    "page": 4,
+    "text": "라 라 시 라 솔 미 미 레 시 도 도 도 라 레 디",
+    "confidence": 1.0,
+    "x": 1385.0000000000002,
+    "y": 650.3750000000001,
+    "bbox": [
+      96.72,
+      151.05,
+      568.08,
+      161.13
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_1",
+    "page": 4,
+    "text": "겨 울 새 소 리 멀 리 - 서 들 려 오 면 내 -",
+    "confidence": 1.0,
+    "x": 1378.6666666666667,
+    "y": 701.3333333333334,
+    "bbox": [
+      96.72,
+      162.26,
+      565.04,
+      174.38
+    ],
+    "type": "lyrics",
+    "fontSize": 10.35,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_2",
+    "page": 4,
+    "text": "겨 울 새 소 리 멀 리 - 서 들 려 오 면 내 -",
+    "confidence": 1.0,
+    "x": 1378.6666666666667,
+    "y": 919.8333333333334,
+    "bbox": [
+      96.72,
+      214.7,
+      565.04,
+      226.82
+    ],
+    "type": "lyrics",
+    "fontSize": 10.35,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_3",
+    "page": 4,
+    "text": "레 레 시 라 솔 솔 미 레 도 디 시 디",
+    "confidence": 1.0,
+    "x": 1342.4166666666665,
+    "y": 1144.375,
+    "bbox": [
+      76.32,
+      269.61,
+      568.04,
+      279.69
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_4",
+    "page": 4,
+    "text": "소 리 멀 리 서 들 려 오 면 - 내 -",
+    "confidence": 1.0,
+    "x": 1336.1666666666665,
+    "y": 1195.3333333333335,
+    "bbox": [
+      76.32,
+      280.82,
+      565.04,
+      292.94
+    ],
+    "type": "lyrics",
+    "fontSize": 10.42,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_5",
+    "page": 4,
+    "text": "소 리 멀 리 서 들 려 오 면 - 내 -",
+    "confidence": 1.0,
+    "x": 1336.1666666666665,
+    "y": 1461.3333333333335,
+    "bbox": [
+      76.32,
+      344.66,
+      565.04,
+      356.78
+    ],
+    "type": "lyrics",
+    "fontSize": 10.42,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_6",
+    "page": 4,
+    "text": "23",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 1641.7916666666667,
+    "bbox": [
+      42.48,
+      389.47,
+      51.6,
+      398.59
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_7",
+    "page": 4,
+    "text": "도 도 솔 솔 도 도 시 도 도 시 라",
+    "confidence": 1.0,
+    "x": 1207.166666666667,
+    "y": 2243.3750000000005,
+    "bbox": [
+      76.32,
+      533.37,
+      503.12,
+      543.45
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_8",
+    "page": 4,
+    "text": "메 이 고 싶 소 외 로 외 로 - 운",
+    "confidence": 1.0,
+    "x": 1207.2500000000002,
+    "y": 2294.333333333334,
+    "bbox": [
+      76.32,
+      544.58,
+      503.16,
+      556.7
+    ],
+    "type": "lyrics",
+    "fontSize": 10.27,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_9",
+    "page": 4,
+    "text": "메 이 고 싶 소 외 로 외 로 - 운",
+    "confidence": 1.0,
+    "x": 1207.2500000000002,
+    "y": 2512.833333333333,
+    "bbox": [
+      76.32,
+      597.02,
+      503.16,
+      609.14
+    ],
+    "type": "lyrics",
+    "fontSize": 10.27,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_10",
+    "page": 4,
+    "text": "도 레 시 라 솔 솔 도 시 라 라 파 미",
+    "confidence": 1.0,
+    "x": 1328.7708333333333,
+    "y": 2737.3750000000005,
+    "bbox": [
+      76.32,
+      651.93,
+      561.49,
+      662.01
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_11",
+    "page": 4,
+    "text": "메 이 고 싶 - 소 외 로 운 겨 울 새",
+    "confidence": 1.0,
+    "x": 1328.8333333333333,
+    "y": 2788.333333333334,
+    "bbox": [
+      76.32,
+      663.14,
+      561.52,
+      675.26
+    ],
+    "type": "lyrics",
+    "fontSize": 10.25,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_12",
+    "page": 4,
+    "text": "메 이 고 싶 - 소 외 로 운 겨 울 새",
+    "confidence": 1.0,
+    "x": 1328.8333333333333,
+    "y": 3054.3333333333335,
+    "bbox": [
+      76.32,
+      726.98,
+      561.52,
+      739.1
+    ],
+    "type": "lyrics",
+    "fontSize": 10.25,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p4_13",
+    "page": 4,
+    "text": "20",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 3234.7916666666665,
+    "bbox": [
+      42.48,
+      771.79,
+      51.6,
+      780.91
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_0",
+    "page": 5,
+    "text": "솔 솔 미 레 레 도 도 시 도 라 레 도 라 라 피 라",
+    "confidence": 1.0,
+    "x": 1345.7708333333335,
+    "y": 650.3750000000001,
+    "bbox": [
+      76.32,
+      151.05,
+      569.65,
+      161.13
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_1",
+    "page": 5,
+    "text": "오 가 슴 에 새 겨 보 리 라 순 결 한 님 의 목 소",
+    "confidence": 1.0,
+    "x": 1345.7708333333335,
+    "y": 697.8750000000001,
+    "bbox": [
+      76.32,
+      162.45,
+      569.65,
+      172.53
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_2",
+    "page": 5,
+    "text": "오 가 슴 에 새 겨 보 리 라 순 결 한 님 의 목 소",
+    "confidence": 1.0,
+    "x": 1345.7708333333335,
+    "y": 916.3750000000001,
+    "bbox": [
+      76.32,
+      214.89,
+      569.65,
+      224.97
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_3",
+    "page": 5,
+    "text": "레파 도 도 레 시 도 레 도 라 라 레 도 라 라 피 라",
+    "confidence": 1.0,
+    "x": 1350.4583333333335,
+    "y": 1144.375,
+    "bbox": [
+      78.6,
+      269.61,
+      569.62,
+      279.69
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_4",
+    "page": 5,
+    "text": "오 가 슴 에 새 겨 보 리 라 순 결 한 님 의 목 소",
+    "confidence": 1.0,
+    "x": 1350.4583333333335,
+    "y": 1191.875,
+    "bbox": [
+      78.6,
+      281.01,
+      569.62,
+      291.09
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_5",
+    "page": 5,
+    "text": "오 가 슴 에 새 겨 보 리 라 순 결 한 님 의 목 소",
+    "confidence": 1.0,
+    "x": 1350.4583333333335,
+    "y": 1457.875,
+    "bbox": [
+      78.6,
+      344.85,
+      569.62,
+      354.93
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_6",
+    "page": 5,
+    "text": "29",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 1641.7916666666667,
+    "bbox": [
+      42.48,
+      389.47,
+      51.6,
+      398.59
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_7",
+    "page": 5,
+    "text": "레 디 레 미 레 도 시 라 라 파 파 피 피 피 피",
+    "confidence": 1.0,
+    "x": 1343.25,
+    "y": 2243.3750000000005,
+    "bbox": [
+      76.32,
+      533.37,
+      568.44,
+      543.45
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_8",
+    "page": 5,
+    "text": "공 상 에 파 문 이 일 어 갈 길 을 잊 어 버 리",
+    "confidence": 1.0,
+    "x": 1343.25,
+    "y": 2290.875,
+    "bbox": [
+      76.32,
+      544.77,
+      568.44,
+      554.85
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_9",
+    "page": 5,
+    "text": "공 상 에 파 문 이 일 어 갈 길 을 잊 어 버 리",
+    "confidence": 1.0,
+    "x": 1343.25,
+    "y": 2509.375,
+    "bbox": [
+      76.32,
+      597.21,
+      568.44,
+      607.29
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_10",
+    "page": 5,
+    "text": "레 디 레 미 레 도 시 라 라 도 도 메 메 메 메",
+    "confidence": 1.0,
+    "x": 1343.25,
+    "y": 2737.3750000000005,
+    "bbox": [
+      76.32,
+      651.93,
+      568.44,
+      662.01
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_11",
+    "page": 5,
+    "text": "공 상 에 파 문 이 일 어 갈 길 을 잊 어 버 리",
+    "confidence": 1.0,
+    "x": 1343.25,
+    "y": 2784.875,
+    "bbox": [
+      76.32,
+      663.33,
+      568.44,
+      673.41
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_12",
+    "page": 5,
+    "text": "공 상 에 파 문 이 일 어 갈 길 을 잊 어 버 리",
+    "confidence": 1.0,
+    "x": 1343.25,
+    "y": 3050.8750000000005,
+    "bbox": [
+      76.32,
+      727.17,
+      568.44,
+      737.25
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p5_13",
+    "page": 5,
+    "text": "26",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 3234.7916666666665,
+    "bbox": [
+      42.48,
+      771.79,
+      51.6,
+      780.91
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_0",
+    "page": 6,
+    "text": "도",
+    "confidence": 1.0,
+    "x": 339.0,
+    "y": 650.3750000000001,
+    "bbox": [
+      76.32,
+      151.05,
+      86.4,
+      161.13
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_1",
+    "page": 6,
+    "text": "오",
+    "confidence": 1.0,
+    "x": 339.0,
+    "y": 697.8750000000001,
+    "bbox": [
+      76.32,
+      162.45,
+      86.4,
+      172.53
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_2",
+    "page": 6,
+    "text": "오",
+    "confidence": 1.0,
+    "x": 339.0,
+    "y": 916.3750000000001,
+    "bbox": [
+      76.32,
+      214.89,
+      86.4,
+      224.97
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_3",
+    "page": 6,
+    "text": "도",
+    "confidence": 1.0,
+    "x": 339.0,
+    "y": 1144.375,
+    "bbox": [
+      76.32,
+      269.61,
+      86.4,
+      279.69
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_4",
+    "page": 6,
+    "text": "-",
+    "confidence": 1.0,
+    "x": 338.9166666666667,
+    "y": 1195.3333333333335,
+    "bbox": [
+      79.32,
+      280.82,
+      83.36,
+      292.94
+    ],
+    "type": "lyrics",
+    "fontSize": 12.12,
+    "fontname": "CIDFont+F3",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_5",
+    "page": 6,
+    "text": "-",
+    "confidence": 1.0,
+    "x": 338.9166666666667,
+    "y": 1461.3333333333335,
+    "bbox": [
+      79.32,
+      344.66,
+      83.36,
+      356.78
+    ],
+    "type": "lyrics",
+    "fontSize": 12.12,
+    "fontname": "CIDFont+F3",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_6",
+    "page": 6,
+    "text": "37",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 1641.7916666666667,
+    "bbox": [
+      42.48,
+      389.47,
+      51.6,
+      398.59
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_7",
+    "page": 6,
+    "text": "솔 솔 도 레 미 파 미 레 미 파 솔 미 파 레 도 시",
+    "confidence": 1.0,
+    "x": 1342.8333333333333,
+    "y": 2243.3750000000005,
+    "bbox": [
+      76.32,
+      533.37,
+      568.24,
+      543.45
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_8",
+    "page": 6,
+    "text": "리 바 람 결 에 실 려 오 는 가 흰 눈 되 어 온 다",
+    "confidence": 1.0,
+    "x": 1342.8333333333333,
+    "y": 2290.875,
+    "bbox": [
+      76.32,
+      544.77,
+      568.24,
+      554.85
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_9",
+    "page": 6,
+    "text": "리 바 람 결 에 실 려 오 는 가 흰 눈 되 어 온 다",
+    "confidence": 1.0,
+    "x": 1342.8333333333333,
+    "y": 2509.375,
+    "bbox": [
+      76.32,
+      597.21,
+      568.24,
+      607.29
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_10",
+    "page": 6,
+    "text": "솔 도 레 도 시 라 시 디 레 라 리 도 시",
+    "confidence": 1.0,
+    "x": 1256.7291666666667,
+    "y": 2737.3750000000005,
+    "bbox": [
+      76.32,
+      651.93,
+      526.91,
+      662.01
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_11",
+    "page": 6,
+    "text": "리 바 - 람 결 에 실 려 오 는 가 아 -",
+    "confidence": 1.0,
+    "x": 1250.4166666666667,
+    "y": 2788.333333333334,
+    "bbox": [
+      76.32,
+      663.14,
+      523.88,
+      675.26
+    ],
+    "type": "lyrics",
+    "fontSize": 10.39,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_12",
+    "page": 6,
+    "text": "리 바 - 람 결 에 실 려 오 는 가 아 -",
+    "confidence": 1.0,
+    "x": 1250.4166666666667,
+    "y": 3054.3333333333335,
+    "bbox": [
+      76.32,
+      726.98,
+      523.88,
+      739.1
+    ],
+    "type": "lyrics",
+    "fontSize": 10.39,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p6_13",
+    "page": 6,
+    "text": "33",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 3234.7916666666665,
+    "bbox": [
+      42.48,
+      771.79,
+      51.6,
+      780.91
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_0",
+    "page": 7,
+    "text": "도 도 도 도 도 시 라 세 세 세 세 미",
+    "confidence": 1.0,
+    "x": 1332.2291666666667,
+    "y": 650.3750000000001,
+    "bbox": [
+      96.0,
+      151.05,
+      543.47,
+      161.13
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_1",
+    "page": 7,
+    "text": "숲 사 이 로 내 마 음 달 려 가 나 아",
+    "confidence": 1.0,
+    "x": 1332.2291666666667,
+    "y": 697.8750000000001,
+    "bbox": [
+      96.0,
+      162.45,
+      543.47,
+      172.53
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_2",
+    "page": 7,
+    "text": "숲 사 이 로 내 마 음 달 려 가 나 아",
+    "confidence": 1.0,
+    "x": 1332.2291666666667,
+    "y": 916.3750000000001,
+    "bbox": [
+      96.0,
+      214.89,
+      543.47,
+      224.97
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_3",
+    "page": 7,
+    "text": "도 도 시 라 솔 라 시 세 시",
+    "confidence": 1.0,
+    "x": 1291.1666666666667,
+    "y": 1144.375,
+    "bbox": [
+      76.32,
+      269.61,
+      543.44,
+      279.69
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_4",
+    "page": 7,
+    "text": "로 내 마 음 달 려 가 나 아",
+    "confidence": 1.0,
+    "x": 1291.1666666666667,
+    "y": 1191.875,
+    "bbox": [
+      76.32,
+      281.01,
+      543.44,
+      291.09
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_5",
+    "page": 7,
+    "text": "로 내 마 음 달 려 가 나 아",
+    "confidence": 1.0,
+    "x": 1291.1666666666667,
+    "y": 1457.875,
+    "bbox": [
+      76.32,
+      344.85,
+      543.44,
+      354.93
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_6",
+    "page": 7,
+    "text": "43",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 1641.7916666666667,
+    "bbox": [
+      42.48,
+      389.47,
+      51.6,
+      398.59
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_7",
+    "page": 7,
+    "text": "도 시 라",
+    "confidence": 1.0,
+    "x": 1961.5625,
+    "y": 2243.3750000000005,
+    "bbox": [
+      441.24,
+      533.37,
+      500.31,
+      543.45
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_8",
+    "page": 7,
+    "text": "저 멀 리",
+    "confidence": 1.0,
+    "x": 1961.5625,
+    "y": 2290.875,
+    "bbox": [
+      441.24,
+      544.77,
+      500.31,
+      554.85
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_9",
+    "page": 7,
+    "text": "저 멀 리",
+    "confidence": 1.0,
+    "x": 1961.5625,
+    "y": 2509.375,
+    "bbox": [
+      441.24,
+      597.21,
+      500.31,
+      607.29
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_10",
+    "page": 7,
+    "text": "도 시 라 도 시 라",
+    "confidence": 1.0,
+    "x": 1924.8958333333335,
+    "y": 2737.3750000000005,
+    "bbox": [
+      363.24,
+      651.93,
+      560.71,
+      662.01
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_11",
+    "page": 7,
+    "text": "저 멀 리 숲 사 이",
+    "confidence": 1.0,
+    "x": 1924.8958333333335,
+    "y": 2784.875,
+    "bbox": [
+      363.24,
+      663.33,
+      560.71,
+      673.41
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_12",
+    "page": 7,
+    "text": "저 멀 리 숲 사 이",
+    "confidence": 1.0,
+    "x": 1924.8958333333335,
+    "y": 3050.8750000000005,
+    "bbox": [
+      363.24,
+      727.17,
+      560.71,
+      737.25
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p7_13",
+    "page": 7,
+    "text": "40",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 3234.7916666666665,
+    "bbox": [
+      42.48,
+      771.79,
+      51.6,
+      780.91
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_0",
+    "page": 8,
+    "text": "세 솔 미 레 레 도 도 시",
+    "confidence": 1.0,
+    "x": 1356.7916666666667,
+    "y": 650.3750000000001,
+    "bbox": [
+      82.44,
+      151.05,
+      568.82,
+      161.13
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_1",
+    "page": 8,
+    "text": "오 눈 감 고 들 러 보 리",
+    "confidence": 1.0,
+    "x": 1356.7916666666667,
+    "y": 697.8750000000001,
+    "bbox": [
+      82.44,
+      162.45,
+      568.82,
+      172.53
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_2",
+    "page": 8,
+    "text": "오 눈 감 고 들 러 보 리",
+    "confidence": 1.0,
+    "x": 1356.7916666666667,
+    "y": 916.3750000000001,
+    "bbox": [
+      82.44,
+      214.89,
+      568.82,
+      224.97
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_3",
+    "page": 8,
+    "text": "세 솔 미 레 레 도 도 시",
+    "confidence": 1.0,
+    "x": 1356.7916666666667,
+    "y": 1144.375,
+    "bbox": [
+      82.44,
+      269.61,
+      568.82,
+      279.69
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_4",
+    "page": 8,
+    "text": "오 눈 감 고 들 러 보 리",
+    "confidence": 1.0,
+    "x": 1356.7916666666667,
+    "y": 1191.875,
+    "bbox": [
+      82.44,
+      281.01,
+      568.82,
+      291.09
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_5",
+    "page": 8,
+    "text": "오 눈 감 고 들 러 보 리",
+    "confidence": 1.0,
+    "x": 1356.7916666666667,
+    "y": 1457.875,
+    "bbox": [
+      82.44,
+      344.85,
+      568.82,
+      354.93
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_6",
+    "page": 8,
+    "text": "49",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 1641.7916666666667,
+    "bbox": [
+      42.48,
+      389.47,
+      51.6,
+      398.59
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_7",
+    "page": 8,
+    "text": "라 라 라 라 라 파 미 레 레 도 시 라 세 세 라 시",
+    "confidence": 1.0,
+    "x": 1342.0000000000002,
+    "y": 2243.3750000000005,
+    "bbox": [
+      76.32,
+      533.37,
+      567.84,
+      543.45
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_8",
+    "page": 8,
+    "text": "겨 울 새 보 이 지 않 고 힌 여 운 만 남 아 있 다",
+    "confidence": 1.0,
+    "x": 1342.0000000000002,
+    "y": 2290.875,
+    "bbox": [
+      76.32,
+      544.77,
+      567.84,
+      554.85
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_9",
+    "page": 8,
+    "text": "겨 울 새 보 이 지 않 고 힌 여 운 만 남 아 있 다",
+    "confidence": 1.0,
+    "x": 1342.0000000000002,
+    "y": 2509.375,
+    "bbox": [
+      76.32,
+      597.21,
+      567.84,
+      607.29
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_10",
+    "page": 8,
+    "text": "도 시 도 도 도 파 미 레 레 도 시 라 세 세 라 시",
+    "confidence": 1.0,
+    "x": 1342.0000000000002,
+    "y": 2737.3750000000005,
+    "bbox": [
+      76.32,
+      651.93,
+      567.84,
+      662.01
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_11",
+    "page": 8,
+    "text": "겨 울 새 보 이 지 않 고 힌 여 운 만 남 아 있 다",
+    "confidence": 1.0,
+    "x": 1342.0000000000002,
+    "y": 2784.875,
+    "bbox": [
+      76.32,
+      663.33,
+      567.84,
+      673.41
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_12",
+    "page": 8,
+    "text": "겨 울 새 보 이 지 않 고 힌 여 운 만 남 아 있 다",
+    "confidence": 1.0,
+    "x": 1342.0000000000002,
+    "y": 3050.8750000000005,
+    "bbox": [
+      76.32,
+      727.17,
+      567.84,
+      737.25
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p8_13",
+    "page": 8,
+    "text": "46",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 3234.7916666666665,
+    "bbox": [
+      42.48,
+      771.79,
+      51.6,
+      780.91
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_0",
+    "page": 9,
+    "text": "레 파 솔 도 도 솔 솔 솔 솔 도",
+    "confidence": 1.0,
+    "x": 1120.0208333333335,
+    "y": 650.3750000000001,
+    "bbox": [
+      76.32,
+      151.05,
+      461.29,
+      161.13
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_1",
+    "page": 9,
+    "text": "- - 산 길 을 걸 어 간 다 오",
+    "confidence": 1.0,
+    "x": 1126.2708333333335,
+    "y": 701.3333333333334,
+    "bbox": [
+      79.32,
+      162.26,
+      461.29,
+      174.38
+    ],
+    "type": "lyrics",
+    "fontSize": 10.49,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_2",
+    "page": 9,
+    "text": "- - - 산 길 을 걸 어 간 다 오",
+    "confidence": 1.0,
+    "x": 1126.2708333333335,
+    "y": 919.8333333333334,
+    "bbox": [
+      79.32,
+      214.7,
+      461.29,
+      226.82
+    ],
+    "type": "lyrics",
+    "fontSize": 10.64,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_3",
+    "page": 9,
+    "text": "라 도 레 솔 미 미 파 미 레 도 도",
+    "confidence": 1.0,
+    "x": 1120.0208333333335,
+    "y": 1144.375,
+    "bbox": [
+      76.32,
+      269.61,
+      461.29,
+      279.69
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_4",
+    "page": 9,
+    "text": "눈 되 어 산 길 을 걸 어 간 다 오",
+    "confidence": 1.0,
+    "x": 1120.0208333333335,
+    "y": 1191.875,
+    "bbox": [
+      76.32,
+      281.01,
+      461.29,
+      291.09
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_5",
+    "page": 9,
+    "text": "눈 되 어 산 길 을 걸 어 간 다 오",
+    "confidence": 1.0,
+    "x": 1120.0208333333335,
+    "y": 1457.875,
+    "bbox": [
+      76.32,
+      344.85,
+      461.29,
+      354.93
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_6",
+    "page": 9,
+    "text": "57",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 1641.7916666666667,
+    "bbox": [
+      42.48,
+      389.47,
+      51.6,
+      398.59
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_7",
+    "page": 9,
+    "text": "도 라 파 미 레 라 시 도 시 도 라",
+    "confidence": 1.0,
+    "x": 1243.0833333333335,
+    "y": 2243.3750000000005,
+    "bbox": [
+      76.32,
+      533.37,
+      520.36,
+      543.45
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_8",
+    "page": 9,
+    "text": "라 끝 없 는 님 의 노 래 여 음 -",
+    "confidence": 1.0,
+    "x": 1236.6666666666665,
+    "y": 2294.333333333334,
+    "bbox": [
+      76.32,
+      544.58,
+      517.28,
+      556.7
+    ],
+    "type": "lyrics",
+    "fontSize": 10.27,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_9",
+    "page": 9,
+    "text": "라 끝 없 는 님 의 노 래 여 음 -",
+    "confidence": 1.0,
+    "x": 1236.6666666666665,
+    "y": 2512.833333333333,
+    "bbox": [
+      76.32,
+      597.02,
+      517.28,
+      609.14
+    ],
+    "type": "lyrics",
+    "fontSize": 10.27,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_10",
+    "page": 9,
+    "text": "도 라 파 미 레 라 시 도 시 솔 도 레 디 레 디",
+    "confidence": 1.0,
+    "x": 1342.4166666666665,
+    "y": 2737.3750000000005,
+    "bbox": [
+      76.32,
+      651.93,
+      568.04,
+      662.01
+    ],
+    "type": "lyrics",
+    "fontSize": 10.08,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_11",
+    "page": 9,
+    "text": "라 끝 없 는 임 의 노 래 여 나 어 느 새 힌 -",
+    "confidence": 1.0,
+    "x": 1336.1666666666665,
+    "y": 2788.333333333334,
+    "bbox": [
+      76.32,
+      663.14,
+      565.04,
+      675.26
+    ],
+    "type": "lyrics",
+    "fontSize": 10.22,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_12",
+    "page": 9,
+    "text": "라 끝 없 는 임 의 노 래 여 나 어 느 새 힌 -",
+    "confidence": 1.0,
+    "x": 1336.1666666666665,
+    "y": 3054.3333333333335,
+    "bbox": [
+      76.32,
+      726.98,
+      565.04,
+      739.1
+    ],
+    "type": "lyrics",
+    "fontSize": 10.22,
+    "fontname": "CIDFont+F2",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p9_13",
+    "page": 9,
+    "text": "53",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 3234.7916666666665,
+    "bbox": [
+      42.48,
+      771.79,
+      51.6,
+      780.91
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  },
+  {
+    "id": "sep_p10_0",
+    "page": 10,
+    "text": "61",
+    "confidence": 1.0,
+    "x": 196.0,
+    "y": 2604.7916666666674,
+    "bbox": [
+      42.48,
+      620.59,
+      51.6,
+      629.71
+    ],
+    "type": "lyrics",
+    "fontSize": 9.12,
+    "fontname": "CIDFont+F5",
+    "provenance": "pdfplumber"
+  }
+]

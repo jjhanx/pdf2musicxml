@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>OSMD tie test</title>
+<script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.9/build/opensheetmusicdisplay.min.js"></script>
+<style>body{background:#fff}</style>
+</head>
+<body>
+<div id="host"></div>
+<pre id="out"></pre>
+<script>
+const XML = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P5"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P5">
+    <measure number="1">
+      <attributes>
+        <divisions>2</divisions>
+        <key><fifths>1</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <staves>2</staves>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+        <clef number="2"><sign>F</sign><line>4</line></clef>
+      </attributes>
+      <note><rest/><duration>8</duration><voice>1</voice><staff>1</staff></note>
+      <backup><duration>8</duration></backup>
+      <note>
+        <pitch><step>E</step><octave>2</octave></pitch>
+        <duration>2</duration>
+        <tie type="start"/>
+        <voice>5</voice><type>quarter</type><stem>up</stem><staff>2</staff>
+        <notations><tied type="start" orientation="under"/></notations>
+      </note>
+      <note>
+        <pitch><step>E</step><octave>2</octave></pitch>
+        <duration>2</duration>
+        <tie type="stop"/>
+        <voice>5</voice><type>quarter</type><stem>up</stem><staff>2</staff>
+        <notations><tied type="stop"/></notations>
+      </note>
+      <note>
+        <chord/>
+        <pitch><step>E</step><octave>3</octave></pitch>
+        <duration>2</duration>
+        <voice>5</voice><type>quarter</type><stem>up</stem><staff>2</staff>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>2</octave></pitch>
+        <duration>2</duration>
+        <tie type="start"/>
+        <voice>5</voice><type>quarter</type><stem>up</stem><staff>2</staff>
+        <notations><tied type="start" orientation="under"/></notations>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>2</octave></pitch>
+        <duration>2</duration>
+        <tie type="stop"/>
+        <voice>5</voice><type>quarter</type><stem>up</stem><staff>2</staff>
+        <notations><tied type="stop"/></notations>
+      </note>
+      <note>
+        <chord/>
+        <pitch><step>D</step><octave>3</octave></pitch>
+        <duration>2</duration>
+        <voice>5</voice><type>quarter</type><stem>up</stem><staff>2</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
+  document.getElementById('host'),
+  { autoResize: false, backend: 'svg', drawTitle: false }
+);
+osmd.load(XML).then(() => {
+  osmd.zoom = 1.2;
+  osmd.render();
+  const svg = document.querySelector('#host svg');
+  const ties = svg ? svg.querySelectorAll('.vf-stavetie, path').length : -1;
+  document.getElementById('out').textContent = 'rendered; path count=' + ties;
+}).catch(e => {
+  document.getElementById('out').textContent = 'ERROR: ' + e;
+});
+</script>
+</body>
+</html>

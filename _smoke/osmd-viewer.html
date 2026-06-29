@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>OSMD viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.9/build/opensheetmusicdisplay.min.js"></script>
+<style>body{background:#fff;margin:0}</style>
+</head>
+<body>
+<div id="host"></div>
+<pre id="out"></pre>
+<script>
+const params = new URLSearchParams(location.search);
+const file = params.get('f') || 'fixed_v6.xml';
+const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
+  document.getElementById('host'),
+  { autoResize: false, backend: 'svg', drawTitle: false }
+);
+window.osmd = osmd;
+if (params.get('alltuplets') === '1') {
+  osmd.EngravingRules.TupletNumberLimitConsecutiveRepetitions = false;
+  osmd.EngravingRules.TupletNumberAlwaysDisableAfterFirstMax = false;
+  osmd.EngravingRules.TupletNumberUseShowNoneAsModifier = true;
+}
+function sanitize(xml) {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    const local = (el) => (el.localName || el.tagName || '').toLowerCase();
+    doc.querySelectorAll('*').forEach((el) => { if (local(el) === 'octave-shift') el.remove(); });
+    doc.querySelectorAll('*').forEach((el) => {
+      if (local(el) === 'direction-type' && el.childElementCount === 0 && !el.textContent?.trim()) el.remove();
+    });
+    doc.querySelectorAll('*').forEach((el) => {
+      if (local(el) !== 'direction') return;
+      if (![...el.children].some((c) => local(c) === 'direction-type')) el.remove();
+    });
+    return new XMLSerializer().serializeToString(doc);
+  } catch { return xml; }
+}
+fetch(file).then(r => r.text()).then(xml => osmd.load(sanitize(xml))).then(() => {
+  osmd.zoom = 0.7;
+  osmd.render();
+  document.getElementById('out').textContent = 'rendered OK';
+  window.__done = true;
+}).catch(e => {
+  document.getElementById('out').textContent = 'ERROR: ' + e;
+  window.__done = true;
+});
+</script>
+</body>
+</html>

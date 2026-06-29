@@ -1,0 +1,387 @@
+<measure number="40" width="348">
+  <note default-x="23">
+    <pitch>
+      <step>B</step>
+      <octave>4</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="-55">down</stem>
+    <staff>1</staff>
+    <beam number="1">begin</beam>
+    <notations>
+      <tuplet type="start" number="1" placement="below" show-number="actual" show-bracket="no" bracket="no" />
+    </notations>
+  </note>
+  <note default-x="23">
+    <chord />
+    <pitch>
+      <step>B</step>
+      <octave>5</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="-55">down</stem>
+    <staff>1</staff>
+    <beam number="1">begin</beam>
+  </note>
+  <note default-x="51">
+    <pitch>
+      <step>F</step>
+      <alter>1</alter>
+      <octave>5</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="-51">down</stem>
+    <staff>1</staff>
+    <beam number="1">continue</beam>
+  </note>
+  <note default-x="93">
+    <pitch>
+      <step>D</step>
+      <alter>1</alter>
+      <octave>5</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <accidental>sharp</accidental>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="-45">down</stem>
+    <staff>1</staff>
+    <beam number="1">end</beam>
+    <notations>
+      <tuplet type="stop" number="1" />
+    </notations>
+  </note>
+  <note default-x="135">
+    <pitch>
+      <step>B</step>
+      <octave>4</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="16">up</stem>
+    <staff>1</staff>
+    <beam number="1">begin</beam>
+    <notations>
+      <tuplet type="start" number="1" placement="above" show-number="actual" show-bracket="no" bracket="no" />
+    </notations>
+  </note>
+  <note default-x="164">
+    <pitch>
+      <step>F</step>
+      <alter>1</alter>
+      <octave>4</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="6">up</stem>
+    <staff>1</staff>
+    <beam number="1">continue</beam>
+  </note>
+  <note default-x="205">
+    <pitch>
+      <step>D</step>
+      <alter>1</alter>
+      <octave>4</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <accidental>sharp</accidental>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="-8">up</stem>
+    <staff>1</staff>
+    <beam number="1">end</beam>
+    <notations>
+      <tuplet type="stop" number="1" />
+    </notations>
+  </note>
+  <note default-x="233">
+    <pitch>
+      <step>D</step>
+      <alter>1</alter>
+      <octave>4</octave>
+    </pitch>
+    <duration>6</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <stem default-y="15">up</stem>
+    <staff>1</staff>
+  </note>
+  <note default-x="233">
+    <chord />
+    <pitch>
+      <step>F</step>
+      <alter>1</alter>
+      <octave>4</octave>
+    </pitch>
+    <duration>6</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <stem default-y="15">up</stem>
+    <staff>1</staff>
+  </note>
+  <note default-x="233">
+    <chord />
+    <pitch>
+      <step>A</step>
+      <octave>4</octave>
+    </pitch>
+    <duration>6</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <stem default-y="15">up</stem>
+    <staff>1</staff>
+  </note>
+  <note default-x="244">
+    <chord />
+    <pitch>
+      <step>B</step>
+      <octave>4</octave>
+    </pitch>
+    <duration>6</duration>
+    <voice>1</voice>
+    <type>eighth</type>
+    <stem default-y="15">up</stem>
+    <staff>1</staff>
+  </note>
+  <note default-x="284">
+    <rest>
+      <display-step>B</display-step>
+      <display-octave>4</display-octave>
+    </rest>
+    <duration>18</duration>
+    <voice>1</voice>
+    <type>quarter</type>
+    <staff>1</staff>
+  </note>
+  <backup>
+    <duration>48</duration>
+  </backup>
+  <note default-x="24">
+    <pitch>
+      <step>B</step>
+      <octave>1</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>5</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="6">up</stem>
+    <staff>2</staff>
+    <beam number="1">begin</beam>
+    <notations>
+      <tuplet type="start" number="1" placement="above" show-number="actual" show-bracket="no" bracket="no" />
+    </notations>
+  </note>
+  <note default-x="24">
+    <chord />
+    <pitch>
+      <step>B</step>
+      <octave>2</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>5</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="6">up</stem>
+    <staff>2</staff>
+    <beam number="1">begin</beam>
+  </note>
+  <note default-x="52">
+    <pitch>
+      <step>F</step>
+      <alter>1</alter>
+      <octave>2</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>5</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="6">up</stem>
+    <staff>2</staff>
+    <beam number="1">continue</beam>
+  </note>
+  <note default-x="94">
+    <pitch>
+      <step>B</step>
+      <octave>2</octave>
+    </pitch>
+    <duration>4</duration>
+    <voice>5</voice>
+    <type>eighth</type>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <stem default-y="6">up</stem>
+    <staff>2</staff>
+    <beam number="1">end</beam>
+    <notations>
+      <tuplet type="stop" number="1" />
+    </notations>
+  </note>
+  <note default-x="135">
+    <pitch>
+      <step>D</step>
+      <alter>1</alter>
+      <octave>3</octave>
+    </pitch>
+    <duration>4</duration>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <voice>5</voice>
+    <type>eighth</type>
+    <accidental>sharp</accidental>
+    <stem default-y="-55">down</stem>
+    <staff>2</staff>
+    <beam number="1">begin</beam>
+    <notations>
+      <tuplet type="start" show-number="actual" show-bracket="no" bracket="no" placement="below" />
+    </notations>
+  </note>
+  <note default-x="163">
+    <pitch>
+      <step>F</step>
+      <alter>1</alter>
+      <octave>3</octave>
+    </pitch>
+    <duration>4</duration>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <voice>5</voice>
+    <type>eighth</type>
+    <stem default-y="-59">down</stem>
+    <staff>2</staff>
+    <beam number="1">continue</beam>
+  </note>
+  <note default-x="204">
+    <pitch>
+      <step>B</step>
+      <octave>2</octave>
+    </pitch>
+    <duration>4</duration>
+    <time-modification>
+      <actual-notes>3</actual-notes>
+      <normal-notes>2</normal-notes>
+      <normal-type>eighth</normal-type>
+    </time-modification>
+    <voice>5</voice>
+    <type>eighth</type>
+    <stem default-y="-65">down</stem>
+    <staff>2</staff>
+    <beam number="1">end</beam>
+    <notations>
+      <tuplet type="stop" />
+      <slur number="13" type="start" />
+      <slur number="12" type="start" />
+    </notations>
+  </note>
+  <note default-x="232">
+    <pitch>
+      <step>B</step>
+      <octave>2</octave>
+    </pitch>
+    <duration>12</duration>
+    <voice>5</voice>
+    <type>quarter</type>
+    <stem default-y="-63">down</stem>
+    <staff>2</staff>
+    <notations>
+      <slur number="13" type="stop" />
+      <slur number="12" type="stop" />
+    </notations>
+  </note>
+  <note default-x="232">
+    <chord />
+    <pitch>
+      <step>B</step>
+      <octave>3</octave>
+    </pitch>
+    <duration>12</duration>
+    <voice>5</voice>
+    <type>quarter</type>
+    <stem default-y="-63">down</stem>
+    <staff>2</staff>
+  </note>
+  <backup>
+    <duration>42</duration>
+  </backup>
+  <forward>
+    <duration>36</duration>
+    <voice>6</voice>
+    <staff>2</staff>
+  </forward>
+  <note default-x="284">
+    <rest>
+      <display-step>D</display-step>
+      <display-octave>3</display-octave>
+    </rest>
+    <duration>12</duration>
+    <voice>6</voice>
+    <type>quarter</type>
+    <staff>2</staff>
+  </note>
+</measure>
+    
+    

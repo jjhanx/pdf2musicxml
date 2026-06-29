@@ -231,7 +231,8 @@ function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
     : '';
   const arts = el.articulations?.length ? ` [${el.articulations.join(', ')}]` : '';
   const beam = el.beams?.length ? ` beam=[${el.beams.join(',')}]` : '';
-  return `#${idx} ${el.pitch ?? '?'} ${el.type ?? ''}${dots}${tie}${chord}${tuplet}${beam}${arts}${el.stem ? ` stem=${el.stem}` : ''}`;
+  const dur = el.duration != null ? ` dur=${el.duration}` : '';
+  return `#${idx} ${el.pitch ?? '?'} ${el.type ?? ''}${dots}${tie}${chord}${tuplet}${beam}${dur}${arts}${el.stem ? ` stem=${el.stem}` : ''}`;
 }
 
 export function OmrMeasureEditor({
@@ -457,6 +458,11 @@ function MeasureNoteEditor({
   const beamEndNote = noteEls.find((n) => n.index === beamEnd);
   const beamNoteCount = countBeamableInRange(el.index, beamEnd, noteEls);
   const existingBeam = beamLeaderRange(el, noteEls);
+  const beamEndEl = noteEls.find((n) => n.index === existingBeam.to);
+  const beamIncomplete =
+    Boolean(el.beams?.includes('begin')) &&
+    existingBeam.to > el.index &&
+    !beamEndEl?.beams?.some((b) => b === 'end');
   const spuriousAfterRest =
     el.kind === 'rest' &&
     nextNote &&
@@ -740,6 +746,12 @@ function MeasureNoteEditor({
             >
               빔 해제 (#{existingBeam.from}→#{existingBeam.to})
             </button>
+          ) : null}
+          {beamIncomplete ? (
+            <p className="omr-measure-beam-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#c62828' }}>
+              #{existingBeam.to}에 <code>beam=[end]</code>가 없습니다. OMR 잔여 태그일 수 있습니다 — 「빔 해제」 후 「빔 연결」→「MXL에 반영·미리보기」를
+              다시 하세요. #0·#2 모두 8분음표·같은 줄기 방향인지 확인하세요.
+            </p>
           ) : null}
         </div>
       )}

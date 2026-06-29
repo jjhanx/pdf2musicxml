@@ -1,0 +1,286 @@
+=== Function: def _remove_duplicate_staccato_as_natural(note: ET.Element, ns: str) -> bool: (lines 135 to 151) ===
+def _remove_duplicate_staccato_as_natural(note: ET.Element, ns: str) -> bool:
+    notations = note.find(qname(ns, "notations"))
+    if notations is None:
+        return False
+    articulations = notations.find(qname(ns, "articulations"))
+    if articulations is None:
+        return False
+    if len(articulations.findall(qname(ns, "staccato"))) < 2:
+        return False
+    acc = note.find(qname(ns, "accidental"))
+    if acc is None or (acc.text or "").strip() not in ("natural", "sharp", "flat"):
+        return False
+    note.remove(acc)
+    return True
+
+
+
+
+=== Function: def _fix_misread_natural_as_sharp(note: ET.Element, ns: str) -> bool: (lines 841 to 847) ===
+def _fix_misread_natural_as_sharp(note: ET.Element, ns: str) -> bool:
+    """(비활성) `#` 오인 natural 복원 — `<accidental>natural</accidental>`는 악보의 제자리표로
+    해석하는 경우가 많아 자동 sharp 변환은 오히려 F♮ 등을 F#로 바꾼다."""
+    return False
+
+
+
+
+=== Function: def _copy_pitch_alter(src: ET.Element, dst: ET.Element, ns: str) -> None: (lines 1289 to 1314) ===
+def _copy_pitch_alter(src: ET.Element, dst: ET.Element, ns: str) -> None:
+    sp = src.find(qname(ns, "pitch"))
+    dp = dst.find(qname(ns, "pitch"))
+    if sp is None or dp is None:
+        return
+    sa = sp.find(qname(ns, "alter"))
+    if sa is None or not sa.text:
+        return
+    da = dp.find(qname(ns, "alter"))
+    if da is None:
+        da = ET.SubElement(dp, qname(ns, "alter"))
+    da.text = sa.text
+    try:
+        alter_val = int(float(sa.text))
+    except ValueError:
+        return
+    acc = dst.find(qname(ns, "accidental"))
+    if acc is not None:
+        dst.remove(acc)
+    if alter_val == 1:
+        ET.SubElement(dst, qname(ns, "accidental")).text = "sharp"
+    elif alter_val == -1:
+        ET.SubElement(dst, qname(ns, "accidental")).text = "flat"
+
+
+
+
+=== Function: def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: str) -> int: (lines 1506 to 1570) ===
+def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: str) -> int:
+    """If a pitch has an explicit accidental later in the measure, back-propagate it to earlier occurrences
+    that have no accidental, as OMR frequently misses accidentals on the first chord."""
+    fixed = 0
+    staves = {}
+    for note in measure.findall(qname(ns, "note")):
+        if _is_rest(note, ns):
+            continue
+        s_el = note.find(qname(ns, "staff"))
+        s = s_el.text if s_el is not None else "1"
+        if s not in staves:
+            staves[s] = []
+        staves[s].append(note)
+        
+    for s, notes in staves.items():
+        explicit_accs = {}
+        for note in notes:
+            p = note.find(qname(ns, "pitch"))
+            if p is None:
+                continue
+            step_el = p.find(qname(ns, "step"))
+            oct_el = p.find(qname(ns, "octave"))
+            if step_el is None or oct_el is None:
+                continue
+            pitch_key = step_el.text + oct_el.text
+            
+            acc = note.find(qname(ns, "accidental"))
+            if acc is not None and acc.text and acc.text.strip() != "natural":
+                if pitch_key not in explicit_accs:
+                    explicit_accs[pitch_key] = acc.text
+                    
+        for note in notes:
+            p = note.find(qname(ns, "pitch"))
+            if p is None:
+                continue
+            step_el = p.find(qname(ns, "step"))
+            oct_el = p.find(qname(ns, "octave"))
+            if step_el is None or oct_el is None:
+                continue
+            pitch_key = step_el.text + oct_el.text
+            
+            acc = note.find(qname(ns, "accidental"))
+            if acc is None and pitch_key in explicit_accs:
+                acc_text = explicit_accs[pitch_key]
+                new_acc = ET.SubElement(note, qname(ns, "accidental"))
+                new_acc.text = acc_text
+                
+                alter_val = "1" if acc_text == "sharp" else ("-1" if acc_text == "flat" else "0")
+                if alter_val != "0":
+                    alter_el = p.find(qname(ns, "alter"))
+                    if alter_el is None:
+                        idx = list(p).index(step_el) + 1
+                        alter_el = ET.Element(qname(ns, "alter"))
+                        p.insert(idx, alter_el)
+                    alter_el.text = alter_val
+                else:
+                    alter_el = p.find(qname(ns, "alter"))
+                    if alter_el is not None:
+                        p.remove(alter_el)
+                fixed += 1
+                
+    return fixed
+
+
+
+
+=== Function: def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]: (lines 1901 to 2022) ===
+def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
+    tree = ET.parse(io.BytesIO(xml_bytes))
+    root = tree.getroot()
+    ns = mxl_ns_uri(root)
+    parents = _parent_map(root)
+    stats = {
+        "text_nodes_cleared": 0,
+        "directions_removed": 0,
+        "natural_from_staccato_removed": 0,
+        "slurs_injected": 0,
+        "tuplet_show_number_fixed": 0,
+        "tuplet_staccato_removed": 0,
+        "tuplet_notations_added": 0,
+        "tuplet_dynamics_removed": 0,
+        "score_patches_applied": 0,
+        "overfull_eighth_fixed": 0,
+        "overfull_rest_normalized": 0,
+        "dotted_quarter_eighth_fixed": 0,
+        "lost_eighth_restored": 0,
+        "chord_ties_completed": 0,
+        "system_break_ties_added": 0,
+        "voice_consolidated": 0,
+        "triplet_quarter_prefix_repaired": 0,
+        "chord_duplicates_removed": 0,
+        "misread_natural_to_sharp": 0,
+        "quarter_pair_eighth_fixed": 0,
+        "two_quarter_voice_eighth_fixed": 0,
+        "three_eighth_triplet_fixed": 0,
+        "rest_eighth_triplet_fixed": 0,
+        "continuation_slurs_added": 0,
+        "tuplet_brackets_adjusted": 0,
+    }
+
+    # 1) 텍스트 정리 + backup/forward 겹침 voice 병합 (악보 패치보다 먼저)
+    for part in root.findall(qname(ns, "part")):
+        for measure in part.findall(qname(ns, "measure")):
+            tc, dr = _clean_measure(measure, ns, parents)
+            stats["text_nodes_cleared"] += tc
+            stats["directions_removed"] += dr
+            stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
+
+    # 2) 범용 리듬·화음·세잇단 보정
+    for part in root.findall(qname(ns, "part")):
+        max_staff = _max_staff_in_part(part, ns)
+        for measure, divisions, expected in _iter_measures_with_timing(part, ns):
+            stats["voice_consolidated"] += _flatten_underfull_voices_in_measure(measure, ns, (divisions or 6) * 4)
+            stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
+            stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
+            stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
+                measure, ns, divisions or 0, expected or 0
+            )
+            stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_after_beam_run(
+                measure, ns, divisions or 0, expected or 0
+            )
+            stats["quarter_pair_eighth_fixed"] += _repair_quarter_chord_before_rest(
+                measure, ns, divisions or 0, expected or 0
+            )
+            stats["two_quarter_voice_eighth_fixed"] += _repair_two_quarter_voice_as_eighths(
+                measure, ns, divisions or 0, expected or 0
+            )
+            stats["three_eighth_triplet_fixed"] += _repair_three_eighths_as_triplet(
+                measure, ns, max_staff, divisions or 0
+            )
+            stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
+                measure, ns, max_staff, divisions or 0, expected or 0
+            )
+            stats["triplet_quarter_prefix_repaired"] += _repair_two_quarters_as_triplet_prefix(
+                measure, ns, max_staff, expected or 0
+            )
+        dotted_fixed, lost_eighth = _repair_dotted_quarter_misread(part, ns)
+        stats["dotted_quarter_eighth_fixed"] += dotted_fixed
+        stats["lost_eighth_restored"] += lost_eighth
+
+        fixed, rest_fixed = _repair_overfull_eighth(part, ns)
+        stats["overfull_eighth_fixed"] += fixed
+        stats["overfull_rest_normalized"] += rest_fixed
+
+    # 3) 음표 발명·성부 재배치 등 최후 수단 패치 (시그니처 일치 시만)
+    try:
+        from omr_score_patches import apply_score_patches
+
+        stats["score_patches_applied"] = apply_score_patches(root, ns)
+    except ImportError:
+        pass
+
+    for part in root.findall(qname(ns, "part")):
+        max_staff = _max_staff_in_part(part, ns)
+
+        stats["tuplet_notations_added"] += _ensure_tuplet_notations(part, ns, max_staff)
+        if _part_has_two_staves(part, ns):
+            stats["tuplet_dynamics_removed"] += _remove_spurious_tuplet_dynamics(part, ns)
+
+        for note in part.iter(qname(ns, "note")):
+            if _remove_duplicate_staccato_as_natural(note, ns):
+                stats["natural_from_staccato_removed"] += 1
+            if _fix_misread_natural_as_sharp(note, ns):
+                stats["misread_natural_to_sharp"] += 1
+            if _remove_beam_side_staccato_on_tuplet(note, ns):
+                stats["tuplet_staccato_removed"] += 1
+            if _fix_tuplet_show_numbers(note, ns, max_staff):
+                stats["tuplet_show_number_fixed"] += 1
+            
+            if note.find(qname(ns, "chord")) is not None:
+                for b in list(note.findall(qname(ns, "beam"))):
+                    note.remove(b)
+
+        completed, system_added = _restore_ties_between_measures(part, ns)
+        stats["chord_ties_completed"] += completed
+        stats["system_break_ties_added"] += system_added
+
+        if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
+            stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
+        stats["continuation_slurs_added"] += _repair_same_pitch_continuation_slurs(part, ns)
+        
+        for measure in part.findall(qname(ns, "measure")):
+            stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(measure, ns)
+
+    out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
+    return out, stats
+
+
+
+
+=== Function: def fix_mxl_file(mxl_in: str | Path, mxl_out: str | Path) -> dict[str, int]: (lines 2022 to 2059) ===
+def fix_mxl_file(mxl_in: str | Path, mxl_out: str | Path) -> dict[str, int]:
+    mxl_in = Path(mxl_in)
+    mxl_out = Path(mxl_out)
+    totals = {
+        "text_nodes_cleared": 0,
+        "directions_removed": 0,
+        "natural_from_staccato_removed": 0,
+        "slurs_injected": 0,
+        "tuplet_show_number_fixed": 0,
+        "tuplet_staccato_removed": 0,
+        "tuplet_brackets_adjusted": 0,
+    }
+
+    with zipfile.ZipFile(mxl_in, "r") as zin:
+        files = {name: zin.read(name) for name in zin.namelist()}
+
+    container_xml = files.get("META-INF/container.xml")
+    if not container_xml:
+        raise ValueError("Invalid MXL: no container.xml")
+
+    match = re.search(r'full-path="([^"]+)"', container_xml.decode("utf-8"))
+    if not match:
+        raise ValueError("Could not find rootfile in container.xml")
+    root_path = match.group(1)
+
+    fixed_xml, stats = fix_score_xml(files[root_path])
+    for k, v in stats.items():
+        totals[k] = totals.get(k, 0) + v
+    files[root_path] = fixed_xml
+
+    with zipfile.ZipFile(mxl_out, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+        for name, data in files.items():
+            zout.writestr(name, data)
+
+    return totals
+
+
+

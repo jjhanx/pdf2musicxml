@@ -298,6 +298,14 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
         elif local == "note":
             elements.append(note_snapshot(child, ns, note_index))
             note_index += 1
+    note_snaps = [el for el in elements if el.get("elementKind") == "note"]
+    for i, snap in enumerate(note_snaps):
+        if snap.get("chord") and not snap.get("beams"):
+            j = i - 1
+            while j >= 0 and note_snaps[j].get("chord"):
+                j -= 1
+            if j >= 0 and note_snaps[j].get("beams"):
+                snap["beams"] = list(note_snaps[j]["beams"])
     return elements
 
 
@@ -635,8 +643,31 @@ def _strip_beams_from_note(
     return changed
 
 
+def _insert_beam_element(note: ET.Element, ns: str, beam_el: ET.Element) -> None:
+    """MusicXML 순서: stem, notehead, staff, beam, notations — OSMD/VexFlow 호환."""
+    notations = note.find(_q(ns, "notations"))
+    if notations is not None:
+        note.insert(list(note).index(notations), beam_el)
+        return
+    staff_el = note.find(_q(ns, "staff"))
+    if staff_el is not None:
+        note.insert(list(note).index(staff_el) + 1, beam_el)
+        return
+    stem_el = note.find(_q(ns, "stem"))
+    if stem_el is not None:
+        note.insert(list(note).index(stem_el) + 1, beam_el)
+        return
+    type_el = note.find(_q(ns, "type"))
+    if type_el is not None:
+        note.insert(list(note).index(type_el) + 1, beam_el)
+        return
+    note.append(beam_el)
+
+
 def _set_beam_on_note(note: ET.Element, ns: str, beam_number: int, value: str) -> None:
     if note.find(_q(ns, "rest")) is not None:
+        return
+    if note.find(_q(ns, "chord")) is not None:
         return
     for beam in list(note.findall(_q(ns, "beam"))):
         try:
@@ -658,15 +689,18 @@ def _set_beam_on_note(note: ET.Element, ns: str, beam_number: int, value: str) -
     if beam_number != 1:
         beam_el.set("number", str(beam_number))
     beam_el.text = value
-    anchor = (
-        note.find(_q(ns, "stem"))
-        or note.find(_q(ns, "staff"))
-        or note.find(_q(ns, "type"))
-    )
-    if anchor is not None:
-        note.insert(list(note).index(anchor) + 1, beam_el)
-    else:
-        note.append(beam_el)
+    _insert_beam_element(note, ns, beam_el)
+
+
+def _strip_chord_member_beams(notes: list[ET.Element], ns: str) -> bool:
+    """OSMD/Audiveris 관례: `<chord/>` 멤버에는 `<beam>`을 두지 않는다."""
+    changed = False
+    for note in notes:
+        if note.find(_q(ns, "chord")) is None:
+            continue
+        if _strip_beams_from_note(note, ns, None):
+            changed = True
+    return changed
 
 
 def _chord_follower_indices(notes: list[ET.Element], ns: str, leader_idx: int) -> list[int]:
@@ -682,25 +716,48 @@ def _chord_follower_indices(notes: list[ET.Element], ns: str, leader_idx: int) -
 def _ensure_short_type_for_beam(
     note: ET.Element, ns: str, divisions: int, prefer: str = "eighth"
 ) -> None:
-    """빔 연결 대상이 4분 등이면 8분(이하)으로 맞춰 OSMD가 빔을 그리게 한다."""
+    """빔 연결 대상 박자·duration을 맞춰 OSMD가 빔을 그리게 한다."""
     if note.find(_q(ns, "rest")) is not None or note.find(_q(ns, "pitch")) is None:
         return
     type_el = note.find(_q(ns, "type"))
     note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
-    if note_type in ("eighth", "16th", "32nd", "64th", "128th"):
-        return
     dot_count = len(note.findall(_q(ns, "dot")))
-    target_type = prefer if note_type in ("quarter", "half", "whole", "") else prefer
-    target_dur = _duration_for_type_dots(target_type, divisions, min(dot_count, 1))
+    short_types = ("eighth", "16th", "32nd", "64th", "128th")
+    if note_type in short_types:
+        target_type = note_type
+    else:
+        target_type = prefer if note_type in ("quarter", "half", "whole", "") else prefer
+        if type_el is None:
+            type_el = ET.SubElement(note, _q(ns, "type"))
+        type_el.text = target_type
+    target_dur = _duration_for_type_dots(target_type, divisions, dot_count)
     if target_dur <= 0:
         return
-    if type_el is None:
-        type_el = ET.SubElement(note, _q(ns, "type"))
-    type_el.text = target_type
     dur_el = note.find(_q(ns, "duration"))
     if dur_el is None:
         dur_el = ET.SubElement(note, _q(ns, "duration"))
-    dur_el.text = str(target_dur)
+    if (dur_el.text or "").strip() != str(target_dur):
+        dur_el.text = str(target_dur)
+
+
+def _set_note_stem(note: ET.Element, ns: str, stem: str) -> None:
+    if stem not in ("up", "down"):
+        return
+    stem_el = note.find(_q(ns, "stem"))
+    if stem_el is None:
+        stem_el = ET.SubElement(note, _q(ns, "stem"))
+    stem_el.text = stem
+
+
+def _note_beam_value(note: ET.Element, ns: str, beam_number: int = 1) -> str | None:
+    for beam in note.findall(_q(ns, "beam")):
+        try:
+            n = int(beam.get("number") or "1")
+        except ValueError:
+            n = 1
+        if n == beam_number and beam.text:
+            return beam.text.strip()
+    return None
 
 
 def _apply_beam_to_range(
@@ -722,6 +779,12 @@ def _apply_beam_to_range(
         return False
 
     leader_voice, leader_staff = _note_voice_staff(notes[pitched[0]], ns)
+    leader_stem_el = notes[pitched[0]].find(_q(ns, "stem"))
+    leader_stem = (
+        (leader_stem_el.text or "").strip().lower()
+        if leader_stem_el is not None and leader_stem_el.text
+        else ""
+    )
 
     for idx in range(lo, hi + 1):
         if not (0 <= idx < len(notes)):
@@ -730,9 +793,13 @@ def _apply_beam_to_range(
         if note.find(_q(ns, "rest")) is not None or note.find(_q(ns, "pitch")) is None:
             continue
         _set_note_voice_staff(note, ns, leader_voice, leader_staff)
+        if leader_stem in ("up", "down"):
+            _set_note_stem(note, ns, leader_stem)
         if note.find(_q(ns, "chord")) is None:
             for fidx in _chord_follower_indices(notes, ns, idx):
                 _set_note_voice_staff(notes[fidx], ns, leader_voice, leader_staff)
+                if leader_stem in ("up", "down"):
+                    _set_note_stem(notes[fidx], ns, leader_stem)
 
     if divisions > 0:
         for idx in pitched:
@@ -754,10 +821,10 @@ def _apply_beam_to_range(
             val = "end"
         else:
             val = "continue"
-        targets = [idx, *_chord_follower_indices(notes, ns, idx)]
-        for tidx in targets:
-            _set_beam_on_note(notes[tidx], ns, beam_number, val)
-    return True
+        _set_beam_on_note(notes[idx], ns, beam_number, val)
+    first_beam = _note_beam_value(notes[pitched[0]], ns, beam_number)
+    last_beam = _note_beam_value(notes[pitched[-1]], ns, beam_number)
+    return first_beam == "begin" and last_beam == "end"
 
 
 def _strip_tuplet_from_note(note: ET.Element, ns: str) -> bool:
@@ -1614,14 +1681,34 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         measure = find_measure(part, ns, measure_mxl)
         if measure is not None:
             _normalize_measure_note_engraving(part, ns, measure)
+            notes = list_note_elements(measure, ns)
+            _strip_chord_member_beams(notes, ns)
     return stats
+
+
+def cleanup_chord_beams_in_root(root: ET.Element) -> int:
+    """전 악보에서 `<chord/>` 멤버의 orphan `<beam>` 제거 — OSMD 미리보기 호환."""
+    ns = _ns(root)
+    changed = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            notes = list_note_elements(measure, ns)
+            if _strip_chord_member_beams(notes, ns):
+                changed += 1
+    return changed
 
 
 def apply_fixes_file(mxl_path: Path, fixes: list[dict[str, Any]]) -> dict[str, Any]:
     files, root_path, root = load_mxl_root(mxl_path)
-    stats = apply_fixes_to_root(root, fixes)
+    stats = apply_fixes_to_root(root, fixes) if fixes else {"applied": 0, "skipped": 0}
+    chord_beam_measures = cleanup_chord_beams_in_root(root)
     write_mxl_root(mxl_path, files, root_path, root)
-    return {"path": str(mxl_path), **stats, "fixCount": len(fixes)}
+    return {
+        "path": str(mxl_path),
+        **stats,
+        "fixCount": len(fixes),
+        "chordBeamMeasuresCleaned": chord_beam_measures,
+    }
 
 
 def load_fixes_json(path: Path) -> list[dict[str, Any]]:

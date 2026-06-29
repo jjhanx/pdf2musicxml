@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>OSMD slur debug</title>
+  <style>
+    body { font-family: sans-serif; margin: 12px; }
+    #host { border: 1px solid #ccc; min-height: 200px; }
+    pre { font-size: 12px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div id="host"></div>
+  <pre id="log"></pre>
+  <script type="module">
+    import { OpenSheetMusicDisplay, EngravingRules } from '/node_modules/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js?url';
+    // load via vite dev - use dynamic import from package
+    import OSMD from 'opensheetmusicdisplay';
+    const { OpenSheetMusicDisplay: OSD, EngravingRules: ER } = OSMD;
+
+    const xml = await fetch('/_smoke/m6_slur_debug.xml').then(r => r.text());
+    const host = document.getElementById('host');
+    const log = document.getElementById('log');
+    const osmd = new OSD(host, { autoResize: true, backend: 'svg' });
+    osmd.EngravingRules.SlurPlacementFromXML = true;
+    osmd.EngravingRules.SlurPlacementAtStems = false;
+    await osmd.load(xml);
+    osmd.zoom = 0.8;
+    osmd.render();
+
+    const graphic = osmd.graphic ?? osmd['graphic'];
+    const lines = [];
+    let slurCount = 0;
+    for (const page of graphic.MusicPages) {
+      for (const sys of page.MusicSystems) {
+        for (const sl of sys.StaffLines) {
+          for (const gs of sl.GraphicalSlurs) {
+            slurCount++;
+            const sn = gs.slur?.StartNote;
+            const plc = gs.slur?.PlacementXml ?? gs.placement;
+            const svg = gs.SVGElement;
+            let gY = null;
+            try {
+              if (sn) {
+                const gn = osmd.EngravingRules.GNote(sn);
+                const bb = gn.PositionAndShape;
+                bb.calculateAbsolutePosition();
+                gY = { abs: bb.AbsolutePosition.y, top: bb.BorderTop, bot: bb.BorderBottom, pitch: sn.ToStringShortGet };
+              }
+            } catch (e) { gY = String(e); }
+            lines.push(`slur#${slurCount} plc=${plc} pitch=${sn?.ToStringShortGet} svg=${svg?.nodeName} bezY=${gs.bezierStartPt?.y?.toFixed?.(2)} gNote=${JSON.stringify(gY)}`);
+          }
+        }
+      }
+    }
+    const paths = host.querySelectorAll('path');
+    log.textContent = `slurs=${slurCount} paths=${paths.length}\n` + lines.join('\n');
+  </script>
+</body>
+</html>

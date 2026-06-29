@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>OSMD measure-click harness</title>
+  <style>
+    body { font-family: sans-serif; margin: 12px; }
+    #host { border: 1px solid #ccc; position: relative; width: 900px; }
+    #out { font-size: 12px; white-space: pre-wrap; background: #f5f5f5; padding: 8px; }
+    .band { position: absolute; left: 0; right: 0; pointer-events: none; opacity: 0.18; }
+  </style>
+</head>
+<body>
+  <h3>OSMD measure-click harness (S/A/T/B + Piano 2단, B는 온쉼표)</h3>
+  <div id="host"></div>
+  <pre id="out"></pre>
+  <script type="module" src="/_smoke/osmd-harness.ts"></script>
+</body>
+</html>

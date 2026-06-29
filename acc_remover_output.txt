@@ -1,0 +1,701 @@
+--- Line 136 ---
+   131:             directions_removed += 1
+   132: 
+   133:     return text_cleared, directions_removed
+   134: 
+   135: 
+>> 136: def _remove_duplicate_staccato_as_natural(note: ET.Element, ns: str) -> bool:
+   137:     notations = note.find(qname(ns, "notations"))
+   138:     if notations is None:
+   139:         return False
+   140:     articulations = notations.find(qname(ns, "articulations"))
+   141:     if articulations is None:
+
+--- Line 143 ---
+   138:     if notations is None:
+   139:         return False
+   140:     articulations = notations.find(qname(ns, "articulations"))
+   141:     if articulations is None:
+   142:         return False
+>> 143:     if len(articulations.findall(qname(ns, "staccato"))) < 2:
+   144:         return False
+   145:     acc = note.find(qname(ns, "accidental"))
+   146:     if acc is None or (acc.text or "").strip() not in ("natural", "sharp", "flat"):
+   147:         return False
+   148:     note.remove(acc)
+
+--- Line 145 ---
+   140:     articulations = notations.find(qname(ns, "articulations"))
+   141:     if articulations is None:
+   142:         return False
+   143:     if len(articulations.findall(qname(ns, "staccato"))) < 2:
+   144:         return False
+>> 145:     acc = note.find(qname(ns, "accidental"))
+   146:     if acc is None or (acc.text or "").strip() not in ("natural", "sharp", "flat"):
+   147:         return False
+   148:     note.remove(acc)
+   149:     return True
+   150: 
+
+--- Line 146 ---
+   141:     if articulations is None:
+   142:         return False
+   143:     if len(articulations.findall(qname(ns, "staccato"))) < 2:
+   144:         return False
+   145:     acc = note.find(qname(ns, "accidental"))
+>> 146:     if acc is None or (acc.text or "").strip() not in ("natural", "sharp", "flat"):
+   147:         return False
+   148:     note.remove(acc)
+   149:     return True
+   150: 
+   151: 
+
+--- Line 148 ---
+   143:     if len(articulations.findall(qname(ns, "staccato"))) < 2:
+   144:         return False
+   145:     acc = note.find(qname(ns, "accidental"))
+   146:     if acc is None or (acc.text or "").strip() not in ("natural", "sharp", "flat"):
+   147:         return False
+>> 148:     note.remove(acc)
+   149:     return True
+   150: 
+   151: 
+   152: def _pitch_label(note: ET.Element, ns: str) -> str | None:
+   153:     pitch_el = note.find(qname(ns, "pitch"))
+
+--- Line 308 ---
+   303:     if an is None or not an.text or not an.text.strip().isdigit():
+   304:         return None
+   305:     return int(an.text.strip())
+   306: 
+   307: 
+>> 308: def _remove_beam_side_staccato_on_tuplet(note: ET.Element, ns: str) -> bool:
+   309:     """잇단 숫자 '3'을 빔 쪽 staccato로 오인한 Articulation 제거.
+   310: 
+   311:     time-modification이 있거나 빔이 있는 음표에서, stem과 같은 쪽 placement의
+   312:     staccato(또는 placement 없는 staccato)를 제거한다.
+   313:     """
+
+--- Line 309 ---
+   304:         return None
+   305:     return int(an.text.strip())
+   306: 
+   307: 
+   308: def _remove_beam_side_staccato_on_tuplet(note: ET.Element, ns: str) -> bool:
+>> 309:     """잇단 숫자 '3'을 빔 쪽 staccato로 오인한 Articulation 제거.
+   310: 
+   311:     time-modification이 있거나 빔이 있는 음표에서, stem과 같은 쪽 placement의
+   312:     staccato(또는 placement 없는 staccato)를 제거한다.
+   313:     """
+   314:     stem_el = note.find(qname(ns, "stem"))
+
+--- Line 312 ---
+   307: 
+   308: def _remove_beam_side_staccato_on_tuplet(note: ET.Element, ns: str) -> bool:
+   309:     """잇단 숫자 '3'을 빔 쪽 staccato로 오인한 Articulation 제거.
+   310: 
+   311:     time-modification이 있거나 빔이 있는 음표에서, stem과 같은 쪽 placement의
+>> 312:     staccato(또는 placement 없는 staccato)를 제거한다.
+   313:     """
+   314:     stem_el = note.find(qname(ns, "stem"))
+   315:     stem = (stem_el.text or "").strip() if stem_el is not None and stem_el.text else ""
+   316:     if stem not in ("up", "down"):
+   317:         return False
+
+--- Line 327 ---
+   322:     beam_side = "above" if stem == "up" else "below"
+   323:     removed = False
+   324:     for notations in list(note.findall(qname(ns, "notations"))):
+   325:         for arts in list(notations.findall(qname(ns, "articulations"))):
+   326:             for art in list(arts):
+>> 327:                 if local_tag(art) != "staccato":
+   328:                     continue
+   329:                 plc = art.get("placement")
+   330:                 if plc == beam_side or (has_beam and plc is None):
+   331:                     arts.remove(art)
+   332:                     removed = True
+
+--- Line 842 ---
+   837:             elif lab is not None:
+   838:                 seen.add(lab)
+   839:     return removed
+   840: 
+   841: 
+>> 842: def _fix_misread_natural_as_sharp(note: ET.Element, ns: str) -> bool:
+   843:     """(비활성) `#` 오인 natural 복원 — `<accidental>natural</accidental>`는 악보의 제자리표로
+   844:     해석하는 경우가 많아 자동 sharp 변환은 오히려 F♮ 등을 F#로 바꾼다."""
+   845:     return False
+   846: 
+   847: 
+
+--- Line 843 ---
+   838:                 seen.add(lab)
+   839:     return removed
+   840: 
+   841: 
+   842: def _fix_misread_natural_as_sharp(note: ET.Element, ns: str) -> bool:
+>> 843:     """(비활성) `#` 오인 natural 복원 — `<accidental>natural</accidental>`는 악보의 제자리표로
+   844:     해석하는 경우가 많아 자동 sharp 변환은 오히려 F♮ 등을 F#로 바꾼다."""
+   845:     return False
+   846: 
+   847: 
+   848: def _repair_quarter_pair_before_eighths(
+
+--- Line 1007 ---
+   1002:         _rebeam_group(groups[1][1], ns, "end")
+   1003:         fixed += 1
+   1004:     return fixed
+   1005: 
+   1006: 
+>> 1007: def _note_has_staccato(note: ET.Element, ns: str) -> bool:
+   1008:     for notations in note.findall(qname(ns, "notations")):
+   1009:         for arts in notations.findall(qname(ns, "articulations")):
+   1010:             if any(local_tag(a) == "staccato" for a in arts):
+   1011:                 return True
+   1012:     return False
+
+--- Line 1010 ---
+   1005: 
+   1006: 
+   1007: def _note_has_staccato(note: ET.Element, ns: str) -> bool:
+   1008:     for notations in note.findall(qname(ns, "notations")):
+   1009:         for arts in notations.findall(qname(ns, "articulations")):
+>> 1010:             if any(local_tag(a) == "staccato" for a in arts):
+   1011:                 return True
+   1012:     return False
+   1013: 
+   1014: 
+   1015: def _note_has_fermata(note: ET.Element, ns: str) -> bool:
+
+--- Line 1044 ---
+   1039: 
+   1040: 
+   1041: def _repair_eighth_rest_plus_two_eighths_triplet(
+   1042:     measure: ET.Element, ns: str, max_staff: int, divisions: int, expected: int
+   1043: ) -> int:
+>> 1044:     """8분쉼표 + 빔 8분 2개( staccato / p ) → 세잇단 — triplet 표기만 빠진 경우."""
+   1045:     if not divisions or not expected:
+   1046:         return 0
+   1047:     eighth = divisions // 2
+   1048:     triplet_dur = max(1, (eighth * 2) // 3)
+   1049:     triplet_saving = 3 * eighth - 3 * triplet_dur
+
+--- Line 1070 ---
+   1065:             ):
+   1066:                 continue
+   1067:             if not _groups_are_beamed_together(g1[0], g2[0], ns):
+   1068:                 continue
+   1069:             if not (
+>> 1070:                 any(_note_has_staccato(n, ns) for n in g1[1])
+   1071:                 or has_dyn_p
+   1072:             ):
+   1073:                 continue
+   1074:             for j, grp in enumerate((g0, g1, g2)):
+   1075:                 for n in grp[1]:
+
+--- Line 1076 ---
+   1071:                 or has_dyn_p
+   1072:             ):
+   1073:                 continue
+   1074:             for j, grp in enumerate((g0, g1, g2)):
+   1075:                 for n in grp[1]:
+>> 1076:                     _clear_note_staccato(n, ns)
+   1077:                     _strip_tuplet_notations(n, ns)
+   1078:                     _ensure_time_modification(n, ns)
+   1079:                     _set_note_type_duration(n, ns, triplet_dur, "eighth")
+   1080:                     _rebeam_group(
+   1081:                         [n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue")
+
+--- Line 1127 ---
+   1122: 
+   1123: 
+   1124: def _repair_three_eighths_as_triplet(
+   1125:     measure: ET.Element, ns: str, max_staff: int, divisions: int
+   1126: ) -> int:
+>> 1127:     """연속 plain 8분 3개 + staccato(잇단 '3' 오인) → 세잇단."""
+   1128:     if not divisions:
+   1129:         return 0
+   1130:     eighth = divisions // 2
+   1131:     triplet_dur = max(1, (eighth * 2) // 3)
+   1132:     fixed = 0
+
+--- Line 1145 ---
+   1140:                 for g in trio
+   1141:             ):
+   1142:                 continue
+   1143:             if not all(_note_duration(g[0], ns) == eighth for g in trio):
+   1144:                 continue
+>> 1145:             if not any(_note_has_staccato(n, ns) for g in trio for n in g[1]):
+   1146:                 continue
+   1147:             for j, grp in enumerate(trio):
+   1148:                 for n in grp[1]:
+   1149:                     _clear_note_staccato(n, ns)
+   1150:                     _strip_tuplet_notations(n, ns)
+
+--- Line 1149 ---
+   1144:                 continue
+   1145:             if not any(_note_has_staccato(n, ns) for g in trio for n in g[1]):
+   1146:                 continue
+   1147:             for j, grp in enumerate(trio):
+   1148:                 for n in grp[1]:
+>> 1149:                     _clear_note_staccato(n, ns)
+   1150:                     _strip_tuplet_notations(n, ns)
+   1151:                     _ensure_time_modification(n, ns)
+   1152:                     _set_note_type_duration(n, ns, triplet_dur, "eighth")
+   1153:                     _rebeam_group(
+   1154:                         [n], ns, "begin" if j == 0 else ("end" if j == 2 else "continue")
+
+--- Line 1306 ---
+   1301:     da.text = sa.text
+   1302:     try:
+   1303:         alter_val = int(float(sa.text))
+   1304:     except ValueError:
+   1305:         return
+>> 1306:     acc = dst.find(qname(ns, "accidental"))
+   1307:     if acc is not None:
+   1308:         dst.remove(acc)
+   1309:     if alter_val == 1:
+   1310:         ET.SubElement(dst, qname(ns, "accidental")).text = "sharp"
+   1311:     elif alter_val == -1:
+
+--- Line 1307 ---
+   1302:     try:
+   1303:         alter_val = int(float(sa.text))
+   1304:     except ValueError:
+   1305:         return
+   1306:     acc = dst.find(qname(ns, "accidental"))
+>> 1307:     if acc is not None:
+   1308:         dst.remove(acc)
+   1309:     if alter_val == 1:
+   1310:         ET.SubElement(dst, qname(ns, "accidental")).text = "sharp"
+   1311:     elif alter_val == -1:
+   1312:         ET.SubElement(dst, qname(ns, "accidental")).text = "flat"
+
+--- Line 1308 ---
+   1303:         alter_val = int(float(sa.text))
+   1304:     except ValueError:
+   1305:         return
+   1306:     acc = dst.find(qname(ns, "accidental"))
+   1307:     if acc is not None:
+>> 1308:         dst.remove(acc)
+   1309:     if alter_val == 1:
+   1310:         ET.SubElement(dst, qname(ns, "accidental")).text = "sharp"
+   1311:     elif alter_val == -1:
+   1312:         ET.SubElement(dst, qname(ns, "accidental")).text = "flat"
+   1313: 
+
+--- Line 1310 ---
+   1305:         return
+   1306:     acc = dst.find(qname(ns, "accidental"))
+   1307:     if acc is not None:
+   1308:         dst.remove(acc)
+   1309:     if alter_val == 1:
+>> 1310:         ET.SubElement(dst, qname(ns, "accidental")).text = "sharp"
+   1311:     elif alter_val == -1:
+   1312:         ET.SubElement(dst, qname(ns, "accidental")).text = "flat"
+   1313: 
+   1314: 
+   1315: def _clear_note_staccato(note: ET.Element, ns: str) -> None:
+
+--- Line 1312 ---
+   1307:     if acc is not None:
+   1308:         dst.remove(acc)
+   1309:     if alter_val == 1:
+   1310:         ET.SubElement(dst, qname(ns, "accidental")).text = "sharp"
+   1311:     elif alter_val == -1:
+>> 1312:         ET.SubElement(dst, qname(ns, "accidental")).text = "flat"
+   1313: 
+   1314: 
+   1315: def _clear_note_staccato(note: ET.Element, ns: str) -> None:
+   1316:     for notations in list(note.findall(qname(ns, "notations"))):
+   1317:         for arts in list(notations.findall(qname(ns, "articulations"))):
+
+--- Line 1315 ---
+   1310:         ET.SubElement(dst, qname(ns, "accidental")).text = "sharp"
+   1311:     elif alter_val == -1:
+   1312:         ET.SubElement(dst, qname(ns, "accidental")).text = "flat"
+   1313: 
+   1314: 
+>> 1315: def _clear_note_staccato(note: ET.Element, ns: str) -> None:
+   1316:     for notations in list(note.findall(qname(ns, "notations"))):
+   1317:         for arts in list(notations.findall(qname(ns, "articulations"))):
+   1318:             for art in list(arts):
+   1319:                 if local_tag(art) == "staccato":
+   1320:                     arts.remove(art)
+
+--- Line 1319 ---
+   1314: 
+   1315: def _clear_note_staccato(note: ET.Element, ns: str) -> None:
+   1316:     for notations in list(note.findall(qname(ns, "notations"))):
+   1317:         for arts in list(notations.findall(qname(ns, "articulations"))):
+   1318:             for art in list(arts):
+>> 1319:                 if local_tag(art) == "staccato":
+   1320:                     arts.remove(art)
+   1321:             if len(arts) == 0:
+   1322:                 notations.remove(arts)
+   1323: 
+   1324: 
+
+--- Line 1507 ---
+   1502:             measure.append(b)
+   1503:             
+   1504:     return 1
+   1505: 
+   1506: 
+>> 1507: def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: str) -> int:
+   1508:     """If a pitch has an explicit accidental later in the measure, back-propagate it to earlier occurrences
+   1509:     that have no accidental, as OMR frequently misses accidentals on the first chord."""
+   1510:     fixed = 0
+   1511:     staves = {}
+   1512:     for note in measure.findall(qname(ns, "note")):
+
+--- Line 1508 ---
+   1503:             
+   1504:     return 1
+   1505: 
+   1506: 
+   1507: def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: str) -> int:
+>> 1508:     """If a pitch has an explicit accidental later in the measure, back-propagate it to earlier occurrences
+   1509:     that have no accidental, as OMR frequently misses accidentals on the first chord."""
+   1510:     fixed = 0
+   1511:     staves = {}
+   1512:     for note in measure.findall(qname(ns, "note")):
+   1513:         if _is_rest(note, ns):
+
+--- Line 1509 ---
+   1504:     return 1
+   1505: 
+   1506: 
+   1507: def _repair_missing_accidental_by_backward_propagation(measure: ET.Element, ns: str) -> int:
+   1508:     """If a pitch has an explicit accidental later in the measure, back-propagate it to earlier occurrences
+>> 1509:     that have no accidental, as OMR frequently misses accidentals on the first chord."""
+   1510:     fixed = 0
+   1511:     staves = {}
+   1512:     for note in measure.findall(qname(ns, "note")):
+   1513:         if _is_rest(note, ns):
+   1514:             continue
+
+--- Line 1522 ---
+   1517:         if s not in staves:
+   1518:             staves[s] = []
+   1519:         staves[s].append(note)
+   1520:         
+   1521:     for s, notes in staves.items():
+>> 1522:         explicit_accs = {}
+   1523:         for note in notes:
+   1524:             p = note.find(qname(ns, "pitch"))
+   1525:             if p is None:
+   1526:                 continue
+   1527:             step_el = p.find(qname(ns, "step"))
+
+--- Line 1533 ---
+   1528:             oct_el = p.find(qname(ns, "octave"))
+   1529:             if step_el is None or oct_el is None:
+   1530:                 continue
+   1531:             pitch_key = step_el.text + oct_el.text
+   1532:             
+>> 1533:             acc = note.find(qname(ns, "accidental"))
+   1534:             if acc is not None and acc.text and acc.text.strip() != "natural":
+   1535:                 if pitch_key not in explicit_accs:
+   1536:                     explicit_accs[pitch_key] = acc.text
+   1537:                     
+   1538:         for note in notes:
+
+--- Line 1534 ---
+   1529:             if step_el is None or oct_el is None:
+   1530:                 continue
+   1531:             pitch_key = step_el.text + oct_el.text
+   1532:             
+   1533:             acc = note.find(qname(ns, "accidental"))
+>> 1534:             if acc is not None and acc.text and acc.text.strip() != "natural":
+   1535:                 if pitch_key not in explicit_accs:
+   1536:                     explicit_accs[pitch_key] = acc.text
+   1537:                     
+   1538:         for note in notes:
+   1539:             p = note.find(qname(ns, "pitch"))
+
+--- Line 1535 ---
+   1530:                 continue
+   1531:             pitch_key = step_el.text + oct_el.text
+   1532:             
+   1533:             acc = note.find(qname(ns, "accidental"))
+   1534:             if acc is not None and acc.text and acc.text.strip() != "natural":
+>> 1535:                 if pitch_key not in explicit_accs:
+   1536:                     explicit_accs[pitch_key] = acc.text
+   1537:                     
+   1538:         for note in notes:
+   1539:             p = note.find(qname(ns, "pitch"))
+   1540:             if p is None:
+
+--- Line 1536 ---
+   1531:             pitch_key = step_el.text + oct_el.text
+   1532:             
+   1533:             acc = note.find(qname(ns, "accidental"))
+   1534:             if acc is not None and acc.text and acc.text.strip() != "natural":
+   1535:                 if pitch_key not in explicit_accs:
+>> 1536:                     explicit_accs[pitch_key] = acc.text
+   1537:                     
+   1538:         for note in notes:
+   1539:             p = note.find(qname(ns, "pitch"))
+   1540:             if p is None:
+   1541:                 continue
+
+--- Line 1548 ---
+   1543:             oct_el = p.find(qname(ns, "octave"))
+   1544:             if step_el is None or oct_el is None:
+   1545:                 continue
+   1546:             pitch_key = step_el.text + oct_el.text
+   1547:             
+>> 1548:             acc = note.find(qname(ns, "accidental"))
+   1549:             if acc is None and pitch_key in explicit_accs:
+   1550:                 acc_text = explicit_accs[pitch_key]
+   1551:                 new_acc = ET.SubElement(note, qname(ns, "accidental"))
+   1552:                 new_acc.text = acc_text
+   1553:                 
+
+--- Line 1549 ---
+   1544:             if step_el is None or oct_el is None:
+   1545:                 continue
+   1546:             pitch_key = step_el.text + oct_el.text
+   1547:             
+   1548:             acc = note.find(qname(ns, "accidental"))
+>> 1549:             if acc is None and pitch_key in explicit_accs:
+   1550:                 acc_text = explicit_accs[pitch_key]
+   1551:                 new_acc = ET.SubElement(note, qname(ns, "accidental"))
+   1552:                 new_acc.text = acc_text
+   1553:                 
+   1554:                 alter_val = "1" if acc_text == "sharp" else ("-1" if acc_text == "flat" else "0")
+
+--- Line 1550 ---
+   1545:                 continue
+   1546:             pitch_key = step_el.text + oct_el.text
+   1547:             
+   1548:             acc = note.find(qname(ns, "accidental"))
+   1549:             if acc is None and pitch_key in explicit_accs:
+>> 1550:                 acc_text = explicit_accs[pitch_key]
+   1551:                 new_acc = ET.SubElement(note, qname(ns, "accidental"))
+   1552:                 new_acc.text = acc_text
+   1553:                 
+   1554:                 alter_val = "1" if acc_text == "sharp" else ("-1" if acc_text == "flat" else "0")
+   1555:                 if alter_val != "0":
+
+--- Line 1551 ---
+   1546:             pitch_key = step_el.text + oct_el.text
+   1547:             
+   1548:             acc = note.find(qname(ns, "accidental"))
+   1549:             if acc is None and pitch_key in explicit_accs:
+   1550:                 acc_text = explicit_accs[pitch_key]
+>> 1551:                 new_acc = ET.SubElement(note, qname(ns, "accidental"))
+   1552:                 new_acc.text = acc_text
+   1553:                 
+   1554:                 alter_val = "1" if acc_text == "sharp" else ("-1" if acc_text == "flat" else "0")
+   1555:                 if alter_val != "0":
+   1556:                     alter_el = p.find(qname(ns, "alter"))
+
+--- Line 1552 ---
+   1547:             
+   1548:             acc = note.find(qname(ns, "accidental"))
+   1549:             if acc is None and pitch_key in explicit_accs:
+   1550:                 acc_text = explicit_accs[pitch_key]
+   1551:                 new_acc = ET.SubElement(note, qname(ns, "accidental"))
+>> 1552:                 new_acc.text = acc_text
+   1553:                 
+   1554:                 alter_val = "1" if acc_text == "sharp" else ("-1" if acc_text == "flat" else "0")
+   1555:                 if alter_val != "0":
+   1556:                     alter_el = p.find(qname(ns, "alter"))
+   1557:                     if alter_el is None:
+
+--- Line 1554 ---
+   1549:             if acc is None and pitch_key in explicit_accs:
+   1550:                 acc_text = explicit_accs[pitch_key]
+   1551:                 new_acc = ET.SubElement(note, qname(ns, "accidental"))
+   1552:                 new_acc.text = acc_text
+   1553:                 
+>> 1554:                 alter_val = "1" if acc_text == "sharp" else ("-1" if acc_text == "flat" else "0")
+   1555:                 if alter_val != "0":
+   1556:                     alter_el = p.find(qname(ns, "alter"))
+   1557:                     if alter_el is None:
+   1558:                         idx = list(p).index(step_el) + 1
+   1559:                         alter_el = ET.Element(qname(ns, "alter"))
+
+--- Line 1612 ---
+   1607:         ):
+   1608:             continue
+   1609: 
+   1610:         for gi, grp in enumerate((g0, g1)):
+   1611:             for n in grp[1]:
+>> 1612:                 _clear_note_staccato(n, ns)
+   1613:                 _ensure_time_modification(n, ns)
+   1614:                 _set_note_type_duration(n, ns, triplet_eighth_dur, "eighth")
+   1615:                 _set_beam(n, ns, "begin" if gi == 0 else "continue")
+   1616:         for n in groups[2][1]:
+   1617:             _clear_note_staccato(n, ns)
+
+--- Line 1617 ---
+   1612:                 _clear_note_staccato(n, ns)
+   1613:                 _ensure_time_modification(n, ns)
+   1614:                 _set_note_type_duration(n, ns, triplet_eighth_dur, "eighth")
+   1615:                 _set_beam(n, ns, "begin" if gi == 0 else "continue")
+   1616:         for n in groups[2][1]:
+>> 1617:             _clear_note_staccato(n, ns)
+   1618:             _strip_tuplet_notations(n, ns)
+   1619:             _set_beam(n, ns, "end")
+   1620:         for grp in (g0, g1, groups[2]):
+   1621:             for n in grp[1]:
+   1622:                 _strip_tuplet_notations(n, ns)
+
+--- Line 1910 ---
+   1905:     ns = mxl_ns_uri(root)
+   1906:     parents = _parent_map(root)
+   1907:     stats = {
+   1908:         "text_nodes_cleared": 0,
+   1909:         "directions_removed": 0,
+>> 1910:         "natural_from_staccato_removed": 0,
+   1911:         "slurs_injected": 0,
+   1912:         "tuplet_show_number_fixed": 0,
+   1913:         "tuplet_staccato_removed": 0,
+   1914:         "tuplet_notations_added": 0,
+   1915:         "tuplet_dynamics_removed": 0,
+
+--- Line 1913 ---
+   1908:         "text_nodes_cleared": 0,
+   1909:         "directions_removed": 0,
+   1910:         "natural_from_staccato_removed": 0,
+   1911:         "slurs_injected": 0,
+   1912:         "tuplet_show_number_fixed": 0,
+>> 1913:         "tuplet_staccato_removed": 0,
+   1914:         "tuplet_notations_added": 0,
+   1915:         "tuplet_dynamics_removed": 0,
+   1916:         "score_patches_applied": 0,
+   1917:         "overfull_eighth_fixed": 0,
+   1918:         "overfull_rest_normalized": 0,
+
+--- Line 1926 ---
+   1921:         "chord_ties_completed": 0,
+   1922:         "system_break_ties_added": 0,
+   1923:         "voice_consolidated": 0,
+   1924:         "triplet_quarter_prefix_repaired": 0,
+   1925:         "chord_duplicates_removed": 0,
+>> 1926:         "misread_natural_to_sharp": 0,
+   1927:         "quarter_pair_eighth_fixed": 0,
+   1928:         "two_quarter_voice_eighth_fixed": 0,
+   1929:         "three_eighth_triplet_fixed": 0,
+   1930:         "rest_eighth_triplet_fixed": 0,
+   1931:         "continuation_slurs_added": 0,
+
+--- Line 1948 ---
+   1943:     # 2) 범용 리듬·화음·세잇단 보정
+   1944:     for part in root.findall(qname(ns, "part")):
+   1945:         max_staff = _max_staff_in_part(part, ns)
+   1946:         for measure, divisions, expected in _iter_measures_with_timing(part, ns):
+   1947:             stats["voice_consolidated"] += _flatten_underfull_voices_in_measure(measure, ns, (divisions or 6) * 4)
+>> 1948:             stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
+   1949:             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
+   1950:             stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_before_eighths(
+   1951:                 measure, ns, divisions or 0, expected or 0
+   1952:             )
+   1953:             stats["quarter_pair_eighth_fixed"] += _repair_quarter_pair_after_beam_run(
+
+--- Line 1995 ---
+   1990:         stats["tuplet_notations_added"] += _ensure_tuplet_notations(part, ns, max_staff)
+   1991:         if _part_has_two_staves(part, ns):
+   1992:             stats["tuplet_dynamics_removed"] += _remove_spurious_tuplet_dynamics(part, ns)
+   1993: 
+   1994:         for note in part.iter(qname(ns, "note")):
+>> 1995:             if _remove_duplicate_staccato_as_natural(note, ns):
+   1996:                 stats["natural_from_staccato_removed"] += 1
+   1997:             if _fix_misread_natural_as_sharp(note, ns):
+   1998:                 stats["misread_natural_to_sharp"] += 1
+   1999:             if _remove_beam_side_staccato_on_tuplet(note, ns):
+   2000:                 stats["tuplet_staccato_removed"] += 1
+
+--- Line 1996 ---
+   1991:         if _part_has_two_staves(part, ns):
+   1992:             stats["tuplet_dynamics_removed"] += _remove_spurious_tuplet_dynamics(part, ns)
+   1993: 
+   1994:         for note in part.iter(qname(ns, "note")):
+   1995:             if _remove_duplicate_staccato_as_natural(note, ns):
+>> 1996:                 stats["natural_from_staccato_removed"] += 1
+   1997:             if _fix_misread_natural_as_sharp(note, ns):
+   1998:                 stats["misread_natural_to_sharp"] += 1
+   1999:             if _remove_beam_side_staccato_on_tuplet(note, ns):
+   2000:                 stats["tuplet_staccato_removed"] += 1
+   2001:             if _fix_tuplet_show_numbers(note, ns, max_staff):
+
+--- Line 1997 ---
+   1992:             stats["tuplet_dynamics_removed"] += _remove_spurious_tuplet_dynamics(part, ns)
+   1993: 
+   1994:         for note in part.iter(qname(ns, "note")):
+   1995:             if _remove_duplicate_staccato_as_natural(note, ns):
+   1996:                 stats["natural_from_staccato_removed"] += 1
+>> 1997:             if _fix_misread_natural_as_sharp(note, ns):
+   1998:                 stats["misread_natural_to_sharp"] += 1
+   1999:             if _remove_beam_side_staccato_on_tuplet(note, ns):
+   2000:                 stats["tuplet_staccato_removed"] += 1
+   2001:             if _fix_tuplet_show_numbers(note, ns, max_staff):
+   2002:                 stats["tuplet_show_number_fixed"] += 1
+
+--- Line 1998 ---
+   1993: 
+   1994:         for note in part.iter(qname(ns, "note")):
+   1995:             if _remove_duplicate_staccato_as_natural(note, ns):
+   1996:                 stats["natural_from_staccato_removed"] += 1
+   1997:             if _fix_misread_natural_as_sharp(note, ns):
+>> 1998:                 stats["misread_natural_to_sharp"] += 1
+   1999:             if _remove_beam_side_staccato_on_tuplet(note, ns):
+   2000:                 stats["tuplet_staccato_removed"] += 1
+   2001:             if _fix_tuplet_show_numbers(note, ns, max_staff):
+   2002:                 stats["tuplet_show_number_fixed"] += 1
+   2003:             
+
+--- Line 1999 ---
+   1994:         for note in part.iter(qname(ns, "note")):
+   1995:             if _remove_duplicate_staccato_as_natural(note, ns):
+   1996:                 stats["natural_from_staccato_removed"] += 1
+   1997:             if _fix_misread_natural_as_sharp(note, ns):
+   1998:                 stats["misread_natural_to_sharp"] += 1
+>> 1999:             if _remove_beam_side_staccato_on_tuplet(note, ns):
+   2000:                 stats["tuplet_staccato_removed"] += 1
+   2001:             if _fix_tuplet_show_numbers(note, ns, max_staff):
+   2002:                 stats["tuplet_show_number_fixed"] += 1
+   2003:             
+   2004:             if note.find(qname(ns, "chord")) is not None:
+
+--- Line 2000 ---
+   1995:             if _remove_duplicate_staccato_as_natural(note, ns):
+   1996:                 stats["natural_from_staccato_removed"] += 1
+   1997:             if _fix_misread_natural_as_sharp(note, ns):
+   1998:                 stats["misread_natural_to_sharp"] += 1
+   1999:             if _remove_beam_side_staccato_on_tuplet(note, ns):
+>> 2000:                 stats["tuplet_staccato_removed"] += 1
+   2001:             if _fix_tuplet_show_numbers(note, ns, max_staff):
+   2002:                 stats["tuplet_show_number_fixed"] += 1
+   2003:             
+   2004:             if note.find(qname(ns, "chord")) is not None:
+   2005:                 for b in list(note.findall(qname(ns, "beam"))):
+
+--- Line 2029 ---
+   2024:     mxl_in = Path(mxl_in)
+   2025:     mxl_out = Path(mxl_out)
+   2026:     totals = {
+   2027:         "text_nodes_cleared": 0,
+   2028:         "directions_removed": 0,
+>> 2029:         "natural_from_staccato_removed": 0,
+   2030:         "slurs_injected": 0,
+   2031:         "tuplet_show_number_fixed": 0,
+   2032:         "tuplet_staccato_removed": 0,
+   2033:         "tuplet_brackets_adjusted": 0,
+   2034:     }
+
+--- Line 2032 ---
+   2027:         "text_nodes_cleared": 0,
+   2028:         "directions_removed": 0,
+   2029:         "natural_from_staccato_removed": 0,
+   2030:         "slurs_injected": 0,
+   2031:         "tuplet_show_number_fixed": 0,
+>> 2032:         "tuplet_staccato_removed": 0,
+   2033:         "tuplet_brackets_adjusted": 0,
+   2034:     }
+   2035: 
+   2036:     with zipfile.ZipFile(mxl_in, "r") as zin:
+   2037:         files = {name: zin.read(name) for name in zin.namelist()}

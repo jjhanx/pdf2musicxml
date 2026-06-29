@@ -643,25 +643,45 @@ def _strip_beams_from_note(
     return changed
 
 
+_NOTE_CHILD_ORDER = (
+    "grace",
+    "cue",
+    "chord",
+    "pitch",
+    "unpitched",
+    "rest",
+    "duration",
+    "tie",
+    "instrument",
+    "play",
+    "voice",
+    "type",
+    "dot",
+    "accidental",
+    "time-modification",
+    "stem",
+    "notehead",
+    "notehead-text",
+    "staff",
+    "beam",
+    "notations",
+    "lyric",
+)
+
+
+def _sort_note_children(note: ET.Element, ns: str) -> None:
+    order_dict = {
+        _q(ns, tag): idx for idx, tag in enumerate(_NOTE_CHILD_ORDER)
+    }
+    children = list(note)
+    children.sort(key=lambda c: order_dict.get(c.tag, 999))
+    note[:] = children
+
+
 def _insert_beam_element(note: ET.Element, ns: str, beam_el: ET.Element) -> None:
     """MusicXML 순서: stem, notehead, staff, beam, notations — OSMD/VexFlow 호환."""
-    notations = note.find(_q(ns, "notations"))
-    if notations is not None:
-        note.insert(list(note).index(notations), beam_el)
-        return
-    staff_el = note.find(_q(ns, "staff"))
-    if staff_el is not None:
-        note.insert(list(note).index(staff_el) + 1, beam_el)
-        return
-    stem_el = note.find(_q(ns, "stem"))
-    if stem_el is not None:
-        note.insert(list(note).index(stem_el) + 1, beam_el)
-        return
-    type_el = note.find(_q(ns, "type"))
-    if type_el is not None:
-        note.insert(list(note).index(type_el) + 1, beam_el)
-        return
     note.append(beam_el)
+    _sort_note_children(note, ns)
 
 
 def _set_beam_on_note(note: ET.Element, ns: str, beam_number: int, value: str) -> None:
@@ -1695,6 +1715,8 @@ def cleanup_chord_beams_in_root(root: ET.Element) -> int:
             notes = list_note_elements(measure, ns)
             if _strip_chord_member_beams(notes, ns):
                 changed += 1
+            for note in notes:
+                _sort_note_children(note, ns)
     return changed
 
 

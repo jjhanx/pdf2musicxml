@@ -1664,6 +1664,127 @@ def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
     return {"path": str(mxl_path), **stats}
 
 
+def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
+    # 1. Identify all child elements and separate notes by staff
+    notes_staff1 = []
+    notes_staff2 = []
+    
+    start_elements = []  # print, attributes, etc. at the start
+    end_elements = []    # barline, etc. at the end
+    note_attachments = {} # note element -> list of associated non-note elements (placed after the note)
+    
+    # First, collect all notes in their original XML order to establish associations
+    all_notes = []
+    for el in measure:
+        if el.tag.endswith("note"):
+            all_notes.append(el)
+            
+    # Associate other elements
+    last_seen_note = None
+    for el in measure:
+        tag = el.tag.split("}")[-1]
+        if tag == "note":
+            last_seen_note = el
+        elif tag in ("backup", "forward"):
+            continue
+        elif tag in ("print", "attributes"):
+            start_elements.append(el)
+        elif tag in ("barline",):
+            end_elements.append(el)
+        else:
+            # It's a direction, harmony, direction-type, lyric, etc.
+            if last_seen_note is not None:
+                if last_seen_note not in note_attachments:
+                    note_attachments[last_seen_note] = []
+                note_attachments[last_seen_note].append(el)
+            else:
+                # No note seen yet, place at the start of measure
+                start_elements.append(el)
+                
+    # Separate notes by staff
+    for note in all_notes:
+        staff_el = note.find(_q(ns, "staff"))
+        staff = staff_el.text if staff_el is not None else "1"
+        if staff == "2":
+            notes_staff2.append(note)
+        else:
+            notes_staff1.append(note)
+            
+    # Helper to sort notes of a staff by default-x while keeping chord members with their lead note, and assign voice.
+    def sort_staff_notes(notes, target_voice):
+        chord_groups = []
+        current_group = []
+        for note in notes:
+            chord = note.find(_q(ns, "chord")) is not None
+            if chord and current_group:
+                current_group.append(note)
+            else:
+                if current_group:
+                    chord_groups.append(current_group)
+                current_group = [note]
+        if current_group:
+            chord_groups.append(current_group)
+            
+        def get_group_x(grp):
+            lead = grp[0]
+            val = lead.get("default-x")
+            return float(val) if val else 0.0
+            
+        chord_groups.sort(key=get_group_x)
+        
+        sorted_notes = []
+        total_dur = 0
+        for grp in chord_groups:
+            lead_note = grp[0]
+            dur_el = lead_note.find(_q(ns, "duration"))
+            dur = int(dur_el.text) if dur_el is not None and dur_el.text else 0
+            total_dur += dur
+            
+            for note in grp:
+                # Set voice
+                v_el = note.find(_q(ns, "voice"))
+                if v_el is None:
+                    v_el = ET.SubElement(note, _q(ns, "voice"))
+                v_el.text = target_voice
+                sorted_notes.append(note)
+        return sorted_notes, total_dur
+
+    sorted_notes_staff1, dur_staff1 = sort_staff_notes(notes_staff1, "1")
+    sorted_notes_staff2, dur_staff2 = sort_staff_notes(notes_staff2, "5")
+    
+    # Rebuild measure children list
+    for el in list(measure):
+        measure.remove(el)
+        
+    # 1. Start elements
+    for el in start_elements:
+        measure.append(el)
+        
+    # 2. Staff 1 notes (with attachments)
+    for note in sorted_notes_staff1:
+        measure.append(note)
+        if note in note_attachments:
+            for att in note_attachments[note]:
+                measure.append(att)
+                
+    # 3. Backup to Staff 2 if Staff 2 exists
+    if sorted_notes_staff2:
+        backup_el = ET.Element(_q(ns, "backup"))
+        ET.SubElement(backup_el, _q(ns, "duration")).text = str(dur_staff1)
+        measure.append(backup_el)
+        
+        # 4. Staff 2 notes (with attachments)
+        for note in sorted_notes_staff2:
+            measure.append(note)
+            if note in note_attachments:
+                for att in note_attachments[note]:
+                    measure.append(att)
+                    
+    # 5. End elements
+    for el in end_elements:
+        measure.append(el)
+
+
 def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[str, int]:
     ns = _ns(root)
     stats = {"applied": 0, "skipped": 0}
@@ -1703,7 +1824,9 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             _normalize_measure_note_engraving(part, ns, measure)
             notes = list_note_elements(measure, ns)
             _strip_chord_member_beams(notes, ns)
+            rebuild_measure_timeline_clean(measure, ns)
     return stats
+
 
 
 def cleanup_chord_beams_in_root(root: ET.Element) -> int:

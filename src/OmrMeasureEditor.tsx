@@ -67,8 +67,8 @@ function defaultBeamEndIndex(
   el?: MeasureNoteEl,
 ): number {
   if (el?.beams?.length) {
-    const existing = beamRangeFor(el, noteEls);
-    if (existing.to > existing.from) return existing.to;
+    const { to } = beamLeaderRange(el, noteEls);
+    if (to > elIndex) return to;
   }
   const startPos = noteEls.findIndex((n) => n.index === elIndex);
   if (startPos < 0) return elIndex;
@@ -110,6 +110,27 @@ function beamRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: numb
     else break;
   }
   return { from: noteEls[start].index, to: noteEls[end].index };
+}
+
+/** 빔 UI·해제용 — 화음(리더) 음표 인덱스만 (드롭다운 후보와 동일) */
+function beamLeaderRange(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: number; to: number } {
+  const span = beamRangeFor(el, noteEls);
+  const leaders = noteEls.filter(
+    (n) => n.index >= span.from && n.index <= span.to && isBeamableNoteEl(n),
+  );
+  if (leaders.length === 0) return { from: el.index, to: el.index };
+  return { from: leaders[0].index, to: leaders[leaders.length - 1].index };
+}
+
+function clampBeamEnd(elIndex: number, want: number, noteEls: MeasureNoteEl[], el?: MeasureNoteEl): number {
+  const candidates = noteEls.filter((n) => n.index >= elIndex && isBeamableNoteEl(n)).slice(0, 8);
+  if (candidates.length === 0) return elIndex;
+  if (candidates.some((n) => n.index === want)) return want;
+  if (el?.beams?.length) {
+    const { to } = beamLeaderRange(el, noteEls);
+    if (candidates.some((n) => n.index === to)) return to;
+  }
+  return candidates[Math.min(2, candidates.length - 1)].index;
 }
 
 function countBeamableInRange(from: number, to: number, noteEls: MeasureNoteEl[]): number {
@@ -424,7 +445,7 @@ function MeasureNoteEditor({
     setStaffN(el.staff ?? 1);
     setTripletEnd(defaultTripletEndIndex(el.index, noteEls));
     setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
-    setBeamEnd(defaultBeamEndIndex(el.index, noteEls, el));
+    setBeamEnd(clampBeamEnd(el.index, defaultBeamEndIndex(el.index, noteEls, el), noteEls, el));
   }, [el.index, el.pitch, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
@@ -435,7 +456,7 @@ function MeasureNoteEditor({
   const beamCandidates = noteEls.filter((n) => n.index >= el.index && isBeamableNoteEl(n)).slice(0, 8);
   const beamEndNote = noteEls.find((n) => n.index === beamEnd);
   const beamNoteCount = countBeamableInRange(el.index, beamEnd, noteEls);
-  const existingBeam = beamRangeFor(el, noteEls);
+  const existingBeam = beamLeaderRange(el, noteEls);
   const spuriousAfterRest =
     el.kind === 'rest' &&
     nextNote &&
@@ -696,6 +717,8 @@ function MeasureNoteEditor({
                 toNoteIndex: beamEnd,
                 fromPitch: el.pitch ?? undefined,
                 toPitch: beamEndNote?.pitch ?? undefined,
+                fromStaff: el.staff ?? undefined,
+                toStaff: beamEndNote?.staff ?? undefined,
                 beamNumber,
               })
             }

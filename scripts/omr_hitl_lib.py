@@ -554,21 +554,43 @@ def _note_voice_staff(note: ET.Element, ns: str) -> tuple[str, str]:
     return voice, staff
 
 
+def _set_note_voice_staff(note: ET.Element, ns: str, voice: str, staff: str) -> None:
+    voice_el = note.find(_q(ns, "voice"))
+    if voice_el is None:
+        voice_el = ET.SubElement(note, _q(ns, "voice"))
+    voice_el.text = voice
+    staff_el = note.find(_q(ns, "staff"))
+    if staff_el is None:
+        staff_el = ET.SubElement(note, _q(ns, "staff"))
+    staff_el.text = staff
+
+
 def _resolve_beam_endpoint(
     notes: list[ET.Element],
     ns: str,
     idx: int,
     pitch_hint: Any,
+    staff_hint: Any = None,
 ) -> int:
     hint = str(pitch_hint or "").strip()
-    if 0 <= idx < len(notes) and (not hint or _note_pitch_str(notes[idx], ns) == hint):
+    staff_want = str(staff_hint or "").strip()
+
+    def _staff_ok(note: ET.Element) -> bool:
+        if not staff_want:
+            return True
+        _, staff = _note_voice_staff(note, ns)
+        return staff == staff_want
+
+    if 0 <= idx < len(notes) and _staff_ok(notes[idx]) and (not hint or _note_pitch_str(notes[idx], ns) == hint):
         return idx
     if not hint:
         return idx
     matches = [
         i
         for i, n in enumerate(notes)
-        if _is_beamable_pitched_note(n, ns) and _note_pitch_str(n, ns) == hint
+        if _is_beamable_pitched_note(n, ns)
+        and _note_pitch_str(n, ns) == hint
+        and _staff_ok(n)
     ]
     if not matches:
         return idx
@@ -657,12 +679,40 @@ def _chord_follower_indices(notes: list[ET.Element], ns: str, leader_idx: int) -
     return out
 
 
+def _ensure_short_type_for_beam(
+    note: ET.Element, ns: str, divisions: int, prefer: str = "eighth"
+) -> None:
+    """빔 연결 대상이 4분 등이면 8분(이하)으로 맞춰 OSMD가 빔을 그리게 한다."""
+    if note.find(_q(ns, "rest")) is not None or note.find(_q(ns, "pitch")) is None:
+        return
+    type_el = note.find(_q(ns, "type"))
+    note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+    if note_type in ("eighth", "16th", "32nd", "64th", "128th"):
+        return
+    dot_count = len(note.findall(_q(ns, "dot")))
+    target_type = prefer if note_type in ("quarter", "half", "whole", "") else prefer
+    target_dur = _duration_for_type_dots(target_type, divisions, min(dot_count, 1))
+    if target_dur <= 0:
+        return
+    if type_el is None:
+        type_el = ET.SubElement(note, _q(ns, "type"))
+    type_el.text = target_type
+    dur_el = note.find(_q(ns, "duration"))
+    if dur_el is None:
+        dur_el = ET.SubElement(note, _q(ns, "duration"))
+    dur_el.text = str(target_dur)
+
+
 def _apply_beam_to_range(
     notes: list[ET.Element],
     ns: str,
     indices: list[int],
     beam_number: int = 1,
+    divisions: int = 0,
 ) -> bool:
+    if not indices:
+        return False
+    lo, hi = min(indices), max(indices)
     pitched = [
         i
         for i in indices
@@ -670,14 +720,33 @@ def _apply_beam_to_range(
     ]
     if len(pitched) < 2:
         return False
-    group_keys = {_note_voice_staff(notes[i], ns) for i in pitched}
-    if len(group_keys) != 1:
-        return False
-    voice, staff = next(iter(group_keys))
-    for note in notes:
-        v, s = _note_voice_staff(note, ns)
-        if v == voice and s == staff:
-            _strip_beams_from_note(note, ns, beam_number)
+
+    leader_voice, leader_staff = _note_voice_staff(notes[pitched[0]], ns)
+
+    for idx in range(lo, hi + 1):
+        if not (0 <= idx < len(notes)):
+            continue
+        note = notes[idx]
+        if note.find(_q(ns, "rest")) is not None or note.find(_q(ns, "pitch")) is None:
+            continue
+        _set_note_voice_staff(note, ns, leader_voice, leader_staff)
+        if note.find(_q(ns, "chord")) is None:
+            for fidx in _chord_follower_indices(notes, ns, idx):
+                _set_note_voice_staff(notes[fidx], ns, leader_voice, leader_staff)
+
+    if divisions > 0:
+        for idx in pitched:
+            _ensure_short_type_for_beam(notes[idx], ns, divisions)
+            for fidx in _chord_follower_indices(notes, ns, idx):
+                _ensure_short_type_for_beam(notes[fidx], ns, divisions)
+
+    for idx in range(lo, hi + 1):
+        if not (0 <= idx < len(notes)):
+            continue
+        _strip_beams_from_note(notes[idx], ns, beam_number)
+        for fidx in _chord_follower_indices(notes, ns, idx):
+            _strip_beams_from_note(notes[fidx], ns, beam_number)
+
     for pos, idx in enumerate(pitched):
         if pos == 0:
             val = "begin"
@@ -1299,14 +1368,19 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             beam_number = int(fix.get("beamNumber", 1))
         except (TypeError, ValueError):
             return False
-        from_idx = _resolve_beam_endpoint(notes, ns, from_idx, fix.get("fromPitch"))
-        to_idx = _resolve_beam_endpoint(notes, ns, to_idx, fix.get("toPitch"))
+        from_idx = _resolve_beam_endpoint(
+            notes, ns, from_idx, fix.get("fromPitch"), fix.get("fromStaff")
+        )
+        to_idx = _resolve_beam_endpoint(
+            notes, ns, to_idx, fix.get("toPitch"), fix.get("toStaff")
+        )
         if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
             return False
         if beam_number < 1 or beam_number > 4:
             return False
+        divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
         indices = list(range(from_idx, to_idx + 1))
-        return _apply_beam_to_range(notes, ns, indices, beam_number)
+        return _apply_beam_to_range(notes, ns, indices, beam_number, divisions)
 
     if kind == "removeBeam":
         try:

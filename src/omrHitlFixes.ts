@@ -40,6 +40,8 @@ export type OmrHitlFix = {
   beamNumber?: number;
   fromPitch?: string;
   toPitch?: string;
+  fromStaff?: number;
+  toStaff?: number;
   source?: string;
   lintCode?: string;
 };
@@ -93,6 +95,8 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.beamNumber ?? '',
     fix.fromPitch ?? '',
     fix.toPitch ?? '',
+    fix.fromStaff ?? '',
+    fix.toStaff ?? '',
   ].join('|');
 }
 

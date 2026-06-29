@@ -516,6 +516,11 @@ async function writeOmrHitlFixes(sessionRoot: string, fixes: unknown[]): Promise
   );
 }
 
+async function saveHitlBaseline(sessionRoot: string, scorePath: string): Promise<void> {
+  if (!fsSync.existsSync(scorePath)) return;
+  await fs.copyFile(scorePath, sessionHitlBaselineMxlPath(sessionRoot));
+}
+
 async function runOmrHitlAutoNormalize(
   sessionRoot: string,
   scorePath: string,

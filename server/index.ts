@@ -602,6 +602,7 @@ async function syncOmrReviewMxl(
   hitlSkipped: number;
   pendingCleared: number;
   syncMode: 'full' | 'incremental' | 'restore' | 'init';
+  chordBeamMeasuresCleaned: number;
 }> {
   await ensureAudiverisRawBackup(scorePath, sessionRoot);
   const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
@@ -616,6 +617,7 @@ async function syncOmrReviewMxl(
     slursInjected: 0,
     tupletShowNumberFixed: 0,
     directionsRemoved: 0,
+    chordBeamMeasuresCleaned: 0,
   };
 
   let syncMode: 'full' | 'incremental' | 'restore' | 'init';
@@ -679,6 +681,7 @@ async function syncOmrReviewMxl(
     hitlSkipped,
     pendingCleared,
     syncMode,
+    chordBeamMeasuresCleaned: Math.max(postStats.chordBeamMeasuresCleaned, chordBeamCleaned),
   };
 }
 
@@ -1109,6 +1112,7 @@ async function postprocessAudiverisMxlInScoreFile(
   slursInjected: number;
   tupletShowNumberFixed: number;
   directionsRemoved: number;
+  chordBeamMeasuresCleaned: number;
 }> {
   const restStats = (await normalizeOmrRestsInScoreFile(scorePath, pythonBin)) ?? {
     restsFixed: 0,
@@ -1122,6 +1126,7 @@ async function postprocessAudiverisMxlInScoreFile(
     tupletStaccatoRemoved: 0,
     directionsRemoved: 0,
   };
+  const chordBeamCleaned = await cleanupChordBeamsInScoreFile(scorePath, pythonBin);
   return {
     restsFixed: restStats.restsFixed,
     measuresChanged: restStats.measuresChanged,
@@ -1130,6 +1135,7 @@ async function postprocessAudiverisMxlInScoreFile(
     slursInjected: fixStats.slursInjected,
     tupletShowNumberFixed: fixStats.tupletShowNumberFixed,
     directionsRemoved: fixStats.directionsRemoved,
+    chordBeamMeasuresCleaned: chordBeamCleaned,
   };
 }
 

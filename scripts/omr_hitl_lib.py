@@ -957,11 +957,12 @@ def _tuplet_group_has_rest(notes: list[ET.Element], indices: list[int], ns: str)
 
 
 def _infer_tuplet_placement(note: ET.Element, ns: str) -> str:
+    """세잇단 bracket·숫자 placement — 빔 쪽(stem down → below, stem up → above). fix_audiveris_mxl과 동일."""
     stem_el = note.find(_q(ns, "stem"))
     stem = (stem_el.text or "").strip().lower() if stem_el is not None and stem_el.text else ""
-    if stem == "up":
-        return "below"
     if stem == "down":
+        return "below"
+    if stem == "up":
         return "above"
     return "above"
 
@@ -969,32 +970,27 @@ def _infer_tuplet_placement(note: ET.Element, ns: str) -> str:
 def _infer_tuplet_placement_for_range(
     notes: list[ET.Element], indices: list[int], ns: str
 ) -> str:
-    """쉼표로 시작하는 세잇단은 같은 구간 음표 stem·빔 방향(아래 빔→below)으로 bracket·숫자 배치."""
-    up_count = 0
-    down_count = 0
+    """쉼표로 시작하는 세잇단은 같은 구간 음표 stem·빔 방향으로 bracket·숫자 placement."""
+    below_count = 0
+    above_count = 0
     for idx in indices:
         note = notes[idx]
         if note.find(_q(ns, "rest")) is not None and note.find(_q(ns, "pitch")) is None:
             continue
-        stem_el = note.find(_q(ns, "stem"))
-        stem = (
-            (stem_el.text or "").strip().lower()
-            if stem_el is not None and stem_el.text
-            else ""
-        )
-        if stem == "up":
-            up_count += 1
-        elif stem == "down":
-            down_count += 1
-    if up_count > down_count:
+        plc = _infer_tuplet_placement(note, ns)
+        if plc == "below":
+            below_count += 1
+        else:
+            above_count += 1
+    if below_count > above_count:
         return "below"
-    if down_count > up_count:
+    if above_count > below_count:
         return "above"
     for idx in indices:
         note = notes[idx]
         if note.find(_q(ns, "pitch")) is not None:
             return _infer_tuplet_placement(note, ns)
-    return _infer_tuplet_placement(notes[indices[0]], ns)
+    return "above"
 
 
 def _apply_triplet_to_range(

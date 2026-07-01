@@ -56,11 +56,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [manualMeasurePrinted, setManualMeasurePrinted] = useState('');
   const [editorKey, setEditorKey] = useState(0);
   const [previewRevision, setPreviewRevision] = useState(0);
+  const [scrollToMeasureTrigger, setScrollToMeasureTrigger] = useState(0);
   const [lastPreviewMsg, setLastPreviewMsg] = useState('');
   const [measureClickMsg, setMeasureClickMsg] = useState('');
   const fixesHydratedRef = useRef(false);
   const previewSyncedRef = useRef(false);
   const pendingFixesRef = useRef<OmrHitlFix[]>([]);
+  const importWorkInputRef = useRef<HTMLInputElement>(null);
   const [workMsg, setWorkMsg] = useState('');
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
@@ -416,12 +418,15 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             : `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 오른쪽 MusicXML에서 확인하세요.`;
       setApplyMsg(msg);
       setLastPreviewMsg(msg);
+      if (selectedMeasure) {
+        setScrollToMeasureTrigger((n) => n + 1);
+      }
     } catch (e) {
       setApplyMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setApplyBusy(false);
     }
-  }, [jobId, persistFixes, refreshScoreXml, loadFixesFromServer]);
+  }, [jobId, persistFixes, refreshScoreXml, loadFixesFromServer, selectedMeasure]);
 
   const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo) => {
@@ -589,6 +594,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   onMeasureClick={openMeasure}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}
                   highlightMeasureStaffIndex={selectedMeasure?.staffIndex ?? null}
+                  scrollToMeasure={selectedMeasure}
+                  scrollToMeasureTrigger={scrollToMeasureTrigger}
                 />
               ) : (
                 <p className="omr-mxl-osmd-placeholder">표시할 MusicXML이 없습니다.</p>
@@ -718,20 +725,26 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           <button type="button" className="btn-muted" disabled={applyBusy} onClick={() => void exportWork()}>
             작업 저장(ZIP)
           </button>
-          <label className="btn-muted" style={{ cursor: applyBusy ? 'not-allowed' : 'pointer', margin: 0 }}>
+          <button
+            type="button"
+            className="btn-muted"
+            disabled={applyBusy}
+            onClick={() => importWorkInputRef.current?.click()}
+          >
             작업 불러오기
-            <input
-              type="file"
-              accept=".zip,application/zip"
-              disabled={applyBusy}
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                e.target.value = '';
-                if (f) void importWork(f);
-              }}
-            />
-          </label>
+          </button>
+          <input
+            ref={importWorkInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            disabled={applyBusy}
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void importWork(f);
+            }}
+          />
         </div>
         {workMsg ? <p className="omr-hitl-apply-msg">{workMsg}</p> : null}
         {applyMsg ? <p className="omr-hitl-apply-msg">{applyMsg}</p> : null}

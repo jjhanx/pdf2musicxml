@@ -895,6 +895,35 @@ export function drawOsmdMeasureHover(
   }
 }
 
+/** OMR 미리보기 스크롤 영역(.omr-mxl-osmd-frame)에서 마디 세로 중앙이 보이도록 스크롤 */
+export function scrollOsmdMeasureIntoView(
+  host: HTMLElement,
+  osmd: OpenSheetMusicDisplay,
+  info: OsmdMeasureClickInfo,
+): void {
+  const scrollParent = host.closest('.omr-mxl-osmd-frame') as HTMLElement | null;
+  if (!scrollParent) return;
+
+  try {
+    const bounds = boundsForMeasureInfo(osmd, host, info);
+    if (!bounds || !isValidHostBounds(bounds)) return;
+
+    const measureMidYInHost = bounds.top + (bounds.bottom - bounds.top) / 2;
+    const hostRect = host.getBoundingClientRect();
+    const measureScreenY = hostRect.top + measureMidYInHost;
+    const frameRect = scrollParent.getBoundingClientRect();
+    const measureInContent = measureScreenY - frameRect.top + scrollParent.scrollTop;
+    const targetScroll = measureInContent - scrollParent.clientHeight / 2;
+
+    scrollParent.scrollTo({
+      top: Math.max(0, targetScroll),
+      behavior: 'smooth',
+    });
+  } catch (e) {
+    console.warn('[omr-measure-click] scroll 실패', e);
+  }
+}
+
 export function drawOsmdMeasureHighlight(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,

@@ -1017,6 +1017,22 @@ button.btn-muted {
   color: #555;
 }
 
+.modal-light .omr-hitl-actions button.btn-muted {
+  background: #e8eaed;
+  color: #202124;
+  border: 1px solid #9aa0a6;
+  padding: 0.45rem 0.9rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.modal-light .omr-hitl-actions button.btn-muted:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .modal-light .omr-hitl-actions button:not(.btn-muted) {
   background: #1565c0;
   color: #fff;

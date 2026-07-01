@@ -17,6 +17,7 @@ import {
   type OsmdMeasureClickInfo,
   removeMeasureClickOverlays,
   removeMeasureHover,
+  scrollOsmdMeasureIntoView,
 } from './osmdMeasureClick';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 
@@ -296,6 +297,8 @@ export function OsmdBlock({
   onMeasureClick,
   highlightMeasureMxl,
   highlightMeasureStaffIndex,
+  scrollToMeasure,
+  scrollToMeasureTrigger = 0,
   embeddedInOmrFrame,
 }: {
   xml: string;
@@ -303,6 +306,9 @@ export function OsmdBlock({
   onMeasureClick?: (info: OsmdMeasureClickInfo) => void;
   highlightMeasureMxl?: number | null;
   highlightMeasureStaffIndex?: number | null;
+  /** MXL 반영·미리보기 직후 해당 마디가 스크롤 영역 세로 중앙에 오도록 */
+  scrollToMeasure?: OsmdMeasureClickInfo | null;
+  scrollToMeasureTrigger?: number;
   /** OMR 검토 패널처럼 바깥 .omr-mxl-osmd-frame이 스크롤할 때 내부 overflow 제거 */
   embeddedInOmrFrame?: boolean;
 }) {
@@ -316,6 +322,14 @@ export function OsmdBlock({
   const onMeasureClickRef = useRef(onMeasureClick);
   const highlightMeasureMxlRef = useRef(highlightMeasureMxl);
   const highlightMeasureStaffIndexRef = useRef(highlightMeasureStaffIndex);
+  const scrollToMeasureRef = useRef(scrollToMeasure);
+  const scrollToMeasureTriggerRef = useRef(scrollToMeasureTrigger);
+  const lastHandledScrollTriggerRef = useRef(0);
+
+  useEffect(() => {
+    scrollToMeasureRef.current = scrollToMeasure;
+    scrollToMeasureTriggerRef.current = scrollToMeasureTrigger;
+  }, [scrollToMeasure, scrollToMeasureTrigger]);
 
   useEffect(() => {
     onMeasureClickRef.current = onMeasureClick;
@@ -362,6 +376,20 @@ export function OsmdBlock({
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         syncMeasureClickUi();
+        const host = hostRef.current;
+        const osmd = osmdRef.current;
+        const trigger = scrollToMeasureTriggerRef.current;
+        const target = scrollToMeasureRef.current;
+        if (
+          host &&
+          osmd?.IsReadyToRender() &&
+          target &&
+          trigger > 0 &&
+          trigger !== lastHandledScrollTriggerRef.current
+        ) {
+          scrollOsmdMeasureIntoView(host, osmd, target);
+          lastHandledScrollTriggerRef.current = trigger;
+        }
       });
     });
   }, [syncMeasureClickUi]);

@@ -706,8 +706,7 @@ def _set_beam_on_note(note: ET.Element, ns: str, beam_number: int, value: str) -
             if n == beam_number:
                 notations.remove(beam)
     beam_el = ET.Element(_q(ns, "beam"))
-    if beam_number != 1:
-        beam_el.set("number", str(beam_number))
+    beam_el.set("number", str(beam_number))
     beam_el.text = value
     _insert_beam_element(note, ns, beam_el)
 

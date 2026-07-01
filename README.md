@@ -14,7 +14,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
   - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI** → `clean_score_only.pdf` → Audiveris → 병합·주입.
   - **PyMuPDF 검증 + 마스킹**: 기존 `extract_text.py` → 검토 UI → `mask_pdf.py` → Audiveris → 주입.
   - **OMR만**: 선행 처리·가사 주입 없음.
-- **OMR 품질 검토(HITL)**: `mxl-lint`의 **「OMR 불일치 의심 마디」자동 목록은 UI에서 제거**했습니다(오탐이 많음). **PDF·MusicXML 나란히 대조** 후 **마디 클릭 → 해당 마디만 편집** 흐름은 그대로입니다. 마디 편집에서 **세잇단(잇단) 적용·해제**·**빔(연결줄) 연결·해제**를 지원합니다. **「MXL에 반영·미리보기」** 후 반영된 보정은 대기 목록에서 제거되고 baseline MXL에 저장되어, 이후 보정은 누적 재적용 없이 incremental로 반영됩니다.
+- **OMR 품질 검토(HITL)**: `mxl-lint`의 **「OMR 불일치 의심 마디」자동 목록은 UI에서 제거**했습니다(오탐이 많음). **PDF·MusicXML 나란히 대조** 후 **마디 클릭 → 해당 마디만 편집** 흐름은 그대로입니다. 마디 편집에서 **세잇단(잇단) 적용·해제**·**빔(연결줄) 연결·해제**를 지원합니다. 빔 연결 시 **voice·staff·stem·duration**을 맞추고, **`<beam>`은 화음 리더에만** 기록합니다(`<chord/>` 멤버 beam은 OSMD 미리보기 누락 원인 — `cleanup_chord_beams_mxl.py`로 자동 제거). **「MXL에 반영·미리보기」** 후 반영된 보정은 대기 목록에서 제거되고 baseline MXL에 저장되어, 이후 보정은 누적 재적용 없이 incremental로 반영됩니다. 자세한 절차·문제 해결: [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) §OMR 품질 검토 → 빔.
 - **같은 PDF 반복 작업 — 시작 단계 선택**: 변환 전 **「시작 단계」**에서 **가사 검증부터**(`clean_score_only.pdf` 업로드), **OMR만**, **OMR 검토 이어하기**(`omr-work.zip`, Audiveris 재인식 생략)를 고를 수 있습니다. [docs/일반_품질_및_HITL_로드맵.md](docs/일반_품질_및_HITL_로드맵.md).
 - **범용 화음(Chord) 및 세잇단음 렌더링 버그 수정**: ① 화음 내 중복 피치 제거 시 새로운 리더(Leader) 음표의 `<chord/>` 태그를 제거하여 이어지는 마디와 박자가 겹치거나 음표가 증발하는 치명적인 버그 해결. ② 세잇단음이 쉼표로 시작할 때 빔(Beam) 반대 방향으로 브라켓을 자동 배치하도록 꼬리 방향 추론 로직 개선. ③ MuseScore 레이아웃 엔진과 충돌하여 화음을 뭉개버리던 강제 `bracket="no"` 주입 로직 제거. ④ 피아노 오른손 화음 이음줄(Slur) 보정 확대.
 - **이음줄(Slur) 및 세잇단음표 숫자 누락 버그 수정**: Audiveris 후처리 스크립트(`fix_audiveris_mxl.py`)가 얇은 이음줄(`<bracket>`) 기호를 지우거나 세잇단음표 숫자 '3'을 텍스트 찌꺼기로 오인하여 무차별 삭제하던 문제를 수정하여 정상적으로 출력되도록 개선했습니다.
@@ -298,6 +298,9 @@ pdf2musicxml/
 │   ├── mxl_quality_lint.py     # MXL 품질 lint (P direction, phantom rest, 마디 경계)
 │   ├── pdf_diagnostic.py       # 진단 API: 페이지 수·PNG 렌더
 │   ├── mxl_to_musicxml_file.py # MXL에서 MusicXML 추출(미리보기)
+│   ├── apply_omr_hitl_fixes.py # OMR HITL 보정을 MXL에 적용
+│   ├── cleanup_chord_beams_mxl.py # 화음 멤버 orphan beam 제거(OSMD 호환)
+│   ├── omr_hitl_lib.py         # HITL 보정 라이브러리(빔·세잇단·마디 스냅샷 등)
 │   └── convert-cli.ts
 ├── src/
 │   ├── App.tsx

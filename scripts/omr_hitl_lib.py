@@ -502,8 +502,53 @@ def _normalize_measure_note_engraving(
     return changed
 
 
+def _parse_default_x(note: ET.Element) -> float | None:
+    raw = note.get("default-x")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _assign_insert_layout_defaults(
+    new_note: ET.Element,
+    anchor: ET.Element | None,
+    following: ET.Element | None = None,
+    *,
+    staff_notes: list[ET.Element] | None = None,
+    ns: str = "",
+) -> None:
+    """HITL 삽입 음·쉼표에 default-x를 넣어 timeline 재정렬 시 맨 앞으로 가지 않게 한다."""
+    x_val: float | None = None
+    if anchor is not None:
+        ax = _parse_default_x(anchor)
+        if ax is not None:
+            x_val = ax + 15.0
+    if x_val is None and following is not None:
+        fx = _parse_default_x(following)
+        if fx is not None:
+            x_val = fx - 15.0
+    if x_val is None and staff_notes:
+        best = 0.0
+        found = False
+        for n in staff_notes:
+            if n.find(_q(ns, "chord")) is not None:
+                continue
+            nx = _parse_default_x(n)
+            if nx is not None:
+                best = max(best, nx)
+                found = True
+        if found:
+            x_val = best + 15.0
+    if x_val is None:
+        x_val = 1.0
+    new_note.set("default-x", f"{x_val:.2f}")
+
+
 def _insert_note_element(measure: ET.Element, ns: str, new_note: ET.Element, after_note_index: int) -> None:
-    """after_note_index=-1 이면 첫 note 앞, 그 외에는 해당 note 바로 뒤."""
+    """after_note_index=-1 이면 첫 note 앞, 그 외에는 해당 note(및 화음 멤버) 바로 뒤."""
     children = list(measure)
     if after_note_index < 0:
         for child in children:
@@ -519,9 +564,33 @@ def _insert_note_element(measure: ET.Element, ns: str, new_note: ET.Element, aft
         seen += 1
         if seen == after_note_index:
             pos = children.index(child) + 1
+            while pos < len(children):
+                nxt = children[pos]
+                if _local(nxt) == "note" and nxt.find(_q(ns, "chord")) is not None:
+                    pos += 1
+                else:
+                    break
             measure.insert(pos, new_note)
             return
     measure.append(new_note)
+
+
+def _insert_context_notes(
+    notes: list[ET.Element], ns: str, after_idx: int, staff_n: int
+) -> tuple[ET.Element | None, ET.Element | None, list[ET.Element]]:
+    """삽입 위치 anchor·다음 음, 같은 staff 음표 목록."""
+    staff_notes = [
+        n
+        for n in notes
+        if (_note_staff_number(n, ns) or 1) == staff_n and n.find(_q(ns, "chord")) is None
+    ]
+    anchor: ET.Element | None = None
+    following: ET.Element | None = None
+    if 0 <= after_idx < len(notes):
+        anchor = notes[after_idx]
+    if after_idx + 1 < len(notes):
+        following = notes[after_idx + 1]
+    return anchor, following, staff_notes
 
 
 def _ensure_notations(note: ET.Element, ns: str) -> ET.Element:
@@ -1362,6 +1431,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             display_step=step,
             display_octave=octave,
         )
+        anchor, following, staff_notes = _insert_context_notes(notes, ns, after_idx, staff_n)
+        _assign_insert_layout_defaults(
+            new_note, anchor, following, staff_notes=staff_notes, ns=ns
+        )
         _insert_note_element(measure, ns, new_note, after_idx)
         _normalize_measure_note_engraving(part, ns, measure)
         return True
@@ -1396,6 +1469,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             staff_n=staff_n,
             voice=voice,
             stem=stem,
+        )
+        anchor, following, staff_notes = _insert_context_notes(notes, ns, after_idx, staff_n)
+        _assign_insert_layout_defaults(
+            new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
         _insert_note_element(measure, ns, new_note, after_idx)
         _normalize_measure_note_engraving(part, ns, measure)
@@ -1711,29 +1788,34 @@ def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
             
     # Helper to sort notes of a staff by default-x while keeping chord members with their lead note, and assign voice.
     def sort_staff_notes(notes, target_voice):
-        chord_groups = []
-        current_group = []
+        chord_groups: list[tuple[int, list[ET.Element]]] = []
+        current_group: list[ET.Element] = []
+        group_idx = 0
         for note in notes:
             chord = note.find(_q(ns, "chord")) is not None
             if chord and current_group:
                 current_group.append(note)
             else:
                 if current_group:
-                    chord_groups.append(current_group)
+                    chord_groups.append((group_idx, current_group))
+                    group_idx += 1
                 current_group = [note]
         if current_group:
-            chord_groups.append(current_group)
-            
-        def get_group_x(grp):
+            chord_groups.append((group_idx, current_group))
+
+        def get_group_x(item: tuple[int, list[ET.Element]]) -> tuple[float, int]:
+            idx, grp = item
             lead = grp[0]
-            val = lead.get("default-x")
-            return float(val) if val else 0.0
-            
+            val = _parse_default_x(lead)
+            if val is not None:
+                return (val, idx)
+            return (1_000_000.0 + idx, idx)
+
         chord_groups.sort(key=get_group_x)
-        
+
         sorted_notes = []
         total_dur = 0
-        for grp in chord_groups:
+        for _idx, grp in chord_groups:
             lead_note = grp[0]
             dur_el = lead_note.find(_q(ns, "duration"))
             dur = int(dur_el.text) if dur_el is not None and dur_el.text else 0

@@ -905,6 +905,41 @@ button.btn-muted {
   font-size: 0.82rem;
 }
 
+.modal-light .omr-measure-insert-pending-leader {
+  margin-bottom: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 6px;
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  color: #0d47a1;
+}
+
+.modal-light .omr-measure-insert-chord-extras {
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  background: #f1f8e9;
+  border: 1px dashed #aed581;
+}
+
+.modal-light .omr-measure-insert-chord-extras-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #33691e;
+  margin-bottom: 0.35rem;
+}
+
+.modal-light .omr-measure-insert-chord-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #558b2f;
+}
+
 .modal-light .omr-hitl-fix-btn--primary {
   background: #1565c0;
   color: #fff;

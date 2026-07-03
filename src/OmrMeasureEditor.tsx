@@ -225,6 +225,29 @@ function chordLeaderIndex(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): number {
   return sorted[pos]?.index ?? el.index;
 }
 
+/** insertNote 직후 리더가 될 #index (서버 `_resolve_insert_after_context`와 동일). */
+function predictLeaderIndexAfterInsert(noteEls: MeasureNoteEl[], afterNoteIndex: number): number {
+  if (afterNoteIndex < 0) return 0;
+  if (afterNoteIndex >= noteEls.length) return noteEls.length;
+  const anchor = noteEls.find((n) => n.index === afterNoteIndex);
+  if (!anchor) return afterNoteIndex + 1;
+  const leaderIdx = chordLeaderIndex(anchor, noteEls);
+  const sorted = [...noteEls].sort((a, b) => a.index - b.index);
+  let endIdx = leaderIdx;
+  for (const n of sorted) {
+    if (n.index <= leaderIdx) continue;
+    if (n.chord) endIdx = n.index;
+    else break;
+  }
+  return endIdx + 1;
+}
+
+type PendingInsertLeader = {
+  leaderNoteIndex: number;
+  pitchLabel: string;
+  noteType: string;
+};
+
 function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
   if (el.elementKind === 'direction') {
     return `direction #${el.directionIndex}${el.text ? `: ${el.text}` : ''}`;
@@ -281,6 +304,7 @@ export function OmrMeasureEditor({
   const [insertAfter, setInsertAfter] = useState(-1);
   const [insertStaff, setInsertStaff] = useState(editStaffWithinPart ?? 1);
   const [fixMsg, setFixMsg] = useState('');
+  const [pendingInsertLeader, setPendingInsertLeader] = useState<PendingInsertLeader | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -314,6 +338,10 @@ export function OmrMeasureEditor({
   useEffect(() => {
     if (editStaffWithinPart != null) setInsertStaff(editStaffWithinPart);
   }, [editStaffWithinPart]);
+
+  useEffect(() => {
+    setPendingInsertLeader(null);
+  }, [previewRevision, insertAfter, partId, measureMxl]);
 
   const displayElements = useMemo(() => {
     if (editStaffWithinPart == null) return elements;
@@ -426,10 +454,15 @@ export function OmrMeasureEditor({
       <InsertElementForm
         afterNoteIndex={insertAfter}
         staffDefault={insertStaff}
-        onInsertRest={(afterNoteIndex, noteType, staff) =>
-          pushFix({ kind: 'insertRest', afterNoteIndex, noteType, staff })
-        }
-        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, staff, pitchAlter) =>
+        noteEls={noteEls}
+        pendingLeader={pendingInsertLeader}
+        onInsertRest={(afterNoteIndex, noteType, staff) => {
+          setPendingInsertLeader(null);
+          pushFix({ kind: 'insertRest', afterNoteIndex, noteType, staff });
+        }}
+        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, staff, pitchAlter, extraChordMembers) => {
+          const leaderIdx = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
+          const leaderLabel = formatPitchLabel(pitchStep, pitchOctave, pitchAlter);
           pushFix({
             kind: 'insertNote',
             afterNoteIndex,
@@ -438,8 +471,45 @@ export function OmrMeasureEditor({
             pitchAlter,
             noteType,
             staff,
-          })
-        }
+          });
+          for (const cm of extraChordMembers) {
+            pushFix({
+              kind: 'insertChordMember',
+              leaderNoteIndex: leaderIdx,
+              pitchStep: cm.step,
+              pitchOctave: cm.octave,
+              pitchAlter: cm.alter,
+            });
+          }
+          if (extraChordMembers.length > 0) {
+            setPendingInsertLeader(null);
+            setFixMsg(
+              `리더 #${leaderIdx}(예정) ${leaderLabel} + 화음 ${extraChordMembers.length}개 대기 목록 추가 → 「MXL에 반영·미리보기」`,
+            );
+          } else {
+            setPendingInsertLeader({
+              leaderNoteIndex: leaderIdx,
+              pitchLabel: leaderLabel,
+              noteType,
+            });
+            setFixMsg(
+              `리더 음표 대기 (#${leaderIdx} 예정 · ${leaderLabel}). 아래 「화음 음 추가」로 2·3음을 더 붙이거나 「MXL에 반영·미리보기」를 누르세요.`,
+            );
+          }
+        }}
+        onInsertChordMember={(leaderNoteIndex, pitchStep, pitchOctave, pitchAlter) => {
+          pushFix({
+            kind: 'insertChordMember',
+            leaderNoteIndex,
+            pitchStep,
+            pitchOctave,
+            pitchAlter,
+          });
+          setFixMsg(
+            `화음 음 ${formatPitchLabel(pitchStep, pitchOctave, pitchAlter)} 대기 (리더 #${leaderNoteIndex} 예정) → 「MXL에 반영·미리보기」`,
+          );
+        }}
+        onClearPendingLeader={() => setPendingInsertLeader(null)}
       />
 
       {!loading && elements.length === 0 && !loadErr ? (
@@ -922,14 +992,23 @@ function MeasureNoteEditor({
   );
 }
 
+type ChordMemberDraft = { step: string; octave: number; alter: PitchAlterOption };
+
 function InsertElementForm({
   afterNoteIndex,
   staffDefault,
+  noteEls,
+  pendingLeader,
+  onClearPendingLeader,
   onInsertRest,
   onInsertNote,
+  onInsertChordMember,
 }: {
   afterNoteIndex: number;
   staffDefault: number;
+  noteEls: MeasureNoteEl[];
+  pendingLeader: PendingInsertLeader | null;
+  onClearPendingLeader: () => void;
   onInsertRest: (after: number, type: string, staff: number) => void;
   onInsertNote: (
     after: number,
@@ -937,25 +1016,109 @@ function InsertElementForm({
     octave: number,
     type: string,
     staff: number,
-    pitchAlter?: number,
+    pitchAlter: number | undefined,
+    extraChordMembers: Array<{ step: string; octave: number; alter?: number }>,
+  ) => void;
+  onInsertChordMember: (
+    leaderNoteIndex: number,
+    step: string,
+    octave: number,
+    pitchAlter: number | undefined,
   ) => void;
 }) {
   const [restType, setRestType] = useState('quarter');
-  const [noteType, setNoteType] = useState('quarter');
+  const [noteType, setNoteType] = useState('eighth');
   const [staff, setStaff] = useState(staffDefault);
   const [step, setStep] = useState('C');
   const [octave, setOctave] = useState(4);
   const [insertAlter, setInsertAlter] = useState<PitchAlterOption>('0');
+  const [extraChords, setExtraChords] = useState<ChordMemberDraft[]>([]);
+  const [attachStep, setAttachStep] = useState('E');
+  const [attachOctave, setAttachOctave] = useState(4);
+  const [attachAlter, setAttachAlter] = useState<PitchAlterOption>('0');
 
   useEffect(() => {
     setStaff(staffDefault);
   }, [staffDefault]);
 
   const afterLabel = afterNoteIndex < 0 ? '마디 맨 앞' : `음·쉼표 #${afterNoteIndex} 뒤 (staff ${staff})`;
+  const predictedLeader = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
+
+  const addExtraChordRow = () => {
+    setExtraChords((prev) => [...prev, { step: 'G', octave: 4, alter: '0' }]);
+  };
+
+  const updateExtraChord = (i: number, patch: Partial<ChordMemberDraft>) => {
+    setExtraChords((prev) => prev.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  };
+
+  const removeExtraChord = (i: number) => {
+    setExtraChords((prev) => prev.filter((_, j) => j !== i));
+  };
+
+  const submitNote = () => {
+    const extras = extraChords.map((c) => ({
+      step: c.step,
+      octave: c.octave,
+      alter: pitchAlterFromOption(c.alter),
+    }));
+    onInsertNote(afterNoteIndex, step, octave, noteType, staff, pitchAlterFromOption(insertAlter), extras);
+    setExtraChords([]);
+  };
 
   return (
     <div className="omr-measure-insert-form">
       <div className="omr-measure-insert-form-title">빠진 요소 추가 ({afterLabel})</div>
+      {pendingLeader ? (
+        <div className="omr-measure-insert-pending-leader">
+          <strong>
+            리더 음표 대기 · #{pendingLeader.leaderNoteIndex} 예정 · {pendingLeader.pitchLabel}{' '}
+            {pendingLeader.noteType}
+          </strong>
+          <p style={{ margin: '4px 0 8px', fontSize: '0.86rem', lineHeight: 1.45 }}>
+            MXL 반영 전까지 목록에는 안 보입니다. 아래에서 <strong>화음 음</strong>을 더 추가한 뒤 「MXL에
+            반영·미리보기」를 누르세요.
+          </p>
+          <div className="omr-measure-insert-form-row">
+            <label>
+              화음 음
+              <select value={attachStep} onChange={(e) => setAttachStep(e.target.value)}>
+                {PITCH_STEPS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={0}
+                max={9}
+                value={attachOctave}
+                onChange={(e) => setAttachOctave(Number(e.target.value))}
+                style={{ width: 48 }}
+              />
+              <PitchAlterSelect value={attachAlter} onChange={setAttachAlter} />
+            </label>
+            <button
+              type="button"
+              className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+              onClick={() =>
+                onInsertChordMember(
+                  pendingLeader.leaderNoteIndex,
+                  attachStep,
+                  attachOctave,
+                  pitchAlterFromOption(attachAlter),
+                )
+              }
+            >
+              화음 음 추가
+            </button>
+            <button type="button" className="btn-muted" onClick={onClearPendingLeader}>
+              리더 대기 취소
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="omr-measure-insert-form-row">
         <label>
           스태프
@@ -977,7 +1140,7 @@ function InsertElementForm({
       </div>
       <div className="omr-measure-insert-form-row">
         <label>
-          음높이
+          리더 음높이
           <select value={step} onChange={(e) => setStep(e.target.value)}>
             {PITCH_STEPS.map((s) => (
               <option key={s} value={s}>
@@ -998,14 +1161,48 @@ function InsertElementForm({
             ))}
           </select>
         </label>
-        <button
-          type="button"
-          className="omr-hitl-fix-btn"
-          onClick={() =>
-            onInsertNote(afterNoteIndex, step, octave, noteType, staff, pitchAlterFromOption(insertAlter))
-          }
-        >
-          음표 추가
+      </div>
+      <div className="omr-measure-insert-chord-extras">
+        <div className="omr-measure-insert-chord-extras-head">
+          <span>화음 추가 음 (선택 · 반영 후 리더 #{predictedLeader} 예정)</span>
+          <button type="button" className="btn-muted" onClick={addExtraChordRow}>
+            + 화음 줄
+          </button>
+        </div>
+        {extraChords.length === 0 ? (
+          <p className="omr-measure-insert-chord-hint">3화음이면 「+ 화음 줄」 2번 → 아래 「음표+화음 추가」</p>
+        ) : (
+          extraChords.map((row, i) => (
+            <div key={i} className="omr-measure-insert-form-row">
+              <label>
+                화음 {i + 2}음
+                <select value={row.step} onChange={(e) => updateExtraChord(i, { step: e.target.value })}>
+                  {PITCH_STEPS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={9}
+                  value={row.octave}
+                  onChange={(e) => updateExtraChord(i, { octave: Number(e.target.value) })}
+                  style={{ width: 48 }}
+                />
+                <PitchAlterSelect value={row.alter} onChange={(v) => updateExtraChord(i, { alter: v })} />
+              </label>
+              <button type="button" className="btn-muted" onClick={() => removeExtraChord(i)}>
+                제거
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="omr-measure-insert-form-row">
+        <button type="button" className="omr-hitl-fix-btn omr-hitl-fix-btn--primary" onClick={submitNote}>
+          {extraChords.length > 0 ? `음표+화음 추가 (1+${extraChords.length})` : '음표 추가'}
         </button>
       </div>
     </div>

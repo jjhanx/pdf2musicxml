@@ -188,6 +188,8 @@ export type MeasureNoteEl = {
   isCue?: boolean;
   tieStart?: boolean;
   tieStop?: boolean;
+  slurStart?: boolean;
+  slurStop?: boolean;
   beams?: string[];
   stem?: string | null;
   /** 잇단음표 비율 (예: "3:2" = 세잇단) */
@@ -262,7 +264,7 @@ type PendingInsertLeader = {
   noteType: string;
 };
 
-function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
+function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
   if (el.elementKind === 'direction') {
     return `direction #${el.directionIndex}${el.text ? `: ${el.text}` : ''}`;
   }
@@ -278,6 +280,8 @@ function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
   }
   const tie =
     el.tieStart && el.tieStop ? ' tie↔' : el.tieStart ? ' tie→' : el.tieStop ? ' tie←' : '';
+  const slur =
+    el.slurStart && el.slurStop ? ' slur↔' : el.slurStart ? ' slur→' : el.slurStop ? ' slur←' : '';
   const dots = el.dotCount ? ` ·×${el.dotCount}` : '';
   const chord = el.chord ? ' (화음)' : '';
   const tuplet = el.timeMod
@@ -294,7 +298,7 @@ function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
           el.pitchAlter,
         )
       : '?';
-  return `#${idx} ${pitchLabel} ${el.type ?? ''}${dots}${tie}${chord}${tuplet}${beam}${dur}${arts}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+  return `#${idx} ${pitchLabel} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
 }
 
 export function OmrMeasureEditor({
@@ -565,6 +569,7 @@ function MeasureNoteEditor({
   );
   const [staffN, setStaffN] = useState(el.staff ?? 1);
   const [tieTo, setTieTo] = useState('');
+  const [slurTo, setSlurTo] = useState('');
   const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
   const [tripletNormalType, setTripletNormalType] = useState(
     el.type === '16th' || el.type === '32nd' ? el.type : 'eighth',
@@ -596,6 +601,8 @@ function MeasureNoteEditor({
         el,
       ),
     );
+    setTieTo('');
+    setSlurTo('');
   }, [el.index, el.pitch, el.pitchAlter, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
@@ -790,7 +797,7 @@ function MeasureNoteEditor({
                   className="omr-hitl-fix-btn"
                   onClick={() => onFix({ kind: 'removeTie', noteIndex: el.index, tieEnd: 'start' })}
                 >
-                  이음 시작 제거
+                  붙임 시작 제거
                 </button>
               )}
               {el.tieStop && (
@@ -799,14 +806,14 @@ function MeasureNoteEditor({
                   className="omr-hitl-fix-btn"
                   onClick={() => onFix({ kind: 'removeTie', noteIndex: el.index, tieEnd: 'stop' })}
                 >
-                  이음 끝 제거
+                  붙임 끝 제거
                 </button>
               )}
             </>
           )}
           {laterNotes.length > 0 && (
             <label className="omr-measure-inline-field">
-              이음줄 연결
+              붙임줄 연결
               <select value={tieTo} onChange={(e) => setTieTo(e.target.value)}>
                 <option value="">—</option>
                 {laterNotes.map((n) => (
@@ -824,6 +831,59 @@ function MeasureNoteEditor({
                     kind: 'addTie',
                     fromNoteIndex: el.index,
                     toNoteIndex: parseInt(tieTo, 10),
+                  })
+                }
+              >
+                붙임줄 추가
+              </button>
+            </label>
+          )}
+        </div>
+      )}
+      {el.kind === 'note' && (
+        <div className="omr-measure-slur-row" style={{ marginTop: '4px' }}>
+          {(el.slurStart || el.slurStop) && (
+            <>
+              {el.slurStart && (
+                <button
+                  type="button"
+                  className="omr-hitl-fix-btn"
+                  onClick={() => onFix({ kind: 'removeSlur', noteIndex: el.index, slurEnd: 'start' })}
+                >
+                  이음 시작 제거
+                </button>
+              )}
+              {el.slurStop && (
+                <button
+                  type="button"
+                  className="omr-hitl-fix-btn"
+                  onClick={() => onFix({ kind: 'removeSlur', noteIndex: el.index, slurEnd: 'stop' })}
+                >
+                  이음 끝 제거
+                </button>
+              )}
+            </>
+          )}
+          {laterNotes.length > 0 && (
+            <label className="omr-measure-inline-field">
+              이음줄 연결
+              <select value={slurTo} onChange={(e) => setSlurTo(e.target.value)}>
+                <option value="">—</option>
+                {laterNotes.map((n) => (
+                  <option key={n.index} value={String(n.index)}>
+                    #{n.index} {n.pitch ?? ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                disabled={!slurTo}
+                onClick={() =>
+                  onFix({
+                    kind: 'addSlur',
+                    fromNoteIndex: el.index,
+                    toNoteIndex: parseInt(slurTo, 10),
                   })
                 }
               >

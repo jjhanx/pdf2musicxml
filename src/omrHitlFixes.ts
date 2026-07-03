@@ -29,6 +29,7 @@ export type OmrHitlFix = {
   pitchAlter?: number;
   stem?: 'up' | 'down';
   tieEnd?: 'start' | 'stop' | 'both';
+  slurEnd?: 'start' | 'stop' | 'both';
   fromNoteIndex?: number;
   toNoteIndex?: number;
   afterNoteIndex?: number;
@@ -61,8 +62,10 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   setNotePitch: '음높이 변경',
   setNoteType: '박자(음표 종류) 변경',
   setNoteStem: '줄기 방향 변경',
-  removeTie: '이음줄 제거',
-  addTie: '이음줄 연결',
+  removeTie: '붙임줄 제거',
+  addTie: '붙임줄 연결',
+  removeSlur: '이음줄 제거',
+  addSlur: '이음줄 연결',
   insertRest: '쉼표 추가',
   insertNote: '음표 추가',
   insertChordMember: '화음 음 추가',
@@ -93,6 +96,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.afterNoteIndex ?? '',
     fix.leaderNoteIndex ?? '',
     fix.tieEnd ?? '',
+    fix.slurEnd ?? '',
     fix.articulation ?? '',
     fix.actualNotes ?? '',
     fix.normalNotes ?? '',

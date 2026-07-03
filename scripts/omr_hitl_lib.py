@@ -181,6 +181,21 @@ def _note_tie_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
     return tie_start, tie_stop
 
 
+def _note_slur_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
+    slur_start = False
+    slur_stop = False
+    notations = note.find(_q(ns, "notations"))
+    if notations is None:
+        return slur_start, slur_stop
+    for slur in notations.findall(_q(ns, "slur")):
+        t = (slur.get("type") or "").strip()
+        if t == "start":
+            slur_start = True
+        elif t == "stop":
+            slur_stop = True
+    return slur_start, slur_stop
+
+
 def _note_beams(note: ET.Element, ns: str) -> list[str]:
     """MusicXML `<beam>`는 `<note>` 직계 자식. 예전 HITL은 `<notations>` 아래에 쓴 경우도 읽는다."""
     out: list[str] = []
@@ -229,6 +244,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
             except ValueError:
                 pitch_alter = None
     tie_start, tie_stop = _note_tie_flags(note, ns)
+    slur_start, slur_stop = _note_slur_flags(note, ns)
     duration = None
     dur_el = note.find(_q(ns, "duration"))
     if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
@@ -273,6 +289,8 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "dotCount": dot_count,
         "tieStart": tie_start,
         "tieStop": tie_stop,
+        "slurStart": slur_start,
+        "slurStop": slur_stop,
         "beams": _note_beams(note, ns),
         "stem": (stem_el.text or "").strip() if stem_el is not None and stem_el.text else None,
         "timeMod": time_mod,
@@ -1594,6 +1612,87 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             stop.set("type", "stop")
         return True
 
+    if kind == "removeSlur":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        which = str(fix.get("slurEnd") or "both").strip().lower()
+        note = notes[idx]
+        notations = note.find(_q(ns, "notations"))
+        if notations is None:
+            return False
+        removed = False
+        for slur in list(notations.findall(_q(ns, "slur"))):
+            t = (slur.get("type") or "").strip()
+            if which == "both" or which == t:
+                notations.remove(slur)
+                removed = True
+        if not list(notations):
+            note.remove(notations)
+        return removed
+
+    if kind == "addSlur":
+        try:
+            from_idx = int(fix.get("fromNoteIndex"))
+            to_idx = int(fix.get("toNoteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if from_idx < 0 or to_idx < 0 or from_idx >= len(notes) or to_idx >= len(notes):
+            return False
+        from_note = notes[from_idx]
+        to_note = notes[to_idx]
+        from_not = _ensure_notations(from_note, ns)
+        to_not = _ensure_notations(to_note, ns)
+
+        # Find unused slur number
+        existing_numbers = set()
+        for n in notes:
+            for notations_el in n.findall(_q(ns, "notations")):
+                for slur in notations_el.findall(_q(ns, "slur")):
+                    num = slur.get("number")
+                    if num and num.isdigit():
+                        existing_numbers.add(int(num))
+        new_num = 1
+        while new_num in existing_numbers:
+            new_num += 1
+
+        def get_placement(n_el):
+            stem_el = n_el.find(_q(ns, "stem"))
+            stem_dir = (stem_el.text or "").strip() if stem_el is not None else ""
+            if stem_dir == "down":
+                return "above"
+            return "below"
+
+        plc_from = get_placement(from_note)
+        plc_to = get_placement(to_note)
+
+        start = ET.SubElement(from_not, _q(ns, "slur"))
+        start.set("type", "start")
+        start.set("number", str(new_num))
+        if plc_from:
+            start.set("placement", plc_from)
+            stem_dir = (from_note.find(_q(ns, "stem")).text or "").strip() if from_note.find(_q(ns, "stem")) is not None else ""
+            if plc_from == "below":
+                start.set("default-y", "-35" if stem_dir == "up" else "-25")
+            else:
+                start.set("default-y", "35" if stem_dir == "up" else "25")
+
+        stop = ET.SubElement(to_not, _q(ns, "slur"))
+        stop.set("type", "stop")
+        stop.set("number", str(new_num))
+        if plc_to:
+            stop.set("placement", plc_to)
+            stem_dir = (to_note.find(_q(ns, "stem")).text or "").strip() if to_note.find(_q(ns, "stem")) is not None else ""
+            if plc_to == "below":
+                stop.set("default-y", "-35" if stem_dir == "up" else "-25")
+            else:
+                stop.set("default-y", "35" if stem_dir == "up" else "25")
+
+        return True
+
     if kind == "insertRest":
         rest_type = str(fix.get("noteType") or fix.get("restType") or "quarter").strip()
         try:
@@ -2122,6 +2221,8 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "removeBeam",
         "addTie",
         "removeTie",
+        "addSlur",
+        "removeSlur",
         "applyTriplet",
         "removeTriplet",
     }

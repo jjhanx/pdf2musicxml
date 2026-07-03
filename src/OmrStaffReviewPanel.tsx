@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildOsmdPreviewXml,
   buildStaffFilterEntries,
+  type ScorePartForPreview,
   type StaffFilterEntry,
   InspectPanelErrorBoundary,
   OsmdBlock,
@@ -11,11 +12,10 @@ import {
 import { OmrMeasureEditor } from './OmrMeasureEditor';
 import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
+import { resolvePartDisplayLabels } from './partLabelOptions';
 
-type ScorePartRow = {
-  id: string;
+type ScorePartRow = ScorePartForPreview & {
   index: number;
-  suggestedLabel: string;
 };
 
 type OmrPolicy = {
@@ -83,7 +83,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const staffList = useMemo(() => {
     if (staffFilterEntries.length) return staffFilterEntries.map((e) => e.label);
-    const fromParts = scoreParts.map((p) => p.suggestedLabel).filter(Boolean);
+    const fromParts = scoreParts.map((p) => p.displayLabel || p.suggestedLabel).filter(Boolean);
     if (fromParts.length) return fromParts;
     return [...STAFF_FALLBACK];
   }, [staffFilterEntries, scoreParts]);
@@ -162,13 +162,35 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           }
         }
         if (partsRes.ok) {
-          const pj = (await partsRes.json()) as { parts?: ScorePartRow[] };
+          const pj = (await partsRes.json()) as {
+            parts?: Array<{
+              id: string;
+              index: number;
+              name?: string;
+              instrumentName?: string;
+              suggestedLabel: string;
+              displayLabel?: string;
+            }>;
+            presetLabelsByIndex?: string[];
+            savedLabelsByIndex?: string[];
+          };
           const list = Array.isArray(pj.parts) ? pj.parts : [];
+          const displayLabels = resolvePartDisplayLabels(
+            list.map((p) => ({
+              index: p.index,
+              name: p.name,
+              instrumentName: p.instrumentName,
+              suggestedLabel: p.suggestedLabel,
+            })),
+            pj.savedLabelsByIndex,
+            pj.presetLabelsByIndex,
+          );
           setScoreParts(
             list.map((p) => ({
               id: p.id,
               index: p.index,
               suggestedLabel: p.suggestedLabel,
+              displayLabel: p.displayLabel ?? displayLabels[p.index] ?? p.suggestedLabel,
             })),
           );
         }
@@ -192,7 +214,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       if (entry) return entry.partId;
       const idx = staffList.indexOf(staffLabel);
       if (idx >= 0 && scoreParts[idx]) return scoreParts[idx].id;
-      const hit = scoreParts.find((p) => p.suggestedLabel === staffLabel);
+      const hit = scoreParts.find((p) => (p.displayLabel || p.suggestedLabel) === staffLabel);
       return hit?.id ?? scoreParts[0]?.id ?? null;
     },
     [staffFilterEntries, staffList, scoreParts],
@@ -235,6 +257,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const labelForPartId = useCallback(
     (partId: string): string | null => {
       const hit = scoreParts.find((p) => p.id === partId);
+      if (hit?.displayLabel) return hit.displayLabel;
       if (hit?.suggestedLabel) return hit.suggestedLabel;
       const xmlHit = xmlPartIds.find((p) => p.id === partId);
       return xmlHit?.name ?? null;
@@ -525,12 +548,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   ]);
 
   const filteredXml = useMemo(() => {
-    if (!rawXml) return '';
+    if (!rawXml || !scoreParts.length) return '';
     return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter);
   }, [rawXml, scoreParts, activeStaffFilter]);
   const selectedPrinted = selectedMeasure ? selectedMeasure.measureMxl + measureOffset : null;
 
-  const activePartLabels = staffList.length ? staffList : scoreParts.map((p) => p.suggestedLabel).filter(Boolean);
+  const activePartLabels = staffList.length
+    ? staffList
+    : scoreParts.map((p) => p.displayLabel || p.suggestedLabel).filter(Boolean);
 
   return (
     <div className="modal-light" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
@@ -693,7 +718,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               >
                 {scoreParts.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.suggestedLabel || p.id}
+                    {p.displayLabel || p.suggestedLabel || p.id}
                   </option>
                 ))}
               </select>
@@ -722,6 +747,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   ? labelForPartStaff(editorPartId, editStaffWithinPart ?? selectedMeasure.staffWithinPart)
                   : null) ||
                 staffFilter ||
+                scoreParts.find((p) => p.id === editorPartId)?.displayLabel ||
                 scoreParts.find((p) => p.id === editorPartId)?.suggestedLabel ||
                 undefined
               }

@@ -3575,8 +3575,24 @@ app.get('/api/diagnostic/:jobId/score-parts', async (req, res) => {
         /* ignore */
       }
     }
+    const partsRaw = listed.parts as Array<{
+      index: number;
+      id: string;
+      name?: string;
+      instrumentName?: string;
+      suggestedLabel?: string;
+    }>;
+    const parts = partsRaw.map((p, i) => {
+      const displayLabel = (
+        saved?.[i]?.trim() ||
+        preset?.[i]?.trim() ||
+        p.suggestedLabel?.trim() ||
+        `P${i + 1}`
+      ).trim();
+      return { ...p, displayLabel };
+    });
     res.json({
-      parts: listed.parts,
+      parts,
       presetLabelsByIndex: preset,
       savedLabelsByIndex: saved,
     });

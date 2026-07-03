@@ -190,14 +190,21 @@ export type StaffFilterEntry = {
   staffWithinPart?: number;
 };
 
+export type ScorePartForPreview = {
+  id: string;
+  suggestedLabel: string;
+  /** part_labels.json 등 사용자 확정 라벨 — 미리보기·필터에 우선 */
+  displayLabel?: string;
+};
+
 /** 성부 필터 버튼 — 피아노 `P`는 2줄이면 PR·PL로 분리. */
 export function buildStaffFilterEntries(
-  scoreParts: { id: string; suggestedLabel: string }[],
+  scoreParts: ScorePartForPreview[],
   xml: string | null,
 ): StaffFilterEntry[] {
   const out: StaffFilterEntry[] = [];
   for (const p of scoreParts) {
-    const label = (p.suggestedLabel || p.id).trim();
+    const label = (p.displayLabel || p.suggestedLabel || p.id).trim();
     const staves = xml ? staveCountForPart(xml, p.id) : 1;
     if (label === 'P' && staves >= 2) {
       out.push({ label: 'PR', partId: p.id, staffWithinPart: 1 });
@@ -209,27 +216,49 @@ export function buildStaffFilterEntries(
   return out;
 }
 
-/** OSMD 미리보기: part-name의 Voice 등을 사용자 라벨(S/A/T/B/PR/PL)로 교체. */
-export function applyPartLabelsToMusicXml(
-  xml: string,
-  scoreParts: { id: string; suggestedLabel: string }[],
-): string {
+function flattenNameElement(el: Element, text: string): void {
+  while (el.firstChild) el.removeChild(el.firstChild);
+  el.textContent = text;
+}
+
+/** score-part의 part-name·instrument-name 등 OSMD가 읽는 표시명을 통일. */
+function applyLabelToScorePart(sp: Element, label: string): void {
+  const abbrev = label.length <= 4 ? label : label.slice(0, 4);
+  let pn = sp.querySelector('part-name, *|part-name');
+  if (!pn) {
+    pn = sp.ownerDocument!.createElementNS(sp.namespaceURI, 'part-name');
+    sp.insertBefore(pn, sp.firstChild);
+  }
+  flattenNameElement(pn, label);
+
+  const pa = sp.querySelector('part-abbreviation, *|part-abbreviation');
+  if (pa) flattenNameElement(pa, abbrev);
+
+  sp.querySelectorAll('instrument-name, *|instrument-name').forEach((el) => {
+    el.textContent = label;
+  });
+  sp.querySelectorAll(
+    'part-name display-text, part-name *|display-text, part-abbreviation display-text, part-abbreviation *|display-text',
+  ).forEach((el) => {
+    el.textContent = label;
+  });
+}
+
+/** OSMD 미리보기: Audiveris Voice/Piano 등을 사용자 라벨(S/A/T/B/PR/PL)로 교체. */
+export function applyPartLabelsToMusicXml(xml: string, scoreParts: ScorePartForPreview[]): string {
   if (!scoreParts.length) return xml;
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
-    const byId = new Map(scoreParts.map((p) => [p.id, p.suggestedLabel.trim()]));
+    const byId = new Map(
+      scoreParts.map((p) => [p.id, (p.displayLabel || p.suggestedLabel || p.id).trim()]),
+    );
     doc.querySelectorAll('part-list score-part, part-list *|score-part').forEach((sp) => {
       const id = sp.getAttribute('id');
       if (!id) return;
       const label = byId.get(id);
       if (!label) return;
-      let pn = sp.querySelector('part-name, *|part-name');
-      if (!pn) {
-        pn = doc.createElementNS(sp.namespaceURI, 'part-name');
-        sp.insertBefore(pn, sp.firstChild);
-      }
-      pn.textContent = label;
+      applyLabelToScorePart(sp, label);
     });
     return new XMLSerializer().serializeToString(doc);
   } catch {
@@ -245,12 +274,7 @@ function setPartDisplayName(xml: string, partId: string, displayName: string): s
       (el) => el.getAttribute('id') === partId,
     );
     if (!sp) return xml;
-    let pn = sp.querySelector('part-name, *|part-name');
-    if (!pn) {
-      pn = doc.createElementNS(sp.namespaceURI, 'part-name');
-      sp.insertBefore(pn, sp.firstChild);
-    }
-    pn.textContent = displayName;
+    applyLabelToScorePart(sp, displayName);
     return new XMLSerializer().serializeToString(doc);
   } catch {
     return xml;
@@ -312,7 +336,7 @@ export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: n
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
   rawXml: string,
-  scoreParts: { id: string; suggestedLabel: string }[],
+  scoreParts: ScorePartForPreview[],
   filter: StaffFilterEntry | null,
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);

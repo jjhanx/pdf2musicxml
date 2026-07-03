@@ -55,3 +55,36 @@ export function suggestedPartLabel(
   if (sug) return sug;
   return defaultPartLabels(partCount)[partIndex] ?? `P${partIndex + 1}`;
 }
+
+export type ScorePartLabelInput = {
+  index: number;
+  name?: string;
+  instrumentName?: string;
+  suggestedLabel?: string;
+};
+
+/** part_labels.json(확정) → preset → OMR 추정 순으로 미리보기·필터용 라벨 결정. */
+export function resolvePartDisplayLabels(
+  parts: ScorePartLabelInput[],
+  savedByIndex?: string[],
+  presetByIndex?: string[],
+): string[] {
+  const n = Math.max(parts.length, savedByIndex?.length ?? 0, presetByIndex?.length ?? 0);
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const saved = savedByIndex?.[i]?.trim();
+    const preset = presetByIndex?.[i]?.trim();
+    const p = parts[i];
+    const inferred = p
+      ? suggestedPartLabel(
+          p.name ?? '',
+          p.index,
+          Math.max(parts.length, n),
+          p.suggestedLabel,
+          p.instrumentName,
+        )
+      : '';
+    out.push((saved || preset || inferred || defaultPartLabels(n)[i] || `P${i + 1}`).trim());
+  }
+  return out;
+}

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  filterMusicXmlToPart,
+  buildOsmdPreviewXml,
+  buildStaffFilterEntries,
+  type StaffFilterEntry,
   InspectPanelErrorBoundary,
   OsmdBlock,
   parseScoreParts,
+  staveCountForPart,
 } from './AudiverisInspectPanel';
 import { OmrMeasureEditor } from './OmrMeasureEditor';
 import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
@@ -73,11 +76,22 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const pngDpi = 156;
   const measureOffset = policy?.measureOffsetPrinted ?? 1;
 
+  const staffFilterEntries = useMemo(
+    () => buildStaffFilterEntries(scoreParts, rawXml),
+    [scoreParts, rawXml],
+  );
+
   const staffList = useMemo(() => {
+    if (staffFilterEntries.length) return staffFilterEntries.map((e) => e.label);
     const fromParts = scoreParts.map((p) => p.suggestedLabel).filter(Boolean);
     if (fromParts.length) return fromParts;
     return [...STAFF_FALLBACK];
-  }, [scoreParts]);
+  }, [staffFilterEntries, scoreParts]);
+
+  const activeStaffFilter = useMemo((): StaffFilterEntry | null => {
+    if (!staffFilter) return null;
+    return staffFilterEntries.find((e) => e.label === staffFilter) ?? null;
+  }, [staffFilter, staffFilterEntries]);
 
   const refreshScoreXml = useCallback(async () => {
     setXmlLoading(true);
@@ -174,12 +188,22 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const partIdForStaff = useCallback(
     (staffLabel: string): string | null => {
+      const entry = staffFilterEntries.find((e) => e.label === staffLabel);
+      if (entry) return entry.partId;
       const idx = staffList.indexOf(staffLabel);
       if (idx >= 0 && scoreParts[idx]) return scoreParts[idx].id;
       const hit = scoreParts.find((p) => p.suggestedLabel === staffLabel);
       return hit?.id ?? scoreParts[0]?.id ?? null;
     },
-    [staffList, scoreParts],
+    [staffFilterEntries, staffList, scoreParts],
+  );
+
+  const staffWithinPartForLabel = useCallback(
+    (staffLabel: string): number | null => {
+      const entry = staffFilterEntries.find((e) => e.label === staffLabel);
+      return entry?.staffWithinPart ?? null;
+    },
+    [staffFilterEntries],
   );
 
   const xmlPartIds = useMemo(() => {
@@ -218,6 +242,22 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [scoreParts, xmlPartIds],
   );
 
+  const labelForPartStaff = useCallback(
+    (partId: string, staffWithinPart?: number | null): string | null => {
+      const entry = staffFilterEntries.find(
+        (e) => e.partId === partId && (e.staffWithinPart ?? null) === (staffWithinPart ?? null),
+      );
+      if (entry) return entry.label;
+      if (staffWithinPart === 2) return 'PL';
+      if (staffWithinPart === 1) {
+        const staves = rawXml ? staveCountForPart(rawXml, partId) : 1;
+        if (staves >= 2) return 'PR';
+      }
+      return labelForPartId(partId);
+    },
+    [staffFilterEntries, rawXml, labelForPartId],
+  );
+
   const editorPartId = useMemo(() => {
     if (editPartId) return editPartId;
     if (osmdPartId) return osmdPartId;
@@ -234,6 +274,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     scoreParts,
     xmlPartIds,
   ]);
+
+  const editStaffWithinPart = useMemo((): number | null => {
+    if (activeStaffFilter?.staffWithinPart) return activeStaffFilter.staffWithinPart;
+    const pid = editorPartId;
+    if (!pid || !rawXml || staveCountForPart(rawXml, pid) < 2) return null;
+    return selectedMeasure?.staffWithinPart ?? null;
+  }, [activeStaffFilter, editorPartId, rawXml, selectedMeasure]);
 
   useEffect(() => {
     if (staffFilter) {
@@ -435,7 +482,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setManualMeasurePrinted(String(printed));
       const partId = resolvePartIdForMeasure(info);
       const staffLabel =
-        labelForPartId(partId) ??
+        labelForPartStaff(partId, info.staffWithinPart) ??
         staffList[info.staffIndex] ??
         `줄 ${info.staffIndex + 1}`;
       setMeasureClickMsg(
@@ -446,7 +493,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       }
       setEditorKey((k) => k + 1);
     },
-    [staffFilter, measureOffset, resolvePartIdForMeasure, labelForPartId, staffList],
+    [staffFilter, measureOffset, resolvePartIdForMeasure, labelForPartStaff, staffList],
   );
 
   const openManualMeasure = useCallback(() => {
@@ -460,6 +507,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       measureMxl,
       staffIndex,
       partId: staffFilter ? partIdForStaff(staffFilter) : null,
+      staffWithinPart: staffFilter ? staffWithinPartForLabel(staffFilter) ?? undefined : undefined,
     });
     if (!staffFilter && !editPartId) {
       setEditPartId(resolvePartIdForStaffIndex(staffIndex));
@@ -472,13 +520,17 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     openMeasure,
     editPartId,
     partIdForStaff,
+    staffWithinPartForLabel,
     resolvePartIdForStaffIndex,
   ]);
 
-  const filteredXml = rawXml ? filterMusicXmlToPart(rawXml, osmdPartId || null) : '';
+  const filteredXml = useMemo(() => {
+    if (!rawXml) return '';
+    return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter);
+  }, [rawXml, scoreParts, activeStaffFilter]);
   const selectedPrinted = selectedMeasure ? selectedMeasure.measureMxl + measureOffset : null;
 
-  const activePartLabels = scoreParts.map((p) => p.suggestedLabel).filter(Boolean);
+  const activePartLabels = staffList.length ? staffList : scoreParts.map((p) => p.suggestedLabel).filter(Boolean);
 
   return (
     <div className="modal-light" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
@@ -560,7 +612,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           <div className="omr-mxl-preview-head">
             <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#333' }}>
               MusicXML (OMR MXL)
-              {osmdPartId && staffFilter ? ` · ${staffFilter}` : ' · 전체 파트'}
+              {activeStaffFilter ? ` · ${activeStaffFilter.label}` : staffFilter ? ` · ${staffFilter}` : ' · 전체 파트'}
             </span>
             <div className="omr-mxl-preview-controls">
               <label className="omr-zoom-label">
@@ -646,7 +698,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 ))}
               </select>
               <span className="omr-measure-part-picker-hint">
-                (클릭한 줄: {labelForPartId(resolvePartIdForMeasure(selectedMeasure)) ?? staffList[selectedMeasure.staffIndex] ?? `줄 ${selectedMeasure.staffIndex + 1}`})
+                (클릭한 줄:{' '}
+                {labelForPartStaff(
+                  resolvePartIdForMeasure(selectedMeasure),
+                  selectedMeasure.staffWithinPart,
+                ) ??
+                  staffList[selectedMeasure.staffIndex] ??
+                  `줄 ${selectedMeasure.staffIndex + 1}`}
+                )
               </span>
             </label>
           )}
@@ -659,10 +718,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               measurePrinted={selectedPrinted}
               measureOffset={measureOffset}
               staffLabel={
+                (selectedMeasure
+                  ? labelForPartStaff(editorPartId, editStaffWithinPart ?? selectedMeasure.staffWithinPart)
+                  : null) ||
                 staffFilter ||
                 scoreParts.find((p) => p.id === editorPartId)?.suggestedLabel ||
                 undefined
               }
+              editStaffWithinPart={editStaffWithinPart}
               previewRevision={previewRevision}
               lastPreviewMsg={lastPreviewMsg}
               pendingFixCount={pendingFixes.length}

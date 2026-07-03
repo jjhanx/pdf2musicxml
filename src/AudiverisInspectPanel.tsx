@@ -158,6 +158,173 @@ export function filterMusicXmlToPart(xml: string, partId: string | null): string
   }
 }
 
+const xmlLocalName = (el: Element) =>
+  typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase().replace(/^.*:/, '');
+
+/** MusicXML part의 `<staves>`·`<staff>` 태그로 줄 수 추정 (피아노 PR/PL 분리용). */
+export function staveCountForPart(xml: string, partId: string): number {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return 1;
+    const part = [...doc.querySelectorAll('part, *|part')].find((el) => el.getAttribute('id') === partId);
+    if (!part) return 1;
+    let max = 1;
+    part.querySelectorAll('staves, *|staves').forEach((el) => {
+      const n = parseInt(el.textContent?.trim() ?? '1', 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    });
+    part.querySelectorAll('note staff, note *|staff').forEach((el) => {
+      const n = parseInt(el.textContent?.trim() ?? '1', 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    });
+    return max;
+  } catch {
+    return 1;
+  }
+}
+
+export type StaffFilterEntry = {
+  label: string;
+  partId: string;
+  /** 같은 part id가 여러 줄(피아노)일 때 1=윗줄(PR), 2=아랫줄(PL) … */
+  staffWithinPart?: number;
+};
+
+/** 성부 필터 버튼 — 피아노 `P`는 2줄이면 PR·PL로 분리. */
+export function buildStaffFilterEntries(
+  scoreParts: { id: string; suggestedLabel: string }[],
+  xml: string | null,
+): StaffFilterEntry[] {
+  const out: StaffFilterEntry[] = [];
+  for (const p of scoreParts) {
+    const label = (p.suggestedLabel || p.id).trim();
+    const staves = xml ? staveCountForPart(xml, p.id) : 1;
+    if (label === 'P' && staves >= 2) {
+      out.push({ label: 'PR', partId: p.id, staffWithinPart: 1 });
+      out.push({ label: 'PL', partId: p.id, staffWithinPart: 2 });
+    } else {
+      out.push({ label, partId: p.id });
+    }
+  }
+  return out;
+}
+
+/** OSMD 미리보기: part-name의 Voice 등을 사용자 라벨(S/A/T/B/PR/PL)로 교체. */
+export function applyPartLabelsToMusicXml(
+  xml: string,
+  scoreParts: { id: string; suggestedLabel: string }[],
+): string {
+  if (!scoreParts.length) return xml;
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    const byId = new Map(scoreParts.map((p) => [p.id, p.suggestedLabel.trim()]));
+    doc.querySelectorAll('part-list score-part, part-list *|score-part').forEach((sp) => {
+      const id = sp.getAttribute('id');
+      if (!id) return;
+      const label = byId.get(id);
+      if (!label) return;
+      let pn = sp.querySelector('part-name, *|part-name');
+      if (!pn) {
+        pn = doc.createElementNS(sp.namespaceURI, 'part-name');
+        sp.insertBefore(pn, sp.firstChild);
+      }
+      pn.textContent = label;
+    });
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
+function setPartDisplayName(xml: string, partId: string, displayName: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    const sp = [...doc.querySelectorAll('part-list score-part, part-list *|score-part')].find(
+      (el) => el.getAttribute('id') === partId,
+    );
+    if (!sp) return xml;
+    let pn = sp.querySelector('part-name, *|part-name');
+    if (!pn) {
+      pn = doc.createElementNS(sp.namespaceURI, 'part-name');
+      sp.insertBefore(pn, sp.firstChild);
+    }
+    pn.textContent = displayName;
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
+function noteStaffN(noteEl: Element): number {
+  const staffEl = noteEl.querySelector(':scope > staff, :scope > *|staff');
+  if (!staffEl) return 1;
+  const n = parseInt(staffEl.textContent?.trim() ?? '1', 10);
+  return Number.isFinite(n) ? n : 1;
+}
+
+/** 한 part 안에서 특정 staff(1=PR, 2=PL)만 남기고 미리보기용 단일 줄로 정리. */
+export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: number): string {
+  if (staffN < 1) return xml;
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    const part = [...doc.querySelectorAll('part, *|part')].find((el) => el.getAttribute('id') === partId);
+    if (!part) return xml;
+
+    for (const measure of [...part.children]) {
+      if (xmlLocalName(measure) !== 'measure') continue;
+      const attrs = measure.querySelector('attributes, *|attributes');
+      if (attrs) {
+        attrs.querySelectorAll('staves, *|staves').forEach((el) => {
+          el.textContent = '1';
+        });
+      }
+      for (const child of [...measure.children]) {
+        const tag = xmlLocalName(child);
+        if (tag === 'backup' || tag === 'forward') {
+          child.remove();
+          continue;
+        }
+        if (tag === 'note' && noteStaffN(child) !== staffN) {
+          child.remove();
+          continue;
+        }
+        if (tag === 'direction') {
+          const dirStaff = child.querySelector(':scope > staff, :scope > *|staff');
+          if (dirStaff) {
+            const n = parseInt(dirStaff.textContent?.trim() ?? '1', 10);
+            if (Number.isFinite(n) && n !== staffN) child.remove();
+          }
+        }
+      }
+      measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
+        el.textContent = '1';
+      });
+    }
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
+export function buildOsmdPreviewXml(
+  rawXml: string,
+  scoreParts: { id: string; suggestedLabel: string }[],
+  filter: StaffFilterEntry | null,
+): string {
+  let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
+  if (!filter) return xml;
+  xml = filterMusicXmlToPart(xml, filter.partId);
+  if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
+    xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);
+    xml = setPartDisplayName(xml, filter.partId, filter.label);
+  }
+  return xml;
+}
+
 /**
  * OSMD가 잘린/단독 octave-shift 때문에 `realValue`(Fraction) 접근 크래시를 내는 경우가 있음
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).

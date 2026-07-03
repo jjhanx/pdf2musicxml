@@ -6,6 +6,8 @@ export type OsmdMeasureClickInfo = {
   staffIndex: number;
   /** MusicXML part id (예: "P1"). OSMD Instrument.IdString에서 직접 읽음. */
   partId?: string | null;
+  /** 같은 part id가 여러 줄(피아노 PR/PL)일 때 1=윗줄·2=아랫줄 … */
+  staffWithinPart?: number | null;
 };
 
 type HostBounds = { left: number; top: number; right: number; bottom: number };
@@ -16,6 +18,7 @@ type MeasureHitTarget = {
   measureMxl: number;
   staffIndex: number;
   partId: string | null;
+  staffWithinPart: number;
   bounds: HostBounds;
   gm: GraphicalMeasureLike;
 };
@@ -664,7 +667,14 @@ function collectFromSystem(
       const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ measureMxl, staffIndex: si, partId: partIdFromGraphic(gm), bounds, gm });
+      out.push({
+        measureMxl,
+        staffIndex: si,
+        partId: partIdFromGraphic(gm),
+        staffWithinPart: 1,
+        bounds,
+        gm,
+      });
     }
   }
 }
@@ -697,15 +707,45 @@ export function collectMeasureHitTargets(
         const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
         if (seen.has(key)) return;
         seen.add(key);
-        out.push({ measureMxl, staffIndex: si, partId: partIdFromGraphic(gm), bounds, gm });
+        out.push({
+        measureMxl,
+        staffIndex: si,
+        partId: partIdFromGraphic(gm),
+        staffWithinPart: 1,
+        bounds,
+        gm,
+      });
       });
     } catch (e) {
       console.warn('[omr-measure-click] DOM 폴백 collect 실패', e);
     }
   }
 
+  annotateStaffWithinPart(out);
   targetCache.set(host, out);
   return out;
+}
+
+/** 피아노 등 한 part id가 여러 줄일 때 윗줄=1, 아랫줄=2 … */
+function annotateStaffWithinPart(targets: MeasureHitTarget[]): void {
+  const groups = new Map<string, MeasureHitTarget[]>();
+  for (const t of targets) {
+    if (!t.partId) continue;
+    const key = `${t.measureMxl}|${t.partId}`;
+    const g = groups.get(key) ?? [];
+    g.push(t);
+    groups.set(key, g);
+  }
+  for (const g of groups.values()) {
+    if (g.length < 2) {
+      for (const t of g) t.staffWithinPart = 1;
+      continue;
+    }
+    g.sort((a, b) => a.staffIndex - b.staffIndex);
+    g.forEach((t, i) => {
+      t.staffWithinPart = i + 1;
+    });
+  }
 }
 
 function pointInBounds(x: number, y: number, b: HostBounds): boolean {
@@ -966,15 +1006,21 @@ export function hitTestOsmdMeasure(
         measureMxl: t.measureMxl,
         staffIndex: normalizeStaffIndex(osmd, t.staffIndex),
         partId: t.partId,
+        staffWithinPart: t.staffWithinPart,
       };
       rememberSelectionBounds(host, info, t.bounds);
       return info;
     }
     const near = hitViaNearestStaffEntry(osmd, host, evt);
     if (!near) return null;
+    const targets = targetCache.get(host);
+    const peer = targets?.find(
+      (t) => t.measureMxl === near.measureMxl && t.staffIndex === near.staffIndex,
+    );
     const info: OsmdMeasureClickInfo = {
       ...near,
       staffIndex: normalizeStaffIndex(osmd, near.staffIndex),
+      staffWithinPart: peer?.staffWithinPart ?? near.staffWithinPart,
     };
     const domBounds = boundsFromGraphicMeasure(osmd, host, info);
     if (domBounds) rememberSelectionBounds(host, info, domBounds);

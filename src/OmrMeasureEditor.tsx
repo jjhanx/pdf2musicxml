@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { newFixId, type OmrHitlFix } from './omrHitlFixes';
+import {
+  PitchAlterSelect,
+  formatPitchLabel,
+  pitchAlterFromOption,
+  pitchAlterToOption,
+  type PitchAlterOption,
+} from './omrPitchUi';
 
 type FixPartial = Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>;
 
@@ -193,6 +200,8 @@ type Props = {
   measurePrinted: number;
   measureOffset: number;
   staffLabel?: string;
+  /** 피아노 PR/PL 등 — 목록·삽입 기본 staff 필터 (원본 #index 유지) */
+  editStaffWithinPart?: number | null;
   onAddFix: (fix: OmrHitlFix) => void;
   previewRevision?: number;
   lastPreviewMsg?: string;
@@ -240,7 +249,15 @@ function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
   const arts = el.articulations?.length ? ` [${el.articulations.join(', ')}]` : '';
   const beam = el.beams?.length ? ` beam=[${el.beams.join(',')}]` : '';
   const dur = el.duration != null ? ` dur=${el.duration}` : '';
-  return `#${idx} ${el.pitch ?? '?'} ${el.type ?? ''}${dots}${tie}${chord}${tuplet}${beam}${dur}${arts}${el.stem ? ` stem=${el.stem}` : ''}`;
+  const pitchLabel =
+    el.pitch != null
+      ? formatPitchLabel(
+          parsePitch(el.pitch).step,
+          parsePitch(el.pitch).octave,
+          el.pitchAlter,
+        )
+      : '?';
+  return `#${idx} ${pitchLabel} ${el.type ?? ''}${dots}${tie}${chord}${tuplet}${beam}${dur}${arts}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
 }
 
 export function OmrMeasureEditor({
@@ -250,6 +267,7 @@ export function OmrMeasureEditor({
   measurePrinted,
   measureOffset,
   staffLabel,
+  editStaffWithinPart = null,
   onAddFix,
   previewRevision = 0,
   lastPreviewMsg = '',
@@ -261,7 +279,7 @@ export function OmrMeasureEditor({
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState('');
   const [insertAfter, setInsertAfter] = useState(-1);
-  const [insertStaff, setInsertStaff] = useState(1);
+  const [insertStaff, setInsertStaff] = useState(editStaffWithinPart ?? 1);
   const [fixMsg, setFixMsg] = useState('');
 
   const load = useCallback(async () => {
@@ -292,6 +310,18 @@ export function OmrMeasureEditor({
     if (snapshot?.elements?.length) return snapshot.elements;
     return (snapshot?.notes ?? []).map((n) => ({ ...n, elementKind: 'note' as const }));
   }, [snapshot]);
+
+  useEffect(() => {
+    if (editStaffWithinPart != null) setInsertStaff(editStaffWithinPart);
+  }, [editStaffWithinPart]);
+
+  const displayElements = useMemo(() => {
+    if (editStaffWithinPart == null) return elements;
+    return elements.filter((el) => {
+      if (el.elementKind === 'direction') return true;
+      return (el.staff ?? 1) === editStaffWithinPart;
+    });
+  }, [elements, editStaffWithinPart]);
 
   const noteEls = useMemo(
     () => elements.filter((e): e is MeasureNoteEl => e.elementKind === 'note'),
@@ -326,14 +356,19 @@ export function OmrMeasureEditor({
       <p className="omr-measure-editor-hint">
         요소를 고친 뒤 아래 <strong>「MXL에 반영·미리보기」</strong>를 눌러 오른쪽 MusicXML에서 결과를 확인하세요. 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset}.
       </p>
+      {editStaffWithinPart != null ? (
+        <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
+          staff {editStaffWithinPart} 줄만 표시 (#번호는 전체 마디 기준).
+        </p>
+      ) : null}
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
       {loadErr ? <p className="omr-measure-editor-err">{loadErr}</p> : null}
       {loading && !snapshot ? <p className="omr-measure-editor-loading">마디 요소 불러오는 중…</p> : null}
 
-      {elements.length > 0 && (
+      {displayElements.length > 0 && (
         <ol className="omr-measure-element-list">
-          {elements.map((el) => (
+          {displayElements.map((el) => (
             <li key={el.elementKind === 'direction' ? `dir-${el.directionIndex}` : `note-${el.index}`}>
               <div className="omr-measure-element-title">{elementTitle(el, noteEls)}</div>
               {el.elementKind === 'direction' ? (
@@ -375,7 +410,8 @@ export function OmrMeasureEditor({
                   onClick={() => {
                     if (el.elementKind === 'note') {
                       setInsertAfter(el.index);
-                      if (el.staff != null) setInsertStaff(el.staff);
+                      const staff = el.staff ?? editStaffWithinPart ?? 1;
+                      setInsertStaff(staff);
                     }
                   }}
                 >
@@ -393,12 +429,13 @@ export function OmrMeasureEditor({
         onInsertRest={(afterNoteIndex, noteType, staff) =>
           pushFix({ kind: 'insertRest', afterNoteIndex, noteType, staff })
         }
-        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, staff) =>
+        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, staff, pitchAlter) =>
           pushFix({
             kind: 'insertNote',
             afterNoteIndex,
             pitchStep,
             pitchOctave,
+            pitchAlter,
             noteType,
             staff,
           })
@@ -438,6 +475,7 @@ function MeasureNoteEditor({
   const parsed = parsePitch(el.pitch);
   const [pitchStep, setPitchStep] = useState(parsed.step);
   const [pitchOctave, setPitchOctave] = useState(parsed.octave);
+  const [pitchAlter, setPitchAlter] = useState<PitchAlterOption>(pitchAlterToOption(el.pitchAlter));
   const [noteTypeValueSel, setNoteTypeValueSel] = useState(
     noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
   );
@@ -451,12 +489,13 @@ function MeasureNoteEditor({
   const [beamNumber, setBeamNumber] = useState(1);
   const [chordStep, setChordStep] = useState('G');
   const [chordOctave, setChordOctave] = useState(4);
-  const [chordAlter, setChordAlter] = useState<'0' | '1' | '-1'>('0');
+  const [chordAlter, setChordAlter] = useState<PitchAlterOption>('0');
 
   useEffect(() => {
     const p = parsePitch(el.pitch);
     setPitchStep(p.step);
     setPitchOctave(p.octave);
+    setPitchAlter(pitchAlterToOption(el.pitchAlter));
     setNoteTypeValueSel(
       noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
     );
@@ -464,7 +503,7 @@ function MeasureNoteEditor({
     setTripletEnd(defaultTripletEndIndex(el.index, noteEls));
     setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
     setBeamEnd(clampBeamEnd(el.index, defaultBeamEndIndex(el.index, noteEls, el), noteEls, el));
-  }, [el.index, el.pitch, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
+  }, [el.index, el.pitch, el.pitchAlter, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
@@ -607,6 +646,7 @@ function MeasureNoteEditor({
               onChange={(e) => setPitchOctave(Number(e.target.value))}
               style={{ width: 48 }}
             />
+            <PitchAlterSelect value={pitchAlter} onChange={setPitchAlter} />
             <button
               type="button"
               className="omr-hitl-fix-btn"
@@ -616,6 +656,7 @@ function MeasureNoteEditor({
                   noteIndex: el.index,
                   pitchStep,
                   pitchOctave,
+                  pitchAlter: pitchAlterFromOption(pitchAlter),
                 })
               }
             >
@@ -855,11 +896,7 @@ function MeasureNoteEditor({
               onChange={(e) => setChordOctave(Number(e.target.value))}
               style={{ width: 48 }}
             />
-            <select value={chordAlter} onChange={(e) => setChordAlter(e.target.value as '0' | '1' | '-1')}>
-              <option value="0">♮</option>
-              <option value="1">♯</option>
-              <option value="-1">♭</option>
-            </select>
+            <PitchAlterSelect value={chordAlter} onChange={setChordAlter} />
           </label>
           <button
             type="button"
@@ -894,13 +931,21 @@ function InsertElementForm({
   afterNoteIndex: number;
   staffDefault: number;
   onInsertRest: (after: number, type: string, staff: number) => void;
-  onInsertNote: (after: number, step: string, octave: number, type: string, staff: number) => void;
+  onInsertNote: (
+    after: number,
+    step: string,
+    octave: number,
+    type: string,
+    staff: number,
+    pitchAlter?: number,
+  ) => void;
 }) {
   const [restType, setRestType] = useState('quarter');
   const [noteType, setNoteType] = useState('quarter');
   const [staff, setStaff] = useState(staffDefault);
   const [step, setStep] = useState('C');
   const [octave, setOctave] = useState(4);
+  const [insertAlter, setInsertAlter] = useState<PitchAlterOption>('0');
 
   useEffect(() => {
     setStaff(staffDefault);
@@ -941,6 +986,7 @@ function InsertElementForm({
             ))}
           </select>
           <input type="number" min={0} max={9} value={octave} onChange={(e) => setOctave(Number(e.target.value))} style={{ width: 48 }} />
+          <PitchAlterSelect value={insertAlter} onChange={setInsertAlter} />
         </label>
         <label>
           박자
@@ -952,7 +998,13 @@ function InsertElementForm({
             ))}
           </select>
         </label>
-        <button type="button" className="omr-hitl-fix-btn" onClick={() => onInsertNote(afterNoteIndex, step, octave, noteType, staff)}>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() =>
+            onInsertNote(afterNoteIndex, step, octave, noteType, staff, pitchAlterFromOption(insertAlter))
+          }
+        >
           음표 추가
         </button>
       </div>

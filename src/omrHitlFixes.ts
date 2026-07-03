@@ -86,6 +86,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.dotCount ?? '',
     fix.pitchStep ?? '',
     fix.pitchOctave ?? '',
+    fix.pitchAlter ?? '',
     fix.fromNoteIndex ?? '',
     fix.toNoteIndex ?? '',
     fix.afterNoteIndex ?? '',

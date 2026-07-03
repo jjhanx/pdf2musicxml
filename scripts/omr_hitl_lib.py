@@ -2,6 +2,7 @@
 """OMR HITL — 사람이 지정한 MusicXML 보정을 MXL에 적용."""
 from __future__ import annotations
 
+import copy
 import io
 import json
 import re
@@ -801,6 +802,78 @@ def _chord_follower_indices(notes: list[ET.Element], ns: str, leader_idx: int) -
     return out
 
 
+def _chord_leader_index(notes: list[ET.Element], ns: str, idx: int) -> int:
+    while idx > 0 and notes[idx].find(_q(ns, "chord")) is not None:
+        idx -= 1
+    return idx
+
+
+def _chord_group_end_index(notes: list[ET.Element], ns: str, leader_idx: int) -> int:
+    end = leader_idx
+    for j in _chord_follower_indices(notes, ns, leader_idx):
+        end = j
+    return end
+
+
+def _note_pitch_key(note: ET.Element, ns: str) -> tuple[str, int, int] | None:
+    pitch_el = note.find(_q(ns, "pitch"))
+    if pitch_el is None:
+        return None
+    step_el = pitch_el.find(_q(ns, "step"))
+    oct_el = pitch_el.find(_q(ns, "octave"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return None
+    step = step_el.text.strip()
+    try:
+        octave = int(oct_el.text.strip())
+    except ValueError:
+        return None
+    alter_el = pitch_el.find(_q(ns, "alter"))
+    alter = 0
+    if alter_el is not None and alter_el.text and alter_el.text.strip().lstrip("-").isdigit():
+        alter = int(alter_el.text.strip())
+    return (step, octave, alter)
+
+
+def _copy_note_child(new_note: ET.Element, leader: ET.Element, ns: str, local: str) -> None:
+    src = leader.find(_q(ns, local))
+    if src is None:
+        return
+    dst = ET.SubElement(new_note, _q(ns, local))
+    dst.text = src.text
+    dst.tail = src.tail
+    for key, val in src.attrib.items():
+        dst.set(key, val)
+
+
+def _build_chord_member_from_leader(
+    ns: str,
+    leader: ET.Element,
+    *,
+    step: str,
+    octave: int,
+    alter: int | None,
+) -> ET.Element:
+    """리더와 같은 시점·박자·voice·stem으로 `<chord/>` 멤버 생성."""
+    new_note = ET.Element(_q(ns, "note"))
+    if leader.get("default-x"):
+        new_note.set("default-x", leader.get("default-x"))
+    ET.SubElement(new_note, _q(ns, "chord"))
+    pitch_el = ET.SubElement(new_note, _q(ns, "pitch"))
+    ET.SubElement(pitch_el, _q(ns, "step")).text = step
+    ET.SubElement(pitch_el, _q(ns, "octave")).text = str(octave)
+    if alter is not None and alter != 0:
+        ET.SubElement(pitch_el, _q(ns, "alter")).text = str(int(alter))
+    for tag in ("duration", "voice", "type", "stem", "staff"):
+        _copy_note_child(new_note, leader, ns, tag)
+    for _ in leader.findall(_q(ns, "dot")):
+        ET.SubElement(new_note, _q(ns, "dot"))
+    tm = leader.find(_q(ns, "time-modification"))
+    if tm is not None:
+        new_note.append(copy.deepcopy(tm))
+    return new_note
+
+
 def _ensure_short_type_for_beam(
     note: ET.Element, ns: str, divisions: int, prefer: str = "eighth"
 ) -> None:
@@ -1502,6 +1575,44 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
         _insert_note_element(measure, ns, new_note, after_idx)
+        _normalize_measure_note_engraving(part, ns, measure)
+        return True
+
+    if kind == "insertChordMember":
+        step = str(fix.get("pitchStep") or "").strip()
+        if not step:
+            return False
+        try:
+            leader_idx = int(fix.get("leaderNoteIndex", fix.get("noteIndex", -1)))
+            octave = int(fix.get("pitchOctave"))
+        except (TypeError, ValueError):
+            return False
+        if leader_idx < 0 or leader_idx >= len(notes):
+            return False
+        leader_idx = _chord_leader_index(notes, ns, leader_idx)
+        leader = notes[leader_idx]
+        if leader.find(_q(ns, "pitch")) is None:
+            return False
+        alter = fix.get("pitchAlter")
+        alter_n: int | None = None
+        if alter is not None and alter != "":
+            try:
+                alter_n = int(alter)
+            except (TypeError, ValueError):
+                alter_n = None
+        new_key = (step, octave, alter_n or 0)
+        group_indices = [leader_idx, *_chord_follower_indices(notes, ns, leader_idx)]
+        for gi in group_indices:
+            key = _note_pitch_key(notes[gi], ns)
+            if key is not None and (key[0], key[1], key[2]) == new_key:
+                return False
+        new_note = _build_chord_member_from_leader(
+            ns, leader, step=step, octave=octave, alter=alter_n
+        )
+        end_idx = _chord_group_end_index(notes, ns, leader_idx)
+        _insert_note_element(measure, ns, new_note, end_idx)
+        notes_after = list_note_elements(measure, ns)
+        _strip_chord_member_beams(notes_after, ns)
         _normalize_measure_note_engraving(part, ns, measure)
         return True
 

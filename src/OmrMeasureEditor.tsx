@@ -208,6 +208,14 @@ function parsePitch(pitch: string | null | undefined): { step: string; octave: n
   return { step: PITCH_STEPS.includes(step as (typeof PITCH_STEPS)[number]) ? step : 'C', octave: Number.isFinite(octave) ? octave : 4 };
 }
 
+function chordLeaderIndex(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): number {
+  const sorted = [...noteEls].sort((a, b) => a.index - b.index);
+  let pos = sorted.findIndex((n) => n.index === el.index);
+  if (pos < 0) return el.index;
+  while (pos > 0 && sorted[pos]?.chord) pos -= 1;
+  return sorted[pos]?.index ?? el.index;
+}
+
 function elementTitle(el: MeasureElement, noteEls: MeasureNoteEl[]): string {
   if (el.elementKind === 'direction') {
     return `direction #${el.directionIndex}${el.text ? `: ${el.text}` : ''}`;
@@ -435,6 +443,9 @@ function MeasureNoteEditor({
   );
   const [beamEnd, setBeamEnd] = useState(() => defaultBeamEndIndex(el.index, noteEls, el));
   const [beamNumber, setBeamNumber] = useState(1);
+  const [chordStep, setChordStep] = useState('G');
+  const [chordOctave, setChordOctave] = useState(4);
+  const [chordAlter, setChordAlter] = useState<'0' | '1' | '-1'>('0');
 
   useEffect(() => {
     const p = parsePitch(el.pitch);
@@ -471,6 +482,8 @@ function MeasureNoteEditor({
       nextNote.chord ||
       ['128th', '256th', '64th', '32nd'].includes(nextNote.type ?? '') ||
       (nextNote.dotCount ?? 0) > 0);
+  const chordLeaderIdx = chordLeaderIndex(el, noteEls);
+  const chordLeaderEl = noteEls.find((n) => n.index === chordLeaderIdx);
 
   return (
     <div className="omr-measure-element-actions">
@@ -811,6 +824,52 @@ function MeasureNoteEditor({
               세잇단 해제 (#{existingTriplet.from}→#{existingTriplet.to})
             </button>
           ) : null}
+        </div>
+      )}
+      {el.kind === 'note' && (
+        <div className="omr-measure-chord-row">
+          <span className="omr-measure-chord-hint">
+            빠진 화음 음 — 리더 #{chordLeaderIdx}
+            {chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 와 같은 박자·줄기
+          </span>
+          <label className="omr-measure-inline-field">
+            화음 음
+            <select value={chordStep} onChange={(e) => setChordStep(e.target.value)}>
+              {PITCH_STEPS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0}
+              max={9}
+              value={chordOctave}
+              onChange={(e) => setChordOctave(Number(e.target.value))}
+              style={{ width: 48 }}
+            />
+            <select value={chordAlter} onChange={(e) => setChordAlter(e.target.value as '0' | '1' | '-1')}>
+              <option value="0">♮</option>
+              <option value="1">♯</option>
+              <option value="-1">♭</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+            onClick={() =>
+              onFix({
+                kind: 'insertChordMember',
+                leaderNoteIndex: chordLeaderIdx,
+                pitchStep: chordStep,
+                pitchOctave: chordOctave,
+                pitchAlter: chordAlter === '0' ? undefined : Number(chordAlter),
+              })
+            }
+          >
+            화음 음 추가
+          </button>
         </div>
       )}
       <button type="button" className="omr-hitl-fix-btn omr-hitl-fix-btn--danger" onClick={() => onFix({ kind: 'removeNote', noteIndex: el.index })}>

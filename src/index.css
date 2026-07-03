@@ -857,10 +857,17 @@ button.btn-muted {
 
 .modal-light .omr-measure-note-pitch,
 .modal-light .omr-measure-tie-row,
-.modal-light .omr-measure-stem-row {
+.modal-light .omr-measure-stem-row,
+.modal-light .omr-measure-chord-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+  width: 100%;
+}
+
+.modal-light .omr-measure-chord-hint {
+  font-size: 0.78rem;
+  color: #555;
   width: 100%;
 }
 

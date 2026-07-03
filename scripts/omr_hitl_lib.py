@@ -523,10 +523,13 @@ def _assign_insert_layout_defaults(
 ) -> None:
     """HITL 삽입 음·쉼표에 default-x를 넣어 timeline 재정렬 시 맨 앞으로 가지 않게 한다."""
     x_val: float | None = None
-    if anchor is not None:
-        ax = _parse_default_x(anchor)
-        if ax is not None:
-            x_val = ax + 15.0
+    ax = _parse_default_x(anchor) if anchor is not None else None
+    fx = _parse_default_x(following) if following is not None else None
+    if ax is not None and fx is not None and fx > ax + 0.5:
+        gap = fx - ax
+        x_val = fx - 15.0 if gap > 20.0 else (ax + fx) / 2.0
+    elif ax is not None:
+        x_val = ax + 15.0
     if x_val is None and following is not None:
         fx = _parse_default_x(following)
         if fx is not None:
@@ -592,6 +595,35 @@ def _insert_context_notes(
     if after_idx + 1 < len(notes):
         following = notes[after_idx + 1]
     return anchor, following, staff_notes
+
+
+def _resolve_insert_after_context(
+    notes: list[ET.Element], ns: str, after_idx: int, staff_n: int
+) -> tuple[int, int, ET.Element | None, ET.Element | None, list[ET.Element]]:
+    """「#n 뒤」삽입 — anchor staff·voice 상속, 화음 멤버면 그룹 끝 뒤, 다음 slice default-x."""
+    if after_idx < 0 or after_idx >= len(notes):
+        anchor, following, staff_notes = _insert_context_notes(notes, ns, after_idx, staff_n)
+        return after_idx, staff_n, anchor, following, staff_notes
+    anchor_note = notes[after_idx]
+    staff_from = _note_staff_number(anchor_note, ns)
+    if staff_from is not None:
+        staff_n = staff_from
+    leader_idx = _chord_leader_index(notes, ns, after_idx)
+    insert_after_idx = _chord_group_end_index(notes, ns, leader_idx)
+    anchor = notes[insert_after_idx]
+    following: ET.Element | None = None
+    for j in range(insert_after_idx + 1, len(notes)):
+        n = notes[j]
+        if (_note_staff_number(n, ns) or 1) != staff_n:
+            continue
+        following = n
+        break
+    staff_notes = [
+        n
+        for n in notes
+        if (_note_staff_number(n, ns) or 1) == staff_n and n.find(_q(ns, "chord")) is None
+    ]
+    return insert_after_idx, staff_n, anchor, following, staff_notes
 
 
 def _ensure_notations(note: ET.Element, ns: str) -> ET.Element:
@@ -1516,7 +1548,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         except (TypeError, ValueError):
             return False
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
-        voice, _stem = _infer_voice_stem_from_neighbors(notes, ns, after_idx, staff_n)
+        insert_after_idx, staff_n, anchor, following, staff_notes = _resolve_insert_after_context(
+            notes, ns, after_idx, staff_n
+        )
+        voice, _stem = _infer_voice_stem_from_neighbors(notes, ns, insert_after_idx, staff_n)
         step = str(fix.get("displayStep") or "B").strip()
         try:
             octave = int(fix.get("displayOctave", 4))
@@ -1531,11 +1566,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             display_step=step,
             display_octave=octave,
         )
-        anchor, following, staff_notes = _insert_context_notes(notes, ns, after_idx, staff_n)
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
-        _insert_note_element(measure, ns, new_note, after_idx)
+        _insert_note_element(measure, ns, new_note, insert_after_idx)
         _normalize_measure_note_engraving(part, ns, measure)
         return True
 
@@ -1551,7 +1585,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         note_type = str(fix.get("noteType") or "quarter").strip()
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
-        voice, stem = _infer_voice_stem_from_neighbors(notes, ns, after_idx, staff_n)
+        insert_after_idx, staff_n, anchor, following, staff_notes = _resolve_insert_after_context(
+            notes, ns, after_idx, staff_n
+        )
+        voice, stem = _infer_voice_stem_from_neighbors(notes, ns, insert_after_idx, staff_n)
         alter = fix.get("pitchAlter")
         alter_n: int | None = None
         if alter is not None and alter != "":
@@ -1570,11 +1607,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             voice=voice,
             stem=stem,
         )
-        anchor, following, staff_notes = _insert_context_notes(notes, ns, after_idx, staff_n)
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
-        _insert_note_element(measure, ns, new_note, after_idx)
+        _insert_note_element(measure, ns, new_note, insert_after_idx)
         _normalize_measure_note_engraving(part, ns, measure)
         return True
 

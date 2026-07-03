@@ -261,6 +261,7 @@ export function OmrMeasureEditor({
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState('');
   const [insertAfter, setInsertAfter] = useState(-1);
+  const [insertStaff, setInsertStaff] = useState(1);
   const [fixMsg, setFixMsg] = useState('');
 
   const load = useCallback(async () => {
@@ -371,7 +372,12 @@ export function OmrMeasureEditor({
                 <button
                   type="button"
                   className="btn-muted omr-measure-insert-btn"
-                  onClick={() => setInsertAfter(el.elementKind === 'note' ? el.index : insertAfter)}
+                  onClick={() => {
+                    if (el.elementKind === 'note') {
+                      setInsertAfter(el.index);
+                      if (el.staff != null) setInsertStaff(el.staff);
+                    }
+                  }}
                 >
                   여기 뒤
                 </button>
@@ -383,7 +389,7 @@ export function OmrMeasureEditor({
 
       <InsertElementForm
         afterNoteIndex={insertAfter}
-        staffDefault={noteEls.find((n) => n.staff != null)?.staff ?? 1}
+        staffDefault={insertStaff}
         onInsertRest={(afterNoteIndex, noteType, staff) =>
           pushFix({ kind: 'insertRest', afterNoteIndex, noteType, staff })
         }
@@ -900,7 +906,7 @@ function InsertElementForm({
     setStaff(staffDefault);
   }, [staffDefault]);
 
-  const afterLabel = afterNoteIndex < 0 ? '마디 맨 앞' : `음·쉼표 #${afterNoteIndex} 뒤`;
+  const afterLabel = afterNoteIndex < 0 ? '마디 맨 앞' : `음·쉼표 #${afterNoteIndex} 뒤 (staff ${staff})`;
 
   return (
     <div className="omr-measure-insert-form">

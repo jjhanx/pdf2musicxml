@@ -80,3 +80,63 @@ snap3 = measure_snapshot(root, "", "P1", "1")
 notes3 = [e for e in snap3["elements"] if e.get("elementKind") == "note"]
 assert all(not n.get("beams") for n in notes3)
 print("beam ok")
+
+# pitch 힌트(G4)와 XML alter(G#4) 불일치 — #index·beamNoteCount 우선
+sharp_xml = """<score-partwise version="3.1">
+<part id="P1"><measure number="1">
+<attributes><divisions>2</divisions></attributes>
+<note><pitch><step>G</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><type>eighth</type><stem>up</stem></note>
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type><stem>up</stem></note>
+<note><pitch><step>G</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><type>eighth</type><stem>up</stem></note>
+</measure></part></score-partwise>"""
+root3 = ET.fromstring(sharp_xml)
+assert apply_fix(
+    root3,
+    "",
+    {
+        "kind": "applyBeam",
+        "partId": "P1",
+        "measureMxl": "1",
+        "fromNoteIndex": 0,
+        "toNoteIndex": 2,
+        "fromPitch": "G4",
+        "toPitch": "G4",
+        "beamNumber": 1,
+        "beamNoteCount": 3,
+    },
+)
+snap4 = measure_snapshot(root3, "", "P1", "1")
+notes4 = [e for e in snap4["elements"] if e.get("elementKind") == "note"]
+assert notes4[0]["beams"] == ["begin"]
+assert notes4[1]["beams"] == ["continue"]
+assert notes4[2]["beams"] == ["end"]
+
+# 화음 중간 + beamNoteCount로 3리더 확장
+extend_xml = """<score-partwise version="3.1">
+<part id="P1"><measure number="1">
+<attributes><divisions>2</divisions></attributes>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type><stem>up</stem></note>
+<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type><stem>up</stem></note>
+<note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type><stem>up</stem></note>
+<note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type><stem>up</stem></note>
+</measure></part></score-partwise>"""
+root4 = ET.fromstring(extend_xml)
+assert apply_fix(
+    root4,
+    "",
+    {
+        "kind": "applyBeam",
+        "partId": "P1",
+        "measureMxl": "1",
+        "fromNoteIndex": 0,
+        "toNoteIndex": 2,
+        "beamNumber": 1,
+        "beamNoteCount": 3,
+    },
+)
+snap5 = measure_snapshot(root4, "", "P1", "1")
+notes5 = [e for e in snap5["elements"] if e.get("elementKind") == "note"]
+assert notes5[0]["beams"] == ["begin"]
+assert notes5[2]["beams"] == ["continue"]
+assert notes5[3]["beams"] == ["end"]
+print("beam pitch/extend ok")

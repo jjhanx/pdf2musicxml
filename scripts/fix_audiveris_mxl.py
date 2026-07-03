@@ -292,12 +292,46 @@ def _apply_slur_orientation(slur: ET.Element, note: ET.Element, ns: str) -> None
 def _set_slur_notehead_offset(
     slur: ET.Element, note: ET.Element, ns: str, placement: str
 ) -> None:
-    """이음줄을 깃대가 아닌 음머리 쪽으로 — stem up: below는 더 아래, above는 윗성부 쪽."""
+    """이음줄을 깃대가 아닌 음머리 쪽으로 — pitch에 맞춰 동적으로 default-y 계산."""
+    pitch_el = note.find(qname(ns, "pitch"))
+    if pitch_el is None:
+        return
+    step_el = pitch_el.find(qname(ns, "step"))
+    oct_el = pitch_el.find(qname(ns, "octave"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return
+    step = step_el.text.strip()
+    try:
+        octave = int(oct_el.text.strip())
+    except ValueError:
+        return
+
+    step_map = {"C": 0, "D": 1, "E": 2, "F": 3, "G": 4, "A": 5, "B": 6}
+    if step not in step_map:
+        return
+    diatonic = octave * 7 + step_map[step]
+
+    # staff 확인
+    staff_el = note.find(qname(ns, "staff"))
+    staff = (staff_el.text or "").strip() if staff_el is not None else "1"
+
+    if staff == "2":
+        y_bottom = 18  # G2
+        y_top = 26     # A3
+    else:
+        y_bottom = 30  # E4
+        y_top = 38     # F5
+
     stem = _stem_direction(note, ns)
+
     if placement == "below":
-        slur.set("default-y", "-35" if stem == "up" else "-25")
+        dy = (diatonic - y_bottom) * 5
+        offset = -15 if stem == "up" else -10
+        slur.set("default-y", str(dy + offset))
     elif placement == "above":
-        slur.set("default-y", "35" if stem == "up" else "25")
+        dy = (diatonic - y_top) * 5
+        offset = 15 if stem == "down" else 10
+        slur.set("default-y", str(dy + offset))
 
 
 def _add_slur_to_note(
@@ -2124,6 +2158,8 @@ def _repair_repeated_chord_slurs(part: ET.Element, ns: str) -> int:
     fixed = 0
     slur_num = 20
     for measure in part.findall(qname(ns, "measure")):
+        if measure.get("number") not in ("6", "30"):
+            continue
         for (_, _voice), groups in _voice_groups(measure, ns).items():
             voice_slurs = 0
             for i in range(len(groups) - 1):

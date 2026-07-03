@@ -46,13 +46,6 @@ function parseNoteTypeValue(value: string): { type: string; dots: number } {
   return { type: type || 'quarter', dots };
 }
 
-function defaultTripletEndIndex(elIndex: number, noteEls: MeasureNoteEl[]): number {
-  const startPos = noteEls.findIndex((n) => n.index === elIndex);
-  if (startPos < 0) return elIndex;
-  const endNote = noteEls[Math.min(startPos + 2, noteEls.length - 1)];
-  return endNote?.index ?? elIndex;
-}
-
 function tripletRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: number; to: number } {
   if (!el.timeMod) return { from: el.index, to: el.index };
   const pos = noteEls.findIndex((n) => n.index === el.index);
@@ -66,6 +59,33 @@ function tripletRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: n
 
 function isBeamableNoteEl(n: MeasureNoteEl): boolean {
   return n.kind === 'note' && !n.chord;
+}
+
+/** 세잇단·박자 slice — 화음 하위음(<chord/>)은 리더와 한 박자로 셈 */
+function isRhythmicSlice(n: MeasureNoteEl): boolean {
+  return n.kind === 'rest' || (n.kind === 'note' && !n.chord);
+}
+
+function defaultTripletEndIndex(
+  elIndex: number,
+  noteEls: MeasureNoteEl[],
+  el?: MeasureNoteEl,
+): number {
+  if (el?.beams?.length) {
+    const { to } = beamLeaderRange(el, noteEls);
+    if (to > elIndex) return to;
+  }
+  const startPos = noteEls.findIndex((n) => n.index === elIndex);
+  if (startPos < 0) return elIndex;
+  let count = 0;
+  let endIdx = elIndex;
+  for (let i = startPos; i < noteEls.length && count < 3; i++) {
+    if (isRhythmicSlice(noteEls[i])) {
+      count += 1;
+      endIdx = noteEls[i].index;
+    }
+  }
+  return endIdx;
 }
 
 function defaultBeamEndIndex(
@@ -145,7 +165,7 @@ function countBeamableInRange(from: number, to: number, noteEls: MeasureNoteEl[]
 }
 
 function countNotesInRange(from: number, to: number, noteEls: MeasureNoteEl[]): number {
-  return noteEls.filter((n) => n.index >= from && n.index <= to).length;
+  return noteEls.filter((n) => n.index >= from && n.index <= to && isRhythmicSlice(n)).length;
 }
 
 export type MeasureDirectionEl = {
@@ -551,7 +571,7 @@ function MeasureNoteEditor({
   );
   const [staffN, setStaffN] = useState(el.staff ?? 1);
   const [tieTo, setTieTo] = useState('');
-  const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(el.index, noteEls));
+  const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(el.index, noteEls, el));
   const [tripletNormalType, setTripletNormalType] = useState(
     el.type === '16th' || el.type === '32nd' ? el.type : 'eighth',
   );
@@ -570,14 +590,14 @@ function MeasureNoteEditor({
       noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
     );
     setStaffN(el.staff ?? 1);
-    setTripletEnd(defaultTripletEndIndex(el.index, noteEls));
+    setTripletEnd(defaultTripletEndIndex(el.index, noteEls, el));
     setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
     setBeamEnd(clampBeamEnd(el.index, defaultBeamEndIndex(el.index, noteEls, el), noteEls, el));
   }, [el.index, el.pitch, el.pitchAlter, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
-  const tripletCandidates = noteEls.filter((n) => n.index >= el.index).slice(0, 8);
+  const tripletCandidates = noteEls.filter((n) => n.index >= el.index && isRhythmicSlice(n)).slice(0, 8);
   const tripletNoteCount = countNotesInRange(el.index, tripletEnd, noteEls);
   const existingTriplet = tripletRangeFor(el, noteEls);
   const beamCandidates = noteEls.filter((n) => n.index >= el.index && isBeamableNoteEl(n)).slice(0, 8);
@@ -887,6 +907,11 @@ function MeasureNoteEditor({
       )}
       {tripletCandidates.length >= 2 && (
         <div className="omr-measure-tuplet-row">
+          <p className="omr-measure-tuplet-hint">
+            <strong>빔 끝</strong>과 <strong>세잇단 끝</strong>은 별도입니다. 8분 3연음이면 보통 같은 3개(#) 범위를
+            씁니다 — 「세잇단 적용」→ (필요 시) 「빔 연결」→ 「MXL에 반영·미리보기」. 숫자 <strong>3</strong>은
+            괄호 없이 빔·줄기 쪽에 그려지며, 가짜 스타카토 점이 가리면 「세잇단 숫자 가린 점 제거」를 누르세요.
+          </p>
           <label className="omr-measure-inline-field">
             세잇단 끝
             <select value={String(tripletEnd)} onChange={(e) => setTripletEnd(parseInt(e.target.value, 10))}>

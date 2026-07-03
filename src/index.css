@@ -940,6 +940,13 @@ button.btn-muted {
   color: #558b2f;
 }
 
+.modal-light .omr-measure-tuplet-hint {
+  margin: 0 0 0.45rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #455a64;
+}
+
 .modal-light .omr-hitl-fix-btn--primary {
   background: #1565c0;
   color: #fff;

@@ -1068,12 +1068,17 @@ def _is_chord_member_note(note: ET.Element, ns: str) -> bool:
 def _rhythmic_indices_in_range(
     notes: list[ET.Element], ns: str, from_idx: int, to_idx: int
 ) -> list[int]:
-    """화음 하위음(<chord/>)은 리더와 한 slice — 세잇단 actual-notes 카운트용."""
+    """화음·grace·cue 제외 — 세잇단 actual-notes 카운트용."""
     out: list[int] = []
     for i in range(from_idx, to_idx + 1):
         if i < 0 or i >= len(notes):
             continue
-        if _is_chord_member_note(notes[i], ns):
+        note = notes[i]
+        if note.find(_q(ns, "grace")) is not None:
+            continue
+        if note.get("cue") == "yes":
+            continue
+        if _is_chord_member_note(note, ns):
             continue
         out.append(i)
     return out
@@ -1682,9 +1687,16 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         normal_type = str(fix.get("normalType") or "eighth").strip()
         if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
             return False
+        from_idx = _chord_leader_index(notes, ns, from_idx)
         indices = _rhythmic_indices_in_range(notes, ns, from_idx, to_idx)
         if len(indices) < 2:
             return False
+        try:
+            actual_notes_req = int(fix.get("actualNotes", len(indices)))
+        except (TypeError, ValueError):
+            actual_notes_req = len(indices)
+        if actual_notes_req >= 2 and len(indices) > actual_notes_req:
+            indices = indices[:actual_notes_req]
         actual_notes = len(indices)
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
         return _apply_triplet_to_range(

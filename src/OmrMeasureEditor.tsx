@@ -61,20 +61,13 @@ function isBeamableNoteEl(n: MeasureNoteEl): boolean {
   return n.kind === 'note' && !n.chord;
 }
 
-/** 세잇단·박자 slice — 화음 하위음(<chord/>)은 리더와 한 박자로 셈 */
+/** 세잇단·박자 slice — 화음 하위음·grace·cue 제외 */
 function isRhythmicSlice(n: MeasureNoteEl): boolean {
+  if (n.hasGrace || n.isCue) return false;
   return n.kind === 'rest' || (n.kind === 'note' && !n.chord);
 }
 
-function defaultTripletEndIndex(
-  elIndex: number,
-  noteEls: MeasureNoteEl[],
-  el?: MeasureNoteEl,
-): number {
-  if (el?.beams?.length) {
-    const { to } = beamLeaderRange(el, noteEls);
-    if (to > elIndex) return to;
-  }
+function defaultTripletEndIndex(elIndex: number, noteEls: MeasureNoteEl[]): number {
   const startPos = noteEls.findIndex((n) => n.index === elIndex);
   if (startPos < 0) return elIndex;
   let count = 0;
@@ -571,7 +564,7 @@ function MeasureNoteEditor({
   );
   const [staffN, setStaffN] = useState(el.staff ?? 1);
   const [tieTo, setTieTo] = useState('');
-  const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(el.index, noteEls, el));
+  const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
   const [tripletNormalType, setTripletNormalType] = useState(
     el.type === '16th' || el.type === '32nd' ? el.type : 'eighth',
   );
@@ -590,15 +583,16 @@ function MeasureNoteEditor({
       noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
     );
     setStaffN(el.staff ?? 1);
-    setTripletEnd(defaultTripletEndIndex(el.index, noteEls, el));
+    setTripletEnd(defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
     setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
     setBeamEnd(clampBeamEnd(el.index, defaultBeamEndIndex(el.index, noteEls, el), noteEls, el));
   }, [el.index, el.pitch, el.pitchAlter, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
-  const tripletCandidates = noteEls.filter((n) => n.index >= el.index && isRhythmicSlice(n)).slice(0, 8);
-  const tripletNoteCount = countNotesInRange(el.index, tripletEnd, noteEls);
+  const tripletLeaderIdx = chordLeaderIndex(el, noteEls);
+  const tripletCandidates = noteEls.filter((n) => n.index >= tripletLeaderIdx && isRhythmicSlice(n)).slice(0, 8);
+  const tripletNoteCount = countNotesInRange(tripletLeaderIdx, tripletEnd, noteEls);
   const existingTriplet = tripletRangeFor(el, noteEls);
   const beamCandidates = noteEls.filter((n) => n.index >= el.index && isBeamableNoteEl(n)).slice(0, 8);
   const beamEndNote = noteEls.find((n) => n.index === beamEnd);
@@ -941,7 +935,7 @@ function MeasureNoteEditor({
             onClick={() =>
               onFix({
                 kind: 'applyTriplet',
-                fromNoteIndex: el.index,
+                fromNoteIndex: tripletLeaderIdx,
                 toNoteIndex: tripletEnd,
                 actualNotes: tripletNoteCount,
                 normalNotes: 2,

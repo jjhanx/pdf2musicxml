@@ -682,17 +682,22 @@ def _resolve_beam_endpoint(
     pitch_hint: Any,
     staff_hint: Any = None,
 ) -> int:
-    hint = str(pitch_hint or "").strip()
-    staff_want = str(staff_hint or "").strip()
+    """UI #index 우선 — pitch 문자열(G4 vs G#4) 불일치로 끝점이 앞당겨지지 않게."""
+    if idx < 0 or idx >= len(notes):
+        return idx
+    idx = _chord_leader_index(notes, ns, idx)
 
     def _staff_ok(note: ET.Element) -> bool:
+        staff_want = str(staff_hint or "").strip()
         if not staff_want:
             return True
         _, staff = _note_voice_staff(note, ns)
         return staff == staff_want
 
-    if 0 <= idx < len(notes) and _staff_ok(notes[idx]) and (not hint or _note_pitch_str(notes[idx], ns) == hint):
+    if _is_beamable_pitched_note(notes[idx], ns) and _staff_ok(notes[idx]):
         return idx
+
+    hint = str(pitch_hint or "").strip()
     if not hint:
         return idx
     matches = [
@@ -714,7 +719,32 @@ def _is_beamable_pitched_note(note: ET.Element, ns: str) -> bool:
         return False
     if note.find(_q(ns, "chord")) is not None:
         return False
+    if note.find(_q(ns, "grace")) is not None:
+        return False
+    if note.get("cue") == "yes":
+        return False
     return True
+
+
+def _beam_leader_indices_in_range(
+    notes: list[ET.Element], ns: str, from_idx: int, to_idx: int
+) -> list[int]:
+    lo, hi = min(from_idx, to_idx), max(from_idx, to_idx)
+    return [i for i in range(lo, hi + 1) if _is_beamable_pitched_note(notes[i], ns)]
+
+
+def _extend_beam_leaders(
+    notes: list[ET.Element], ns: str, leaders: list[int], expected: int
+) -> list[int]:
+    if expected < 2 or len(leaders) >= expected:
+        return leaders
+    out = list(leaders)
+    idx = out[-1]
+    while len(out) < expected and idx + 1 < len(notes):
+        idx += 1
+        if _is_beamable_pitched_note(notes[idx], ns):
+            out.append(idx)
+    return out
 
 
 def _strip_beams_from_note(
@@ -1737,6 +1767,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             beam_number = int(fix.get("beamNumber", 1))
         except (TypeError, ValueError):
             return False
+        from_idx = _chord_leader_index(notes, ns, from_idx)
         from_idx = _resolve_beam_endpoint(
             notes, ns, from_idx, fix.get("fromPitch"), fix.get("fromStaff")
         )
@@ -1747,8 +1778,18 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         if beam_number < 1 or beam_number > 4:
             return False
+        try:
+            expected = int(fix.get("beamNoteCount", 0))
+        except (TypeError, ValueError):
+            expected = 0
+        leaders = _beam_leader_indices_in_range(notes, ns, from_idx, to_idx)
+        if expected >= 2 and len(leaders) < expected:
+            leaders = _extend_beam_leaders(notes, ns, leaders, expected)
+        if len(leaders) < 2:
+            return False
+        lo, hi = leaders[0], leaders[-1]
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
-        indices = list(range(from_idx, to_idx + 1))
+        indices = list(range(lo, hi + 1))
         return _apply_beam_to_range(notes, ns, indices, beam_number, divisions)
 
     if kind == "removeBeam":

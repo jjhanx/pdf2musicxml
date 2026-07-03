@@ -58,6 +58,7 @@ function tripletRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: n
 }
 
 function isBeamableNoteEl(n: MeasureNoteEl): boolean {
+  if (n.hasGrace || n.isCue) return false;
   return n.kind === 'note' && !n.chord;
 }
 
@@ -568,7 +569,9 @@ function MeasureNoteEditor({
   const [tripletNormalType, setTripletNormalType] = useState(
     el.type === '16th' || el.type === '32nd' ? el.type : 'eighth',
   );
-  const [beamEnd, setBeamEnd] = useState(() => defaultBeamEndIndex(el.index, noteEls, el));
+  const [beamEnd, setBeamEnd] = useState(() =>
+    defaultBeamEndIndex(chordLeaderIndex(el, noteEls), noteEls, el),
+  );
   const [beamNumber, setBeamNumber] = useState(1);
   const [chordStep, setChordStep] = useState('G');
   const [chordOctave, setChordOctave] = useState(4);
@@ -585,7 +588,14 @@ function MeasureNoteEditor({
     setStaffN(el.staff ?? 1);
     setTripletEnd(defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
     setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
-    setBeamEnd(clampBeamEnd(el.index, defaultBeamEndIndex(el.index, noteEls, el), noteEls, el));
+    setBeamEnd(
+      clampBeamEnd(
+        chordLeaderIndex(el, noteEls),
+        defaultBeamEndIndex(chordLeaderIndex(el, noteEls), noteEls, el),
+        noteEls,
+        el,
+      ),
+    );
   }, [el.index, el.pitch, el.pitchAlter, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
@@ -594,9 +604,10 @@ function MeasureNoteEditor({
   const tripletCandidates = noteEls.filter((n) => n.index >= tripletLeaderIdx && isRhythmicSlice(n)).slice(0, 8);
   const tripletNoteCount = countNotesInRange(tripletLeaderIdx, tripletEnd, noteEls);
   const existingTriplet = tripletRangeFor(el, noteEls);
-  const beamCandidates = noteEls.filter((n) => n.index >= el.index && isBeamableNoteEl(n)).slice(0, 8);
+  const beamLeaderIdx = chordLeaderIndex(el, noteEls);
+  const beamCandidates = noteEls.filter((n) => n.index >= beamLeaderIdx && isBeamableNoteEl(n)).slice(0, 8);
   const beamEndNote = noteEls.find((n) => n.index === beamEnd);
-  const beamNoteCount = countBeamableInRange(el.index, beamEnd, noteEls);
+  const beamNoteCount = countBeamableInRange(beamLeaderIdx, beamEnd, noteEls);
   const existingBeam = beamLeaderRange(el, noteEls);
   const beamEndEl = noteEls.find((n) => n.index === existingBeam.to);
   const beamIncomplete =
@@ -832,7 +843,7 @@ function MeasureNoteEditor({
           </button>
         </div>
       )}
-      {isBeamableNoteEl(el) && beamCandidates.length >= 2 && (
+      {beamCandidates.length >= 2 && (
         <div className="omr-measure-beam-row">
           <label className="omr-measure-inline-field">
             빔 끝
@@ -857,21 +868,23 @@ function MeasureNoteEditor({
             disabled={beamNoteCount < 2}
             title={
               beamNoteCount < 2
-                ? '빔 연결은 음표 2개 이상이 필요합니다 (쉼표·화음 하위음 제외)'
+                ? '빔 연결은 음표 2개 이상이 필요합니다 (쉼표·화음 하위음·grace 제외)'
                 : `${beamNoteCount}개 음표를 빔 ${beamNumber}로 연결`
             }
-            onClick={() =>
+            onClick={() => {
+              const fromEl = noteEls.find((n) => n.index === beamLeaderIdx);
               onFix({
                 kind: 'applyBeam',
-                fromNoteIndex: el.index,
+                fromNoteIndex: beamLeaderIdx,
                 toNoteIndex: beamEnd,
-                fromPitch: el.pitch ?? undefined,
+                fromPitch: fromEl?.pitch ?? undefined,
                 toPitch: beamEndNote?.pitch ?? undefined,
-                fromStaff: el.staff ?? undefined,
+                fromStaff: fromEl?.staff ?? undefined,
                 toStaff: beamEndNote?.staff ?? undefined,
                 beamNumber,
-              })
-            }
+                beamNoteCount,
+              });
+            }}
           >
             빔 연결 ({beamNoteCount}개)
           </button>

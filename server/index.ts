@@ -1505,36 +1505,30 @@ async function runFontSeparatorResumePhase(opts: {
         detail: 'PyMuPDF로 가사·메타 문자 추출 중 (검토용)…',
       });
       await exec(`"${pythonBin}" "${scriptExtract}" "${inputPdfPath}" "${pymupdfReviewPath}"`);
-      if (fsSync.existsSync(pymupdfReviewPath)) {
-        const ocrData = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8'));
-        job.status = 'review_needed';
-        job.reviewData = ocrData;
-        await new Promise<void>((resolve, reject) => {
-          job.reviewDeferred = { resolve, reject };
-        });
-        delete job.reviewDeferred;
-        job.status = 'processing';
-      }
     }
 
     if (fsSync.existsSync(extractedJsonPath)) {
-      setJobProgress(job, {
-        phase: 'separator',
-        current: 1,
-        total: 1,
-        detail: 'pdfplumber·PyMuPDF 검토 결과 병합 중…',
-      });
-      const mergeArgs = [
-        `"${pythonBin}"`,
-        `"${scriptMergeLyrics}"`,
-        `"${extractedJsonPath}"`,
-        `"${lyricManifestPath}"`,
-        `--output-flat "${ocrJsonPath}"`,
-      ];
-      if (fsSync.existsSync(pymupdfReviewPath)) {
-        mergeArgs.push(`--pymupdf-review "${pymupdfReviewPath}"`);
+      if (!fsSync.existsSync(lyricManifestPath)) {
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 1,
+          total: 1,
+          detail: 'pdfplumber·PyMuPDF 검토 결과 병합 중…',
+        });
+        const mergeArgs = [
+          `"${pythonBin}"`,
+          `"${scriptMergeLyrics}"`,
+          `"${extractedJsonPath}"`,
+          `"${lyricManifestPath}"`,
+          `--output-flat "${ocrJsonPath}"`,
+        ];
+        if (fsSync.existsSync(pymupdfReviewPath)) {
+          mergeArgs.push(`--pymupdf-review "${pymupdfReviewPath}"`);
+        }
+        await exec(mergeArgs.join(' '));
+      } else {
+        console.log(`[job ${jobId}] Existing lyric_manifest.json found. Skipping initial auto-merge during resume to preserve previous lyric edits.`);
       }
-      await exec(mergeArgs.join(' '));
     }
   }
 
@@ -1939,49 +1933,41 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         );
         if (stdout) console.log(`[job ${jobId}] extract_text.py Output:\n${stdout}`);
         if (stderr) console.error(`[job ${jobId}] extract_text.py Error:\n${stderr}`);
+      }
 
+      if (!fsSync.existsSync(lyricManifestPath)) {
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 1,
+          total: 1,
+          detail: 'pdfplumber·PyMuPDF 검토 결과 병합 중…',
+        });
+        const mergeArgs = [
+          `"${pythonBin}"`,
+          `"${scriptMergeLyrics}"`,
+          `"${extractedJsonPath}"`,
+          `"${lyricManifestPath}"`,
+          `--output-flat "${ocrJsonPath}"`,
+        ];
         if (fsSync.existsSync(pymupdfReviewPath)) {
-          const ocrData = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8'));
-          console.log(`[job ${jobId}] Pausing for PyMuPDF lyric review (font_separator)…`);
-          job.status = 'review_needed';
-          job.reviewData = ocrData;
-          await new Promise<void>((resolve, reject) => {
-            job.reviewDeferred = { resolve, reject };
-          });
-          console.log(`[job ${jobId}] PyMuPDF review completed, merging lyric sources…`);
-          job.status = 'processing';
+          mergeArgs.push(`--pymupdf-review "${pymupdfReviewPath}"`);
         }
-      }
-
-      setJobProgress(job, {
-        phase: 'separator',
-        current: 1,
-        total: 1,
-        detail: 'pdfplumber·PyMuPDF 검토 결과 병합 중…',
-      });
-      const mergeArgs = [
-        `"${pythonBin}"`,
-        `"${scriptMergeLyrics}"`,
-        `"${extractedJsonPath}"`,
-        `"${lyricManifestPath}"`,
-        `--output-flat "${ocrJsonPath}"`,
-      ];
-      if (fsSync.existsSync(pymupdfReviewPath)) {
-        mergeArgs.push(`--pymupdf-review "${pymupdfReviewPath}"`);
-      }
-      console.log(`[job ${jobId}] Running merge_lyric_sources.py`);
-      const { stdout: mOut, stderr: mErr } = await exec(mergeArgs.join(' '));
-      if (mOut) console.log(`[job ${jobId}] merge_lyric_sources.py Output:\n${mOut}`);
-      if (mErr?.trim()) console.warn(`[job ${jobId}] merge_lyric_sources.py stderr:\n${mErr}`);
-      const stripCfgPath = fontStripConfigPath(sessionRoot);
-      if (fsSync.existsSync(lyricManifestPath) && fsSync.existsSync(stripCfgPath)) {
-        try {
-          const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as Record<string, unknown>;
-          manifest.fontStrip = JSON.parse(await fs.readFile(stripCfgPath, 'utf8'));
-          await fs.writeFile(lyricManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
-        } catch {
-          /* optional metadata */
+        console.log(`[job ${jobId}] Running merge_lyric_sources.py (initial auto-merge)`);
+        const { stdout: mOut, stderr: mErr } = await exec(mergeArgs.join(' '));
+        if (mOut) console.log(`[job ${jobId}] merge_lyric_sources.py Output:\n${mOut}`);
+        if (mErr?.trim()) console.warn(`[job ${jobId}] merge_lyric_sources.py stderr:\n${mErr}`);
+        const stripCfgPath = fontStripConfigPath(sessionRoot);
+        if (fsSync.existsSync(lyricManifestPath) && fsSync.existsSync(stripCfgPath)) {
+          try {
+            const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as Record<string, unknown>;
+            manifest.fontStrip = JSON.parse(await fs.readFile(stripCfgPath, 'utf8'));
+            await fs.writeFile(lyricManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+          } catch {
+            /* optional metadata */
+          }
         }
+      } else {
+        console.log(`[job ${jobId}] Existing lyric_manifest.json found. Skipping initial auto-merge to preserve previous lyric edits.`);
       }
       }
     } else {
@@ -2178,6 +2164,53 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       delete job.injectMxlPathsOverride;
       job.status = 'processing';
       console.log(`[job ${jobId}] Audiveris 보정 단계 이후 주입 재개...`);
+    }
+
+    // Pause for PyMuPDF lyric review AFTER OMR HITL edits are finished
+    if (enablePymupdfReview && pipelineMode === 'font_separator') {
+      if (fsSync.existsSync(pymupdfReviewPath)) {
+        const ocrData = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8'));
+        console.log(`[job ${jobId}] Pausing for PyMuPDF lyric review (font_separator) AFTER OMR HITL…`);
+        job.status = 'review_needed';
+        job.reviewData = ocrData;
+        await new Promise<void>((resolve, reject) => {
+          job.reviewDeferred = { resolve, reject };
+        });
+        console.log(`[job ${jobId}] PyMuPDF review completed, merging final lyric sources…`);
+        job.status = 'processing';
+
+        // Run merge_lyric_sources.py again to generate final lyric_manifest.json and ocr_data.json
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 1,
+          total: 1,
+          detail: 'pdfplumber·PyMuPDF 검토 결과 병합 중…',
+        });
+        const mergeArgs = [
+          `"${pythonBin}"`,
+          `"${scriptMergeLyrics}"`,
+          `"${extractedJsonPath}"`,
+          `"${lyricManifestPath}"`,
+          `--output-flat "${ocrJsonPath}"`,
+        ];
+        if (fsSync.existsSync(pymupdfReviewPath)) {
+          mergeArgs.push(`--pymupdf-review "${pymupdfReviewPath}"`);
+        }
+        console.log(`[job ${jobId}] Running merge_lyric_sources.py (final merge)`);
+        const { stdout: mOut, stderr: mErr } = await exec(mergeArgs.join(' '));
+        if (mOut) console.log(`[job ${jobId}] merge_lyric_sources.py Output:\n${mOut}`);
+        if (mErr?.trim()) console.warn(`[job ${jobId}] merge_lyric_sources.py stderr:\n${mErr}`);
+        const stripCfgPath = fontStripConfigPath(sessionRoot);
+        if (fsSync.existsSync(lyricManifestPath) && fsSync.existsSync(stripCfgPath)) {
+          try {
+            const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as Record<string, unknown>;
+            manifest.fontStrip = JSON.parse(await fs.readFile(stripCfgPath, 'utf8'));
+            await fs.writeFile(lyricManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+          } catch {
+            /* optional metadata */
+          }
+        }
+      }
     }
 
     const injectJsonPath = fsSync.existsSync(lyricManifestPath)

@@ -670,6 +670,8 @@ def _insert_note_element(
     new_el: ET.Element,
     after_note_index: int,
     staff_n: int | None = None,
+    *,
+    expand_chord_group: bool = True,
 ) -> None:
     """after_note_index=-1 이면 첫 note 앞; staff_n 지정 시 해당 staff 첫 note 앞."""
     children = list(measure)
@@ -694,12 +696,13 @@ def _insert_note_element(
         seen += 1
         if seen == after_note_index:
             pos = children.index(child) + 1
-            while pos < len(children):
-                nxt = children[pos]
-                if _local(nxt) == "note" and nxt.find(_q(ns, "chord")) is not None:
-                    pos += 1
-                else:
-                    break
+            if expand_chord_group:
+                while pos < len(children):
+                    nxt = children[pos]
+                    if _local(nxt) == "note" and nxt.find(_q(ns, "chord")) is not None:
+                        pos += 1
+                    else:
+                        break
             measure.insert(pos, new_el)
             return
     measure.append(new_el)
@@ -1783,6 +1786,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if placement not in ("above", "below", ""):
             placement = None
         insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(notes, ns, after_idx, staff_n)
+        expand_chord_group = True
         if (
             not fix.get("afterRest")
             and 0 <= after_idx < len(notes)
@@ -1795,6 +1799,18 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 )
             else:
                 insert_after_idx = -1
+        elif (
+            not fix.get("afterRest")
+            and not fix.get("afterChordGroup")
+            and 0 <= after_idx < len(notes)
+            and notes[after_idx].find(_q(ns, "chord")) is None
+        ):
+            # 「#n 뒤」direction — 화음 리더 직후(동시 시작 멤버 앞). 화음 끝으로 밀면 셈여림이 다음 박으로 그려짐.
+            staff_from = _note_staff_number(notes[after_idx], ns)
+            if staff_from is not None:
+                staff_n = staff_from
+            insert_after_idx = after_idx
+            expand_chord_group = False
         if direction_type == "dynamics" and placement is None:
             placement = "below"
         new_dir = _build_direction_element(
@@ -1804,7 +1820,14 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             staff_n=staff_n,
             placement=placement,
         )
-        _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
+        _insert_note_element(
+            measure,
+            ns,
+            new_dir,
+            insert_after_idx,
+            staff_n=staff_n,
+            expand_chord_group=expand_chord_group,
+        )
         return True
 
     if kind == "insertGraceNote":

@@ -661,15 +661,28 @@ def _assign_insert_layout_defaults(
     new_note.set("default-x", f"{x_val:.2f}")
 
 
-def _insert_note_element(measure: ET.Element, ns: str, new_note: ET.Element, after_note_index: int) -> None:
-    """after_note_index=-1 이면 첫 note 앞, 그 외에는 해당 note(및 화음 멤버) 바로 뒤."""
+def _insert_note_element(
+    measure: ET.Element,
+    ns: str,
+    new_el: ET.Element,
+    after_note_index: int,
+    staff_n: int | None = None,
+) -> None:
+    """after_note_index=-1 이면 첫 note 앞; staff_n 지정 시 해당 staff 첫 note 앞."""
     children = list(measure)
     if after_note_index < 0:
+        if staff_n is not None:
+            for child in children:
+                if _local(child) != "note":
+                    continue
+                if (_note_staff_number(child, ns) or 1) == staff_n:
+                    measure.insert(children.index(child), new_el)
+                    return
         for child in children:
             if _local(child) == "note":
-                measure.insert(children.index(child), new_note)
+                measure.insert(children.index(child), new_el)
                 return
-        measure.append(new_note)
+        measure.append(new_el)
         return
     seen = -1
     for child in children:
@@ -684,9 +697,9 @@ def _insert_note_element(measure: ET.Element, ns: str, new_note: ET.Element, aft
                     pos += 1
                 else:
                     break
-            measure.insert(pos, new_note)
+            measure.insert(pos, new_el)
             return
-    measure.append(new_note)
+    measure.append(new_el)
 
 
 def _insert_context_notes(
@@ -1660,7 +1673,19 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             placement=placement,
         )
         insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(notes, ns, after_idx, staff_n)
-        _insert_note_element(measure, ns, new_dir, insert_after_idx)
+        if (
+            not fix.get("afterRest")
+            and direction_type == "dynamics"
+            and 0 <= after_idx < len(notes)
+            and notes[after_idx].find(_q(ns, "rest")) is not None
+        ):
+            if after_idx > 0:
+                insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
+                    notes, ns, after_idx - 1, staff_n
+                )
+            else:
+                insert_after_idx = -1
+        _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
         return True
 
     if kind == "insertGraceNote":
@@ -1709,7 +1734,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             slash=slash_b,
         )
         _assign_grace_layout(new_note, principal)
-        _insert_note_element(measure, ns, new_note, insert_after_idx)
+        _insert_note_element(measure, ns, new_note, insert_after_idx, staff_n=staff_n)
         return True
 
     if kind == "removeGraceBeforeNote":
@@ -2069,7 +2094,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
-        _insert_note_element(measure, ns, new_note, insert_after_idx)
+        _insert_note_element(measure, ns, new_note, insert_after_idx, staff_n=staff_n)
         _normalize_measure_note_engraving(part, ns, measure)
         return True
 
@@ -2110,7 +2135,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
-        _insert_note_element(measure, ns, new_note, insert_after_idx)
+        _insert_note_element(measure, ns, new_note, insert_after_idx, staff_n=staff_n)
         _normalize_measure_note_engraving(part, ns, measure)
         return True
 
@@ -2146,7 +2171,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             ns, leader, step=step, octave=octave, alter=alter_n
         )
         end_idx = _chord_group_end_index(notes, ns, leader_idx)
-        _insert_note_element(measure, ns, new_note, end_idx)
+        leader_staff = _note_staff_number(leader, ns) or 1
+        _insert_note_element(measure, ns, new_note, end_idx, staff_n=leader_staff)
         notes_after = list_note_elements(measure, ns)
         _strip_chord_member_beams(notes_after, ns)
         _normalize_measure_note_engraving(part, ns, measure)

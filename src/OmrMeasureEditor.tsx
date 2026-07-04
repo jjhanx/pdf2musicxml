@@ -324,6 +324,17 @@ function resolveAfterNoteIndex(el: MeasureElement, elements: MeasureElement[]): 
   return -1;
 }
 
+/** 같은 스태프에서 note 바로 앞 #index. 없으면 -1(스태프 첫 음 앞). */
+function indexBeforeOnSameStaff(note: MeasureNoteEl, noteEls: MeasureNoteEl[]): number {
+  const staff = note.staff ?? 1;
+  for (let i = note.index - 1; i >= 0; i--) {
+    const n = noteEls.find((x) => x.index === i);
+    if (!n) break;
+    if ((n.staff ?? 1) === staff) return i;
+  }
+  return -1;
+}
+
 function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
   if (el.elementKind === 'direction') {
     const label = el.text?.trim() || '(표기 없음 — dynamics 등 XML 태그만 있을 수 있음)';
@@ -580,6 +591,46 @@ export function OmrMeasureEditor({
                 >
                   여기 뒤
                 </button>
+                {el.elementKind === 'note' && el.kind === 'rest' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn-muted omr-measure-insert-btn"
+                      onClick={() => {
+                        const beforeIdx = indexBeforeOnSameStaff(el, noteEls);
+                        setInsertAfter(beforeIdx);
+                        setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
+                        const beforeNote = beforeIdx >= 0 ? noteEls.find((n) => n.index === beforeIdx) : null;
+                        setFixMsg(
+                          beforeIdx < 0
+                            ? `삽입 위치: 스태프 ${el.staff ?? 1} 마디 앞 (쉼표 #${el.index} 위)`
+                            : `삽입 위치: #${beforeIdx} ${beforeNote ? noteAnchorLabel(beforeNote) : ''} 뒤 (쉼표 #${el.index} 위·셈여림)`,
+                        );
+                      }}
+                    >
+                      쉼표 위 (셈여림)
+                    </button>
+                    <button
+                      type="button"
+                      className="omr-hitl-fix-btn"
+                      onClick={() => {
+                        const beforeIdx = indexBeforeOnSameStaff(el, noteEls);
+                        pushFix({
+                          kind: 'insertDirection',
+                          afterNoteIndex: el.index,
+                          staff: el.staff ?? editStaffWithinPart ?? 1,
+                          directionType: 'dynamics',
+                          directionValue: 'p',
+                        });
+                        setFixMsg(
+                          `쉼표 #${el.index}에 dyn:p 추가 보정 대기 → 「MXL에 반영·미리보기」`,
+                        );
+                      }}
+                    >
+                      쉼표에 p 추가
+                    </button>
+                  </>
+                ) : null}
               </div>
             </li>
           ))}
@@ -1639,9 +1690,12 @@ function DirectionInsertForm({
 
   const afterLabel =
     localAfter < 0
-      ? '마디 앞'
+      ? `마디 앞 (스태프 ${staff} 첫 음 앞)`
       : (() => {
           const n = noteEls.find((x) => x.index === localAfter);
+          if (n?.kind === 'rest' && directionType === 'dynamics') {
+            return `#${localAfter} ${noteAnchorLabel(n)} (셈여림·쉼표 위)`;
+          }
           return n ? `#${localAfter} ${noteAnchorLabel(n)} 뒤` : `#${localAfter} 뒤`;
         })();
 
@@ -1649,17 +1703,19 @@ function DirectionInsertForm({
     <div className="omr-measure-direction-insert">
       <p className="omr-measure-insert-heading">direction 추가</p>
       <p className="omr-measure-editor-hint" style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
-        셈여림·텍스트·리허설 표 등. 목록에서 <strong>쉼표·음표·direction</strong> 줄의 「여기 뒤」로 위치를 고른 뒤 추가하세요.
-        쉼표 위·아래의 <code>dyn:p</code> 도 direction입니다. PL/PR 필터 사용 시 위치·스태프 목록은 해당 줄만 표시됩니다.
+        셈여림·텍스트·리허설 표 등. <strong>쉼표 위 셈여림</strong>은 쉼표 줄의 「쉼표 위 (셈여림)」·「쉼표에 p 추가」 또는 아래에서 해당 쉼표를 고르세요.
+        「마디 앞」은 <strong>선택한 스태프</strong> 첫 음 앞입니다(PL 필터 시 PL만). direction 줄·PR #을 PL에 쓰면 엇갈립니다.
       </p>
       <div className="omr-measure-insert-form-row">
         <label className="omr-measure-inline-field">
           위치
           <select value={String(localAfter)} onChange={(e) => setLocalAfter(parseInt(e.target.value, 10))}>
-            <option value="-1">마디 앞</option>
+            <option value="-1">마디 앞 (스태프 {staff} 첫 음 앞)</option>
             {noteEls.map((n) => (
               <option key={n.index} value={String(n.index)}>
-                #{n.index} {noteAnchorLabel(n)} 뒤
+                {n.kind === 'rest' && directionType === 'dynamics'
+                  ? `#${n.index} ${noteAnchorLabel(n)} (셈여림·쉼표 위)`
+                  : `#${n.index} ${noteAnchorLabel(n)} 뒤`}
               </option>
             ))}
           </select>

@@ -344,7 +344,7 @@ type JobStatus =
   | 'completed'
   | 'failed';
 
-type JobProgressPhase = 'upload' | 'separator' | 'audiveris';
+type JobProgressPhase = 'upload' | 'separator' | 'audiveris' | 'hitl';
 
 type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator';
 
@@ -454,6 +454,17 @@ function setJobProgress(job: JobRecord | undefined, p: JobProgress): void {
   job.progress = p;
   if (p.phase === 'audiveris' && p.total > 0) job.pdfPageCount = p.total;
 }
+
+const JOB_STATUSES_WITH_PROGRESS: ReadonlySet<JobStatus> = new Set([
+  'pending',
+  'processing',
+  'font_strip_needed',
+  'clean_score_preview_needed',
+  'review_needed',
+  'part_labels_needed',
+  'omr_staff_review_needed',
+  'audiveris_review_needed',
+]);
 
 function cleanScorePreviewJobsAllowed(job: JobRecord | undefined): job is JobRecord {
   return Boolean(job && job.status === 'clean_score_preview_needed');
@@ -1375,14 +1386,32 @@ async function bootstrapFromOmrWorkZip(
   outBase: string,
   pythonBin: string,
 ): Promise<string> {
+  setJobProgress(job, {
+    phase: 'hitl',
+    current: 0,
+    total: 3,
+    detail: 'OMR 검토 ZIP 압축 해제 중…',
+  });
   const extractDir = path.join(job.sessionRoot, `_omr_work_import_${Date.now()}`);
   await extractZipArchive(zipPath, extractDir, pythonBin);
+  setJobProgress(job, {
+    phase: 'hitl',
+    current: 1,
+    total: 3,
+    detail: '저장된 MXL·보정 목록 복원 중…',
+  });
   const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
   const destMxl = path.join(outBase, `${base}.mxl`);
   await fs.mkdir(outBase, { recursive: true });
   const { fixCount } = await importOmrWorkFromExtractDir(job.sessionRoot, extractDir, destMxl, pythonBin);
   console.log(`[job] OMR work ZIP imported (${fixCount} fixes on record)`);
   await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
+  setJobProgress(job, {
+    phase: 'hitl',
+    current: 2,
+    total: 3,
+    detail: `OMR 검토 ZIP 불러오기 완료 (보정 ${fixCount}건 기록)`,
+  });
   return destMxl;
 }
 
@@ -1395,6 +1424,12 @@ async function enterOmrStaffHitlPhase(
   if (mxlForInject.length === 0 || job.enableOmrStaffReview === false) return;
   job.preInjectMxlPaths = [...mxlForInject];
   console.log(`[job ${jobId}] Pausing for part label setup (성부 S/A/T/B…)…`);
+  setJobProgress(job, {
+    phase: 'hitl',
+    current: 0,
+    total: 2,
+    detail: '성부 라벨(S/A/T/B·PR/PL) 확인 대기…',
+  });
   job.status = 'part_labels_needed';
   await new Promise<void>((resolve, reject) => {
     job.partLabelsDeferred = { resolve, reject };
@@ -1414,6 +1449,12 @@ async function enterOmrStaffHitlPhase(
     console.warn(`[job ${jobId}] mxl_quality_lint failed (continuing): ${msg}`);
   }
   console.log(`[job ${jobId}] Pausing for OMR staff·page review (HITL)…`);
+  setJobProgress(job, {
+    phase: 'hitl',
+    current: 1,
+    total: 2,
+    detail: 'OMR 품질 검토(HITL) — PDF·MXL 대조·마디 편집 대기…',
+  });
   job.status = 'omr_staff_review_needed';
   await new Promise<void>((resolve, reject) => {
     job.omrStaffReviewDeferred = { resolve, reject };
@@ -1684,12 +1725,20 @@ async function analyzeFontSizesFromExtracted(
 
 async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   const job = jobs.get(jobId);
-  if (!job || !job.inputPdfPath) return;
+  if (!job) return;
 
-  const { sessionRoot, inputPdfPath, originalName, isDebug } = job;
+  if (!job.inputPdfPath && job.resumeCleanScorePath && fsSync.existsSync(job.resumeCleanScorePath)) {
+    job.inputPdfPath = job.resumeCleanScorePath;
+    if (!job.originalName || job.originalName === 'input.pdf') {
+      job.originalName = path.basename(job.resumeCleanScorePath) || 'clean_score_only.pdf';
+    }
+  }
+
   const pipelineMode: PipelineMode = job.pipelineMode ?? 'font_separator';
   const enablePymupdfReview =
     pipelineMode === 'font_separator' ? job.enablePymupdfReview !== false : true;
+  const { sessionRoot, originalName, isDebug } = job;
+  const inputPdfPath = job.inputPdfPath;
   const outBase = path.join(sessionRoot, 'audiveris-out');
   const wipeSession = () => fs.rm(sessionRoot, { recursive: true, force: true }).catch(() => {});
 
@@ -1700,6 +1749,15 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     job.finishedAt = Date.now();
     delete job.progress;
   };
+
+  if (!inputPdfPath && (job.startStage ?? 'full') !== 'omr_hitl') {
+    await fail({
+      status: 400,
+      error: '입력 PDF가 없습니다',
+      detail: '원본 PDF 또는 clean_score_only.pdf를 업로드하세요.',
+    });
+    return;
+  }
 
   job.status = 'processing';
 
@@ -1758,7 +1816,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         return;
       }
       setJobProgress(job, {
-        phase: 'audiveris',
+        phase: 'hitl',
         current: 0,
         total: pageHint,
         detail: '저장된 OMR 검토 ZIP 불러오는 중 (Audiveris 생략)…',
@@ -2596,19 +2654,36 @@ app.post('/api/convert', async (req, res) => {
       const job = jobs.get(jobId);
       if (!job) return;
       if (!sawPdfField && startStageField !== 'omr_hitl' && startStageField !== 'lyric_review_only') {
-        failReceive({
-          status: 400,
-          error: 'pdf 파일 필드가 필요합니다',
-          detail: 'multipart field name: pdf',
-        });
-        return;
+        const cleanScoreOnly =
+          (startStageField === 'lyric_review' || startStageField === 'omr') &&
+          job.resumeCleanScorePath &&
+          fsSync.existsSync(job.resumeCleanScorePath);
+        if (!cleanScoreOnly) {
+          failReceive({
+            status: 400,
+            error: 'pdf 파일 필드가 필요합니다',
+            detail: 'multipart field name: pdf',
+          });
+          return;
+        }
       }
       if (!job.inputPdfPath && startStageField !== 'omr_hitl' && startStageField !== 'lyric_review_only') {
-        failReceive({
-          status: 500,
-          error: '업로드가 완료되지 않았습니다',
-        });
-        return;
+        if (
+          (startStageField === 'lyric_review' || startStageField === 'omr') &&
+          job.resumeCleanScorePath &&
+          fsSync.existsSync(job.resumeCleanScorePath)
+        ) {
+          job.inputPdfPath = job.resumeCleanScorePath;
+          if (!job.originalName || job.originalName === 'input.pdf') {
+            job.originalName = path.basename(job.resumeCleanScorePath) || 'clean_score_only.pdf';
+          }
+        } else {
+          failReceive({
+            status: 500,
+            error: '업로드가 완료되지 않았습니다',
+          });
+          return;
+        }
       }
       if (startStageField === 'omr_hitl' && !job.resumeOmrWorkZipPath) {
         failReceive({
@@ -2696,7 +2771,7 @@ app.get('/api/status/:jobId', (req, res) => {
   }
 
   const payload: { status: JobStatus; progress?: JobProgress } = { status: job.status };
-  if (job.progress && (job.status === 'pending' || job.status === 'processing')) {
+  if (job.progress && JOB_STATUSES_WITH_PROGRESS.has(job.status)) {
     payload.progress = job.progress;
   }
   res.json(payload);

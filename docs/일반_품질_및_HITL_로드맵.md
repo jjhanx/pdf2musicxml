@@ -79,7 +79,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
    - **「MXL에 반영·미리보기」** — 마디 편집 패널 하단 또는 대기 목록 위 버튼. 위 재합성 경로로 Audiveris MXL(`preInject`)에 보정 반영 후 **오른쪽 OSMD**에서 결과 확인.
    - **「OMR 자동 정리 (전체 성부)」** — 쉼표·피아노 m6 이음줄·세잇단 `show-number="both"`·가짜 staccato·P direction 일괄 정리.
    - **작업 저장(ZIP) / 작업 불러오기** — 검토 중단·재개용(`review.mxl`, `audiveris_raw.mxl`, `omr_hitl_fixes.json` 등). **같은 job** 안에서는 「작업 불러오기」. **새 변환**에서는 업로드 화면 **「OMR 검토 이어하기」** + `omr-work.zip`으로 Audiveris 재인식 없이 검토 재개.
-   - **시작 단계 (같은 PDF 반복)** — 「가사 검증부터」(`clean_score_only.pdf` 업로드), 「OMR만」, 「OMR 검토 이어하기」(ZIP)로 폰트 분리·Audiveris를 건너뛸 수 있음.
+   - **시작 단계 (같은 PDF 반복)** — ① **clean_score_only.pdf → OMR만**(가사 검증 생략), ② **clean_score + 가사 검증**, ③ **omr-work.zip 이어하기**(Audiveris 생략). 작업 표에 **OMR·HITL 대기** 진행 문구가 표시됩니다.
    - **이어하기** — 대기 보정을 MXL에 적용한 뒤 `inject_ocr`·최종 MXL로 진행.
    - 예전 **mxl-lint 자동 힌트 UI**는 제거됨. PDF·MXL 직접 대조와 마디 편집이 기준.
 6. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요. OMR 검토 중 **`pm2 restart` 전에는 「작업 저장(ZIP)」** 으로 진행을 백업하세요.

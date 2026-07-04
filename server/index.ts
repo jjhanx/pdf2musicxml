@@ -1344,16 +1344,61 @@ async function extractZipArchive(
   }
 }
 
+async function restoreOmrWorkPdfsFromExtractDir(
+  sessionRoot: string,
+  extractDir: string,
+  job?: JobRecord,
+): Promise<{ hasCleanScore: boolean; hasInput: boolean }> {
+  const pick = (name: string) => {
+    const p = path.join(extractDir, name);
+    return fsSync.existsSync(p) ? p : null;
+  };
+  const cleanSrc = pick('clean_score_only.pdf');
+  const inputSrc = pick('input.pdf') ?? pick('original.pdf');
+  const cleanDest = sessionCleanScorePdfPath(sessionRoot);
+  let hasCleanScore = false;
+  let hasInput = false;
+  if (cleanSrc) {
+    await fs.copyFile(cleanSrc, cleanDest);
+    hasCleanScore = true;
+  }
+  const manifestSrc = pick('manifest.json');
+  if (manifestSrc && job) {
+    try {
+      const manifest = JSON.parse(await fs.readFile(manifestSrc, 'utf8')) as {
+        originalName?: string;
+      };
+      if (manifest.originalName?.trim()) {
+        job.originalName = manifest.originalName.trim();
+      }
+    } catch {
+      /* optional */
+    }
+  }
+  if (inputSrc) {
+    const inputDest = path.join(sessionRoot, 'input.pdf');
+    await fs.copyFile(inputSrc, inputDest);
+    if (job) job.inputPdfPath = inputDest;
+    hasInput = true;
+  } else if (hasCleanScore && job) {
+    job.inputPdfPath = cleanDest;
+    hasInput = true;
+  }
+  return { hasCleanScore, hasInput };
+}
+
 async function importOmrWorkFromExtractDir(
   sessionRoot: string,
   extractDir: string,
   scorePath: string,
   pythonBin: string,
-): Promise<{ fixCount: number; stats: Awaited<ReturnType<typeof syncOmrReviewMxl>> }> {
+  job?: JobRecord,
+): Promise<{ fixCount: number; stats: Awaited<ReturnType<typeof syncOmrReviewMxl>>; pdfRestored: boolean }> {
   const pick = (name: string) => {
     const p = path.join(extractDir, name);
     return fsSync.existsSync(p) ? p : null;
   };
+  const pdfInfo = await restoreOmrWorkPdfsFromExtractDir(sessionRoot, extractDir, job);
   const reviewSrc = pick('review.mxl');
   const rawSrc = pick('audiveris_raw.mxl');
   const fixesSrc = pick('omr_hitl_fixes.json');
@@ -1377,7 +1422,11 @@ async function importOmrWorkFromExtractDir(
     stats = await syncOmrReviewMxl(sessionRoot, scorePath, pythonBin);
   }
   await invalidateInspectScoreCache(sessionRoot);
-  return { fixCount: fixesAfterImport.length, stats };
+  return {
+    fixCount: fixesAfterImport.length,
+    stats,
+    pdfRestored: pdfInfo.hasCleanScore || pdfInfo.hasInput,
+  };
 }
 
 async function bootstrapFromOmrWorkZip(
@@ -1403,8 +1452,16 @@ async function bootstrapFromOmrWorkZip(
   const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
   const destMxl = path.join(outBase, `${base}.mxl`);
   await fs.mkdir(outBase, { recursive: true });
-  const { fixCount } = await importOmrWorkFromExtractDir(job.sessionRoot, extractDir, destMxl, pythonBin);
-  console.log(`[job] OMR work ZIP imported (${fixCount} fixes on record)`);
+  const { fixCount, pdfRestored } = await importOmrWorkFromExtractDir(
+    job.sessionRoot,
+    extractDir,
+    destMxl,
+    pythonBin,
+    job,
+  );
+  console.log(
+    `[job] OMR work ZIP imported (${fixCount} fixes on record${pdfRestored ? ', PDF restored' : ''})`,
+  );
   await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
   setJobProgress(job, {
     phase: 'hitl',
@@ -1832,6 +1889,16 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       skipAudiverisEngine = true;
       if (job.resumeLyricManifestPath && fsSync.existsSync(job.resumeLyricManifestPath)) {
         await fs.copyFile(job.resumeLyricManifestPath, lyricManifestPath);
+      }
+      if (
+        !fsSync.existsSync(cleanScorePath) &&
+        job.resumeCleanScorePath &&
+        fsSync.existsSync(job.resumeCleanScorePath)
+      ) {
+        await fs.copyFile(job.resumeCleanScorePath, cleanScorePath);
+        if (!job.inputPdfPath) job.inputPdfPath = cleanScorePath;
+      } else if (!job.inputPdfPath && fsSync.existsSync(cleanScorePath)) {
+        job.inputPdfPath = cleanScorePath;
       }
     }
 
@@ -2854,13 +2921,18 @@ app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
       .json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
     return;
   }
-  const inputPdfPath = job.inputPdfPath;
-  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
-    res.status(404).json({ error: '업로드 원본 PDF가 세션에 없습니다' });
-    return;
-  }
   const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
   const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  const inputPdfPath =
+    job.inputPdfPath && fsSync.existsSync(job.inputPdfPath)
+      ? job.inputPdfPath
+      : fsSync.existsSync(cleanScorePath)
+        ? cleanScorePath
+        : null;
+  if (!inputPdfPath) {
+    res.status(404).json({ error: '비교용 PDF가 세션에 없습니다 (omr-work.zip에 PDF 포함 또는 clean_score 업로드)' });
+    return;
+  }
   const maskedExists = fsSync.existsSync(maskedPdfPath);
   const cleanScoreExists = fsSync.existsSync(cleanScorePath);
   const audiverisInput = resolveAudiverisInputPdfPath(job);
@@ -2917,20 +2989,17 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
   const dpiRaw = parseInt(String(req.query.dpi ?? '132'), 10);
   const dpi = Number.isFinite(dpiRaw) ? Math.min(240, Math.max(72, dpiRaw)) : 132;
 
-  const inputPdfPath = job.inputPdfPath;
-  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
-    res.status(404).end();
-    return;
-  }
   const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
   const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  const inputPdfPath =
+    job.inputPdfPath && fsSync.existsSync(job.inputPdfPath) ? job.inputPdfPath : null;
   const pdfPath =
     source === 'masked'
       ? maskedPdfPath
       : source === 'clean_score'
         ? cleanScorePath
-        : inputPdfPath;
-  if (!fsSync.existsSync(pdfPath)) {
+        : inputPdfPath ?? cleanScorePath;
+  if (!pdfPath || !fsSync.existsSync(pdfPath)) {
     res.status(404).end();
     return;
   }
@@ -4063,11 +4132,27 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
   if (fsSync.existsSync(labelsPath)) archive.file(labelsPath, { name: 'part_labels.json' });
   const checkpointPath = sessionOmrHitlCheckpointPath(job.sessionRoot);
   if (fsSync.existsSync(checkpointPath)) archive.file(checkpointPath, { name: 'omr_hitl_checkpoint.json' });
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  const pdfIncluded: { cleanScore?: boolean; input?: boolean } = {};
+  if (fsSync.existsSync(cleanScorePath)) {
+    archive.file(cleanScorePath, { name: 'clean_score_only.pdf' });
+    pdfIncluded.cleanScore = true;
+  }
+  const inputPath = job.inputPdfPath;
+  if (
+    inputPath &&
+    fsSync.existsSync(inputPath) &&
+    (!pdfIncluded.cleanScore || path.resolve(inputPath) !== path.resolve(cleanScorePath))
+  ) {
+    archive.file(inputPath, { name: 'input.pdf' });
+    pdfIncluded.input = true;
+  }
   const manifest = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     jobId: job.id,
     originalName: job.originalName,
+    pdfIncluded,
   };
   archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
   await archive.finalize();
@@ -4141,6 +4226,7 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
           extractDir,
           mxlPath,
           pythonBin,
+          job,
         );
         await invalidateInspectScoreCache(job.sessionRoot);
         await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});

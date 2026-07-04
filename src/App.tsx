@@ -1338,15 +1338,34 @@ export default function App() {
                 </div>
 
                 {startStage === 'omr_hitl' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip 파일 선택 (필수)</span>
-                    <input
-                      type="file"
-                      accept=".zip,application/zip"
-                      onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)}
-                      disabled={busy}
-                    />
-                  </div>
+                  <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip 파일 선택 (필수)</span>
+                      <input
+                        type="file"
+                        accept=".zip,application/zip"
+                        onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)}
+                        disabled={busy}
+                      />
+                      <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
+                        최신 빌드에서 저장한 ZIP에는 <code>clean_score_only.pdf</code>·<code>input.pdf</code>가 포함됩니다. 예전 ZIP이면 아래 PDF를 함께 올리세요.
+                      </small>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>
+                        비교용 PDF (선택 · ZIP에 PDF 없을 때)
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        onChange={(e) => setResumeCleanScoreFile(e.target.files?.[0] ?? null)}
+                        disabled={busy}
+                      />
+                      <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
+                        OMR 검토 왼쪽 PDF 미리보기용. <code>clean_score_only.pdf</code> 권장(없으면 원본 PDF).
+                      </small>
+                    </div>
+                  </>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                     <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>clean_score_only.pdf 파일 선택 (필수)</span>

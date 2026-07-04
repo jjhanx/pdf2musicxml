@@ -12,7 +12,44 @@ from pathlib import Path
 from typing import Any
 
 _STEPS = ("C", "D", "E", "F", "G", "A", "B")
-_SPURIOUS_WORDS = frozenset({"P", "p", "2P", "2p", "PR", "PL", "R", "L", "9"})
+_DYNAMICS_TAGS = frozenset(
+    {
+        "p",
+        "pp",
+        "ppp",
+        "pppp",
+        "f",
+        "ff",
+        "fff",
+        "ffff",
+        "mp",
+        "mf",
+        "sf",
+        "sfz",
+        "fp",
+        "rf",
+        "fz",
+        "sfp",
+        "sfpp",
+        "n",
+        "pf",
+        "sffz",
+    }
+)
+_ARTICULATION_TAGS = frozenset(
+    {
+        "accent",
+        "strong-accent",
+        "staccato",
+        "tenuto",
+        "staccatissimo",
+        "marcato",
+        "detached-legato",
+        "spiccato",
+        "breath-mark",
+        "caesura",
+    }
+)
 
 
 def _ns(root: ET.Element) -> str:
@@ -1237,10 +1274,76 @@ def nudge_display_step(step: str, octave: int, line_delta: int) -> tuple[str, in
 def _direction_text(direction: ET.Element) -> str:
     parts: list[str] = []
     for el in direction.iter():
-        if _local(el) in ("words", "text", "syllable", "rehearsal"):
+        loc = _local(el)
+        if loc == "dynamics":
+            tags = [_local(c) for c in el if _local(c)]
+            if tags:
+                parts.append("dyn:" + "+".join(tags))
+        elif loc in ("words", "text", "syllable", "rehearsal"):
             if el.text and el.text.strip():
                 parts.append(el.text.strip())
+        elif loc == "wedge" and el.get("type"):
+            parts.append(f"wedge({el.get('type')})")
+        elif loc == "pedal" and el.get("type"):
+            parts.append(f"pedal({el.get('type')})")
+        elif loc == "metronome":
+            for child in el:
+                if _local(child) == "per-minute" and child.text:
+                    parts.append(f"♩={child.text.strip()}")
     return " ".join(parts).strip()
+
+
+def _direction_is_spurious(direction: ET.Element, ns: str, detail: str | None = None) -> bool:
+    text = _direction_text(direction)
+    if _is_spurious_detail(text, detail):
+        return True
+    want = _compact_text(detail or "")
+    for dtype in direction.findall(_q(ns, "direction-type")):
+        dyn = dtype.find(_q(ns, "dynamics"))
+        if dyn is None:
+            continue
+        tags = [_local(c) for c in dyn if _local(c)]
+        other = [_local(c) for c in dtype if _local(c) != "dynamics"]
+        if other:
+            continue
+        if len(tags) == 1 and tags[0].lower() in ("p", "pp", "ppp"):
+            if not detail:
+                return True
+            if want in (tags[0].lower(), _compact_text(text), f"dyn:{tags[0].lower()}"):
+                return True
+    return False
+
+
+def _build_direction_element(
+    ns: str,
+    direction_type: str,
+    value: str,
+    *,
+    staff_n: int | None = None,
+    placement: str | None = None,
+) -> ET.Element:
+    direction = ET.Element(_q(ns, "direction"))
+    if placement in ("above", "below"):
+        direction.set("placement", placement)
+    dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+    kind = (direction_type or "words").strip().lower()
+    val = str(value or "").strip()
+    if kind == "dynamics":
+        tag = val.lower() or "p"
+        if tag not in _DYNAMICS_TAGS:
+            tag = "p"
+        dyn = ET.SubElement(dtype, _q(ns, "dynamics"))
+        ET.SubElement(dyn, _q(ns, tag))
+    elif kind == "rehearsal":
+        el = ET.SubElement(dtype, _q(ns, "rehearsal"))
+        el.text = val or "A"
+    else:
+        el = ET.SubElement(dtype, _q(ns, "words"))
+        el.text = val or " "
+    if staff_n is not None:
+        staff_el = ET.SubElement(direction, _q(ns, "staff"))
+        staff_el.text = str(staff_n)
+    return direction
 
 
 def _looks_like_spurious_rest_dot_note(note: ET.Element, ns: str) -> bool:
@@ -1278,6 +1381,8 @@ def _is_spurious_detail(text: str, detail: str | None) -> bool:
         return True
     if re.fullmatch(r"[Pp]{1,3}", compact or ""):
         return True
+    if re.fullmatch(r"dyn:[pP]{1,3}(?:\+.*)?", compact or ""):
+        return True
     return False
 
 
@@ -1298,7 +1403,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         detail = fix.get("detail")
         removed = False
         for direction in list(measure.findall(_q(ns, "direction"))):
-            if _is_spurious_detail(_direction_text(direction), str(detail) if detail else None):
+            if _direction_is_spurious(direction, ns, str(detail) if detail else None):
                 measure.remove(direction)
                 removed = True
         return removed
@@ -1469,6 +1574,60 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             measure.remove(directions[direction_index])
             return True
         return False
+
+    if kind == "insertDirection":
+        direction_type = str(fix.get("directionType") or "words").strip().lower()
+        direction_value = str(fix.get("directionValue") or fix.get("detail") or "").strip()
+        try:
+            staff_n = int(fix.get("staff", 1))
+            after_idx = int(fix.get("afterNoteIndex", -1))
+        except (TypeError, ValueError):
+            return False
+        placement = str(fix.get("placement") or "").strip().lower() or None
+        if placement not in ("above", "below", ""):
+            placement = None
+        new_dir = _build_direction_element(
+            ns,
+            direction_type,
+            direction_value,
+            staff_n=staff_n,
+            placement=placement,
+        )
+        _insert_note_element(measure, ns, new_dir, after_idx)
+        return True
+
+    if kind == "addArticulation":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        art = str(fix.get("articulation") or "accent").strip().lower()
+        if art not in _ARTICULATION_TAGS:
+            return False
+        note = notes[idx]
+        if note.find(_q(ns, "rest")) is not None:
+            return False
+        notations = _ensure_notations(note, ns)
+        arts = notations.find(_q(ns, "articulations"))
+        if arts is None:
+            arts = ET.SubElement(notations, _q(ns, "articulations"))
+        for existing in arts:
+            if _local(existing) == art:
+                return False
+        art_el = ET.SubElement(arts, _q(ns, art))
+        placement = str(fix.get("placement") or "").strip().lower()
+        if placement in ("above", "below"):
+            art_el.set("placement", placement)
+        else:
+            stem_el = note.find(_q(ns, "stem"))
+            stem_dir = (stem_el.text or "").strip() if stem_el is not None and stem_el.text else ""
+            if stem_dir == "up":
+                art_el.set("placement", "above")
+            elif stem_dir == "down":
+                art_el.set("placement", "below")
+        return True
 
     if kind == "setNotePitch":
         try:

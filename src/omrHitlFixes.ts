@@ -35,6 +35,9 @@ export type OmrHitlFix = {
   afterNoteIndex?: number;
   leaderNoteIndex?: number;
   removeFollowingNote?: boolean;
+  directionType?: 'dynamics' | 'words' | 'rehearsal';
+  directionValue?: string;
+  placement?: 'above' | 'below';
   articulation?: string;
   actualNotes?: number;
   normalNotes?: number;
@@ -52,6 +55,8 @@ export type OmrHitlFix = {
 export const FIX_KIND_LABEL: Record<string, string> = {
   removeSpuriousDirection: 'P·9 direction 제거',
   removeDirection: 'direction 제거',
+  insertDirection: 'direction 추가',
+  addArticulation: '표(articulation) 추가',
   removeTrailingPhantomRest: '마디 끝 쉼표 제거',
   setNoteStaff: '스태프 지정',
   nudgeRestDisplay: '쉼표 줄 이동',
@@ -107,6 +112,9 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.toPitch ?? '',
     fix.fromStaff ?? '',
     fix.toStaff ?? '',
+    fix.directionType ?? '',
+    fix.directionValue ?? '',
+    fix.placement ?? '',
   ].join('|');
 }
 

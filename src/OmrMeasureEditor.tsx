@@ -62,6 +62,26 @@ function isBeamableNoteEl(n: MeasureNoteEl): boolean {
   return n.kind === 'note' && !n.chord;
 }
 
+const DYNAMICS_DIRECTION_VALUES = ['p', 'pp', 'mp', 'mf', 'f', 'ff', 'sf', 'sfz'] as const;
+
+const ARTICULATION_ADD_OPTIONS: { id: string; label: string }[] = [
+  { id: 'accent', label: 'Accent (>)' },
+  { id: 'strong-accent', label: 'Strong accent (^)' },
+  { id: 'staccato', label: 'Staccato (.)' },
+  { id: 'tenuto', label: 'Tenuto (-)' },
+  { id: 'marcato', label: 'Marcato' },
+  { id: 'staccatissimo', label: 'Staccatissimo' },
+];
+
+function isLikelySpuriousDirection(text: string | null | undefined): boolean {
+  const compact = (text ?? '').replace(/\s+/g, '');
+  if (!compact) return false;
+  if (/^dyn:[pP]{1,3}$/.test(compact)) return true;
+  if (/^[Pp]{1,3}$/.test(compact)) return true;
+  if (compact === '9') return true;
+  return false;
+}
+
 /** 세잇단·박자 slice — 화음 하위음·grace·cue 제외 */
 function isRhythmicSlice(n: MeasureNoteEl): boolean {
   if (n.hasGrace || n.isCue) return false;
@@ -266,7 +286,8 @@ type PendingInsertLeader = {
 
 function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
   if (el.elementKind === 'direction') {
-    return `direction #${el.directionIndex}${el.text ? `: ${el.text}` : ''}`;
+    const label = el.text?.trim() || '(표기 없음 — dynamics 등 XML 태그만 있을 수 있음)';
+    return `direction #${el.directionIndex}: ${label}`;
   }
   const idx = el.index;
   if (el.kind === 'rest') {
@@ -418,28 +439,48 @@ export function OmrMeasureEditor({
             <li key={el.elementKind === 'direction' ? `dir-${el.directionIndex}` : `note-${el.index}`}>
               <div className="omr-measure-element-title">{elementTitle(el, noteEls)}</div>
               {el.elementKind === 'direction' ? (
-                <div className="omr-measure-element-actions">
+                <div className="omr-measure-element-actions omr-measure-direction-actions">
                   <button
                     type="button"
-                    className="omr-hitl-fix-btn"
+                    className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
                     onClick={() =>
                       pushFix({ kind: 'removeDirection', directionIndex: el.directionIndex, detail: el.text })
                     }
                   >
                     direction 삭제
                   </button>
-                  <button
-                    type="button"
-                    className="omr-hitl-fix-btn"
-                    onClick={() =>
-                      pushFix({
-                        kind: 'removeSpuriousDirection',
-                        detail: el.text || undefined,
-                      })
-                    }
-                  >
-                    P·잡텍스트로 삭제
-                  </button>
+                  {isLikelySpuriousDirection(el.text) ? (
+                    <button
+                      type="button"
+                      className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+                      onClick={() =>
+                        pushFix({
+                          kind: 'removeSpuriousDirection',
+                          detail: el.text || undefined,
+                        })
+                      }
+                    >
+                      잘못된 P·숫자 direction 삭제
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="omr-hitl-fix-btn"
+                      onClick={() =>
+                        pushFix({
+                          kind: 'removeSpuriousDirection',
+                          detail: el.text || undefined,
+                        })
+                      }
+                    >
+                      P·잡텍스트 패턴 삭제
+                    </button>
+                  )}
+                  {isLikelySpuriousDirection(el.text) ? (
+                    <p className="omr-measure-direction-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#1565c0' }}>
+                      Accent(&gt;)·세잇단 숫자 등이 셈여림 <code>dyn:p</code>로 오인된 경우입니다. 삭제한 뒤 해당 음표에 「Accent 추가」를 사용하세요.
+                    </p>
+                  ) : null}
                 </div>
               ) : (
                 <MeasureNoteEditor
@@ -528,6 +569,16 @@ export function OmrMeasureEditor({
           );
         }}
         onClearPendingLeader={() => setPendingInsertLeader(null)}
+      />
+
+      <DirectionInsertForm
+        afterNoteIndex={insertAfter}
+        staffDefault={insertStaff}
+        noteEls={noteEls}
+        onInsert={(partial) => {
+          pushFix(partial);
+          setFixMsg('direction 추가 보정을 대기 목록에 넣었습니다 → 「MXL에 반영·미리보기」');
+        }}
       />
 
       {!loading && elements.length === 0 && !loadErr ? (
@@ -682,6 +733,32 @@ function MeasureNoteEditor({
           </button>
         );
       })}
+      {el.kind === 'note' && (
+        <label className="omr-measure-inline-field omr-measure-articulation-add">
+          표 추가
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              const art = e.target.value;
+              if (!art) return;
+              const leaderIdx = chordLeaderIndex(el, noteEls);
+              onFix({ kind: 'addArticulation', noteIndex: leaderIdx, articulation: art });
+              e.target.value = '';
+            }}
+          >
+            <option value="">— 선택 —</option>
+            {ARTICULATION_ADD_OPTIONS.filter((opt) => {
+              const leaderIdx = chordLeaderIndex(el, noteEls);
+              const leaderEl = noteEls.find((n) => n.index === leaderIdx);
+              return !(leaderEl?.articulations ?? []).some((a) => a.split('(')[0] === opt.id);
+            }).map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {spuriousAfterRest && nextNote ? (
         <button
           type="button"
@@ -1295,6 +1372,120 @@ function InsertElementForm({
       <div className="omr-measure-insert-form-row">
         <button type="button" className="omr-hitl-fix-btn omr-hitl-fix-btn--primary" onClick={submitNote}>
           {extraChords.length > 0 ? `음표+화음 추가 (1+${extraChords.length})` : '음표 추가'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DirectionInsertForm({
+  afterNoteIndex,
+  staffDefault,
+  noteEls,
+  onInsert,
+}: {
+  afterNoteIndex: number;
+  staffDefault: number;
+  noteEls: MeasureNoteEl[];
+  onInsert: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
+}) {
+  const [directionType, setDirectionType] = useState<'dynamics' | 'words' | 'rehearsal'>('dynamics');
+  const [dynamicsValue, setDynamicsValue] = useState<string>('p');
+  const [wordsValue, setWordsValue] = useState('');
+  const [staff, setStaff] = useState(staffDefault);
+  const [localAfter, setLocalAfter] = useState(afterNoteIndex);
+
+  useEffect(() => {
+    setStaff(staffDefault);
+  }, [staffDefault]);
+
+  useEffect(() => {
+    setLocalAfter(afterNoteIndex);
+  }, [afterNoteIndex]);
+
+  const afterLabel =
+    localAfter < 0
+      ? '마디 앞'
+      : (() => {
+          const n = noteEls.find((x) => x.index === localAfter);
+          return n ? `#${localAfter} ${n.pitch ?? n.type ?? ''} 뒤` : `#${localAfter} 뒤`;
+        })();
+
+  return (
+    <div className="omr-measure-direction-insert">
+      <p className="omr-measure-insert-heading">direction 추가</p>
+      <p className="omr-measure-editor-hint" style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
+        셈여림·텍스트·리허설 표 등. 「여기 뒤」로 위치를 고른 뒤 추가하거나, 아래에서 직접 지정하세요.
+      </p>
+      <div className="omr-measure-insert-form-row">
+        <label className="omr-measure-inline-field">
+          위치
+          <select value={String(localAfter)} onChange={(e) => setLocalAfter(parseInt(e.target.value, 10))}>
+            <option value="-1">마디 앞</option>
+            {noteEls.map((n) => (
+              <option key={n.index} value={String(n.index)}>
+                #{n.index} {n.pitch ?? n.type ?? ''} 뒤
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          종류
+          <select
+            value={directionType}
+            onChange={(e) => setDirectionType(e.target.value as 'dynamics' | 'words' | 'rehearsal')}
+          >
+            <option value="dynamics">셈여림 (dynamics)</option>
+            <option value="words">텍스트 (words)</option>
+            <option value="rehearsal">리허설 (rehearsal)</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          스태프
+          <input type="number" min={1} max={4} value={staff} onChange={(e) => setStaff(Number(e.target.value))} style={{ width: 48 }} />
+        </label>
+      </div>
+      <div className="omr-measure-insert-form-row">
+        {directionType === 'dynamics' ? (
+          <label className="omr-measure-inline-field">
+            dynamics
+            <select value={dynamicsValue} onChange={(e) => setDynamicsValue(e.target.value)}>
+              {DYNAMICS_DIRECTION_VALUES.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <label className="omr-measure-inline-field">
+            {directionType === 'rehearsal' ? '리허설 글자' : '텍스트'}
+            <input
+              type="text"
+              value={wordsValue}
+              onChange={(e) => setWordsValue(e.target.value)}
+              placeholder={directionType === 'rehearsal' ? 'A' : 'Andante'}
+              style={{ minWidth: 120 }}
+            />
+          </label>
+        )}
+        <button
+          type="button"
+          className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+          onClick={() =>
+            onInsert({
+              kind: 'insertDirection',
+              afterNoteIndex: localAfter,
+              staff,
+              directionType,
+              directionValue:
+                directionType === 'dynamics'
+                  ? dynamicsValue
+                  : wordsValue.trim() || (directionType === 'rehearsal' ? 'A' : ' '),
+            })
+          }
+        >
+          direction 추가 ({afterLabel})
         </button>
       </div>
     </div>

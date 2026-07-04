@@ -1563,7 +1563,7 @@ function MeasureNoteEditor({
                 beforeNoteIndex: chordLeaderIdx,
                 pitchStep: graceStep,
                 pitchOctave: graceOctave,
-                pitchAlter: graceAlter === '0' ? undefined : Number(graceAlter),
+                pitchAlter: pitchAlterFromOption(graceAlter),
                 noteType: graceType,
                 graceSlash,
               })
@@ -1621,7 +1621,7 @@ function MeasureNoteEditor({
                 leaderNoteIndex: chordLeaderIdx,
                 pitchStep: chordStep,
                 pitchOctave: chordOctave,
-                pitchAlter: chordAlter === '0' ? undefined : Number(chordAlter),
+                pitchAlter: pitchAlterFromOption(chordAlter),
               })
             }
           >

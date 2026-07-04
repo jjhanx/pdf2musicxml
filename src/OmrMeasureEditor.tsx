@@ -11,6 +11,7 @@ import {
 type FixPartial = Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>;
 
 const NOTE_TYPES = ['whole', 'half', 'quarter', 'eighth', '16th', '32nd'] as const;
+const GRACE_NOTE_TYPES = ['eighth', '16th', '32nd'] as const;
 const PITCH_STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'] as const;
 
 type NoteTypeOption = { value: string; type: string; dots: number; label: string };
@@ -227,6 +228,7 @@ export type MeasureNoteEl = {
   tuplet?: string | null;
   /** 붙어 있는 articulation 목록 (예: "staccato(above)") */
   articulations?: string[];
+  graceSlash?: boolean | null;
 };
 
 export type MeasureElement = MeasureDirectionEl | MeasureNoteEl;
@@ -298,6 +300,17 @@ function noteAnchorLabel(n: MeasureNoteEl): string {
   return n.pitch ?? n.type ?? '?';
 }
 
+function graceNotesBefore(index: number, noteEls: MeasureNoteEl[]): MeasureNoteEl[] {
+  const out: MeasureNoteEl[] = [];
+  for (let i = index - 1; i >= 0; i--) {
+    const n = noteEls.find((x) => x.index === i);
+    if (!n) break;
+    if (!n.hasGrace) break;
+    out.unshift(n);
+  }
+  return out;
+}
+
 function resolveAfterNoteIndex(el: MeasureElement, elements: MeasureElement[]): number {
   if (el.elementKind === 'note') return el.index;
   const pos = elements.indexOf(el);
@@ -349,7 +362,8 @@ function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
           el.pitchAlter,
         )
       : '?';
-  return `#${idx} ${pitchLabel} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+  const graceTag = el.hasGrace ? ` 꾸밈음${el.graceSlash ? '(slash)' : ''}` : '';
+  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
 }
 
 export function OmrMeasureEditor({
@@ -681,6 +695,11 @@ function MeasureNoteEditor({
   const [chordOctave, setChordOctave] = useState(4);
   const [chordAlter, setChordAlter] = useState<PitchAlterOption>('0');
   const [pendingArtIds, setPendingArtIds] = useState<string[]>([]);
+  const [graceStep, setGraceStep] = useState(parsed.step);
+  const [graceOctave, setGraceOctave] = useState(parsed.octave);
+  const [graceAlter, setGraceAlter] = useState<PitchAlterOption>(pitchAlterToOption(el.pitchAlter));
+  const [graceType, setGraceType] = useState<string>('eighth');
+  const [graceSlash, setGraceSlash] = useState(true);
 
   useEffect(() => {
     setPendingArtIds([]);
@@ -688,6 +707,11 @@ function MeasureNoteEditor({
     setPitchStep(p.step);
     setPitchOctave(p.octave);
     setPitchAlter(pitchAlterToOption(el.pitchAlter));
+    setGraceStep(p.step);
+    setGraceOctave(p.octave);
+    setGraceAlter(pitchAlterToOption(el.pitchAlter));
+    setGraceType('eighth');
+    setGraceSlash(true);
     setNoteTypeValueSel(
       noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
     );
@@ -732,6 +756,7 @@ function MeasureNoteEditor({
       (nextNote.dotCount ?? 0) > 0);
   const chordLeaderIdx = chordLeaderIndex(el, noteEls);
   const chordLeaderEl = noteEls.find((n) => n.index === chordLeaderIdx);
+  const gracesBefore = graceNotesBefore(chordLeaderIdx, noteEls);
   const savedArtIds = articulationIdsFromEl(chordLeaderEl?.articulations);
   const displayArtIds = [...new Set([...savedArtIds, ...pendingArtIds])];
   const addableArtOptions = ARTICULATION_ADD_OPTIONS.filter((opt) => !displayArtIds.includes(opt.id));
@@ -1182,6 +1207,78 @@ function MeasureNoteEditor({
           ) : null}
         </div>
       )}
+      {el.kind === 'note' && !el.hasGrace && !el.chord && (
+        <div className="omr-measure-grace-row">
+          <span className="omr-measure-chord-hint">
+            꾸밈음 — 본음 #{chordLeaderIdx}
+            {chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 바로 앞에 삽입
+          </span>
+          <label className="omr-measure-inline-field">
+            꾸밈음 음
+            <select value={graceStep} onChange={(e) => setGraceStep(e.target.value)}>
+              {PITCH_STEPS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0}
+              max={9}
+              value={graceOctave}
+              onChange={(e) => setGraceOctave(Number(e.target.value))}
+              style={{ width: 48 }}
+            />
+            <PitchAlterSelect value={graceAlter} onChange={setGraceAlter} />
+          </label>
+          <label className="omr-measure-inline-field">
+            길이
+            <select value={graceType} onChange={(e) => setGraceType(e.target.value)}>
+              {GRACE_NOTE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {NOTE_TYPE_LABELS[t] ?? t}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="omr-measure-inline-field">
+            <input type="checkbox" checked={graceSlash} onChange={(e) => setGraceSlash(e.target.checked)} />
+            slash 꾸밈음
+          </label>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+            onClick={() =>
+              onFix({
+                kind: 'insertGraceNote',
+                beforeNoteIndex: chordLeaderIdx,
+                pitchStep: graceStep,
+                pitchOctave: graceOctave,
+                pitchAlter: graceAlter === '0' ? undefined : Number(graceAlter),
+                noteType: graceType,
+                graceSlash,
+              })
+            }
+          >
+            앞에 꾸밈음 추가
+          </button>
+          {gracesBefore.length > 0 ? (
+            <button
+              type="button"
+              className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
+              onClick={() =>
+                onFix({
+                  kind: 'removeGraceBeforeNote',
+                  beforeNoteIndex: chordLeaderIdx,
+                })
+              }
+            >
+              앞 꾸밈음 삭제 ({gracesBefore.length}개)
+            </button>
+          ) : null}
+        </div>
+      )}
       {el.kind === 'note' && (
         <div className="omr-measure-chord-row">
           <span className="omr-measure-chord-hint">
@@ -1224,8 +1321,12 @@ function MeasureNoteEditor({
           </button>
         </div>
       )}
-      <button type="button" className="omr-hitl-fix-btn omr-hitl-fix-btn--danger" onClick={() => onFix({ kind: 'removeNote', noteIndex: el.index })}>
-        이 요소 삭제
+      <button
+        type="button"
+        className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
+        onClick={() => onFix({ kind: 'removeNote', noteIndex: el.index })}
+      >
+        {el.hasGrace ? '꾸밈음 삭제' : '이 요소 삭제'}
       </button>
     </div>
   );

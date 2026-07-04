@@ -289,6 +289,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
     dot_count = len(note.findall(_q(ns, "dot")))
     note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else None
     grace_el = note.find(_q(ns, "grace"))
+    grace_slash = grace_el.get("slash") == "yes" if grace_el is not None else None
     time_mod = None
     tm_el = note.find(_q(ns, "time-modification"))
     if tm_el is not None:
@@ -314,6 +315,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "duration": duration,
         "isDotted": dot_count > 0,
         "hasGrace": grace_el is not None,
+        "graceSlash": grace_slash,
         "isCue": note.get("cue") == "yes",
         "staff": int(staff_el.text) if staff_el is not None and staff_el.text and staff_el.text.isdigit() else None,
         "voice": (voice_el.text or "").strip() if voice_el is not None and voice_el.text else None,
@@ -479,6 +481,46 @@ def _build_inserted_pitched_note(
     ET.SubElement(new_note, _q(ns, "stem")).text = stem_val
     ET.SubElement(new_note, _q(ns, "staff")).text = str(staff_n)
     return new_note
+
+
+def _build_grace_note(
+    ns: str,
+    *,
+    step: str,
+    octave: int,
+    alter: int | None,
+    note_type: str,
+    staff_n: int,
+    voice: str,
+    stem: str | None,
+    slash: bool = True,
+) -> ET.Element:
+    """MusicXML grace note — duration 없음, `<grace/>`가 pitch 앞."""
+    new_note = ET.Element(_q(ns, "note"))
+    grace_el = ET.SubElement(new_note, _q(ns, "grace"))
+    if slash:
+        grace_el.set("slash", "yes")
+    pitch_el = ET.SubElement(new_note, _q(ns, "pitch"))
+    ET.SubElement(pitch_el, _q(ns, "step")).text = step
+    ET.SubElement(pitch_el, _q(ns, "octave")).text = str(octave)
+    if alter is not None:
+        ET.SubElement(pitch_el, _q(ns, "alter")).text = str(int(alter))
+    ET.SubElement(new_note, _q(ns, "voice")).text = voice
+    ET.SubElement(new_note, _q(ns, "type")).text = note_type
+    stem_val = stem if stem in ("up", "down") else _infer_stem_from_pitch(step, octave)
+    ET.SubElement(new_note, _q(ns, "stem")).text = stem_val
+    ET.SubElement(new_note, _q(ns, "staff")).text = str(staff_n)
+    _sort_note_children(new_note, ns)
+    return new_note
+
+
+def _assign_grace_layout(new_note: ET.Element, principal: ET.Element) -> None:
+    """꾸밈음 default-x — 본음보다 약간 왼쪽(timeline 정렬·OSMD 위치)."""
+    fx = _parse_default_x(principal)
+    if fx is not None:
+        new_note.set("default-x", f"{max(fx - 12.0, 1.0):.2f}")
+    else:
+        new_note.set("default-x", "1.0")
 
 
 def _build_inserted_rest_note(
@@ -1613,6 +1655,74 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         )
         insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(notes, ns, after_idx, staff_n)
         _insert_note_element(measure, ns, new_dir, insert_after_idx)
+        return True
+
+    if kind == "insertGraceNote":
+        step = str(fix.get("pitchStep") or "").strip()
+        if not step:
+            return False
+        try:
+            before_idx = int(fix.get("beforeNoteIndex", fix.get("noteIndex", -1)))
+            octave = int(fix.get("pitchOctave"))
+        except (TypeError, ValueError):
+            return False
+        if before_idx < 0 or before_idx >= len(notes):
+            return False
+        before_idx = _chord_leader_index(notes, ns, before_idx)
+        principal = notes[before_idx]
+        if principal.find(_q(ns, "rest")) is not None or principal.find(_q(ns, "grace")) is not None:
+            return False
+        staff_n = _note_staff_number(principal, ns) or int(fix.get("staff") or 1)
+        note_type = str(fix.get("noteType") or "eighth").strip()
+        if note_type not in ("eighth", "16th", "32nd", "64th"):
+            note_type = "eighth"
+        slash = fix.get("graceSlash")
+        slash_b = True if slash is None else bool(slash)
+        alter = fix.get("pitchAlter")
+        alter_n: int | None = None
+        if alter is not None and alter != "":
+            try:
+                alter_n = int(alter)
+            except (TypeError, ValueError):
+                alter_n = None
+        insert_after_idx = before_idx - 1
+        if insert_after_idx >= 0:
+            insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
+                notes, ns, insert_after_idx, staff_n
+            )
+        voice, stem = _infer_voice_stem_from_neighbors(notes, ns, before_idx, staff_n)
+        new_note = _build_grace_note(
+            ns,
+            step=step,
+            octave=octave,
+            alter=alter_n,
+            note_type=note_type,
+            staff_n=staff_n,
+            voice=voice,
+            stem=stem,
+            slash=slash_b,
+        )
+        _assign_grace_layout(new_note, principal)
+        _insert_note_element(measure, ns, new_note, insert_after_idx)
+        return True
+
+    if kind == "removeGraceBeforeNote":
+        try:
+            before_idx = int(fix.get("beforeNoteIndex", fix.get("noteIndex", -1)))
+        except (TypeError, ValueError):
+            return False
+        if before_idx <= 0 or before_idx >= len(notes):
+            return False
+        before_idx = _chord_leader_index(notes, ns, before_idx)
+        to_remove: list[ET.Element] = []
+        i = before_idx - 1
+        while i >= 0 and notes[i].find(_q(ns, "grace")) is not None:
+            to_remove.append(notes[i])
+            i -= 1
+        if not to_remove:
+            return False
+        for note in to_remove:
+            measure.remove(note)
         return True
 
     if kind == "addArticulation":

@@ -44,6 +44,8 @@ export type OmrHitlFix = {
   normalType?: string;
   beamNumber?: number;
   beamNoteCount?: number;
+  beforeNoteIndex?: number;
+  graceSlash?: boolean;
   fromPitch?: string;
   toPitch?: string;
   fromStaff?: number;
@@ -73,6 +75,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   addSlur: '이음줄 연결',
   insertRest: '쉼표 추가',
   insertNote: '음표 추가',
+  insertGraceNote: '꾸밈음 추가',
+  removeGraceBeforeNote: '앞 꾸밈음 삭제',
   insertChordMember: '화음 음 추가',
   removeArticulation: '표(스타카토 등) 제거',
   applyTriplet: '세잇단(잇단) 적용',
@@ -108,6 +112,8 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.normalType ?? '',
     fix.beamNumber ?? '',
     fix.beamNoteCount ?? '',
+    fix.beforeNoteIndex ?? '',
+    fix.graceSlash === undefined ? '' : fix.graceSlash ? '1' : '0',
     fix.fromPitch ?? '',
     fix.toPitch ?? '',
     fix.fromStaff ?? '',

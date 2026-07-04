@@ -324,17 +324,6 @@ function resolveAfterNoteIndex(el: MeasureElement, elements: MeasureElement[]): 
   return -1;
 }
 
-/** 같은 스태프에서 note 바로 앞 #index. 없으면 -1(스태프 첫 음 앞). */
-function indexBeforeOnSameStaff(note: MeasureNoteEl, noteEls: MeasureNoteEl[]): number {
-  const staff = note.staff ?? 1;
-  for (let i = note.index - 1; i >= 0; i--) {
-    const n = noteEls.find((x) => x.index === i);
-    if (!n) break;
-    if ((n.staff ?? 1) === staff) return i;
-  }
-  return -1;
-}
-
 function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
   if (el.elementKind === 'direction') {
     const label = el.text?.trim() || '(표기 없음 — dynamics 등 XML 태그만 있을 수 있음)';
@@ -592,44 +581,18 @@ export function OmrMeasureEditor({
                   여기 뒤
                 </button>
                 {el.elementKind === 'note' && el.kind === 'rest' ? (
-                  <>
-                    <button
-                      type="button"
-                      className="btn-muted omr-measure-insert-btn"
-                      onClick={() => {
-                        const beforeIdx = indexBeforeOnSameStaff(el, noteEls);
-                        setInsertAfter(beforeIdx);
-                        setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
-                        const beforeNote = beforeIdx >= 0 ? noteEls.find((n) => n.index === beforeIdx) : null;
-                        setFixMsg(
-                          beforeIdx < 0
-                            ? `삽입 위치: 스태프 ${el.staff ?? 1} 마디 앞 (쉼표 #${el.index} 위)`
-                            : `삽입 위치: #${beforeIdx} ${beforeNote ? noteAnchorLabel(beforeNote) : ''} 뒤 (쉼표 #${el.index} 위·셈여림)`,
-                        );
-                      }}
-                    >
-                      쉼표 위 (셈여림)
-                    </button>
-                    <button
-                      type="button"
-                      className="omr-hitl-fix-btn"
-                      onClick={() => {
-                        const beforeIdx = indexBeforeOnSameStaff(el, noteEls);
-                        pushFix({
-                          kind: 'insertDirection',
-                          afterNoteIndex: el.index,
-                          staff: el.staff ?? editStaffWithinPart ?? 1,
-                          directionType: 'dynamics',
-                          directionValue: 'p',
-                        });
-                        setFixMsg(
-                          `쉼표 #${el.index}에 dyn:p 추가 보정 대기 → 「MXL에 반영·미리보기」`,
-                        );
-                      }}
-                    >
-                      쉼표에 p 추가
-                    </button>
-                  </>
+                  <RestDirectionQuickInsert
+                    restIndex={el.index}
+                    staff={el.staff ?? editStaffWithinPart ?? 1}
+                    onInsert={(partial) => {
+                      setInsertAfter(el.index);
+                      setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
+                      pushFix(partial);
+                      setFixMsg(
+                        `쉼표 #${el.index}에 direction 추가 보정 대기 → 「MXL에 반영·미리보기」(쉼표 note는 변경하지 않음)`,
+                      );
+                    }}
+                  />
                 ) : null}
               </div>
             </li>
@@ -1663,6 +1626,94 @@ function InsertElementForm({
   );
 }
 
+function directionAnchorLabel(
+  localAfter: number,
+  staff: number,
+  noteEls: MeasureNoteEl[],
+): string {
+  if (localAfter < 0) return `마디 앞 (스태프 ${staff} 첫 음 앞)`;
+  const n = noteEls.find((x) => x.index === localAfter);
+  if (n?.kind === 'rest') return `#${localAfter} ${noteAnchorLabel(n)}에 direction`;
+  return n ? `#${localAfter} ${noteAnchorLabel(n)} 뒤` : `#${localAfter} 뒤`;
+}
+
+function buildInsertDirectionPartial(
+  afterNoteIndex: number,
+  staff: number,
+  directionType: 'dynamics' | 'words' | 'rehearsal',
+  dynamicsValue: string,
+  wordsValue: string,
+): Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'> {
+  return {
+    kind: 'insertDirection',
+    afterNoteIndex,
+    staff,
+    directionType,
+    directionValue:
+      directionType === 'dynamics'
+        ? dynamicsValue
+        : wordsValue.trim() || (directionType === 'rehearsal' ? 'A' : ' '),
+  };
+}
+
+function RestDirectionQuickInsert({
+  restIndex,
+  staff,
+  onInsert,
+}: {
+  restIndex: number;
+  staff: number;
+  onInsert: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
+}) {
+  const [directionType, setDirectionType] = useState<'dynamics' | 'words' | 'rehearsal'>('dynamics');
+  const [dynamicsValue, setDynamicsValue] = useState<string>('p');
+  const [wordsValue, setWordsValue] = useState('');
+
+  return (
+    <div className="omr-measure-rest-direction-quick">
+      <span className="omr-measure-insert-label">이 쉼표에 direction:</span>
+      <select
+        value={directionType}
+        onChange={(e) => setDirectionType(e.target.value as 'dynamics' | 'words' | 'rehearsal')}
+        aria-label="direction 종류"
+      >
+        <option value="dynamics">셈여림</option>
+        <option value="words">텍스트</option>
+        <option value="rehearsal">리허설</option>
+      </select>
+      {directionType === 'dynamics' ? (
+        <select value={dynamicsValue} onChange={(e) => setDynamicsValue(e.target.value)} aria-label="dynamics">
+          {DYNAMICS_DIRECTION_VALUES.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={wordsValue}
+          onChange={(e) => setWordsValue(e.target.value)}
+          placeholder={directionType === 'rehearsal' ? 'A' : 'Andante, rit. …'}
+          style={{ minWidth: 88 }}
+        />
+      )}
+      <button
+        type="button"
+        className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+        onClick={() =>
+          onInsert(buildInsertDirectionPartial(restIndex, staff, directionType, dynamicsValue, wordsValue))
+        }
+      >
+        추가
+      </button>
+      <span className="omr-measure-editor-hint" style={{ fontSize: '0.8rem', margin: 0 }}>
+        쉼표 XML·줄 위치는 그대로, <code>&lt;direction&gt;</code>만 붙입니다.
+      </span>
+    </div>
+  );
+}
+
 function DirectionInsertForm({
   afterNoteIndex,
   staffDefault,
@@ -1688,23 +1739,15 @@ function DirectionInsertForm({
     setLocalAfter(afterNoteIndex);
   }, [afterNoteIndex]);
 
-  const afterLabel =
-    localAfter < 0
-      ? `마디 앞 (스태프 ${staff} 첫 음 앞)`
-      : (() => {
-          const n = noteEls.find((x) => x.index === localAfter);
-          if (n?.kind === 'rest' && directionType === 'dynamics') {
-            return `#${localAfter} ${noteAnchorLabel(n)} (셈여림·쉼표 위)`;
-          }
-          return n ? `#${localAfter} ${noteAnchorLabel(n)} 뒤` : `#${localAfter} 뒤`;
-        })();
+  const afterLabel = directionAnchorLabel(localAfter, staff, noteEls);
 
   return (
     <div className="omr-measure-direction-insert">
       <p className="omr-measure-insert-heading">direction 추가</p>
       <p className="omr-measure-editor-hint" style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
-        셈여림·텍스트·리허설 표 등. <strong>쉼표 위 셈여림</strong>은 쉼표 줄의 「쉼표 위 (셈여림)」·「쉼표에 p 추가」 또는 아래에서 해당 쉼표를 고르세요.
-        「마디 앞」은 <strong>선택한 스태프</strong> 첫 음 앞입니다(PL 필터 시 PL만). direction 줄·PR #을 PL에 쓰면 엇갈립니다.
+        셈여림·텍스트·리허설 등. 쉼표 줄에는 <strong>「이 쉼표에 direction」</strong> 인라인 폼을 쓰거나 아래에서 해당 쉼표를 고르세요.
+        쉼표 note·<code>display-step</code>은 바꾸지 않고 <code>&lt;direction&gt;</code>만 추가합니다(줄 위치 변경은 온·2분쉼표의 「쉼표 줄 한 칸 위/아래」).
+        「마디 앞」은 <strong>선택한 스태프</strong> 첫 음 앞(PL 필터 시 PL만)입니다.
       </p>
       <div className="omr-measure-insert-form-row">
         <label className="omr-measure-inline-field">
@@ -1713,8 +1756,8 @@ function DirectionInsertForm({
             <option value="-1">마디 앞 (스태프 {staff} 첫 음 앞)</option>
             {noteEls.map((n) => (
               <option key={n.index} value={String(n.index)}>
-                {n.kind === 'rest' && directionType === 'dynamics'
-                  ? `#${n.index} ${noteAnchorLabel(n)} (셈여림·쉼표 위)`
+                {n.kind === 'rest'
+                  ? `#${n.index} ${noteAnchorLabel(n)}에 direction`
                   : `#${n.index} ${noteAnchorLabel(n)} 뒤`}
               </option>
             ))}
@@ -1764,16 +1807,7 @@ function DirectionInsertForm({
           type="button"
           className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
           onClick={() =>
-            onInsert({
-              kind: 'insertDirection',
-              afterNoteIndex: localAfter,
-              staff,
-              directionType,
-              directionValue:
-                directionType === 'dynamics'
-                  ? dynamicsValue
-                  : wordsValue.trim() || (directionType === 'rehearsal' ? 'A' : ' '),
-            })
+            onInsert(buildInsertDirectionPartial(localAfter, staff, directionType, dynamicsValue, wordsValue))
           }
         >
           direction 추가 ({afterLabel})

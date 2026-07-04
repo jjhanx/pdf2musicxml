@@ -1665,6 +1665,21 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         placement = str(fix.get("placement") or "").strip().lower() or None
         if placement not in ("above", "below", ""):
             placement = None
+        insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(notes, ns, after_idx, staff_n)
+        if (
+            not fix.get("afterRest")
+            and 0 <= after_idx < len(notes)
+            and notes[after_idx].find(_q(ns, "rest")) is not None
+        ):
+            # MusicXML: 쉼표에 붙는 direction은 <note><rest> 바로 앞. 쉼표 XML·display-step은 변경하지 않음.
+            if after_idx > 0:
+                insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
+                    notes, ns, after_idx - 1, staff_n
+                )
+            else:
+                insert_after_idx = -1
+        if direction_type == "dynamics" and placement is None:
+            placement = "below"
         new_dir = _build_direction_element(
             ns,
             direction_type,
@@ -1672,19 +1687,6 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             staff_n=staff_n,
             placement=placement,
         )
-        insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(notes, ns, after_idx, staff_n)
-        if (
-            not fix.get("afterRest")
-            and direction_type == "dynamics"
-            and 0 <= after_idx < len(notes)
-            and notes[after_idx].find(_q(ns, "rest")) is not None
-        ):
-            if after_idx > 0:
-                insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
-                    notes, ns, after_idx - 1, staff_n
-                )
-            else:
-                insert_after_idx = -1
         _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
         return True
 

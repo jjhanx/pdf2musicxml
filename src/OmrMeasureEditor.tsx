@@ -317,8 +317,8 @@ function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
     ? ` ${el.timeMod === '3:2' ? '세잇단' : `잇단 ${el.timeMod}`}${el.tuplet === 'start' ? '▸' : el.tuplet === 'stop' ? '◂' : ''}`
     : '';
   const artSource =
-    el.chord && noteEls.length
-      ? noteEls.find((n) => n.index === chordLeaderIndex(el, noteEls)) ?? el
+    el.chord && _noteEls.length
+      ? _noteEls.find((n) => n.index === chordLeaderIndex(el, _noteEls)) ?? el
       : el;
   const arts = artSource.articulations?.length ? ` [${artSource.articulations.join(', ')}]` : '';
   const beam = el.beams?.length ? ` beam=[${el.beams.join(',')}]` : '';

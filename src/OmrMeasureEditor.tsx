@@ -228,6 +228,8 @@ export type MeasureNoteEl = {
   tuplet?: string | null;
   /** 붙어 있는 articulation 목록 (예: "staccato(above)") */
   articulations?: string[];
+  /** 늘임표 (예: "upright", "inverted(below)") */
+  fermatas?: string[];
   graceSlash?: boolean | null;
 };
 
@@ -336,7 +338,8 @@ function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
         ? ` (${el.displayStep}${el.displayOctave ?? ''})`
         : '';
     const dur = el.duration != null ? ` dur=${el.duration}` : '';
-    return `#${idx} ${el.type ?? 'rest'}쉼표${dots}${pos}${dur}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+    const ferms = el.fermatas?.length ? ` fermata=${el.fermatas.join(',')}` : '';
+    return `#${idx} ${el.type ?? 'rest'}쉼표${dots}${pos}${dur}${ferms}${el.staff != null ? ` staff=${el.staff}` : ''}`;
   }
   const tie =
     el.tieStart && el.tieStop ? ' tie↔' : el.tieStart ? ' tie→' : el.tieStop ? ' tie←' : '';
@@ -352,6 +355,7 @@ function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
       ? _noteEls.find((n) => n.index === chordLeaderIndex(el, _noteEls)) ?? el
       : el;
   const arts = artSource.articulations?.length ? ` [${artSource.articulations.join(', ')}]` : '';
+  const ferms = el.fermatas?.length ? ` fermata=${el.fermatas.join(',')}` : '';
   const beam = el.beams?.length ? ` beam=[${el.beams.join(',')}]` : '';
   const dur = el.duration != null ? ` dur=${el.duration}` : '';
   const pitchLabel =
@@ -363,7 +367,7 @@ function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
         )
       : '?';
   const graceTag = el.hasGrace ? ` 꾸밈음${el.graceSlash ? '(slash)' : ''}` : '';
-  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${ferms}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
 }
 
 export function OmrMeasureEditor({
@@ -770,10 +774,18 @@ function MeasureNoteEditor({
   const savedArtIds = articulationIdsFromEl(chordLeaderEl?.articulations);
   const displayArtIds = [...new Set([...savedArtIds, ...pendingArtIds])];
   const addableArtOptions = ARTICULATION_ADD_OPTIONS.filter((opt) => !displayArtIds.includes(opt.id));
+  const fermatas = chordLeaderEl?.fermatas ?? el.fermatas ?? [];
+  const [fermataTypeSel, setFermataTypeSel] = useState<'upright' | 'inverted'>('upright');
+  const [pendingFermata, setPendingFermata] = useState<string | null>(null);
+  const displayFermatas = [
+    ...fermatas,
+    ...(pendingFermata && !fermatas.some((f) => f.startsWith(pendingFermata)) ? [`${pendingFermata}(반영 대기)`] : []),
+  ];
 
   useEffect(() => {
     setPendingArtIds((prev) => prev.filter((id) => !savedArtIds.includes(id)));
-  }, [savedArtIds.join('|')]);
+    setPendingFermata(null);
+  }, [savedArtIds.join('|'), fermatas.join('|'), el.index]);
 
   return (
     <div className="omr-measure-element-actions">
@@ -1214,6 +1226,47 @@ function MeasureNoteEditor({
             >
               세잇단 해제 (#{existingTriplet.from}→#{existingTriplet.to})
             </button>
+          ) : null}
+        </div>
+      )}
+      {(el.kind === 'note' || el.kind === 'rest') && (
+        <div className="omr-measure-fermata-row">
+          <span className="omr-measure-articulation-current">
+            늘임표: {displayFermatas.length > 0 ? displayFermatas.join(' · ') : '없음'}
+          </span>
+          {fermatas.map((f) => {
+            const ftype = f.split('(')[0];
+            return (
+              <button
+                key={f}
+                type="button"
+                className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
+                onClick={() => onFix({ kind: 'removeFermata', noteIndex: chordLeaderIdx, fermataType: ftype })}
+              >
+                늘임표({ftype}) 제거
+              </button>
+            );
+          })}
+          {fermatas.length === 0 ? (
+            <>
+              <label className="omr-measure-inline-field">
+                종류
+                <select value={fermataTypeSel} onChange={(e) => setFermataTypeSel(e.target.value as 'upright' | 'inverted')}>
+                  <option value="upright">𝄐 upright</option>
+                  <option value="inverted">𝄑 inverted</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+                onClick={() => {
+                  setPendingFermata(fermataTypeSel);
+                  onFix({ kind: 'addFermata', noteIndex: chordLeaderIdx, fermataType: fermataTypeSel });
+                }}
+              >
+                늘임표 추가
+              </button>
+            </>
           ) : null}
         </div>
       )}

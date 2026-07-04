@@ -299,6 +299,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
             time_mod = f"{an.text.strip()}:{nn.text.strip()}"
     tuplet = None
     articulations: list[str] = []
+    fermatas: list[str] = []
     for notations in note.findall(_q(ns, "notations")):
         for tup in notations.findall(_q(ns, "tuplet")):
             tuplet = tup.get("type") or tuplet
@@ -307,6 +308,10 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
                 name = _local(art)
                 placement = art.get("placement")
                 articulations.append(f"{name}({placement})" if placement else name)
+        for ferm in notations.findall(_q(ns, "fermata")):
+            ftype = (ferm.get("type") or "upright").strip() or "upright"
+            placement = ferm.get("placement")
+            fermatas.append(f"{ftype}({placement})" if placement else ftype)
     return {
         "index": index,
         "elementKind": "note",
@@ -335,6 +340,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "timeMod": time_mod,
         "tuplet": tuplet,
         "articulations": articulations,
+        "fermatas": fermatas,
     }
 
 
@@ -1761,6 +1767,55 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             if auto:
                 art_el.set("placement", auto)
         return True
+
+    if kind == "addFermata":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        fermata_type = str(fix.get("fermataType") or "upright").strip().lower()
+        if fermata_type not in ("upright", "inverted"):
+            fermata_type = "upright"
+        notations = _ensure_notations(note, ns)
+        for existing in notations.findall(_q(ns, "fermata")):
+            return False
+        ferm_el = ET.SubElement(notations, _q(ns, "fermata"))
+        ferm_el.set("type", fermata_type)
+        placement = str(fix.get("placement") or "").strip().lower()
+        if placement in ("above", "below"):
+            ferm_el.set("placement", placement)
+        else:
+            stem_el = note.find(_q(ns, "stem"))
+            stem = (stem_el.text or "").strip().lower() if stem_el is not None and stem_el.text else ""
+            if stem == "up":
+                ferm_el.set("placement", "below")
+            elif stem == "down":
+                ferm_el.set("placement", "above")
+        return True
+
+    if kind == "removeFermata":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        want = str(fix.get("fermataType") or "").strip().lower() or None
+        removed = False
+        for notations in list(note.findall(_q(ns, "notations"))):
+            for ferm in list(notations.findall(_q(ns, "fermata"))):
+                ftype = (ferm.get("type") or "upright").strip().lower()
+                if want and ftype != want:
+                    continue
+                notations.remove(ferm)
+                removed = True
+            if len(notations) == 0:
+                note.remove(notations)
+        return removed
 
     if kind == "setNotePitch":
         try:

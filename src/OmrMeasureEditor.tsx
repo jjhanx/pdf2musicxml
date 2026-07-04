@@ -295,6 +295,7 @@ type PendingInsertLeader = {
   leaderNoteIndex: number;
   pitchLabel: string;
   noteType: string;
+  dotCount?: number;
 };
 
 function noteAnchorLabel(n: MeasureNoteEl): string {
@@ -605,11 +606,11 @@ export function OmrMeasureEditor({
         staffDefault={insertStaff}
         noteEls={noteEls}
         pendingLeader={pendingInsertLeader}
-        onInsertRest={(afterNoteIndex, noteType, staff) => {
+        onInsertRest={(afterNoteIndex, noteType, dotCount, staff) => {
           setPendingInsertLeader(null);
-          pushFix({ kind: 'insertRest', afterNoteIndex, noteType, staff });
+          pushFix({ kind: 'insertRest', afterNoteIndex, noteType, dotCount, staff });
         }}
-        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, staff, pitchAlter, extraChordMembers) => {
+        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, dotCount, staff, pitchAlter, extraChordMembers) => {
           const leaderIdx = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
           const leaderLabel = formatPitchLabel(pitchStep, pitchOctave, pitchAlter);
           pushFix({
@@ -619,6 +620,7 @@ export function OmrMeasureEditor({
             pitchOctave,
             pitchAlter,
             noteType,
+            dotCount,
             staff,
           });
           for (const cm of extraChordMembers) {
@@ -640,6 +642,7 @@ export function OmrMeasureEditor({
               leaderNoteIndex: leaderIdx,
               pitchLabel: leaderLabel,
               noteType,
+              dotCount,
             });
             setFixMsg(
               `리더 음표 대기 (#${leaderIdx} 예정 · ${leaderLabel}). 아래 「화음 음 추가」로 2·3음을 더 붙이거나 「MXL에 반영·미리보기」를 누르세요.`,
@@ -1426,12 +1429,13 @@ function InsertElementForm({
   noteEls: MeasureNoteEl[];
   pendingLeader: PendingInsertLeader | null;
   onClearPendingLeader: () => void;
-  onInsertRest: (after: number, type: string, staff: number) => void;
+  onInsertRest: (after: number, type: string, dotCount: number, staff: number) => void;
   onInsertNote: (
     after: number,
     step: string,
     octave: number,
     type: string,
+    dotCount: number,
     staff: number,
     pitchAlter: number | undefined,
     extraChordMembers: Array<{ step: string; octave: number; alter?: number }>,
@@ -1443,8 +1447,8 @@ function InsertElementForm({
     pitchAlter: number | undefined,
   ) => void;
 }) {
-  const [restType, setRestType] = useState('quarter');
-  const [noteType, setNoteType] = useState('eighth');
+  const [restTypeValueSel, setRestTypeValueSel] = useState(noteTypeValue('quarter', 0));
+  const [noteTypeValueSel, setNoteTypeValueSel] = useState(noteTypeValue('eighth', 0));
   const [staff, setStaff] = useState(staffDefault);
   const [step, setStep] = useState('C');
   const [octave, setOctave] = useState(4);
@@ -1474,12 +1478,13 @@ function InsertElementForm({
   };
 
   const submitNote = () => {
+    const { type, dots } = parseNoteTypeValue(noteTypeValueSel);
     const extras = extraChords.map((c) => ({
       step: c.step,
       octave: c.octave,
       alter: pitchAlterFromOption(c.alter),
     }));
-    onInsertNote(afterNoteIndex, step, octave, noteType, staff, pitchAlterFromOption(insertAlter), extras);
+    onInsertNote(afterNoteIndex, step, octave, type, dots, staff, pitchAlterFromOption(insertAlter), extras);
     setExtraChords([]);
   };
 
@@ -1490,7 +1495,9 @@ function InsertElementForm({
         <div className="omr-measure-insert-pending-leader">
           <strong>
             리더 음표 대기 · #{pendingLeader.leaderNoteIndex} 예정 · {pendingLeader.pitchLabel}{' '}
-            {pendingLeader.noteType}
+            {NOTE_TYPE_OPTIONS.find(
+              (o) => o.type === pendingLeader.noteType && o.dots === (pendingLeader.dotCount ?? 0),
+            )?.label ?? pendingLeader.noteType}
           </strong>
           <p style={{ margin: '4px 0 8px', fontSize: '0.86rem', lineHeight: 1.45 }}>
             MXL 반영 전까지 목록에는 안 보입니다. 아래에서 <strong>화음 음</strong>을 더 추가한 뒤 「MXL에
@@ -1543,15 +1550,22 @@ function InsertElementForm({
         </label>
         <label>
           쉼표 종류
-          <select value={restType} onChange={(e) => setRestType(e.target.value)}>
-            {NOTE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+          <select value={restTypeValueSel} onChange={(e) => setRestTypeValueSel(e.target.value)}>
+            {NOTE_TYPE_OPTIONS.map((opt) => (
+              <option key={`rest-${opt.value}`} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>
         </label>
-        <button type="button" className="omr-hitl-fix-btn" onClick={() => onInsertRest(afterNoteIndex, restType, staff)}>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() => {
+            const { type, dots } = parseNoteTypeValue(restTypeValueSel);
+            onInsertRest(afterNoteIndex, type, dots, staff);
+          }}
+        >
           쉼표 추가
         </button>
       </div>
@@ -1570,10 +1584,10 @@ function InsertElementForm({
         </label>
         <label>
           박자
-          <select value={noteType} onChange={(e) => setNoteType(e.target.value)}>
-            {NOTE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+          <select value={noteTypeValueSel} onChange={(e) => setNoteTypeValueSel(e.target.value)}>
+            {NOTE_TYPE_OPTIONS.map((opt) => (
+              <option key={`note-${opt.value}`} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>

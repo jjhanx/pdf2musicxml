@@ -538,14 +538,17 @@ def _build_inserted_rest_note(
     voice: str,
     display_step: str = "B",
     display_octave: int = 4,
+    dot_count: int = 0,
 ) -> ET.Element:
     new_note = ET.Element(_q(ns, "note"))
     rest_el = ET.SubElement(new_note, _q(ns, "rest"))
-    target_dur = _duration_for_type_dots(rest_type, divisions, 0)
+    target_dur = _duration_for_type_dots(rest_type, divisions, dot_count)
     if target_dur > 0:
         ET.SubElement(new_note, _q(ns, "duration")).text = str(target_dur)
     ET.SubElement(new_note, _q(ns, "voice")).text = voice
     ET.SubElement(new_note, _q(ns, "type")).text = rest_type
+    for _ in range(dot_count):
+        ET.SubElement(new_note, _q(ns, "dot"))
     if rest_type in ("whole", "half"):
         ET.SubElement(rest_el, _q(ns, "display-step")).text = display_step
         ET.SubElement(rest_el, _q(ns, "display-octave")).text = str(display_octave)
@@ -2105,6 +2108,12 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
     if kind == "insertRest":
         rest_type = str(fix.get("noteType") or fix.get("restType") or "quarter").strip()
+        dot_count = 0
+        if fix.get("dotCount") is not None:
+            try:
+                dot_count = max(0, min(2, int(fix.get("dotCount"))))
+            except (TypeError, ValueError):
+                dot_count = 0
         try:
             staff_n = int(fix.get("staff", 1))
             after_idx = int(fix.get("afterNoteIndex", -1))
@@ -2128,6 +2137,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             voice=voice,
             display_step=step,
             display_octave=octave,
+            dot_count=dot_count,
         )
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
@@ -2147,6 +2157,12 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         except (TypeError, ValueError):
             return False
         note_type = str(fix.get("noteType") or "quarter").strip()
+        dot_count = 0
+        if fix.get("dotCount") is not None:
+            try:
+                dot_count = max(0, min(2, int(fix.get("dotCount"))))
+            except (TypeError, ValueError):
+                dot_count = 0
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
         insert_after_idx, staff_n, anchor, following, staff_notes = _resolve_insert_after_context(
             notes, ns, after_idx, staff_n
@@ -2169,6 +2185,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             staff_n=staff_n,
             voice=voice,
             stem=stem,
+            dot_count=dot_count,
         )
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns

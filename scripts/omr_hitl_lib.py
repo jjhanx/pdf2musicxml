@@ -1725,6 +1725,13 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             measure.remove(note)
         return True
 
+    if kind == "repairParallelOnsets":
+        try:
+            staff = str(int(fix.get("staff", 1)))
+        except (TypeError, ValueError):
+            staff = "1"
+        return _repair_parallel_onsets_on_staff(measure, ns, str(staff))
+
     if kind == "addArticulation":
         try:
             idx = int(fix.get("noteIndex"))
@@ -2371,130 +2378,418 @@ def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
     return {"path": str(mxl_path), **stats}
 
 
-def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
-    # 1. Identify all child elements and separate notes by staff
-    notes_staff1 = []
-    notes_staff2 = []
-    
-    start_elements = []  # print, attributes, etc. at the start
-    end_elements = []    # barline, etc. at the end
-    note_attachments = {} # note element -> list of associated non-note elements (placed after the note)
-    
-    # First, collect all notes in their original XML order to establish associations
-    all_notes = []
+_SAME_X_TOLERANCE = 2.0
+
+
+def _is_grace_or_cue(note: ET.Element, ns: str) -> bool:
+    return note.find(_q(ns, "grace")) is not None or note.get("cue") == "yes"
+
+
+def _chord_groups_in_order(notes: list[ET.Element], ns: str) -> list[list[ET.Element]]:
+    groups: list[list[ET.Element]] = []
+    current: list[ET.Element] = []
+    for note in notes:
+        if note.find(_q(ns, "chord")) is not None and current:
+            current.append(note)
+        else:
+            if current:
+                groups.append(current)
+            current = [note]
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _sort_notes_by_default_x(notes: list[ET.Element], ns: str) -> list[ET.Element]:
+    groups = _chord_groups_in_order(notes, ns)
+    groups.sort(
+        key=lambda grp: (
+            _parse_default_x(grp[0]) if _parse_default_x(grp[0]) is not None else 1_000_000.0,
+            list(notes).index(grp[0]) if grp[0] in notes else 0,
+        )
+    )
+    out: list[ET.Element] = []
+    for grp in groups:
+        out.extend(grp)
+    return out
+
+
+def _voice_layer_duration(notes: list[ET.Element], ns: str) -> int:
+    total = 0
+    for grp in _chord_groups_in_order(notes, ns):
+        if _is_grace_or_cue(grp[0], ns):
+            continue
+        total += _note_duration(grp[0], ns)
+    return total
+
+
+def _measure_has_multivoice_layers(measure: ET.Element, ns: str) -> bool:
+    if any(_local(el) == "backup" for el in measure):
+        return True
+    voices_by_staff: dict[str, set[str]] = {}
+    for note in list_note_elements(measure, ns):
+        voice, staff = _note_voice_staff(note, ns)
+        voices_by_staff.setdefault(staff, set()).add(voice)
+    return any(len(vs) > 1 for vs in voices_by_staff.values())
+
+
+def _ensure_chord_tag(note: ET.Element, ns: str) -> bool:
+    if note.find(_q(ns, "chord")) is not None or _is_grace_or_cue(note, ns):
+        return False
+    note.insert(0, ET.Element(_q(ns, "chord")))
+    _sort_note_children(note, ns)
+    return True
+
+
+def _allocate_staff_voice(staff: str, used: set[str]) -> str:
+    if staff == "2":
+        candidates = ["5", "6", "7", "8", "9"]
+    else:
+        candidates = ["1", "2", "3", "4"]
+    for c in candidates:
+        if c not in used:
+            return c
+    n = 1
+    while str(n) in used:
+        n += 1
+    return str(n)
+
+
+def _staff_parallel_onset_needs_repair(measure: ET.Element, ns: str, staff: str) -> bool:
+    notes = [
+        n
+        for n in list_note_elements(measure, ns)
+        if _note_voice_staff(n, ns)[1] == staff and not _is_grace_or_cue(n, ns)
+    ]
+    if len(notes) < 2:
+        return False
+    voices = {_note_voice_staff(n, ns)[0] for n in notes}
+    if len(voices) > 1:
+        return False
+    leaders = _chord_groups_in_order(notes, ns)
+    clusters: list[list[list[ET.Element]]] = []
+    for grp in leaders:
+        x = _parse_default_x(grp[0])
+        x_val = x if x is not None else 1_000_000.0
+        if clusters and abs(x_val - clusters[-1][0]) <= _SAME_X_TOLERANCE:
+            clusters[-1][1].append(grp)
+        else:
+            clusters.append((x_val, [grp]))
+    for _x, grps in clusters:
+        if len(grps) > 1:
+            return True
+    return False
+
+
+def _collect_beam_followers(notes: list[ET.Element], ns: str, leader: ET.Element) -> list[ET.Element]:
+    """리더 음표와 `<beam>`으로 이어진 후속 음표(화음 멤버 포함)를 수집."""
+    try:
+        start = notes.index(leader)
+    except ValueError:
+        return [leader]
+    span = [leader]
+    beams = _note_beams(leader, ns)
+    if not beams or not any(b in ("begin", "continue", "end") for b in beams):
+        return span
+    j = start + 1
+    while j < len(notes):
+        note = notes[j]
+        if note.find(_q(ns, "chord")) is not None:
+            span.append(note)
+            j += 1
+            continue
+        nb = _note_beams(note, ns)
+        if not nb:
+            break
+        span.append(note)
+        if "end" in nb:
+            break
+        j += 1
+    return span
+
+
+def _pitch_seen_earlier_on_staff(
+    notes: list[ET.Element], ns: str, note: ET.Element, staff: str, x_val: float
+) -> bool:
+    pitch = _note_pitch_str(note, ns)
+    if not pitch:
+        return False
+    for other in notes:
+        if other is note or _note_voice_staff(other, ns)[1] != staff:
+            continue
+        if other.find(_q(ns, "chord")) is not None:
+            continue
+        ox = _parse_default_x(other)
+        if ox is None or ox >= x_val - 0.5:
+            continue
+        if _note_pitch_str(other, ns) == pitch:
+            return True
+    return False
+
+
+def _pick_parallel_keeper_index(
+    grps: list[list[ET.Element]], notes: list[ET.Element], ns: str, staff: str, x_val: float
+) -> int:
+    def score(i: int) -> tuple[int, int]:
+        lead = grps[i][0]
+        dup = 1 if _pitch_seen_earlier_on_staff(notes, ns, lead, staff, x_val) else 0
+        return (1 - dup, _note_duration(lead, ns))
+
+    return max(range(len(grps)), key=score)
+
+
+def _repair_parallel_onsets_on_staff(measure: ET.Element, ns: str, staff: str) -> bool:
+    """같은 staff·voice·default-x에서 박자만 다른 음 → 보조 voice, 같으면 `<chord/>`."""
+    notes = [
+        n
+        for n in list_note_elements(measure, ns)
+        if _note_voice_staff(n, ns)[1] == staff and not _is_grace_or_cue(n, ns)
+    ]
+    if len(notes) < 2:
+        return False
+    voices = {_note_voice_staff(n, ns)[0] for n in notes}
+    if len(voices) != 1:
+        return False
+    primary_voice = next(iter(voices))
+    leaders = _chord_groups_in_order(notes, ns)
+    clusters: list[tuple[float, list[list[ET.Element]]]] = []
+    for grp in leaders:
+        x = _parse_default_x(grp[0])
+        x_val = x if x is not None else 1_000_000.0
+        if clusters and abs(x_val - clusters[-1][0]) <= _SAME_X_TOLERANCE:
+            clusters[-1][1].append(grp)
+        else:
+            clusters.append((x_val, [grp]))
+    changed = False
+    used_voices = set(voices)
+    for x_val, grps in clusters:
+        if len(grps) < 2:
+            continue
+        keeper_i = _pick_parallel_keeper_index(grps, notes, ns, staff, x_val)
+        for i, extra in enumerate(grps):
+            if i == keeper_i:
+                continue
+            if _note_duration(grps[keeper_i][0], ns) == _note_duration(extra[0], ns):
+                for note in extra:
+                    changed |= _ensure_chord_tag(note, ns)
+            else:
+                new_voice = _allocate_staff_voice(staff, used_voices)
+                used_voices.add(new_voice)
+                for note in _collect_beam_followers(notes, ns, extra[0]):
+                    _set_note_voice_staff(note, ns, new_voice, staff)
+                changed = True
+    if changed:
+        _rebuild_staff_voice_block(measure, ns, staff, primary_voice)
+    return changed
+
+
+def _find_staff_block_span(measure: ET.Element, ns: str, staff: str) -> tuple[int | None, int | None]:
+    children = list(measure)
+    start: int | None = None
+    end: int | None = None
+    for i, el in enumerate(children):
+        loc = _local(el)
+        if loc == "note" and _note_voice_staff(el, ns)[1] == staff:
+            if start is None:
+                start = i
+            end = i
+        elif start is not None and loc in ("backup", "forward"):
+            if end is not None and i <= end + 3:
+                end = i
+        elif start is not None and loc == "note" and _note_voice_staff(el, ns)[1] != staff:
+            break
+    return start, end
+
+
+def _rebuild_staff_voice_block(measure: ET.Element, ns: str, staff: str, primary_voice: str | None = None) -> None:
+    """한 staff의 note·backup·forward 블록을 voice별 default-x 순으로 재구성."""
+    start, end = _find_staff_block_span(measure, ns, staff)
+    if start is None or end is None:
+        return
+    children = list(measure)
+    block = children[start : end + 1]
+    forwards: list[ET.Element] = []
+    notes_by_voice: dict[str, list[ET.Element]] = {}
+    for el in block:
+        loc = _local(el)
+        if loc == "note":
+            voice, st = _note_voice_staff(el, ns)
+            if st != staff:
+                continue
+            notes_by_voice.setdefault(voice, []).append(el)
+        elif loc == "forward":
+            forwards.append(el)
+
+    if not notes_by_voice:
+        return
+
+    def voice_sort_key(v: str) -> tuple[int, float, int]:
+        notes = notes_by_voice[v]
+        xs = [_parse_default_x(n) for n in notes if _parse_default_x(n) is not None]
+        min_x = min(xs) if xs else 1_000_000.0
+        pri = 0 if primary_voice is not None and v == primary_voice else 1
+        try:
+            vn = int(v)
+        except ValueError:
+            vn = 999
+        return (pri, min_x, vn)
+
+    voice_order = sorted(notes_by_voice.keys(), key=voice_sort_key)
+    rebuilt: list[ET.Element] = []
+    for i, voice in enumerate(voice_order):
+        rebuilt.extend(_sort_notes_by_default_x(notes_by_voice[voice], ns))
+        if i + 1 < len(voice_order):
+            backup_el = ET.Element(_q(ns, "backup"))
+            ET.SubElement(backup_el, _q(ns, "duration")).text = str(
+                _voice_layer_duration(notes_by_voice[voice], ns)
+            )
+            rebuilt.append(backup_el)
+            if forwards:
+                rebuilt.append(forwards.pop(0))
+
+    for el in block:
+        measure.remove(el)
+    insert_at = start
+    for el in rebuilt:
+        measure.insert(insert_at, el)
+        insert_at += 1
+
+
+def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
+    """backup·다중 voice가 있는 마디 — voice별로만 default-x 정렬, 구조 유지."""
+    start_elements: list[ET.Element] = []
+    end_elements: list[ET.Element] = []
+    note_attachments: dict[ET.Element, list[ET.Element]] = {}
+    blocks: list[tuple[str, Any]] = []
+    current_voice: tuple[str, str] | None = None
+    current_notes: list[ET.Element] = []
+    last_seen_note: ET.Element | None = None
+
     for el in measure:
-        if el.tag.endswith("note"):
-            all_notes.append(el)
-            
-    # Associate other elements
-    last_seen_note = None
+        tag = _local(el)
+        if tag == "note":
+            voice_staff = _note_voice_staff(el, ns)
+            if current_notes and voice_staff != current_voice:
+                blocks.append(("notes", current_voice, current_notes))
+                current_notes = []
+            current_voice = voice_staff
+            current_notes.append(el)
+            last_seen_note = el
+        elif tag in ("backup", "forward"):
+            if current_notes:
+                blocks.append(("notes", current_voice, current_notes))
+                current_notes = []
+                current_voice = None
+            blocks.append((tag, el))
+        elif tag in ("print", "attributes"):
+            if current_notes:
+                blocks.append(("notes", current_voice, current_notes))
+                current_notes = []
+                current_voice = None
+            start_elements.append(el)
+        elif tag == "barline":
+            if current_notes:
+                blocks.append(("notes", current_voice, current_notes))
+                current_notes = []
+                current_voice = None
+            end_elements.append(el)
+        else:
+            if last_seen_note is not None:
+                note_attachments.setdefault(last_seen_note, []).append(el)
+            else:
+                start_elements.append(el)
+    if current_notes:
+        blocks.append(("notes", current_voice, current_notes))
+
+    new_blocks: list[tuple[str, Any]] = []
+    for block in blocks:
+        if block[0] == "notes":
+            _, _voice_staff, notes = block
+            new_blocks.append(("notes", _sort_notes_by_default_x(notes, ns)))
+        else:
+            new_blocks.append(block)
+
+    for el in list(measure):
+        measure.remove(el)
+    for el in start_elements:
+        measure.append(el)
+    for block in new_blocks:
+        if block[0] == "notes":
+            for note in block[1]:
+                measure.append(note)
+                for att in note_attachments.get(note, []):
+                    measure.append(att)
+        else:
+            measure.append(block[1])
+    for el in end_elements:
+        measure.append(el)
+
+
+def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
+    """단일 voice/staff — staff1 → backup → staff2 (기존 HITL 삽입 정렬)."""
+    notes_staff1: list[ET.Element] = []
+    notes_staff2: list[ET.Element] = []
+    start_elements: list[ET.Element] = []
+    end_elements: list[ET.Element] = []
+    note_attachments: dict[ET.Element, list[ET.Element]] = {}
+    last_seen_note: ET.Element | None = None
+
     for el in measure:
-        tag = el.tag.split("}")[-1]
+        tag = _local(el)
         if tag == "note":
             last_seen_note = el
         elif tag in ("backup", "forward"):
             continue
         elif tag in ("print", "attributes"):
             start_elements.append(el)
-        elif tag in ("barline",):
+        elif tag == "barline":
             end_elements.append(el)
         else:
-            # It's a direction, harmony, direction-type, lyric, etc.
             if last_seen_note is not None:
-                if last_seen_note not in note_attachments:
-                    note_attachments[last_seen_note] = []
-                note_attachments[last_seen_note].append(el)
+                note_attachments.setdefault(last_seen_note, []).append(el)
             else:
-                # No note seen yet, place at the start of measure
                 start_elements.append(el)
-                
-    # Separate notes by staff
-    for note in all_notes:
-        staff_el = note.find(_q(ns, "staff"))
-        staff = staff_el.text if staff_el is not None else "1"
+
+    for note in list_note_elements(measure, ns):
+        _, staff = _note_voice_staff(note, ns)
         if staff == "2":
             notes_staff2.append(note)
         else:
             notes_staff1.append(note)
-            
-    # Helper to sort notes of a staff by default-x while keeping chord members with their lead note, and assign voice.
-    def sort_staff_notes(notes, target_voice):
-        chord_groups: list[tuple[int, list[ET.Element]]] = []
-        current_group: list[ET.Element] = []
-        group_idx = 0
-        for note in notes:
-            chord = note.find(_q(ns, "chord")) is not None
-            if chord and current_group:
-                current_group.append(note)
-            else:
-                if current_group:
-                    chord_groups.append((group_idx, current_group))
-                    group_idx += 1
-                current_group = [note]
-        if current_group:
-            chord_groups.append((group_idx, current_group))
 
-        def get_group_x(item: tuple[int, list[ET.Element]]) -> tuple[float, int]:
-            idx, grp = item
-            lead = grp[0]
-            val = _parse_default_x(lead)
-            if val is not None:
-                return (val, idx)
-            return (1_000_000.0 + idx, idx)
+    sorted_notes_staff1 = _sort_notes_by_default_x(notes_staff1, ns)
+    sorted_notes_staff2 = _sort_notes_by_default_x(notes_staff2, ns)
+    dur_staff1 = _voice_layer_duration(sorted_notes_staff1, ns)
 
-        chord_groups.sort(key=get_group_x)
-
-        sorted_notes = []
-        total_dur = 0
-        for _idx, grp in chord_groups:
-            lead_note = grp[0]
-            dur_el = lead_note.find(_q(ns, "duration"))
-            dur = int(dur_el.text) if dur_el is not None and dur_el.text else 0
-            total_dur += dur
-            
-            for note in grp:
-                # Set voice
-                v_el = note.find(_q(ns, "voice"))
-                if v_el is None:
-                    v_el = ET.SubElement(note, _q(ns, "voice"))
-                v_el.text = target_voice
-                sorted_notes.append(note)
-        return sorted_notes, total_dur
-
-    sorted_notes_staff1, dur_staff1 = sort_staff_notes(notes_staff1, "1")
-    sorted_notes_staff2, dur_staff2 = sort_staff_notes(notes_staff2, "5")
-    
-    # Rebuild measure children list
     for el in list(measure):
         measure.remove(el)
-        
-    # 1. Start elements
     for el in start_elements:
         measure.append(el)
-        
-    # 2. Staff 1 notes (with attachments)
     for note in sorted_notes_staff1:
         measure.append(note)
-        if note in note_attachments:
-            for att in note_attachments[note]:
-                measure.append(att)
-                
-    # 3. Backup to Staff 2 if Staff 2 exists
+        for att in note_attachments.get(note, []):
+            measure.append(att)
     if sorted_notes_staff2:
         backup_el = ET.Element(_q(ns, "backup"))
         ET.SubElement(backup_el, _q(ns, "duration")).text = str(dur_staff1)
         measure.append(backup_el)
-        
-        # 4. Staff 2 notes (with attachments)
         for note in sorted_notes_staff2:
             measure.append(note)
-            if note in note_attachments:
-                for att in note_attachments[note]:
-                    measure.append(att)
-                    
-    # 5. End elements
+            for att in note_attachments.get(note, []):
+                measure.append(att)
     for el in end_elements:
         measure.append(el)
+
+
+def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
+    """HITL 삽입 후 마디 timeline 정렬. 다중 voice·동시 시작(다른 박자) 보존."""
+    for staff in ("1", "2"):
+        if _staff_parallel_onset_needs_repair(measure, ns, staff):
+            _repair_parallel_onsets_on_staff(measure, ns, staff)
+    if _measure_has_multivoice_layers(measure, ns):
+        _rebuild_measure_preserve_voices(measure, ns)
+    else:
+        _rebuild_measure_flat_staffs(measure, ns)
 
 
 def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[str, int]:

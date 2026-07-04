@@ -77,6 +77,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   insertNote: '음표 추가',
   insertGraceNote: '꾸밈음 추가',
   removeGraceBeforeNote: '앞 꾸밈음 삭제',
+  repairParallelOnsets: '동시 시작 voice 복원',
   insertChordMember: '화음 음 추가',
   removeArticulation: '표(스타카토 등) 제거',
   applyTriplet: '세잇단(잇단) 적용',

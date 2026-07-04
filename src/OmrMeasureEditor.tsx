@@ -478,6 +478,16 @@ export function OmrMeasureEditor({
       {editStaffWithinPart != null ? (
         <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
           staff {editStaffWithinPart} 줄만 표시 (#번호는 전체 마디 기준).
+          <button
+            type="button"
+            className="btn-muted"
+            style={{ marginLeft: 8 }}
+            onClick={() =>
+              pushFix({ kind: 'repairParallelOnsets', staff: editStaffWithinPart, detail: 'same-x parallel' })
+            }
+          >
+            동시 시작 voice 복원
+          </button>
         </p>
       ) : null}
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}

@@ -194,6 +194,7 @@ export type MeasureDirectionEl = {
   elementKind: 'direction';
   directionIndex: number;
   text: string;
+  staff?: number | null;
 };
 
 export type MeasureNoteEl = {
@@ -292,10 +293,27 @@ type PendingInsertLeader = {
   noteType: string;
 };
 
+function noteAnchorLabel(n: MeasureNoteEl): string {
+  if (n.kind === 'rest') return `쉼표(${n.type ?? '?'})`;
+  return n.pitch ?? n.type ?? '?';
+}
+
+function resolveAfterNoteIndex(el: MeasureElement, elements: MeasureElement[]): number {
+  if (el.elementKind === 'note') return el.index;
+  const pos = elements.indexOf(el);
+  if (pos < 0) return -1;
+  for (let i = pos - 1; i >= 0; i--) {
+    const prev = elements[i];
+    if (prev.elementKind === 'note') return prev.index;
+  }
+  return -1;
+}
+
 function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
   if (el.elementKind === 'direction') {
     const label = el.text?.trim() || '(표기 없음 — dynamics 등 XML 태그만 있을 수 있음)';
-    return `direction #${el.directionIndex}: ${label}`;
+    const staff = el.staff != null ? ` staff=${el.staff}` : '';
+    return `direction #${el.directionIndex}: ${label}${staff}`;
   }
   const idx = el.index;
   if (el.kind === 'rest') {
@@ -397,7 +415,10 @@ export function OmrMeasureEditor({
   const displayElements = useMemo(() => {
     if (editStaffWithinPart == null) return elements;
     return elements.filter((el) => {
-      if (el.elementKind === 'direction') return true;
+      if (el.elementKind === 'direction') {
+        const st = el.staff;
+        return st == null || st === editStaffWithinPart;
+      }
       return (el.staff ?? 1) === editStaffWithinPart;
     });
   }, [elements, editStaffWithinPart]);
@@ -406,6 +427,11 @@ export function OmrMeasureEditor({
     () => elements.filter((e): e is MeasureNoteEl => e.elementKind === 'note'),
     [elements],
   );
+
+  const noteElsForInsert = useMemo(() => {
+    if (editStaffWithinPart == null) return noteEls;
+    return noteEls.filter((n) => (n.staff ?? 1) === editStaffWithinPart);
+  }, [noteEls, editStaffWithinPart]);
 
   const pushFix = (partial: FixPartial) => {
     onAddFix({
@@ -507,11 +533,21 @@ export function OmrMeasureEditor({
                   type="button"
                   className="btn-muted omr-measure-insert-btn"
                   onClick={() => {
+                    const anchor = resolveAfterNoteIndex(el, elements);
+                    setInsertAfter(anchor);
                     if (el.elementKind === 'note') {
-                      setInsertAfter(el.index);
-                      const staff = el.staff ?? editStaffWithinPart ?? 1;
-                      setInsertStaff(staff);
+                      setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
+                    } else if (el.elementKind === 'direction' && el.staff != null) {
+                      setInsertStaff(el.staff);
+                    } else if (editStaffWithinPart != null) {
+                      setInsertStaff(editStaffWithinPart);
                     }
+                    const anchorNote = anchor >= 0 ? noteEls.find((n) => n.index === anchor) : null;
+                    setFixMsg(
+                      anchor < 0
+                        ? '삽입 위치: 마디 앞 — 아래 direction·삽입 폼에서 확인하세요.'
+                        : `삽입 위치: #${anchor} ${anchorNote ? noteAnchorLabel(anchorNote) : ''} 뒤`,
+                    );
                   }}
                 >
                   여기 뒤
@@ -586,7 +622,7 @@ export function OmrMeasureEditor({
       <DirectionInsertForm
         afterNoteIndex={insertAfter}
         staffDefault={insertStaff}
-        noteEls={noteEls}
+        noteEls={noteElsForInsert}
         onInsert={(partial) => {
           pushFix(partial);
           setFixMsg('direction 추가 보정을 대기 목록에 넣었습니다 → 「MXL에 반영·미리보기」');
@@ -1442,14 +1478,15 @@ function DirectionInsertForm({
       ? '마디 앞'
       : (() => {
           const n = noteEls.find((x) => x.index === localAfter);
-          return n ? `#${localAfter} ${n.pitch ?? n.type ?? ''} 뒤` : `#${localAfter} 뒤`;
+          return n ? `#${localAfter} ${noteAnchorLabel(n)} 뒤` : `#${localAfter} 뒤`;
         })();
 
   return (
     <div className="omr-measure-direction-insert">
       <p className="omr-measure-insert-heading">direction 추가</p>
       <p className="omr-measure-editor-hint" style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
-        셈여림·텍스트·리허설 표 등. 「여기 뒤」로 위치를 고른 뒤 추가하거나, 아래에서 직접 지정하세요.
+        셈여림·텍스트·리허설 표 등. 목록에서 <strong>쉼표·음표·direction</strong> 줄의 「여기 뒤」로 위치를 고른 뒤 추가하세요.
+        쉼표 위·아래의 <code>dyn:p</code> 도 direction입니다. PL/PR 필터 사용 시 위치·스태프 목록은 해당 줄만 표시됩니다.
       </p>
       <div className="omr-measure-insert-form-row">
         <label className="omr-measure-inline-field">
@@ -1458,7 +1495,7 @@ function DirectionInsertForm({
             <option value="-1">마디 앞</option>
             {noteEls.map((n) => (
               <option key={n.index} value={String(n.index)}>
-                #{n.index} {n.pitch ?? n.type ?? ''} 뒤
+                #{n.index} {noteAnchorLabel(n)} 뒤
               </option>
             ))}
           </select>

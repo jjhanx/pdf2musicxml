@@ -343,11 +343,18 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
     for child in measure:
         local = _local(child)
         if local == "direction":
+            staff_el = child.find(_q(ns, "staff"))
+            staff_n = (
+                int(staff_el.text.strip())
+                if staff_el is not None and staff_el.text and staff_el.text.strip().isdigit()
+                else None
+            )
             elements.append(
                 {
                     "elementKind": "direction",
                     "directionIndex": direction_index,
                     "text": _direction_text(child),
+                    "staff": staff_n,
                 }
             )
             direction_index += 1
@@ -1604,7 +1611,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             staff_n=staff_n,
             placement=placement,
         )
-        _insert_note_element(measure, ns, new_dir, after_idx)
+        insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(notes, ns, after_idx, staff_n)
+        _insert_note_element(measure, ns, new_dir, insert_after_idx)
         return True
 
     if kind == "addArticulation":

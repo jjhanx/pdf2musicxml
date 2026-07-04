@@ -708,6 +708,26 @@ def _insert_note_element(
     measure.append(new_el)
 
 
+def _insert_before_note_element(
+    measure: ET.Element,
+    ns: str,
+    new_el: ET.Element,
+    before_note_index: int,
+    staff_n: int | None = None,
+) -> None:
+    """before_note_index 음표 `<note>` 바로 앞 — 셈여림 등 해당 음 시작 시점."""
+    children = list(measure)
+    seen = -1
+    for child in children:
+        if _local(child) != "note":
+            continue
+        seen += 1
+        if seen == before_note_index:
+            measure.insert(children.index(child), new_el)
+            return
+    _insert_note_element(measure, ns, new_el, -1, staff_n=staff_n)
+
+
 def _insert_context_notes(
     notes: list[ET.Element], ns: str, after_idx: int, staff_n: int
 ) -> tuple[ET.Element | None, ET.Element | None, list[ET.Element]]:
@@ -830,6 +850,24 @@ def _assign_timeline_attachment(
         note_attachments.setdefault(last_seen_note, []).append(el)
     else:
         start_elements.append(el)
+
+
+def _try_preamble_direction_before_following_note(
+    measure: ET.Element,
+    direction: ET.Element,
+    note_preamble: dict[ET.Element, list[ET.Element]],
+) -> bool:
+    """`<direction>` 바로 다음 `<note>` 앞 preamble — 화음 리더 직전 셈여림 등 timeline 재정렬 보존."""
+    children = list(measure)
+    try:
+        idx = children.index(direction)
+    except ValueError:
+        return False
+    for j in range(idx + 1, len(children)):
+        if _local(children[j]) == "note":
+            note_preamble.setdefault(children[j], []).append(direction)
+            return True
+    return False
 
 
 def _find_note_by_pitch(
@@ -1785,8 +1823,15 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         placement = str(fix.get("placement") or "").strip().lower() or None
         if placement not in ("above", "below", ""):
             placement = None
-        insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(notes, ns, after_idx, staff_n)
-        expand_chord_group = True
+        if direction_type == "dynamics" and placement is None:
+            placement = "below"
+        new_dir = _build_direction_element(
+            ns,
+            direction_type,
+            direction_value,
+            staff_n=staff_n,
+            placement=placement,
+        )
         if (
             not fix.get("afterRest")
             and 0 <= after_idx < len(notes)
@@ -1799,35 +1844,28 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 )
             else:
                 insert_after_idx = -1
-        elif (
-            not fix.get("afterRest")
-            and not fix.get("afterChordGroup")
-            and 0 <= after_idx < len(notes)
-            and notes[after_idx].find(_q(ns, "chord")) is None
-        ):
-            # 「#n 뒤」direction — 화음 리더 직후(동시 시작 멤버 앞). 화음 끝으로 밀면 셈여림이 다음 박으로 그려짐.
-            staff_from = _note_staff_number(notes[after_idx], ns)
+            _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
+            return True
+        if fix.get("afterRest") and 0 <= after_idx < len(notes):
+            insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
+                notes, ns, after_idx, staff_n
+            )
+            _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
+            return True
+        if after_idx < 0:
+            _insert_note_element(measure, ns, new_dir, after_idx, staff_n=staff_n)
+            return True
+        if 0 <= after_idx < len(notes):
+            anchor_idx = after_idx
+            if notes[after_idx].find(_q(ns, "chord")) is not None:
+                anchor_idx = _chord_leader_index(notes, ns, after_idx)
+            staff_from = _note_staff_number(notes[anchor_idx], ns)
             if staff_from is not None:
                 staff_n = staff_from
-            insert_after_idx = after_idx
-            expand_chord_group = False
-        if direction_type == "dynamics" and placement is None:
-            placement = "below"
-        new_dir = _build_direction_element(
-            ns,
-            direction_type,
-            direction_value,
-            staff_n=staff_n,
-            placement=placement,
-        )
-        _insert_note_element(
-            measure,
-            ns,
-            new_dir,
-            insert_after_idx,
-            staff_n=staff_n,
-            expand_chord_group=expand_chord_group,
-        )
+            # 음표·화음 리더 — 해당 음 시작(attack) = `<note>` 바로 앞. 리더 뒤·화음 끝은 OSMD가 다음 박으로 그림.
+            _insert_before_note_element(measure, ns, new_dir, anchor_idx, staff_n=staff_n)
+            return True
+        _insert_note_element(measure, ns, new_dir, after_idx, staff_n=staff_n)
         return True
 
     if kind == "insertGraceNote":
@@ -2905,6 +2943,7 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
     start_elements: list[ET.Element] = []
     end_elements: list[ET.Element] = []
     note_attachments: dict[ET.Element, list[ET.Element]] = {}
+    note_preamble: dict[ET.Element, list[ET.Element]] = {}
     staff_preamble: dict[int, list[ET.Element]] = {}
     blocks: list[tuple[str, Any]] = []
     current_voice: tuple[str, str] | None = None
@@ -2941,6 +2980,10 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
                 current_voice = None
             end_elements.append(el)
         else:
+            if _local(el) == "direction" and _try_preamble_direction_before_following_note(
+                measure, el, note_preamble
+            ):
+                continue
             _assign_timeline_attachment(
                 el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
             )
@@ -2974,6 +3017,8 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
                         measure.append(pre)
                     staff_preamble_emitted.add(st_n)
             for note in notes:
+                for pre in note_preamble.get(note, []):
+                    measure.append(pre)
                 measure.append(note)
                 for att in note_attachments.get(note, []):
                     measure.append(att)
@@ -2990,6 +3035,7 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
     start_elements: list[ET.Element] = []
     end_elements: list[ET.Element] = []
     note_attachments: dict[ET.Element, list[ET.Element]] = {}
+    note_preamble: dict[ET.Element, list[ET.Element]] = {}
     staff_preamble: dict[int, list[ET.Element]] = {}
     last_seen_note: ET.Element | None = None
 
@@ -3004,6 +3050,10 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
         elif tag == "barline":
             end_elements.append(el)
         else:
+            if _local(el) == "direction" and _try_preamble_direction_before_following_note(
+                measure, el, note_preamble
+            ):
+                continue
             _assign_timeline_attachment(
                 el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
             )
@@ -3026,6 +3076,8 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
     for pre in staff_preamble.get(1, []):
         measure.append(pre)
     for note in sorted_notes_staff1:
+        for pre in note_preamble.get(note, []):
+            measure.append(pre)
         measure.append(note)
         for att in note_attachments.get(note, []):
             measure.append(att)
@@ -3036,6 +3088,8 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
         for pre in staff_preamble.get(2, []):
             measure.append(pre)
         for note in sorted_notes_staff2:
+            for pre in note_preamble.get(note, []):
+                measure.append(pre)
             measure.append(note)
             for att in note_attachments.get(note, []):
                 measure.append(att)

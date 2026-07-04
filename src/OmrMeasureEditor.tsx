@@ -470,8 +470,9 @@ export function OmrMeasureEditor({
         <strong>
           마디 편집 · 인쇄 m.{measurePrinted}
           <span className="omr-measure-editor-sub">
-            (MXL {measureMxl}
-            {staffLabel ? ` · ${staffLabel}` : ''})
+            (MXL {measureMxl} · part {partId}
+            {staffLabel ? ` · ${staffLabel}` : ''}
+            {editStaffWithinPart != null ? ` · staff ${editStaffWithinPart}` : ''})
           </span>
         </strong>
         <button type="button" className="btn-muted" disabled={loading} onClick={() => void load()}>
@@ -483,7 +484,8 @@ export function OmrMeasureEditor({
       </p>
       {editStaffWithinPart != null ? (
         <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
-          staff {editStaffWithinPart} 줄만 표시 (#번호는 전체 마디 기준).
+          {staffLabel ?? `staff ${editStaffWithinPart}`} 줄만 표시 — 보정은 MusicXML part <code>{partId}</code> staff{' '}
+          {editStaffWithinPart}(#번호는 전체 마디 기준).
           <button
             type="button"
             className="btn-muted"
@@ -672,9 +674,15 @@ export function OmrMeasureEditor({
         afterNoteIndex={insertAfter}
         staffDefault={insertStaff}
         noteEls={noteElsForInsert}
+        partId={partId}
+        staffLineLabel={staffLabel ?? null}
+        editStaffWithinPart={editStaffWithinPart}
         onInsert={(partial) => {
           pushFix(partial);
-          setFixMsg('direction 추가 보정을 대기 목록에 넣었습니다 → 「MXL에 반영·미리보기」');
+          const st = partial.staff ?? insertStaff;
+          setFixMsg(
+            `direction 추가 대기 → part ${partId}${staffLabel ? ` · ${staffLabel}` : ''} · MusicXML staff ${st} → 「MXL에 반영·미리보기」`,
+          );
         }}
       />
 
@@ -1872,11 +1880,28 @@ function directionAnchorLabel(
   localAfter: number,
   staff: number,
   noteEls: MeasureNoteEl[],
+  ctx: {
+    partId: string;
+    staffLineLabel?: string | null;
+    editStaffWithinPart?: number | null;
+  },
 ): string {
-  if (localAfter < 0) return `마디 앞 (스태프 ${staff} 첫 음 앞)`;
+  const line = ctx.staffLineLabel?.trim() || `staff ${staff}`;
+  const part = ctx.partId.trim();
+  if (localAfter < 0) {
+    if (ctx.editStaffWithinPart === 2 && (ctx.staffLineLabel === 'PL' || staff === 2)) {
+      return `마디 앞 · part ${part} · ${line} · ⟨backup⟩ 뒤 첫 PL 음 앞`;
+    }
+    if (ctx.editStaffWithinPart === 1 && (ctx.staffLineLabel === 'PR' || staff === 1)) {
+      return `마디 앞 · part ${part} · ${line} · 첫 PR 음 앞`;
+    }
+    return `마디 앞 · part ${part} · ${line} · MusicXML staff ${staff} 첫 음 앞`;
+  }
   const n = noteEls.find((x) => x.index === localAfter);
   if (n?.kind === 'rest') return `#${localAfter} ${noteAnchorLabel(n)}에 direction`;
-  return n ? `#${localAfter} ${noteAnchorLabel(n)} 뒤` : `#${localAfter} 뒤`;
+  return n
+    ? `#${localAfter} ${noteAnchorLabel(n)} · part ${part} · ${line}`
+    : `#${localAfter} · part ${part} · ${line}`;
 }
 
 function buildInsertDirectionPartial(
@@ -1960,11 +1985,17 @@ function DirectionInsertForm({
   afterNoteIndex,
   staffDefault,
   noteEls,
+  partId,
+  staffLineLabel,
+  editStaffWithinPart,
   onInsert,
 }: {
   afterNoteIndex: number;
   staffDefault: number;
   noteEls: MeasureNoteEl[];
+  partId: string;
+  staffLineLabel?: string | null;
+  editStaffWithinPart?: number | null;
   onInsert: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
 }) {
   const [directionType, setDirectionType] = useState<'dynamics' | 'words' | 'rehearsal'>('dynamics');
@@ -1972,6 +2003,11 @@ function DirectionInsertForm({
   const [wordsValue, setWordsValue] = useState('');
   const [staff, setStaff] = useState(staffDefault);
   const [localAfter, setLocalAfter] = useState(afterNoteIndex);
+
+  const anchorCtx = useMemo(
+    () => ({ partId, staffLineLabel, editStaffWithinPart }),
+    [partId, staffLineLabel, editStaffWithinPart],
+  );
 
   useEffect(() => {
     setStaff(staffDefault);
@@ -1981,26 +2017,40 @@ function DirectionInsertForm({
     setLocalAfter(afterNoteIndex);
   }, [afterNoteIndex]);
 
-  const afterLabel = directionAnchorLabel(localAfter, staff, noteEls);
+  const afterLabel = directionAnchorLabel(localAfter, staff, noteEls, anchorCtx);
+  const measureStartLabel = directionAnchorLabel(-1, staff, noteEls, anchorCtx);
+  const staffLocked = editStaffWithinPart != null;
 
   return (
     <div className="omr-measure-direction-insert">
       <p className="omr-measure-insert-heading">direction 추가</p>
+      <p
+        className="omr-measure-editor-hint"
+        style={{ fontSize: '0.85rem', margin: '0 0 0.35rem', color: '#1565c0' }}
+      >
+        적용 대상: MusicXML part <code>{partId}</code>
+        {staffLineLabel ? ` · ${staffLineLabel}` : ''} · staff {staffLocked ? editStaffWithinPart : staff}
+        {staffLineLabel === 'PL' || editStaffWithinPart === 2 ? (
+          <>
+            {' '}
+            — <strong>P2 파트 ID와 다릅니다.</strong> 피아노 왼손은 part {partId} staff 2(PL)입니다.
+          </>
+        ) : null}
+      </p>
       <p className="omr-measure-editor-hint" style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
-        셈여림·텍스트·리허설 등. 쉼표 줄에는 <strong>「이 쉼표에 direction」</strong> 인라인 폼을 쓰거나 아래에서 해당 쉼표를 고르세요.
-        쉼표 note·<code>display-step</code>은 바꾸지 않고 <code>&lt;direction&gt;</code>만 추가합니다(줄 위치 변경은 온·2분쉼표의 「쉼표 줄 한 칸 위/아래」).
-        「마디 앞」은 <strong>선택한 스태프</strong> 첫 음 앞(PL 필터 시 PL만)입니다.
+        셈여림·텍스트·리허설 등. 쉼표 줄에는 <strong>「이 쉼표에 direction」</strong> 인라인 폼을 쓰세요.
+        「마디 앞」은 아래 <strong>part·줄(PL/PR)</strong>의 첫 음 앞입니다(피아노 PL은 PR 음 뒤 <code>&lt;backup&gt;</code> 다음).
       </p>
       <div className="omr-measure-insert-form-row">
         <label className="omr-measure-inline-field">
           위치
           <select value={String(localAfter)} onChange={(e) => setLocalAfter(parseInt(e.target.value, 10))}>
-            <option value="-1">마디 앞 (스태프 {staff} 첫 음 앞)</option>
+            <option value="-1">{measureStartLabel}</option>
             {noteEls.map((n) => (
               <option key={n.index} value={String(n.index)}>
                 {n.kind === 'rest'
                   ? `#${n.index} ${noteAnchorLabel(n)}에 direction`
-                  : `#${n.index} ${noteAnchorLabel(n)} 뒤`}
+                  : `#${n.index} ${noteAnchorLabel(n)} · ${staffLineLabel ?? `staff ${staff}`}`}
               </option>
             ))}
           </select>
@@ -2016,10 +2066,25 @@ function DirectionInsertForm({
             <option value="rehearsal">리허설 (rehearsal)</option>
           </select>
         </label>
-        <label className="omr-measure-inline-field">
-          스태프
-          <input type="number" min={1} max={4} value={staff} onChange={(e) => setStaff(Number(e.target.value))} style={{ width: 48 }} />
-        </label>
+        {staffLocked ? (
+          <span className="omr-measure-inline-field" style={{ alignSelf: 'flex-end', fontSize: '0.88rem' }}>
+            MusicXML staff {editStaffWithinPart}
+            {staffLineLabel ? ` (${staffLineLabel})` : ''}
+          </span>
+        ) : (
+          <label className="omr-measure-inline-field">
+            MusicXML staff
+            <input
+              type="number"
+              min={1}
+              max={4}
+              value={staff}
+              onChange={(e) => setStaff(Number(e.target.value))}
+              style={{ width: 48 }}
+              title="이 파트(partId) 안의 staff 번호 — P2 파트 ID와 혼동하지 마세요"
+            />
+          </label>
+        )}
       </div>
       <div className="omr-measure-insert-form-row">
         {directionType === 'dynamics' ? (
@@ -2049,7 +2114,15 @@ function DirectionInsertForm({
           type="button"
           className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
           onClick={() =>
-            onInsert(buildInsertDirectionPartial(localAfter, staff, directionType, dynamicsValue, wordsValue))
+            onInsert(
+              buildInsertDirectionPartial(
+                localAfter,
+                staffLocked ? editStaffWithinPart! : staff,
+                directionType,
+                dynamicsValue,
+                wordsValue,
+              ),
+            )
           }
         >
           direction 추가 ({afterLabel})

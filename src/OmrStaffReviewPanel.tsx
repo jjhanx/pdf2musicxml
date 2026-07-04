@@ -271,10 +271,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         (e) => e.partId === partId && (e.staffWithinPart ?? null) === (staffWithinPart ?? null),
       );
       if (entry) return entry.label;
-      if (staffWithinPart === 2) return 'PL';
-      if (staffWithinPart === 1) {
-        const staves = rawXml ? staveCountForPart(rawXml, partId) : 1;
-        if (staves >= 2) return 'PR';
+      const staves = rawXml ? staveCountForPart(rawXml, partId) : 1;
+      if (staves >= 2) {
+        if (staffWithinPart === 2) return 'PL';
+        if (staffWithinPart === 1) return 'PR';
       }
       return labelForPartId(partId);
     },
@@ -718,7 +718,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               >
                 {scoreParts.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.displayLabel || p.suggestedLabel || p.id}
+                    {p.displayLabel || p.suggestedLabel || p.id} (part {p.id})
                   </option>
                 ))}
               </select>

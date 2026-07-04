@@ -156,6 +156,13 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   const parts = [label, fix.partId, `m.${fix.measureMxl}`];
   if (fix.noteIndex != null) parts.push(`#${fix.noteIndex}`);
   if (fix.directionIndex != null) parts.push(`dir#${fix.directionIndex}`);
+  if (fix.kind === 'insertDirection') {
+    if (fix.afterNoteIndex != null && fix.afterNoteIndex < 0) parts.push('마디 앞');
+    else if (fix.afterNoteIndex != null) parts.push(`after #${fix.afterNoteIndex}`);
+    if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+    if (fix.directionType) parts.push(fix.directionType);
+    if (fix.directionValue?.trim()) parts.push(fix.directionValue.trim());
+  }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);
   }

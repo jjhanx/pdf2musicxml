@@ -790,6 +790,42 @@ def _note_pitch_str(note: ET.Element, ns: str) -> str | None:
     return f"{step}{octave}"
 
 
+def _direction_staff_number(direction: ET.Element, ns: str) -> int | None:
+    staff_el = direction.find(_q(ns, "staff"))
+    if staff_el is not None and staff_el.text and staff_el.text.strip().isdigit():
+        return int(staff_el.text.strip())
+    return None
+
+
+def _assign_timeline_attachment(
+    el: ET.Element,
+    ns: str,
+    last_seen_note: ET.Element | None,
+    note_attachments: dict[ET.Element, list[ET.Element]],
+    staff_preamble: dict[int, list[ET.Element]],
+    start_elements: list[ET.Element],
+) -> None:
+    """direction staff ≠ 직전 note staff 이면 해당 staff 블록 앞(preamble)으로 — backup 뒤 PL 셈여림 등."""
+    if _local(el) == "direction":
+        dstaff = _direction_staff_number(el, ns)
+        if last_seen_note is not None:
+            nstaff = _note_staff_number(last_seen_note, ns) or 1
+            if dstaff is None or dstaff == nstaff:
+                note_attachments.setdefault(last_seen_note, []).append(el)
+                return
+        if dstaff is not None:
+            staff_preamble.setdefault(dstaff, []).append(el)
+        elif last_seen_note is not None:
+            note_attachments.setdefault(last_seen_note, []).append(el)
+        else:
+            staff_preamble.setdefault(1, []).append(el)
+        return
+    if last_seen_note is not None:
+        note_attachments.setdefault(last_seen_note, []).append(el)
+    else:
+        start_elements.append(el)
+
+
 def _note_voice_staff(note: ET.Element, ns: str) -> tuple[str, str]:
     voice_el = note.find(_q(ns, "voice"))
     staff_el = note.find(_q(ns, "staff"))
@@ -2743,6 +2779,7 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
     start_elements: list[ET.Element] = []
     end_elements: list[ET.Element] = []
     note_attachments: dict[ET.Element, list[ET.Element]] = {}
+    staff_preamble: dict[int, list[ET.Element]] = {}
     blocks: list[tuple[str, Any]] = []
     current_voice: tuple[str, str] | None = None
     current_notes: list[ET.Element] = []
@@ -2764,6 +2801,7 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
                 current_notes = []
                 current_voice = None
             blocks.append((tag, el))
+            last_seen_note = None
         elif tag in ("print", "attributes"):
             if current_notes:
                 blocks.append(("notes", current_voice, current_notes))
@@ -2777,10 +2815,9 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
                 current_voice = None
             end_elements.append(el)
         else:
-            if last_seen_note is not None:
-                note_attachments.setdefault(last_seen_note, []).append(el)
-            else:
-                start_elements.append(el)
+            _assign_timeline_attachment(
+                el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
+            )
     if current_notes:
         blocks.append(("notes", current_voice, current_notes))
 
@@ -2792,13 +2829,25 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
         else:
             new_blocks.append(block)
 
+    staff_preamble_emitted: set[int] = set()
     for el in list(measure):
         measure.remove(el)
     for el in start_elements:
         measure.append(el)
     for block in new_blocks:
         if block[0] == "notes":
-            for note in block[1]:
+            notes = block[1]
+            if notes:
+                _, st = _note_voice_staff(notes[0], ns)
+                try:
+                    st_n = int(st)
+                except ValueError:
+                    st_n = 1
+                if st_n not in staff_preamble_emitted:
+                    for pre in staff_preamble.get(st_n, []):
+                        measure.append(pre)
+                    staff_preamble_emitted.add(st_n)
+            for note in notes:
                 measure.append(note)
                 for att in note_attachments.get(note, []):
                     measure.append(att)
@@ -2815,6 +2864,7 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
     start_elements: list[ET.Element] = []
     end_elements: list[ET.Element] = []
     note_attachments: dict[ET.Element, list[ET.Element]] = {}
+    staff_preamble: dict[int, list[ET.Element]] = {}
     last_seen_note: ET.Element | None = None
 
     for el in measure:
@@ -2822,16 +2872,15 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
         if tag == "note":
             last_seen_note = el
         elif tag in ("backup", "forward"):
-            continue
+            last_seen_note = None
         elif tag in ("print", "attributes"):
             start_elements.append(el)
         elif tag == "barline":
             end_elements.append(el)
         else:
-            if last_seen_note is not None:
-                note_attachments.setdefault(last_seen_note, []).append(el)
-            else:
-                start_elements.append(el)
+            _assign_timeline_attachment(
+                el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
+            )
 
     for note in list_note_elements(measure, ns):
         _, staff = _note_voice_staff(note, ns)
@@ -2848,6 +2897,8 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
         measure.remove(el)
     for el in start_elements:
         measure.append(el)
+    for pre in staff_preamble.get(1, []):
+        measure.append(pre)
     for note in sorted_notes_staff1:
         measure.append(note)
         for att in note_attachments.get(note, []):
@@ -2856,6 +2907,8 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
         backup_el = ET.Element(_q(ns, "backup"))
         ET.SubElement(backup_el, _q(ns, "duration")).text = str(dur_staff1)
         measure.append(backup_el)
+        for pre in staff_preamble.get(2, []):
+            measure.append(pre)
         for note in sorted_notes_staff2:
             measure.append(note)
             for att in note_attachments.get(note, []):

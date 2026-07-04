@@ -8,7 +8,7 @@ import {
   type PitchAlterOption,
 } from './omrPitchUi';
 
-type FixPartial = Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>;
+type FixPartial = Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'> & { measureMxl?: string };
 
 const NOTE_TYPES = ['whole', 'half', 'quarter', 'eighth', '16th', '32nd'] as const;
 const GRACE_NOTE_TYPES = ['eighth', '16th', '32nd'] as const;
@@ -453,12 +453,13 @@ export function OmrMeasureEditor({
   }, [noteEls, editStaffWithinPart]);
 
   const pushFix = (partial: FixPartial) => {
+    const { measureMxl: overrideMxl, ...rest } = partial;
     onAddFix({
       id: newFixId(),
       partId,
-      measureMxl: String(measureMxl),
+      measureMxl: overrideMxl ?? String(measureMxl),
       source: 'manual',
-      ...partial,
+      ...rest,
     });
     setFixMsg('대기 목록에 추가됨 → 아래 「MXL에 반영·미리보기」로 오른쪽 악보를 확인하세요.');
   };
@@ -553,6 +554,9 @@ export function OmrMeasureEditor({
                 <MeasureNoteEditor
                   el={el}
                   noteEls={noteEls}
+                  jobId={jobId}
+                  partId={partId}
+                  measureMxl={measureMxl}
                   onFix={pushFix}
                 />
               )}
@@ -695,13 +699,230 @@ export function OmrMeasureEditor({
   );
 }
 
+function CrossMeasureTieForm({
+  jobId,
+  partId,
+  currentMeasureMxl,
+  el,
+  onFix,
+}: {
+  jobId: string;
+  partId: string;
+  currentMeasureMxl: number;
+  el: MeasureNoteEl;
+  onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
+}) {
+  const parsed = parsePitch(el.pitch);
+  const [nextMxl, setNextMxl] = useState(String(currentMeasureMxl + 1));
+  const [prevMxl, setPrevMxl] = useState(String(Math.max(1, currentMeasureMxl - 1)));
+  const [nextNotes, setNextNotes] = useState<MeasureNoteEl[]>([]);
+  const [prevNotes, setPrevNotes] = useState<MeasureNoteEl[]>([]);
+  const [toPitchStep, setToPitchStep] = useState(parsed.step);
+  const [toPitchOctave, setToPitchOctave] = useState(parsed.octave);
+  const [toPitchAlter, setToPitchAlter] = useState<PitchAlterOption>(pitchAlterToOption(el.pitchAlter));
+  const [fromPitchStep, setFromPitchStep] = useState(parsed.step);
+  const [fromPitchOctave, setFromPitchOctave] = useState(parsed.octave);
+  const [fromPitchAlter, setFromPitchAlter] = useState<PitchAlterOption>(pitchAlterToOption(el.pitchAlter));
+  const [nextPick, setNextPick] = useState('');
+  const [prevPick, setPrevPick] = useState('');
+
+  const loadNeighborNotes = useCallback(
+    async (mxl: string, setter: (notes: MeasureNoteEl[]) => void) => {
+      try {
+        const r = await fetch(
+          `/api/omr-hitl/${jobId}/measure?partId=${encodeURIComponent(partId)}&measureMxl=${encodeURIComponent(mxl)}`,
+          { cache: 'no-store' },
+        );
+        const j = (await r.json()) as MeasureSnapshot & { error?: string };
+        if (!r.ok || j.error) {
+          setter([]);
+          return;
+        }
+        const notes = (j.notes ?? []).filter(
+          (n) => n.kind === 'note' && !n.chord && !n.hasGrace && !n.isCue,
+        ) as MeasureNoteEl[];
+        setter(notes);
+      } catch {
+        setter([]);
+      }
+    },
+    [jobId, partId],
+  );
+
+  useEffect(() => {
+    void loadNeighborNotes(nextMxl, setNextNotes);
+  }, [loadNeighborNotes, nextMxl]);
+
+  useEffect(() => {
+    void loadNeighborNotes(prevMxl, setPrevNotes);
+  }, [loadNeighborNotes, prevMxl]);
+
+  useEffect(() => {
+    setNextPick('');
+    setPrevPick('');
+    const p = parsePitch(el.pitch);
+    setToPitchStep(p.step);
+    setToPitchOctave(p.octave);
+    setToPitchAlter(pitchAlterToOption(el.pitchAlter));
+    setFromPitchStep(p.step);
+    setFromPitchOctave(p.octave);
+    setFromPitchAlter(pitchAlterToOption(el.pitchAlter));
+  }, [el.index, el.pitch, el.pitchAlter]);
+
+  const noteOptionLabel = (n: MeasureNoteEl) =>
+    `#${n.index} ${formatPitchLabel(parsePitch(n.pitch).step, parsePitch(n.pitch).octave, n.pitchAlter)}`;
+
+  const applyForward = () => {
+    const partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'> = {
+      kind: 'addTie',
+      fromNoteIndex: el.index,
+      toMeasureMxl: nextMxl,
+      toPitchStep,
+      toPitchOctave,
+      toPitchAlter: pitchAlterFromOption(toPitchAlter),
+    };
+    if (nextPick !== '') partial.toNoteIndex = parseInt(nextPick, 10);
+    onFix(partial);
+  };
+
+  const applyBackward = () => {
+    const partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'> = {
+      kind: 'addTie',
+      measureMxl: prevMxl,
+      fromPitchStep,
+      fromPitchOctave,
+      fromPitchAlter: pitchAlterFromOption(fromPitchAlter),
+      toMeasureMxl: String(currentMeasureMxl),
+      toNoteIndex: el.index,
+    };
+    if (prevPick !== '') {
+      const picked = prevNotes.find((n) => String(n.index) === prevPick);
+      if (picked?.pitch) {
+        const p = parsePitch(picked.pitch);
+        partial.fromPitchStep = p.step;
+        partial.fromPitchOctave = p.octave;
+        partial.fromPitchAlter = pitchAlterFromOption(picked.pitchAlter);
+        partial.fromNoteIndex = picked.index;
+      }
+    }
+    onFix(partial);
+  };
+
+  return (
+    <div className="omr-measure-cross-tie" style={{ marginTop: '6px' }}>
+      <p className="omr-measure-editor-hint" style={{ fontSize: '0.82rem', margin: '0 0 4px' }}>
+        <strong>마디 넘김 붙임줄</strong> — 줄 바꿈 등으로 다음·이전 마디 음과 연결. #index 대신{' '}
+        <strong>연결할 음높이</strong>로 찾습니다.
+      </p>
+      <div className="omr-measure-insert-form-row">
+        <label className="omr-measure-inline-field">
+          다음 MXL m
+          <input
+            type="number"
+            min={1}
+            value={nextMxl}
+            onChange={(e) => setNextMxl(e.target.value)}
+            style={{ width: 52 }}
+          />
+        </label>
+        <label className="omr-measure-inline-field">
+          연결 음(끝)
+          <select value={nextPick} onChange={(e) => setNextPick(e.target.value)}>
+            <option value="">음높이로 찾기</option>
+            {nextNotes.map((n) => (
+              <option key={n.index} value={String(n.index)}>
+                {noteOptionLabel(n)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {nextPick === '' ? (
+          <>
+            <select value={toPitchStep} onChange={(e) => setToPitchStep(e.target.value)}>
+              {PITCH_STEPS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0}
+              max={9}
+              value={toPitchOctave}
+              onChange={(e) => setToPitchOctave(Number(e.target.value))}
+              style={{ width: 40 }}
+            />
+            <PitchAlterSelect value={toPitchAlter} onChange={setToPitchAlter} />
+          </>
+        ) : null}
+        <button type="button" className="omr-hitl-fix-btn" onClick={applyForward}>
+          이 음 → 다음 마디
+        </button>
+      </div>
+      <div className="omr-measure-insert-form-row" style={{ marginTop: '4px' }}>
+        <label className="omr-measure-inline-field">
+          이전 MXL m
+          <input
+            type="number"
+            min={1}
+            value={prevMxl}
+            onChange={(e) => setPrevMxl(e.target.value)}
+            style={{ width: 52 }}
+          />
+        </label>
+        <label className="omr-measure-inline-field">
+          연결 음(시작)
+          <select value={prevPick} onChange={(e) => setPrevPick(e.target.value)}>
+            <option value="">음높이로 찾기</option>
+            {prevNotes.map((n) => (
+              <option key={n.index} value={String(n.index)}>
+                {noteOptionLabel(n)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {prevPick === '' ? (
+          <>
+            <select value={fromPitchStep} onChange={(e) => setFromPitchStep(e.target.value)}>
+              {PITCH_STEPS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0}
+              max={9}
+              value={fromPitchOctave}
+              onChange={(e) => setFromPitchOctave(Number(e.target.value))}
+              style={{ width: 40 }}
+            />
+            <PitchAlterSelect value={fromPitchAlter} onChange={setFromPitchAlter} />
+          </>
+        ) : null}
+        <button type="button" className="omr-hitl-fix-btn" onClick={applyBackward}>
+          이전 마디 → 이 음
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MeasureNoteEditor({
   el,
   noteEls,
+  jobId,
+  partId,
+  measureMxl,
   onFix,
 }: {
   el: MeasureNoteEl;
   noteEls: MeasureNoteEl[];
+  jobId: string;
+  partId: string;
+  measureMxl: number;
   onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
 }) {
   const parsed = parsePitch(el.pitch);
@@ -1049,6 +1270,13 @@ function MeasureNoteEditor({
               </button>
             </label>
           )}
+          <CrossMeasureTieForm
+            jobId={jobId}
+            partId={partId}
+            currentMeasureMxl={measureMxl}
+            el={el}
+            onFix={onFix}
+          />
         </div>
       )}
       {el.kind === 'note' && (

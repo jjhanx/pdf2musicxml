@@ -829,6 +829,84 @@ def _assign_timeline_attachment(
         start_elements.append(el)
 
 
+def _find_note_by_pitch(
+    notes: list[ET.Element],
+    ns: str,
+    step: str,
+    octave: int,
+    alter: int | None = None,
+    *,
+    staff: int | None = None,
+    allow_chord: bool = False,
+) -> ET.Element | None:
+    """마디 내 pitch(·staff)로 음표 찾기 — 붙임줄 등 마디 넘김 연결용."""
+    want_step = step.strip().upper()
+    candidates: list[ET.Element] = []
+    for note in notes:
+        if not allow_chord and note.find(_q(ns, "chord")) is not None:
+            continue
+        key = _note_pitch_key(note, ns)
+        if key is None:
+            continue
+        if key[0] != want_step or key[1] != octave:
+            continue
+        if alter is not None and key[2] != alter:
+            continue
+        if staff is not None:
+            sn = _note_staff_number(note, ns)
+            if sn is not None and sn != staff:
+                continue
+        candidates.append(note)
+    if candidates:
+        return candidates[0]
+    if not allow_chord:
+        return _find_note_by_pitch(
+            notes, ns, step, octave, alter, staff=staff, allow_chord=True
+        )
+    return None
+
+
+def _resolve_tie_endpoint_note(
+    notes: list[ET.Element],
+    ns: str,
+    fix: dict[str, Any],
+    *,
+    prefix: str,
+) -> ET.Element | None:
+    """prefix=from|to — noteIndex 또는 pitchStep/Octave/Alter 로 음표 해석."""
+    raw_idx = fix.get(f"{prefix}NoteIndex")
+    if raw_idx is not None:
+        try:
+            idx = int(raw_idx)
+        except (TypeError, ValueError):
+            return None
+        if 0 <= idx < len(notes):
+            return notes[idx]
+        return None
+    step = str(fix.get(f"{prefix}PitchStep") or "").strip()
+    if not step:
+        return None
+    try:
+        octave = int(fix.get(f"{prefix}PitchOctave"))
+    except (TypeError, ValueError):
+        return None
+    alter_n: int | None = None
+    raw_alter = fix.get(f"{prefix}PitchAlter")
+    if raw_alter is not None and raw_alter != "":
+        try:
+            alter_n = int(raw_alter)
+        except (TypeError, ValueError):
+            alter_n = None
+    staff_raw = fix.get(f"{prefix}Staff") if prefix == "from" else fix.get("toStaff")
+    staff_n: int | None = None
+    if staff_raw is not None and staff_raw != "":
+        try:
+            staff_n = int(staff_raw)
+        except (TypeError, ValueError):
+            staff_n = None
+    return _find_note_by_pitch(notes, ns, step, octave, alter_n, staff=staff_n)
+
+
 def _note_voice_staff(note: ET.Element, ns: str) -> tuple[str, str]:
     voice_el = note.find(_q(ns, "voice"))
     staff_el = note.find(_q(ns, "staff"))
@@ -2004,15 +2082,23 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         return removed
 
     if kind == "addTie":
-        try:
-            from_idx = int(fix.get("fromNoteIndex"))
-            to_idx = int(fix.get("toNoteIndex"))
-        except (TypeError, ValueError):
+        to_measure_mxl = str(fix.get("toMeasureMxl") or measure_mxl).strip()
+        from_measure = measure
+        from_notes = notes
+        to_part = part
+        if to_measure_mxl != measure_mxl:
+            to_measure = find_measure(part, ns, to_measure_mxl)
+            if to_measure is None:
+                return False
+            to_notes = list_note_elements(to_measure, ns)
+        else:
+            to_measure = measure
+            to_notes = notes
+
+        from_note = _resolve_tie_endpoint_note(from_notes, ns, fix, prefix="from")
+        to_note = _resolve_tie_endpoint_note(to_notes, ns, fix, prefix="to")
+        if from_note is None or to_note is None:
             return False
-        if from_idx < 0 or to_idx < 0 or from_idx >= len(notes) or to_idx >= len(notes):
-            return False
-        from_note = notes[from_idx]
-        to_note = notes[to_idx]
         from_not = _ensure_notations(from_note, ns)
         to_not = _ensure_notations(to_note, ns)
         has_start = any((t.get("type") or "") == "start" for t in from_not.findall(_q(ns, "tied")))
@@ -2967,6 +3053,12 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             touched.add((part_id, measure_mxl))
         if fix.get("kind") in deferred_kinds:
             deferred.append(fix)
+            to_m = str(fix.get("toMeasureMxl") or "").strip()
+            if to_m and part_id and to_m != measure_mxl:
+                touched.add((part_id, to_m))
+            from_m = str(fix.get("fromMeasureMxl") or "").strip()
+            if from_m and part_id and from_m != measure_mxl:
+                touched.add((part_id, from_m))
             continue
         if apply_fix(root, ns, fix):
             stats["applied"] += 1

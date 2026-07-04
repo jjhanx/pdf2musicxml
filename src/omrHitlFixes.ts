@@ -34,6 +34,14 @@ export type OmrHitlFix = {
   toNoteIndex?: number;
   afterNoteIndex?: number;
   leaderNoteIndex?: number;
+  toMeasureMxl?: string;
+  fromMeasureMxl?: string;
+  toPitchStep?: string;
+  toPitchOctave?: number;
+  toPitchAlter?: number;
+  fromPitchStep?: string;
+  fromPitchOctave?: number;
+  fromPitchAlter?: number;
   removeFollowingNote?: boolean;
   directionType?: 'dynamics' | 'words' | 'rehearsal';
   directionValue?: string;
@@ -106,6 +114,14 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.pitchAlter ?? '',
     fix.fromNoteIndex ?? '',
     fix.toNoteIndex ?? '',
+    fix.toMeasureMxl ?? '',
+    fix.fromMeasureMxl ?? '',
+    fix.toPitchStep ?? '',
+    fix.toPitchOctave ?? '',
+    fix.toPitchAlter ?? '',
+    fix.fromPitchStep ?? '',
+    fix.fromPitchOctave ?? '',
+    fix.fromPitchAlter ?? '',
     fix.afterNoteIndex ?? '',
     fix.leaderNoteIndex ?? '',
     fix.tieEnd ?? '',

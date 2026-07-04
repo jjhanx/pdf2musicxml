@@ -73,6 +73,14 @@ const ARTICULATION_ADD_OPTIONS: { id: string; label: string }[] = [
   { id: 'staccatissimo', label: 'Staccatissimo' },
 ];
 
+function articulationOptionLabel(id: string): string {
+  return ARTICULATION_ADD_OPTIONS.find((o) => o.id === id)?.label ?? id;
+}
+
+function articulationIdsFromEl(arts: string[] | undefined): string[] {
+  return (arts ?? []).map((a) => a.split('(')[0]);
+}
+
 function isLikelySpuriousDirection(text: string | null | undefined): boolean {
   const compact = (text ?? '').replace(/\s+/g, '');
   if (!compact) return false;
@@ -308,7 +316,11 @@ function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
   const tuplet = el.timeMod
     ? ` ${el.timeMod === '3:2' ? '세잇단' : `잇단 ${el.timeMod}`}${el.tuplet === 'start' ? '▸' : el.tuplet === 'stop' ? '◂' : ''}`
     : '';
-  const arts = el.articulations?.length ? ` [${el.articulations.join(', ')}]` : '';
+  const artSource =
+    el.chord && noteEls.length
+      ? noteEls.find((n) => n.index === chordLeaderIndex(el, noteEls)) ?? el
+      : el;
+  const arts = artSource.articulations?.length ? ` [${artSource.articulations.join(', ')}]` : '';
   const beam = el.beams?.length ? ` beam=[${el.beams.join(',')}]` : '';
   const dur = el.duration != null ? ` dur=${el.duration}` : '';
   const pitchLabel =
@@ -632,8 +644,10 @@ function MeasureNoteEditor({
   const [chordStep, setChordStep] = useState('G');
   const [chordOctave, setChordOctave] = useState(4);
   const [chordAlter, setChordAlter] = useState<PitchAlterOption>('0');
+  const [pendingArtIds, setPendingArtIds] = useState<string[]>([]);
 
   useEffect(() => {
+    setPendingArtIds([]);
     const p = parsePitch(el.pitch);
     setPitchStep(p.step);
     setPitchOctave(p.octave);
@@ -682,6 +696,13 @@ function MeasureNoteEditor({
       (nextNote.dotCount ?? 0) > 0);
   const chordLeaderIdx = chordLeaderIndex(el, noteEls);
   const chordLeaderEl = noteEls.find((n) => n.index === chordLeaderIdx);
+  const savedArtIds = articulationIdsFromEl(chordLeaderEl?.articulations);
+  const displayArtIds = [...new Set([...savedArtIds, ...pendingArtIds])];
+  const addableArtOptions = ARTICULATION_ADD_OPTIONS.filter((opt) => !displayArtIds.includes(opt.id));
+
+  useEffect(() => {
+    setPendingArtIds((prev) => prev.filter((id) => !savedArtIds.includes(id)));
+  }, [savedArtIds.join('|')]);
 
   return (
     <div className="omr-measure-element-actions">
@@ -712,11 +733,14 @@ function MeasureNoteEditor({
           ) : null}
         </>
       )}
-      {(el.articulations ?? []).map((art) => {
+      {(chordLeaderEl?.articulations ?? []).map((art) => {
         const name = art.split('(')[0];
-        const beamSide = el.stem === 'up' ? 'above' : el.stem === 'down' ? 'below' : null;
+        const beamSide = (chordLeaderEl?.stem ?? el.stem) === 'up' ? 'above' : (chordLeaderEl?.stem ?? el.stem) === 'down' ? 'below' : null;
         const likelyTupletDigit =
-          el.timeMod != null && name === 'staccato' && beamSide != null && art.includes(beamSide);
+          (chordLeaderEl?.timeMod ?? el.timeMod) != null &&
+          name === 'staccato' &&
+          beamSide != null &&
+          art.includes(beamSide);
         return (
           <button
             key={art}
@@ -727,37 +751,47 @@ function MeasureNoteEditor({
                 ? '잇단 숫자(3)를 가리는 점 — OMR이 숫자를 스타카토로 오인한 것일 가능성이 높습니다'
                 : `이 음표의 ${name} 표를 제거합니다`
             }
-            onClick={() => onFix({ kind: 'removeArticulation', noteIndex: el.index, articulation: name })}
+            onClick={() => onFix({ kind: 'removeArticulation', noteIndex: chordLeaderIdx, articulation: name })}
           >
             {likelyTupletDigit ? `세잇단 숫자 가린 점(${name}) 제거` : `${name} 제거`}
           </button>
         );
       })}
       {el.kind === 'note' && (
-        <label className="omr-measure-inline-field omr-measure-articulation-add">
-          표 추가
-          <select
-            defaultValue=""
-            onChange={(e) => {
-              const art = e.target.value;
-              if (!art) return;
-              const leaderIdx = chordLeaderIndex(el, noteEls);
-              onFix({ kind: 'addArticulation', noteIndex: leaderIdx, articulation: art });
-              e.target.value = '';
-            }}
-          >
-            <option value="">— 선택 —</option>
-            {ARTICULATION_ADD_OPTIONS.filter((opt) => {
-              const leaderIdx = chordLeaderIndex(el, noteEls);
-              const leaderEl = noteEls.find((n) => n.index === leaderIdx);
-              return !(leaderEl?.articulations ?? []).some((a) => a.split('(')[0] === opt.id);
-            }).map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="omr-measure-articulation-row">
+          <span className="omr-measure-articulation-current">
+            현재 표:{' '}
+            {displayArtIds.length > 0
+              ? displayArtIds.map((id) => articulationOptionLabel(id)).join(' · ')
+              : '없음'}
+            {pendingArtIds.length > 0 && savedArtIds.length < displayArtIds.length ? (
+              <span className="omr-measure-articulation-pending"> (반영 대기)</span>
+            ) : null}
+          </span>
+          {addableArtOptions.length > 0 ? (
+            <label className="omr-measure-inline-field omr-measure-articulation-add">
+              표 더 추가
+              <select
+                value=""
+                onChange={(e) => {
+                  const art = e.target.value;
+                  if (!art) return;
+                  setPendingArtIds((prev) => (prev.includes(art) ? prev : [...prev, art]));
+                  onFix({ kind: 'addArticulation', noteIndex: chordLeaderIdx, articulation: art });
+                }}
+              >
+                <option value="">— 종류 선택 —</option>
+                {addableArtOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="omr-measure-articulation-full">추가 가능한 표 없음</span>
+          )}
+        </div>
       )}
       {spuriousAfterRest && nextNote ? (
         <button

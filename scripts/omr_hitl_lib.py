@@ -681,6 +681,17 @@ def _resolve_insert_after_context(
     return insert_after_idx, staff_n, anchor, following, staff_notes
 
 
+def _default_articulation_placement(note: ET.Element, ns: str) -> str | None:
+    """표는 줄기 반대(음표 머리) 쪽 — stem up→below, stem down→above."""
+    stem_el = note.find(_q(ns, "stem"))
+    stem_dir = (stem_el.text or "").strip() if stem_el is not None and stem_el.text else ""
+    if stem_dir == "up":
+        return "below"
+    if stem_dir == "down":
+        return "above"
+    return None
+
+
 def _ensure_notations(note: ET.Element, ns: str) -> ET.Element:
     notations = note.find(_q(ns, "notations"))
     if notations is None:
@@ -1621,12 +1632,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if placement in ("above", "below"):
             art_el.set("placement", placement)
         else:
-            stem_el = note.find(_q(ns, "stem"))
-            stem_dir = (stem_el.text or "").strip() if stem_el is not None and stem_el.text else ""
-            if stem_dir == "up":
-                art_el.set("placement", "above")
-            elif stem_dir == "down":
-                art_el.set("placement", "below")
+            auto = _default_articulation_placement(note, ns)
+            if auto:
+                art_el.set("placement", auto)
         return True
 
     if kind == "setNotePitch":

@@ -582,27 +582,29 @@ function attachVoiceFromNote(dir: Element, note: Element): void {
   dir.appendChild(v);
 }
 
+function directionVoiceText(direction: Element): string | null {
+  const voiceEl = direction.querySelector(':scope > voice, :scope > *|voice');
+  const text = voiceEl?.textContent?.trim();
+  return text || null;
+}
+
 function anchorNoteForDirection(measure: Element, direction: Element): Element | null {
   const children = [...measure.children];
   const idx = children.indexOf(direction);
   if (idx < 0) return null;
-  const explicitStaff = direction.querySelector(':scope > staff, :scope > *|staff');
-  const staffN = explicitStaff
-    ? parseInt(explicitStaff.textContent?.trim() ?? '1', 10)
-    : null;
-  for (let j = idx + 1; j < children.length; j++) {
-    const c = children[j];
-    if (xmlLocalName(c) !== 'note') continue;
-    if (staffN != null && Number.isFinite(staffN) && noteStaffN(c) !== staffN) break;
-    return c;
+  const wantVoice = directionVoiceText(direction);
+  const next = idx + 1 < children.length ? children[idx + 1] : null;
+  if (next && xmlLocalName(next) === 'note') {
+    if (!wantVoice) return next;
+    const nv = next.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+    if (!nv || nv === wantVoice) return next;
   }
-  for (let j = idx - 1; j >= 0; j--) {
-    const c = children[j];
+  if (!wantVoice) return null;
+  for (const c of children) {
     if (xmlLocalName(c) !== 'note') continue;
-    if (staffN != null && Number.isFinite(staffN) && noteStaffN(c) !== staffN) continue;
-    return c;
+    const nv = c.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+    if (nv === wantVoice) return c;
   }
-  if (staffN != null && Number.isFinite(staffN)) return firstNoteOnStaff(measure, staffN);
   return null;
 }
 
@@ -642,6 +644,7 @@ export function migrateDirectionsToNotes(xml: string): string {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         for (const direction of [...measure.children].filter((c) => xmlLocalName(c) === 'direction')) {
+          stripStaffTagOnDirection(direction);
           const anchor = anchorNoteForDirection(measure, direction);
           if (!anchor) continue;
           const dtype = [...direction.children].find((c) => xmlLocalName(c) === 'direction-type');

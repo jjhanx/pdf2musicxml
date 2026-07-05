@@ -874,12 +874,10 @@ function CrossMeasureTieForm({
 
 function NoteDirectionEditor({
   noteIndex,
-  staff,
   current,
   onFix,
 }: {
   noteIndex: number;
-  staff?: number | null;
   current?: NoteDirectionInfo | null;
   onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
 }) {
@@ -898,13 +896,12 @@ function NoteDirectionEditor({
   }, [noteIndex, current?.directionType, current?.directionValue]);
 
   const apply = () => {
-    const staffOpt = staff != null && staff > 0 ? { staff } : {};
     if (mode === 'none') {
-      if (current) onFix({ kind: 'clearNoteDirection', noteIndex, ...staffOpt });
+      if (current) onFix({ kind: 'clearNoteDirection', noteIndex });
       return;
     }
     if (mode === 'dynamics') {
-      onFix({ kind: 'setNoteDirection', noteIndex, directionType: 'dynamics', directionValue: dynValue, ...staffOpt });
+      onFix({ kind: 'setNoteDirection', noteIndex, directionType: 'dynamics', directionValue: dynValue });
       return;
     }
     onFix({
@@ -912,7 +909,6 @@ function NoteDirectionEditor({
       noteIndex,
       directionType: mode,
       directionValue: textValue.trim() || (mode === 'rehearsal' ? 'A' : ' '),
-      ...staffOpt,
     });
   };
 
@@ -1172,7 +1168,6 @@ function MeasureNoteEditor({
       {!el.chord && !el.hasGrace && el.index === chordLeaderIdx && (
         <NoteDirectionEditor
           noteIndex={chordLeaderIdx}
-          staff={chordLeaderEl?.staff ?? el.staff}
           current={chordLeaderEl?.noteDirection ?? el.noteDirection}
           onFix={onFix}
         />

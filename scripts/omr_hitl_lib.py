@@ -959,34 +959,55 @@ def _direction_effective_staff(
     return dstaff if dstaff is not None else default
 
 
+def _direction_voice_text(direction: ET.Element, ns: str) -> str | None:
+    voice_el = direction.find(_q(ns, "voice"))
+    if voice_el is None:
+        for el in direction.iter():
+            if _local(el) == "voice" and el.text and el.text.strip():
+                voice_el = el
+                break
+    if voice_el is None or not voice_el.text or not voice_el.text.strip():
+        return None
+    return voice_el.text.strip()
+
+
+def _note_voice_text(note: ET.Element, ns: str) -> str | None:
+    v = note.find(_q(ns, "voice"))
+    if v is None:
+        for el in note:
+            if _local(el) == "voice":
+                v = el
+                break
+    if v is None or not v.text or not v.text.strip():
+        return None
+    return v.text.strip()
+
+
 def _anchor_note_for_direction(
     measure: ET.Element, direction: ET.Element, ns: str
 ) -> ET.Element | None:
-    """Anchor = direction 직후 `<note>`(음표 붙임). legacy `<staff>`만 있을 때만 staff fallback."""
-    explicit_staff = _direction_staff_number(direction, ns)
+    """Anchor = direction 바로 다음 `<note>`(HITL `#n` 붙임) 또는 동일 voice."""
     children = list(measure)
     try:
         idx = children.index(direction)
     except ValueError:
-        idx = -1
-    if idx >= 0:
-        for j in range(idx + 1, len(children)):
-            c = children[j]
-            if _local(c) != "note":
-                continue
-            if explicit_staff is not None and (_note_staff_number(c, ns) or 1) != explicit_staff:
-                break
+        return None
+    want_voice = _direction_voice_text(direction, ns)
+    if idx + 1 < len(children) and _local(children[idx + 1]) == "note":
+        nxt = children[idx + 1]
+        if not want_voice:
+            return nxt
+        nv = _note_voice_text(nxt, ns)
+        if not nv or nv == want_voice:
+            return nxt
+    if not want_voice:
+        return None
+    for c in children:
+        if _local(c) != "note":
+            continue
+        if _note_voice_text(c, ns) == want_voice:
             return c
-        for j in range(idx - 1, -1, -1):
-            c = children[j]
-            if _local(c) != "note":
-                continue
-            if explicit_staff is not None and (_note_staff_number(c, ns) or 1) != explicit_staff:
-                continue
-            return c
-    if explicit_staff is not None:
-        return _first_note_on_staff(measure, ns, explicit_staff)
-    return _note_matching_direction_voice(measure, direction, ns)
+    return None
 
 
 def _anchor_note_for_existing_direction(
@@ -1130,6 +1151,10 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
     """measure-level `<direction>` 을 anchor 음표 속성(notations·앞 direction)으로 통일."""
     changed = False
     for direction in list(measure.findall(_q(ns, "direction"))):
+        staff_el = direction.find(_q(ns, "staff"))
+        if staff_el is not None:
+            direction.remove(staff_el)
+            changed = True
         anchor = _anchor_note_for_direction(measure, direction, ns)
         if anchor is None:
             continue
@@ -1143,10 +1168,6 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
                 measure.remove(direction)
                 changed = True
                 continue
-        staff_el = direction.find(_q(ns, "staff"))
-        if staff_el is not None:
-            direction.remove(staff_el)
-            changed = True
         _attach_voice_to_direction_from_note(direction, ns, anchor)
         children = list(measure)
         try:
@@ -2222,14 +2243,6 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         if note_idx < 0 or note_idx >= len(notes):
             return False
-        staff_hint = fix.get("staff")
-        if staff_hint is not None:
-            try:
-                want_staff = int(staff_hint)
-                if (_note_staff_number(notes[note_idx], ns) or 1) != want_staff:
-                    return False
-            except (TypeError, ValueError):
-                pass
         placement = str(fix.get("placement") or "").strip().lower() or None
         if placement not in ("above", "below", ""):
             placement = None

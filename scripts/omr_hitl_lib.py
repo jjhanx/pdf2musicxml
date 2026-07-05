@@ -3496,6 +3496,19 @@ def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
         _rebuild_measure_flat_staffs(measure, ns)
 
 
+def _strip_all_direction_staff_tags(root: ET.Element, ns: str) -> int:
+    """`<direction><staff>` 제거 — OSMD가 악보 N번째 줄로 오인(P5 staff2→P2)."""
+    n = 0
+    for direction in root.iter():
+        if _local(direction) != "direction":
+            continue
+        staff_el = direction.find(_q(ns, "staff"))
+        if staff_el is not None:
+            direction.remove(staff_el)
+            n += 1
+    return n
+
+
 def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[str, int]:
     ns = _ns(root)
     stats = {"applied": 0, "skipped": 0}
@@ -3545,6 +3558,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             _strip_chord_member_beams(notes, ns)
             rebuild_measure_timeline_clean(measure, ns)
             _migrate_directions_to_notes(measure, ns)
+    _strip_all_direction_staff_tags(root, ns)
     return stats
 
 

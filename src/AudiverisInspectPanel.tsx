@@ -680,7 +680,10 @@ export function buildOsmdPreviewXml(
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
   xml = migrateDirectionsToNotes(xml);
-  if (!filter) return xml;
+  if (!filter) {
+    // OSMD 전체 악보: part 내 staff=2 direction → 악보 2번째 줄(P2) 오인. PR·PL 단일 줄 part로만 쪼갬(미리보기 전용).
+    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
+  }
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);

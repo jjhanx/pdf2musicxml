@@ -410,6 +410,17 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   });
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'direction') {
+      const words = child.querySelectorAll(':scope > direction-type > words, :scope > *|direction-type > *|words');
+      words.forEach(w => {
+        if (w.textContent) {
+          // Prevent OSMD from parsing this text as a system-level tempo mark (which forces it to the top staff)
+          // by injecting a zero-width space into known tempo keywords.
+          w.textContent = w.textContent.replace(
+            /(tempo|mosso|rit|accel|largo|andante|allegro|adagio|presto|vivace)/ig,
+            (m) => m[0] + '\u200B' + m.slice(1)
+          );
+        }
+      });
       forceStaffTagOnDirectionToOne(child);
     }
   }

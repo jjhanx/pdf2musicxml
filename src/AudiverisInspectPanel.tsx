@@ -377,7 +377,7 @@ function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
       child.remove();
       continue;
     }
-    if (tag === 'backup' && (prevStaff === null || prevStaff !== staffN)) {
+    if ((tag === 'backup' || tag === 'forward') && (prevStaff === null || prevStaff !== staffN)) {
       child.remove();
     }
   }

@@ -360,15 +360,74 @@ function attachVoiceFromFollowingStaffNote(measure: Element, dir: Element, staff
   }
 }
 
+function attachVoiceFromNearestStaffNote(measure: Element, dir: Element, staffN: number): void {
+  if (dir.querySelector(':scope > voice, :scope > *|voice')) return;
+  attachVoiceFromFollowingStaffNote(measure, dir, staffN);
+  if (dir.querySelector(':scope > voice, :scope > *|voice')) return;
+  const children = [...measure.children];
+  const dirIdx = children.indexOf(dir);
+  if (dirIdx < 0) return;
+  for (let i = dirIdx - 1; i >= 0; i--) {
+    const c = children[i];
+    if (xmlLocalName(c) !== 'note') continue;
+    if (noteStaffN(c) !== staffN) continue;
+    const voiceEl = c.querySelector(':scope > voice, :scope > *|voice');
+    const voiceText = voiceEl?.textContent?.trim();
+    if (!voiceText) break;
+    const tag = voiceEl!.tagName;
+    const v = dir.ownerDocument!.createElementNS(dir.namespaceURI, tag);
+    v.textContent = voiceText;
+    dir.appendChild(v);
+    break;
+  }
+}
+
+function stripStaffTagOnDirection(dir: Element): void {
+  dir.querySelectorAll(':scope > staff, :scope > *|staff').forEach((el) => el.remove());
+}
+
+function findXmlParts(doc: Document): Element[] {
+  const out: Element[] = [];
+  const root = doc.documentElement;
+  if (!root) return out;
+  const walk = (el: Element) => {
+    if (xmlLocalName(el) === 'part') out.push(el);
+    for (const c of [...el.children]) walk(c);
+  };
+  walk(root);
+  return out;
+}
+
 /**
- * OSMD 전체 악보 미리보기: 피아노 PL staff=2 direction을 backup 뒤에 두면 2번째 성부(P2) 줄에 그려지는 버그 회피.
- * MusicXML timeline(backup 뒤)은 MXL 본문에 그대로 두고, 미리보기 XML만 마디 첫머리로 정리한다.
+ * OSMD 전체 악보: part 내 staff=2 + ⟨staff⟩2⟨/staff⟩ 는 악보 2번째 줄(P2)로 그려짐.
+ * ⟨voice⟩(PL voice)만 남기고 ⟨staff⟩ 제거 — MuseScore용 MXL 본문은 Python 쪽에서 staff 유지.
+ */
+function normalizeMultiStaffDirectionsInDoc(doc: Document): void {
+  for (const part of findXmlParts(doc)) {
+    if (maxStavesInPart(part) < 2) continue;
+    for (const measure of [...part.children]) {
+      if (xmlLocalName(measure) !== 'measure') continue;
+      for (const child of [...measure.children]) {
+        if (xmlLocalName(child) !== 'direction') continue;
+        const staffN = directionStaffN(child);
+        if (staffN < 2) continue;
+        attachVoiceFromNearestStaffNote(measure, child, staffN);
+        if (child.querySelector(':scope > voice, :scope > *|voice')) {
+          stripStaffTagOnDirection(child);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * OSMD 전체 악보 미리보기: PL staff=2 마디 앞 direction을 마디 첫머리로 옮기고 voice-only로 정리.
  */
 export function relocateMultiStaffLayerStartDirectionsForOsmd(xml: string): string {
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
-    for (const part of [...doc.querySelectorAll('part, *|part')]) {
+    for (const part of findXmlParts(doc)) {
       if (maxStavesInPart(part) < 2) continue;
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
@@ -377,18 +436,27 @@ export function relocateMultiStaffLayerStartDirectionsForOsmd(xml: string): stri
         );
         for (const dir of toMove) {
           const staffN = directionStaffN(dir);
-          attachVoiceFromFollowingStaffNote(measure, dir, staffN);
+          attachVoiceFromNearestStaffNote(measure, dir, staffN);
           dir.remove();
           const ref = measureStartInsertRef(measure);
           if (ref) measure.insertBefore(dir, ref);
           else measure.appendChild(dir);
+          if (dir.querySelector(':scope > voice, :scope > *|voice')) {
+            stripStaffTagOnDirection(dir);
+          }
         }
       }
     }
+    normalizeMultiStaffDirectionsInDoc(doc);
     return new XMLSerializer().serializeToString(doc);
   } catch {
     return xml;
   }
+}
+
+/** buildOsmdPreviewXml·OsmdBlock 공통 — PL direction OSMD 줄 매핑 보정. */
+export function prepareMultiStaffDirectionsForOsmdPreview(xml: string): string {
+  return relocateMultiStaffLayerStartDirectionsForOsmd(xml);
 }
 
 /** 한 part 안에서 특정 staff(1=PR, 2=PL)만 남기고 미리보기용 단일 줄로 정리. */
@@ -427,8 +495,9 @@ export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: n
               child.remove();
               continue;
             }
-            dirStaff.textContent = '1';
           }
+          attachVoiceFromNearestStaffNote(measure, child, staffN);
+          stripStaffTagOnDirection(child);
           keptDirections.push(child);
           child.remove();
         }
@@ -456,13 +525,13 @@ export function buildOsmdPreviewXml(
   filter: StaffFilterEntry | null,
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
-  if (!filter) return relocateMultiStaffLayerStartDirectionsForOsmd(xml);
+  if (!filter) return prepareMultiStaffDirectionsForOsmdPreview(xml);
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);
     xml = setPartDisplayName(xml, filter.partId, filter.label);
   } else {
-    xml = relocateMultiStaffLayerStartDirectionsForOsmd(xml);
+    xml = prepareMultiStaffDirectionsForOsmdPreview(xml);
   }
   return xml;
 }
@@ -494,6 +563,8 @@ function sanitizeMusicXmlForOsmd(xml: string): string {
       const hasDirectionType = [...el.children].some((c) => local(c) === 'direction-type');
       if (!hasDirectionType) el.remove();
     });
+
+    normalizeMultiStaffDirectionsInDoc(doc);
 
     return new XMLSerializer().serializeToString(doc);
   } catch {

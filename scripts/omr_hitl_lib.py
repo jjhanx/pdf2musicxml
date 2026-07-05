@@ -1592,6 +1592,29 @@ def _attach_voice_to_direction_from_note(
         ET.SubElement(direction, _q(ns, "voice")).text = str(voice_n)
 
 
+def _bind_direction_voice_from_staff(
+    measure: ET.Element, ns: str, direction: ET.Element, staff_n: int
+) -> None:
+    """PL 등 staff≥2 direction — OSMD 미리보기·MuseScore voice 연결."""
+    if staff_n < 2 or direction.find(_q(ns, "voice")) is not None:
+        return
+    children = list(measure)
+    try:
+        idx = children.index(direction)
+    except ValueError:
+        return
+    for j in range(idx + 1, len(children)):
+        nxt = children[j]
+        if _local(nxt) == "note" and (_note_staff_number(nxt, ns) or 1) == staff_n:
+            _attach_voice_to_direction_from_note(direction, ns, nxt)
+            return
+    for j in range(idx - 1, -1, -1):
+        prv = children[j]
+        if _local(prv) == "note" and (_note_staff_number(prv, ns) or 1) == staff_n:
+            _attach_voice_to_direction_from_note(direction, ns, prv)
+            return
+
+
 def _build_direction_element(
     ns: str,
     direction_type: str,
@@ -1889,15 +1912,18 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             else:
                 insert_after_idx = -1
             _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
+            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
             return True
         if fix.get("afterRest") and 0 <= after_idx < len(notes):
             insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
                 notes, ns, after_idx, staff_n
             )
             _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
+            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
             return True
         if after_idx < 0:
             _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
+            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
             return True
         if 0 <= after_idx < len(notes):
             anchor_idx = after_idx
@@ -1908,8 +1934,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 staff_n = staff_from
             # 음표·화음 리더 — 해당 음 시작(attack) = `<note>` 바로 앞. 리더 뒤·화음 끝은 OSMD가 다음 박으로 그림.
             _insert_before_note_element(measure, ns, new_dir, anchor_idx, staff_n=staff_n)
+            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
             return True
         _insert_note_element(measure, ns, new_dir, after_idx, staff_n=staff_n)
+        _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
         return True
 
     if kind == "insertGraceNote":

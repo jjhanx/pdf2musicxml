@@ -163,6 +163,7 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     if (fix.noteIndex != null) parts.push(`#${fix.noteIndex}`);
     else if (fix.afterNoteIndex != null && fix.afterNoteIndex < 0) parts.push('마디 앞');
     else if (fix.afterNoteIndex != null) parts.push(`#${fix.afterNoteIndex}`);
+    if (fix.staff != null) parts.push(`staff ${fix.staff}`);
     if (fix.directionType) parts.push(fix.directionType);
     if (fix.directionValue?.trim()) parts.push(fix.directionValue.trim());
   }

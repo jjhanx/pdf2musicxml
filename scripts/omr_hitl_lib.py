@@ -2220,6 +2220,16 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             note_idx = int(fix.get("noteIndex"))
         except (TypeError, ValueError):
             return False
+        if note_idx < 0 or note_idx >= len(notes):
+            return False
+        staff_hint = fix.get("staff")
+        if staff_hint is not None:
+            try:
+                want_staff = int(staff_hint)
+                if (_note_staff_number(notes[note_idx], ns) or 1) != want_staff:
+                    return False
+            except (TypeError, ValueError):
+                pass
         placement = str(fix.get("placement") or "").strip().lower() or None
         if placement not in ("above", "below", ""):
             placement = None

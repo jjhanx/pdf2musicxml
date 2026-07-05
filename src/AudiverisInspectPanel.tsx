@@ -445,35 +445,18 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
     }
   }
   pruneCrossStaffTimeline(measure, staffN);
-  const keptDirections: Element[] = [];
   for (const child of [...measure.children]) {
-    const tag = xmlLocalName(child);
-    if (tag === 'backup' || tag === 'forward') {
+    if (xmlLocalName(child) !== 'direction') continue;
+    const anchor = anchorNoteForDirection(measure, child);
+    if (!anchor || noteStaffN(anchor) !== staffN) {
+      child.remove();
       continue;
     }
-    if (tag === 'direction') {
-      const dirStaff = child.querySelector(':scope > staff, :scope > *|staff');
-      if (dirStaff) {
-        const n = parseInt(dirStaff.textContent?.trim() ?? '1', 10);
-        if (Number.isFinite(n) && n !== staffN) {
-          child.remove();
-          continue;
-        }
-      }
-      attachVoiceFromNearestStaffNote(measure, child, staffN);
-      stripStaffTagOnDirection(child);
-      keptDirections.push(child);
-      child.remove();
-    }
+    ensureDirectionBeforeAnchor(measure, child, anchor);
   }
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
   });
-  for (const dir of keptDirections) {
-    const ref = measureStartInsertRef(measure);
-    if (ref) measure.insertBefore(dir, ref);
-    else measure.appendChild(dir);
-  }
 }
 
 function transformPartToSingleStaff(part: Element, staffN: number): void {
@@ -589,19 +572,49 @@ function firstNoteOnStaff(measure: Element, staffN: number): Element | null {
   return null;
 }
 
-function anchorNoteForDirection(measure: Element, direction: Element, staffN: number): Element | null {
+function attachVoiceFromNote(dir: Element, note: Element): void {
+  if (dir.querySelector(':scope > voice, :scope > *|voice')) return;
+  const voiceEl = note.querySelector(':scope > voice, :scope > *|voice');
+  const voiceText = voiceEl?.textContent?.trim();
+  if (!voiceText) return;
+  const v = dir.ownerDocument!.createElementNS(dir.namespaceURI, voiceEl!.tagName);
+  v.textContent = voiceText;
+  dir.appendChild(v);
+}
+
+function anchorNoteForDirection(measure: Element, direction: Element): Element | null {
   const children = [...measure.children];
   const idx = children.indexOf(direction);
-  if (idx < 0) return firstNoteOnStaff(measure, staffN);
+  if (idx < 0) return null;
+  const explicitStaff = direction.querySelector(':scope > staff, :scope > *|staff');
+  const staffN = explicitStaff
+    ? parseInt(explicitStaff.textContent?.trim() ?? '1', 10)
+    : null;
   for (let j = idx + 1; j < children.length; j++) {
     const c = children[j];
-    if (xmlLocalName(c) === 'note' && noteStaffN(c) === staffN) return c;
+    if (xmlLocalName(c) !== 'note') continue;
+    if (staffN != null && Number.isFinite(staffN) && noteStaffN(c) !== staffN) break;
+    return c;
   }
   for (let j = idx - 1; j >= 0; j--) {
     const c = children[j];
-    if (xmlLocalName(c) === 'note' && noteStaffN(c) === staffN) return c;
+    if (xmlLocalName(c) !== 'note') continue;
+    if (staffN != null && Number.isFinite(staffN) && noteStaffN(c) !== staffN) continue;
+    return c;
   }
-  return firstNoteOnStaff(measure, staffN);
+  if (staffN != null && Number.isFinite(staffN)) return firstNoteOnStaff(measure, staffN);
+  return null;
+}
+
+function ensureDirectionBeforeAnchor(measure: Element, direction: Element, anchor: Element): void {
+  stripStaffTagOnDirection(direction);
+  attachVoiceFromNote(direction, anchor);
+  const children = [...measure.children];
+  const di = children.indexOf(direction);
+  const ai = children.indexOf(anchor);
+  if (di >= 0 && ai >= 0 && di + 1 === ai) return;
+  direction.remove();
+  measure.insertBefore(direction, anchor);
 }
 
 function attachDynamicsToNote(note: Element, dynTag: string, placement: string | null): void {
@@ -629,11 +642,7 @@ export function migrateDirectionsToNotes(xml: string): string {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         for (const direction of [...measure.children].filter((c) => xmlLocalName(c) === 'direction')) {
-          const staffEl = direction.querySelector(':scope > staff, :scope > *|staff');
-          const staffN = staffEl
-            ? parseInt(staffEl.textContent?.trim() ?? '1', 10)
-            : 1;
-          const anchor = anchorNoteForDirection(measure, direction, Number.isFinite(staffN) ? staffN : 1);
+          const anchor = anchorNoteForDirection(measure, direction);
           if (!anchor) continue;
           const dtype = [...direction.children].find((c) => xmlLocalName(c) === 'direction-type');
           const dyn = dtype
@@ -648,10 +657,7 @@ export function migrateDirectionsToNotes(xml: string): string {
               continue;
             }
           }
-          staffEl?.remove();
-          attachVoiceFromNearestStaffNote(measure, direction, Number.isFinite(staffN) ? staffN : 1);
-          direction.remove();
-          measure.insertBefore(direction, anchor);
+          ensureDirectionBeforeAnchor(measure, direction, anchor);
         }
       }
     }

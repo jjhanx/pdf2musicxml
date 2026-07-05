@@ -959,24 +959,42 @@ def _direction_effective_staff(
     return dstaff if dstaff is not None else default
 
 
-def _anchor_note_for_existing_direction(
-    measure: ET.Element, direction: ET.Element, ns: str, staff_n: int
+def _anchor_note_for_direction(
+    measure: ET.Element, direction: ET.Element, ns: str
 ) -> ET.Element | None:
-    eff_staff = _direction_effective_staff(measure, direction, ns, staff_n)
+    """Anchor = direction 직후 `<note>`(음표 붙임). legacy `<staff>`만 있을 때만 staff fallback."""
+    explicit_staff = _direction_staff_number(direction, ns)
     children = list(measure)
     try:
         idx = children.index(direction)
     except ValueError:
-        return _first_note_on_staff(measure, ns, eff_staff)
-    for j in range(idx + 1, len(children)):
-        c = children[j]
-        if _local(c) == "note" and (_note_staff_number(c, ns) or 1) == eff_staff:
+        idx = -1
+    if idx >= 0:
+        for j in range(idx + 1, len(children)):
+            c = children[j]
+            if _local(c) != "note":
+                continue
+            if explicit_staff is not None and (_note_staff_number(c, ns) or 1) != explicit_staff:
+                break
             return c
-    for j in range(idx - 1, -1, -1):
-        c = children[j]
-        if _local(c) == "note" and (_note_staff_number(c, ns) or 1) == eff_staff:
+        for j in range(idx - 1, -1, -1):
+            c = children[j]
+            if _local(c) != "note":
+                continue
+            if explicit_staff is not None and (_note_staff_number(c, ns) or 1) != explicit_staff:
+                continue
             return c
-    return _first_note_on_staff(measure, ns, eff_staff)
+    if explicit_staff is not None:
+        return _first_note_on_staff(measure, ns, explicit_staff)
+    return _note_matching_direction_voice(measure, direction, ns)
+
+
+def _anchor_note_for_existing_direction(
+    measure: ET.Element, direction: ET.Element, ns: str, staff_n: int
+) -> ET.Element | None:
+    return _anchor_note_for_direction(measure, direction, ns) or _first_note_on_staff(
+        measure, ns, staff_n
+    )
 
 
 def _find_direction_anchor_note(
@@ -1112,10 +1130,7 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
     """measure-level `<direction>` 을 anchor 음표 속성(notations·앞 direction)으로 통일."""
     changed = False
     for direction in list(measure.findall(_q(ns, "direction"))):
-        anchor = _note_matching_direction_voice(measure, direction, ns)
-        if anchor is None:
-            dstaff = _direction_effective_staff(measure, direction, ns, 1)
-            anchor = _anchor_note_for_existing_direction(measure, direction, ns, dstaff)
+        anchor = _anchor_note_for_direction(measure, direction, ns)
         if anchor is None:
             continue
         dtype = direction.find(_q(ns, "direction-type"))

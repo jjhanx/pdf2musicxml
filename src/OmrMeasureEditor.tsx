@@ -328,17 +328,18 @@ function resolveAfterNoteIndex(el: MeasureElement, elements: MeasureElement[]): 
 function elementTitle(
   el: MeasureElement,
   _noteEls: MeasureNoteEl[],
-  ctx?: { partId?: string; staffLineLabel?: string | null; editStaffWithinPart?: number | null },
+  ctx?: { partId?: string; staffLabel?: string | null; editStaffWithinPart?: number | null },
 ): string {
   if (el.elementKind === 'direction') {
     const label = el.text?.trim() || '(표기 없음 — dynamics 등 XML 태그만 있을 수 있음)';
-    const staff = el.staff != null ? ` staff=${el.staff}` : '';
-    const part = ctx?.partId ? ` · part ${ctx.partId}` : '';
     const line =
-      ctx?.staffLineLabel ??
+      ctx?.staffLabel ??
       (ctx?.editStaffWithinPart != null ? `staff ${ctx.editStaffWithinPart}` : null);
-    const lineSuffix = line ? ` · ${line}` : '';
-    return `direction #${el.directionIndex}: ${label}${staff}${part}${lineSuffix}`;
+    const chunks = [`direction #${el.directionIndex}: ${label}`];
+    if (ctx?.partId) chunks.push(`part ${ctx.partId}`);
+    if (line) chunks.push(line);
+    else if (el.staff != null) chunks.push(`XML staff ${el.staff}`);
+    return chunks.join(' · ');
   }
   const idx = el.index;
   if (el.kind === 'rest') {
@@ -560,6 +561,11 @@ export function OmrMeasureEditor({
                   {isLikelySpuriousDirection(el.text) ? (
                     <p className="omr-measure-direction-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#1565c0' }}>
                       Accent(&gt;)·세잇단 숫자 등이 셈여림 <code>dyn:p</code>로 오인된 경우입니다. 삭제한 뒤 해당 음표에 「Accent 추가」를 사용하세요.
+                    </p>
+                  ) : null}
+                  {el.staff === 2 && staffLabel === 'PL' ? (
+                    <p className="omr-measure-direction-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#2e7d32' }}>
+                      피아노 PL(part {partId}, XML staff 2)에만 있습니다. <strong>P2 성부 파트</strong> 마디 편집에는 나타나지 않는 것이 정상입니다.
                     </p>
                   ) : null}
                 </div>

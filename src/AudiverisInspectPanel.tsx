@@ -321,25 +321,6 @@ function maxStavesInPart(part: Element): number {
   return max;
 }
 
-/** PL 등 staff≥2 마디 앞 direction이 ⟨backup⟩ 뒤에 있으면 OSMD 전체 악보에서 P2(2번째 줄)로 그려짐 — 마디 첫머리로 옮김. */
-function isMultiStaffLayerStartDirection(measure: Element, dir: Element): boolean {
-  const staffN = directionStaffN(dir);
-  if (staffN < 2) return false;
-  const children = [...measure.children];
-  const dirIdx = children.indexOf(dir);
-  if (dirIdx < 0) return false;
-  for (let i = 0; i < dirIdx; i++) {
-    const c = children[i];
-    if (xmlLocalName(c) === 'note' && noteStaffN(c) === staffN) return false;
-  }
-  for (let i = 0; i < dirIdx; i++) {
-    if (xmlLocalName(children[i]) === 'backup') return true;
-  }
-  return children
-    .slice(0, dirIdx)
-    .some((c) => xmlLocalName(c) === 'note' && noteStaffN(c) === 1);
-}
-
 function attachVoiceFromFollowingStaffNote(measure: Element, dir: Element, staffN: number): void {
   if (dir.querySelector(':scope > voice, :scope > *|voice')) return;
   const children = [...measure.children];
@@ -398,65 +379,155 @@ function findXmlParts(doc: Document): Element[] {
   return out;
 }
 
-/**
- * OSMD 전체 악보: part 내 staff=2 + ⟨staff⟩2⟨/staff⟩ 는 악보 2번째 줄(P2)로 그려짐.
- * ⟨voice⟩(PL voice)만 남기고 ⟨staff⟩ 제거 — MuseScore용 MXL 본문은 Python 쪽에서 staff 유지.
- */
-function normalizeMultiStaffDirectionsInDoc(doc: Document): void {
-  for (const part of findXmlParts(doc)) {
-    if (maxStavesInPart(part) < 2) continue;
-    for (const measure of [...part.children]) {
-      if (xmlLocalName(measure) !== 'measure') continue;
-      for (const child of [...measure.children]) {
-        if (xmlLocalName(child) !== 'direction') continue;
-        const staffN = directionStaffN(child);
-        if (staffN < 2) continue;
-        attachVoiceFromNearestStaffNote(measure, child, staffN);
-        if (child.querySelector(':scope > voice, :scope > *|voice')) {
-          stripStaffTagOnDirection(child);
+function rewriteClefsInAttributes(attrs: Element, staffN: number): void {
+  const clefs = [...attrs.children].filter((c) => xmlLocalName(c) === 'clef');
+  if (!clefs.length) return;
+  let pick: Element | null = null;
+  for (const c of clefs) {
+    const numAttr = c.getAttribute('number');
+    const num = numAttr ? parseInt(numAttr, 10) : 1;
+    if (Number.isFinite(num) && num === staffN) {
+      pick = c;
+      break;
+    }
+  }
+  if (!pick && staffN === 2 && clefs.length >= 2) pick = clefs[1];
+  if (!pick) pick = clefs[0];
+  const clone = pick.cloneNode(true) as Element;
+  clone.removeAttribute('number');
+  for (const c of clefs) attrs.removeChild(c);
+  attrs.appendChild(clone);
+}
+
+/** 한 마디를 part 내 특정 staff(1=PR, 2=PL) 단일 줄로 — backup 제거·direction 마디 첫머리·조표 유지. */
+function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
+  for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
+    for (const st of [...attrs.children].filter((c) => xmlLocalName(c) === 'staves')) {
+      st.textContent = '1';
+    }
+    rewriteClefsInAttributes(attrs, staffN);
+  }
+  const keptDirections: Element[] = [];
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'backup' || tag === 'forward') {
+      child.remove();
+      continue;
+    }
+    if (tag === 'note' && noteStaffN(child) !== staffN) {
+      child.remove();
+      continue;
+    }
+    if (tag === 'direction') {
+      const dirStaff = child.querySelector(':scope > staff, :scope > *|staff');
+      if (dirStaff) {
+        const n = parseInt(dirStaff.textContent?.trim() ?? '1', 10);
+        if (Number.isFinite(n) && n !== staffN) {
+          child.remove();
+          continue;
         }
       }
+      attachVoiceFromNearestStaffNote(measure, child, staffN);
+      stripStaffTagOnDirection(child);
+      keptDirections.push(child);
+      child.remove();
     }
+  }
+  measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
+    el.textContent = '1';
+  });
+  for (const dir of keptDirections) {
+    const ref = measureStartInsertRef(measure);
+    if (ref) measure.insertBefore(dir, ref);
+    else measure.appendChild(dir);
   }
 }
 
+function transformPartToSingleStaff(part: Element, staffN: number): void {
+  for (const measure of [...part.children]) {
+    if (xmlLocalName(measure) === 'measure') transformMeasureToSingleStaff(measure, staffN);
+  }
+}
+
+/** OSMD 미리보기용 가상 part id(P5__PL) → 실제 MXL part id + staff. */
+export function resolveMusicXmlPartFromPreviewId(id: string): {
+  partId: string;
+  staffWithinPart?: number;
+} {
+  const trimmed = id.trim();
+  if (trimmed.endsWith('__PR')) return { partId: trimmed.slice(0, -4), staffWithinPart: 1 };
+  if (trimmed.endsWith('__PL')) return { partId: trimmed.slice(0, -4), staffWithinPart: 2 };
+  return { partId: trimmed };
+}
+
 /**
- * OSMD 전체 악보 미리보기: PL staff=2 마디 앞 direction을 마디 첫머리로 옮기고 voice-only로 정리.
+ * OSMD 전체 악보: 2단 grand staff part를 PR·PL 단일 줄 part로 쪼갬.
+ * staff=2 direction이 악보 2번째 줄(P2)로 그려지는 OSMD 버그 회피(미리보기 전용).
  */
-export function relocateMultiStaffLayerStartDirectionsForOsmd(xml: string): string {
+export function splitGrandStaffPartsForFullScoreOsmd(
+  xml: string,
+  scoreParts: ScorePartForPreview[],
+): string {
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
+    const root = doc.documentElement;
+    const partList = [...root.children].find((c) => xmlLocalName(c) === 'part-list');
+
     for (const part of findXmlParts(doc)) {
-      if (maxStavesInPart(part) < 2) continue;
-      for (const measure of [...part.children]) {
-        if (xmlLocalName(measure) !== 'measure') continue;
-        const toMove = [...measure.children].filter(
-          (c) => xmlLocalName(c) === 'direction' && isMultiStaffLayerStartDirection(measure, c),
+      const partId = part.getAttribute('id');
+      if (!partId || maxStavesInPart(part) < 2) continue;
+
+      const spMeta = scoreParts.find((p) => p.id === partId);
+      const baseLabel = (spMeta?.displayLabel || spMeta?.suggestedLabel || partId).trim();
+      const prLabel = baseLabel === 'P' ? 'PR' : `${baseLabel}·1`;
+      const plLabel = baseLabel === 'P' ? 'PL' : `${baseLabel}·2`;
+
+      const prPart = part.cloneNode(true) as Element;
+      const plPart = part.cloneNode(true) as Element;
+      prPart.setAttribute('id', `${partId}__PR`);
+      plPart.setAttribute('id', `${partId}__PL`);
+      transformPartToSingleStaff(prPart, 1);
+      transformPartToSingleStaff(plPart, 2);
+
+      const parent = part.parentNode;
+      if (parent) {
+        parent.insertBefore(prPart, part);
+        parent.insertBefore(plPart, part);
+        parent.removeChild(part);
+      }
+
+      if (partList) {
+        const sp = [...partList.children].find(
+          (c) => xmlLocalName(c) === 'score-part' && c.getAttribute('id') === partId,
         );
-        for (const dir of toMove) {
-          const staffN = directionStaffN(dir);
-          attachVoiceFromNearestStaffNote(measure, dir, staffN);
-          dir.remove();
-          const ref = measureStartInsertRef(measure);
-          if (ref) measure.insertBefore(dir, ref);
-          else measure.appendChild(dir);
-          if (dir.querySelector(':scope > voice, :scope > *|voice')) {
-            stripStaffTagOnDirection(dir);
-          }
+        if (sp) {
+          const mkScorePart = (id: string, label: string) => {
+            const nsp = sp.cloneNode(false) as Element;
+            nsp.setAttribute('id', id);
+            applyLabelToScorePart(nsp, label);
+            return nsp;
+          };
+          partList.insertBefore(mkScorePart(`${partId}__PR`, prLabel), sp);
+          partList.insertBefore(mkScorePart(`${partId}__PL`, plLabel), sp);
+          partList.removeChild(sp);
         }
       }
     }
-    normalizeMultiStaffDirectionsInDoc(doc);
     return new XMLSerializer().serializeToString(doc);
   } catch {
     return xml;
   }
 }
 
-/** buildOsmdPreviewXml·OsmdBlock 공통 — PL direction OSMD 줄 매핑 보정. */
+/** @deprecated splitGrandStaffPartsForFullScoreOsmd 사용 */
+export function relocateMultiStaffLayerStartDirectionsForOsmd(xml: string): string {
+  return xml;
+}
+
+/** @deprecated splitGrandStaffPartsForFullScoreOsmd 사용 */
 export function prepareMultiStaffDirectionsForOsmdPreview(xml: string): string {
-  return relocateMultiStaffLayerStartDirectionsForOsmd(xml);
+  return xml;
 }
 
 /** 한 part 안에서 특정 staff(1=PR, 2=PL)만 남기고 미리보기용 단일 줄로 정리. */
@@ -465,53 +536,9 @@ export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: n
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
-    const part = [...doc.querySelectorAll('part, *|part')].find((el) => el.getAttribute('id') === partId);
+    const part = findXmlParts(doc).find((el) => el.getAttribute('id') === partId);
     if (!part) return xml;
-
-    for (const measure of [...part.children]) {
-      if (xmlLocalName(measure) !== 'measure') continue;
-      const attrs = measure.querySelector('attributes, *|attributes');
-      if (attrs) {
-        attrs.querySelectorAll('staves, *|staves').forEach((el) => {
-          el.textContent = '1';
-        });
-      }
-      const keptDirections: Element[] = [];
-      for (const child of [...measure.children]) {
-        const tag = xmlLocalName(child);
-        if (tag === 'backup' || tag === 'forward') {
-          child.remove();
-          continue;
-        }
-        if (tag === 'note' && noteStaffN(child) !== staffN) {
-          child.remove();
-          continue;
-        }
-        if (tag === 'direction') {
-          const dirStaff = child.querySelector(':scope > staff, :scope > *|staff');
-          if (dirStaff) {
-            const n = parseInt(dirStaff.textContent?.trim() ?? '1', 10);
-            if (Number.isFinite(n) && n !== staffN) {
-              child.remove();
-              continue;
-            }
-          }
-          attachVoiceFromNearestStaffNote(measure, child, staffN);
-          stripStaffTagOnDirection(child);
-          keptDirections.push(child);
-          child.remove();
-        }
-      }
-      measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
-        el.textContent = '1';
-      });
-      // PL/PR 단일 줄 미리보기: direction을 마디 첫머리로 — backup 제거·staff=2 잔존 시 OSMD가 다음 마디로 밀어 그림
-      for (const dir of keptDirections) {
-        const ref = measureStartInsertRef(measure);
-        if (ref) measure.insertBefore(dir, ref);
-        else measure.appendChild(dir);
-      }
-    }
+    transformPartToSingleStaff(part, staffN);
     return new XMLSerializer().serializeToString(doc);
   } catch {
     return xml;
@@ -525,13 +552,11 @@ export function buildOsmdPreviewXml(
   filter: StaffFilterEntry | null,
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
-  if (!filter) return prepareMultiStaffDirectionsForOsmdPreview(xml);
+  if (!filter) return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);
     xml = setPartDisplayName(xml, filter.partId, filter.label);
-  } else {
-    xml = prepareMultiStaffDirectionsForOsmdPreview(xml);
   }
   return xml;
 }
@@ -563,8 +588,6 @@ function sanitizeMusicXmlForOsmd(xml: string): string {
       const hasDirectionType = [...el.children].some((c) => local(c) === 'direction-type');
       if (!hasDirectionType) el.remove();
     });
-
-    normalizeMultiStaffDirectionsInDoc(doc);
 
     return new XMLSerializer().serializeToString(doc);
   } catch {

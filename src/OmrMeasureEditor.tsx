@@ -1907,12 +1907,12 @@ function directionAnchorLabel(
   const part = ctx.partId.trim();
   if (localAfter < 0) {
     if (ctx.editStaffWithinPart === 2 && (ctx.staffLineLabel === 'PL' || staff === 2)) {
-      return `마디 앞 · part ${part} · ${line} · ⟨backup⟩ 뒤 첫 PL 음 앞`;
+      return `마디 앞 · part ${part} · ${line} · 이 줄(PL) 첫 음 앞`;
     }
     if (ctx.editStaffWithinPart === 1 && (ctx.staffLineLabel === 'PR' || staff === 1)) {
-      return `마디 앞 · part ${part} · ${line} · 첫 PR 음 앞`;
+      return `마디 앞 · part ${part} · ${line} · 이 줄(PR) 첫 음 앞`;
     }
-    return `마디 앞 · part ${part} · ${line} · MusicXML staff ${staff} 첫 음 앞`;
+    return `마디 앞 · part ${part} · ${line} · 이 줄 첫 음 앞`;
   }
   const n = noteEls.find((x) => x.index === localAfter);
   if (n?.kind === 'rest') return `#${localAfter} ${noteAnchorLabel(n)}에 direction`;
@@ -2056,7 +2056,7 @@ function DirectionInsertForm({
       </p>
       <p className="omr-measure-editor-hint" style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
         셈여림·텍스트·리허설 등. 쉼표 줄에는 <strong>「이 쉼표에 direction」</strong> 인라인 폼을 쓰세요.
-        「마디 앞」은 아래 <strong>part·줄(PL/PR)</strong>의 첫 음 앞입니다(피아노 PL은 PR 음 뒤 <code>&lt;backup&gt;</code> 다음).
+        「마디 앞」은 선택한 <strong>part·줄(PL/PR)</strong>에서 그 마디의 <strong>첫 음 바로 앞</strong>입니다.
       </p>
       <div className="omr-measure-insert-form-row">
         <label className="omr-measure-inline-field">

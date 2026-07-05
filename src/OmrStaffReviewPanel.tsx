@@ -7,6 +7,7 @@ import {
   InspectPanelErrorBoundary,
   OsmdBlock,
   parseScoreParts,
+  resolveMusicXmlPartFromPreviewId,
   staveCountForPart,
 } from './AudiverisInspectPanel';
 import { OmrMeasureEditor } from './OmrMeasureEditor';
@@ -246,8 +247,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const resolvePartIdForMeasure = useCallback(
     (info: OsmdMeasureClickInfo): string => {
       const pid = info.partId?.trim();
-      if (pid && (scoreParts.some((p) => p.id === pid) || xmlPartIds.some((p) => p.id === pid))) {
-        return pid;
+      if (pid) {
+        const resolved = resolveMusicXmlPartFromPreviewId(pid);
+        if (
+          scoreParts.some((p) => p.id === resolved.partId) ||
+          xmlPartIds.some((p) => p.id === resolved.partId)
+        ) {
+          return resolved.partId;
+        }
       }
       return resolvePartIdForStaffIndex(info.staffIndex);
     },
@@ -300,6 +307,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const editStaffWithinPart = useMemo((): number | null => {
     if (activeStaffFilter?.staffWithinPart) return activeStaffFilter.staffWithinPart;
+    const clickPid = selectedMeasure?.partId?.trim();
+    if (clickPid) {
+      const fromPreview = resolveMusicXmlPartFromPreviewId(clickPid);
+      if (fromPreview.staffWithinPart) return fromPreview.staffWithinPart;
+    }
     const pid = editorPartId;
     if (!pid || !rawXml || staveCountForPart(rawXml, pid) < 2) return null;
     return selectedMeasure?.staffWithinPart ?? null;
@@ -513,14 +525,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       );
       if (!staffFilter) {
         setEditPartId(partId);
-        const clickedLabel =
-          labelForPartStaff(partId, info.staffWithinPart) ??
-          staffList[info.staffIndex] ??
-          null;
-        // PL/PR 클릭 시 미리보기도 해당 줄로 — backup 뒤 staff=2 direction이 전체 악보에서 P2 줄로 그려지는 혼동 방지
-        if (clickedLabel === 'PL' || clickedLabel === 'PR') {
-          setStaffFilter(clickedLabel);
-        }
       }
       setEditorKey((k) => k + 1);
     },

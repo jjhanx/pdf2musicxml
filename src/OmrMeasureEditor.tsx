@@ -196,6 +196,9 @@ export type MeasureDirectionEl = {
   directionIndex: number;
   text: string;
   staff?: number | null;
+  /** `<notations><dynamics>` — 음표 #index에 붙음 */
+  attachedToNoteIndex?: number;
+  fromNoteDynamics?: boolean;
 };
 
 export type MeasureNoteEl = {
@@ -337,7 +340,11 @@ function elementTitle(
     const line =
       ctx?.staffLabel ??
       (ctx?.editStaffWithinPart != null ? `staff ${ctx.editStaffWithinPart}` : null);
-    const chunks = [`direction #${el.directionIndex}: ${label}`];
+    const chunks = [
+      el.fromNoteDynamics && el.attachedToNoteIndex != null
+        ? `direction (음표 #${el.attachedToNoteIndex}): ${label}`
+        : `direction #${el.directionIndex}: ${label}`,
+    ];
     if (ctx?.partId) chunks.push(`part ${ctx.partId}`);
     if (line) chunks.push(line);
     else if (el.staff != null) chunks.push(`XML staff ${el.staff}`);
@@ -561,7 +568,12 @@ export function OmrMeasureEditor({
                     type="button"
                     className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
                     onClick={() =>
-                      pushFix({ kind: 'removeDirection', directionIndex: el.directionIndex, detail: el.text })
+                      pushFix({
+                        kind: 'removeDirection',
+                        directionIndex: el.directionIndex,
+                        attachedToNoteIndex: el.attachedToNoteIndex,
+                        detail: el.text,
+                      })
                     }
                   >
                     direction 삭제
@@ -601,6 +613,10 @@ export function OmrMeasureEditor({
                   {el.staff === 2 && staffLabel === 'PL' ? (
                     <p className="omr-measure-direction-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#2e7d32' }}>
                       피아노 PL(part {partId}, XML staff 2)에만 있습니다. <strong>P2 성부 파트</strong> 마디 편집에는 나타나지 않는 것이 정상입니다.
+                    </p>
+                  ) : el.fromNoteDynamics ? (
+                    <p className="omr-measure-direction-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#2e7d32' }}>
+                      셈여림은 음표 <strong>#${el.attachedToNoteIndex ?? '?'}</strong>에 붙어 있습니다 — OSMD 전체 악보에서 P2 줄 오인을 막습니다.
                     </p>
                   ) : null}
                 </div>

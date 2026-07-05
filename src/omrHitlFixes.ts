@@ -17,6 +17,7 @@ export type OmrHitlFix = {
   detail?: string;
   noteIndex?: number;
   directionIndex?: number;
+  attachedToNoteIndex?: number;
   staff?: number;
   restType?: string;
   noteType?: string;

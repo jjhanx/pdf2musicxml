@@ -578,6 +578,90 @@ export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: n
   }
 }
 
+const DYNAMICS_TAGS = new Set([
+  'p', 'pp', 'ppp', 'pppp', 'f', 'ff', 'fff', 'ffff', 'mp', 'mf', 'sf', 'sfz', 'fp', 'rf', 'fz', 'sfp', 'sfpp', 'n', 'pf', 'sffz',
+]);
+
+function firstNoteOnStaff(measure: Element, staffN: number): Element | null {
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) === 'note' && noteStaffN(child) === staffN) return child;
+  }
+  return null;
+}
+
+function anchorNoteForDirection(measure: Element, direction: Element, staffN: number): Element | null {
+  const children = [...measure.children];
+  const idx = children.indexOf(direction);
+  if (idx < 0) return firstNoteOnStaff(measure, staffN);
+  for (let j = idx + 1; j < children.length; j++) {
+    const c = children[j];
+    if (xmlLocalName(c) === 'note' && noteStaffN(c) === staffN) return c;
+  }
+  for (let j = idx - 1; j >= 0; j--) {
+    const c = children[j];
+    if (xmlLocalName(c) === 'note' && noteStaffN(c) === staffN) return c;
+  }
+  return firstNoteOnStaff(measure, staffN);
+}
+
+function attachDynamicsToNote(note: Element, dynTag: string, placement: string | null): void {
+  const tag = DYNAMICS_TAGS.has(dynTag.toLowerCase()) ? dynTag.toLowerCase() : 'p';
+  const ns = note.namespaceURI;
+  let notations = [...note.children].find((c) => xmlLocalName(c) === 'notations') as Element | undefined;
+  if (!notations) {
+    notations = note.ownerDocument!.createElementNS(ns, ns ? 'notations' : 'notations');
+    note.appendChild(notations);
+  }
+  notations.querySelectorAll(':scope > dynamics, :scope > *|dynamics').forEach((el) => el.remove());
+  const dyn = note.ownerDocument!.createElementNS(ns, ns ? 'dynamics' : 'dynamics');
+  if (placement === 'above' || placement === 'below') dyn.setAttribute('placement', placement);
+  const mark = note.ownerDocument!.createElementNS(ns, ns ? tag : tag);
+  dyn.appendChild(mark);
+  notations.appendChild(dyn);
+}
+
+/** 2단 part `<direction><staff>` → 음표 `<notations><dynamics>` 또는 staff 없는 direction(OSMD 전체 악보 오인 방지). */
+export function convertMultiStaffDirectionsToNoteAttached(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    for (const part of findXmlParts(doc)) {
+      if (maxStavesInPart(part) < 2) continue;
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        for (const direction of [...measure.children].filter((c) => xmlLocalName(c) === 'direction')) {
+          const staffEl = direction.querySelector(':scope > staff, :scope > *|staff');
+          if (!staffEl) continue;
+          const staffN = parseInt(staffEl.textContent?.trim() ?? '1', 10);
+          if (!Number.isFinite(staffN)) continue;
+          const anchor = anchorNoteForDirection(measure, direction, staffN);
+          if (!anchor) continue;
+          const dtype = [...direction.children].find((c) => xmlLocalName(c) === 'direction-type');
+          const dyn = dtype
+            ? [...dtype.children].find((c) => xmlLocalName(c) === 'dynamics')
+            : undefined;
+          if (dyn) {
+            const tags = [...dyn.children].map((c) => xmlLocalName(c)).filter((t) => DYNAMICS_TAGS.has(t));
+            if (tags.length) {
+              const placement = direction.getAttribute('placement') || dyn.getAttribute('placement') || 'below';
+              attachDynamicsToNote(anchor, tags[0], placement);
+              direction.remove();
+              continue;
+            }
+          }
+          staffEl.remove();
+          attachVoiceFromNearestStaffNote(measure, direction, staffN);
+          direction.remove();
+          measure.insertBefore(direction, anchor);
+        }
+      }
+    }
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
   rawXml: string,
@@ -585,6 +669,7 @@ export function buildOsmdPreviewXml(
   filter: StaffFilterEntry | null,
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
+  xml = convertMultiStaffDirectionsToNoteAttached(xml);
   if (!filter) return xml;
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {

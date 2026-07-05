@@ -993,20 +993,28 @@ def _anchor_note_for_direction(
     except ValueError:
         return None
     want_voice = _direction_voice_text(direction, ns)
+    staff_el = direction.find(_q(ns, "staff"))
+    want_staff = int(staff_el.text.strip()) if (staff_el is not None and staff_el.text and staff_el.text.strip().isdigit()) else None
+
     if idx + 1 < len(children) and _local(children[idx + 1]) == "note":
         nxt = children[idx + 1]
-        if not want_voice:
-            return nxt
-        nv = _note_voice_text(nxt, ns)
-        if not nv or nv == want_voice:
-            return nxt
-    if not want_voice:
-        return None
-    for c in children:
-        if _local(c) != "note":
-            continue
-        if _note_voice_text(c, ns) == want_voice:
-            return c
+        n_staff = _note_staff_number(nxt, ns) or 1
+        if want_staff is None or n_staff == want_staff:
+            if not want_voice:
+                return nxt
+            nv = _note_voice_text(nxt, ns)
+            if not nv or nv == want_voice:
+                return nxt
+    if want_voice:
+        for c in children:
+            if _local(c) != "note":
+                continue
+            n_staff = _note_staff_number(c, ns) or 1
+            if want_staff is None or n_staff == want_staff:
+                if _note_voice_text(c, ns) == want_voice:
+                    return c
+    if want_staff is not None:
+        return _first_note_on_staff(measure, ns, want_staff)
     return None
 
 
@@ -1135,11 +1143,12 @@ def _apply_note_direction(
         return True
     if not val and kind == "words":
         val = " "
+    staff_n = _note_staff_number(note, ns)
     new_dir = _build_direction_element(
         ns,
         kind,
         val,
-        staff_n=None,
+        staff_n=staff_n,
         placement=placement,
     )
     _insert_before_note_element(measure, ns, new_dir, note_idx)
@@ -1152,10 +1161,6 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
     """measure-level `<direction>` 을 anchor 음표 속성(notations·앞 direction)으로 통일."""
     changed = False
     for direction in list(measure.findall(_q(ns, "direction"))):
-        staff_el = direction.find(_q(ns, "staff"))
-        if staff_el is not None:
-            direction.remove(staff_el)
-            changed = True
         anchor = _anchor_note_for_direction(measure, direction, ns)
         if anchor is None:
             continue
@@ -1169,6 +1174,20 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
                 measure.remove(direction)
                 changed = True
                 continue
+
+        # Ensure direction's staff matches the anchor note's staff
+        astaff = _note_staff_number(anchor, ns)
+        if astaff is not None:
+            staff_el = direction.find(_q(ns, "staff"))
+            if staff_el is None:
+                staff_el = ET.Element(_q(ns, "staff"))
+                staff_el.text = str(astaff)
+                direction.append(staff_el)
+                changed = True
+            elif staff_el.text != str(astaff):
+                staff_el.text = str(astaff)
+                changed = True
+
         _attach_voice_to_direction_from_note(direction, ns, anchor)
         _copy_layout_from_note_to_direction(direction, anchor)
         children = list(measure)
@@ -3590,7 +3609,6 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             _strip_chord_member_beams(notes, ns)
             rebuild_measure_timeline_clean(measure, ns)
             _migrate_directions_to_notes(measure, ns)
-    _strip_all_direction_staff_tags(root, ns)
     return stats
 
 

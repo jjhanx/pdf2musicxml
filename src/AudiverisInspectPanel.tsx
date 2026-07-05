@@ -288,13 +288,6 @@ function noteStaffN(noteEl: Element): number {
   return Number.isFinite(n) ? n : 1;
 }
 
-function directionStaffN(dir: Element): number {
-  const staffEl = dir.querySelector(':scope > staff, :scope > *|staff');
-  if (!staffEl) return 1;
-  const n = parseInt(staffEl.textContent?.trim() ?? '1', 10);
-  return Number.isFinite(n) ? n : 1;
-}
-
 
 function maxStavesInPart(part: Element): number {
   let max = 1;
@@ -312,47 +305,9 @@ function maxStavesInPart(part: Element): number {
   return max;
 }
 
-function attachVoiceFromFollowingStaffNote(measure: Element, dir: Element, staffN: number): void {
-  if (dir.querySelector(':scope > voice, :scope > *|voice')) return;
-  const children = [...measure.children];
-  const dirIdx = children.indexOf(dir);
-  if (dirIdx < 0) return;
-  for (let i = dirIdx + 1; i < children.length; i++) {
-    const c = children[i];
-    if (xmlLocalName(c) !== 'note') continue;
-    if (noteStaffN(c) !== staffN) continue;
-    const voiceEl = c.querySelector(':scope > voice, :scope > *|voice');
-    const voiceText = voiceEl?.textContent?.trim();
-    if (!voiceText) break;
-    const tag = voiceEl!.tagName;
-    const v = dir.ownerDocument!.createElementNS(dir.namespaceURI, tag);
-    v.textContent = voiceText;
-    dir.appendChild(v);
-    break;
-  }
-}
 
-function attachVoiceFromNearestStaffNote(measure: Element, dir: Element, staffN: number): void {
-  if (dir.querySelector(':scope > voice, :scope > *|voice')) return;
-  attachVoiceFromFollowingStaffNote(measure, dir, staffN);
-  if (dir.querySelector(':scope > voice, :scope > *|voice')) return;
-  const children = [...measure.children];
-  const dirIdx = children.indexOf(dir);
-  if (dirIdx < 0) return;
-  for (let i = dirIdx - 1; i >= 0; i--) {
-    const c = children[i];
-    if (xmlLocalName(c) !== 'note') continue;
-    if (noteStaffN(c) !== staffN) continue;
-    const voiceEl = c.querySelector(':scope > voice, :scope > *|voice');
-    const voiceText = voiceEl?.textContent?.trim();
-    if (!voiceText) break;
-    const tag = voiceEl!.tagName;
-    const v = dir.ownerDocument!.createElementNS(dir.namespaceURI, tag);
-    v.textContent = voiceText;
-    dir.appendChild(v);
-    break;
-  }
-}
+
+
 
 function stripStaffTagOnDirection(dir: Element): void {
   dir.querySelectorAll(':scope > staff, :scope > *|staff').forEach((el) => el.remove());
@@ -448,6 +403,11 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
   });
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) === 'direction') {
+      stripStaffTagOnDirection(child);
+    }
+  }
 }
 
 function transformPartToSingleStaff(part: Element, staffN: number): void {
@@ -584,17 +544,30 @@ function anchorNoteForDirection(measure: Element, direction: Element): Element |
   const idx = children.indexOf(direction);
   if (idx < 0) return null;
   const wantVoice = directionVoiceText(direction);
+  const staffEl = direction.querySelector(':scope > staff, :scope > *|staff');
+  const wantStaff = staffEl && staffEl.textContent ? parseInt(staffEl.textContent, 10) : null;
+
   const next = idx + 1 < children.length ? children[idx + 1] : null;
   if (next && xmlLocalName(next) === 'note') {
-    if (!wantVoice) return next;
-    const nv = next.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
-    if (!nv || nv === wantVoice) return next;
+    const nStaff = noteStaffN(next);
+    if (wantStaff === null || nStaff === wantStaff) {
+      if (!wantVoice) return next;
+      const nv = next.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+      if (!nv || nv === wantVoice) return next;
+    }
   }
-  if (!wantVoice) return null;
-  for (const c of children) {
-    if (xmlLocalName(c) !== 'note') continue;
-    const nv = c.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
-    if (nv === wantVoice) return c;
+  if (wantVoice) {
+    for (const c of children) {
+      if (xmlLocalName(c) !== 'note') continue;
+      const nStaff = noteStaffN(c);
+      if (wantStaff === null || nStaff === wantStaff) {
+        const nv = c.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+        if (nv === wantVoice) return c;
+      }
+    }
+  }
+  if (wantStaff !== null) {
+    return firstNoteOnStaff(measure, wantStaff);
   }
   return null;
 }
@@ -607,7 +580,6 @@ function copyLayoutFromAnchor(direction: Element, anchor: Element): void {
 }
 
 function ensureDirectionBeforeAnchor(measure: Element, direction: Element, anchor: Element): void {
-  stripStaffTagOnDirection(direction);
   attachVoiceFromNote(direction, anchor);
   copyLayoutFromAnchor(direction, anchor);
   const children = [...measure.children];
@@ -643,9 +615,22 @@ export function migrateDirectionsToNotes(xml: string): string {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         for (const direction of [...measure.children].filter((c) => xmlLocalName(c) === 'direction')) {
-          stripStaffTagOnDirection(direction);
           const anchor = anchorNoteForDirection(measure, direction);
           if (!anchor) continue;
+
+          // Ensure the direction has the correct staff matching the anchor
+          const astaff = noteStaffN(anchor);
+          if (astaff > 0) {
+            let staffEl = direction.querySelector(':scope > staff, :scope > *|staff');
+            if (!staffEl) {
+              staffEl = direction.ownerDocument!.createElementNS(direction.namespaceURI, 'staff');
+              direction.appendChild(staffEl);
+            }
+            if (staffEl.textContent !== String(astaff)) {
+              staffEl.textContent = String(astaff);
+            }
+          }
+
           const dtype = [...direction.children].find((c) => xmlLocalName(c) === 'direction-type');
           const dyn = dtype
             ? [...dtype.children].find((c) => xmlLocalName(c) === 'dynamics')
@@ -682,7 +667,9 @@ export function buildOsmdPreviewXml(
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
   xml = migrateDirectionsToNotes(xml);
-  if (!filter) return xml;
+  if (!filter) {
+    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
+  }
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);

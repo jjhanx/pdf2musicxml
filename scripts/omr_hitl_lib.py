@@ -721,6 +721,7 @@ def _insert_direction_at_staff_measure_start(
             while pos < len(children):
                 nxt = children[pos]
                 if _local(nxt) == "note" and (_note_staff_number(nxt, ns) or 1) == staff_n:
+                    _attach_voice_to_direction_from_note(new_dir, ns, nxt)
                     measure.insert(pos, new_dir)
                     return
                 if _local(nxt) == "note":
@@ -1574,12 +1575,30 @@ def _direction_is_spurious(direction: ET.Element, ns: str, detail: str | None = 
     return False
 
 
+def _note_voice_number(note: ET.Element, ns: str) -> int | None:
+    voice_el = note.find(_q(ns, "voice"))
+    if voice_el is not None and voice_el.text and voice_el.text.strip().isdigit():
+        return int(voice_el.text.strip())
+    return None
+
+
+def _attach_voice_to_direction_from_note(
+    direction: ET.Element, ns: str, note: ET.Element | None
+) -> None:
+    if note is None or direction.find(_q(ns, "voice")) is not None:
+        return
+    voice_n = _note_voice_number(note, ns)
+    if voice_n is not None:
+        ET.SubElement(direction, _q(ns, "voice")).text = str(voice_n)
+
+
 def _build_direction_element(
     ns: str,
     direction_type: str,
     value: str,
     *,
     staff_n: int | None = None,
+    voice_n: int | None = None,
     placement: str | None = None,
 ) -> ET.Element:
     direction = ET.Element(_q(ns, "direction"))
@@ -1600,6 +1619,8 @@ def _build_direction_element(
     else:
         el = ET.SubElement(dtype, _q(ns, "words"))
         el.text = val or " "
+    if voice_n is not None:
+        ET.SubElement(direction, _q(ns, "voice")).text = str(voice_n)
     if staff_n is not None:
         staff_el = ET.SubElement(direction, _q(ns, "staff"))
         staff_el.text = str(staff_n)

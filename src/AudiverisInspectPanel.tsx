@@ -295,58 +295,6 @@ function directionStaffN(dir: Element): number {
   return Number.isFinite(n) ? n : 1;
 }
 
-function measureStartInsertRef(measure: Element): Element | null {
-  for (const child of [...measure.children]) {
-    const tag = xmlLocalName(child);
-    if (tag === 'attributes' || tag === 'print') continue;
-    if (tag === 'barline' && child.getAttribute('location') === 'right') continue;
-    return child;
-  }
-  return measure.firstElementChild;
-}
-
-/** PL 등 staff≥2 단일 줄 추출 시: 직전 `<backup>` duration — OSMD·P1 마디앞 direction timeline 겹침 방지(미리보기 전용). */
-function layerForwardDurationBeforeStaff(measure: Element, staffN: number): number {
-  if (staffN <= 1) return 0;
-  const children = [...measure.children];
-  let firstIdx = -1;
-  for (let i = 0; i < children.length; i++) {
-    if (xmlLocalName(children[i]) === 'note' && noteStaffN(children[i]) === staffN) {
-      firstIdx = i;
-      break;
-    }
-  }
-  if (firstIdx < 0) return 0;
-  for (let j = firstIdx - 1; j >= 0; j--) {
-    if (xmlLocalName(children[j]) !== 'backup') continue;
-    const d = children[j].querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim();
-    if (d && /^\d+$/.test(d)) return parseInt(d, 10);
-    return 0;
-  }
-  return 0;
-}
-
-function insertForwardAtMeasureContent(measure: Element, duration: number): void {
-  if (duration <= 0) return;
-  const ref = measureStartInsertRef(measure);
-  if (ref && xmlLocalName(ref) === 'forward') {
-    const durEl = ref.querySelector(':scope > duration, :scope > *|duration');
-    if (durEl) {
-      const existing = parseInt(durEl.textContent?.trim() ?? '0', 10);
-      durEl.textContent = String((Number.isFinite(existing) ? existing : 0) + duration);
-      return;
-    }
-  }
-  const ns = measure.namespaceURI;
-  const tag = (local: string) =>
-    ns ? measure.ownerDocument!.createElementNS(ns, local) : measure.ownerDocument!.createElement(local);
-  const fwd = tag('forward');
-  const dur = tag('duration');
-  dur.textContent = String(duration);
-  fwd.appendChild(dur);
-  if (ref) measure.insertBefore(fwd, ref);
-  else measure.appendChild(fwd);
-}
 
 function maxStavesInPart(part: Element): number {
   let max = 1;
@@ -476,7 +424,6 @@ function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
 }
 
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
-  const layerForward = layerForwardDurationBeforeStaff(measure, staffN);
   for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
     for (const st of [...attrs.children].filter((c) => xmlLocalName(c) === 'staves')) {
       st.textContent = '1';
@@ -497,11 +444,6 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
       continue;
     }
     ensureDirectionBeforeAnchor(measure, child, anchor);
-  }
-  insertForwardAtMeasureContent(measure, layerForward);
-  // OSMD: default-x on direction + beat-0 timeline → P1 maridi앞 direction과 겹침. 리듬 위치는 forward에 맡김.
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) === 'direction') child.removeAttribute('default-x');
   }
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
@@ -740,10 +682,7 @@ export function buildOsmdPreviewXml(
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
   xml = migrateDirectionsToNotes(xml);
-  if (!filter) {
-    // OSMD 버그: grand staff part의 staff 2 direction → 악보 2번째 줄(P2 Alto). 미리보기만 PR·PL part 분리(MXL 저장은 그대로).
-    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
-  }
+  if (!filter) return xml;
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);

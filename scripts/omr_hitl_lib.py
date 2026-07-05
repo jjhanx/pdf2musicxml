@@ -1144,6 +1144,7 @@ def _apply_note_direction(
     )
     _insert_before_note_element(measure, ns, new_dir, note_idx)
     _attach_voice_to_direction_from_note(new_dir, ns, note)
+    _copy_layout_from_note_to_direction(new_dir, note)
     return True
 
 
@@ -1169,6 +1170,7 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
                 changed = True
                 continue
         _attach_voice_to_direction_from_note(direction, ns, anchor)
+        _copy_layout_from_note_to_direction(direction, anchor)
         children = list(measure)
         try:
             di = children.index(direction)
@@ -1926,6 +1928,13 @@ def _attach_voice_to_direction_from_note(
     voice_n = _note_voice_number(note, ns)
     if voice_n is not None:
         ET.SubElement(direction, _q(ns, "voice")).text = str(voice_n)
+
+
+def _copy_layout_from_note_to_direction(direction: ET.Element, note: ET.Element) -> None:
+    for attr in ("default-x", "default-y"):
+        val = note.get(attr)
+        if val:
+            direction.set(attr, val)
 
 
 def _bind_direction_voice_from_staff(

@@ -3948,7 +3948,82 @@ def _restore_ties_between_measures(part: ET.Element, ns: str) -> tuple[int, int]
     return completed, system_added
 
 
+def _calculate_staff1_duration_robust(measure: ET.Element, ns: str) -> int:
+    time_cursors = {}
+    max_staff1_time = 0
+    for el in measure:
+        tag = local_tag(el)
+        if tag == "note":
+            voice, staff = _note_voice_staff(el, ns)
+            is_chord = el.find(qname(ns, "chord")) is not None
+            is_grace = el.find(qname(ns, "grace")) is not None or el.get("cue") == "yes"
+            dur = _note_duration(el, ns) or 0
+            current_time = time_cursors.get((voice, staff), 0)
+            if not is_chord and not is_grace:
+                new_time = current_time + dur
+                time_cursors[(voice, staff)] = new_time
+                if staff == "1":
+                    max_staff1_time = max(max_staff1_time, new_time)
+        elif tag == "backup":
+            dur = 0
+            dur_el = el.find(qname(ns, "duration"))
+            if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
+                dur = int(dur_el.text.strip())
+            for key in time_cursors:
+                time_cursors[key] = max(0, time_cursors[key] - dur)
+        elif tag == "forward":
+            dur = 0
+            dur_el = el.find(qname(ns, "duration"))
+            if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
+                dur = int(dur_el.text.strip())
+            voice = "1"
+            staff = "1"
+            v_el = el.find(qname(ns, "voice"))
+            s_el = el.find(qname(ns, "staff"))
+            if v_el is not None and v_el.text:
+                voice = v_el.text.strip()
+            if s_el is not None and s_el.text:
+                staff = s_el.text.strip()
+            time_cursors[(voice, staff)] = time_cursors.get((voice, staff), 0) + dur
+            if staff == "1":
+                max_staff1_time = max(max_staff1_time, time_cursors[(voice, staff)])
+    return max_staff1_time
+
+
+def _align_staves_timeline(measure: ET.Element, ns: str) -> None:
+    notes = measure.findall(qname(ns, "note"))
+    staff1_notes = [n for n in notes if _note_voice_staff(n, ns)[1] == "1" and n.find(qname(ns, "grace")) is None and n.get("cue") != "yes"]
+    staff2_notes = [n for n in notes if _note_voice_staff(n, ns)[1] == "2" and n.find(qname(ns, "grace")) is None and n.get("cue") != "yes"]
+    if not staff1_notes or not staff2_notes:
+        return
+
+    staff1_duration = _calculate_staff1_duration_robust(measure, ns)
+    if staff1_duration <= 0:
+        return
+
+    children = list(measure)
+    last_s1_idx = -1
+    first_s2_idx = len(children)
+    for i, el in enumerate(children):
+        if el in staff1_notes:
+            last_s1_idx = max(last_s1_idx, i)
+        elif el in staff2_notes:
+            first_s2_idx = min(first_s2_idx, i)
+
+    if last_s1_idx == -1 or first_s2_idx == len(children) or last_s1_idx >= first_s2_idx:
+        return
+
+    for i in range(last_s1_idx + 1, first_s2_idx):
+        el = children[i]
+        if local_tag(el) == "backup":
+            dur_el = el.find(qname(ns, "duration"))
+            if dur_el is not None:
+                dur_el.text = str(staff1_duration)
+            break
+
+
 def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
+
     tree = ET.parse(io.BytesIO(xml_bytes))
     root = tree.getroot()
     ns = mxl_ns_uri(root)
@@ -4159,6 +4234,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(
                 measure, ns, max_staff
             )
+            if max_staff >= 2:
+                _align_staves_timeline(measure, ns)
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats

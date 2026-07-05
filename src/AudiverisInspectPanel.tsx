@@ -309,8 +309,13 @@ function maxStavesInPart(part: Element): number {
 
 
 
-function stripStaffTagOnDirection(dir: Element): void {
-  dir.querySelectorAll(':scope > staff, :scope > *|staff').forEach((el) => el.remove());
+function forceStaffTagOnDirectionToOne(dir: Element): void {
+  let staffEl = dir.querySelector(':scope > staff, :scope > *|staff');
+  if (!staffEl) {
+    staffEl = dir.ownerDocument!.createElementNS(dir.namespaceURI || 'http://www.musicxml.org/xsd/MusicXML', 'staff');
+    dir.appendChild(staffEl);
+  }
+  staffEl.textContent = '1';
 }
 
 function findXmlParts(doc: Document): Element[] {
@@ -405,7 +410,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   });
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'direction') {
-      stripStaffTagOnDirection(child);
+      forceStaffTagOnDirectionToOne(child);
     }
   }
 }

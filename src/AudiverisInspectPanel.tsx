@@ -399,7 +399,39 @@ function rewriteClefsInAttributes(attrs: Element, staffN: number): void {
   attrs.appendChild(clone);
 }
 
-/** 한 마디를 part 내 특정 staff(1=PR, 2=PL) 단일 줄로 — backup 제거·direction 마디 첫머리·조표 유지. */
+/** 한 마디를 part 내 특정 staff(1=PR, 2=PL) 단일 줄로 — cross-staff backup만 제거·같은 줄 병렬 voice backup 유지. */
+function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag !== 'backup' && tag !== 'forward') continue;
+    const idx = [...measure.children].indexOf(child);
+    if (idx < 0) continue;
+    let prevStaff: number | null = null;
+    for (let j = idx - 1; j >= 0; j--) {
+      const c = measure.children[j];
+      if (xmlLocalName(c) === 'note') {
+        prevStaff = noteStaffN(c);
+        break;
+      }
+    }
+    let nextStaff: number | null = null;
+    for (let j = idx + 1; j < measure.children.length; j++) {
+      const c = measure.children[j];
+      if (xmlLocalName(c) === 'note') {
+        nextStaff = noteStaffN(c);
+        break;
+      }
+    }
+    if (nextStaff !== staffN) {
+      child.remove();
+      continue;
+    }
+    if (tag === 'backup' && (prevStaff === null || prevStaff !== staffN)) {
+      child.remove();
+    }
+  }
+}
+
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
     for (const st of [...attrs.children].filter((c) => xmlLocalName(c) === 'staves')) {
@@ -407,15 +439,16 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
     }
     rewriteClefsInAttributes(attrs, staffN);
   }
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {
+      child.remove();
+    }
+  }
+  pruneCrossStaffTimeline(measure, staffN);
   const keptDirections: Element[] = [];
   for (const child of [...measure.children]) {
     const tag = xmlLocalName(child);
     if (tag === 'backup' || tag === 'forward') {
-      child.remove();
-      continue;
-    }
-    if (tag === 'note' && noteStaffN(child) !== staffN) {
-      child.remove();
       continue;
     }
     if (tag === 'direction') {
@@ -552,7 +585,7 @@ export function buildOsmdPreviewXml(
   filter: StaffFilterEntry | null,
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
-  if (!filter) return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
+  if (!filter) return xml;
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);

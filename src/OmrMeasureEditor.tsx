@@ -251,6 +251,8 @@ type Props = {
   staffLabel?: string;
   /** 피아노 PR/PL 등 — 목록·삽입 기본 staff 필터 (원본 #index 유지) */
   editStaffWithinPart?: number | null;
+  /** part `<staves>` — 동시 시작 voice 복원 staff 선택용 */
+  partStaveCount?: number;
   onAddFix: (fix: OmrHitlFix) => void;
   previewRevision?: number;
   lastPreviewMsg?: string;
@@ -389,6 +391,7 @@ export function OmrMeasureEditor({
   measureOffset,
   staffLabel,
   editStaffWithinPart = null,
+  partStaveCount = 1,
   onAddFix,
   previewRevision = 0,
   lastPreviewMsg = '',
@@ -403,6 +406,7 @@ export function OmrMeasureEditor({
   const [insertStaff, setInsertStaff] = useState(editStaffWithinPart ?? 1);
   const [fixMsg, setFixMsg] = useState('');
   const [pendingInsertLeader, setPendingInsertLeader] = useState<PendingInsertLeader | null>(null);
+  const [repairStaff, setRepairStaff] = useState(editStaffWithinPart ?? 1);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -435,6 +439,10 @@ export function OmrMeasureEditor({
 
   useEffect(() => {
     if (editStaffWithinPart != null) setInsertStaff(editStaffWithinPart);
+  }, [editStaffWithinPart]);
+
+  useEffect(() => {
+    if (editStaffWithinPart != null) setRepairStaff(editStaffWithinPart);
   }, [editStaffWithinPart]);
 
   useEffect(() => {
@@ -496,18 +504,45 @@ export function OmrMeasureEditor({
         <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
           {staffLabel ?? `staff ${editStaffWithinPart}`} 줄만 표시 — 보정은 MusicXML part <code>{partId}</code> staff{' '}
           {editStaffWithinPart}(#번호는 전체 마디 기준).
-          <button
-            type="button"
-            className="btn-muted"
-            style={{ marginLeft: 8 }}
-            onClick={() =>
-              pushFix({ kind: 'repairParallelOnsets', staff: editStaffWithinPart, detail: 'same-x parallel' })
-            }
-          >
-            동시 시작 voice 복원
-          </button>
         </p>
       ) : null}
+      <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
+        <strong>동시 시작·박자 다른 음</strong>(화음 아님)이 차례로 그려지면:{' '}
+        {partStaveCount >= 2 && editStaffWithinPart == null ? (
+          <label style={{ marginRight: 6 }}>
+            줄
+            <select
+              value={String(repairStaff)}
+              onChange={(e) => setRepairStaff(parseInt(e.target.value, 10) || 1)}
+              style={{ marginLeft: 4 }}
+            >
+              <option value="1">{staffLabel === 'PL' ? 'staff 1' : 'PR / staff 1'}</option>
+              <option value="2">PL / staff 2</option>
+            </select>
+          </label>
+        ) : (
+          <span style={{ marginRight: 6 }}>
+            part <code>{partId}</code> staff {repairStaff}
+            {staffLabel ? ` (${staffLabel})` : ''}
+          </span>
+        )}
+        <button
+          type="button"
+          className="btn-muted"
+          onClick={() =>
+            pushFix({
+              kind: 'repairParallelOnsets',
+              staff: repairStaff,
+              detail: 'same-x parallel',
+            })
+          }
+        >
+          동시 시작 voice 복원
+        </button>
+        <span style={{ marginLeft: 6, color: '#555' }}>
+          → 「MXL에 반영·미리보기」 (전체·PR·PL 필터 모두에서 사용 가능)
+        </span>
+      </p>
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
       {loadErr ? <p className="omr-measure-editor-err">{loadErr}</p> : null}

@@ -764,6 +764,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 undefined
               }
               editStaffWithinPart={editStaffWithinPart}
+              partStaveCount={rawXml ? staveCountForPart(rawXml, editorPartId) : 1}
               previewRevision={previewRevision}
               lastPreviewMsg={lastPreviewMsg}
               pendingFixCount={pendingFixes.length}

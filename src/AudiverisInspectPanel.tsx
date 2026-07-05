@@ -432,44 +432,7 @@ function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
   }
 }
 
-/** staff≥2(PL) 단일 줄 추출 전: `<backup>` 직전까지 PR 등 상위 줄이 차지한 duration — OSMD 시간축 유지. */
-function layerForwardDurationBeforeStaff(measure: Element, staffN: number): number {
-  if (staffN <= 1) return 0;
-  const children = [...measure.children];
-  let firstIdx = -1;
-  for (let i = 0; i < children.length; i++) {
-    if (xmlLocalName(children[i]) === 'note' && noteStaffN(children[i]) === staffN) {
-      firstIdx = i;
-      break;
-    }
-  }
-  if (firstIdx < 0) return 0;
-  for (let j = firstIdx - 1; j >= 0; j--) {
-    if (xmlLocalName(children[j]) !== 'backup') continue;
-    const d = children[j].querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim();
-    if (d && /^\d+$/.test(d)) return parseInt(d, 10);
-    return 0;
-  }
-  return 0;
-}
-
-function insertForwardAtMeasureContent(measure: Element, duration: number): void {
-  if (duration <= 0) return;
-  const existing = [...measure.children].find((c) => xmlLocalName(c) === 'forward');
-  if (existing) return;
-  const ref = measureStartInsertRef(measure);
-  const ns = measure.namespaceURI;
-  const tag = (local: string) => (ns ? measure.ownerDocument!.createElementNS(ns, local) : measure.ownerDocument!.createElement(local));
-  const fwd = tag('forward');
-  const dur = tag('duration');
-  dur.textContent = String(duration);
-  fwd.appendChild(dur);
-  if (ref) measure.insertBefore(fwd, ref);
-  else measure.appendChild(fwd);
-}
-
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
-  const layerForward = layerForwardDurationBeforeStaff(measure, staffN);
   for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
     for (const st of [...attrs.children].filter((c) => xmlLocalName(c) === 'staves')) {
       st.textContent = '1';
@@ -491,7 +454,6 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
     }
     ensureDirectionBeforeAnchor(measure, child, anchor);
   }
-  insertForwardAtMeasureContent(measure, layerForward);
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
   });
@@ -718,10 +680,7 @@ export function buildOsmdPreviewXml(
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
   xml = migrateDirectionsToNotes(xml);
-  if (!filter) {
-    // OSMD 전체 악보: part 내 staff=2 direction → 악보 2번째 줄(P2) 오인. PR·PL 단일 줄 part로만 쪼갬(미리보기 전용).
-    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
-  }
+  if (!filter) return xml;
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);

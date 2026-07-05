@@ -414,11 +414,9 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
       words.forEach(w => {
         if (w.textContent) {
           // Prevent OSMD from parsing this text as a system-level tempo mark (which forces it to the top staff)
-          // by injecting a zero-width space into known tempo keywords.
-          w.textContent = w.textContent.replace(
-            /(tempo|mosso|rit|accel|largo|andante|allegro|adagio|presto|vivace)/ig,
-            (m) => m[0] + '\u200B' + m.slice(1)
-          );
+          // by injecting a zero-width space after the first letter of every word.
+          // This defeats OSMD's substring matching for any tempo keyword (e.g. 'poco', 'piu', 'mosso').
+          w.textContent = w.textContent.replace(/([a-zA-Z]+)/g, (m) => m[0] + '\u200B' + m.slice(1));
         }
       });
       forceStaffTagOnDirectionToOne(child);

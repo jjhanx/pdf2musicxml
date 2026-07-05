@@ -325,11 +325,20 @@ function resolveAfterNoteIndex(el: MeasureElement, elements: MeasureElement[]): 
   return -1;
 }
 
-function elementTitle(el: MeasureElement, _noteEls: MeasureNoteEl[]): string {
+function elementTitle(
+  el: MeasureElement,
+  _noteEls: MeasureNoteEl[],
+  ctx?: { partId?: string; staffLineLabel?: string | null; editStaffWithinPart?: number | null },
+): string {
   if (el.elementKind === 'direction') {
     const label = el.text?.trim() || '(표기 없음 — dynamics 등 XML 태그만 있을 수 있음)';
     const staff = el.staff != null ? ` staff=${el.staff}` : '';
-    return `direction #${el.directionIndex}: ${label}${staff}`;
+    const part = ctx?.partId ? ` · part ${ctx.partId}` : '';
+    const line =
+      ctx?.staffLineLabel ??
+      (ctx?.editStaffWithinPart != null ? `staff ${ctx.editStaffWithinPart}` : null);
+    const lineSuffix = line ? ` · ${line}` : '';
+    return `direction #${el.directionIndex}: ${label}${staff}${part}${lineSuffix}`;
   }
   const idx = el.index;
   if (el.kind === 'rest') {
@@ -507,7 +516,9 @@ export function OmrMeasureEditor({
         <ol className="omr-measure-element-list">
           {displayElements.map((el) => (
             <li key={el.elementKind === 'direction' ? `dir-${el.directionIndex}` : `note-${el.index}`}>
-              <div className="omr-measure-element-title">{elementTitle(el, noteEls)}</div>
+              <div className="omr-measure-element-title">
+                {elementTitle(el, noteEls, { partId, staffLabel, editStaffWithinPart })}
+              </div>
               {el.elementKind === 'direction' ? (
                 <div className="omr-measure-element-actions omr-measure-direction-actions">
                   <button

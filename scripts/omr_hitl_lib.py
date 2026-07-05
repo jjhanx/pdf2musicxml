@@ -708,6 +708,29 @@ def _insert_note_element(
     measure.append(new_el)
 
 
+def _insert_direction_at_staff_measure_start(
+    measure: ET.Element, ns: str, new_dir: ET.Element, staff_n: int
+) -> None:
+    """마디 앞( afterNoteIndex=-1 ) — PL 등 staff≥2는 ⟨backup⟩ 직후(해당 줄 voice 시작)."""
+    if staff_n >= 2:
+        children = list(measure)
+        for i, child in enumerate(children):
+            if _local(child) != "backup":
+                continue
+            pos = i + 1
+            while pos < len(children):
+                nxt = children[pos]
+                if _local(nxt) == "note" and (_note_staff_number(nxt, ns) or 1) == staff_n:
+                    measure.insert(pos, new_dir)
+                    return
+                if _local(nxt) == "note":
+                    break
+                pos += 1
+            measure.insert(i + 1, new_dir)
+            return
+    _insert_note_element(measure, ns, new_dir, -1, staff_n=staff_n)
+
+
 def _insert_before_note_element(
     measure: ET.Element,
     ns: str,
@@ -1853,7 +1876,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
             return True
         if after_idx < 0:
-            _insert_note_element(measure, ns, new_dir, after_idx, staff_n=staff_n)
+            _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
             return True
         if 0 <= after_idx < len(notes):
             anchor_idx = after_idx

@@ -297,6 +297,16 @@ export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: n
     const part = [...doc.querySelectorAll('part, *|part')].find((el) => el.getAttribute('id') === partId);
     if (!part) return xml;
 
+    const measureStartInsertRef = (measure: Element): Element | null => {
+      for (const child of [...measure.children]) {
+        const tag = xmlLocalName(child);
+        if (tag === 'attributes' || tag === 'print') continue;
+        if (tag === 'barline' && child.getAttribute('location') === 'right') continue;
+        return child;
+      }
+      return measure.firstElementChild;
+    };
+
     for (const measure of [...part.children]) {
       if (xmlLocalName(measure) !== 'measure') continue;
       const attrs = measure.querySelector('attributes, *|attributes');
@@ -305,6 +315,7 @@ export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: n
           el.textContent = '1';
         });
       }
+      const keptDirections: Element[] = [];
       for (const child of [...measure.children]) {
         const tag = xmlLocalName(child);
         if (tag === 'backup' || tag === 'forward') {
@@ -319,13 +330,25 @@ export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: n
           const dirStaff = child.querySelector(':scope > staff, :scope > *|staff');
           if (dirStaff) {
             const n = parseInt(dirStaff.textContent?.trim() ?? '1', 10);
-            if (Number.isFinite(n) && n !== staffN) child.remove();
+            if (Number.isFinite(n) && n !== staffN) {
+              child.remove();
+              continue;
+            }
+            dirStaff.textContent = '1';
           }
+          keptDirections.push(child);
+          child.remove();
         }
       }
       measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
         el.textContent = '1';
       });
+      // PL/PR 단일 줄 미리보기: direction을 마디 첫머리로 — backup 제거·staff=2 잔존 시 OSMD가 다음 마디로 밀어 그림
+      for (const dir of keptDirections) {
+        const ref = measureStartInsertRef(measure);
+        if (ref) measure.insertBefore(dir, ref);
+        else measure.appendChild(dir);
+      }
     }
     return new XMLSerializer().serializeToString(doc);
   } catch {

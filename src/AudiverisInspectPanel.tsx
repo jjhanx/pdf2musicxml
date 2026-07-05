@@ -683,7 +683,10 @@ export function buildOsmdPreviewXml(
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
   xml = migrateDirectionsToNotes(xml);
-  if (!filter) return xml;
+  if (!filter) {
+    // OSMD 버그: grand staff part의 staff 2 direction → 악보 2번째 줄(P2 Alto). 미리보기만 PR·PL part 분리(MXL 저장은 그대로).
+    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
+  }
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);

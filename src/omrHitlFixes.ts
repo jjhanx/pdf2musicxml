@@ -68,6 +68,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   removeSpuriousDirection: 'P·9 direction 제거',
   removeDirection: 'direction 제거',
   insertDirection: 'direction 추가',
+  setNoteDirection: '음표 direction',
+  clearNoteDirection: 'direction 지우기',
   addArticulation: '표(articulation) 추가',
   removeTrailingPhantomRest: '마디 끝 쉼표 제거',
   setNoteStaff: '스태프 지정',
@@ -157,10 +159,10 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   const parts = [label, fix.partId, `m.${fix.measureMxl}`];
   if (fix.noteIndex != null) parts.push(`#${fix.noteIndex}`);
   if (fix.directionIndex != null) parts.push(`dir#${fix.directionIndex}`);
-  if (fix.kind === 'insertDirection') {
-    if (fix.afterNoteIndex != null && fix.afterNoteIndex < 0) parts.push('마디 앞');
-    else if (fix.afterNoteIndex != null) parts.push(`after #${fix.afterNoteIndex}`);
-    if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+  if (fix.kind === 'setNoteDirection' || fix.kind === 'insertDirection') {
+    if (fix.noteIndex != null) parts.push(`#${fix.noteIndex}`);
+    else if (fix.afterNoteIndex != null && fix.afterNoteIndex < 0) parts.push('마디 앞');
+    else if (fix.afterNoteIndex != null) parts.push(`#${fix.afterNoteIndex}`);
     if (fix.directionType) parts.push(fix.directionType);
     if (fix.directionValue?.trim()) parts.push(fix.directionValue.trim());
   }

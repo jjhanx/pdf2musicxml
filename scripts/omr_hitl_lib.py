@@ -341,56 +341,67 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "tuplet": tuplet,
         "articulations": articulations,
         "fermatas": fermatas,
+        "noteDirection": None,
     }
+
+
+def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
+    dtype = direction.find(_q(ns, "direction-type"))
+    if dtype is None:
+        text = _direction_text(direction)
+        return {"directionType": "words", "directionValue": text or ""}
+    dyn = dtype.find(_q(ns, "dynamics"))
+    if dyn is not None:
+        tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
+        if tags:
+            return {"directionType": "dynamics", "directionValue": tags[0]}
+    words = dtype.find(_q(ns, "words"))
+    if words is not None and words.text and words.text.strip():
+        return {"directionType": "words", "directionValue": words.text.strip()}
+    reh = dtype.find(_q(ns, "rehearsal"))
+    if reh is not None:
+        return {"directionType": "rehearsal", "directionValue": (reh.text or "A").strip()}
+    text = _direction_text(direction)
+    return {"directionType": "words", "directionValue": text or ""}
+
+
+def _read_note_direction_from_notations(note: ET.Element, ns: str) -> dict[str, Any] | None:
+    for notations in note.findall(_q(ns, "notations")):
+        dyn = notations.find(_q(ns, "dynamics"))
+        if dyn is None:
+            continue
+        tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
+        if tags:
+            return {"directionType": "dynamics", "directionValue": tags[0]}
+    return None
 
 
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     elements: list[dict[str, Any]] = []
-    direction_index = 0
     note_index = 0
+    pending_direction: ET.Element | None = None
     for child in measure:
         local = _local(child)
         if local == "direction":
-            staff_el = child.find(_q(ns, "staff"))
-            staff_n = (
-                int(staff_el.text.strip())
-                if staff_el is not None and staff_el.text and staff_el.text.strip().isdigit()
-                else None
-            )
-            elements.append(
-                {
-                    "elementKind": "direction",
-                    "directionIndex": direction_index,
-                    "text": _direction_text(child),
-                    "staff": staff_n,
-                }
-            )
-            direction_index += 1
+            pending_direction = child
         elif local == "note":
             snap = note_snapshot(child, ns, note_index)
+            if pending_direction is not None:
+                snap["noteDirection"] = _direction_element_info(pending_direction, ns)
+                pending_direction = None
+            else:
+                from_notations = _read_note_direction_from_notations(child, ns)
+                if from_notations is not None:
+                    snap["noteDirection"] = from_notations
             elements.append(snap)
-            dyn_text = _note_dynamics_text(child, ns)
-            if dyn_text:
-                elements.append(
-                    {
-                        "elementKind": "direction",
-                        "directionIndex": direction_index,
-                        "text": dyn_text,
-                        "staff": snap.get("staff"),
-                        "attachedToNoteIndex": note_index,
-                        "fromNoteDynamics": True,
-                    }
-                )
-                direction_index += 1
             note_index += 1
-    note_snaps = [el for el in elements if el.get("elementKind") == "note"]
-    for i, snap in enumerate(note_snaps):
+    for i, snap in enumerate(elements):
         if snap.get("chord") and not snap.get("beams"):
             j = i - 1
-            while j >= 0 and note_snaps[j].get("chord"):
+            while j >= 0 and elements[j].get("chord"):
                 j -= 1
-            if j >= 0 and note_snaps[j].get("beams"):
-                snap["beams"] = list(note_snaps[j]["beams"])
+            if j >= 0 and elements[j].get("beams"):
+                snap["beams"] = list(elements[j]["beams"])
     return elements
 
 
@@ -406,7 +417,7 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
     return {
         "partId": part_id,
         "measureMxl": str(measure_mxl),
-        "notes": [note_snapshot(n, ns, i) for i, n in enumerate(notes)],
+        "notes": elements,
         "elements": elements,
     }
 
@@ -570,6 +581,17 @@ def _build_inserted_rest_note(
     return new_note
 
 
+def _voice_default_for_staff(notes: list[ET.Element], ns: str, staff_n: int) -> str:
+    """같은 staff에 이미 voice가 있으면 그 값, 없으면 staff 1→1·2+→5."""
+    for note in notes:
+        if (_note_staff_number(note, ns) or 1) != staff_n:
+            continue
+        voice_el = note.find(_q(ns, "voice"))
+        if voice_el is not None and voice_el.text and voice_el.text.strip():
+            return voice_el.text.strip()
+    return "5" if staff_n >= 2 else "1"
+
+
 def _normalize_measure_note_engraving(
     part: ET.Element, ns: str, measure: ET.Element
 ) -> bool:
@@ -578,12 +600,6 @@ def _normalize_measure_note_engraving(
     notes = list_note_elements(measure, ns)
     if not notes:
         return False
-    default_voice = "1"
-    for note in notes:
-        voice_el = note.find(_q(ns, "voice"))
-        if voice_el is not None and voice_el.text and voice_el.text.strip():
-            default_voice = voice_el.text.strip()
-            break
     changed = False
     for note in notes:
         if note.find(_q(ns, "grace")) is not None or note.get("cue") == "yes":
@@ -607,13 +623,15 @@ def _normalize_measure_note_engraving(
                     note.insert(0, dur_el)
             dur_el.text = str(target_dur)
             changed = True
+        staff_n = _note_staff_number(note, ns) or 1
+        fill_voice = _voice_default_for_staff(notes, ns, staff_n)
         voice_el = note.find(_q(ns, "voice"))
         if voice_el is None:
             voice_el = ET.SubElement(note, _q(ns, "voice"))
-            voice_el.text = default_voice
+            voice_el.text = fill_voice
             changed = True
         elif not (voice_el.text or "").strip():
-            voice_el.text = default_voice
+            voice_el.text = fill_voice
             changed = True
         if note.find(_q(ns, "pitch")) is not None and note.find(_q(ns, "stem")) is None:
             pitch_el = note.find(_q(ns, "pitch"))
@@ -881,23 +899,84 @@ def _first_note_on_staff(measure: ET.Element, ns: str, staff_n: int) -> ET.Eleme
     return None
 
 
+def _note_matching_direction_voice(
+    measure: ET.Element, direction: ET.Element, ns: str
+) -> ET.Element | None:
+    voice_el = direction.find(_q(ns, "voice"))
+    if voice_el is None:
+        for el in direction.iter():
+            if _local(el) == "voice" and el.text and el.text.strip():
+                voice_el = el
+                break
+    if voice_el is None or not voice_el.text or not voice_el.text.strip():
+        return None
+    want = voice_el.text.strip()
+    dstaff = _direction_effective_staff(measure, direction, ns, 0)
+    matches: list[ET.Element] = []
+    for child in measure:
+        if _local(child) != "note":
+            continue
+        v = child.find(_q(ns, "voice"))
+        if v is None:
+            for el in child:
+                if _local(el) == "voice":
+                    v = el
+                    break
+        if v is not None and (v.text or "").strip() == want:
+            matches.append(child)
+    if not matches:
+        return None
+    if dstaff >= 1:
+        for child in matches:
+            if (_note_staff_number(child, ns) or 1) == dstaff:
+                return child
+    return matches[0]
+
+
+def _direction_effective_staff(
+    measure: ET.Element, direction: ET.Element, ns: str, default: int = 1
+) -> int:
+    voice_el = direction.find(_q(ns, "voice"))
+    if voice_el is None:
+        for el in direction.iter():
+            if _local(el) == "voice" and el.text and el.text.strip():
+                voice_el = el
+                break
+    if voice_el is not None and voice_el.text and voice_el.text.strip().isdigit():
+        want = voice_el.text.strip()
+        for child in measure:
+            if _local(child) != "note":
+                continue
+            v = child.find(_q(ns, "voice"))
+            if v is None:
+                for el in child:
+                    if _local(el) == "voice":
+                        v = el
+                        break
+            if v is not None and (v.text or "").strip() == want:
+                return _note_staff_number(child, ns) or default
+    dstaff = _direction_staff_number(direction, ns)
+    return dstaff if dstaff is not None else default
+
+
 def _anchor_note_for_existing_direction(
     measure: ET.Element, direction: ET.Element, ns: str, staff_n: int
 ) -> ET.Element | None:
+    eff_staff = _direction_effective_staff(measure, direction, ns, staff_n)
     children = list(measure)
     try:
         idx = children.index(direction)
     except ValueError:
-        return _first_note_on_staff(measure, ns, staff_n)
+        return _first_note_on_staff(measure, ns, eff_staff)
     for j in range(idx + 1, len(children)):
         c = children[j]
-        if _local(c) == "note" and (_note_staff_number(c, ns) or 1) == staff_n:
+        if _local(c) == "note" and (_note_staff_number(c, ns) or 1) == eff_staff:
             return c
     for j in range(idx - 1, -1, -1):
         c = children[j]
-        if _local(c) == "note" and (_note_staff_number(c, ns) or 1) == staff_n:
+        if _local(c) == "note" and (_note_staff_number(c, ns) or 1) == eff_staff:
             return c
-    return _first_note_on_staff(measure, ns, staff_n)
+    return _first_note_on_staff(measure, ns, eff_staff)
 
 
 def _find_direction_anchor_note(
@@ -971,22 +1050,78 @@ def _remove_note_dynamics(note: ET.Element, ns: str, detail: str | None = None) 
     return changed
 
 
-def _convert_multistaff_directions_to_note_attached(measure: ET.Element, ns: str) -> bool:
-    """2단 part의 `<direction><staff>N</staff>` — OSMD 전체 악보 staff 오인 방지."""
-    if _measure_staves_count(measure, ns) < 2:
+def _clear_note_direction(
+    measure: ET.Element, notes: list[ET.Element], note_idx: int, ns: str
+) -> bool:
+    if note_idx < 0 or note_idx >= len(notes):
         return False
+    note = notes[note_idx]
+    changed = _remove_note_dynamics(note, ns, detail=None)
+    children = list(measure)
+    try:
+        ni = children.index(note)
+    except ValueError:
+        return changed
+    for j in range(ni - 1, -1, -1):
+        c = children[j]
+        if _local(c) == "direction":
+            measure.remove(c)
+            changed = True
+            break
+        if _local(c) == "note":
+            break
+    return changed
+
+
+def _apply_note_direction(
+    measure: ET.Element,
+    notes: list[ET.Element],
+    note_idx: int,
+    ns: str,
+    direction_type: str,
+    direction_value: str,
+    placement: str | None = None,
+) -> bool:
+    if note_idx < 0 or note_idx >= len(notes):
+        return False
+    _clear_note_direction(measure, notes, note_idx, ns)
+    note = notes[note_idx]
+    kind = (direction_type or "words").strip().lower()
+    val = str(direction_value or "").strip()
+    if kind == "dynamics":
+        tag = val.lower() or "p"
+        if placement is None:
+            placement = "below"
+        _attach_dynamics_to_note(note, ns, tag, placement)
+        return True
+    if not val and kind == "words":
+        val = " "
+    new_dir = _build_direction_element(
+        ns,
+        kind,
+        val,
+        staff_n=None,
+        placement=placement,
+    )
+    _insert_before_note_element(measure, ns, new_dir, note_idx)
+    _attach_voice_to_direction_from_note(new_dir, ns, note)
+    return True
+
+
+def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
+    """measure-level `<direction>` 을 anchor 음표 속성(notations·앞 direction)으로 통일."""
     changed = False
     for direction in list(measure.findall(_q(ns, "direction"))):
-        dstaff = _direction_staff_number(direction, ns)
-        if dstaff is None:
-            continue
-        anchor = _anchor_note_for_existing_direction(measure, direction, ns, dstaff)
+        anchor = _note_matching_direction_voice(measure, direction, ns)
+        if anchor is None:
+            dstaff = _direction_effective_staff(measure, direction, ns, 1)
+            anchor = _anchor_note_for_existing_direction(measure, direction, ns, dstaff)
         if anchor is None:
             continue
         dtype = direction.find(_q(ns, "direction-type"))
         dyn = dtype.find(_q(ns, "dynamics")) if dtype is not None else None
         if dyn is not None:
-            tags = [_local(c) for c in dyn if _local(c)]
+            tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
             if tags:
                 placement = direction.get("placement") or dyn.get("placement") or "below"
                 _attach_dynamics_to_note(anchor, ns, tags[0], placement)
@@ -996,15 +1131,28 @@ def _convert_multistaff_directions_to_note_attached(measure: ET.Element, ns: str
         staff_el = direction.find(_q(ns, "staff"))
         if staff_el is not None:
             direction.remove(staff_el)
+            changed = True
         _attach_voice_to_direction_from_note(direction, ns, anchor)
+        children = list(measure)
+        try:
+            di = children.index(direction)
+            ai = children.index(anchor)
+        except ValueError:
+            di, ai = -1, -1
+        if ai == di + 1:
+            continue
         measure.remove(direction)
-        pos = list(measure).index(anchor)
-        measure.insert(pos, direction)
+        measure.insert(list(measure).index(anchor), direction)
         changed = True
     return changed
 
 
+def _convert_multistaff_directions_to_note_attached(measure: ET.Element, ns: str) -> bool:
+    return _migrate_directions_to_notes(measure, ns)
+
+
 def _assign_timeline_attachment(
+    measure: ET.Element,
     el: ET.Element,
     ns: str,
     last_seen_note: ET.Element | None,
@@ -1014,18 +1162,13 @@ def _assign_timeline_attachment(
 ) -> None:
     """direction staff ≠ 직전 note staff 이면 해당 staff 블록 앞(preamble)으로 — backup 뒤 PL 셈여림 등."""
     if _local(el) == "direction":
-        dstaff = _direction_staff_number(el, ns)
+        dstaff = _direction_effective_staff(measure, el, ns, 1)
         if last_seen_note is not None:
             nstaff = _note_staff_number(last_seen_note, ns) or 1
-            if dstaff is None or dstaff == nstaff:
+            if dstaff == nstaff:
                 note_attachments.setdefault(last_seen_note, []).append(el)
                 return
-        if dstaff is not None:
-            staff_preamble.setdefault(dstaff, []).append(el)
-        elif last_seen_note is not None:
-            note_attachments.setdefault(last_seen_note, []).append(el)
-        else:
-            staff_preamble.setdefault(1, []).append(el)
+        staff_preamble.setdefault(dstaff, []).append(el)
         return
     if last_seen_note is not None:
         note_attachments.setdefault(last_seen_note, []).append(el)
@@ -2048,6 +2191,29 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return True
         return False
 
+    if kind == "clearNoteDirection":
+        try:
+            note_idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        return _clear_note_direction(measure, notes, note_idx, ns)
+
+    if kind == "setNoteDirection":
+        direction_type = str(fix.get("directionType") or "words").strip().lower()
+        direction_value = str(fix.get("directionValue") or fix.get("detail") or "").strip()
+        try:
+            note_idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        placement = str(fix.get("placement") or "").strip().lower() or None
+        if placement not in ("above", "below", ""):
+            placement = None
+        if direction_type == "dynamics" and placement is None:
+            placement = "below"
+        return _apply_note_direction(
+            measure, notes, note_idx, ns, direction_type, direction_value, placement
+        )
+
     if kind == "insertDirection":
         direction_type = str(fix.get("directionType") or "words").strip().lower()
         direction_value = str(fix.get("directionValue") or fix.get("detail") or "").strip()
@@ -2061,139 +2227,19 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             placement = None
         if direction_type == "dynamics" and placement is None:
             placement = "below"
-        staves_in_measure = _measure_staves_count(measure, ns)
-
-        def _insert_words_direction_before(anchor_idx: int, anchor_note: ET.Element | None) -> bool:
-            new_dir = _build_direction_element(
-                ns,
-                direction_type,
-                direction_value,
-                staff_n=None,
-                placement=placement,
-            )
-            if anchor_idx >= 0:
-                _insert_before_note_element(measure, ns, new_dir, anchor_idx, staff_n=staff_n)
-            elif anchor_note is not None:
-                children = list(measure)
-                measure.insert(children.index(anchor_note), new_dir)
-            else:
-                _insert_note_element(measure, ns, new_dir, -1, staff_n=staff_n)
-            _attach_voice_to_direction_from_note(new_dir, ns, anchor_note)
-            return True
-
-        if staves_in_measure >= 2:
-            anchor_note = _find_direction_anchor_note(measure, notes, ns, after_idx, staff_n)
-            anchor_idx = notes.index(anchor_note) if anchor_note in notes else after_idx
-            if (
-                not fix.get("afterRest")
-                and 0 <= after_idx < len(notes)
-                and notes[after_idx].find(_q(ns, "rest")) is not None
-            ):
-                if direction_type == "dynamics":
-                    tag = direction_value.lower() or "p"
-                    _attach_dynamics_to_note(notes[after_idx], ns, tag, placement)
-                    return True
-                if after_idx > 0:
-                    insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
-                        notes, ns, after_idx - 1, staff_n
-                    )
-                    anchor_note = notes[insert_after_idx] if 0 <= insert_after_idx < len(notes) else anchor_note
-                    anchor_idx = insert_after_idx
-                else:
-                    anchor_idx = -1
-                if direction_type == "dynamics":
-                    if anchor_note is None:
-                        return False
-                    tag = direction_value.lower() or "p"
-                    _attach_dynamics_to_note(anchor_note, ns, tag, placement)
-                    return True
-                return _insert_words_direction_before(anchor_idx, anchor_note)
-            if fix.get("afterRest") and 0 <= after_idx < len(notes):
-                insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
-                    notes, ns, after_idx, staff_n
-                )
-                if direction_type == "dynamics":
-                    anchor_note = notes[insert_after_idx] if 0 <= insert_after_idx < len(notes) else notes[after_idx]
-                    tag = direction_value.lower() or "p"
-                    _attach_dynamics_to_note(anchor_note, ns, tag, placement)
-                    return True
-                new_dir = _build_direction_element(
-                    ns,
-                    direction_type,
-                    direction_value,
-                    staff_n=None,
-                    placement=placement,
-                )
-                _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
-                anchor_note = notes[insert_after_idx] if 0 <= insert_after_idx < len(notes) else notes[after_idx]
-                _attach_voice_to_direction_from_note(new_dir, ns, anchor_note)
-                return True
-            if direction_type == "dynamics":
-                if anchor_note is None:
-                    anchor_note = _first_note_on_staff(measure, ns, staff_n)
-                if anchor_note is None:
-                    return False
-                tag = direction_value.lower() or "p"
-                _attach_dynamics_to_note(anchor_note, ns, tag, placement)
-                return True
-            if after_idx < 0 and anchor_note is None:
-                anchor_note = _first_note_on_staff(measure, ns, staff_n)
-                if anchor_note is not None:
-                    anchor_idx = notes.index(anchor_note)
-            if 0 <= after_idx < len(notes):
-                anchor_idx = after_idx
-                if notes[after_idx].find(_q(ns, "chord")) is not None:
-                    anchor_idx = _chord_leader_index(notes, ns, after_idx)
-                anchor_note = notes[anchor_idx]
-            return _insert_words_direction_before(anchor_idx, anchor_note)
-
-        new_dir = _build_direction_element(
-            ns,
-            direction_type,
-            direction_value,
-            staff_n=staff_n,
-            placement=placement,
-        )
-        if (
-            not fix.get("afterRest")
-            and 0 <= after_idx < len(notes)
-            and notes[after_idx].find(_q(ns, "rest")) is not None
-        ):
-            # MusicXML: 쉼표에 붙는 direction은 <note><rest> 바로 앞. 쉼표 XML·display-step은 변경하지 않음.
-            if after_idx > 0:
-                insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
-                    notes, ns, after_idx - 1, staff_n
-                )
-            else:
-                insert_after_idx = -1
-            _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
-            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
-            return True
-        if fix.get("afterRest") and 0 <= after_idx < len(notes):
-            insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
-                notes, ns, after_idx, staff_n
-            )
-            _insert_note_element(measure, ns, new_dir, insert_after_idx, staff_n=staff_n)
-            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
-            return True
-        if after_idx < 0:
-            _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
-            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
-            return True
+        note_idx: int | None
         if 0 <= after_idx < len(notes):
-            anchor_idx = after_idx
+            note_idx = after_idx
             if notes[after_idx].find(_q(ns, "chord")) is not None:
-                anchor_idx = _chord_leader_index(notes, ns, after_idx)
-            staff_from = _note_staff_number(notes[anchor_idx], ns)
-            if staff_from is not None:
-                staff_n = staff_from
-            # 음표·화음 리더 — 해당 음 시작(attack) = `<note>` 바로 앞. 리더 뒤·화음 끝은 OSMD가 다음 박으로 그림.
-            _insert_before_note_element(measure, ns, new_dir, anchor_idx, staff_n=staff_n)
-            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
-            return True
-        _insert_note_element(measure, ns, new_dir, after_idx, staff_n=staff_n)
-        _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
-        return True
+                note_idx = _chord_leader_index(notes, ns, after_idx)
+        else:
+            anchor = _first_note_on_staff(measure, ns, staff_n)
+            note_idx = notes.index(anchor) if anchor is not None else None
+        if note_idx is None:
+            return False
+        return _apply_note_direction(
+            measure, notes, note_idx, ns, direction_type, direction_value, placement
+        )
 
     if kind == "insertGraceNote":
         step = str(fix.get("pitchStep") or "").strip()
@@ -3312,7 +3358,7 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
             ):
                 continue
             _assign_timeline_attachment(
-                el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
+                measure, el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
             )
     if current_notes:
         blocks.append(("notes", current_voice, current_notes))
@@ -3382,7 +3428,7 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
             ):
                 continue
             _assign_timeline_attachment(
-                el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
+                measure, el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
             )
 
     for note in list_note_elements(measure, ns):
@@ -3483,7 +3529,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             notes = list_note_elements(measure, ns)
             _strip_chord_member_beams(notes, ns)
             rebuild_measure_timeline_clean(measure, ns)
-            _convert_multistaff_directions_to_note_attached(measure, ns)
+            _migrate_directions_to_notes(measure, ns)
     return stats
 
 

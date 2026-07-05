@@ -234,9 +234,15 @@ export type MeasureNoteEl = {
   /** 늘임표 (예: "upright", "inverted(below)") */
   fermatas?: string[];
   graceSlash?: boolean | null;
+  noteDirection?: NoteDirectionInfo | null;
 };
 
-export type MeasureElement = MeasureDirectionEl | MeasureNoteEl;
+export type NoteDirectionInfo = {
+  directionType: 'dynamics' | 'words' | 'rehearsal';
+  directionValue: string;
+};
+
+export type MeasureElement = MeasureNoteEl;
 
 type MeasureSnapshot = {
   partId: string;
@@ -319,15 +325,15 @@ function graceNotesBefore(index: number, noteEls: MeasureNoteEl[]): MeasureNoteE
   return out;
 }
 
-function resolveAfterNoteIndex(el: MeasureElement, elements: MeasureElement[]): number {
-  if (el.elementKind === 'note') return el.index;
-  const pos = elements.indexOf(el);
-  if (pos < 0) return -1;
-  for (let i = pos - 1; i >= 0; i--) {
-    const prev = elements[i];
-    if (prev.elementKind === 'note') return prev.index;
-  }
-  return -1;
+function resolveAfterNoteIndex(el: MeasureElement, _elements: MeasureElement[]): number {
+  return el.index;
+}
+
+function noteDirectionLabel(dir: NoteDirectionInfo | null | undefined): string {
+  if (!dir?.directionValue && dir?.directionType !== 'dynamics') return '';
+  if (dir.directionType === 'dynamics') return `dir:${dir.directionValue || 'p'}`;
+  if (dir.directionType === 'rehearsal') return `reh:${dir.directionValue || 'A'}`;
+  return `txt:${dir.directionValue}`;
 }
 
 function elementTitle(
@@ -335,22 +341,8 @@ function elementTitle(
   _noteEls: MeasureNoteEl[],
   ctx?: { partId?: string; staffLabel?: string | null; editStaffWithinPart?: number | null },
 ): string {
-  if (el.elementKind === 'direction') {
-    const label = el.text?.trim() || '(표기 없음 — dynamics 등 XML 태그만 있을 수 있음)';
-    const line =
-      ctx?.staffLabel ??
-      (ctx?.editStaffWithinPart != null ? `staff ${ctx.editStaffWithinPart}` : null);
-    const chunks = [
-      el.fromNoteDynamics && el.attachedToNoteIndex != null
-        ? `direction (음표 #${el.attachedToNoteIndex}): ${label}`
-        : `direction #${el.directionIndex}: ${label}`,
-    ];
-    if (ctx?.partId) chunks.push(`part ${ctx.partId}`);
-    if (line) chunks.push(line);
-    else if (el.staff != null) chunks.push(`XML staff ${el.staff}`);
-    return chunks.join(' · ');
-  }
   const idx = el.index;
+  const dirSuffix = noteDirectionLabel(el.noteDirection) ? ` · ${noteDirectionLabel(el.noteDirection)}` : '';
   if (el.kind === 'rest') {
     const dots = el.dotCount ? ` ·×${el.dotCount}` : '';
     const pos =
@@ -359,7 +351,7 @@ function elementTitle(
         : '';
     const dur = el.duration != null ? ` dur=${el.duration}` : '';
     const ferms = el.fermatas?.length ? ` fermata=${el.fermatas.join(',')}` : '';
-    return `#${idx} ${el.type ?? 'rest'}쉼표${dots}${pos}${dur}${ferms}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+    return `#${idx} ${el.type ?? 'rest'}쉼표${dots}${pos}${dur}${ferms}${dirSuffix}${el.staff != null ? ` staff=${el.staff}` : ''}`;
   }
   const tie =
     el.tieStart && el.tieStop ? ' tie↔' : el.tieStart ? ' tie→' : el.tieStop ? ' tie←' : '';
@@ -387,7 +379,7 @@ function elementTitle(
         )
       : '?';
   const graceTag = el.hasGrace ? ` 꾸밈음${el.graceSlash ? '(slash)' : ''}` : '';
-  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${ferms}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
 }
 
 export function OmrMeasureEditor({
@@ -457,25 +449,15 @@ export function OmrMeasureEditor({
   }, [previewRevision, insertAfter, partId, measureMxl]);
 
   const displayElements = useMemo(() => {
-    if (editStaffWithinPart == null) return elements;
-    return elements.filter((el) => {
-      if (el.elementKind === 'direction') {
-        const st = el.staff;
-        return st == null || st === editStaffWithinPart;
-      }
-      return (el.staff ?? 1) === editStaffWithinPart;
-    });
+    const notes = elements.filter((el): el is MeasureNoteEl => el.elementKind === 'note');
+    if (editStaffWithinPart == null) return notes;
+    return notes.filter((el) => (el.staff ?? 1) === editStaffWithinPart);
   }, [elements, editStaffWithinPart]);
 
   const noteEls = useMemo(
     () => elements.filter((e): e is MeasureNoteEl => e.elementKind === 'note'),
     [elements],
   );
-
-  const noteElsForInsert = useMemo(() => {
-    if (editStaffWithinPart == null) return noteEls;
-    return noteEls.filter((n) => (n.staff ?? 1) === editStaffWithinPart);
-  }, [noteEls, editStaffWithinPart]);
 
   const pushFix = (partial: FixPartial) => {
     const { measureMxl: overrideMxl, ...rest } = partial;
@@ -558,78 +540,18 @@ export function OmrMeasureEditor({
       {displayElements.length > 0 && (
         <ol className="omr-measure-element-list">
           {displayElements.map((el) => (
-            <li key={el.elementKind === 'direction' ? `dir-${el.directionIndex}` : `note-${el.index}`}>
+            <li key={`note-${el.index}`}>
               <div className="omr-measure-element-title">
                 {elementTitle(el, noteEls, { partId, staffLabel, editStaffWithinPart })}
               </div>
-              {el.elementKind === 'direction' ? (
-                <div className="omr-measure-element-actions omr-measure-direction-actions">
-                  <button
-                    type="button"
-                    className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
-                    onClick={() =>
-                      pushFix({
-                        kind: 'removeDirection',
-                        directionIndex: el.directionIndex,
-                        attachedToNoteIndex: el.attachedToNoteIndex,
-                        detail: el.text,
-                      })
-                    }
-                  >
-                    direction 삭제
-                  </button>
-                  {isLikelySpuriousDirection(el.text) ? (
-                    <button
-                      type="button"
-                      className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
-                      onClick={() =>
-                        pushFix({
-                          kind: 'removeSpuriousDirection',
-                          detail: el.text || undefined,
-                        })
-                      }
-                    >
-                      잘못된 P·숫자 direction 삭제
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="omr-hitl-fix-btn"
-                      onClick={() =>
-                        pushFix({
-                          kind: 'removeSpuriousDirection',
-                          detail: el.text || undefined,
-                        })
-                      }
-                    >
-                      P·잡텍스트 패턴 삭제
-                    </button>
-                  )}
-                  {isLikelySpuriousDirection(el.text) ? (
-                    <p className="omr-measure-direction-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#1565c0' }}>
-                      Accent(&gt;)·세잇단 숫자 등이 셈여림 <code>dyn:p</code>로 오인된 경우입니다. 삭제한 뒤 해당 음표에 「Accent 추가」를 사용하세요.
-                    </p>
-                  ) : null}
-                  {el.staff === 2 && staffLabel === 'PL' ? (
-                    <p className="omr-measure-direction-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#2e7d32' }}>
-                      피아노 PL(part {partId}, XML staff 2)에만 있습니다. <strong>P2 성부 파트</strong> 마디 편집에는 나타나지 않는 것이 정상입니다.
-                    </p>
-                  ) : el.fromNoteDynamics ? (
-                    <p className="omr-measure-direction-hint" style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#2e7d32' }}>
-                      셈여림은 음표 <strong>#${el.attachedToNoteIndex ?? '?'}</strong>에 붙어 있습니다 — OSMD 전체 악보에서 P2 줄 오인을 막습니다.
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <MeasureNoteEditor
-                  el={el}
-                  noteEls={noteEls}
-                  jobId={jobId}
-                  partId={partId}
-                  measureMxl={measureMxl}
-                  onFix={pushFix}
-                />
-              )}
+              <MeasureNoteEditor
+                el={el}
+                noteEls={noteEls}
+                jobId={jobId}
+                partId={partId}
+                measureMxl={measureMxl}
+                onFix={pushFix}
+              />
               <div className="omr-measure-insert-row">
                 <span className="omr-measure-insert-label">이 위치 뒤에 추가:</span>
                 <button
@@ -638,37 +560,17 @@ export function OmrMeasureEditor({
                   onClick={() => {
                     const anchor = resolveAfterNoteIndex(el, elements);
                     setInsertAfter(anchor);
-                    if (el.elementKind === 'note') {
-                      setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
-                    } else if (el.elementKind === 'direction' && el.staff != null) {
-                      setInsertStaff(el.staff);
-                    } else if (editStaffWithinPart != null) {
-                      setInsertStaff(editStaffWithinPart);
-                    }
+                    setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
                     const anchorNote = anchor >= 0 ? noteEls.find((n) => n.index === anchor) : null;
                     setFixMsg(
                       anchor < 0
-                        ? '삽입 위치: 마디 앞 — 아래 direction·삽입 폼에서 확인하세요.'
+                        ? '삽입 위치: 마디 앞 — 아래 삽입 폼에서 확인하세요.'
                         : `삽입 위치: #${anchor} ${anchorNote ? noteAnchorLabel(anchorNote) : ''} 뒤`,
                     );
                   }}
                 >
                   여기 뒤
                 </button>
-                {el.elementKind === 'note' && el.kind === 'rest' ? (
-                  <RestDirectionQuickInsert
-                    restIndex={el.index}
-                    staff={el.staff ?? editStaffWithinPart ?? 1}
-                    onInsert={(partial) => {
-                      setInsertAfter(el.index);
-                      setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
-                      pushFix(partial);
-                      setFixMsg(
-                        `쉼표 #${el.index}에 direction 추가 보정 대기 → 「MXL에 반영·미리보기」(쉼표 note는 변경하지 않음)`,
-                      );
-                    }}
-                  />
-                ) : null}
               </div>
             </li>
           ))}
@@ -736,22 +638,6 @@ export function OmrMeasureEditor({
           );
         }}
         onClearPendingLeader={() => setPendingInsertLeader(null)}
-      />
-
-      <DirectionInsertForm
-        afterNoteIndex={insertAfter}
-        staffDefault={insertStaff}
-        noteEls={noteElsForInsert}
-        partId={partId}
-        staffLineLabel={staffLabel ?? null}
-        editStaffWithinPart={editStaffWithinPart}
-        onInsert={(partial) => {
-          pushFix(partial);
-          const st = partial.staff ?? insertStaff;
-          setFixMsg(
-            `direction 추가 대기 → part ${partId}${staffLabel ? ` · ${staffLabel}` : ''} · MusicXML staff ${st} → 「MXL에 반영·미리보기」`,
-          );
-        }}
       />
 
       {!loading && elements.length === 0 && !loadErr ? (
@@ -986,6 +872,95 @@ function CrossMeasureTieForm({
   );
 }
 
+function NoteDirectionEditor({
+  noteIndex,
+  current,
+  onFix,
+}: {
+  noteIndex: number;
+  current?: NoteDirectionInfo | null;
+  onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
+}) {
+  const [mode, setMode] = useState<'none' | 'dynamics' | 'words' | 'rehearsal'>(current?.directionType ?? 'none');
+  const [dynValue, setDynValue] = useState(
+    current?.directionType === 'dynamics' ? current.directionValue || 'mf' : 'mf',
+  );
+  const [textValue, setTextValue] = useState(
+    current && current.directionType !== 'dynamics' ? current.directionValue : '',
+  );
+
+  useEffect(() => {
+    setMode(current?.directionType ?? 'none');
+    setDynValue(current?.directionType === 'dynamics' ? current.directionValue || 'mf' : 'mf');
+    setTextValue(current && current.directionType !== 'dynamics' ? current.directionValue : '');
+  }, [noteIndex, current?.directionType, current?.directionValue]);
+
+  const apply = () => {
+    if (mode === 'none') {
+      if (current) onFix({ kind: 'clearNoteDirection', noteIndex });
+      return;
+    }
+    if (mode === 'dynamics') {
+      onFix({ kind: 'setNoteDirection', noteIndex, directionType: 'dynamics', directionValue: dynValue });
+      return;
+    }
+    onFix({
+      kind: 'setNoteDirection',
+      noteIndex,
+      directionType: mode,
+      directionValue: textValue.trim() || (mode === 'rehearsal' ? 'A' : ' '),
+    });
+  };
+
+  return (
+    <div className="omr-measure-direction-row" style={{ marginTop: 6 }}>
+      <span className="omr-measure-articulation-current">
+        direction: {noteDirectionLabel(current) || '없음'}
+      </span>
+      <label className="omr-measure-inline-field">
+        종류
+        <select
+          value={mode === 'none' ? '' : mode}
+          onChange={(e) => {
+            const v = e.target.value;
+            setMode(v === '' ? 'none' : (v as 'dynamics' | 'words' | 'rehearsal'));
+          }}
+        >
+          <option value="">없음</option>
+          <option value="dynamics">셈여림</option>
+          <option value="words">텍스트</option>
+          <option value="rehearsal">리허설</option>
+        </select>
+      </label>
+      {mode === 'dynamics' ? (
+        <select value={dynValue} onChange={(e) => setDynValue(e.target.value)} aria-label="dynamics">
+          {DYNAMICS_DIRECTION_VALUES.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      ) : mode === 'words' || mode === 'rehearsal' ? (
+        <input
+          type="text"
+          value={textValue}
+          onChange={(e) => setTextValue(e.target.value)}
+          placeholder={mode === 'rehearsal' ? 'A' : 'poco piu mosso, rit. …'}
+          style={{ minWidth: 120 }}
+        />
+      ) : null}
+      <button type="button" className="omr-hitl-fix-btn omr-hitl-fix-btn--primary" onClick={apply}>
+        direction 적용
+      </button>
+      {current ? (
+        <button type="button" className="omr-hitl-fix-btn" onClick={() => onFix({ kind: 'clearNoteDirection', noteIndex })}>
+          direction 지우기
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function MeasureNoteEditor({
   el,
   noteEls,
@@ -1189,6 +1164,13 @@ function MeasureNoteEditor({
             <span className="omr-measure-articulation-full">추가 가능한 표 없음</span>
           )}
         </div>
+      )}
+      {!el.chord && !el.hasGrace && el.index === chordLeaderIdx && (
+        <NoteDirectionEditor
+          noteIndex={chordLeaderIdx}
+          current={chordLeaderEl?.noteDirection ?? el.noteDirection}
+          onFix={onFix}
+        />
       )}
       {spuriousAfterRest && nextNote ? (
         <button
@@ -1944,258 +1926,3 @@ function InsertElementForm({
   );
 }
 
-function directionAnchorLabel(
-  localAfter: number,
-  staff: number,
-  noteEls: MeasureNoteEl[],
-  ctx: {
-    partId: string;
-    staffLineLabel?: string | null;
-    editStaffWithinPart?: number | null;
-  },
-): string {
-  const line = ctx.staffLineLabel?.trim() || `staff ${staff}`;
-  const part = ctx.partId.trim();
-  if (localAfter < 0) {
-    if (ctx.editStaffWithinPart === 2 && (ctx.staffLineLabel === 'PL' || staff === 2)) {
-      return `마디 앞 · part ${part} · ${line} · 이 줄(PL) 첫 음 앞`;
-    }
-    if (ctx.editStaffWithinPart === 1 && (ctx.staffLineLabel === 'PR' || staff === 1)) {
-      return `마디 앞 · part ${part} · ${line} · 이 줄(PR) 첫 음 앞`;
-    }
-    return `마디 앞 · part ${part} · ${line} · 이 줄 첫 음 앞`;
-  }
-  const n = noteEls.find((x) => x.index === localAfter);
-  if (n?.kind === 'rest') return `#${localAfter} ${noteAnchorLabel(n)}에 direction`;
-  return n
-    ? `#${localAfter} ${noteAnchorLabel(n)} · part ${part} · ${line}`
-    : `#${localAfter} · part ${part} · ${line}`;
-}
-
-function buildInsertDirectionPartial(
-  afterNoteIndex: number,
-  staff: number,
-  directionType: 'dynamics' | 'words' | 'rehearsal',
-  dynamicsValue: string,
-  wordsValue: string,
-): Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'> {
-  return {
-    kind: 'insertDirection',
-    afterNoteIndex,
-    staff,
-    directionType,
-    directionValue:
-      directionType === 'dynamics'
-        ? dynamicsValue
-        : wordsValue.trim() || (directionType === 'rehearsal' ? 'A' : ' '),
-  };
-}
-
-function RestDirectionQuickInsert({
-  restIndex,
-  staff,
-  onInsert,
-}: {
-  restIndex: number;
-  staff: number;
-  onInsert: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
-}) {
-  const [directionType, setDirectionType] = useState<'dynamics' | 'words' | 'rehearsal'>('dynamics');
-  const [dynamicsValue, setDynamicsValue] = useState<string>('p');
-  const [wordsValue, setWordsValue] = useState('');
-
-  return (
-    <div className="omr-measure-rest-direction-quick">
-      <span className="omr-measure-insert-label">이 쉼표에 direction:</span>
-      <select
-        value={directionType}
-        onChange={(e) => setDirectionType(e.target.value as 'dynamics' | 'words' | 'rehearsal')}
-        aria-label="direction 종류"
-      >
-        <option value="dynamics">셈여림</option>
-        <option value="words">텍스트</option>
-        <option value="rehearsal">리허설</option>
-      </select>
-      {directionType === 'dynamics' ? (
-        <select value={dynamicsValue} onChange={(e) => setDynamicsValue(e.target.value)} aria-label="dynamics">
-          {DYNAMICS_DIRECTION_VALUES.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input
-          type="text"
-          value={wordsValue}
-          onChange={(e) => setWordsValue(e.target.value)}
-          placeholder={directionType === 'rehearsal' ? 'A' : 'Andante, rit. …'}
-          style={{ minWidth: 88 }}
-        />
-      )}
-      <button
-        type="button"
-        className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
-        onClick={() =>
-          onInsert(buildInsertDirectionPartial(restIndex, staff, directionType, dynamicsValue, wordsValue))
-        }
-      >
-        추가
-      </button>
-      <span className="omr-measure-editor-hint" style={{ fontSize: '0.8rem', margin: 0 }}>
-        쉼표 XML·줄 위치는 그대로, <code>&lt;direction&gt;</code>만 붙입니다.
-      </span>
-    </div>
-  );
-}
-
-function DirectionInsertForm({
-  afterNoteIndex,
-  staffDefault,
-  noteEls,
-  partId,
-  staffLineLabel,
-  editStaffWithinPart,
-  onInsert,
-}: {
-  afterNoteIndex: number;
-  staffDefault: number;
-  noteEls: MeasureNoteEl[];
-  partId: string;
-  staffLineLabel?: string | null;
-  editStaffWithinPart?: number | null;
-  onInsert: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
-}) {
-  const [directionType, setDirectionType] = useState<'dynamics' | 'words' | 'rehearsal'>('dynamics');
-  const [dynamicsValue, setDynamicsValue] = useState<string>('p');
-  const [wordsValue, setWordsValue] = useState('');
-  const [staff, setStaff] = useState(staffDefault);
-  const [localAfter, setLocalAfter] = useState(afterNoteIndex);
-
-  const anchorCtx = useMemo(
-    () => ({ partId, staffLineLabel, editStaffWithinPart }),
-    [partId, staffLineLabel, editStaffWithinPart],
-  );
-
-  useEffect(() => {
-    setStaff(staffDefault);
-  }, [staffDefault]);
-
-  useEffect(() => {
-    setLocalAfter(afterNoteIndex);
-  }, [afterNoteIndex]);
-
-  const afterLabel = directionAnchorLabel(localAfter, staff, noteEls, anchorCtx);
-  const measureStartLabel = directionAnchorLabel(-1, staff, noteEls, anchorCtx);
-  const staffLocked = editStaffWithinPart != null;
-
-  return (
-    <div className="omr-measure-direction-insert">
-      <p className="omr-measure-insert-heading">direction 추가</p>
-      <p
-        className="omr-measure-editor-hint"
-        style={{ fontSize: '0.85rem', margin: '0 0 0.35rem', color: '#1565c0' }}
-      >
-        적용 대상: MusicXML part <code>{partId}</code>
-        {staffLineLabel ? ` · ${staffLineLabel}` : ''} · staff {staffLocked ? editStaffWithinPart : staff}
-        {staffLineLabel === 'PL' || editStaffWithinPart === 2 ? (
-          <>
-            {' '}
-            — <strong>P2 파트 ID와 다릅니다.</strong> 피아노 왼손은 part {partId} staff 2(PL)입니다.
-          </>
-        ) : null}
-      </p>
-      <p className="omr-measure-editor-hint" style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
-        셈여림·텍스트·리허설 등. 쉼표 줄에는 <strong>「이 쉼표에 direction」</strong> 인라인 폼을 쓰세요.
-        「마디 앞」은 선택한 <strong>part·줄(PL/PR)</strong>에서 그 마디의 <strong>첫 음 바로 앞</strong>입니다.
-      </p>
-      <div className="omr-measure-insert-form-row">
-        <label className="omr-measure-inline-field">
-          위치
-          <select value={String(localAfter)} onChange={(e) => setLocalAfter(parseInt(e.target.value, 10))}>
-            <option value="-1">{measureStartLabel}</option>
-            {noteEls.map((n) => (
-              <option key={n.index} value={String(n.index)}>
-                {n.kind === 'rest'
-                  ? `#${n.index} ${noteAnchorLabel(n)}에 direction`
-                  : `#${n.index} ${noteAnchorLabel(n)} · ${staffLineLabel ?? `staff ${staff}`}`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="omr-measure-inline-field">
-          종류
-          <select
-            value={directionType}
-            onChange={(e) => setDirectionType(e.target.value as 'dynamics' | 'words' | 'rehearsal')}
-          >
-            <option value="dynamics">셈여림 (dynamics)</option>
-            <option value="words">텍스트 (words)</option>
-            <option value="rehearsal">리허설 (rehearsal)</option>
-          </select>
-        </label>
-        {staffLocked ? (
-          <span className="omr-measure-inline-field" style={{ alignSelf: 'flex-end', fontSize: '0.88rem' }}>
-            MusicXML staff {editStaffWithinPart}
-            {staffLineLabel ? ` (${staffLineLabel})` : ''}
-          </span>
-        ) : (
-          <label className="omr-measure-inline-field">
-            MusicXML staff
-            <input
-              type="number"
-              min={1}
-              max={4}
-              value={staff}
-              onChange={(e) => setStaff(Number(e.target.value))}
-              style={{ width: 48 }}
-              title="이 파트(partId) 안의 staff 번호 — P2 파트 ID와 혼동하지 마세요"
-            />
-          </label>
-        )}
-      </div>
-      <div className="omr-measure-insert-form-row">
-        {directionType === 'dynamics' ? (
-          <label className="omr-measure-inline-field">
-            dynamics
-            <select value={dynamicsValue} onChange={(e) => setDynamicsValue(e.target.value)}>
-              {DYNAMICS_DIRECTION_VALUES.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <label className="omr-measure-inline-field">
-            {directionType === 'rehearsal' ? '리허설 글자' : '텍스트'}
-            <input
-              type="text"
-              value={wordsValue}
-              onChange={(e) => setWordsValue(e.target.value)}
-              placeholder={directionType === 'rehearsal' ? 'A' : 'Andante'}
-              style={{ minWidth: 120 }}
-            />
-          </label>
-        )}
-        <button
-          type="button"
-          className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
-          onClick={() =>
-            onInsert(
-              buildInsertDirectionPartial(
-                localAfter,
-                staffLocked ? editStaffWithinPart! : staff,
-                directionType,
-                dynamicsValue,
-                wordsValue,
-              ),
-            )
-          }
-        >
-          direction 추가 ({afterLabel})
-        </button>
-      </div>
-    </div>
-  );
-}

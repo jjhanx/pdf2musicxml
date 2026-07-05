@@ -620,21 +620,20 @@ function attachDynamicsToNote(note: Element, dynTag: string, placement: string |
   notations.appendChild(dyn);
 }
 
-/** 2단 part `<direction><staff>` → 음표 `<notations><dynamics>` 또는 staff 없는 direction(OSMD 전체 악보 오인 방지). */
-export function convertMultiStaffDirectionsToNoteAttached(xml: string): string {
+/** measure-level `<direction>` → anchor 음표 속성(notations·앞 direction). */
+export function migrateDirectionsToNotes(xml: string): string {
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
     for (const part of findXmlParts(doc)) {
-      if (maxStavesInPart(part) < 2) continue;
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         for (const direction of [...measure.children].filter((c) => xmlLocalName(c) === 'direction')) {
           const staffEl = direction.querySelector(':scope > staff, :scope > *|staff');
-          if (!staffEl) continue;
-          const staffN = parseInt(staffEl.textContent?.trim() ?? '1', 10);
-          if (!Number.isFinite(staffN)) continue;
-          const anchor = anchorNoteForDirection(measure, direction, staffN);
+          const staffN = staffEl
+            ? parseInt(staffEl.textContent?.trim() ?? '1', 10)
+            : 1;
+          const anchor = anchorNoteForDirection(measure, direction, Number.isFinite(staffN) ? staffN : 1);
           if (!anchor) continue;
           const dtype = [...direction.children].find((c) => xmlLocalName(c) === 'direction-type');
           const dyn = dtype
@@ -649,8 +648,8 @@ export function convertMultiStaffDirectionsToNoteAttached(xml: string): string {
               continue;
             }
           }
-          staffEl.remove();
-          attachVoiceFromNearestStaffNote(measure, direction, staffN);
+          staffEl?.remove();
+          attachVoiceFromNearestStaffNote(measure, direction, Number.isFinite(staffN) ? staffN : 1);
           direction.remove();
           measure.insertBefore(direction, anchor);
         }
@@ -662,6 +661,11 @@ export function convertMultiStaffDirectionsToNoteAttached(xml: string): string {
   }
 }
 
+/** @deprecated migrateDirectionsToNotes */
+export function convertMultiStaffDirectionsToNoteAttached(xml: string): string {
+  return migrateDirectionsToNotes(xml);
+}
+
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
   rawXml: string,
@@ -669,7 +673,7 @@ export function buildOsmdPreviewXml(
   filter: StaffFilterEntry | null,
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
-  xml = convertMultiStaffDirectionsToNoteAttached(xml);
+  xml = migrateDirectionsToNotes(xml);
   if (!filter) return xml;
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {

@@ -620,6 +620,72 @@ function attachDynamicsToNote(note: Element, dynTag: string, placement: string |
   notations.appendChild(dyn);
 }
 
+/** 음표 `<notations><dynamics>` — OSMD 미리보기용으로 `<direction>` 승격 후 notations에서 제거. */
+function extractAndRemoveDynamicsFromNote(
+  note: Element,
+): { tag: string; placement: 'above' | 'below' } | null {
+  for (const notations of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+    for (const dyn of [...notations.children].filter((c) => xmlLocalName(c) === 'dynamics')) {
+      const tags = [...dyn.children]
+        .map((c) => xmlLocalName(c))
+        .filter((t) => DYNAMICS_TAGS.has(t));
+      if (!tags.length) continue;
+      const pl = dyn.getAttribute('placement');
+      const placement: 'above' | 'below' = pl === 'above' ? 'above' : 'below';
+      dyn.remove();
+      if (!notations.children.length) note.removeChild(notations);
+      return { tag: tags[0], placement };
+    }
+  }
+  return null;
+}
+
+function buildDynamicsDirectionElement(
+  note: Element,
+  tag: string,
+  placement: 'above' | 'below',
+): Element {
+  const ns = note.namespaceURI;
+  const mk = (local: string) =>
+    ns ? note.ownerDocument!.createElementNS(ns, local) : note.ownerDocument!.createElement(local);
+  const direction = mk('direction');
+  direction.setAttribute('placement', placement);
+  const dtype = mk('direction-type');
+  const dyn = mk('dynamics');
+  dyn.setAttribute('placement', placement);
+  dyn.appendChild(mk(tag));
+  dtype.appendChild(dyn);
+  direction.appendChild(dtype);
+  attachVoiceFromNote(direction, note);
+  copyLayoutFromAnchor(direction, note);
+  return direction;
+}
+
+/**
+ * OSMD는 HITL이 저장한 `<notations><dynamics>`(ff 등)를 거의 그리지 않음.
+ * 미리보기 XML만 measure-level `<direction>`으로 올림 — 저장 MXL은 notations 그대로.
+ */
+export function promoteNoteDynamicsForOsmdPreview(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    for (const part of findXmlParts(doc)) {
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        for (const note of [...measure.children].filter((c) => xmlLocalName(c) === 'note')) {
+          const info = extractAndRemoveDynamicsFromNote(note);
+          if (!info) continue;
+          const dir = buildDynamicsDirectionElement(note, info.tag, info.placement);
+          measure.insertBefore(dir, note);
+        }
+      }
+    }
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
 /** measure-level `<direction>` → anchor 음표 속성(notations·앞 direction). */
 export function migrateDirectionsToNotes(xml: string): string {
   try {
@@ -681,6 +747,7 @@ export function buildOsmdPreviewXml(
 ): string {
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
   xml = migrateDirectionsToNotes(xml);
+  xml = promoteNoteDynamicsForOsmdPreview(xml);
   if (!filter) {
     return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
   }

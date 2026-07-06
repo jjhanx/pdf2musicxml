@@ -188,7 +188,7 @@ def add_lyric_to_note(note, ns, text_char, lyric_number=1, syllabic="single"):
 
 
 def _uses_token_lyric_grammar(text: str) -> bool:
-    """공백·하이픈(음절/빈 칸) 토큰 규칙 — 없으면 예전 글자 단위 매핑."""
+    """공백·하이픈이 있으면 토큰 규칙(음표 경계·음절 이음·빈 칸). 없으면 줄 전체를 한 음표에."""
     if not text:
         return False
     if re.search(r"\s", text):
@@ -196,16 +196,12 @@ def _uses_token_lyric_grammar(text: str) -> bool:
     return "-" in text
 
 
-def _legacy_char_lyric_events(text: str, voice: str) -> list:
-    events = []
-    for char in text.replace(" ", ""):
-        if not char:
-            continue
-        if char == "-":
-            events.append({"op": "empty_note", "voice": voice})
-        else:
-            events.append({"op": "syllable", "text": char, "syllabic": "single", "voice": voice})
-    return events
+def _whole_text_lyric_events(text: str, voice: str) -> list:
+    """공백·하이픈 없음 — OCR 줄 전체를 한 음표에 (한글·영어 동일)."""
+    plain = (text or "").strip()
+    if not plain:
+        return []
+    return [{"op": "syllable", "text": plain, "syllabic": "single", "voice": voice}]
 
 
 def _token_lyric_events(text: str, voice: str) -> list:
@@ -240,7 +236,7 @@ def _token_lyric_events(text: str, voice: str) -> list:
 def parse_lyric_text_events(text: str, voice: str) -> list:
     if _uses_token_lyric_grammar(text):
         return _token_lyric_events(text, voice)
-    return _legacy_char_lyric_events(text, voice)
+    return _whole_text_lyric_events(text, voice)
 
 
 def fix_key_signatures_part(part_el, ns):

@@ -320,6 +320,60 @@ def merge_item(sep_item: dict[str, Any], pymupdf_item: dict[str, Any] | None) ->
     return merged
 
 
+def build_initial_review_items(
+    extracted_pages: list[dict[str, Any]] | None,
+    pymupdf_items: list[dict[str, Any]],
+    *,
+    min_size: float = DEFAULT_MIN_LYRICS_SIZE,
+    max_size: float = DEFAULT_MAX_LYRICS_SIZE,
+) -> list[dict[str, Any]]:
+    """검토 UI 초기 상태 — PyMuPDF 전체 줄(제목·작곡 등) + pdfplumber 가사 줄 보강."""
+    base: list[dict[str, Any]] = []
+    for raw in pymupdf_items:
+        if not isinstance(raw, dict) or is_meta_item(raw):
+            continue
+        item = dict(raw)
+        item.pop("lyricPartIndex", None)
+        item.pop("lyricVerseIndex", None)
+        item.pop("lyricVoice", None)
+        item.pop("lyricSkipNotes", None)
+        base.append(item)
+
+    if not extracted_pages:
+        base.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))
+        return base
+
+    sep_items = plumber_pages_to_items(extracted_pages, min_size=min_size, max_size=max_size)
+    used_sep: set[str] = set()
+
+    for sep in sep_items:
+        match = best_pymupdf_match(sep, base, set())
+        if match is not None:
+            mid = str(match.get("id", ""))
+            for it in base:
+                if str(it.get("id", "")) == mid:
+                    sep_text = str(sep.get("text") or "").strip()
+                    if sep_text:
+                        it["text"] = sep_text
+                    if sep.get("bbox") is not None:
+                        it["bbox"] = sep["bbox"]
+                    if sep.get("fontSize") is not None:
+                        it["fontSize"] = sep["fontSize"]
+                    if sep.get("fontname") is not None:
+                        it["fontname"] = sep["fontname"]
+                    it["provenance"] = "merged_initial"
+                    break
+            used_sep.add(str(sep.get("id", "")))
+        else:
+            extra = dict(sep)
+            extra["provenance"] = "pdfplumber"
+            extra["type"] = resolve_inject_type(extra)
+            base.append(extra)
+
+    base.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))
+    return base
+
+
 def merge_sources(
     extracted_pages: list[dict[str, Any]],
     pymupdf_items: list[dict[str, Any]],
@@ -436,6 +490,11 @@ def main() -> int:
         dest="output_flat",
         help="inject_ocr.py용 flat ocr_data.json (선택)",
     )
+    parser.add_argument(
+        "--output-initial-review",
+        dest="output_initial_review",
+        help="검토 UI 초기 상태 flat JSON (PyMuPDF 전체 + pdfplumber 가사)",
+    )
     parser.add_argument("--min-size", type=float, default=DEFAULT_MIN_LYRICS_SIZE)
     parser.add_argument("--max-size", type=float, default=DEFAULT_MAX_LYRICS_SIZE)
     args = parser.parse_args()
@@ -462,6 +521,11 @@ def main() -> int:
         flat = manifest_to_flat_inject_rows(manifest)
         with open(args.output_flat, "w", encoding="utf-8") as f:
             json.dump(flat, f, ensure_ascii=False, indent=2)
+
+    if args.output_initial_review:
+        initial = build_initial_review_items(extracted, pymupdf_items, min_size=args.min_size, max_size=args.max_size)
+        with open(args.output_initial_review, "w", encoding="utf-8") as f:
+            json.dump(initial, f, ensure_ascii=False, indent=2)
 
     stats = manifest.get("matchStats") or {}
     print(

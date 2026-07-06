@@ -405,6 +405,8 @@ type JobRecord = {
   reviewData?: any;
   /** font_separator: OMR·HITL 이후 가사 검증 UI (원본 PDF 미리보기) */
   reviewAfterOmr?: boolean;
+  /** omr-work.zip에서 가져온 가사 검증 JSON이 세션에 있음 */
+  hasSavedLyricReview?: boolean;
   /** Audiveris 직후 보정 단계용 */
   pauseAfterAudiveris?: boolean;
   preInjectMxlPaths?: string[];
@@ -1339,6 +1341,20 @@ function sessionCleanScorePdfPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'clean_score_only.pdf');
 }
 
+function sessionOcrPymupdfReviewPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'ocr_data_pymupdf.json');
+}
+
+/** omr-work.zip에 포함된 가사 검증 편집(이어하기용) */
+function sessionOcrPymupdfSavedPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'ocr_data_pymupdf_saved.json');
+}
+
+/** 원본 PDF 1차 추출 기준(제목·작곡·가사 전체) */
+function sessionOcrPymupdfBaselinePath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'ocr_data_pymupdf_baseline.json');
+}
+
 function sessionMaskedPdfPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'masked_input.pdf');
 }
@@ -1439,7 +1455,16 @@ async function restoreLyricArtifactsFromExtractDir(
   }
   const pymupdfSrc = pick('ocr_data_pymupdf.json');
   if (pymupdfSrc) {
-    await fs.copyFile(pymupdfSrc, path.join(sessionRoot, 'ocr_data_pymupdf.json'));
+    await fs.copyFile(pymupdfSrc, sessionOcrPymupdfSavedPath(sessionRoot));
+    restored = true;
+  }
+  const baselineSrc = pick('ocr_data_pymupdf_baseline.json');
+  if (baselineSrc) {
+    await fs.copyFile(baselineSrc, sessionOcrPymupdfBaselinePath(sessionRoot));
+  }
+  const activePymupdf = sessionOcrPymupdfReviewPath(sessionRoot);
+  if (fsSync.existsSync(activePymupdf)) {
+    await fs.unlink(activePymupdf).catch(() => {});
   }
   const extractedSrc = pick('extracted_music_text.json');
   if (extractedSrc) {
@@ -1724,6 +1749,12 @@ async function ensurePymupdfReviewPayload(opts: {
     opts;
   if (fsSync.existsSync(pymupdfReviewPath)) return true;
 
+  const baselinePath = sessionOcrPymupdfBaselinePath(sessionRoot);
+  if (fsSync.existsSync(baselinePath)) {
+    await fs.copyFile(baselinePath, pymupdfReviewPath);
+    return true;
+  }
+
   if (fsSync.existsSync(lyricManifestPath)) {
     try {
       const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as {
@@ -1771,37 +1802,31 @@ function stripLyricReviewMeta(item: unknown): unknown {
   return o;
 }
 
-/** OMR·HITL 후 가사 검증 — pdfplumber·PyMuPDF 1차 병합(검토 메타 없음)으로 되돌림 */
-async function rebuildInitialLyricReviewPayload(opts: {
+function stripLyricReviewMetaList(items: unknown[]): unknown[] {
+  return items.map(stripLyricReviewMeta);
+}
+
+/** 원본 PDF 1차 추출 — PyMuPDF 전체 + pdfplumber 가사 보강 */
+async function buildInitialLyricReviewItems(opts: {
   sessionRoot: string;
-  pymupdfReviewPath: string;
   pdfPath: string;
   pythonBin: string;
   scriptExtract: string;
   scriptMergeLyrics: string;
 }): Promise<unknown[]> {
-  const {
-    sessionRoot,
-    pymupdfReviewPath,
-    pdfPath,
-    pythonBin,
-    scriptExtract,
-    scriptMergeLyrics,
-  } = opts;
+  const { sessionRoot, pdfPath, pythonBin, scriptExtract, scriptMergeLyrics } = opts;
   const extractedJsonPath = path.join(sessionRoot, 'extracted_music_text.json');
-  const lyricManifestPath = path.join(sessionRoot, 'lyric_manifest.json');
-  const tempPymupdf = path.join(sessionRoot, '_lyric_reset_pymupdf.json');
-  const tempManifest = path.join(sessionRoot, '_lyric_reset_manifest.json');
+  const tempPymupdf = path.join(sessionRoot, '_lyric_baseline_pymupdf.json');
+  const tempManifest = path.join(sessionRoot, '_lyric_baseline_manifest.json');
+  const tempInitial = path.join(sessionRoot, '_lyric_baseline_initial.json');
 
-  await fs.unlink(pymupdfReviewPath).catch(() => {});
   await fs.unlink(tempPymupdf).catch(() => {});
   await fs.unlink(tempManifest).catch(() => {});
+  await fs.unlink(tempInitial).catch(() => {});
 
   await exec(`"${pythonBin}" "${scriptExtract}" "${pdfPath}" "${tempPymupdf}"`, {
     maxBuffer: 16 * 1024 * 1024,
   });
-
-  let items: unknown[] = [];
 
   if (fsSync.existsSync(extractedJsonPath)) {
     const mergeArgs = [
@@ -1810,35 +1835,94 @@ async function rebuildInitialLyricReviewPayload(opts: {
       `"${extractedJsonPath}"`,
       `"${tempManifest}"`,
       `--pymupdf-review "${tempPymupdf}"`,
+      `--output-initial-review "${tempInitial}"`,
     ];
     await exec(mergeArgs.join(' '), { maxBuffer: 16 * 1024 * 1024 });
-    const manifest = JSON.parse(await fs.readFile(tempManifest, 'utf8')) as { items?: unknown[] };
-    items = Array.isArray(manifest.items) ? manifest.items : [];
-  } else if (fsSync.existsSync(lyricManifestPath)) {
-    try {
-      const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as {
-        items?: unknown[];
-      };
-      if (Array.isArray(manifest.items)) items = manifest.items;
-    } catch {
-      /* fall through */
+    const initial = JSON.parse(await fs.readFile(tempInitial, 'utf8')) as unknown;
+    if (!Array.isArray(initial)) {
+      throw new Error('initial review JSON이 배열이 아닙니다');
     }
+    await fs.unlink(tempPymupdf).catch(() => {});
+    await fs.unlink(tempManifest).catch(() => {});
+    await fs.unlink(tempInitial).catch(() => {});
+    return stripLyricReviewMetaList(initial);
   }
 
-  if (items.length === 0) {
-    const raw = JSON.parse(await fs.readFile(tempPymupdf, 'utf8')) as unknown;
-    if (!Array.isArray(raw)) {
-      throw new Error('가사 항목을 복원할 수 없습니다 (extracted_music_text·manifest 없음)');
-    }
-    items = raw;
-  }
-
+  const raw = JSON.parse(await fs.readFile(tempPymupdf, 'utf8')) as unknown;
   await fs.unlink(tempPymupdf).catch(() => {});
-  await fs.unlink(tempManifest).catch(() => {});
+  if (!Array.isArray(raw)) {
+    throw new Error('extract_text.py 출력이 배열이 아닙니다');
+  }
+  return stripLyricReviewMetaList(raw);
+}
 
-  const cleaned = items.map(stripLyricReviewMeta);
-  await fs.writeFile(pymupdfReviewPath, JSON.stringify(cleaned, null, 2), 'utf8');
-  return cleaned;
+async function persistLyricReviewBaseline(
+  sessionRoot: string,
+  items: unknown[],
+): Promise<void> {
+  await fs.writeFile(
+    sessionOcrPymupdfBaselinePath(sessionRoot),
+    JSON.stringify(items, null, 2),
+    'utf8',
+  );
+}
+
+async function activateLyricReviewItems(sessionRoot: string, items: unknown[]): Promise<void> {
+  await fs.writeFile(
+    sessionOcrPymupdfReviewPath(sessionRoot),
+    JSON.stringify(items, null, 2),
+    'utf8',
+  );
+}
+
+async function ensureLyricReviewBaseline(opts: {
+  sessionRoot: string;
+  pdfPath: string;
+  pythonBin: string;
+  scriptExtract: string;
+  scriptMergeLyrics: string;
+  forceRebuild?: boolean;
+}): Promise<unknown[]> {
+  const baselinePath = sessionOcrPymupdfBaselinePath(opts.sessionRoot);
+  if (!opts.forceRebuild && fsSync.existsSync(baselinePath)) {
+    return JSON.parse(await fs.readFile(baselinePath, 'utf8')) as unknown[];
+  }
+  const items = await buildInitialLyricReviewItems(opts);
+  await persistLyricReviewBaseline(opts.sessionRoot, items);
+  return items;
+}
+
+/** omr-work.zip 불러온 뒤 — 가사 검증은 PDF 1차 추출 기준으로 시작 */
+async function bootstrapLyricReviewAfterOmrZipImport(
+  job: JobRecord,
+  pythonBin: string,
+  scriptExtract: string,
+  scriptMergeLyrics: string,
+): Promise<void> {
+  const pdfPath = resolveLyricReviewPdfPath(job);
+  if (!pdfPath) return;
+  const savedPath = sessionOcrPymupdfSavedPath(job.sessionRoot);
+  job.hasSavedLyricReview = fsSync.existsSync(savedPath);
+  const items = await ensureLyricReviewBaseline({
+    sessionRoot: job.sessionRoot,
+    pdfPath,
+    pythonBin,
+    scriptExtract,
+    scriptMergeLyrics,
+  });
+  await activateLyricReviewItems(job.sessionRoot, items);
+}
+
+async function loadSavedLyricReviewItems(sessionRoot: string): Promise<unknown[]> {
+  const savedPath = sessionOcrPymupdfSavedPath(sessionRoot);
+  if (!fsSync.existsSync(savedPath)) {
+    throw new Error('ZIP에 저장된 가사 검증 데이터가 없습니다');
+  }
+  const raw = JSON.parse(await fs.readFile(savedPath, 'utf8')) as unknown;
+  if (!Array.isArray(raw)) {
+    throw new Error('저장된 가사 검증 JSON이 배열이 아닙니다');
+  }
+  return raw;
 }
 
 /** Audiveris·점검 UI에 넘길 PDF — clean_score > masked > 원본 순 */
@@ -2110,7 +2194,6 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         });
         return;
       }
-      await preparePymupdfReviewFromManifest(lyricManifestPath, pymupdfReviewPath);
       if (
         !fsSync.existsSync(cleanScorePath) &&
         job.resumeCleanScorePath &&
@@ -2121,6 +2204,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       } else if (!job.inputPdfPath && fsSync.existsSync(cleanScorePath)) {
         job.inputPdfPath = cleanScorePath;
       }
+      await bootstrapLyricReviewAfterOmrZipImport(
+        job,
+        pythonBin,
+        scriptExtract,
+        scriptMergeLyrics,
+      );
     }
 
     if (startStage === 'lyric_inject') {
@@ -3051,11 +3140,18 @@ app.get('/api/status/:jobId', (req, res) => {
     return;
   }
 
-  const payload: { status: JobStatus; progress?: JobProgress; reviewAfterOmr?: boolean } = {
+  const payload: {
+    status: JobStatus;
+    progress?: JobProgress;
+    reviewAfterOmr?: boolean;
+    hasSavedLyricReview?: boolean;
+  } = {
     status: job.status,
   };
   if (job.status === 'review_needed' && job.reviewAfterOmr) {
     payload.reviewAfterOmr = true;
+    payload.hasSavedLyricReview =
+      job.hasSavedLyricReview ?? fsSync.existsSync(sessionOcrPymupdfSavedPath(job.sessionRoot));
   }
   if (job.progress && JOB_STATUSES_WITH_PROGRESS.has(job.status)) {
     payload.progress = job.progress;
@@ -3836,7 +3932,20 @@ app.get('/api/review/:jobId', (req, res) => {
   res.json(job.reviewData);
 });
 
-/** OMR·HITL 후 가사 검증 — ZIP·manifest·브라우저 임시저장 없이 원본 PDF 추출로 되돌림 */
+app.get('/api/review/:jobId/lyric-source-info', (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  const hasSaved =
+    job.hasSavedLyricReview ?? fsSync.existsSync(sessionOcrPymupdfSavedPath(job.sessionRoot));
+  const hasBaseline = fsSync.existsSync(sessionOcrPymupdfBaselinePath(job.sessionRoot));
+  res.json({ hasSavedLyricReview: hasSaved, hasBaseline });
+});
+
+/** OMR·HITL 후 가사 검증 — 원본 PDF 1차 추출(제목·작곡·가사)로 되돌림 */
 app.post('/api/review/:jobId/reset-lyrics-initial', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
@@ -3863,19 +3972,48 @@ app.post('/api/review/:jobId/reset-lyrics-initial', async (req, res) => {
     const pythonBin = resolvePythonBin();
     const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
     const scriptMergeLyrics = path.join(__dirname, '..', 'scripts', 'merge_lyric_sources.py');
-    const pymupdfReviewPath = path.join(job.sessionRoot, 'ocr_data_pymupdf.json');
-    const items = await rebuildInitialLyricReviewPayload({
+    const items = await ensureLyricReviewBaseline({
       sessionRoot: job.sessionRoot,
-      pymupdfReviewPath,
       pdfPath,
       pythonBin,
       scriptExtract,
       scriptMergeLyrics,
+      forceRebuild: true,
     });
+    await activateLyricReviewItems(job.sessionRoot, items);
     job.reviewData = items;
     res.json(items);
   } catch (e) {
     res.status(500).json({ error: String(e) });
+  }
+});
+
+/** OMR·HITL 후 가사 검증 — omr-work.zip에 저장된 가사 검증 편집 불러오기 */
+app.post('/api/review/:jobId/load-saved-lyrics', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  if (job.status !== 'review_needed' || !job.reviewData) {
+    res.status(400).json({ error: '리뷰가 필요하지 않거나 준비되지 않았습니다' });
+    return;
+  }
+  if (!job.reviewAfterOmr) {
+    res.status(400).json({
+      error: 'OMR·HITL 이후 가사 검증 단계에서만 불러올 수 있습니다',
+    });
+    return;
+  }
+  try {
+    const items = await loadSavedLyricReviewItems(job.sessionRoot);
+    await activateLyricReviewItems(job.sessionRoot, items);
+    job.reviewData = items;
+    job.hasSavedLyricReview = true;
+    res.json(items);
+  } catch (e) {
+    res.status(400).json({ error: String(e) });
   }
 });
 
@@ -4459,6 +4597,10 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
   }
   if (fsSync.existsSync(pymupdfReviewPath)) {
     archive.file(pymupdfReviewPath, { name: 'ocr_data_pymupdf.json' });
+  }
+  const baselinePath = sessionOcrPymupdfBaselinePath(job.sessionRoot);
+  if (fsSync.existsSync(baselinePath)) {
+    archive.file(baselinePath, { name: 'ocr_data_pymupdf_baseline.json' });
   }
   if (fsSync.existsSync(extractedJsonPath)) {
     archive.file(extractedJsonPath, { name: 'extracted_music_text.json' });

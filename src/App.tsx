@@ -385,6 +385,8 @@ export default function App() {
   const reviewRowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [reviewOriginalFileName, setReviewOriginalFileName] = useState('');
   const [hasSavedData, setHasSavedData] = useState(false);
+  /** omr-work.zip에 포함된 가사 검증 편집(이어하기용) */
+  const [hasSavedLyricReview, setHasSavedLyricReview] = useState(false);
   /** 가사 초기화 직전 화면 — 「초기화 되돌리기」용 */
   const [lyricReviewUndo, setLyricReviewUndo] = useState<{
     items: OcrReviewItem[];
@@ -459,8 +461,10 @@ export default function App() {
 
       let afterOmr = pipelineMode === 'font_separator';
       if (st.ok) {
-        const sj = (await st.json()) as { reviewAfterOmr?: boolean };
+        const sj = (await st.json()) as { reviewAfterOmr?: boolean; hasSavedLyricReview?: boolean };
         if (sj.reviewAfterOmr) afterOmr = true;
+        if (sj.hasSavedLyricReview) setHasSavedLyricReview(true);
+        else setHasSavedLyricReview(false);
       }
 
       setReviewAfterOmr(afterOmr);
@@ -965,8 +969,8 @@ export default function App() {
   const handleResetLyricsToInitial = async () => {
     if (!reviewingJobId || !reviewAfterOmr) return;
     const ok = window.confirm(
-      'ZIP·임시저장에 남은 가사 검증 편집을 지우고, pdfplumber·PyMuPDF 1차 병합 상태로 되돌립니다.\n' +
-        '성부·절·건너뛰기 등 검토 메타는 기본값으로 초기화됩니다.\n' +
+      '원본 PDF에서 다시 뽑은 1차 추출 상태로 되돌립니다.\n' +
+        '(제목·작곡·가사 전체, 성부·절·건너뛰기 등 검토 메타는 기본값)\n' +
         'OMR·HITL(마디·성부) 교정은 그대로 유지됩니다.\n\n' +
         '지금 화면의 편집 중 내용은 「초기화 되돌리기」로 한 번 복구할 수 있습니다.',
     );
@@ -992,9 +996,11 @@ export default function App() {
         return;
       }
       const dataRaw = (await r.json()) as unknown[];
-      const { items: payloadItems } = partitionReviewPayload(Array.isArray(dataRaw) ? dataRaw : []);
+      const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
+        Array.isArray(dataRaw) ? dataRaw : [],
+      );
       setReviewData(normalizeReviewItemsForUi(payloadItems));
-      setManualLyricRects([]);
+      setManualLyricRects(fromPayload);
       setFocusedReviewRowIndex(null);
       if (reviewOriginalFileName) {
         localStorage.removeItem('pdf2mxl_review_' + reviewOriginalFileName);
@@ -1002,7 +1008,49 @@ export default function App() {
       }
     } catch (e) {
       console.error('Failed to reset lyrics', e);
-      alert('가사 초기화에 실패했습니다.');
+      alert('PDF 초기 추출로 되돌리지 못했습니다.');
+      setLyricReviewUndo(null);
+    }
+  };
+
+  const handleLoadSavedLyricsFromZip = async () => {
+    if (!reviewingJobId || !reviewAfterOmr || !hasSavedLyricReview) return;
+    const ok = window.confirm(
+      'omr-work.zip에 저장된 가사 검증 편집을 불러옵니다.\n' +
+        '제목·성부·가사 역할 등 ZIP 저장 시점의 내용으로 바뀝니다.\n\n' +
+        '지금 화면은 「초기화 되돌리기」로 한 번 복구할 수 있습니다.',
+    );
+    if (!ok) return;
+    setLyricReviewUndo({
+      items: reviewData.map((item) => ({ ...item })),
+      manualLyricRects: manualLyricRects.map((r) => ({ ...r, bbox: [...r.bbox] as [number, number, number, number] })),
+    });
+    try {
+      const r = await fetch(`/api/review/${reviewingJobId}/load-saved-lyrics`, {
+        method: 'POST',
+      });
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try {
+          const j = (await r.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch {
+          msg = await r.text();
+        }
+        alert(msg);
+        setLyricReviewUndo(null);
+        return;
+      }
+      const dataRaw = (await r.json()) as unknown[];
+      const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
+        Array.isArray(dataRaw) ? dataRaw : [],
+      );
+      setReviewData(normalizeReviewItemsForUi(payloadItems));
+      setManualLyricRects(fromPayload);
+      setFocusedReviewRowIndex(null);
+    } catch (e) {
+      console.error('Failed to load saved lyrics', e);
+      alert('저장된 가사 검증을 불러오지 못했습니다.');
       setLyricReviewUndo(null);
     }
   };
@@ -1978,6 +2026,22 @@ bash scripts/install-font-separator-deps.sh`}
                    : '문자 검토 및 매핑 (OMR 실행 전)'}
                </h2>
                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {reviewAfterOmr && hasSavedLyricReview && (
+                    <button
+                      onClick={handleLoadSavedLyricsFromZip}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        background: '#2e7d32',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      ZIP 저장 가사 불러오기
+                    </button>
+                  )}
                   {reviewAfterOmr && lyricReviewUndo && (
                     <button
                       onClick={handleUndoLyricReset}
@@ -2007,7 +2071,7 @@ bash scripts/install-font-separator-deps.sh`}
                         fontWeight: 'bold',
                       }}
                     >
-                      가사 초기화
+                      PDF 초기 추출
                     </button>
                   )}
                   {hasSavedData && (
@@ -2039,10 +2103,10 @@ bash scripts/install-font-separator-deps.sh`}
                 <>
                   {' '}
                   Audiveris OMR과 마디·성부 검토(HITL)가 끝난 뒤, <strong>원본 PDF</strong>에서 추출한
-                  가사·메타 문자를 최종 확인합니다. 검토 결과는 <code>lyric_manifest.json</code>에 병합된 후
-                  교정된 MusicXML에 주입됩니다. OMR 작업 ZIP을 불러온 뒤 이전 편집이 보이면{' '}
-                  <strong>가사 초기화</strong>로 1차 병합 상태로 되돌릴 수 있습니다(직전 화면은{' '}
-                  <strong>초기화 되돌리기</strong>).
+                  가사·메타 문자를 최종 확인합니다. omr-work.zip을 불러오면 기본은 <strong>PDF 초기 추출</strong>
+                  (제목·작곡·가사 전체)이며, ZIP에 저장해 둔 편집은{' '}
+                  <strong>ZIP 저장 가사 불러오기</strong>로 이어갈 수 있습니다. 검토 결과는{' '}
+                  <code>lyric_manifest.json</code>에 병합된 후 교정된 MusicXML에 주입됩니다.
                 </>
               ) : pipelineMode === 'font_separator' ? (
                 <>

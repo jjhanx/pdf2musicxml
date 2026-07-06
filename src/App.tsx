@@ -59,7 +59,7 @@ type ConvertTask = {
 type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator';
 
 /** 같은 PDF 반복 작업 시 중간 단계부터 시작 */
-type StartStage = 'full' | 'lyric_review' | 'omr' | 'omr_hitl' | 'lyric_review_only';
+type StartStage = 'full' | 'clean_score' | 'omr_hitl' | 'lyric_inject';
 
 type OcrReviewItem = {
   id: string;
@@ -369,7 +369,9 @@ export default function App() {
   const [startStage, setStartStage] = useState<StartStage>(() => {
     try {
       const v = localStorage.getItem('pdf2mxl_start_stage');
-      if (v === 'lyric_review' || v === 'omr' || v === 'omr_hitl') return v;
+      if (v === 'omr' || v === 'lyric_review') return 'clean_score';
+      if (v === 'lyric_review_only') return 'lyric_inject';
+      if (v === 'full' || v === 'clean_score' || v === 'omr_hitl' || v === 'lyric_inject') return v;
     } catch {
       /* ignore */
     }
@@ -378,7 +380,6 @@ export default function App() {
   const [resumeCleanScoreFile, setResumeCleanScoreFile] = useState<File | null>(null);
   const [resumeLyricManifestFile, setResumeLyricManifestFile] = useState<File | null>(null);
   const [resumeOmrWorkFile, setResumeOmrWorkFile] = useState<File | null>(null);
-  const [resumeCorrectedMxlFile, setResumeCorrectedMxlFile] = useState<File | null>(null);
   const [fontStripJobId, setFontStripJobId] = useState<string | null>(null);
   const [cleanScorePreviewJobId, setCleanScorePreviewJobId] = useState<string | null>(null);
   const [partLabelsJobId, setPartLabelsJobId] = useState<string | null>(null);
@@ -542,7 +543,6 @@ export default function App() {
         resumeCleanScoreFile?: File | null;
         resumeLyricManifestFile?: File | null;
         resumeOmrWorkFile?: File | null;
-        resumeCorrectedMxlFile?: File | null;
       },
     ): Promise<Omit<ConvertTask, 'id' | 'fileName' | 'phase'>> => {
     const fd = new FormData();
@@ -564,9 +564,6 @@ export default function App() {
     }
     if (opts?.resumeOmrWorkFile) {
       fd.append('omrWorkZip', opts.resumeOmrWorkFile);
-    }
-    if (opts?.resumeCorrectedMxlFile) {
-      fd.append('correctedMxl', opts.resumeCorrectedMxlFile);
     }
     if (opts?.pauseAfterAudiveris) {
       fd.append('pauseAfterAudiveris', 'true');
@@ -705,21 +702,27 @@ export default function App() {
         setStatus('변환할 원본 PDF 파일을 목록에 추가해 주세요.');
         return;
       }
-      if ((startStage === 'omr' || startStage === 'lyric_review') && !resumeCleanScoreFile && list.length === 0) {
-        setStatus('clean_score_only.pdf 파일을 선택해 주세요.');
-        return;
+      if (startStage === 'clean_score') {
+        if (!resumeCleanScoreFile) {
+          setStatus('clean_score_only.pdf 파일을 선택해 주세요.');
+          return;
+        }
+        if (!resumeLyricManifestFile) {
+          setStatus('분리된 가사 JSON(lyric_manifest.json)을 선택해 주세요.');
+          return;
+        }
       }
       if (startStage === 'omr_hitl' && !resumeOmrWorkFile) {
         setStatus('이어할 OMR 검토 ZIP 파일(omr-work.zip)을 선택해 주세요.');
         return;
       }
-      if (startStage === 'lyric_review_only') {
-        if (!resumeCorrectedMxlFile) {
-          setStatus('교정 완료된 MXL 파일을 선택해 주세요.');
+      if (startStage === 'lyric_inject') {
+        if (!resumeOmrWorkFile) {
+          setStatus('omr-work.zip 파일을 선택해 주세요.');
           return;
         }
         if (!resumeLyricManifestFile) {
-          setStatus('가사 manifest.json 파일을 선택해 주세요.');
+          setStatus('편집 중인 가사 JSON 파일을 선택해 주세요.');
           return;
         }
       }
@@ -758,11 +761,11 @@ export default function App() {
         id: newTaskId(),
         fileName: f
           ? f.name
-          : startStage === 'omr_hitl'
+          : startStage === 'omr_hitl' || startStage === 'lyric_inject'
             ? (resumeOmrWorkFile?.name ?? 'omr-work.zip')
-            : startStage === 'omr' || startStage === 'lyric_review'
+            : startStage === 'clean_score'
               ? (resumeCleanScoreFile?.name ?? 'clean_score_only.pdf')
-              : (resumeCorrectedMxlFile?.name ?? 'corrected.mxl'),
+              : 'score',
         phase: 'queued',
       }));
       setTasks(initialTasks);
@@ -791,7 +794,7 @@ export default function App() {
                   jobId,
                   fileName: file
                     ? file.name
-                    : resumeCorrectedMxlFile?.name ?? resumeCleanScoreFile?.name ?? 'corrected.mxl',
+                    : resumeOmrWorkFile?.name ?? resumeCleanScoreFile?.name ?? 'score',
                 });
               },
               (jobId) => {
@@ -819,7 +822,6 @@ export default function App() {
                 resumeCleanScoreFile,
                 resumeLyricManifestFile,
                 resumeOmrWorkFile,
-                resumeCorrectedMxlFile,
               },
             );
             setTasks((prev) =>
@@ -1199,7 +1201,7 @@ export default function App() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem', marginBottom: '1.25rem' }}>
           <h2 style={{ fontSize: '1.15rem', margin: '0 0 0.5rem' }}>변환 시작 단계 선택</h2>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <button
               type="button"
               className={startStage === 'full' ? 'btn-primary' : 'btn-secondary'}
@@ -1216,7 +1218,7 @@ export default function App() {
                 color: '#fff',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease-in-out',
-                boxShadow: startStage === 'full' ? '0 0 10px rgba(59, 130, 246, 0.4)' : 'none'
+                boxShadow: startStage === 'full' ? '0 0 10px rgba(59, 130, 246, 0.4)' : 'none',
               }}
               onClick={() => {
                 setStartStage('full');
@@ -1225,42 +1227,13 @@ export default function App() {
               }}
               disabled={busy}
             >
-              <span style={{ fontWeight: 'bold', fontSize: '1.05rem' }}>1단계부터 시작</span>
-              <span style={{ fontSize: '0.82rem', opacity: 0.85 }}>원본 PDF 업로드</span>
-            </button>
-            
-            <button
-              type="button"
-              className={(startStage === 'lyric_review' || startStage === 'omr' || startStage === 'omr_hitl') ? 'btn-primary' : 'btn-secondary'}
-              style={{
-                padding: '1.15rem 0.75rem',
-                height: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '0.4rem',
-                borderRadius: 8,
-                border: (startStage === 'lyric_review' || startStage === 'omr' || startStage === 'omr_hitl') ? '1px solid #3b82f6' : '1px solid #444',
-                background: (startStage === 'lyric_review' || startStage === 'omr' || startStage === 'omr_hitl') ? '#1e40af' : '#222',
-                color: '#fff',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease-in-out',
-                boxShadow: (startStage === 'lyric_review' || startStage === 'omr' || startStage === 'omr_hitl') ? '0 0 10px rgba(59, 130, 246, 0.4)' : 'none'
-              }}
-              onClick={() => {
-                setStartStage('omr');
-                setPipelineMode('font_separator');
-                setEnablePymupdfReview(false);
-              }}
-              disabled={busy}
-            >
-              <span style={{ fontWeight: 'bold', fontSize: '1.05rem' }}>2단계부터 시작</span>
-              <span style={{ fontSize: '0.82rem', opacity: 0.85 }}>clean_score_only.pdf</span>
+              <span style={{ fontWeight: 'bold', fontSize: '1.05rem' }}>1단계</span>
+              <span style={{ fontSize: '0.82rem', opacity: 0.85 }}>원본 PDF</span>
             </button>
 
             <button
               type="button"
-              className={startStage === 'lyric_review_only' ? 'btn-primary' : 'btn-secondary'}
+              className={startStage === 'clean_score' ? 'btn-primary' : 'btn-secondary'}
               style={{
                 padding: '1.15rem 0.75rem',
                 height: 'auto',
@@ -1269,22 +1242,80 @@ export default function App() {
                 alignItems: 'center',
                 gap: '0.4rem',
                 borderRadius: 8,
-                border: startStage === 'lyric_review_only' ? '1px solid #3b82f6' : '1px solid #444',
-                background: startStage === 'lyric_review_only' ? '#1e40af' : '#222',
+                border: startStage === 'clean_score' ? '1px solid #3b82f6' : '1px solid #444',
+                background: startStage === 'clean_score' ? '#1e40af' : '#222',
                 color: '#fff',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease-in-out',
-                boxShadow: startStage === 'lyric_review_only' ? '0 0 10px rgba(59, 130, 246, 0.4)' : 'none'
+                boxShadow: startStage === 'clean_score' ? '0 0 10px rgba(59, 130, 246, 0.4)' : 'none',
               }}
               onClick={() => {
-                setStartStage('lyric_review_only');
+                setStartStage('clean_score');
                 setPipelineMode('font_separator');
                 setEnablePymupdfReview(true);
               }}
               disabled={busy}
             >
-              <span style={{ fontWeight: 'bold', fontSize: '1.05rem' }}>3단계부터 시작</span>
-              <span style={{ fontSize: '0.82rem', opacity: 0.85 }}>교정 완료 MXL + 가사</span>
+              <span style={{ fontWeight: 'bold', fontSize: '1.05rem' }}>2단계</span>
+              <span style={{ fontSize: '0.82rem', opacity: 0.85 }}>clean_score + 분리 가사</span>
+            </button>
+
+            <button
+              type="button"
+              className={startStage === 'omr_hitl' ? 'btn-primary' : 'btn-secondary'}
+              style={{
+                padding: '1.15rem 0.75rem',
+                height: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '0.4rem',
+                borderRadius: 8,
+                border: startStage === 'omr_hitl' ? '1px solid #3b82f6' : '1px solid #444',
+                background: startStage === 'omr_hitl' ? '#1e40af' : '#222',
+                color: '#fff',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                boxShadow: startStage === 'omr_hitl' ? '0 0 10px rgba(59, 130, 246, 0.4)' : 'none',
+              }}
+              onClick={() => {
+                setStartStage('omr_hitl');
+                setPipelineMode('font_separator');
+                setEnablePymupdfReview(true);
+              }}
+              disabled={busy}
+            >
+              <span style={{ fontWeight: 'bold', fontSize: '1.05rem' }}>3단계</span>
+              <span style={{ fontSize: '0.82rem', opacity: 0.85 }}>omr-work.zip + 가사</span>
+            </button>
+
+            <button
+              type="button"
+              className={startStage === 'lyric_inject' ? 'btn-primary' : 'btn-secondary'}
+              style={{
+                padding: '1.15rem 0.75rem',
+                height: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '0.4rem',
+                borderRadius: 8,
+                border: startStage === 'lyric_inject' ? '1px solid #3b82f6' : '1px solid #444',
+                background: startStage === 'lyric_inject' ? '#1e40af' : '#222',
+                color: '#fff',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                boxShadow: startStage === 'lyric_inject' ? '0 0 10px rgba(59, 130, 246, 0.4)' : 'none',
+              }}
+              onClick={() => {
+                setStartStage('lyric_inject');
+                setPipelineMode('font_separator');
+                setEnablePymupdfReview(true);
+              }}
+              disabled={busy}
+            >
+              <span style={{ fontWeight: 'bold', fontSize: '1.05rem' }}>4단계</span>
+              <span style={{ fontSize: '0.82rem', opacity: 0.85 }}>omr-work.zip + 가사 편집</span>
             </button>
           </div>
 
@@ -1292,10 +1323,10 @@ export default function App() {
             {startStage === 'full' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
-                  <strong>[1단계] 원본 PDF에서 clean_score_only.pdf 추출 및 전체 변환</strong>
+                  <strong>[1단계] 원본 PDF → clean_score → OMR → 가사 검증 → 최종 MXL</strong>
                   <br />
-                  원본 PDF에서 가사를 완전히 제거한 깨끗한 악보 PDF를 만들고, OMR·마디 검토(HITL)를 거친 뒤
-                  <strong> 가사 검증(PyMuPDF)</strong>을 하고 최종 병합하는 순차적 전체 흐름을 시작합니다.
+                  원본 PDF에서 가사를 분리·제거한 뒤 OMR·HITL·가사 검증을 거쳐 완성합니다. 2단계 이후에 쓸{' '}
+                  <code>clean_score_only.pdf</code>와 <code>lyric_manifest.json</code>이 이 단계에서 만들어집니다.
                 </p>
                 <div
                   className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
@@ -1311,7 +1342,7 @@ export default function App() {
                     border: '2px dashed #3b82f6',
                     textAlign: 'center',
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease-in-out'
+                    transition: 'all 0.2s ease-in-out',
                   }}
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -1336,133 +1367,98 @@ export default function App() {
               </div>
             )}
 
-            {(startStage === 'lyric_review' || startStage === 'omr' || startStage === 'omr_hitl') && (
+            {startStage === 'clean_score' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
-                  <strong>[2단계] clean_score_only.pdf 또는 OMR 검토 ZIP</strong>
+                  <strong>[2단계] clean_score_only.pdf + 분리된 가사로 OMR</strong>
                   <br />
-                  가사가 제거된 악보 PDF로 OMR(Audiveris)을 돌리거나, 저장해 둔 omr-work.zip으로 검토를 이어갑니다.
+                  1단계에서 만든 <strong>가사 없는 악보 PDF</strong>와 <strong>분리·검증된 가사 JSON</strong>을 함께 올립니다.
+                  Audiveris OMR → HITL → (선택) 가사 재검증 → 최종 주입까지 진행합니다.
                 </p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderBottom: '1px solid #333', paddingBottom: '0.50rem', marginBottom: '0.25rem' }}>
-                  <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', cursor: 'pointer', fontSize: '0.88rem', color: '#fff' }}>
-                    <input
-                      type="radio"
-                      name="step2Mode"
-                      checked={startStage === 'omr'}
-                      onChange={() => {
-                        setStartStage('omr');
-                        setEnablePymupdfReview(false);
-                      }}
-                      disabled={busy}
-                    />
-                    clean_score_only.pdf → OMR만 (가사 검증 생략)
-                  </label>
-                  <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', cursor: 'pointer', fontSize: '0.88rem', color: '#fff' }}>
-                    <input
-                      type="radio"
-                      name="step2Mode"
-                      checked={startStage === 'lyric_review'}
-                      onChange={() => {
-                        setStartStage('lyric_review');
-                        setEnablePymupdfReview(true);
-                      }}
-                      disabled={busy}
-                    />
-                    clean_score_only.pdf → OMR + 가사 검증(PyMuPDF) 포함
-                  </label>
-                  <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', cursor: 'pointer', fontSize: '0.88rem', color: '#fff' }}>
-                    <input
-                      type="radio"
-                      name="step2Mode"
-                      checked={startStage === 'omr_hitl'}
-                      onChange={() => setStartStage('omr_hitl')}
-                      disabled={busy}
-                    />
-                    omr-work.zip으로 OMR 검토 이어하기 (Audiveris 생략)
-                  </label>
-                </div>
-
-                {startStage === 'omr_hitl' ? (
-                  <>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
-                      <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip 파일 선택 (필수)</span>
-                      <input
-                        type="file"
-                        accept=".zip,application/zip"
-                        onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)}
-                        disabled={busy}
-                      />
-                      <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
-                        최신 빌드에서 저장한 ZIP에는 <code>clean_score_only.pdf</code>·<code>input.pdf</code>가 포함됩니다. 예전 ZIP이면 아래 PDF를 함께 올리세요.
-                      </small>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
-                      <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>
-                        비교용 PDF (선택 · ZIP에 PDF 없을 때)
-                      </span>
-                      <input
-                        type="file"
-                        accept=".pdf,application/pdf"
-                        onChange={(e) => setResumeCleanScoreFile(e.target.files?.[0] ?? null)}
-                        disabled={busy}
-                      />
-                      <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
-                        OMR 검토 왼쪽 PDF 미리보기용. <code>clean_score_only.pdf</code> 권장(없으면 원본 PDF).
-                      </small>
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>clean_score_only.pdf 파일 선택 (필수)</span>
-                    <input
-                      type="file"
-                      accept=".pdf,application/pdf"
-                      onChange={(e) => setResumeCleanScoreFile(e.target.files?.[0] ?? null)}
-                      disabled={busy}
-                    />
-                  </div>
-                )}
-
-                {startStage !== 'omr_hitl' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>lyric_manifest.json (선택 · 가사 검증 포함 모드)</span>
-                    <input
-                      type="file"
-                      accept=".json,application/json"
-                      onChange={(e) => setResumeLyricManifestFile(e.target.files?.[0] ?? null)}
-                      disabled={busy || startStage === 'omr'}
-                    />
-                    <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
-                      {startStage === 'omr'
-                        ? '「OMR만」 모드에서는 가사 manifest 없이 OMR·HITL만 진행합니다. 가사 검증이 필요하면 위에서 「OMR + 가사 검증 포함」을 선택하세요.'
-                        : '이전 작업 시 저장해 둔 가사 JSON이 있으면 업로드하여 가사 교정을 이어갈 수 있습니다.'}
-                    </small>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {startStage === 'lyric_review_only' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
-                  <strong>[3단계] 교정 완료된 MXL 기반으로 가사 점검 및 편집</strong>
-                  <br />
-                  OMR HITL 편집창이나 외부 악보 프로그램에서 완전히 음표 교정을 끝낸 MXL 악보와 가사 JSON 정보를 바탕으로 최종 가사 배치 및 보정을 시작합니다.
-                </p>
-
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
-                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>교정 완료된 악보 파일 (.mxl 또는 .musicxml, 필수)</span>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>clean_score_only.pdf (필수)</span>
                   <input
                     type="file"
-                    accept=".mxl,.musicxml,.xml"
-                    onChange={(e) => setResumeCorrectedMxlFile(e.target.files?.[0] ?? null)}
+                    accept=".pdf,application/pdf"
+                    onChange={(e) => setResumeCleanScoreFile(e.target.files?.[0] ?? null)}
                     disabled={busy}
                   />
                 </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>lyric_manifest.json — 분리된 가사 (필수)</span>
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={(e) => setResumeLyricManifestFile(e.target.files?.[0] ?? null)}
+                    disabled={busy}
+                  />
+                  <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
+                    1단계에서 저장한 가사 manifest 또는 동일 형식 JSON. 없으면 최종 MXL에 가사를 넣을 수 없습니다.
+                  </small>
+                </div>
+              </div>
+            )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333', marginTop: '0.25rem' }}>
-                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>가사 manifest.json 파일 (.json, 필수)</span>
+            {startStage === 'omr_hitl' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
+                  <strong>[3단계] omr-work.zip으로 OMR·HITL 이어하기</strong>
+                  <br />
+                  OMR 검토 중 저장한 ZIP(교정 전 MXL + <code>lyric_manifest.json</code> 포함)으로 Audiveris 없이 검토를 이어갑니다.
+                  HITL 완료 후 가사 검증·주입까지 진행합니다.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip (필수)</span>
+                  <input
+                    type="file"
+                    accept=".zip,application/zip"
+                    onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)}
+                    disabled={busy}
+                  />
+                  <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
+                    ZIP에 <code>lyric_manifest.json</code>이 없으면 아래에서 가사 JSON을 따로 올리세요.
+                  </small>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>lyric_manifest.json (ZIP에 없을 때 · 선택)</span>
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={(e) => setResumeLyricManifestFile(e.target.files?.[0] ?? null)}
+                    disabled={busy}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>비교용 PDF (선택)</span>
+                  <input
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onChange={(e) => setResumeCleanScoreFile(e.target.files?.[0] ?? null)}
+                    disabled={busy}
+                  />
+                </div>
+              </div>
+            )}
+
+            {startStage === 'lyric_inject' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
+                  <strong>[4단계] 교정 완료 MXL + 가사 편집 → 최종 주입</strong>
+                  <br />
+                  OMR·HITL을 끝낸 <code>omr-work.zip</code>(교정된 <code>review.mxl</code> 포함)과 편집 중인 가사 JSON으로
+                  가사 검증 UI만 열고 최종 MXL을 만듭니다.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip — 교정 완료 MXL 포함 (필수)</span>
+                  <input
+                    type="file"
+                    accept=".zip,application/zip"
+                    onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)}
+                    disabled={busy}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>가사 JSON — lyric_manifest.json 등 (필수)</span>
                   <input
                     type="file"
                     accept=".json,application/json"
@@ -1482,9 +1478,9 @@ export default function App() {
             style={{ padding: '0.6rem 1.5rem', fontSize: '0.95rem', fontWeight: 600 }}
             disabled={
               (startStage === 'full' && !files.length) ||
-              ((startStage === 'omr' || startStage === 'lyric_review') && !resumeCleanScoreFile && !files.length) ||
+              (startStage === 'clean_score' && (!resumeCleanScoreFile || !resumeLyricManifestFile)) ||
               (startStage === 'omr_hitl' && !resumeOmrWorkFile) ||
-              (startStage === 'lyric_review_only' && (!resumeCorrectedMxlFile || !resumeLyricManifestFile)) ||
+              (startStage === 'lyric_inject' && (!resumeOmrWorkFile || !resumeLyricManifestFile)) ||
               !health?.omrEngineReady ||
               busy ||
               (pipelineMode === 'font_separator' && health?.fontSeparatorDepsOk === false)
@@ -1535,7 +1531,7 @@ export default function App() {
             />
             OMR 직후 품질 검토 (페이지×성부 lint, 기본 켜짐)
           </label>
-          {pipelineMode === 'font_separator' && startStage !== 'omr' && (
+          {pipelineMode === 'font_separator' && startStage !== 'lyric_inject' && (
             <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
               <input
                 type="checkbox"

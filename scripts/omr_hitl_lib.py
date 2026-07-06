@@ -342,7 +342,37 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "articulations": articulations,
         "fermatas": fermatas,
         "noteDirection": None,
+        "noteDirections": None,
     }
+
+
+def _directions_before_note(
+    measure: ET.Element, note: ET.Element, ns: str
+) -> list[ET.Element]:
+    children = list(measure)
+    try:
+        ni = children.index(note)
+    except ValueError:
+        return []
+    out: list[ET.Element] = []
+    for j in range(ni - 1, -1, -1):
+        c = children[j]
+        if _local(c) == "direction":
+            out.insert(0, c)
+            continue
+        if _local(c) == "note":
+            break
+    return out
+
+
+def _note_direction_infos(
+    measure: ET.Element, note: ET.Element, ns: str
+) -> list[dict[str, Any]]:
+    infos = [_direction_element_info(d, ns) for d in _directions_before_note(measure, note, ns)]
+    from_notations = _read_note_direction_from_notations(note, ns)
+    if from_notations is not None:
+        infos.append(from_notations)
+    return infos
 
 
 def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
@@ -379,20 +409,14 @@ def _read_note_direction_from_notations(note: ET.Element, ns: str) -> dict[str, 
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     elements: list[dict[str, Any]] = []
     note_index = 0
-    pending_direction: ET.Element | None = None
     for child in measure:
         local = _local(child)
-        if local == "direction":
-            pending_direction = child
-        elif local == "note":
+        if local == "note":
             snap = note_snapshot(child, ns, note_index)
-            if pending_direction is not None:
-                snap["noteDirection"] = _direction_element_info(pending_direction, ns)
-                pending_direction = None
-            else:
-                from_notations = _read_note_direction_from_notations(child, ns)
-                if from_notations is not None:
-                    snap["noteDirection"] = from_notations
+            infos = _note_direction_infos(measure, child, ns)
+            if infos:
+                snap["noteDirections"] = infos
+                snap["noteDirection"] = infos[0]
             elements.append(snap)
             note_index += 1
     for i, snap in enumerate(elements):
@@ -1114,7 +1138,7 @@ def _clear_note_direction(
         if _local(c) == "direction":
             measure.remove(c)
             changed = True
-            break
+            continue
         if _local(c) == "note":
             break
     return changed
@@ -1131,7 +1155,7 @@ def _apply_note_direction(
 ) -> bool:
     if note_idx < 0 or note_idx >= len(notes):
         return False
-    _clear_note_direction(measure, notes, note_idx, ns)
+    # _clear_note_direction(measure, notes, note_idx, ns)
     note = notes[note_idx]
     kind = (direction_type or "words").strip().lower()
     val = str(direction_value or "").strip()
@@ -2262,7 +2286,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         return _clear_note_direction(measure, notes, note_idx, ns)
 
-    if kind == "setNoteDirection":
+    if kind in ("setNoteDirection", "addNoteDirection"):
         direction_type = str(fix.get("directionType") or "words").strip().lower()
         direction_value = str(fix.get("directionValue") or fix.get("detail") or "").strip()
         try:
@@ -2279,6 +2303,41 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         return _apply_note_direction(
             measure, notes, note_idx, ns, direction_type, direction_value, placement
         )
+
+    if kind == "removeNoteDirection":
+        direction_type = str(fix.get("directionType") or "words").strip().lower()
+        direction_value = str(fix.get("directionValue") or fix.get("detail") or "").strip()
+        try:
+            note_idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if note_idx < 0 or note_idx >= len(notes):
+            return False
+        note = notes[note_idx]
+        changed = False
+        
+        if direction_type == "dynamics":
+            tag = direction_value.lower() or "p"
+            changed = _remove_note_dynamics(note, ns, detail=tag)
+        else:
+            children = list(measure)
+            try:
+                ni = children.index(note)
+            except ValueError:
+                return changed
+            for j in range(ni - 1, -1, -1):
+                c = children[j]
+                if _local(c) == "direction":
+                    dtype = c.find(_q(ns, "direction-type"))
+                    if dtype is not None:
+                        mark = dtype.find(_q(ns, direction_type))
+                        if mark is not None and (mark.text or "").strip() == direction_value:
+                            measure.remove(c)
+                            changed = True
+                            break
+                if _local(c) == "note":
+                    break
+        return changed
 
     if kind == "insertDirection":
         direction_type = str(fix.get("directionType") or "words").strip().lower()

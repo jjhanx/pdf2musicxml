@@ -235,6 +235,8 @@ export type MeasureNoteEl = {
   fermatas?: string[];
   graceSlash?: boolean | null;
   noteDirection?: NoteDirectionInfo | null;
+  /** 동일 음표에 words + dynamics 등 복수 direction */
+  noteDirections?: NoteDirectionInfo[] | null;
 };
 
 export type NoteDirectionInfo = {
@@ -329,6 +331,19 @@ function resolveAfterNoteIndex(el: MeasureElement, _elements: MeasureElement[]):
   return el.index;
 }
 
+function noteDirectionsOf(el: MeasureNoteEl): NoteDirectionInfo[] {
+  if (el.noteDirections?.length) return el.noteDirections;
+  if (el.noteDirection) return [el.noteDirection];
+  return [];
+}
+
+function noteDirectionsSummary(el: MeasureNoteEl): string {
+  return noteDirectionsOf(el)
+    .map((d) => noteDirectionLabel(d))
+    .filter(Boolean)
+    .join(' · ');
+}
+
 function noteDirectionLabel(dir: NoteDirectionInfo | null | undefined): string {
   if (!dir?.directionValue && dir?.directionType !== 'dynamics') return '';
   if (dir.directionType === 'dynamics') return `dir:${dir.directionValue || 'p'}`;
@@ -342,7 +357,7 @@ function elementTitle(
   ctx?: { partId?: string; staffLabel?: string | null; editStaffWithinPart?: number | null },
 ): string {
   const idx = el.index;
-  const dirSuffix = noteDirectionLabel(el.noteDirection) ? ` · ${noteDirectionLabel(el.noteDirection)}` : '';
+  const dirSuffix = noteDirectionsSummary(el) ? ` · ${noteDirectionsSummary(el)}` : '';
   if (el.kind === 'rest') {
     const dots = el.dotCount ? ` ·×${el.dotCount}` : '';
     const pos =
@@ -874,38 +889,32 @@ function CrossMeasureTieForm({
 
 function NoteDirectionEditor({
   noteIndex,
-  current,
+  currentDirections,
   onFix,
 }: {
   noteIndex: number;
-  current?: NoteDirectionInfo | null;
+  currentDirections?: NoteDirectionInfo[];
   onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
 }) {
-  const [mode, setMode] = useState<'none' | 'dynamics' | 'words' | 'rehearsal'>(current?.directionType ?? 'none');
-  const [dynValue, setDynValue] = useState(
-    current?.directionType === 'dynamics' ? current.directionValue || 'mf' : 'mf',
-  );
-  const [textValue, setTextValue] = useState(
-    current && current.directionType !== 'dynamics' ? current.directionValue : '',
-  );
+  const dirs = currentDirections ?? [];
+  const [mode, setMode] = useState<'none' | 'dynamics' | 'words' | 'rehearsal'>('none');
+  const [dynValue, setDynValue] = useState('mf');
+  const [textValue, setTextValue] = useState('');
 
   useEffect(() => {
-    setMode(current?.directionType ?? 'none');
-    setDynValue(current?.directionType === 'dynamics' ? current.directionValue || 'mf' : 'mf');
-    setTextValue(current && current.directionType !== 'dynamics' ? current.directionValue : '');
-  }, [noteIndex, current?.directionType, current?.directionValue]);
+    setMode('none');
+    setDynValue('mf');
+    setTextValue('');
+  }, [noteIndex]);
 
   const apply = () => {
-    if (mode === 'none') {
-      if (current) onFix({ kind: 'clearNoteDirection', noteIndex });
-      return;
-    }
+    if (mode === 'none') return;
     if (mode === 'dynamics') {
-      onFix({ kind: 'setNoteDirection', noteIndex, directionType: 'dynamics', directionValue: dynValue });
+      onFix({ kind: 'addNoteDirection', noteIndex, directionType: 'dynamics', directionValue: dynValue });
       return;
     }
     onFix({
-      kind: 'setNoteDirection',
+      kind: 'addNoteDirection',
       noteIndex,
       directionType: mode,
       directionValue: textValue.trim() || (mode === 'rehearsal' ? 'A' : ' '),
@@ -915,10 +924,37 @@ function NoteDirectionEditor({
   return (
     <div className="omr-measure-direction-row" style={{ marginTop: 6 }}>
       <span className="omr-measure-articulation-current">
-        direction: {noteDirectionLabel(current) || '없음'}
+        direction: {dirs.length ? dirs.map((d) => noteDirectionLabel(d)).filter(Boolean).join(' · ') : '없음'}
       </span>
+      {dirs.length > 0 ? (
+        <div className="omr-measure-direction-list" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {dirs.map((d, i) => (
+            <span key={`${d.directionType}-${d.directionValue}-${i}`} className="omr-measure-direction-chip">
+              {noteDirectionLabel(d)}
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                style={{ marginLeft: 4 }}
+                onClick={() =>
+                  onFix({
+                    kind: 'removeNoteDirection',
+                    noteIndex,
+                    directionType: d.directionType,
+                    directionValue: d.directionValue,
+                  })
+                }
+              >
+                삭제
+              </button>
+            </span>
+          ))}
+          <button type="button" className="omr-hitl-fix-btn" onClick={() => onFix({ kind: 'clearNoteDirection', noteIndex })}>
+            전체 지우기
+          </button>
+        </div>
+      ) : null}
       <label className="omr-measure-inline-field">
-        종류
+        추가
         <select
           value={mode === 'none' ? '' : mode}
           onChange={(e) => {
@@ -926,7 +962,7 @@ function NoteDirectionEditor({
             setMode(v === '' ? 'none' : (v as 'dynamics' | 'words' | 'rehearsal'));
           }}
         >
-          <option value="">없음</option>
+          <option value="">종류 선택</option>
           <option value="dynamics">셈여림</option>
           <option value="words">텍스트</option>
           <option value="rehearsal">리허설</option>
@@ -945,18 +981,18 @@ function NoteDirectionEditor({
           type="text"
           value={textValue}
           onChange={(e) => setTextValue(e.target.value)}
-          placeholder={mode === 'rehearsal' ? 'A' : 'poco piu mosso, rit. …'}
+          placeholder={mode === 'rehearsal' ? 'A' : 'a tempo, rit. …'}
           style={{ minWidth: 120 }}
         />
       ) : null}
-      <button type="button" className="omr-hitl-fix-btn omr-hitl-fix-btn--primary" onClick={apply}>
-        direction 적용
+      <button
+        type="button"
+        className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+        onClick={apply}
+        disabled={mode === 'none'}
+      >
+        direction 추가
       </button>
-      {current ? (
-        <button type="button" className="omr-hitl-fix-btn" onClick={() => onFix({ kind: 'clearNoteDirection', noteIndex })}>
-          direction 지우기
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -1168,7 +1204,7 @@ function MeasureNoteEditor({
       {!el.chord && !el.hasGrace && el.index === chordLeaderIdx && (
         <NoteDirectionEditor
           noteIndex={chordLeaderIdx}
-          current={chordLeaderEl?.noteDirection ?? el.noteDirection}
+          currentDirections={noteDirectionsOf(chordLeaderEl ?? el)}
           onFix={onFix}
         />
       )}

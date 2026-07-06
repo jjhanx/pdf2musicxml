@@ -1760,31 +1760,83 @@ async function ensurePymupdfReviewPayload(opts: {
   return fsSync.existsSync(pymupdfReviewPath);
 }
 
-/** OMR·HITL 후 가사 검증 — 원본 PDF에서 PyMuPDF 추출을 다시 하고 검토 메타를 제거 */
-async function rebuildFreshPymupdfReviewPayload(opts: {
+/** 검토 UI용 — 성부·절·건너뛰기 등 사람이 넣은 메타만 제거 */
+function stripLyricReviewMeta(item: unknown): unknown {
+  if (!item || typeof item !== 'object') return item;
+  const o = { ...(item as Record<string, unknown>) };
+  delete o.lyricPartIndex;
+  delete o.lyricVerseIndex;
+  delete o.lyricVoice;
+  delete o.lyricSkipNotes;
+  return o;
+}
+
+/** OMR·HITL 후 가사 검증 — pdfplumber·PyMuPDF 1차 병합(검토 메타 없음)으로 되돌림 */
+async function rebuildInitialLyricReviewPayload(opts: {
+  sessionRoot: string;
   pymupdfReviewPath: string;
   pdfPath: string;
   pythonBin: string;
   scriptExtract: string;
+  scriptMergeLyrics: string;
 }): Promise<unknown[]> {
-  const { pymupdfReviewPath, pdfPath, pythonBin, scriptExtract } = opts;
+  const {
+    sessionRoot,
+    pymupdfReviewPath,
+    pdfPath,
+    pythonBin,
+    scriptExtract,
+    scriptMergeLyrics,
+  } = opts;
+  const extractedJsonPath = path.join(sessionRoot, 'extracted_music_text.json');
+  const lyricManifestPath = path.join(sessionRoot, 'lyric_manifest.json');
+  const tempPymupdf = path.join(sessionRoot, '_lyric_reset_pymupdf.json');
+  const tempManifest = path.join(sessionRoot, '_lyric_reset_manifest.json');
+
   await fs.unlink(pymupdfReviewPath).catch(() => {});
-  await exec(`"${pythonBin}" "${scriptExtract}" "${pdfPath}" "${pymupdfReviewPath}"`, {
+  await fs.unlink(tempPymupdf).catch(() => {});
+  await fs.unlink(tempManifest).catch(() => {});
+
+  await exec(`"${pythonBin}" "${scriptExtract}" "${pdfPath}" "${tempPymupdf}"`, {
     maxBuffer: 16 * 1024 * 1024,
   });
-  const raw = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8')) as unknown;
-  if (!Array.isArray(raw)) {
-    throw new Error('extract_text.py 출력이 배열이 아닙니다');
+
+  let items: unknown[] = [];
+
+  if (fsSync.existsSync(extractedJsonPath)) {
+    const mergeArgs = [
+      `"${pythonBin}"`,
+      `"${scriptMergeLyrics}"`,
+      `"${extractedJsonPath}"`,
+      `"${tempManifest}"`,
+      `--pymupdf-review "${tempPymupdf}"`,
+    ];
+    await exec(mergeArgs.join(' '), { maxBuffer: 16 * 1024 * 1024 });
+    const manifest = JSON.parse(await fs.readFile(tempManifest, 'utf8')) as { items?: unknown[] };
+    items = Array.isArray(manifest.items) ? manifest.items : [];
+  } else if (fsSync.existsSync(lyricManifestPath)) {
+    try {
+      const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as {
+        items?: unknown[];
+      };
+      if (Array.isArray(manifest.items)) items = manifest.items;
+    } catch {
+      /* fall through */
+    }
   }
-  const cleaned = raw.map((item) => {
-    if (!item || typeof item !== 'object') return item;
-    const o = { ...(item as Record<string, unknown>) };
-    delete o.lyricPartIndex;
-    delete o.lyricVerseIndex;
-    delete o.lyricVoice;
-    delete o.lyricSkipNotes;
-    return o;
-  });
+
+  if (items.length === 0) {
+    const raw = JSON.parse(await fs.readFile(tempPymupdf, 'utf8')) as unknown;
+    if (!Array.isArray(raw)) {
+      throw new Error('가사 항목을 복원할 수 없습니다 (extracted_music_text·manifest 없음)');
+    }
+    items = raw;
+  }
+
+  await fs.unlink(tempPymupdf).catch(() => {});
+  await fs.unlink(tempManifest).catch(() => {});
+
+  const cleaned = items.map(stripLyricReviewMeta);
   await fs.writeFile(pymupdfReviewPath, JSON.stringify(cleaned, null, 2), 'utf8');
   return cleaned;
 }
@@ -3810,12 +3862,15 @@ app.post('/api/review/:jobId/reset-lyrics-initial', async (req, res) => {
   try {
     const pythonBin = resolvePythonBin();
     const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
+    const scriptMergeLyrics = path.join(__dirname, '..', 'scripts', 'merge_lyric_sources.py');
     const pymupdfReviewPath = path.join(job.sessionRoot, 'ocr_data_pymupdf.json');
-    const items = await rebuildFreshPymupdfReviewPayload({
+    const items = await rebuildInitialLyricReviewPayload({
+      sessionRoot: job.sessionRoot,
       pymupdfReviewPath,
       pdfPath,
       pythonBin,
       scriptExtract,
+      scriptMergeLyrics,
     });
     job.reviewData = items;
     res.json(items);

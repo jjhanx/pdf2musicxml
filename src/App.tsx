@@ -385,6 +385,11 @@ export default function App() {
   const reviewRowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [reviewOriginalFileName, setReviewOriginalFileName] = useState('');
   const [hasSavedData, setHasSavedData] = useState(false);
+  /** 가사 초기화 직전 화면 — 「초기화 되돌리기」용 */
+  const [lyricReviewUndo, setLyricReviewUndo] = useState<{
+    items: OcrReviewItem[];
+    manualLyricRects: ManualLyricBBox[];
+  } | null>(null);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>('font_separator');
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
@@ -461,6 +466,7 @@ export default function App() {
       setReviewAfterOmr(afterOmr);
       setManualLyricRects(fromPayload);
       setFocusedReviewRowIndex(null);
+      setLyricReviewUndo(null);
       setReviewData(initData);
       setReviewingJobId(jobId);
       setReviewOriginalFileName(fileName);
@@ -959,11 +965,16 @@ export default function App() {
   const handleResetLyricsToInitial = async () => {
     if (!reviewingJobId || !reviewAfterOmr) return;
     const ok = window.confirm(
-      '가사 검증 내용을 원본 PDF에서 다시 추출한 초기 상태로 되돌립니다.\n' +
-        'OMR·HITL(마디·성부) 교정은 그대로 유지됩니다.\n' +
-        '브라우저 임시저장·ZIP에 포함된 이전 가사 편집은 무시됩니다.',
+      'ZIP·임시저장에 남은 가사 검증 편집을 지우고, pdfplumber·PyMuPDF 1차 병합 상태로 되돌립니다.\n' +
+        '성부·절·건너뛰기 등 검토 메타는 기본값으로 초기화됩니다.\n' +
+        'OMR·HITL(마디·성부) 교정은 그대로 유지됩니다.\n\n' +
+        '지금 화면의 편집 중 내용은 「초기화 되돌리기」로 한 번 복구할 수 있습니다.',
     );
     if (!ok) return;
+    setLyricReviewUndo({
+      items: reviewData.map((item) => ({ ...item })),
+      manualLyricRects: manualLyricRects.map((r) => ({ ...r, bbox: [...r.bbox] as [number, number, number, number] })),
+    });
     try {
       const r = await fetch(`/api/review/${reviewingJobId}/reset-lyrics-initial`, {
         method: 'POST',
@@ -977,6 +988,7 @@ export default function App() {
           msg = await r.text();
         }
         alert(msg);
+        setLyricReviewUndo(null);
         return;
       }
       const dataRaw = (await r.json()) as unknown[];
@@ -991,7 +1003,16 @@ export default function App() {
     } catch (e) {
       console.error('Failed to reset lyrics', e);
       alert('가사 초기화에 실패했습니다.');
+      setLyricReviewUndo(null);
     }
+  };
+
+  const handleUndoLyricReset = () => {
+    if (!lyricReviewUndo) return;
+    setReviewData(lyricReviewUndo.items);
+    setManualLyricRects(lyricReviewUndo.manualLyricRects);
+    setLyricReviewUndo(null);
+    setFocusedReviewRowIndex(null);
   };
 
   const handleDownloadReview = () => {
@@ -1093,6 +1114,7 @@ export default function App() {
       setReviewAfterOmr(false);
       setReviewData([]);
       setManualLyricRects([]);
+      setLyricReviewUndo(null);
       setFocusedReviewRowIndex(null);
       setReviewOriginalFileName('');
       setHasSavedData(false);
@@ -1956,6 +1978,22 @@ bash scripts/install-font-separator-deps.sh`}
                    : '문자 검토 및 매핑 (OMR 실행 전)'}
                </h2>
                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {reviewAfterOmr && lyricReviewUndo && (
+                    <button
+                      onClick={handleUndoLyricReset}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        background: '#1565c0',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      초기화 되돌리기
+                    </button>
+                  )}
                   {reviewAfterOmr && (
                     <button
                       onClick={handleResetLyricsToInitial}
@@ -2003,7 +2041,8 @@ bash scripts/install-font-separator-deps.sh`}
                   Audiveris OMR과 마디·성부 검토(HITL)가 끝난 뒤, <strong>원본 PDF</strong>에서 추출한
                   가사·메타 문자를 최종 확인합니다. 검토 결과는 <code>lyric_manifest.json</code>에 병합된 후
                   교정된 MusicXML에 주입됩니다. OMR 작업 ZIP을 불러온 뒤 이전 편집이 보이면{' '}
-                  <strong>가사 초기화</strong>로 원본 추출 상태로 되돌릴 수 있습니다.
+                  <strong>가사 초기화</strong>로 1차 병합 상태로 되돌릴 수 있습니다(직전 화면은{' '}
+                  <strong>초기화 되돌리기</strong>).
                 </>
               ) : pipelineMode === 'font_separator' ? (
                 <>

@@ -4598,9 +4598,9 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
   if (fsSync.existsSync(pymupdfReviewPath)) {
     archive.file(pymupdfReviewPath, { name: 'ocr_data_pymupdf.json' });
   }
-  const baselinePath = sessionOcrPymupdfBaselinePath(job.sessionRoot);
-  if (fsSync.existsSync(baselinePath)) {
-    archive.file(baselinePath, { name: 'ocr_data_pymupdf_baseline.json' });
+  const lyricBaselinePath = sessionOcrPymupdfBaselinePath(job.sessionRoot);
+  if (fsSync.existsSync(lyricBaselinePath)) {
+    archive.file(lyricBaselinePath, { name: 'ocr_data_pymupdf_baseline.json' });
   }
   if (fsSync.existsSync(extractedJsonPath)) {
     archive.file(extractedJsonPath, { name: 'extracted_music_text.json' });

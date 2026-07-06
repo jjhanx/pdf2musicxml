@@ -230,6 +230,26 @@ function defaultReviewTypeForInit(t: string | undefined): string {
   return 'lyrics';
 }
 
+function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
+  return payloadItems.map((item) => ({
+    ...item,
+    type: defaultReviewTypeForInit(item.type),
+    lyricPartIndex:
+      typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
+        ? Math.floor(item.lyricPartIndex)
+        : 1,
+    lyricVerseIndex:
+      typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
+        ? Math.floor(item.lyricVerseIndex)
+        : 1,
+    lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
+    lyricSkipNotes:
+      typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
+        ? Math.floor(item.lyricSkipNotes)
+        : 0,
+  }));
+}
+
 function isPdfFile(f: File): boolean {
   const byName = /\.pdf$/i.test(f.name);
   const byType =
@@ -430,23 +450,7 @@ export default function App() {
         Array.isArray(dataRaw) ? dataRaw : [],
       );
 
-      const initData = payloadItems.map((item) => ({
-        ...item,
-        type: defaultReviewTypeForInit(item.type),
-        lyricPartIndex:
-          typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
-            ? Math.floor(item.lyricPartIndex)
-            : 1,
-        lyricVerseIndex:
-          typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
-            ? Math.floor(item.lyricVerseIndex)
-            : 1,
-        lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
-        lyricSkipNotes:
-          typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
-            ? Math.floor(item.lyricSkipNotes)
-            : 0,
-      }));
+      const initData = normalizeReviewItemsForUi(payloadItems);
 
       let afterOmr = pipelineMode === 'font_separator';
       if (st.ok) {
@@ -949,6 +953,44 @@ export default function App() {
        } catch (e) {
          console.error('Failed to load saved data', e);
        }
+    }
+  };
+
+  const handleResetLyricsToInitial = async () => {
+    if (!reviewingJobId || !reviewAfterOmr) return;
+    const ok = window.confirm(
+      '가사 검증 내용을 원본 PDF에서 다시 추출한 초기 상태로 되돌립니다.\n' +
+        'OMR·HITL(마디·성부) 교정은 그대로 유지됩니다.\n' +
+        '브라우저 임시저장·ZIP에 포함된 이전 가사 편집은 무시됩니다.',
+    );
+    if (!ok) return;
+    try {
+      const r = await fetch(`/api/review/${reviewingJobId}/reset-lyrics-initial`, {
+        method: 'POST',
+      });
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try {
+          const j = (await r.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch {
+          msg = await r.text();
+        }
+        alert(msg);
+        return;
+      }
+      const dataRaw = (await r.json()) as unknown[];
+      const { items: payloadItems } = partitionReviewPayload(Array.isArray(dataRaw) ? dataRaw : []);
+      setReviewData(normalizeReviewItemsForUi(payloadItems));
+      setManualLyricRects([]);
+      setFocusedReviewRowIndex(null);
+      if (reviewOriginalFileName) {
+        localStorage.removeItem('pdf2mxl_review_' + reviewOriginalFileName);
+        setHasSavedData(false);
+      }
+    } catch (e) {
+      console.error('Failed to reset lyrics', e);
+      alert('가사 초기화에 실패했습니다.');
     }
   };
 
@@ -1914,6 +1956,22 @@ bash scripts/install-font-separator-deps.sh`}
                    : '문자 검토 및 매핑 (OMR 실행 전)'}
                </h2>
                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {reviewAfterOmr && (
+                    <button
+                      onClick={handleResetLyricsToInitial}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        background: '#c62828',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      가사 초기화
+                    </button>
+                  )}
                   {hasSavedData && (
                      <button onClick={handleLoadPrevious} style={{ padding: '0.5rem 1rem', background: '#f57c00', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
                         이전 작업 불러오기
@@ -1944,7 +2002,8 @@ bash scripts/install-font-separator-deps.sh`}
                   {' '}
                   Audiveris OMR과 마디·성부 검토(HITL)가 끝난 뒤, <strong>원본 PDF</strong>에서 추출한
                   가사·메타 문자를 최종 확인합니다. 검토 결과는 <code>lyric_manifest.json</code>에 병합된 후
-                  교정된 MusicXML에 주입됩니다.
+                  교정된 MusicXML에 주입됩니다. OMR 작업 ZIP을 불러온 뒤 이전 편집이 보이면{' '}
+                  <strong>가사 초기화</strong>로 원본 추출 상태로 되돌릴 수 있습니다.
                 </>
               ) : pipelineMode === 'font_separator' ? (
                 <>

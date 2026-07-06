@@ -1760,6 +1760,35 @@ async function ensurePymupdfReviewPayload(opts: {
   return fsSync.existsSync(pymupdfReviewPath);
 }
 
+/** OMR·HITL 후 가사 검증 — 원본 PDF에서 PyMuPDF 추출을 다시 하고 검토 메타를 제거 */
+async function rebuildFreshPymupdfReviewPayload(opts: {
+  pymupdfReviewPath: string;
+  pdfPath: string;
+  pythonBin: string;
+  scriptExtract: string;
+}): Promise<unknown[]> {
+  const { pymupdfReviewPath, pdfPath, pythonBin, scriptExtract } = opts;
+  await fs.unlink(pymupdfReviewPath).catch(() => {});
+  await exec(`"${pythonBin}" "${scriptExtract}" "${pdfPath}" "${pymupdfReviewPath}"`, {
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const raw = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8')) as unknown;
+  if (!Array.isArray(raw)) {
+    throw new Error('extract_text.py 출력이 배열이 아닙니다');
+  }
+  const cleaned = raw.map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const o = { ...(item as Record<string, unknown>) };
+    delete o.lyricPartIndex;
+    delete o.lyricVerseIndex;
+    delete o.lyricVoice;
+    delete o.lyricSkipNotes;
+    return o;
+  });
+  await fs.writeFile(pymupdfReviewPath, JSON.stringify(cleaned, null, 2), 'utf8');
+  return cleaned;
+}
+
 /** Audiveris·점검 UI에 넘길 PDF — clean_score > masked > 원본 순 */
 function resolveAudiverisInputPdfPath(job: JobRecord): {
   path: string;
@@ -3753,6 +3782,46 @@ app.get('/api/review/:jobId', (req, res) => {
     return;
   }
   res.json(job.reviewData);
+});
+
+/** OMR·HITL 후 가사 검증 — ZIP·manifest·브라우저 임시저장 없이 원본 PDF 추출로 되돌림 */
+app.post('/api/review/:jobId/reset-lyrics-initial', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  if (job.status !== 'review_needed' || !job.reviewData) {
+    res.status(400).json({ error: '리뷰가 필요하지 않거나 준비되지 않았습니다' });
+    return;
+  }
+  if (!job.reviewAfterOmr) {
+    res.status(400).json({
+      error: 'OMR·HITL 이후 가사 검증 단계에서만 초기화할 수 있습니다',
+    });
+    return;
+  }
+  const pdfPath = resolveLyricReviewPdfPath(job);
+  if (!pdfPath) {
+    res.status(404).json({ error: '원본 PDF가 세션에 없습니다' });
+    return;
+  }
+  try {
+    const pythonBin = resolvePythonBin();
+    const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
+    const pymupdfReviewPath = path.join(job.sessionRoot, 'ocr_data_pymupdf.json');
+    const items = await rebuildFreshPymupdfReviewPayload({
+      pymupdfReviewPath,
+      pdfPath,
+      pythonBin,
+      scriptExtract,
+    });
+    job.reviewData = items;
+    res.json(items);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 /** 문자 검토(리뷰) 단계: 원본 PDF 각 페이지 크기(pt) — 수동 가사 마스킹 좌표 변환 */

@@ -220,7 +220,9 @@ function defaultReviewTypeForInit(t: string | undefined): string {
     t === 'lyricist' ||
     t === 'copyright' ||
     t === 'lyrics' ||
-    t === 'tempo'
+    t === 'tempo' ||
+    t === 'measure_number' ||
+    t === 'page_number'
   ) {
     return t;
   }
@@ -1985,7 +1987,7 @@ bash scripts/install-font-separator-deps.sh`}
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               가사를 선택하면 텍스트를 직접 편집할 수 있습니다. 쉼표·연장선 등으로 <strong>가사가 없는 음표</strong>는 해당 음절 자리에 <strong>하이픈( - )</strong>을 넣으세요 — 음표 하나를 소모하고 최종 MXL에도 <code>&lt;text&gt;-&lt;/text&gt;</code>로 표시됩니다. (띄어쓰기는 무시됨)<br/>
               <strong>파트·가사 절·멜로디 줄:</strong> <strong>파트 순번</strong>은 MusicXML의 몇 번째 악기/성부인지(1=첫 파트)입니다. <strong>가사 절</strong>(1절·2절…)은 같은 멜로디에 붙는 <strong>서로 다른 가사 줄</strong>이며, 병합 시 같은 음표에 <code>lyric number=&quot;1&quot;</code>, <code>&quot;2&quot;</code>…로 나뉩니다. <strong>멜로디 줄(voice)</strong>은 같은 마디에서 <strong>동시에 울리는 서로 다른 선율</strong>(성부 2줄 등)에 쓰는 MusicXML <code>&lt;voice&gt;</code>이며 <em>1절/2절과 다릅니다</em>. 한 줄만 있는 성부는 보통 멜로디 줄 1과 가사 절만 쓰면 됩니다. 피아노·2멜로디 한 파트면 <strong>전체 순서 (*)</strong> 또는 해당 <code>&lt;voice&gt;</code> 번호를 지정하세요. 가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 하이픈(<strong>-</strong>)을 쓰세요.<br/>
-              <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다.<br/>
+              <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다. <strong>마디 번호</strong>·<strong>페이지 번호</strong>는 가사 주입에서 제외됩니다(PDF p.는 각 줄 옆에 표시).<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다. 수동 가사 지우기 영역은 백업·임시 저장에 포함됩니다.</em>
             </div>
 
@@ -2048,9 +2050,30 @@ bash scripts/install-font-separator-deps.sh`}
                         미리보기
                       </button>
                       <label className="review-field">
+                        <span className="review-field-label">PDF p.</span>
+                        <span
+                          style={{
+                            padding: '0.45rem 0.55rem',
+                            fontSize: '0.95rem',
+                            minWidth: '2.5rem',
+                            textAlign: 'center',
+                            background: '#f5f5f5',
+                            border: '1px solid #ccc',
+                            borderRadius: '4px',
+                          }}
+                          title="이 블록이 있는 PDF 페이지 번호"
+                        >
+                          {typeof item.page === 'number' && item.page >= 1 ? item.page : 1}
+                        </span>
+                      </label>
+                      <label className="review-field">
                         <span className="review-field-label">구분</span>
                         <select
-                         value={item.type} 
+                         value={
+                           item.type === 'measure_number' || item.type === 'page_number'
+                             ? item.type
+                             : item.type || 'lyrics'
+                         }
                          onChange={(e) => handleReviewTypeChange(i, e.target.value)}
                          style={{ padding: '0.45rem', fontSize: '0.95rem', minWidth: '9.5rem' }}
                       >
@@ -2060,6 +2083,8 @@ bash scripts/install-font-separator-deps.sh`}
                          <option value="lyricist">작사가</option>
                          <option value="copyright">저작권</option>
                          <option value="tempo">템포(BPM)</option>
+                         <option value="measure_number">마디 번호</option>
+                         <option value="page_number">페이지 번호</option>
                          <option value="lyrics">가사</option>
                       </select>
                       </label>

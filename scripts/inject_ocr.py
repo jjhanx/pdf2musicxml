@@ -337,11 +337,11 @@ def parse_bpm_from_text(text: str):
 
 
 def _skip_inject_meta_item(item):
-    """ocr_data.json — inject 제외: `_` 메타, 마디 번호."""
+    """ocr_data.json — inject 제외: `_` 메타, 마디·페이지 번호."""
     t = item.get("type", "unknown")
     if isinstance(t, str) and t.startswith("_"):
         return True
-    return t == "measure_number"
+    return t in ("measure_number", "page_number")
 
 
 def collect_tempo_bpm(ocr_data):
@@ -460,9 +460,10 @@ def _sanitize_flat_inject_rows(rows):
         _scripts_dir = Path(__file__).resolve().parent
         if str(_scripts_dir) not in sys.path:
             sys.path.insert(0, str(_scripts_dir))
-        from merge_lyric_sources import is_measure_number_item, resolve_inject_type
+        from merge_lyric_sources import is_measure_number_item, is_page_number_item, resolve_inject_type
     except ImportError:
         is_measure_number_item = None
+        is_page_number_item = None
         resolve_inject_type = None
 
     out = []
@@ -474,9 +475,11 @@ def _sanitize_flat_inject_rows(rows):
         item = dict(raw)
         if resolve_inject_type is not None:
             item["type"] = resolve_inject_type(item)
-            if item["type"] == "measure_number":
+            if item["type"] in ("measure_number", "page_number"):
                 continue
         elif is_measure_number_item is not None and is_measure_number_item(item):
+            continue
+        elif is_page_number_item is not None and is_page_number_item(item):
             continue
         out.append(item)
     return out

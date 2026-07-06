@@ -18,13 +18,15 @@ _MEASURE_NUM_RE = re.compile(r"^\d{1,3}$")
 
 def is_measure_number_item(item: dict[str, Any]) -> bool:
     """악보 좌측 마디 번호(14, 17 등) — 가사 주입 대상이 아님."""
-    text = strip_pua(str(item.get("text") or "")).strip()
-    if not _MEASURE_NUM_RE.fullmatch(text):
-        return False
     t = str(item.get("type") or "")
+    if t == "page_number":
+        return False
     if t == "measure_number":
         return True
     if t in ("title", "composer", "copyright", "tempo"):
+        return False
+    text = strip_pua(str(item.get("text") or "")).strip()
+    if not _MEASURE_NUM_RE.fullmatch(text):
         return False
     bbox = item.get("bbox")
     if isinstance(bbox, list) and len(bbox) >= 4:
@@ -37,11 +39,20 @@ def is_measure_number_item(item: dict[str, Any]) -> bool:
     return t in ("", "unknown")
 
 
+def is_page_number_item(item: dict[str, Any]) -> bool:
+    """악보 하단·상단 PDF 페이지 번호 — 가사 주입 대상이 아님."""
+    return str(item.get("type") or "") == "page_number"
+
+
 def resolve_inject_type(item: dict[str, Any]) -> str:
     """merge·flat 출력용 type — unknown 숫자는 measure_number, 그 외 unknown은 lyrics."""
+    t = item.get("type")
+    if t == "page_number":
+        return "page_number"
+    if t == "measure_number":
+        return "measure_number"
     if is_measure_number_item(item):
         return "measure_number"
-    t = item.get("type")
     if t in (None, "", "unknown"):
         return "lyrics"
     return str(t)
@@ -330,7 +341,7 @@ def merge_sources(
 
     # PyMuPDF에만 있고 pdfplumber와 매칭되지 않은 항목(제목·작곡 등 다른 크기) 보존
     for it in pymupdf_items:
-        if is_meta_item(it) or is_measure_number_item(it):
+        if is_meta_item(it) or is_measure_number_item(it) or is_page_number_item(it):
             continue
         iid = str(it.get("id", ""))
         if iid in used_pymupdf:
@@ -375,7 +386,7 @@ def pymupdf_review_to_flat_inject_rows(
             continue
         item = dict(raw)
         item["type"] = resolve_inject_type(item)
-        if item["type"] == "measure_number":
+        if item["type"] in ("measure_number", "page_number"):
             continue
         rows.append(item)
     rows.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))
@@ -402,7 +413,7 @@ def manifest_to_flat_inject_rows(manifest: dict[str, Any]) -> list[dict[str, Any
     rows = [
         dict(x)
         for x in items
-        if isinstance(x, dict) and x.get("type") != "measure_number"
+        if isinstance(x, dict) and x.get("type") not in ("measure_number", "page_number")
     ]
     if manual:
         rows.append(

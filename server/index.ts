@@ -337,6 +337,7 @@ type JobStatus =
   | 'processing'
   | 'font_strip_needed'
   | 'clean_score_preview_needed'
+  | 'lyric_manifest_save_needed'
   | 'review_needed'
   | 'part_labels_needed'
   | 'omr_staff_review_needed'
@@ -429,6 +430,7 @@ type JobRecord = {
   fontStripStats?: Record<string, unknown>;
   cleanScorePreviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   cleanScorePreviewAction?: 'continue' | 'redo_font_strip';
+  lyricManifestSaveDeferred?: { resolve: () => void; reject: (err: Error) => void };
 };
 
 const jobs = new Map<string, JobRecord>();
@@ -462,6 +464,7 @@ const JOB_STATUSES_WITH_PROGRESS: ReadonlySet<JobStatus> = new Set([
   'processing',
   'font_strip_needed',
   'clean_score_preview_needed',
+  'lyric_manifest_save_needed',
   'review_needed',
   'part_labels_needed',
   'omr_staff_review_needed',
@@ -472,6 +475,55 @@ function cleanScorePreviewJobsAllowed(job: JobRecord | undefined): job is JobRec
   return Boolean(job && job.status === 'clean_score_preview_needed');
 }
 
+function lyricManifestSaveJobsAllowed(job: JobRecord | undefined): job is JobRecord {
+  return Boolean(job && job.status === 'lyric_manifest_save_needed');
+}
+
+function sessionLyricManifestPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'lyric_manifest.json');
+}
+
+function lyricManifestDownloadBaseName(job: JobRecord): string {
+  const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
+  return `${base}-lyric_manifest.json`;
+}
+
+function lyricManifestDownloadJobsAllowed(job: JobRecord | undefined): job is JobRecord {
+  if (!job) return false;
+  if (!fsSync.existsSync(sessionLyricManifestPath(job.sessionRoot))) return false;
+  return (
+    job.status === 'lyric_manifest_save_needed' ||
+    job.status === 'processing' ||
+    job.status === 'review_needed' ||
+    job.status === 'part_labels_needed' ||
+    job.status === 'omr_staff_review_needed' ||
+    job.status === 'audiveris_review_needed' ||
+    job.status === 'completed' ||
+    job.status === 'failed'
+  );
+}
+
+async function readLyricManifestSummary(sessionRoot: string): Promise<{
+  itemCount: number;
+  matchStats: Record<string, unknown> | null;
+  version: number;
+} | null> {
+  const manifestPath = sessionLyricManifestPath(sessionRoot);
+  if (!fsSync.existsSync(manifestPath)) return null;
+  try {
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+    const items = Array.isArray(manifest.items) ? manifest.items : [];
+    const matchStats =
+      manifest.matchStats && typeof manifest.matchStats === 'object' ?
+        (manifest.matchStats as Record<string, unknown>)
+      : null;
+    const version = typeof manifest.version === 'number' ? manifest.version : 3;
+    return { itemCount: items.length, matchStats, version };
+  } catch {
+    return null;
+  }
+}
+
 function diagnosticJobsAllowed(job: JobRecord | undefined): job is JobRecord {
   return Boolean(
     job &&
@@ -479,6 +531,7 @@ function diagnosticJobsAllowed(job: JobRecord | undefined): job is JobRecord {
         job.status === 'part_labels_needed' ||
         job.status === 'omr_staff_review_needed' ||
         job.status === 'audiveris_review_needed' ||
+        job.status === 'lyric_manifest_save_needed' ||
         job.status === 'failed'),
   );
 }
@@ -2217,6 +2270,15 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             /* optional metadata */
           }
         }
+
+        console.log(`[job ${jobId}] Pausing for lyric_manifest.json save…`);
+        job.status = 'lyric_manifest_save_needed';
+        await new Promise<void>((resolve, reject) => {
+          job.lyricManifestSaveDeferred = { resolve, reject };
+        });
+        delete job.lyricManifestSaveDeferred;
+        job.status = 'processing';
+        console.log(`[job ${jobId}] lyric_manifest save step completed`);
       } else {
         console.log(`[job ${jobId}] Existing lyric_manifest.json found. Skipping initial auto-merge to preserve previous lyric edits.`);
       }
@@ -3624,6 +3686,52 @@ app.post('/api/clean-score-preview/:jobId/redo-font-strip', express.json(), (req
   job.cleanScorePreviewAction = 'redo_font_strip';
   job.cleanScorePreviewDeferred.resolve();
   delete job.cleanScorePreviewDeferred;
+  res.json({ ok: true });
+});
+
+app.get('/api/lyric-manifest/:jobId', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!lyricManifestSaveJobsAllowed(job) && !lyricManifestDownloadJobsAllowed(job)) {
+    res.status(404).json({ error: 'lyric_manifest.json을 저장할 수 있는 작업이 아니거나 아직 생성되지 않았습니다' });
+    return;
+  }
+  const summary = await readLyricManifestSummary(job.sessionRoot);
+  if (!summary) {
+    res.status(404).json({ error: 'lyric_manifest.json이 없습니다' });
+    return;
+  }
+  res.json({
+    jobId: req.params.jobId,
+    originalName: job.originalName,
+    ...summary,
+  });
+});
+
+app.get('/api/lyric-manifest/:jobId/download', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!lyricManifestDownloadJobsAllowed(job)) {
+    res.status(404).json({ error: 'lyric_manifest.json을 내려받을 수 없습니다' });
+    return;
+  }
+  const manifestPath = sessionLyricManifestPath(job.sessionRoot);
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${lyricManifestDownloadBaseName(job)}"`,
+  );
+  res.sendFile(path.resolve(manifestPath));
+});
+
+app.post('/api/lyric-manifest/:jobId/continue', express.json(), (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'lyric_manifest_save_needed' || !job.lyricManifestSaveDeferred) {
+    res.status(400).json({ error: 'lyric_manifest 저장 대기 상태가 아닙니다' });
+    return;
+  }
+  job.lyricManifestSaveDeferred.resolve();
+  delete job.lyricManifestSaveDeferred;
   res.json({ ok: true });
 });
 

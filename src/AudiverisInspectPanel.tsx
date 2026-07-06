@@ -1655,6 +1655,14 @@ export function AudiverisInspectPanel({ jobId, onClose }: Props) {
               <strong>가사 병합</strong> pdfplumber {String(summary.lyricManifestStats.pdfplumberLines ?? '?')}줄 · PyMuPDF{' '}
               {String(summary.lyricManifestStats.pymupdfItems ?? '?')}항목 · 양쪽 매칭{' '}
               {String(summary.lyricManifestStats.mergedFromBoth ?? '?')}
+              {' · '}
+              <a
+                href={`/api/lyric-manifest/${jobId}/download`}
+                style={{ color: '#8ab4ff', fontWeight: 600 }}
+                download
+              >
+                lyric_manifest.json 다운로드
+              </a>
             </>
           )}
           {!summary.pageCountsMatch && (

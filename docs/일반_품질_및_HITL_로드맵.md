@@ -48,8 +48,9 @@ pm2 logs pdf2mxl --lines 200 --nostream | grep -E "Part labels saved|inject_ocr|
    - **제목·가사**에 해당하는 **큰 pt만** 선택 (예: 20pt대 제목).
    - **음자리표·음표·조표**(보통 ~22.8pt 등)는 **선택하지 않음**.
 2. **clean_score_only.pdf 확인** 모달에서 **원본 vs clean_score** PNG를 나란히 보고, **음표 머리·오선**이 남았는지 확인합니다. **「clean_score PDF 저장」**으로 로컬에 남길 수 있습니다.
-3. 문제가 있으면 **「폰트 범위 다시 선택」** → 범위를 좁힌 뒤 재생성. 확인 후 **「Audiveris로 계속」**.
-4. strip 확정 후 Audiveris가 이 PDF만 사용합니다.
+3. 확인 후 **lyric_manifest.json 저장** 모달이 열립니다(pdfplumber·PyMuPDF 병합 직후). **2단계 이어하기**용으로 JSON을 저장한 뒤 OMR로 진행합니다.
+4. 문제가 있으면 **「폰트 범위 다시 선택」** → 범위를 좁힌 뒤 재생성. 확인 후 **「Audiveris로 계속」**.
+5. strip 확정 후 Audiveris가 이 PDF만 사용합니다.
 
 ### C. 2단계 — OCR·P 유발 (서버 설정)
 

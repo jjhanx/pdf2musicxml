@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FontStripPanel } from './FontStripPanel';
 import { CleanScorePreviewPanel } from './CleanScorePreviewPanel';
+import { LyricManifestSavePanel } from './LyricManifestSavePanel';
 import { AudiverisInspectPanel, InspectPanelErrorBoundary } from './AudiverisInspectPanel';
 import { OmrStaffReviewPanel } from './OmrStaffReviewPanel';
 import { PartLabelsPanel } from './PartLabelsPanel';
@@ -307,6 +308,8 @@ function taskProgressFromJobStatus(status: string): TaskProgress | undefined {
       return { phase: 'separator', current: 0, total: 0, detail: '폰트 크기 선택 대기…' };
     case 'clean_score_preview_needed':
       return { phase: 'separator', current: 0, total: 0, detail: 'clean_score PDF 확인 대기…' };
+    case 'lyric_manifest_save_needed':
+      return { phase: 'separator', current: 0, total: 0, detail: 'lyric_manifest.json 저장 대기…' };
     case 'review_needed':
       return { phase: 'separator', current: 0, total: 0, detail: '가사 검증·편집 대기 (OMR·HITL 후)…' };
     case 'part_labels_needed':
@@ -382,6 +385,7 @@ export default function App() {
   const [resumeOmrWorkFile, setResumeOmrWorkFile] = useState<File | null>(null);
   const [fontStripJobId, setFontStripJobId] = useState<string | null>(null);
   const [cleanScorePreviewJobId, setCleanScorePreviewJobId] = useState<string | null>(null);
+  const [lyricManifestSaveJobId, setLyricManifestSaveJobId] = useState<string | null>(null);
   const [partLabelsJobId, setPartLabelsJobId] = useState<string | null>(null);
   const [partLabelCount, setPartLabelCount] = useState(6);
   const [partLabelsPreset, setPartLabelsPreset] = useState<string[]>(() => defaultPartLabels(6));
@@ -531,6 +535,7 @@ export default function App() {
       onReviewNeeded?: (jobId: string) => void,
       onFontStripNeeded?: (jobId: string) => void,
       onCleanScorePreviewNeeded?: (jobId: string) => void,
+      onLyricManifestSaveNeeded?: (jobId: string) => void,
       onAudiverisReviewNeeded?: (jobId: string) => void,
       onOmrStaffReviewNeeded?: (jobId: string) => void,
       onPartLabelsNeeded?: (jobId: string) => void,
@@ -627,6 +632,10 @@ export default function App() {
 
       if (j.status === 'clean_score_preview_needed') {
         onCleanScorePreviewNeeded?.(jobId);
+      }
+
+      if (j.status === 'lyric_manifest_save_needed') {
+        onLyricManifestSaveNeeded?.(jobId);
       }
 
       if (j.status === 'review_needed' && !reviewTriggered) {
@@ -754,6 +763,7 @@ export default function App() {
       setAudiverisReviewJobId(null);
       setFontStripJobId(null);
       setCleanScorePreviewJobId(null);
+      setLyricManifestSaveJobId(null);
       setReviewingJobId(null);
 
       const runList: Array<File | null> = list.length > 0 ? list : [null];
@@ -802,6 +812,9 @@ export default function App() {
               },
               (jobId) => {
                 setCleanScorePreviewJobId(jobId);
+              },
+              (jobId) => {
+                setLyricManifestSaveJobId(jobId);
               },
               (jobId) => {
                 setAudiverisTranspose(0);
@@ -1325,8 +1338,9 @@ export default function App() {
                 <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
                   <strong>[1단계] 원본 PDF → clean_score → OMR → 가사 검증 → 최종 MXL</strong>
                   <br />
-                  원본 PDF에서 가사를 분리·제거한 뒤 OMR·HITL·가사 검증을 거쳐 완성합니다. 2단계 이후에 쓸{' '}
-                  <code>clean_score_only.pdf</code>와 <code>lyric_manifest.json</code>이 이 단계에서 만들어집니다.
+                  원본 PDF에서 가사를 분리·제거한 뒤 OMR·HITL·가사 검증을 거쳐 완성합니다. 병합 직후{' '}
+                  <code>lyric_manifest.json</code> 저장 모달이 뜨며, 2단계 이후에 쓸{' '}
+                  <code>clean_score_only.pdf</code>도 함께 내려받을 수 있습니다.
                 </p>
                 <div
                   className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
@@ -1842,6 +1856,32 @@ bash scripts/install-font-separator-deps.sh`}
           document.body,
         )}
 
+      {lyricManifestSaveJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9998,
+            }}
+          >
+            <div className="font-strip-modal lyric-manifest-save-modal">
+              <LyricManifestSavePanel
+                jobId={lyricManifestSaveJobId}
+                onContinue={() => setLyricManifestSaveJobId(null)}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
+
       {reviewingJobId &&
         createPortal(
           <div
@@ -1882,6 +1922,15 @@ bash scripts/install-font-separator-deps.sh`}
                   <button onClick={handleDownloadReview} style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }}>
                      백업(.json) 저장
                   </button>
+                  {reviewAfterOmr && reviewingJobId ? (
+                    <a
+                      href={`/api/lyric-manifest/${reviewingJobId}/download`}
+                      style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', textDecoration: 'none', display: 'inline-block' }}
+                      download
+                    >
+                      lyric_manifest.json 저장
+                    </a>
+                  ) : null}
                   <label style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', display: 'inline-block' }}>
                      불러오기
                      <input type="file" ref={uploadReviewRef} accept=".json" style={{ display: 'none' }} onChange={handleUploadReview} />

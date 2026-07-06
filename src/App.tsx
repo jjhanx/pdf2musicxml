@@ -213,7 +213,7 @@ function loadReviewDraftFromLocalStorageJson(rawJson: unknown): {
   return { items: [], manualLyricRects: [] };
 }
 
-/** 추출 JSON은 type이 unknown인 경우가 많아, 검토 창 첫 표시 시 기본은 가사로 둔다. */
+/** OMR 전 문자 검토 — unknown은 가사로 기본 표시 */
 function defaultReviewTypeForInit(t: string | undefined): string {
   if (
     t === 'title' ||
@@ -223,11 +223,28 @@ function defaultReviewTypeForInit(t: string | undefined): string {
     t === 'lyrics' ||
     t === 'tempo' ||
     t === 'measure_number' ||
-    t === 'page_number'
+    t === 'page_number' ||
+    t === 'unknown'
   ) {
     return t;
   }
   return 'lyrics';
+}
+
+const REVIEW_TYPE_OPTIONS = [
+  'unknown',
+  'title',
+  'composer',
+  'lyricist',
+  'copyright',
+  'tempo',
+  'lyrics',
+] as const;
+
+function reviewTypeSelectValue(type: string | undefined, afterOmr: boolean): string {
+  if (type === 'measure_number' || type === 'page_number') return type;
+  if (type && (REVIEW_TYPE_OPTIONS as readonly string[]).includes(type)) return type;
+  return afterOmr ? 'unknown' : 'lyrics';
 }
 
 function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
@@ -247,6 +264,18 @@ function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem
       typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
         ? Math.floor(item.lyricSkipNotes)
         : 0,
+  }));
+}
+
+/** OMR·HITL 후 PDF 초기 추출 — 제목·작곡·가사 텍스트는 두고 역할만 미분류 */
+function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
+  return payloadItems.map((item) => ({
+    ...item,
+    type: reviewTypeSelectValue(item.type, true),
+    lyricPartIndex: 1,
+    lyricVerseIndex: 1,
+    lyricVoice: '1',
+    lyricSkipNotes: 0,
   }));
 }
 
@@ -457,7 +486,9 @@ export default function App() {
         Array.isArray(dataRaw) ? dataRaw : [],
       );
 
-      const initData = normalizeReviewItemsForUi(payloadItems);
+      const initData = afterOmr
+        ? normalizeReviewItemsForBaseline(payloadItems)
+        : normalizeReviewItemsForUi(payloadItems);
 
       let afterOmr = pipelineMode === 'font_separator';
       if (st.ok) {
@@ -969,8 +1000,7 @@ export default function App() {
   const handleResetLyricsToInitial = async () => {
     if (!reviewingJobId || !reviewAfterOmr) return;
     const ok = window.confirm(
-      '원본 PDF에서 다시 뽑은 1차 추출 상태로 되돌립니다.\n' +
-        '(제목·작곡·가사 전체, 성부·절·건너뛰기 등 검토 메타는 기본값)\n' +
+      '원본 PDF 1차 추출(제목·작곡·가사 포함, 역할 미분류)로 되돌립니다.\n' +
         'OMR·HITL(마디·성부) 교정은 그대로 유지됩니다.\n\n' +
         '지금 화면의 편집 중 내용은 「초기화 되돌리기」로 한 번 복구할 수 있습니다.',
     );
@@ -999,7 +1029,7 @@ export default function App() {
       const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
         Array.isArray(dataRaw) ? dataRaw : [],
       );
-      setReviewData(normalizeReviewItemsForUi(payloadItems));
+      setReviewData(normalizeReviewItemsForBaseline(payloadItems));
       setManualLyricRects(fromPayload);
       setFocusedReviewRowIndex(null);
       if (reviewOriginalFileName) {
@@ -2071,7 +2101,7 @@ bash scripts/install-font-separator-deps.sh`}
                         fontWeight: 'bold',
                       }}
                     >
-                      PDF 초기 추출
+                      PDF 초기 추출 (미분류)
                     </button>
                   )}
                   {hasSavedData && (
@@ -2103,8 +2133,9 @@ bash scripts/install-font-separator-deps.sh`}
                 <>
                   {' '}
                   Audiveris OMR과 마디·성부 검토(HITL)가 끝난 뒤, <strong>원본 PDF</strong>에서 추출한
-                  가사·메타 문자를 최종 확인합니다. omr-work.zip을 불러오면 기본은 <strong>PDF 초기 추출</strong>
-                  (제목·작곡·가사 전체)이며, ZIP에 저장해 둔 편집은{' '}
+                  가사·메타 문자를 최종 확인합니다.                   omr-work.zip을 불러오면 기본은 <strong>PDF 초기 추출 (미분류)</strong>
+                  — 원본 PDF에서 뽑은 제목·작곡·가사 줄이 모두 보이고, 역할은 아직 지정하지 않은 상태입니다.
+                  ZIP에 저장해 둔 편집은{' '}
                   <strong>ZIP 저장 가사 불러오기</strong>로 이어갈 수 있습니다. 검토 결과는{' '}
                   <code>lyric_manifest.json</code>에 병합된 후 교정된 MusicXML에 주입됩니다.
                 </>
@@ -2277,15 +2308,13 @@ bash scripts/install-font-separator-deps.sh`}
                       <label className="review-field">
                         <span className="review-field-label">구분</span>
                         <select
-                         value={
-                           item.type === 'measure_number' || item.type === 'page_number'
-                             ? item.type
-                             : item.type || 'lyrics'
-                         }
+                         value={reviewTypeSelectValue(item.type, reviewAfterOmr)}
                          onChange={(e) => handleReviewTypeChange(i, e.target.value)}
                          style={{ padding: '0.45rem', fontSize: '0.95rem', minWidth: '9.5rem' }}
                       >
-                         <option value="unknown">악보 기호 (마스킹 X)</option>
+                         <option value="unknown">
+                           {reviewAfterOmr ? '미분류' : '악보 기호 (마스킹 X)'}
+                         </option>
                          <option value="title">제목</option>
                          <option value="composer">작곡가</option>
                          <option value="lyricist">작사가</option>

@@ -337,6 +337,12 @@ def build_initial_review_items(
         item.pop("lyricVerseIndex", None)
         item.pop("lyricVoice", None)
         item.pop("lyricSkipNotes", None)
+        if is_page_number_item(item):
+            item["type"] = "page_number"
+        elif is_measure_number_item(item):
+            item["type"] = "measure_number"
+        else:
+            item["type"] = "unknown"
         base.append(item)
 
     if not extracted_pages:
@@ -367,7 +373,12 @@ def build_initial_review_items(
         else:
             extra = dict(sep)
             extra["provenance"] = "pdfplumber"
-            extra["type"] = resolve_inject_type(extra)
+            if is_page_number_item(extra):
+                extra["type"] = "page_number"
+            elif is_measure_number_item(extra):
+                extra["type"] = "measure_number"
+            else:
+                extra["type"] = "unknown"
             base.append(extra)
 
     base.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))

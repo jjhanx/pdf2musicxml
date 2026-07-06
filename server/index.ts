@@ -1806,6 +1806,20 @@ function stripLyricReviewMetaList(items: unknown[]): unknown[] {
   return items.map(stripLyricReviewMeta);
 }
 
+/** 검토 UI PDF 초기 추출 — 역할 미분류(unknown), 마디·페이지 번호만 유지 */
+function applyBaselineReviewShape(items: unknown[]): unknown[] {
+  return items.map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const o = stripLyricReviewMeta(item) as Record<string, unknown>;
+    const t = o.type;
+    if (t === 'measure_number' || t === 'page_number') {
+      return o;
+    }
+    o.type = 'unknown';
+    return o;
+  });
+}
+
 /** 원본 PDF 1차 추출 — PyMuPDF 전체 + pdfplumber 가사 보강 */
 async function buildInitialLyricReviewItems(opts: {
   sessionRoot: string;
@@ -1845,7 +1859,7 @@ async function buildInitialLyricReviewItems(opts: {
     await fs.unlink(tempPymupdf).catch(() => {});
     await fs.unlink(tempManifest).catch(() => {});
     await fs.unlink(tempInitial).catch(() => {});
-    return stripLyricReviewMetaList(initial);
+    return applyBaselineReviewShape(stripLyricReviewMetaList(initial));
   }
 
   const raw = JSON.parse(await fs.readFile(tempPymupdf, 'utf8')) as unknown;
@@ -1853,7 +1867,7 @@ async function buildInitialLyricReviewItems(opts: {
   if (!Array.isArray(raw)) {
     throw new Error('extract_text.py 출력이 배열이 아닙니다');
   }
-  return stripLyricReviewMetaList(raw);
+  return applyBaselineReviewShape(stripLyricReviewMetaList(raw));
 }
 
 async function persistLyricReviewBaseline(
@@ -1885,7 +1899,8 @@ async function ensureLyricReviewBaseline(opts: {
 }): Promise<unknown[]> {
   const baselinePath = sessionOcrPymupdfBaselinePath(opts.sessionRoot);
   if (!opts.forceRebuild && fsSync.existsSync(baselinePath)) {
-    return JSON.parse(await fs.readFile(baselinePath, 'utf8')) as unknown[];
+    const cached = JSON.parse(await fs.readFile(baselinePath, 'utf8')) as unknown[];
+    return applyBaselineReviewShape(cached);
   }
   const items = await buildInitialLyricReviewItems(opts);
   await persistLyricReviewBaseline(opts.sessionRoot, items);
@@ -1909,6 +1924,7 @@ async function bootstrapLyricReviewAfterOmrZipImport(
     pythonBin,
     scriptExtract,
     scriptMergeLyrics,
+    forceRebuild: true,
   });
   await activateLyricReviewItems(job.sessionRoot, items);
 }

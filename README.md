@@ -225,7 +225,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/review/:jobId/pdf-dimensions` | `review_needed` 단계만. 업로드 PDF 페이지 크기(pt) JSON(`pdf_diagnostic.py pagesizes`) — 수동 가사 마스킹 좌표 변환 |
 | `GET /api/review/:jobId/pdf-page-png/:pageNum` | `review_needed` 단계만. 한 페이지 미리보기 PNG(쿼리 `dpi` 기본 **118**) |
 | `POST /api/review/:jobId` | 본문은 **항목 배열**이거나 `{ "items": [...], "transposeSemitones"?: number }` — 마스킹·가사 분류 제출 후 Audiveris 단계 재개. 수동 마스킹은 항목 `type`: `_manual_lyric_mask`, `manualRects`: `[{ "page": 1, "bbox": [x0,y0,x1,y1] }, …]`(PDF pt·PyMuPDF 좌표)로 포함됩니다. `transposeSemitones`는 API·고급용(가사 검토 웹 UI에서는 생략, 0과 동일); 음높이 조정 안내는 「Audiveris 직후 수동 보정」 참고 |
-| `POST /api/review/:jobId/reset-lyrics-initial` | OMR·HITL **이후** `review_needed` 단계만. 원본 PDF **1차 추출**(PyMuPDF 전체 + pdfplumber 가사 보강)로 되돌림. 응답은 갱신된 검토 항목 배열 |
+| `POST /api/review/:jobId/reset-lyrics-initial` | OMR·HITL **이후** `review_needed` 단계만. 원본 PDF **1차 추출**(전체 텍스트·역할 `unknown` 미분류)로 되돌림 |
 | `POST /api/review/:jobId/load-saved-lyrics` | OMR·HITL **이후** `review_needed` 단계만. omr-work.zip의 `ocr_data_pymupdf.json` 저장본(세션의 `ocr_data_pymupdf_saved.json`)을 불러옴 |
 | `GET /api/review/:jobId/lyric-source-info` | `{ hasSavedLyricReview, hasBaseline }` — ZIP 저장 가사 이어하기 가능 여부 |
 | `GET /api/raw-mxl/:jobId` | `omr_staff_review_needed` 또는 `audiveris_review_needed` 일 때 Audiveris가 만든 **주입 전** MXL 다운로드 |

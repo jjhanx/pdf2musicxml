@@ -1774,6 +1774,15 @@ function resolveAudiverisInputPdfPath(job: JobRecord): {
   return { path: orig, kind: 'original' };
 }
 
+function setAttachmentFilenameHeader(res: express.Response, filename: string): void {
+  const ascii = filename.replace(/[^\x20-\x7E]/g, '_');
+  const encoded = encodeURIComponent(filename);
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
+  );
+}
+
 function sendDiagnosticSessionPdf(
   res: express.Response,
   absPath: string,
@@ -3716,10 +3725,7 @@ app.get('/api/lyric-manifest/:jobId/download', (req, res) => {
   }
   const manifestPath = sessionLyricManifestPath(job.sessionRoot);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="${lyricManifestDownloadBaseName(job)}"`,
-  );
+  setAttachmentFilenameHeader(res, lyricManifestDownloadBaseName(job));
   res.sendFile(path.resolve(manifestPath));
 });
 
@@ -4288,9 +4294,8 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
     return;
   }
   const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
-  const asciiName = `${base}-omr-work.zip`.replace(/[^\x20-\x7E]/g, '_');
   res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"`);
+  setAttachmentFilenameHeader(res, `${base}-omr-work.zip`);
   const archive = archiver('zip', { zlib: { level: 9 } });
   archive.on('error', (err) => {
     if (!res.headersSent) res.status(500).json({ error: String(err) });

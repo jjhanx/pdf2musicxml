@@ -11,6 +11,7 @@
 | 3 | **MXL lint**: 악보 무관 휴리스틱 (P direction, 마디 끝 쉼표, 마디 경계 순서) | `scripts/mxl_quality_lint.py`, `GET …/mxl-lint` |
 | 4a | **성부 라벨 지정**: Audiveris MXL part-list → S/A/T/B/PR/PL 등 (PDF **p.** 와 구분) | `part_labels_needed`, `part_labels.json` |
 | 4b | **페이지×staff HITL**: lint → **앱 내 MXL 보정** → 이어하기 | `omr_staff_review_needed`, `omr_hitl_fixes.json`, `apply_omr_hitl_fixes.py` |
+| 4c | **(폰트 분리) PyMuPDF 가사 검증·편집** — OMR·HITL **이후**, 원본 PDF 미리보기 | `review_needed`, `reviewAfterOmr`, `ocr_data_pymupdf.json` |
 | 5 | (선택) Audiveris 보정·마스킹 점검 | `audiveris_review_needed`, `AudiverisInspectPanel` |
 | 6 | (장기) SYMBOLS/BEAMS 단계별 HITL | Audiveris GUI·패치·별도 도구 |
 
@@ -68,7 +69,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 
 ### E. 4단계 — 성부 라벨 + OMR HITL (웹 UI)
 
-1. (선택) **문자 검토** 화면 상단에서 성부 라벨(S A T B PR PL)을 미리 적어 두면 Audiveris 이후에 초안으로 쓰입니다.
+1. (선택) **문자 검토** 화면 상단에서 성부 라벨(S A T B PR PL)을 미리 적어 두면 Audiveris 이후에 초안으로 쓰입니다. **폰트 분리 모드**에서는 가사 역할·텍스트 **최종 검증 UI가 OMR·HITL 이후**에 열립니다(「OMR·HITL 후 PyMuPDF 가사 검증·편집」체크, 기본 켜짐). 미리보기는 **원본 PDF**(`input.pdf`)입니다.
 2. Audiveris 종료 후 **성부 라벨 지정** 모달(OMR HITL 켜짐 시, 매 변환마다) — 확정 시 `part_labels.json`. 문자 검토만 끝낸 경우 `part_labels_preset.json`만 있어도 MXL·lint에 초안이 쓰이며, 완료 직전 서버가 `part_labels.json`으로 복사할 수 있습니다. 확정·초안 라벨은 **최종 MXL/MusicXML**의 `<part-name>`(내부 `<display-text>` 포함)·`instrument-name`·`midi-name` 등에 쓰입니다. Audiveris 기본 **Voice**는 `scripts/apply_part_labels.py`와 `inject_ocr.py` 마지막 단계에서 덮어씁니다. `PR`·`PL` → **Piano**(`Pno.`).
 3. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
 4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
@@ -80,19 +81,25 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
    - **「OMR 자동 정리 (전체 성부)」** — 쉼표·피아노 m6 이음줄·세잇단 `show-number="both"`·가짜 staccato·P direction 일괄 정리.
    - **작업 저장(ZIP) / 작업 불러오기** — 검토 중단·재개용(`review.mxl`, `audiveris_raw.mxl`, `omr_hitl_fixes.json`, **`clean_score_only.pdf`·`input.pdf`** 등). **같은 job** 안에서는 「작업 불러오기」. **새 변환**에서는 **「omr-work.zip 이어하기」** + (예전 ZIP이면) **비교용 PDF** 선택 업로드.
    - **시작 단계 (같은 PDF 반복)** — ① **clean_score_only.pdf → OMR만**(가사 검증 생략), ② **clean_score + 가사 검증**, ③ **omr-work.zip 이어하기**(Audiveris 생략). 작업 표에 **OMR·HITL 대기** 진행 문구가 표시됩니다.
-   - **이어하기** — 대기 보정을 MXL에 적용한 뒤 `inject_ocr`·최종 MXL로 진행.
+   - **이어하기** — 대기 보정을 MXL에 적용한 뒤, (가사 검증 켜짐 시) **`review_needed` 가사 검증·편집** → `merge_lyric_sources.py` → `inject_ocr`·최종 MXL로 진행.
    - 예전 **mxl-lint 자동 힌트 UI**는 제거됨. PDF·MXL 직접 대조와 마디 편집이 기준.
 6. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요. OMR 검토 중 **`pm2 restart` 전에는 「작업 저장(ZIP)」** 으로 진행을 백업하세요.
-7. OMR HITL을 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드.
+7. OMR HITL을 끄려면 체크 해제 또는 `enableOmrStaffReview=false` multipart 필드. **가사 검증 UI**를 끄려면 「OMR·HITL 후 PyMuPDF 가사 검증·편집」체크 해제 또는 `enablePymupdfReview=false`.
 
-### F. 5단계 — Audiveris 보정 (선택)
+### F. 4c단계 — PyMuPDF 가사 검증 (폰트 분리, OMR·HITL 후)
+
+1. OMR HITL **「이어하기」** 직후(또는 Audiveris 보정 모달을 거친 뒤) **「가사 검증·편집 (OMR·HITL 완료 후)」** 모달이 열립니다. 작업 표에 `가사 검증·편집 대기 (OMR·HITL 후)…`가 보이면 서버가 이 단계에서 멈춘 상태입니다.
+2. **원본 PDF** PNG 미리보기에서 가사·제목·템포 등 역할을 확인·수정합니다. `lyric_manifest.json`만 업로드해 2단계부터 시작한 경우에도 manifest·원본 PDF에서 검토 데이터를 자동 준비합니다.
+3. **「검증 완료 · 가사 주입 계속」** — `ocr_data_pymupdf.json` 저장 → `merge_lyric_sources.py` 재실행 → 교정된 MXL에 `inject_ocr.py`.
+
+### G. 5단계 — Audiveris 보정 (선택)
 
 1. 「Audiveris 직후 멈춤」체크 시 **Audiveris 결과 보정** 모달:
    - 원본 MXL 다운로드 → MuseScore 등에서 수정 → 교체 업로드 또는 조옮김(곡 전체에만).
    - **마스킹·인식 점검** 탭으로 `clean_score` vs 원본 PNG 비교.
 2. MXL의 direction `P` 등 일부는 `scripts/fix_audiveris_mxl.py`로 후처리 가능 — **SYMBOLS UI는 그대로**일 수 있음.
 
-### G. SYMBOLS·엔진 한계 (사람이 할 일)
+### H. SYMBOLS·엔진 한계 (사람이 할 일)
 
 | 현상 | 웹/스크립트로 | 사용자 |
 |------|----------------|--------|

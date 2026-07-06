@@ -402,6 +402,8 @@ type JobRecord = {
   pdfPageCount?: number;
   reviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   reviewData?: any;
+  /** font_separator: OMR·HITL 이후 가사 검증 UI (원본 PDF 미리보기) */
+  reviewAfterOmr?: boolean;
   /** Audiveris 직후 보정 단계용 */
   pauseAfterAudiveris?: boolean;
   preInjectMxlPaths?: string[];
@@ -1642,6 +1644,63 @@ async function runFontSeparatorResumePhase(opts: {
   return true;
 }
 
+/** 가사 검증 UI 미리보기 — 원본(가사 포함) PDF 우선 */
+function resolveLyricReviewPdfPath(job: JobRecord): string | null {
+  const sessionInput = path.join(job.sessionRoot, 'input.pdf');
+  if (fsSync.existsSync(sessionInput)) return sessionInput;
+  const p = job.inputPdfPath;
+  return p && fsSync.existsSync(p) ? p : null;
+}
+
+/** OMR·HITL 후 가사 검증용 ocr_data_pymupdf.json — 없으면 manifest·원본 PDF에서 준비 */
+async function ensurePymupdfReviewPayload(opts: {
+  pymupdfReviewPath: string;
+  lyricManifestPath: string;
+  inputPdfPath: string | undefined;
+  sessionRoot: string;
+  pythonBin: string;
+  scriptExtract: string;
+}): Promise<boolean> {
+  const { pymupdfReviewPath, lyricManifestPath, inputPdfPath, sessionRoot, pythonBin, scriptExtract } =
+    opts;
+  if (fsSync.existsSync(pymupdfReviewPath)) return true;
+
+  if (fsSync.existsSync(lyricManifestPath)) {
+    try {
+      const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as {
+        items?: unknown[];
+      };
+      const items = Array.isArray(manifest.items)
+        ? manifest.items
+        : Array.isArray(manifest)
+          ? (manifest as unknown[])
+          : null;
+      if (items && items.length > 0) {
+        await fs.writeFile(pymupdfReviewPath, JSON.stringify(items, null, 2), 'utf8');
+        return true;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const sessionInput = path.join(sessionRoot, 'input.pdf');
+  const pdfForExtract =
+    fsSync.existsSync(sessionInput)
+      ? sessionInput
+      : inputPdfPath && fsSync.existsSync(inputPdfPath)
+        ? inputPdfPath
+        : null;
+  if (!pdfForExtract) return false;
+
+  try {
+    await exec(`"${pythonBin}" "${scriptExtract}" "${pdfForExtract}" "${pymupdfReviewPath}"`);
+  } catch (err) {
+    console.warn('[job] ensurePymupdfReviewPayload extract_text failed:', err);
+  }
+  return fsSync.existsSync(pymupdfReviewPath);
+}
+
 /** Audiveris·점검 UI에 넘길 PDF — clean_score > masked > 원본 순 */
 function resolveAudiverisInputPdfPath(job: JobRecord): {
   path: string;
@@ -2349,10 +2408,19 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     // Pause for PyMuPDF lyric review AFTER OMR HITL edits are finished
     if (enablePymupdfReview && (pipelineMode === 'font_separator' || startStage === 'lyric_review_only')) {
-      if (fsSync.existsSync(pymupdfReviewPath)) {
+      const reviewReady = await ensurePymupdfReviewPayload({
+        pymupdfReviewPath,
+        lyricManifestPath,
+        inputPdfPath,
+        sessionRoot,
+        pythonBin,
+        scriptExtract,
+      });
+      if (reviewReady) {
         const ocrData = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8'));
         console.log(`[job ${jobId}] Pausing for PyMuPDF lyric review (font_separator) AFTER OMR HITL…`);
         job.status = 'review_needed';
+        job.reviewAfterOmr = true;
         job.reviewData = ocrData;
         await new Promise<void>((resolve, reject) => {
           job.reviewDeferred = { resolve, reject };
@@ -2403,6 +2471,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             }
           }
         }
+      } else {
+        console.warn(
+          `[job ${jobId}] PyMuPDF lyric review skipped: no review payload (upload lyric_manifest.json or enable extraction from original PDF).`,
+        );
       }
     }
 
@@ -2837,7 +2909,12 @@ app.get('/api/status/:jobId', (req, res) => {
     return;
   }
 
-  const payload: { status: JobStatus; progress?: JobProgress } = { status: job.status };
+  const payload: { status: JobStatus; progress?: JobProgress; reviewAfterOmr?: boolean } = {
+    status: job.status,
+  };
+  if (job.status === 'review_needed' && job.reviewAfterOmr) {
+    payload.reviewAfterOmr = true;
+  }
   if (job.progress && JOB_STATUSES_WITH_PROGRESS.has(job.status)) {
     payload.progress = job.progress;
   }
@@ -3582,8 +3659,8 @@ app.get('/api/review/:jobId/pdf-dimensions', async (req, res) => {
     res.status(404).json({ error: '리뷰 준비 전이거나 작업을 찾을 수 없습니다' });
     return;
   }
-  const inputPdfPath = job.inputPdfPath;
-  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
+  const inputPdfPath = resolveLyricReviewPdfPath(job);
+  if (!inputPdfPath) {
     res.status(404).json({ error: '업로드 PDF가 세션에 없습니다' });
     return;
   }
@@ -3610,8 +3687,8 @@ app.get('/api/review/:jobId/pdf-page-png/:pageNum', async (req, res) => {
     res.status(404).json({ error: '리뷰 준비 전이거나 작업을 찾을 수 없습니다' });
     return;
   }
-  const inputPdfPath = job.inputPdfPath;
-  if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
+  const inputPdfPath = resolveLyricReviewPdfPath(job);
+  if (!inputPdfPath) {
     res.status(404).json({ error: '업로드 PDF가 세션에 없습니다' });
     return;
   }

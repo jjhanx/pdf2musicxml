@@ -306,7 +306,7 @@ function taskProgressFromJobStatus(status: string): TaskProgress | undefined {
     case 'clean_score_preview_needed':
       return { phase: 'separator', current: 0, total: 0, detail: 'clean_score PDF 확인 대기…' };
     case 'review_needed':
-      return { phase: 'separator', current: 0, total: 0, detail: '가사 검증·편집 대기…' };
+      return { phase: 'separator', current: 0, total: 0, detail: '가사 검증·편집 대기 (OMR·HITL 후)…' };
     case 'part_labels_needed':
       return { phase: 'hitl', current: 0, total: 0, detail: '성부 라벨(S/A/T/B) 확인 대기…' };
     case 'omr_staff_review_needed':
@@ -347,6 +347,12 @@ export default function App() {
   const [autoSave, setAutoSave] = useState(false);
   
   const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
+  const [pendingLyricReview, setPendingLyricReview] = useState<{
+    jobId: string;
+    fileName: string;
+  } | null>(null);
+  /** font_separator: OMR·HITL 이후 가사 검증(원본 PDF 미리보기) */
+  const [reviewAfterOmr, setReviewAfterOmr] = useState(false);
   const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
   const [manualLyricRects, setManualLyricRects] = useState<ManualLyricBBox[]>([]);
   /** 미리보기와 연동되는 검토 줄 인덱스 */
@@ -401,6 +407,73 @@ export default function App() {
   useEffect(() => {
     if (audiverisReviewJobId) setAudiverisModalTab('adjust');
   }, [audiverisReviewJobId]);
+
+  const loadLyricReviewJob = useCallback(async (jobId: string, fileName: string) => {
+    try {
+      const [r, st] = await Promise.all([
+        fetch(`/api/review/${jobId}`),
+        fetch(`/api/status/${jobId}`, { cache: 'no-store' }),
+      ]);
+      if (!r.ok) {
+        console.error('Failed to fetch review data', await r.text());
+        return;
+      }
+      const dataRaw = (await r.json()) as unknown[];
+      const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
+        Array.isArray(dataRaw) ? dataRaw : [],
+      );
+
+      const initData = payloadItems.map((item) => ({
+        ...item,
+        type: defaultReviewTypeForInit(item.type),
+        lyricPartIndex:
+          typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
+            ? Math.floor(item.lyricPartIndex)
+            : 1,
+        lyricVerseIndex:
+          typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
+            ? Math.floor(item.lyricVerseIndex)
+            : 1,
+        lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
+        lyricSkipNotes:
+          typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
+            ? Math.floor(item.lyricSkipNotes)
+            : 0,
+      }));
+
+      let afterOmr = pipelineMode === 'font_separator';
+      if (st.ok) {
+        const sj = (await st.json()) as { reviewAfterOmr?: boolean };
+        if (sj.reviewAfterOmr) afterOmr = true;
+      }
+
+      setReviewAfterOmr(afterOmr);
+      setManualLyricRects(fromPayload);
+      setFocusedReviewRowIndex(null);
+      setReviewData(initData);
+      setReviewingJobId(jobId);
+      setReviewOriginalFileName(fileName);
+
+      const saved = localStorage.getItem('pdf2mxl_review_' + fileName);
+      setHasSavedData(!!saved);
+    } catch (e) {
+      console.error('Failed to fetch review data', e);
+    }
+  }, [pipelineMode]);
+
+  useEffect(() => {
+    if (!pendingLyricReview) return;
+    if (omrStaffReviewJobId || partLabelsJobId || audiverisReviewJobId) return;
+    const { jobId, fileName } = pendingLyricReview;
+    setPendingLyricReview(null);
+    void loadLyricReviewJob(jobId, fileName);
+  }, [
+    pendingLyricReview,
+    omrStaffReviewJobId,
+    partLabelsJobId,
+    audiverisReviewJobId,
+    loadLyricReviewJob,
+  ]);
 
   const refreshHealth = useCallback(() => {
     return fetch('/api/health', { cache: 'no-store' })
@@ -711,44 +784,13 @@ export default function App() {
                   prev.map((t) => (t.id === taskId ? { ...t, progress: p } : t)),
                 );
               },
-              async (jobId) => {
-                try {
-                  const r = await fetch(`/api/review/${jobId}`);
-                  if (r.ok) {
-                    const dataRaw = (await r.json()) as unknown[];
-                    const { items: payloadItems, manualLyricRects: fromPayload } =
-                      partitionReviewPayload(Array.isArray(dataRaw) ? dataRaw : []);
-
-                    const initData = payloadItems.map((item) => ({
-                      ...item,
-                      type: defaultReviewTypeForInit(item.type),
-                      lyricPartIndex:
-                        typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
-                          ? Math.floor(item.lyricPartIndex)
-                          : 1,
-                      lyricVerseIndex:
-                        typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
-                          ? Math.floor(item.lyricVerseIndex)
-                          : 1,
-                      lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
-                      lyricSkipNotes:
-                        typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
-                          ? Math.floor(item.lyricSkipNotes)
-                          : 0,
-                    }));
-
-                    setManualLyricRects(fromPayload);
-                    setFocusedReviewRowIndex(null);
-                    setReviewData(initData);
-                    setReviewingJobId(jobId);
-                    setReviewOriginalFileName(file ? file.name : (resumeCorrectedMxlFile?.name ?? 'corrected.mxl'));
-
-                    const saved = localStorage.getItem('pdf2mxl_review_' + (file ? file.name : 'corrected.mxl'));
-                    setHasSavedData(!!saved);
-                  }
-                } catch (e) {
-                  console.error('Failed to fetch review data', e);
-                }
+              (jobId) => {
+                setPendingLyricReview({
+                  jobId,
+                  fileName: file
+                    ? file.name
+                    : resumeCorrectedMxlFile?.name ?? resumeCleanScoreFile?.name ?? 'corrected.mxl',
+                });
               },
               (jobId) => {
                 setFontStripJobId(jobId);
@@ -989,6 +1031,7 @@ export default function App() {
          localStorage.removeItem('pdf2mxl_review_' + reviewOriginalFileName);
       }
       setReviewingJobId(null);
+      setReviewAfterOmr(false);
       setReviewData([]);
       setManualLyricRects([]);
       setFocusedReviewRowIndex(null);
@@ -1249,7 +1292,8 @@ export default function App() {
                 <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
                   <strong>[1단계] 원본 PDF에서 clean_score_only.pdf 추출 및 전체 변환</strong>
                   <br />
-                  원본 PDF에서 가사를 완전히 제거한 깨끗한 악보 PDF를 만들고, OMR 변환을 거쳐 가사를 점검하고 최종 병합하는 순차적 전체 흐름을 시작합니다.
+                  원본 PDF에서 가사를 완전히 제거한 깨끗한 악보 PDF를 만들고, OMR·마디 검토(HITL)를 거친 뒤
+                  <strong> 가사 검증(PyMuPDF)</strong>을 하고 최종 병합하는 순차적 전체 흐름을 시작합니다.
                 </p>
                 <div
                   className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
@@ -1489,6 +1533,17 @@ export default function App() {
             />
             OMR 직후 품질 검토 (페이지×성부 lint, 기본 켜짐)
           </label>
+          {pipelineMode === 'font_separator' && startStage !== 'omr' && (
+            <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-color, inherit)' }}>
+              <input
+                type="checkbox"
+                checked={enablePymupdfReview}
+                onChange={(e) => setEnablePymupdfReview(e.target.checked)}
+                disabled={busy}
+              />
+              OMR·HITL 후 PyMuPDF 가사 검증·편집 (기본 켜짐)
+            </label>
+          )}
         </div>
 
         {files.length > 0 && (
@@ -1789,12 +1844,19 @@ bash scripts/install-font-separator-deps.sh`}
           document.body,
         )}
 
-      {reviewingJobId && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
-        }}>
+      {reviewingJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100010,
+            }}
+          >
           <div
             className="modal-light"
             style={{
@@ -1808,7 +1870,11 @@ bash scripts/install-font-separator-deps.sh`}
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 0 }}>
-               <h2 style={{ margin: 0 }}>문자 검토 및 매핑 (OMR 실행 전)</h2>
+               <h2 style={{ margin: 0 }}>
+                 {reviewAfterOmr
+                   ? '가사 검증·편집 (OMR·HITL 완료 후)'
+                   : '문자 검토 및 매핑 (OMR 실행 전)'}
+               </h2>
                <div style={{ display: 'flex', gap: '0.5rem' }}>
                   {hasSavedData && (
                      <button onClick={handleLoadPrevious} style={{ padding: '0.5rem 1rem', background: '#f57c00', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
@@ -1826,7 +1892,14 @@ bash scripts/install-font-separator-deps.sh`}
             </div>
             <p style={{ marginTop: '0.5rem', color: '#333' }}>
               인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요.
-              {pipelineMode === 'font_separator' ? (
+              {reviewAfterOmr ? (
+                <>
+                  {' '}
+                  Audiveris OMR과 마디·성부 검토(HITL)가 끝난 뒤, <strong>원본 PDF</strong>에서 추출한
+                  가사·메타 문자를 최종 확인합니다. 검토 결과는 <code>lyric_manifest.json</code>에 병합된 후
+                  교정된 MusicXML에 주입됩니다.
+                </>
+              ) : pipelineMode === 'font_separator' ? (
                 <>
                   {' '}
                   (앞 단계에서 선택한 폰트 크기로 <code>clean_score_only.pdf</code>가 만들어지고
@@ -2138,12 +2211,17 @@ bash scripts/install-font-separator-deps.sh`}
 
             <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={submitReview} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', background: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                {pipelineMode === 'font_separator' ? '병합 후 OMR 실행' : 'OMR 실행 (악보 인식 시작)'}
+                {reviewAfterOmr
+                  ? '검증 완료 · 가사 주입 계속'
+                  : pipelineMode === 'font_separator'
+                    ? '병합 후 OMR 실행'
+                    : 'OMR 실행 (악보 인식 시작)'}
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
 
       {partLabelsJobId &&
         createPortal(

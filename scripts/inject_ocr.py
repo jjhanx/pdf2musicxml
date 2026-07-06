@@ -168,7 +168,7 @@ def _lyric_number_matches(el, target: int) -> bool:
     return raw == str(target)
 
 
-def add_lyric_to_note(note, ns, text_char, lyric_number=1):
+def add_lyric_to_note(note, ns, text_char, lyric_number=1, syllabic="single"):
     """같은 음표에 1절·2절 등 여러 가사 줄을 둘 때 `lyric_number`로 `<lyric number>` 를 구분한다."""
     lyric_tag = qname(ns, "lyric")
     for old in list(note.findall(lyric_tag)):
@@ -178,9 +178,69 @@ def add_lyric_to_note(note, ns, text_char, lyric_number=1):
     if lyric_number != 1:
         lyric_el.set("number", str(lyric_number))
     syllabic_el = ET.SubElement(lyric_el, qname(ns, "syllabic"))
-    syllabic_el.text = "single"
+    syl = syllabic if syllabic in ("begin", "middle", "end", "single") else "single"
+    syllabic_el.text = syl
     text_el = ET.SubElement(lyric_el, qname(ns, "text"))
-    text_el.text = text_char
+    display = text_char or ""
+    if syl in ("begin", "middle") and display and not display.endswith("-"):
+        display = display + "-"
+    text_el.text = display
+
+
+def _uses_token_lyric_grammar(text: str) -> bool:
+    """공백·하이픈(음절/빈 칸) 토큰 규칙 — 없으면 예전 글자 단위 매핑."""
+    if not text:
+        return False
+    if re.search(r"\s", text):
+        return True
+    return "-" in text
+
+
+def _legacy_char_lyric_events(text: str, voice: str) -> list:
+    events = []
+    for char in text.replace(" ", ""):
+        if not char:
+            continue
+        if char == "-":
+            events.append({"op": "empty_note", "voice": voice})
+        else:
+            events.append({"op": "syllable", "text": char, "syllabic": "single", "voice": voice})
+    return events
+
+
+def _token_lyric_events(text: str, voice: str) -> list:
+    """공백=다음 음표, 토큰 내 하이픈=음절 이음, 공백으로 감싼 단독 `-`=빈 음표."""
+    events = []
+    tokens = [t for t in re.split(r"\s+", text.strip()) if t]
+    for token in tokens:
+        if token == "-":
+            events.append({"op": "empty_note", "voice": voice})
+            continue
+        if "-" not in token:
+            events.append({"op": "syllable", "text": token, "syllabic": "single", "voice": voice})
+            continue
+        parts = [p for p in token.split("-") if p]
+        if not parts:
+            events.append({"op": "empty_note", "voice": voice})
+            continue
+        n = len(parts)
+        for i, part in enumerate(parts):
+            if n == 1:
+                syl = "single"
+            elif i == 0:
+                syl = "begin"
+            elif i == n - 1:
+                syl = "end"
+            else:
+                syl = "middle"
+            events.append({"op": "syllable", "text": part, "syllabic": syl, "voice": voice})
+    return events
+
+
+def parse_lyric_text_events(text: str, voice: str) -> list:
+    if _uses_token_lyric_grammar(text):
+        return _token_lyric_events(text, voice)
+    return _legacy_char_lyric_events(text, voice)
 
 
 def fix_key_signatures_part(part_el, ns):
@@ -268,8 +328,7 @@ def build_events_for_items(items_sorted, part_el=None, ns=None, melody_voice_ove
         if skip > 0:
             events.append({"op": "skip_notes", "count": skip, "voice": voice})
         text = it.get("text", "") or ""
-        for char in text.replace(" ", ""):
-            events.append({"op": "syllable", "char": char, "voice": voice})
+        events.extend(parse_lyric_text_events(text, voice))
     return events
 
 
@@ -288,30 +347,44 @@ def apply_lyric_events(part_el, ns, events, lyric_number=1):
                     if voices_match(notes[idx][2], v_target):
                         skipped += 1
                     idx += 1
+        elif ev["op"] == "empty_note":
+            v_target = ev["voice"]
+            note = _advance_to_note(notes, idx, v_target)
+            if note is None:
+                break
+            idx = note[0] + 1
+            add_lyric_to_note(note[1], ns, "-", lyric_number, "single")
         elif ev["op"] == "syllable":
             v_target = ev["voice"]
-            char = ev["char"]
-            if v_target == "*":
-                if idx >= len(notes):
-                    print(
-                        "inject_ocr: 경고: 가사 syllable에 대응할 음표가 더 이상 없습니다.",
-                        file=sys.stderr,
-                    )
-                    break
-                _m, note, _v = notes[idx]
-                idx += 1
-            else:
-                while idx < len(notes) and not voices_match(notes[idx][2], v_target):
-                    idx += 1
-                if idx >= len(notes):
-                    print(
-                        "inject_ocr: 경고: 가사 syllable에 대응할 같은 성부의 음표가 더 이상 없습니다.",
-                        file=sys.stderr,
-                    )
-                    break
-                _m, note, _v = notes[idx]
-                idx += 1
-            add_lyric_to_note(note, ns, char, lyric_number)
+            text = ev.get("text") or ev.get("char") or ""
+            syllabic = ev.get("syllabic", "single")
+            note = _advance_to_note(notes, idx, v_target)
+            if note is None:
+                break
+            idx = note[0] + 1
+            add_lyric_to_note(note[1], ns, text, lyric_number, syllabic)
+    return
+
+
+def _advance_to_note(notes, idx: int, v_target: str):
+    """다음 가사 대상 음표 (index, note, voice) 또는 None."""
+    if v_target == "*":
+        if idx >= len(notes):
+            print(
+                "inject_ocr: 경고: 가사 syllable에 대응할 음표가 더 이상 없습니다.",
+                file=sys.stderr,
+            )
+            return None
+        return (idx, notes[idx][1], notes[idx][2])
+    while idx < len(notes) and not voices_match(notes[idx][2], v_target):
+        idx += 1
+    if idx >= len(notes):
+        print(
+            "inject_ocr: 경고: 가사 syllable에 대응할 같은 성부의 음표가 더 이상 없습니다.",
+            file=sys.stderr,
+        )
+        return None
+    return (idx, notes[idx][1], notes[idx][2])
 
 
 def is_tag(el, ns, local):

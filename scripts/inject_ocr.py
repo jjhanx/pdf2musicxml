@@ -376,8 +376,27 @@ def _advance_to_note(notes, idx: int, v_target: str):
             )
             return None
         return (idx, notes[idx][1], notes[idx][2])
-    while idx < len(notes) and not voices_match(notes[idx][2], v_target):
+    while idx < len(notes):
+        measure, note_el, v = notes[idx]
+        if voices_match(v, v_target):
+            break
+            
+        # OMR Error Recovery: Check if v_target exists anywhere in the SAME measure.
+        has_target_in_measure = False
+        for j in range(idx, len(notes)):
+            m_j, _, v_j = notes[j]
+            if m_j != measure:
+                break
+            if voices_match(v_j, v_target):
+                has_target_in_measure = True
+                break
+                
+        if not has_target_in_measure:
+            # If target voice is completely missing from this measure, accept this note!
+            break
+            
         idx += 1
+        
     if idx >= len(notes):
         print(
             "inject_ocr: 경고: 가사 syllable에 대응할 같은 성부의 음표가 더 이상 없습니다.",

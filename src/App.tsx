@@ -103,23 +103,23 @@ function isHangulSyllableChar(ch: string): boolean {
 function autoTokenizeLyricsText(raw: string): string {
   const s = (raw ?? '').trim();
   if (!s) return '';
-  // 이미 토큰 문법(공백/하이픈)으로 편집한 것으로 보이면 그대로 둔다.
-  if (/\s/.test(s) || / - /.test(s)) return s;
-  // 한글: 음절 간 공백
+
+  // 한글이 충분히 많을 때만 "음절 사이 공백" 토큰화를 적용한다.
   const hangulCount = Array.from(s).filter(isHangulSyllableChar).length;
-  if (hangulCount >= Math.max(3, Math.floor(s.length * 0.5))) {
-    const chars = Array.from(s);
-    const out: string[] = [];
-    for (let i = 0; i < chars.length; i++) {
-      const ch = chars[i];
-      out.push(ch);
-      const next = chars[i + 1];
-      if (isHangulSyllableChar(ch) && isHangulSyllableChar(next)) out.push(' ');
-    }
-    return out.join('').replace(/\s+/g, ' ').trim();
+  const treatAsKorean = hangulCount >= Math.max(3, Math.floor(s.length * 0.4));
+  if (!treatAsKorean) return s;
+
+  // 기존 공백/하이픈/기호는 최대한 유지하면서,
+  // "연속된 한글 음절" 사이에만 공백을 삽입한다.
+  const chars = Array.from(s);
+  const out: string[] = [];
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    out.push(ch);
+    const next = chars[i + 1];
+    if (isHangulSyllableChar(ch) && isHangulSyllableChar(next)) out.push(' ');
   }
-  // 영어/기타: 원문 유지(단어 경계 공백은 보통 이미 존재)
-  return s;
+  return out.join('').replace(/\s+/g, ' ').trim();
 }
 
 function countLyricTokens(text: string): number {
@@ -129,6 +129,13 @@ function countLyricTokens(text: string): number {
     return s.split(/\s+/).filter(Boolean).length;
   }
   return 1;
+}
+
+function splitLyricTokens(text: string): string[] {
+  const s = (text ?? '').trim();
+  if (!s) return [];
+  if (/\s/.test(s)) return s.split(/\s+/).filter(Boolean);
+  return [s];
 }
 
 function mergeReviewFieldsFromSaved(
@@ -2637,8 +2644,10 @@ bash scripts/install-font-separator-deps.sh`}
                                 const pi = item.lyricPartIndex ?? 1;
                                 const v = (item.lyricVoice ?? '1').trim() || '1';
                                 const part = reviewNoteCounts?.parts?.find((p) => (p.partIndex ?? 0) === pi);
-                                const n = part?.voices?.[v];
-                                return typeof n === 'number' ? n : part?.total ?? '?';
+                                if (!part) return '?';
+                                if (v === '*') return part.total ?? '?';
+                                const n = part.voices?.[v];
+                                return typeof n === 'number' ? n : part.total ?? '?';
                               })()}
                             </div>
                           </div>
@@ -2654,6 +2663,64 @@ bash scripts/install-font-separator-deps.sh`}
                           >
                             자동 공백
                           </button>
+                          <div className="review-field review-field-grow">
+                            <span className="review-field-label">넘버링(미리보기)</span>
+                            <div
+                              style={{
+                                padding: '0.55rem',
+                                background: '#fff',
+                                border: '1px solid #ddd',
+                                borderRadius: '6px',
+                              }}
+                              title="토큰을 공백 기준으로 나눈 뒤 1..N 순서대로 표시합니다. 공백이 없으면 1번에만 한 덩어리가 들어갑니다."
+                            >
+                              {(() => {
+                                const tokens = splitLyricTokens(item.text);
+                                const pi = item.lyricPartIndex ?? 1;
+                                const v = (item.lyricVoice ?? '1').trim() || '1';
+                                const part = reviewNoteCounts?.parts?.find((p) => (p.partIndex ?? 0) === pi);
+                                const noteCount =
+                                  !part ? null : v === '*' ? (part.total ?? null) : (part.voices?.[v] ?? part.total ?? null);
+                                const max = Math.max(
+                                  1,
+                                  Math.min(24, noteCount ?? (tokens.length || 1)),
+                                );
+                                const rows: Array<{ n: number; t: string }> = [];
+                                for (let n = 1; n <= max; n++) {
+                                  rows.push({ n, t: tokens[n - 1] ?? '' });
+                                }
+                                return (
+                                  <div
+                                    style={{
+                                      display: 'grid',
+                                      gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
+                                      gap: '0.35rem',
+                                    }}
+                                  >
+                                    {rows.map((r) => (
+                                      <div
+                                        key={r.n}
+                                        style={{
+                                          border: '1px solid #e0e0e0',
+                                          borderRadius: 6,
+                                          padding: '0.35rem 0.4rem',
+                                          minHeight: '2.35rem',
+                                          background: r.t ? '#fafafa' : '#fff',
+                                        }}
+                                      >
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0d47a1' }}>
+                                          {r.n}
+                                        </div>
+                                        <div style={{ fontSize: '0.9rem', color: '#111', wordBreak: 'break-word' }}>
+                                          {r.t || <span style={{ color: '#aaa' }}>·</span>}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
                         </>
                       )}
                       <label className="review-field review-field-grow">

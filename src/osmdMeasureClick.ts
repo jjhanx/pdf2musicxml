@@ -166,7 +166,7 @@ function resolveMeasureMxlForCell(
 
 function countStaffRows(osmd: OpenSheetMusicDisplay): number {
   let n = 0;
-  forEachSystem(osmd, (_system, rows) => {
+  forEachOsmdSystem(osmd, (_system, rows) => {
     n = Math.max(n, rows.length);
   });
   return n;
@@ -195,11 +195,11 @@ export function getOsmdHostLayout(host: HTMLElement, osmd: OpenSheetMusicDisplay
   zoom: number;
   scale: number;
 } {
-  return layoutForPage(host, osmd, 0);
+  return getOsmdPageLayout(host, osmd, 0);
 }
 
 /** OSMD는 페이지마다 SVG를 따로 만들 수 있으므로 페이지별 오프셋을 계산 */
-function layoutForPage(host: HTMLElement, osmd: OpenSheetMusicDisplay, pageIndex: number): {
+export function getOsmdPageLayout(host: HTMLElement, osmd: OpenSheetMusicDisplay, pageIndex: number): {
   offsetX: number;
   offsetY: number;
   zoom: number;
@@ -278,7 +278,7 @@ function systemRows(system: Record<string, unknown>): GraphicalMeasureLike[][] {
   return transposed;
 }
 
-function forEachSystem(
+export function forEachOsmdSystem(
   osmd: OpenSheetMusicDisplay,
   fn: (system: Record<string, unknown>, rows: GraphicalMeasureLike[][], pageIndex: number) => void,
 ): void {
@@ -302,7 +302,7 @@ function forEachGraphicalMeasure(
   osmd: OpenSheetMusicDisplay,
   fn: (gm: GraphicalMeasureLike, staffIndex: number, measureIndex: number, row: GraphicalMeasureLike[]) => void,
 ): void {
-  forEachSystem(osmd, (_system, rows) => {
+  forEachOsmdSystem(osmd, (_system, rows) => {
     for (let si = 0; si < rows.length; si += 1) {
       const row = rows[si] ?? [];
       for (let mi = 0; mi < row.length; mi += 1) {
@@ -466,7 +466,7 @@ type Band = { top: number; bottom: number };
  * 이후 인접 줄 사이 빈 공간을 중간선까지 확장해 어느 위치를 클릭해도
  * 시각적으로 가장 가까운 줄로 매핑되게 한다.
  */
-function buildStaffBandsForSystem(
+export function buildStaffBandsForSystem(
   system: Record<string, unknown>,
   rows: GraphicalMeasureLike[][],
   layout: HostLayout,
@@ -637,7 +637,7 @@ function collectFromSystem(
   out: MeasureHitTarget[],
   seen: Set<string>,
 ): void {
-  const layout = layoutForPage(host, osmd, pageIndex);
+  const layout = getOsmdPageLayout(host, osmd, pageIndex);
   const staffBands = buildStaffBandsForSystem(system, rows, layout);
   const colByMxl = buildColumnBoundsByMeasureMxl(rows, layout);
 
@@ -687,7 +687,7 @@ export function collectMeasureHitTargets(
 
   const out: MeasureHitTarget[] = [];
   const seen = new Set<string>();
-  forEachSystem(osmd, (system, rows, pageIndex) => {
+  forEachOsmdSystem(osmd, (system, rows, pageIndex) => {
     try {
       collectFromSystem(system, rows, pageIndex, host, osmd, out, seen);
     } catch (e) {

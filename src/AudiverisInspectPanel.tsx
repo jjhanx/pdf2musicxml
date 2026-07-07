@@ -19,6 +19,7 @@ import {
   removeMeasureHover,
   scrollOsmdMeasureIntoView,
 } from './osmdMeasureClick';
+import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 
 type InspectErrorBoundaryProps = {
@@ -28,7 +29,7 @@ type InspectErrorBoundaryProps = {
 
 type InspectErrorBoundaryState = { error: Error | null };
 
-/** OMR·HITL 미리보기 — 이음줄을 깃대(stem)가 아닌 음머리 쪽에 그리도록 OSMD 규칙 조정 */
+/** OMR·HITL 미리보기 — 이음줄·성부 라벨 등 OSMD 규칙 조정 */
 export function applyOsmdPreviewEngravingRules(
   rules: OpenSheetMusicDisplay['EngravingRules'],
 ): void {
@@ -37,6 +38,10 @@ export function applyOsmdPreviewEngravingRules(
   rules.SlurPlacementFromXML = true;
   rules.SlurPlacementAtStems = false;
   rules.SlurPlacementUseSkyBottomLine = false;
+  // 성부 라벨은 installOsmdPartLabelOverlay(HTML)로 모든 system에 그림 — OSMD SVG 라벨은 z-order·Y 어긋남
+  rules.RenderPartNames = false;
+  rules.RenderPartAbbreviations = false;
+  rules.RenderSystemLabelsAfterFirstPage = false;
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
@@ -232,7 +237,13 @@ function applyLabelToScorePart(sp: Element, label: string): void {
   flattenNameElement(pn, label);
 
   const pa = sp.querySelector('part-abbreviation, *|part-abbreviation');
-  if (pa) flattenNameElement(pa, abbrev);
+  if (!pa) {
+    const created = sp.ownerDocument!.createElementNS(sp.namespaceURI, 'part-abbreviation');
+    sp.insertBefore(created, pn.nextSibling);
+    flattenNameElement(created, abbrev);
+  } else {
+    flattenNameElement(pa, abbrev);
+  }
 
   sp.querySelectorAll('instrument-name, *|instrument-name').forEach((el) => {
     el.textContent = label;
@@ -915,6 +926,7 @@ export function OsmdBlock({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
+  const xmlRef = useRef(xml);
   const zoomRef = useRef(zoom);
   const xmlGenRef = useRef(0);
   /** Invalidates overlapping RAF/resize paint attempts (load-complete vs zoom). */
@@ -952,13 +964,22 @@ export function OsmdBlock({
   }, [highlightMeasureMxl, highlightMeasureStaffIndex, xml, zoom]);
 
   useEffect(() => {
+    xmlRef.current = xml;
     zoomRef.current = zoom;
-  }, [zoom]);
+  }, [xml, zoom]);
+
+  const syncPartLabelOverlay = useCallback(() => {
+    const host = hostRef.current;
+    const osmd = osmdRef.current;
+    if (!host || !osmd?.IsReadyToRender()) return;
+    installOsmdPartLabelOverlay(host, osmd, xmlRef.current);
+  }, []);
 
   const syncMeasureClickUi = useCallback(() => {
     const host = hostRef.current;
     const osmd = osmdRef.current;
     if (!host || !osmd?.IsReadyToRender()) return;
+    syncPartLabelOverlay();
     if (onMeasureClickRef.current) {
       installMeasureClickOverlays(host, osmd);
     } else {
@@ -971,7 +992,7 @@ export function OsmdBlock({
       highlightMeasureMxlRef.current ?? null,
       highlightMeasureStaffIndexRef.current ?? null,
     );
-  }, []);
+  }, [syncPartLabelOverlay]);
 
   const afterOsmdRender = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1072,6 +1093,7 @@ export function OsmdBlock({
     return () => {
       cancelled = true;
       disconnectRo();
+      removeOsmdPartLabelOverlay(host);
       try {
         osmd.clear();
       } catch {

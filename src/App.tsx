@@ -107,12 +107,27 @@ function autoTokenizeLyricsText(raw: string): string {
   const treatAsKorean = hangulCount >= Math.max(3, Math.floor(s.length * 0.4));
   if (!treatAsKorean) return s;
 
-  // 기존 공백/하이픈/기호는 최대한 유지하면서,
-  // "연속된 한글 음절" 사이에만 공백을 삽입한다.
+  // 규칙:
+  // - 한글 음절-음절 사이: 공백 삽입
+  // - 한글 주변의 '-'는 영어의 'hel-lo'와 달리 보통 음절 분리/연장/빈칸 의미이므로 토큰으로 분리: ' - '
+  // - 영어의 '-'는 (treatAsKorean=false 경로에서) 그대로 유지되어 앞 음절에 붙는다.
   const chars = Array.from(s);
   const out: string[] = [];
   for (let i = 0; i < chars.length; i++) {
     const ch = chars[i];
+    if (ch === '-') {
+      const prev = chars[i - 1] ?? '';
+      const next = chars[i + 1] ?? '';
+      const nearHangul = isHangulSyllableChar(prev) || isHangulSyllableChar(next);
+      if (nearHangul) {
+        // 토큰 분리: 앞뒤 공백 보장
+        if (out.length && out[out.length - 1] !== ' ') out.push(' ');
+        out.push('-');
+        out.push(' ');
+        continue;
+      }
+    }
+
     out.push(ch);
     const next = chars[i + 1];
     if (isHangulSyllableChar(ch) && isHangulSyllableChar(next)) out.push(' ');

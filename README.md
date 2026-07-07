@@ -23,6 +23,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **PyMuPDF 검증은 선택**: 폰트 분리 모드에서 「**OMR·HITL 후 PyMuPDF 가사 검증·편집**」 체크를 끄면 pdfplumber 추출만으로 병합합니다(검증 UI 없이 바로 주입). **SATB·다성부 가사**는 성부(`lyricPartIndex`)·줄 순서를 검토 UI에서 지정해야 하므로 **PyMuPDF 검증을 켠 채로** 진행하는 것을 권장합니다. `inject_ocr.py`는 **같은 1절을 여러 파트에 넣을 때** `lyricPartIndex`가 가장 작은 파트를 기준으로 **마디별 음절 개수**만 맞추고, 다른 파트는 **각자 검토한 가사 텍스트**(공백·하이픈 토큰 규칙)를 그 마디에 넣습니다(블록이 한두 줄만 있으면 기준 파트 문구 사용·음절 부족 시 기준 파트로 보충). 파트마다 OMR 음표 subdivision이 다를 때 **뒤쪽 마디 가사 당김**을 줄입니다. 마디 번호·표현어(`poco mosso` 등)는 inject에서 제외됩니다. 검증 UI는 **원본 PDF**(가사 포함) 미리보기를 사용합니다.
 - **점검 UI**: 완료 후 **마스킹·인식 점검**에서 원본 vs **`clean_score_only.pdf`** PNG 비교, PDF 다운로드, Audiveris 단계별 실행(`pdfSource=clean_score`)을 지원합니다. 단계 의미·디버깅: [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md).
 - **저장 형식 v3**: `lyric_manifest.json` — `items[]`(병합 출처 `provenance`, `fontSize` 등) + `matchStats` + `pymupdfReviewItems`. **`ocr_data.json`(flat)은 PyMuPDF 검토가 있으면 검토 항목만** `inject_ocr.py`에 넘깁니다(pdfplumber IoU 병합 줄은 manifest·마스킹용). 좁은 bbox **마디 번호**(6, 14, 17 …)·**표현어**(`poco mosso` 등)는 inject에서 제외. `inject_ocr.py`는 v2/v3 manifest와 flat 배열 모두 읽습니다.
+  - **하이픈(-) 토큰 주의**: 영어 `hel-lo`처럼 **단어 내부 하이픈**은 앞 음절에 붙습니다. 한글 가사에서 보이는 `-`는 보통 **연장/빈칸** 의미이므로 `가 - 살`처럼 **공백으로 분리된 단독 토큰**으로 두는 것이 안전합니다(자동 공백도 한글 주변 `-`는 분리).
 - **한글·ZIP 파일명**: `POST /api/convert` 멀티파트 파일명 디코딩은 그대로 유지합니다.
 - 자세한 품질·호환 대응은 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md), 배포 점검은 동 문서 **「서버 배포 후 점검 체크리스트」**를 따르세요.
 

@@ -1302,6 +1302,15 @@ async function applyPartLabelsToScoreFile(
 }
 
 function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
+  // lyric review 단계에서도 (OMR 결과) MXL이 있을 수 있다: review.mxl / baseline / raw 순으로 사용
+  if (job.status === 'review_needed') {
+    const review = path.join(job.sessionRoot, 'review.mxl');
+    if (fsSync.existsSync(review)) return review;
+    const baseline = sessionHitlBaselineMxlPath(job.sessionRoot);
+    if (fsSync.existsSync(baseline)) return baseline;
+    const raw = sessionAudiverisRawMxlPath(job.sessionRoot);
+    if (fsSync.existsSync(raw)) return raw;
+  }
   if (
     (job.status === 'audiveris_review_needed' ||
       job.status === 'omr_staff_review_needed' ||

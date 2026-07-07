@@ -458,27 +458,26 @@ function graphicVerticalBoundsOsmd(obj: unknown): { top: number; bottom: number 
 
 type Band = { top: number; bottom: number };
 
-/**
- * 시스템 안 각 줄(staff row)의 세로 밴드를 host px로 계산한다.
- *
- * 핵심: 인덱스 보간 추측 대신 OSMD가 알고 있는 정확한 연결
- * (GraphicalMeasure.ParentStaffLine ↔ MusicSystem.StaffLines)을 그대로 사용한다.
- * 이후 인접 줄 사이 빈 공간을 중간선까지 확장해 어느 위치를 클릭해도
- * 시각적으로 가장 가까운 줄로 매핑되게 한다.
- */
-export function buildStaffBandsForSystem(
+function toHostBandFromOsmd(
+  v: { top: number; bottom: number },
+  layout: HostLayout,
+): Band {
+  return {
+    top: layout.offsetY + v.top * layout.scale,
+    bottom: layout.offsetY + v.bottom * layout.scale,
+  };
+}
+
+/** StaffLine·ParentStaffLine 기준 오선 세로 범위(클릭용 마디 합집합 폴백은 선택). */
+function collectStaffLineBandsCore(
   system: Record<string, unknown>,
   rows: GraphicalMeasureLike[][],
   layout: HostLayout,
-): (HostBounds | null)[] {
-  // 밴드는 세로(top/bottom)만 의미 있음 — 좌우는 column이 결정
+  opts: { measureFallback: boolean },
+): (Band | null)[] {
   const numRows = rows.length;
-  const toHostBand = (v: { top: number; bottom: number }): Band => ({
-    top: layout.offsetY + v.top * layout.scale,
-    bottom: layout.offsetY + v.bottom * layout.scale,
-  });
+  const toHostBand = (v: { top: number; bottom: number }) => toHostBandFromOsmd(v, layout);
 
-  // 1) StaffLine 객체별 세로 범위
   const bandByLine = new Map<unknown, Band>();
   const staffLines = (system.StaffLines ?? system.staffLines) as unknown[] | undefined;
   for (const sl of staffLines ?? []) {
@@ -488,8 +487,6 @@ export function buildStaffBandsForSystem(
     bandByLine.set(sl, toHostBand(v));
   }
 
-  // 2) 각 줄(row): rows[si]는 staffLines[si].Measures에서 왔으므로 인덱스로 먼저,
-  //    그다음 마디의 ParentStaffLine으로 밴드를 찾는다
   const raw: (Band | null)[] = new Array(numRows).fill(null);
   for (let si = 0; si < numRows; si += 1) {
     const direct = staffLines?.[si] ? bandByLine.get(staffLines[si]) : undefined;
@@ -506,8 +503,7 @@ export function buildStaffBandsForSystem(
         break;
       }
     }
-    if (raw[si]) continue;
-    // 폴백: 그 줄 마디들의 그래픽 세로 범위 합집합
+    if (raw[si] || !opts.measureFallback) continue;
     let top = Number.POSITIVE_INFINITY;
     let bottom = Number.NEGATIVE_INFINITY;
     for (const gm of rows[si] ?? []) {
@@ -527,20 +523,16 @@ export function buildStaffBandsForSystem(
     .filter((k): k is { i: number; top: number; bottom: number } => k != null);
 
   if (!known.length) {
-    // 시스템 전체 높이를 줄 수로 균등 분할 (최후 수단)
     const sysV = graphicVerticalBoundsOsmd(system);
     if (!sysV) return new Array(numRows).fill(null);
     const b = toHostBand(sysV);
     const h = (b.bottom - b.top) / Math.max(1, numRows);
     return rows.map((_, si) => ({
-      left: -1e9,
-      right: 1e9,
       top: b.top + si * h,
       bottom: b.top + (si + 1) * h,
     }));
   }
 
-  // 3) 빠진 줄: 알려진 이웃 줄 위치로 보간/외삽 (줄 간격은 실측 평균 사용)
   const avgH = known.reduce((s, k) => s + (k.bottom - k.top), 0) / known.length;
   let pitchSum = 0;
   let pitchN = 0;
@@ -553,7 +545,7 @@ export function buildStaffBandsForSystem(
   }
   const rowPitch = pitchN > 0 ? pitchSum / pitchN : avgH * 2.2;
 
-  const filled: Band[] = new Array(numRows);
+  const filled: (Band | null)[] = new Array(numRows).fill(null);
   for (let si = 0; si < numRows; si += 1) {
     const own = raw[si];
     if (own) {
@@ -580,15 +572,47 @@ export function buildStaffBandsForSystem(
       filled[si] = { top: above.top - d, bottom: above.bottom - d };
     }
   }
+  return filled;
+}
 
-  // 4) 줄 사이 빈 공간을 중간선까지 확장 → 가사·덧줄 영역 클릭도 가까운 줄로
+/** 성부 라벨용 — 오선(StaffLine) bbox 중앙. 클릭 밴드 확장·마디 합집합 폴백 없음. */
+export function buildStaffLineCentersForSystem(
+  system: Record<string, unknown>,
+  rows: GraphicalMeasureLike[][],
+  layout: HostLayout,
+): (number | null)[] {
+  return collectStaffLineBandsCore(system, rows, layout, { measureFallback: false }).map((b) =>
+    b ? (b.top + b.bottom) / 2 : null,
+  );
+}
+
+/**
+ * 시스템 안 각 줄(staff row)의 세로 밴드를 host px로 계산한다.
+ *
+ * 핵심: 인덱스 보간 추측 대신 OSMD가 알고 있는 정확한 연결
+ * (GraphicalMeasure.ParentStaffLine ↔ MusicSystem.StaffLines)을 그대로 사용한다.
+ * 이후 인접 줄 사이 빈 공간을 중간선까지 확장해 어느 위치를 클릭해도
+ * 시각적으로 가장 가까운 줄로 매핑되게 한다.
+ */
+export function buildStaffBandsForSystem(
+  system: Record<string, unknown>,
+  rows: GraphicalMeasureLike[][],
+  layout: HostLayout,
+): (HostBounds | null)[] {
+  const filled = collectStaffLineBandsCore(system, rows, layout, { measureFallback: true });
+  const known = filled
+    .map((b, i) => (b ? { i, top: b.top, bottom: b.bottom } : null))
+    .filter((k): k is { i: number; top: number; bottom: number } => k != null);
+  if (!known.length) return filled.map(() => null);
+
+  const avgH = known.reduce((s, k) => s + (k.bottom - k.top), 0) / known.length;
   const margin = Math.max(6, avgH * 0.45);
-  const bands: (HostBounds | null)[] = new Array(numRows).fill(null);
-  for (let si = 0; si < numRows; si += 1) {
+  const bands: (HostBounds | null)[] = new Array(filled.length).fill(null);
+  for (let si = 0; si < filled.length; si += 1) {
     const cur = filled[si];
     if (!cur) continue;
     const prev = si > 0 ? filled[si - 1] : null;
-    const next = si < numRows - 1 ? filled[si + 1] : null;
+    const next = si < filled.length - 1 ? filled[si + 1] : null;
     const top = prev ? Math.min(cur.top, (prev.bottom + cur.top) / 2) : cur.top - margin;
     const bottom = next ? Math.max(cur.bottom, (cur.bottom + next.top) / 2) : cur.bottom + margin;
     bands[si] = { left: -1e9, right: 1e9, top, bottom };

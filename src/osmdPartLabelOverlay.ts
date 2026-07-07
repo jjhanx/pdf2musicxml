@@ -1,6 +1,6 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
-  buildStaffBandsForSystem,
+  buildStaffLineCentersForSystem,
   forEachOsmdSystem,
   getOsmdPageLayout,
   partIdFromGraphic,
@@ -88,22 +88,21 @@ export function installOsmdPartLabelOverlay(
 
   forEachOsmdSystem(osmd, (system, rows, pageIndex) => {
     const layout = getOsmdPageLayout(host, osmd, pageIndex);
-    const bands = buildStaffBandsForSystem(system, rows, layout);
+    const centers = buildStaffLineCentersForSystem(system, rows, layout);
     for (let si = 0; si < rows.length; si += 1) {
-      const band = bands[si];
-      if (!band) continue;
+      const centerY = centers[si];
+      if (centerY == null) continue;
       const gm = firstMeasureInRow(rows[si] ?? []);
       if (!gm) continue;
       const partId = partIdFromGraphic(gm);
       if (!partId) continue;
       const text = displayLabelForPartId(partId, labels);
-      const midY = (band.top + band.bottom) / 2;
       const el = document.createElement('span');
       el.className = 'omr-osmd-part-label';
       el.textContent = text;
       el.title = partId;
       el.style.left = `${Math.max(4, layout.offsetX + 4)}px`;
-      el.style.top = `${midY}px`;
+      el.style.top = `${centerY}px`;
       layer.appendChild(el);
     }
   });

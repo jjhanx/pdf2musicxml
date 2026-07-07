@@ -104,7 +104,7 @@ function autoTokenizeLyricsText(raw: string): string {
 
   // 한글이 충분히 많을 때만 "음절 사이 공백" 토큰화를 적용한다.
   const hangulCount = Array.from(s).filter(isHangulSyllableChar).length;
-  const treatAsKorean = hangulCount >= Math.max(1, Math.floor(s.length * 0.4));
+  const treatAsKorean = hangulCount > 0;
   if (!treatAsKorean) return s;
 
   // 규칙:

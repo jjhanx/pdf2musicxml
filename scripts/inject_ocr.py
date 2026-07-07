@@ -999,9 +999,10 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                         file=sys.stderr,
                     )
                     continue
-                sparse = _sparse_lyric_stream_items(
-                    stream["items"], ref_stream["items"]
-                )
+                # sparse = _sparse_lyric_stream_items(
+                #     stream["items"], ref_stream["items"]
+                # )
+                sparse = False
                 source_items = ref_stream["items"] if sparse else stream["items"]
                 target_events = build_events_for_items(
                     source_items,

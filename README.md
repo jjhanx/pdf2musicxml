@@ -322,3 +322,5 @@ pdf2musicxml/
 ## 라이선스
 
 저장소에 별도 명시가 없으면 저장소 소유자 정책을 따릅니다. Audiveris·사용 라이브러리는 각각의 라이선스를 따릅니다.
+U p d a t e d   U I   b u g   f i x e s   a n d   t e x t   e x t r a c t i o n   l o g i c  
+ 

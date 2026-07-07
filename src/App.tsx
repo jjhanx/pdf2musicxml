@@ -676,7 +676,10 @@ export default function App() {
       fd.append('lyricManifest', opts.resumeLyricManifestFile);
     }
     if (opts?.resumeOmrWorkFile) {
-      fd.append('omrWorkZip', opts.resumeOmrWorkFile);
+      const stage = opts?.startStage ?? 'full';
+      if (stage === 'full' || stage === 'omr_hitl' || stage === 'lyric_inject') {
+        fd.append('omrWorkZip', opts.resumeOmrWorkFile);
+      }
     }
     if (opts?.pauseAfterAudiveris) {
       fd.append('pauseAfterAudiveris', 'true');
@@ -1466,6 +1469,8 @@ export default function App() {
                 setStartStage('full');
                 setPipelineMode('font_separator');
                 setEnablePymupdfReview(true);
+                setResumeCleanScoreFile(null);
+                setResumeLyricManifestFile(null);
               }}
               disabled={busy}
             >
@@ -1495,6 +1500,7 @@ export default function App() {
                 setStartStage('clean_score');
                 setPipelineMode('font_separator');
                 setEnablePymupdfReview(true);
+                setResumeOmrWorkFile(null);
               }}
               disabled={busy}
             >
@@ -1524,6 +1530,8 @@ export default function App() {
                 setStartStage('omr_hitl');
                 setPipelineMode('font_separator');
                 setEnablePymupdfReview(true);
+                setResumeCleanScoreFile(null);
+                setResumeLyricManifestFile(null);
               }}
               disabled={busy}
             >
@@ -1553,6 +1561,7 @@ export default function App() {
                 setStartStage('lyric_inject');
                 setPipelineMode('font_separator');
                 setEnablePymupdfReview(true);
+                setResumeCleanScoreFile(null);
               }}
               disabled={busy}
             >
@@ -1569,7 +1578,8 @@ export default function App() {
                   <br />
                   원본 PDF에서 가사를 분리·제거한 뒤 OMR·HITL·가사 검증을 거쳐 완성합니다. 병합 직후{' '}
                   <code>lyric_manifest.json</code> 저장 모달이 뜨며, 2단계 이후에 쓸{' '}
-                  <code>clean_score_only.pdf</code>도 함께 내려받을 수 있습니다.
+                  <code>clean_score_only.pdf</code>도 함께 내려받을 수 있습니다. 아래에서{' '}
+                  <code>omr-work.zip</code>을 함께 올리면 Audiveris만 생략하고 기존 MXL로 HITL을 이어갈 수 있습니다.
                 </p>
                 <div
                   className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
@@ -1606,6 +1616,19 @@ export default function App() {
                     }}
                     disabled={busy}
                   />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip — 기존 MXL 재사용 (선택)</span>
+                  <input
+                    type="file"
+                    accept=".zip,application/zip"
+                    onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)}
+                    disabled={busy}
+                  />
+                  <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
+                    이전 OMR·HITL에서 저장한 ZIP을 올리면 <strong>Audiveris 재인식을 건너뛰고</strong> 저장된 MXL·보정으로 HITL을 이어갑니다.
+                    가사는 위 1단계 흐름(폰트 분리·병합·검증) 그대로 진행합니다. ZIP의 <code>clean_score_only.pdf</code>와 동일한 폰트 제거 설정이어야 MXL·PDF가 맞습니다.
+                  </small>
                 </div>
               </div>
             )}

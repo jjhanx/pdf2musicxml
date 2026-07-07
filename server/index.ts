@@ -1516,19 +1516,35 @@ async function restoreOmrWorkPdfsFromExtractDir(
   return { hasCleanScore, hasInput };
 }
 
+type OmrWorkImportOptions = {
+  /** 가사·PDF는 세션 산출물 유지, MXL·HITL 보정만 ZIP에서 가져옴 (1단계 + 기존 MXL) */
+  mxlOnly?: boolean;
+};
+
 async function importOmrWorkFromExtractDir(
   sessionRoot: string,
   extractDir: string,
   scorePath: string,
   pythonBin: string,
   job?: JobRecord,
+  options?: OmrWorkImportOptions,
 ): Promise<{ fixCount: number; stats: Awaited<ReturnType<typeof syncOmrReviewMxl>>; pdfRestored: boolean }> {
   const pick = (name: string) => {
     const p = path.join(extractDir, name);
     return fsSync.existsSync(p) ? p : null;
   };
-  await restoreLyricArtifactsFromExtractDir(sessionRoot, extractDir);
-  const pdfInfo = await restoreOmrWorkPdfsFromExtractDir(sessionRoot, extractDir, job);
+  if (options?.mxlOnly) {
+    const pymupdfSrc = pick('ocr_data_pymupdf.json');
+    if (pymupdfSrc) {
+      await fs.copyFile(pymupdfSrc, sessionOcrPymupdfSavedPath(sessionRoot));
+      if (job) job.hasSavedLyricReview = true;
+    }
+  } else {
+    await restoreLyricArtifactsFromExtractDir(sessionRoot, extractDir);
+  }
+  const pdfInfo = options?.mxlOnly
+    ? { hasCleanScore: false, hasInput: false }
+    : await restoreOmrWorkPdfsFromExtractDir(sessionRoot, extractDir, job);
   const reviewSrc = pick('review.mxl');
   const rawSrc = pick('audiveris_raw.mxl');
   const fixesSrc = pick('omr_hitl_fixes.json');
@@ -1564,6 +1580,7 @@ async function bootstrapFromOmrWorkZip(
   zipPath: string,
   outBase: string,
   pythonBin: string,
+  options?: OmrWorkImportOptions,
 ): Promise<string> {
   setJobProgress(job, {
     phase: 'hitl',
@@ -1588,9 +1605,10 @@ async function bootstrapFromOmrWorkZip(
     destMxl,
     pythonBin,
     job,
+    options,
   );
   console.log(
-    `[job] OMR work ZIP imported (${fixCount} fixes on record${pdfRestored ? ', PDF restored' : ''})`,
+    `[job] OMR work ZIP imported (${fixCount} fixes on record${options?.mxlOnly ? ', MXL-only' : ''}${pdfRestored ? ', PDF restored' : ''})`,
   );
   await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
   setJobProgress(job, {
@@ -2529,6 +2547,39 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       }
     }
 
+    let importedMxlFromZip = false;
+    if (
+      startStage === 'full' &&
+      job.resumeOmrWorkZipPath &&
+      fsSync.existsSync(job.resumeOmrWorkZipPath)
+    ) {
+      setJobProgress(job, {
+        phase: 'hitl',
+        current: 0,
+        total: pageHint,
+        detail: '기존 OMR 검토 ZIP에서 MXL 불러오는 중 (Audiveris 생략)…',
+      });
+      console.log(
+        `[job ${jobId}] full + omr-work.zip: lyric pipeline kept, Audiveris OMR skipped`,
+      );
+      const mxlPath = await bootstrapFromOmrWorkZip(
+        job,
+        job.resumeOmrWorkZipPath,
+        outBase,
+        pythonBin,
+        { mxlOnly: true },
+      );
+      outputs = [mxlPath];
+      mxlForInject = [mxlPath];
+      importedMxlFromZip = true;
+      pauseForAudiverisReview = job.pauseAfterAudiveris;
+      for (const p of mxlForInject) {
+        await ensureAudiverisRawBackup(p, job.sessionRoot);
+        await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+      }
+    }
+
+    if (!importedMxlFromZip) {
     const audiverisInput = resolveAudiverisInputPdfPath(job);
     const pdfToProcess = audiverisInput?.path ?? inputPdfPath;
 
@@ -2598,6 +2649,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     for (const p of mxlForInject) {
       await ensureAudiverisRawBackup(p, job.sessionRoot);
       await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+    }
     }
     }
 

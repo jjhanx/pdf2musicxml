@@ -311,7 +311,6 @@ const REVIEW_TYPE_OPTIONS = [
 function reviewTypeSelectValue(type: string | undefined, afterOmr: boolean): string {
   if (type === 'measure_number' || type === 'page_number') return type;
   if (type && (REVIEW_TYPE_OPTIONS as readonly string[]).includes(type)) {
-    if (afterOmr && type === 'unknown') return 'lyrics';
     return type;
   }
   return 'lyrics';
@@ -344,9 +343,9 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
     const role =
       t === 'measure_number' || t === 'page_number'
         ? t
-        : t && t !== 'unknown'
+        : t
           ? reviewTypeSelectValue(t, true)
-          : 'lyrics';
+          : 'unknown';
     return {
       ...item,
       type: role,

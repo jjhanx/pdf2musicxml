@@ -1625,8 +1625,36 @@ async function enterOmrStaffHitlPhase(
   jobId: string,
   mxlForInject: string[],
   pythonBin: string,
+  scriptExtract: string,
+  scriptMergeLyrics: string,
 ): Promise<void> {
   if (mxlForInject.length === 0 || job.enableOmrStaffReview === false) return;
+  if (
+    job.pipelineMode === 'font_separator' &&
+    job.enablePymupdfReview !== false &&
+    !fsSync.existsSync(sessionOcrPymupdfBaselinePath(job.sessionRoot))
+  ) {
+    const pdfPath = resolveLyricReviewPdfPath(job);
+    if (pdfPath) {
+      setJobProgress(job, {
+        phase: 'separator',
+        current: 0,
+        total: 1,
+        detail: '가사 검증용 PDF 초기 추출 준비 중…',
+      });
+      try {
+        await bootstrapLyricReviewAfterOmrZipImport(
+          job,
+          pythonBin,
+          scriptExtract,
+          scriptMergeLyrics,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[job ${jobId}] lyric review baseline prebuild failed: ${msg}`);
+      }
+    }
+  }
   job.preInjectMxlPaths = [...mxlForInject];
   console.log(`[job ${jobId}] Pausing for part label setup (성부 S/A/T/B…)…`);
   setJobProgress(job, {
@@ -1945,6 +1973,34 @@ async function bootstrapLyricReviewAfterOmrZipImport(
     forceRebuild: true,
   });
   await activateLyricReviewItems(job.sessionRoot, items);
+}
+
+/** OMR·HITL 후 가사 검증 UI — baseline(미분류) 항목을 즉시 반환 (느린 병합은 HITL 전에 선행) */
+async function preparePostOmrLyricReviewItems(
+  job: JobRecord,
+  pythonBin: string,
+  scriptExtract: string,
+  scriptMergeLyrics: string,
+): Promise<unknown[] | null> {
+  const pdfPath = resolveLyricReviewPdfPath(job);
+  if (!pdfPath) return null;
+  const baselinePath = sessionOcrPymupdfBaselinePath(job.sessionRoot);
+  if (fsSync.existsSync(baselinePath)) {
+    const raw = JSON.parse(await fs.readFile(baselinePath, 'utf8')) as unknown[];
+    const items = applyBaselineReviewShape(raw);
+    await activateLyricReviewItems(job.sessionRoot, items);
+    return items;
+  }
+  const items = await ensureLyricReviewBaseline({
+    sessionRoot: job.sessionRoot,
+    pdfPath,
+    pythonBin,
+    scriptExtract,
+    scriptMergeLyrics,
+    forceRebuild: true,
+  });
+  await activateLyricReviewItems(job.sessionRoot, items);
+  return items;
 }
 
 async function loadSavedLyricReviewItems(sessionRoot: string): Promise<unknown[]> {
@@ -2662,7 +2718,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     }
 
     if (startStage !== 'lyric_inject') {
-      await enterOmrStaffHitlPhase(job, jobId, mxlForInject, pythonBin);
+      await enterOmrStaffHitlPhase(
+        job,
+        jobId,
+        mxlForInject,
+        pythonBin,
+        scriptExtract,
+        scriptMergeLyrics,
+      );
     }
 
     if (outputs.length > 0 && pauseForAudiverisReview && mxlForInject.length > 0) {
@@ -2687,16 +2750,41 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     // Pause for PyMuPDF lyric review AFTER OMR HITL edits are finished
     if (enablePymupdfReview && (pipelineMode === 'font_separator' || startStage === 'lyric_inject')) {
-      const reviewReady = await ensurePymupdfReviewPayload({
-        pymupdfReviewPath,
-        lyricManifestPath,
-        inputPdfPath,
-        sessionRoot,
-        pythonBin,
-        scriptExtract,
-      });
+      let reviewReady = false;
+      let ocrData: unknown[] = [];
+
+      if (startStage === 'lyric_inject') {
+        reviewReady = await ensurePymupdfReviewPayload({
+          pymupdfReviewPath,
+          lyricManifestPath,
+          inputPdfPath,
+          sessionRoot,
+          pythonBin,
+          scriptExtract,
+        });
+        if (reviewReady) {
+          ocrData = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8')) as unknown[];
+        }
+      } else {
+        const items = await preparePostOmrLyricReviewItems(
+          job,
+          pythonBin,
+          scriptExtract,
+          scriptMergeLyrics,
+        );
+        if (items) {
+          reviewReady = true;
+          ocrData = items;
+        }
+      }
+
       if (reviewReady) {
-        const ocrData = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8'));
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 0,
+          total: 0,
+          detail: '가사 검증·편집 대기…',
+        });
         console.log(`[job ${jobId}] Pausing for PyMuPDF lyric review (font_separator) AFTER OMR HITL…`);
         job.status = 'review_needed';
         job.reviewAfterOmr = true;

@@ -548,10 +548,6 @@ export default function App() {
         Array.isArray(dataRaw) ? dataRaw : [],
       );
 
-      const initData = afterOmr
-        ? normalizeReviewItemsForBaseline(payloadItems)
-        : normalizeReviewItemsForUi(payloadItems);
-
       let afterOmr = pipelineMode === 'font_separator';
       if (st.ok) {
         const sj = (await st.json()) as { reviewAfterOmr?: boolean; hasSavedLyricReview?: boolean };
@@ -559,6 +555,10 @@ export default function App() {
         if (sj.hasSavedLyricReview) setHasSavedLyricReview(true);
         else setHasSavedLyricReview(false);
       }
+
+      const initData = afterOmr
+        ? normalizeReviewItemsForBaseline(payloadItems)
+        : normalizeReviewItemsForUi(payloadItems);
 
       setReviewAfterOmr(afterOmr);
       setManualLyricRects(fromPayload);
@@ -577,7 +577,16 @@ export default function App() {
 
   useEffect(() => {
     if (!pendingLyricReview) return;
-    if (omrStaffReviewJobId || partLabelsJobId || audiverisReviewJobId) return;
+    if (
+      omrStaffReviewJobId ||
+      partLabelsJobId ||
+      audiverisReviewJobId ||
+      lyricManifestSaveJobId ||
+      cleanScorePreviewJobId ||
+      fontStripJobId
+    ) {
+      return;
+    }
     const { jobId, fileName } = pendingLyricReview;
     setPendingLyricReview(null);
     void loadLyricReviewJob(jobId, fileName);
@@ -586,6 +595,9 @@ export default function App() {
     omrStaffReviewJobId,
     partLabelsJobId,
     audiverisReviewJobId,
+    lyricManifestSaveJobId,
+    cleanScorePreviewJobId,
+    fontStripJobId,
     loadLyricReviewJob,
   ]);
 

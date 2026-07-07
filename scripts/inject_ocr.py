@@ -383,6 +383,137 @@ def _advance_to_note(notes, idx: int, v_target: str):
     return (idx, notes[idx][1], notes[idx][2])
 
 
+def note_duration(note, ns) -> int:
+    d = note.find(qname(ns, "duration"))
+    if d is None or not d.text:
+        return 1
+    try:
+        return max(1, int(d.text))
+    except (TypeError, ValueError):
+        return 1
+
+
+def list_attachable_notes_in_measure(measure, ns):
+    out = []
+    last_included_voice = None
+    for note in findall_ns(measure, "note", ns):
+        if has_rest(note, ns) or has_grace(note, ns):
+            continue
+        v = note_voice(note, ns)
+        if has_chord(note, ns):
+            if last_included_voice is not None and voices_match(v, last_included_voice):
+                continue
+        last_included_voice = v
+        out.append(note)
+    return out
+
+
+def attachable_notes_by_measure(part_el, ns):
+    by_m = {}
+    for measure in findall_ns(part_el, "measure", ns):
+        mnum = measure.get("number", "?")
+        notes = list_attachable_notes_in_measure(measure, ns)
+        if notes:
+            by_m[mnum] = notes
+    return by_m
+
+
+def simulate_lyric_placements(events, part_el, ns):
+    """기준 파트에서 각 가사 이벤트가 어느 마디에 붙는지 (마디번호, 이벤트) 목록."""
+    notes = list_attachable_notes(part_el, ns)
+    placements = []
+    idx = 0
+    for ev in events:
+        if ev["op"] == "skip_notes":
+            v_target = ev["voice"]
+            need = ev["count"]
+            if v_target == "*":
+                idx = min(idx + need, len(notes))
+            else:
+                skipped = 0
+                while idx < len(notes) and skipped < need:
+                    if voices_match(notes[idx][2], v_target):
+                        skipped += 1
+                    idx += 1
+            continue
+        v_target = ev["voice"]
+        note_info = _advance_to_note(notes, idx, v_target)
+        if note_info is None:
+            break
+        idx = note_info[0] + 1
+        measure = notes[note_info[0]][0]
+        mnum = measure.get("number", "?")
+        placements.append((mnum, ev))
+    return placements
+
+
+def map_events_to_notes_in_measure(events, notes, ns):
+    """같은 마디 안에서 음절 수·음표 수가 다를 때 duration 구간으로 재배치."""
+    s_count = len(events)
+    t_count = len(notes)
+    if s_count == 0 or t_count == 0:
+        return []
+    if s_count == t_count:
+        return [([ev], notes[i]) for i, ev in enumerate(events)]
+    durs = [note_duration(n, ns) for n in notes]
+    total = sum(durs) or 1
+    cum = [0.0]
+    for d in durs:
+        cum.append(cum[-1] + d / total)
+    note_to_events = [[] for _ in range(t_count)]
+    for si, ev in enumerate(events):
+        target = (si + 0.5) / s_count
+        ti = t_count - 1
+        for j in range(t_count):
+            if target < cum[j + 1] or j == t_count - 1:
+                ti = j
+                break
+        note_to_events[ti].append(ev)
+    return [(evs, notes[ti]) for ti, evs in enumerate(note_to_events) if evs]
+
+
+def _apply_event_bucket_to_note(note, ns, evs, lyric_number):
+    if len(evs) == 1:
+        ev = evs[0]
+        if ev["op"] == "empty_note":
+            add_lyric_to_note(note, ns, "-", lyric_number, "single")
+        else:
+            text = ev.get("text") or ev.get("char") or ""
+            add_lyric_to_note(note, ns, text, lyric_number, ev.get("syllabic", "single"))
+        return
+    parts = []
+    for ev in evs:
+        if ev["op"] == "empty_note":
+            parts.append("-")
+        else:
+            parts.append(ev.get("text") or ev.get("char") or "")
+    parts = [p for p in parts if p]
+    if not parts:
+        add_lyric_to_note(note, ns, "-", lyric_number, "single")
+        return
+    combined = "-".join(parts)
+    add_lyric_to_note(note, ns, combined, lyric_number, "single")
+
+
+def apply_lyric_events_measure_sync(part_el, ns, events, lyric_number, ref_part_el):
+    """기준 파트의 마디별 가사 배치를 따라 대상 파트에 duration 비율로 재주입."""
+    ref_placements = simulate_lyric_placements(events, ref_part_el, ns)
+    by_measure = {}
+    for mnum, ev in ref_placements:
+        by_measure.setdefault(mnum, []).append(ev)
+    tgt_by_m = attachable_notes_by_measure(part_el, ns)
+    for mnum, evs in by_measure.items():
+        notes = tgt_by_m.get(mnum)
+        if not notes:
+            print(
+                f"inject_ocr: 경고: 마디 {mnum}에 가사 대상 음표가 없습니다.",
+                file=sys.stderr,
+            )
+            continue
+        for bucket, note in map_events_to_notes_in_measure(evs, notes, ns):
+            _apply_event_bucket_to_note(note, ns, bucket, lyric_number)
+
+
 def is_tag(el, ns, local):
     tag = qname(ns, local)
     return el.tag == tag or el.tag.endswith("}" + local)
@@ -756,24 +887,41 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
 
     streams_by_part = collect_lyric_streams(ocr_data) if ocr_data else {}
     if streams_by_part and parts:
-        for part_index in sorted(streams_by_part.keys()):
-            stream_list = streams_by_part[part_index]
-            p_idx0 = part_index - 1
-            if p_idx0 < 0 or p_idx0 >= len(parts):
-                print(
-                    f"inject_ocr: 경고: lyricPartIndex={part_index} 인 파트가 없습니다(총 {len(parts)}개). 마지막 파트에 붙입니다.",
-                    file=sys.stderr,
-                )
-                p_idx0 = len(parts) - 1
-            part_el = parts[p_idx0]
+        # 같은 (절, 멜로디 voice)는 기준 파트(번호 최소) 마디 배치를 따라 다른 파트에 동기화
+        groups = {}
+        for part_index, stream_list in streams_by_part.items():
             for stream in stream_list:
-                verse_n = stream["verse"]
-                mv = stream["melody_voice"]
-                items = stream["items"]
-                events = build_events_for_items(
-                    items, part_el, ns, melody_voice_override=mv
+                key = (stream["verse"], stream["melody_voice"])
+                groups.setdefault(key, []).append((part_index, stream))
+
+        for (_verse_n, _mv), part_streams in sorted(groups.items()):
+            part_streams.sort(key=lambda x: x[0])
+            ref_part_index, ref_stream = part_streams[0]
+            ref_p_idx0 = ref_part_index - 1
+            if ref_p_idx0 < 0 or ref_p_idx0 >= len(parts):
+                ref_p_idx0 = len(parts) - 1
+            ref_part_el = parts[ref_p_idx0]
+            verse_n = ref_stream["verse"]
+            mv = ref_stream["melody_voice"]
+            events = build_events_for_items(
+                ref_stream["items"], ref_part_el, ns, melody_voice_override=mv
+            )
+            apply_lyric_events(ref_part_el, ns, events, lyric_number=verse_n)
+            for part_index, stream in part_streams[1:]:
+                p_idx0 = part_index - 1
+                if p_idx0 < 0 or p_idx0 >= len(parts):
+                    print(
+                        f"inject_ocr: 경고: lyricPartIndex={part_index} 인 파트가 없습니다(총 {len(parts)}개).",
+                        file=sys.stderr,
+                    )
+                    continue
+                apply_lyric_events_measure_sync(
+                    parts[p_idx0],
+                    ns,
+                    events,
+                    lyric_number=verse_n,
+                    ref_part_el=ref_part_el,
                 )
-                apply_lyric_events(part_el, ns, events, lyric_number=verse_n)
 
     _apply_part_labels_from_session(root, json_in_path)
 

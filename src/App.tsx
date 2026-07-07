@@ -337,9 +337,71 @@ function revokeTaskUrls(tasks: ConvertTask[]) {
 }
 
 const POLL_INTERVAL_MS = 2000;
+/** 네트워크 끊김 시 상태 폴링 재시도 — 최대 백오프(60s) */
+const POLL_NETWORK_MAX_BACKOFF_MS = 60_000;
+/** 이 시간 넘게 연결 실패면 포기(브라우저 탭·노트북 절전 등) */
+const POLL_NETWORK_GIVE_UP_MS = 12 * 60 * 60 * 1000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function isLikelyNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return true;
+  const m = err.message.toLowerCase();
+  return (
+    m.includes('failed to fetch') ||
+    m.includes('networkerror') ||
+    m.includes('network request failed') ||
+    m.includes('load failed') ||
+    err.name === 'TypeError'
+  );
+}
+
+/** 상태 폴링·다운로드 — 일시적 네트워크 끊김에 재시도 */
+async function fetchWithNetworkRetry(
+  url: string,
+  init: RequestInit | undefined,
+  opts: {
+    onWaiting?: (detail: string) => void;
+    giveUpMs?: number;
+    what?: string;
+  } = {},
+): Promise<Response> {
+  const giveUpMs = opts.giveUpMs ?? POLL_NETWORK_GIVE_UP_MS;
+  const what = opts.what ?? '서버';
+  let backoff = POLL_INTERVAL_MS;
+  let failSince = 0;
+
+  for (;;) {
+    try {
+      const res = await fetch(url, init);
+      return res;
+    } catch (err) {
+      if (!isLikelyNetworkError(err)) throw err;
+      if (!failSince) failSince = Date.now();
+      const elapsed = Date.now() - failSince;
+      if (elapsed >= giveUpMs) {
+        throw new Error(
+          `${what} 연결이 ${Math.round(elapsed / 60000)}분 이상 끊겼습니다. ` +
+            '노트북 절전·브라우저 탭 종료·서버(pm2) 재시작을 확인하세요. ' +
+            '긴 작업은 단계별(2단계 clean_score → 3단계 omr-work.zip)로 나누는 것을 권장합니다.',
+        );
+      }
+      opts.onWaiting?.(`${what} 연결 재시도 중… (${Math.round(elapsed / 1000)}초)`);
+      await sleep(backoff);
+      backoff = Math.min(Math.round(backoff * 1.5), POLL_NETWORK_MAX_BACKOFF_MS);
+    }
+  }
+}
+
+function jobNotFoundMessage(jobId: string): string {
+  return (
+    `작업을 찾을 수 없습니다 (ID: ${jobId.slice(0, 8)}…). ` +
+    '서버가 재시작되었거나 작업이 만료되었을 수 있습니다. ' +
+    '서버에서 `pm2 logs pdf2mxl`로 진행 여부를 확인하고, ' +
+    '필요하면 1단계에서 만든 clean_score·lyric_manifest 또는 omr-work.zip으로 이어가세요.'
+  );
 }
 
 function taskProgressPhaseLabel(phase: string): string {
@@ -584,6 +646,7 @@ export default function App() {
       onAudiverisReviewNeeded?: (jobId: string) => void,
       onOmrStaffReviewNeeded?: (jobId: string) => void,
       onPartLabelsNeeded?: (jobId: string) => void,
+      onJobAccepted?: (jobId: string) => void,
       opts?: {
         pauseAfterAudiveris?: boolean;
         pipelineMode?: PipelineMode;
@@ -637,14 +700,21 @@ export default function App() {
       return { errorMessage: '서버에서 작업 ID(jobId)를 받지 못했습니다' };
     }
     const { jobId } = accepted;
+    onJobAccepted?.(jobId);
     let reviewTriggered = false;
     let audiverisReviewTriggered = false;
     let omrStaffReviewTriggered = false;
     let partLabelsTriggered = false;
 
     for (;;) {
-      const st = await fetch(`/api/status/${jobId}`, { cache: 'no-store' });
+      const st = await fetchWithNetworkRetry(`/api/status/${jobId}`, { cache: 'no-store' }, {
+        onWaiting: (detail) => onProgress?.({ phase: 'upload', current: 0, total: 0, detail }),
+        what: '상태 조회',
+      });
       const stCt = st.headers.get('Content-Type') ?? '';
+      if (st.status === 404) {
+        return { errorMessage: jobNotFoundMessage(jobId), jobId };
+      }
       if (!st.ok) {
         let msg = `상태 조회 HTTP ${st.status}`;
         if (stCt.includes('application/json')) {
@@ -717,9 +787,15 @@ export default function App() {
       await sleep(POLL_INTERVAL_MS);
     }
 
-    const dl = await fetch(`/api/download/${jobId}`);
+    const dl = await fetchWithNetworkRetry(`/api/download/${jobId}`, undefined, {
+      onWaiting: (detail) => onProgress?.({ phase: 'audiveris', current: 0, total: 0, detail }),
+      what: '다운로드',
+    });
     const dlCt = dl.headers.get('Content-Type') ?? '';
 
+    if (dl.status === 404) {
+      return { errorMessage: jobNotFoundMessage(jobId), jobId };
+    }
     if (!dl.ok) {
       let msg = `다운로드 HTTP ${dl.status}`;
       if (dlCt.includes('application/json')) {
@@ -871,6 +947,11 @@ export default function App() {
               (jobId) => {
                 setPartLabelsJobId(jobId);
               },
+              (jobId) => {
+                setTasks((prev) =>
+                  prev.map((t) => (t.id === taskId ? { ...t, jobId } : t)),
+                );
+              },
               {
                 pauseAfterAudiveris,
                 pipelineMode,
@@ -916,7 +997,13 @@ export default function App() {
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             setTasks((prev) =>
-              prev.map((t) => (t.id === taskId ? { ...t, phase: 'error', errorMessage: msg, progress: undefined } : t)),
+              prev.map((t) => {
+                if (t.id !== taskId) return t;
+                const jobHint = t.jobId ? `\n작업 ID: ${t.jobId}` : '';
+                const friendly =
+                  isLikelyNetworkError(e) && !msg.includes('작업 ID') ? `${msg}${jobHint}` : msg;
+                return { ...t, phase: 'error', errorMessage: friendly, progress: undefined };
+              }),
             );
           }
         }

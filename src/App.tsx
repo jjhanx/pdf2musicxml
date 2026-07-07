@@ -66,8 +66,6 @@ type OcrReviewItem = {
   id: string;
   page: number;
   text: string;
-  /** 원본에서 추출한 줄 텍스트(검증용). text는 편집·토큰화 결과 */
-  rawText?: string;
   confidence: number;
   x: number;
   y: number;
@@ -538,6 +536,7 @@ export default function App() {
   const [reviewAfterOmr, setReviewAfterOmr] = useState(false);
   const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
   const [reviewNoteCounts, setReviewNoteCounts] = useState<ReviewNoteCounts | null>(null);
+  const [reviewNoteCountsLoading, setReviewNoteCountsLoading] = useState(false);
   const [manualLyricRects, setManualLyricRects] = useState<ManualLyricBBox[]>([]);
   /** 미리보기와 연동되는 검토 줄 인덱스 */
   const [focusedReviewRowIndex, setFocusedReviewRowIndex] = useState<number | null>(null);
@@ -632,22 +631,20 @@ export default function App() {
       setManualLyricRects(fromPayload);
       setFocusedReviewRowIndex(null);
       setLyricReviewUndo(null);
-      setReviewData(
-        initData.map((it) => ({
-          ...it,
-          rawText: typeof it.rawText === 'string' ? it.rawText : it.text,
-        })),
-      );
+      setReviewData(initData);
       setReviewingJobId(jobId);
       setReviewOriginalFileName(fileName);
 
       // note counts는 UI 힌트용(없어도 편집은 가능)
       try {
+        setReviewNoteCountsLoading(true);
         const nc = await fetch(`/api/review/${jobId}/note-counts`, { cache: 'no-store' });
         if (nc.ok) setReviewNoteCounts((await nc.json()) as ReviewNoteCounts);
         else setReviewNoteCounts(null);
       } catch {
         setReviewNoteCounts(null);
+      } finally {
+        setReviewNoteCountsLoading(false);
       }
 
       const saved = localStorage.getItem('pdf2mxl_review_' + fileName);
@@ -1477,10 +1474,8 @@ export default function App() {
       if (newData[index].lyricSkipNotes == null || newData[index].lyricSkipNotes! < 0) {
         newData[index].lyricSkipNotes = 0;
       }
-      // 원문에서 가사로 분류되는 순간, 한글은 음절 공백 토큰화를 자동 적용(기존 편집이 있으면 유지)
-      const raw = typeof newData[index].rawText === 'string' ? newData[index].rawText : newData[index].text;
-      if (typeof newData[index].rawText !== 'string') newData[index].rawText = raw;
-      newData[index].text = autoTokenizeLyricsText(newData[index].text || raw || '');
+      // 가사로 분류되는 순간, 한글은 음절 공백 토큰화를 자동 적용(기존 텍스트 기준)
+      newData[index].text = autoTokenizeLyricsText(newData[index].text || '');
     }
     setReviewData(newData);
   };
@@ -2536,23 +2531,6 @@ bash scripts/install-font-separator-deps.sh`}
                       </label>
                       {item.type === 'lyrics' && (
                         <>
-                          <div className="review-field review-field-grow">
-                            <span className="review-field-label">원문(줄)</span>
-                            <div
-                              style={{
-                                padding: '0.45rem 0.55rem',
-                                fontSize: '0.92rem',
-                                lineHeight: 1.35,
-                                background: '#fff',
-                                border: '1px solid #ddd',
-                                borderRadius: '4px',
-                                color: '#333',
-                              }}
-                              title="원본 PDF에서 추출된 줄 텍스트(가공/토큰화 전)"
-                            >
-                              {(item.rawText ?? item.text ?? '').toString()}
-                            </div>
-                          </div>
                           <label className="review-field">
                             <span className="review-field-label">성부</span>
                             <select
@@ -2641,6 +2619,7 @@ bash scripts/install-font-separator-deps.sh`}
                             >
                               {countLyricTokens(item.text)} /{' '}
                               {(() => {
+                                if (reviewNoteCountsLoading) return '…';
                                 const pi = item.lyricPartIndex ?? 1;
                                 const v = (item.lyricVoice ?? '1').trim() || '1';
                                 const part = reviewNoteCounts?.parts?.find((p) => (p.partIndex ?? 0) === pi);
@@ -2655,72 +2634,13 @@ bash scripts/install-font-separator-deps.sh`}
                             type="button"
                             className="btn-muted"
                             onClick={() => {
-                              const raw = (item.rawText ?? item.text ?? '').toString();
-                              handleReviewTextChange(i, autoTokenizeLyricsText(raw));
+                              handleReviewTextChange(i, autoTokenizeLyricsText(item.text));
                             }}
                             title="한글은 음절 사이에 공백을 넣어 음표 매칭을 쉽게 합니다(기존 편집 텍스트는 덮어씀)"
                             style={{ alignSelf: 'flex-end' }}
                           >
                             자동 공백
                           </button>
-                          <div className="review-field review-field-grow">
-                            <span className="review-field-label">넘버링(미리보기)</span>
-                            <div
-                              style={{
-                                padding: '0.55rem',
-                                background: '#fff',
-                                border: '1px solid #ddd',
-                                borderRadius: '6px',
-                              }}
-                              title="토큰을 공백 기준으로 나눈 뒤 1..N 순서대로 표시합니다. 공백이 없으면 1번에만 한 덩어리가 들어갑니다."
-                            >
-                              {(() => {
-                                const tokens = splitLyricTokens(item.text);
-                                const pi = item.lyricPartIndex ?? 1;
-                                const v = (item.lyricVoice ?? '1').trim() || '1';
-                                const part = reviewNoteCounts?.parts?.find((p) => (p.partIndex ?? 0) === pi);
-                                const noteCount =
-                                  !part ? null : v === '*' ? (part.total ?? null) : (part.voices?.[v] ?? part.total ?? null);
-                                const max = Math.max(
-                                  1,
-                                  Math.min(24, noteCount ?? (tokens.length || 1)),
-                                );
-                                const rows: Array<{ n: number; t: string }> = [];
-                                for (let n = 1; n <= max; n++) {
-                                  rows.push({ n, t: tokens[n - 1] ?? '' });
-                                }
-                                return (
-                                  <div
-                                    style={{
-                                      display: 'grid',
-                                      gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
-                                      gap: '0.35rem',
-                                    }}
-                                  >
-                                    {rows.map((r) => (
-                                      <div
-                                        key={r.n}
-                                        style={{
-                                          border: '1px solid #e0e0e0',
-                                          borderRadius: 6,
-                                          padding: '0.35rem 0.4rem',
-                                          minHeight: '2.35rem',
-                                          background: r.t ? '#fafafa' : '#fff',
-                                        }}
-                                      >
-                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0d47a1' }}>
-                                          {r.n}
-                                        </div>
-                                        <div style={{ fontSize: '0.9rem', color: '#111', wordBreak: 'break-word' }}>
-                                          {r.t || <span style={{ color: '#aaa' }}>·</span>}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          </div>
                         </>
                       )}
                       <label className="review-field review-field-grow">
@@ -2763,7 +2683,7 @@ bash scripts/install-font-separator-deps.sh`}
                           borderRadius: '4px',
                         }}
                       >
-                        {item.text.replace(/ /g, '').split('').map((char, slotIdx) => (
+                        {splitLyricTokens(item.text).map((token, slotIdx) => (
                           <div
                             key={slotIdx}
                             style={{
@@ -2775,13 +2695,13 @@ bash scripts/install-font-separator-deps.sh`}
                           >
                             <span style={{ fontSize: '0.75rem', color: '#666' }}>{slotIdx + 1}</span>
                             <strong
-                              style={{ fontSize: '1.1rem', color: char === '-' ? '#999' : '#000' }}
+                              style={{ fontSize: '1.1rem', color: token === '-' ? '#999' : '#000' }}
                             >
-                              {char}
+                              {token}
                             </strong>
                           </div>
                         ))}
-                        {item.text.replace(/ /g, '').length === 0 && (
+                        {splitLyricTokens(item.text).length === 0 && (
                           <span style={{ fontSize: '0.8rem', color: '#666' }}>
                             텍스트를 입력하면 음표 번호가 표시됩니다.
                           </span>

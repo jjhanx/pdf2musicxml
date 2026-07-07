@@ -491,7 +491,7 @@ def _apply_event_bucket_to_note(note, ns, evs, lyric_number):
     if not parts:
         add_lyric_to_note(note, ns, "-", lyric_number, "single")
         return
-    combined = "-".join(parts)
+    combined = " ".join(parts)
     add_lyric_to_note(note, ns, combined, lyric_number, "single")
 
 

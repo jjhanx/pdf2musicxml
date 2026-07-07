@@ -243,8 +243,11 @@ const REVIEW_TYPE_OPTIONS = [
 
 function reviewTypeSelectValue(type: string | undefined, afterOmr: boolean): string {
   if (type === 'measure_number' || type === 'page_number') return type;
-  if (type && (REVIEW_TYPE_OPTIONS as readonly string[]).includes(type)) return type;
-  return afterOmr ? 'unknown' : 'lyrics';
+  if (type && (REVIEW_TYPE_OPTIONS as readonly string[]).includes(type)) {
+    if (afterOmr && type === 'unknown') return 'lyrics';
+    return type;
+  }
+  return 'lyrics';
 }
 
 function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
@@ -267,16 +270,25 @@ function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem
   }));
 }
 
-/** OMR·HITL 후 PDF 초기 추출 — 제목·작곡·가사 텍스트는 두고 역할만 미분류 */
+/** OMR·HITL 후 PDF 초기 추출 — 역할 미지정 줄은 UI 기본값 가사 */
 function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
-  return payloadItems.map((item) => ({
-    ...item,
-    type: reviewTypeSelectValue(item.type, true),
-    lyricPartIndex: 1,
-    lyricVerseIndex: 1,
-    lyricVoice: '1',
-    lyricSkipNotes: 0,
-  }));
+  return payloadItems.map((item) => {
+    const t = item.type;
+    const role =
+      t === 'measure_number' || t === 'page_number'
+        ? t
+        : t && t !== 'unknown'
+          ? reviewTypeSelectValue(t, true)
+          : 'lyrics';
+    return {
+      ...item,
+      type: role,
+      lyricPartIndex: 1,
+      lyricVerseIndex: 1,
+      lyricVoice: '1',
+      lyricSkipNotes: 0,
+    };
+  });
 }
 
 function isPdfFile(f: File): boolean {
@@ -2255,9 +2267,10 @@ bash scripts/install-font-separator-deps.sh`}
                 <>
                   {' '}
                   Audiveris OMR과 마디·성부 검토(HITL)가 끝난 뒤, <strong>원본 PDF</strong>에서 추출한
-                  가사·메타 문자를 최종 확인합니다.                   omr-work.zip을 불러오면 기본은 <strong>PDF 초기 추출 (미분류)</strong>
-                  — 원본 PDF에서 뽑은 제목·작곡·가사 줄이 모두 보이고, 역할은 아직 지정하지 않은 상태입니다.
-                  ZIP에 저장해 둔 편집은{' '}
+                  가사·메타 문자를 최종 확인합니다. 줄마다 역할 기본값은 <strong>가사</strong>입니다.
+                  <strong>Moderato</strong>·<strong>expressivo</strong> 등 악곽 표시·표현어는{' '}
+                  <strong>미분류</strong>로 두면 MXL 가사 주입에서 빠집니다(OMR·HITL의 direction으로 다루는 경우가 많음).
+                  omr-work.zip을 불러오면 처음에는 PDF 초기 추출 상태이며, ZIP 저장 편집은{' '}
                   <strong>ZIP 저장 가사 불러오기</strong>로 이어갈 수 있습니다. 검토 결과는{' '}
                   <code>lyric_manifest.json</code>에 병합된 후 교정된 MusicXML에 주입됩니다.
                 </>
@@ -2434,8 +2447,9 @@ bash scripts/install-font-separator-deps.sh`}
                          onChange={(e) => handleReviewTypeChange(i, e.target.value)}
                          style={{ padding: '0.45rem', fontSize: '0.95rem', minWidth: '9.5rem' }}
                       >
+                         <option value="lyrics">가사</option>
                          <option value="unknown">
-                           {reviewAfterOmr ? '미분류' : '악보 기호 (마스킹 X)'}
+                           {reviewAfterOmr ? '미분류 (가사·메타 주입 제외)' : '악보 기호 (마스킹 X)'}
                          </option>
                          <option value="title">제목</option>
                          <option value="composer">작곡가</option>
@@ -2444,7 +2458,6 @@ bash scripts/install-font-separator-deps.sh`}
                          <option value="tempo">템포(BPM)</option>
                          <option value="measure_number">마디 번호</option>
                          <option value="page_number">페이지 번호</option>
-                         <option value="lyrics">가사</option>
                       </select>
                       </label>
                       {item.type === 'lyrics' && (

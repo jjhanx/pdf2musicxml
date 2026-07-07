@@ -544,7 +544,7 @@ def _sanitize_flat_inject_rows(rows):
         item = dict(raw)
         if resolve_inject_type is not None:
             item["type"] = resolve_inject_type(item)
-            if item["type"] in ("measure_number", "page_number"):
+            if item["type"] in ("measure_number", "page_number", "unknown"):
                 continue
         elif is_measure_number_item is not None and is_measure_number_item(item):
             continue

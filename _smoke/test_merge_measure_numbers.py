@@ -30,6 +30,16 @@ def test_classify_unknown_digits():
     assert resolve_inject_type(item) == "measure_number"
 
 
+def test_classify_unknown_expression_text():
+    item = {
+        "type": "unknown",
+        "text": "Moderato cantabile",
+        "bbox": [100.0, 50.0, 200.0, 62.0],
+    }
+    assert not is_measure_number_item(item)
+    assert resolve_inject_type(item) == "unknown"
+
+
 def test_classify_real_lyrics():
     item = {
         "type": "lyrics",
@@ -100,6 +110,7 @@ def test_flat_uses_pymupdf_review_not_plumber_merge():
 
 def main():
     test_classify_unknown_digits()
+    test_classify_unknown_expression_text()
     test_classify_real_lyrics()
     ok = test_merge_backup_no_digit_lyrics()
     ok = test_flat_uses_pymupdf_review_not_plumber_merge() and ok

@@ -45,7 +45,7 @@ def is_page_number_item(item: dict[str, Any]) -> bool:
 
 
 def resolve_inject_type(item: dict[str, Any]) -> str:
-    """merge·flat 출력용 type — unknown 숫자는 measure_number, 그 외 unknown은 lyrics."""
+    """merge·flat 출력용 type — unknown 숫자는 measure_number, unknown 문자는 미분류 유지."""
     t = item.get("type")
     if t == "page_number":
         return "page_number"
@@ -53,7 +53,9 @@ def resolve_inject_type(item: dict[str, Any]) -> str:
         return "measure_number"
     if is_measure_number_item(item):
         return "measure_number"
-    if t in (None, "", "unknown"):
+    if t == "unknown":
+        return "unknown"
+    if t in (None, ""):
         return "lyrics"
     return str(t)
 
@@ -451,7 +453,7 @@ def pymupdf_review_to_flat_inject_rows(
             continue
         item = dict(raw)
         item["type"] = resolve_inject_type(item)
-        if item["type"] in ("measure_number", "page_number"):
+        if item["type"] in ("measure_number", "page_number", "unknown"):
             continue
         rows.append(item)
     rows.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))

@@ -495,14 +495,66 @@ def _apply_event_bucket_to_note(note, ns, evs, lyric_number):
     add_lyric_to_note(note, ns, combined, lyric_number, "single")
 
 
-def apply_lyric_events_measure_sync(part_el, ns, events, lyric_number, ref_part_el):
-    """기준 파트의 마디별 가사 배치를 따라 대상 파트에 duration 비율로 재주입."""
-    ref_placements = simulate_lyric_placements(events, ref_part_el, ns)
-    by_measure = {}
+def _sparse_lyric_stream_items(items, ref_items):
+    """검토에서 가사 블록이 기준 파트보다 현저히 적을 때(한 줄 압축만 있는 SATB 성부)."""
+    if len(items) >= max(6, len(ref_items) // 3):
+        return False
+    return len(ref_items) > len(items) * 2
+
+
+def apply_lyric_events_measure_sync(
+    part_el, ns, target_events, lyric_number, ref_part_el, ref_events
+):
+    """기준 파트의 마디별 음절 개수를 따라 대상 파트 **자체** 가사를 재주입."""
+    ref_placements = simulate_lyric_placements(ref_events, ref_part_el, ns)
+    ref_by_measure = {}
     for mnum, ev in ref_placements:
-        by_measure.setdefault(mnum, []).append(ev)
+        ref_by_measure.setdefault(mnum, []).append(ev)
+
+    ref_syllables = [
+        ev for ev in ref_events if ev["op"] in ("syllable", "empty_note")
+    ]
+    target_syllables = [
+        ev for ev in target_events if ev["op"] in ("syllable", "empty_note")
+    ]
+    if not target_syllables and not ref_syllables:
+        return
+    if not ref_by_measure:
+        print(
+            "inject_ocr: 경고: 기준 파트에 배치할 가사가 없어 대상 파트에 순차 주입합니다.",
+            file=sys.stderr,
+        )
+        apply_lyric_events(part_el, ns, target_events, lyric_number)
+        return
+
+    def _measure_sort_key(mnum):
+        try:
+            return (0, int(mnum))
+        except (TypeError, ValueError):
+            return (1, str(mnum))
+
+    by_measure_target = {}
+    tgt_idx = 0
+    for mnum in sorted(ref_by_measure.keys(), key=_measure_sort_key):
+        ref_evs = ref_by_measure[mnum]
+        merged = []
+        for ref_ev in ref_evs:
+            if tgt_idx < len(target_syllables):
+                merged.append(target_syllables[tgt_idx])
+                tgt_idx += 1
+            else:
+                merged.append(ref_ev)
+        if merged:
+            by_measure_target[mnum] = merged
+
+    if tgt_idx < len(target_syllables):
+        last_m = sorted(ref_by_measure.keys(), key=_measure_sort_key)[-1]
+        by_measure_target.setdefault(last_m, []).extend(
+            target_syllables[tgt_idx:]
+        )
+
     tgt_by_m = attachable_notes_by_measure(part_el, ns)
-    for mnum, evs in by_measure.items():
+    for mnum, evs in by_measure_target.items():
         notes = tgt_by_m.get(mnum)
         if not notes:
             print(
@@ -542,6 +594,38 @@ def _skip_inject_meta_item(item):
     if isinstance(t, str) and t.startswith("_"):
         return True
     return t in ("measure_number", "page_number")
+
+
+_EXPRESSION_IN_LYRICS_RE = re.compile(
+    r"\b(poco|mosso|rit\.?|accel\.?|andante|moderato|allegro|cantabile|piu|più|tempo)\b",
+    re.I,
+)
+
+
+def _is_injectable_lyric_item(item):
+    """가사 주입 대상인 lyrics 항목만 통과(마디 번호·표현어 등 제외)."""
+    if _skip_inject_meta_item(item):
+        return False
+    if item.get("type") != "lyrics":
+        return False
+    try:
+        _scripts_dir = Path(__file__).resolve().parent
+        if str(_scripts_dir) not in sys.path:
+            sys.path.insert(0, str(_scripts_dir))
+        from merge_lyric_sources import is_measure_number_item
+
+        if is_measure_number_item(item):
+            return False
+    except ImportError:
+        pass
+    text = str(item.get("text") or "").strip()
+    if not text:
+        return False
+    if _EXPRESSION_IN_LYRICS_RE.search(text):
+        return False
+    if re.match(r"^\d{1,3}\s+[A-Za-z]", text):
+        return False
+    return True
 
 
 def collect_tempo_bpm(ocr_data):
@@ -621,9 +705,7 @@ def collect_lyric_streams(ocr_data):
     """
     buckets = {}
     for item in ocr_data:
-        if _skip_inject_meta_item(item):
-            continue
-        if item.get("type") != "lyrics":
+        if not _is_injectable_lyric_item(item):
             continue
         try:
             pi = int(item.get("lyricPartIndex", 1) or 1)
@@ -915,12 +997,23 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                         file=sys.stderr,
                     )
                     continue
+                sparse = _sparse_lyric_stream_items(
+                    stream["items"], ref_stream["items"]
+                )
+                source_items = ref_stream["items"] if sparse else stream["items"]
+                target_events = build_events_for_items(
+                    source_items,
+                    parts[p_idx0],
+                    ns,
+                    melody_voice_override=mv,
+                )
                 apply_lyric_events_measure_sync(
                     parts[p_idx0],
                     ns,
-                    events,
+                    target_events,
                     lyric_number=verse_n,
                     ref_part_el=ref_part_el,
+                    ref_events=events,
                 )
 
     _apply_part_labels_from_session(root, json_in_path)

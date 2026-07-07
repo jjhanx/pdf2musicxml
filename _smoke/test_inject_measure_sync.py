@@ -64,7 +64,9 @@ def main():
     items = [{"type": "lyrics", "text": "주 여 올리에 빛 비 치 - 에", "lyricPartIndex": 1, "lyricVerseIndex": 1}]
     events = build_events_for_items(items, parts[0], ns)
     apply_lyric_events(parts[0], ns, events, lyric_number=1)
-    apply_lyric_events_measure_sync(parts[1], ns, events, lyric_number=1, ref_part_el=parts[0])
+    apply_lyric_events_measure_sync(
+        parts[1], ns, events, lyric_number=1, ref_part_el=parts[0], ref_events=events
+    )
 
     p1_m10 = _lyrics_on_measure(parts[0], ns, "10")
     p2_m10 = _lyrics_on_measure(parts[1], ns, "10")

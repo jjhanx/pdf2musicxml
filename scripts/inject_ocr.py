@@ -1007,14 +1007,22 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                     ns,
                     melody_voice_override=mv,
                 )
-                apply_lyric_events_measure_sync(
-                    parts[p_idx0],
-                    ns,
-                    target_events,
-                    lyric_number=verse_n,
-                    ref_part_el=ref_part_el,
-                    ref_events=events,
-                )
+                if sparse:
+                    apply_lyric_events_measure_sync(
+                        parts[p_idx0],
+                        ns,
+                        target_events,
+                        lyric_number=verse_n,
+                        ref_part_el=ref_part_el,
+                        ref_events=events,
+                    )
+                else:
+                    apply_lyric_events(
+                        parts[p_idx0],
+                        ns,
+                        target_events,
+                        lyric_number=verse_n,
+                    )
 
     _apply_part_labels_from_session(root, json_in_path)
 

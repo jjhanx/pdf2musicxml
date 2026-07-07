@@ -64,8 +64,10 @@ def extract_vector(pdf_path, output_json_path, doc):
                 if i > 0:
                     prev = line[i-1]
                     gap = s["bbox"][0] - prev["bbox"][2]
-                    # If gap is large enough (e.g. > 4 points), add a space
-                    if gap > 4:
+                    # If gap is large enough relative to font height, add a space
+                    font_height = s["bbox"][3] - s["bbox"][1]
+                    threshold = font_height * 0.15
+                    if gap > threshold:
                         merged_text += " "
                 merged_text += s["text"]
                 

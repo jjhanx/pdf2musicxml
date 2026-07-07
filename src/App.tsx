@@ -319,7 +319,7 @@ function reviewTypeSelectValue(type: string | undefined, afterOmr: boolean): str
 function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
   return payloadItems.map((item) => ({
     ...item,
-    type: defaultReviewTypeForInit(item.type),
+    type: item.type || 'unknown',
     lyricPartIndex:
       typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
         ? Math.floor(item.lyricPartIndex)
@@ -346,9 +346,12 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
         : t
           ? reviewTypeSelectValue(t, true)
           : 'unknown';
+    // 추출 시 분류를 원치 않는 경우 unknown으로 덮어씀
+    const finalRole = defaultReviewTypeForInit(role);
     return {
       ...item,
-      type: role,
+      id: item.id || `lyric_review_${Math.random().toString(36).substring(2)}`,
+      type: finalRole,
       lyricPartIndex: 1,
       lyricVerseIndex: 1,
       lyricVoice: '1',

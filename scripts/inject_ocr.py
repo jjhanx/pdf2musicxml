@@ -497,9 +497,11 @@ def _apply_event_bucket_to_note(note, ns, evs, lyric_number):
 
 def _sparse_lyric_stream_items(items, ref_items):
     """검토에서 가사 블록이 기준 파트보다 현저히 적을 때(한 줄 압축만 있는 SATB 성부)."""
-    if len(items) >= max(6, len(ref_items) // 3):
+    ref_len = sum(len(it.get("text", "").strip()) for it in ref_items)
+    tgt_len = sum(len(it.get("text", "").strip()) for it in items)
+    if tgt_len >= max(10, ref_len // 3):
         return False
-    return len(ref_items) > len(items) * 2
+    return ref_len > tgt_len * 2
 
 
 def apply_lyric_events_measure_sync(

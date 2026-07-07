@@ -436,7 +436,7 @@ function medianMeasureWidthOsmd(row: GraphicalMeasureLike[]): number {
   return widths[Math.floor(widths.length / 2)];
 }
 
-function graphicVerticalBoundsOsmd(obj: unknown): { top: number; bottom: number } | null {
+export function graphicVerticalBoundsOsmd(obj: unknown): { top: number; bottom: number } | null {
   const bb = readPositionAndShape(obj);
   if (!bb) return null;
   const pos = readPoint(bb.AbsolutePosition ?? bb.absolutePosition);
@@ -573,6 +573,31 @@ function collectStaffLineBandsCore(
     }
   }
   return filled;
+}
+
+/** 해당 줄 첫 마디 음표·쉼표 SVG bbox 세로 중앙(host px). */
+export function rowNoteAnchorYHost(
+  row: GraphicalMeasureLike[],
+  host: HTMLElement,
+): number | null {
+  for (const gm of row) {
+    if (!gm || isExtraMeasure(gm)) continue;
+    const b = domBoundsForMeasure(gm, host);
+    if (b) return (b.top + b.bottom) / 2;
+  }
+  return null;
+}
+
+export function systemHostVerticalRange(
+  system: Record<string, unknown>,
+  layout: HostLayout,
+): { top: number; bottom: number } | null {
+  const v = graphicVerticalBoundsOsmd(system);
+  if (!v) return null;
+  return {
+    top: layout.offsetY + v.top * layout.scale,
+    bottom: layout.offsetY + v.bottom * layout.scale,
+  };
 }
 
 /** 성부 라벨용 — 오선(StaffLine) bbox 중앙. 클릭 밴드 확장·마디 합집합 폴백 없음. */

@@ -319,23 +319,31 @@ function reviewTypeSelectValue(type: string | undefined, afterOmr: boolean): str
 }
 
 function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
-  return payloadItems.map((item) => ({
-    ...item,
-    type: defaultReviewTypeForInit(item.type),
-    lyricPartIndex:
-      typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
-        ? Math.floor(item.lyricPartIndex)
-        : 1,
-    lyricVerseIndex:
-      typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
-        ? Math.floor(item.lyricVerseIndex)
-        : 1,
-    lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
-    lyricSkipNotes:
-      typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
-        ? Math.floor(item.lyricSkipNotes)
-        : 0,
-  }));
+  return payloadItems.map((item) => {
+    const resolvedType = defaultReviewTypeForInit(item.type);
+    let newText = item.text || '';
+    if (resolvedType === 'lyrics') {
+      newText = autoTokenizeLyricsText(newText);
+    }
+    return {
+      ...item,
+      type: resolvedType,
+      text: newText,
+      lyricPartIndex:
+        typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
+          ? Math.floor(item.lyricPartIndex)
+          : 1,
+      lyricVerseIndex:
+        typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
+          ? Math.floor(item.lyricVerseIndex)
+          : 1,
+      lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
+      lyricSkipNotes:
+        typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
+          ? Math.floor(item.lyricSkipNotes)
+          : 0,
+    };
+  });
 }
 
 /** OMR·HITL 후 PDF 초기 추출 — 역할 미지정 줄은 UI 기본값 가사 */

@@ -66,6 +66,8 @@ type OcrReviewItem = {
   id: string;
   page: number;
   text: string;
+  /** 원본에서 추출한 줄 텍스트(검증용). text는 편집·토큰화 결과 */
+  rawText?: string;
   confidence: number;
   x: number;
   y: number;
@@ -82,6 +84,52 @@ type OcrReviewItem = {
   /** 이 블록의 가사를 넣기 전, 해당 성부에서 건너뛸 선율 음표 수(박·도입 등) */
   lyricSkipNotes?: number;
 };
+
+type ReviewNoteCounts = {
+  parts?: Array<{
+    partIndex?: number;
+    id?: string;
+    total?: number;
+    voices?: Record<string, number>;
+  }>;
+};
+
+function isHangulSyllableChar(ch: string): boolean {
+  if (!ch) return false;
+  const code = ch.codePointAt(0) ?? 0;
+  return code >= 0xac00 && code <= 0xd7a3;
+}
+
+function autoTokenizeLyricsText(raw: string): string {
+  const s = (raw ?? '').trim();
+  if (!s) return '';
+  // 이미 토큰 문법(공백/하이픈)으로 편집한 것으로 보이면 그대로 둔다.
+  if (/\s/.test(s) || / - /.test(s)) return s;
+  // 한글: 음절 간 공백
+  const hangulCount = Array.from(s).filter(isHangulSyllableChar).length;
+  if (hangulCount >= Math.max(3, Math.floor(s.length * 0.5))) {
+    const chars = Array.from(s);
+    const out: string[] = [];
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
+      out.push(ch);
+      const next = chars[i + 1];
+      if (isHangulSyllableChar(ch) && isHangulSyllableChar(next)) out.push(' ');
+    }
+    return out.join('').replace(/\s+/g, ' ').trim();
+  }
+  // 영어/기타: 원문 유지(단어 경계 공백은 보통 이미 존재)
+  return s;
+}
+
+function countLyricTokens(text: string): number {
+  const s = (text ?? '').trim();
+  if (!s) return 0;
+  if (/\s/.test(s)) {
+    return s.split(/\s+/).filter(Boolean).length;
+  }
+  return 1;
+}
 
 function mergeReviewFieldsFromSaved(
   item: OcrReviewItem,
@@ -482,6 +530,7 @@ export default function App() {
   /** font_separator: OMR·HITL 이후 가사 검증(원본 PDF 미리보기) */
   const [reviewAfterOmr, setReviewAfterOmr] = useState(false);
   const [reviewData, setReviewData] = useState<OcrReviewItem[]>([]);
+  const [reviewNoteCounts, setReviewNoteCounts] = useState<ReviewNoteCounts | null>(null);
   const [manualLyricRects, setManualLyricRects] = useState<ManualLyricBBox[]>([]);
   /** 미리보기와 연동되는 검토 줄 인덱스 */
   const [focusedReviewRowIndex, setFocusedReviewRowIndex] = useState<number | null>(null);
@@ -576,9 +625,23 @@ export default function App() {
       setManualLyricRects(fromPayload);
       setFocusedReviewRowIndex(null);
       setLyricReviewUndo(null);
-      setReviewData(initData);
+      setReviewData(
+        initData.map((it) => ({
+          ...it,
+          rawText: typeof it.rawText === 'string' ? it.rawText : it.text,
+        })),
+      );
       setReviewingJobId(jobId);
       setReviewOriginalFileName(fileName);
+
+      // note counts는 UI 힌트용(없어도 편집은 가능)
+      try {
+        const nc = await fetch(`/api/review/${jobId}/note-counts`, { cache: 'no-store' });
+        if (nc.ok) setReviewNoteCounts((await nc.json()) as ReviewNoteCounts);
+        else setReviewNoteCounts(null);
+      } catch {
+        setReviewNoteCounts(null);
+      }
 
       const saved = localStorage.getItem('pdf2mxl_review_' + fileName);
       setHasSavedData(!!saved);
@@ -1407,6 +1470,10 @@ export default function App() {
       if (newData[index].lyricSkipNotes == null || newData[index].lyricSkipNotes! < 0) {
         newData[index].lyricSkipNotes = 0;
       }
+      // 원문에서 가사로 분류되는 순간, 한글은 음절 공백 토큰화를 자동 적용(기존 편집이 있으면 유지)
+      const raw = typeof newData[index].rawText === 'string' ? newData[index].rawText : newData[index].text;
+      if (typeof newData[index].rawText !== 'string') newData[index].rawText = raw;
+      newData[index].text = autoTokenizeLyricsText(newData[index].text || raw || '');
     }
     setReviewData(newData);
   };
@@ -2462,6 +2529,23 @@ bash scripts/install-font-separator-deps.sh`}
                       </label>
                       {item.type === 'lyrics' && (
                         <>
+                          <div className="review-field review-field-grow">
+                            <span className="review-field-label">원문(줄)</span>
+                            <div
+                              style={{
+                                padding: '0.45rem 0.55rem',
+                                fontSize: '0.92rem',
+                                lineHeight: 1.35,
+                                background: '#fff',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                color: '#333',
+                              }}
+                              title="원본 PDF에서 추출된 줄 텍스트(가공/토큰화 전)"
+                            >
+                              {(item.rawText ?? item.text ?? '').toString()}
+                            </div>
+                          </div>
                           <label className="review-field">
                             <span className="review-field-label">성부</span>
                             <select
@@ -2534,6 +2618,42 @@ bash scripts/install-font-separator-deps.sh`}
                               style={{ width: '3.5rem', padding: '0.4rem' }}
                             />
                           </label>
+                          <div className="review-field">
+                            <span className="review-field-label">토큰/음표</span>
+                            <div
+                              style={{
+                                padding: '0.45rem 0.55rem',
+                                fontSize: '0.9rem',
+                                minWidth: '8.25rem',
+                                textAlign: 'center',
+                                background: '#f5f5f5',
+                                border: '1px solid #ccc',
+                                borderRadius: '4px',
+                              }}
+                              title="현재 편집 텍스트의 토큰 수(공백 기준) / 해당 성부·voice의 가사 대상 음표 수"
+                            >
+                              {countLyricTokens(item.text)} /{' '}
+                              {(() => {
+                                const pi = item.lyricPartIndex ?? 1;
+                                const v = (item.lyricVoice ?? '1').trim() || '1';
+                                const part = reviewNoteCounts?.parts?.find((p) => (p.partIndex ?? 0) === pi);
+                                const n = part?.voices?.[v];
+                                return typeof n === 'number' ? n : part?.total ?? '?';
+                              })()}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-muted"
+                            onClick={() => {
+                              const raw = (item.rawText ?? item.text ?? '').toString();
+                              handleReviewTextChange(i, autoTokenizeLyricsText(raw));
+                            }}
+                            title="한글은 음절 사이에 공백을 넣어 음표 매칭을 쉽게 합니다(기존 편집 텍스트는 덮어씀)"
+                            style={{ alignSelf: 'flex-end' }}
+                          >
+                            자동 공백
+                          </button>
                         </>
                       )}
                       <label className="review-field review-field-grow">

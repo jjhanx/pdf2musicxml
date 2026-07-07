@@ -1857,6 +1857,9 @@ function applyBaselineReviewShape(items: unknown[]): unknown[] {
   return items.map((item) => {
     if (!item || typeof item !== 'object') return item;
     const o = stripLyricReviewMeta(item) as Record<string, unknown>;
+    if (typeof o.rawText !== 'string' && typeof o.text === 'string') {
+      o.rawText = o.text;
+    }
     const t = o.type;
     if (t === 'measure_number' || t === 'page_number') {
       return o;
@@ -1874,39 +1877,17 @@ async function buildInitialLyricReviewItems(opts: {
   scriptExtract: string;
   scriptMergeLyrics: string;
 }): Promise<unknown[]> {
-  const { sessionRoot, pdfPath, pythonBin, scriptExtract, scriptMergeLyrics } = opts;
+  const { sessionRoot, pdfPath, pythonBin, scriptExtract } = opts;
   const extractedJsonPath = path.join(sessionRoot, 'extracted_music_text.json');
   const tempPymupdf = path.join(sessionRoot, '_lyric_baseline_pymupdf.json');
-  const tempManifest = path.join(sessionRoot, '_lyric_baseline_manifest.json');
-  const tempInitial = path.join(sessionRoot, '_lyric_baseline_initial.json');
 
   await fs.unlink(tempPymupdf).catch(() => {});
-  await fs.unlink(tempManifest).catch(() => {});
-  await fs.unlink(tempInitial).catch(() => {});
+  // NOTE: 사용자가 "원본 라인 그대로" 검증을 원해 baseline은 PyMuPDF 1차 추출만 사용합니다.
+  // (pdfplumber 병합/보강은 lyric_manifest 생성 단계에서만 사용)
 
   await exec(`"${pythonBin}" "${scriptExtract}" "${pdfPath}" "${tempPymupdf}"`, {
     maxBuffer: 16 * 1024 * 1024,
   });
-
-  if (fsSync.existsSync(extractedJsonPath)) {
-    const mergeArgs = [
-      `"${pythonBin}"`,
-      `"${scriptMergeLyrics}"`,
-      `"${extractedJsonPath}"`,
-      `"${tempManifest}"`,
-      `--pymupdf-review "${tempPymupdf}"`,
-      `--output-initial-review "${tempInitial}"`,
-    ];
-    await exec(mergeArgs.join(' '), { maxBuffer: 16 * 1024 * 1024 });
-    const initial = JSON.parse(await fs.readFile(tempInitial, 'utf8')) as unknown;
-    if (!Array.isArray(initial)) {
-      throw new Error('initial review JSON이 배열이 아닙니다');
-    }
-    await fs.unlink(tempPymupdf).catch(() => {});
-    await fs.unlink(tempManifest).catch(() => {});
-    await fs.unlink(tempInitial).catch(() => {});
-    return applyBaselineReviewShape(stripLyricReviewMetaList(initial));
-  }
 
   const raw = JSON.parse(await fs.readFile(tempPymupdf, 'utf8')) as unknown;
   await fs.unlink(tempPymupdf).catch(() => {});
@@ -4262,6 +4243,32 @@ app.get('/api/review/:jobId/pdf-page-png/:pageNum', async (req, res) => {
     res.sendFile(path.resolve(cacheFile));
   } catch (e) {
     if (!res.headersSent) res.status(500).json({ error: String(e) });
+  }
+});
+
+/** 가사 검증 UI용 — 현재 score의 part/voice별 가사 대상 음표 수 */
+app.get('/api/review/:jobId/note-counts', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  if (!mxlPath || !fsSync.existsSync(mxlPath)) {
+    res.status(404).json({ error: '세션에 MusicXML이 없습니다' });
+    return;
+  }
+  try {
+    const pythonBin = resolvePythonBin();
+    const script = path.join(__dirname, '..', 'scripts', 'count_attachable_notes.py');
+    const { stdout } = await exec(`"${pythonBin}" "${script}" "${mxlPath}"`, {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    const parsed = JSON.parse(stdout.trim() || '{}') as unknown;
+    res.json(parsed);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
   }
 });
 

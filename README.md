@@ -222,6 +222,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`, 선택 **`pauseAfterAudiveris`**, 선택 **`pipelineMode`** (`font_separator` \| `pymupdf_review` \| `audiveris_only`, 기본 `font_separator`), **`font_separator`일 때** 선택 **`enablePymupdfReview`** (`true`/`false`, 기본 `true`). **202 Accepted** + `{ "jobId" }`. |
 | `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → (`audiveris_review_needed`) → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
 | `GET /api/review/:jobId` | 상태가 `review_needed`일 때 추출된 문자 영역(좌표/텍스트) 데이터 가져오기 |
+| `GET /api/review/:jobId/note-counts` | 가사 검증 UI 힌트용. 현재 MusicXML에서 **파트/voice별 가사 대상 음표 수** JSON(쉼표·그레이스 제외). |
 | `GET /api/review/:jobId/pdf-dimensions` | `review_needed` 단계만. 업로드 PDF 페이지 크기(pt) JSON(`pdf_diagnostic.py pagesizes`) — 수동 가사 마스킹 좌표 변환 |
 | `GET /api/review/:jobId/pdf-page-png/:pageNum` | `review_needed` 단계만. 한 페이지 미리보기 PNG(쿼리 `dpi` 기본 **118**) |
 | `POST /api/review/:jobId` | 본문은 **항목 배열**이거나 `{ "items": [...], "transposeSemitones"?: number }` — 마스킹·가사 분류 제출 후 Audiveris 단계 재개. 수동 마스킹은 항목 `type`: `_manual_lyric_mask`, `manualRects`: `[{ "page": 1, "bbox": [x0,y0,x1,y1] }, …]`(PDF pt·PyMuPDF 좌표)로 포함됩니다. `transposeSemitones`는 API·고급용(가사 검토 웹 UI에서는 생략, 0과 동일); 음높이 조정 안내는 「Audiveris 직후 수동 보정」 참고 |

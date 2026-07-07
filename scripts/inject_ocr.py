@@ -321,8 +321,12 @@ def build_events_for_items(items_sorted, part_el=None, ns=None, melody_voice_ove
             skip = int(it.get("lyricSkipNotes", 0) or 0)
         except (TypeError, ValueError):
             skip = 0
-        if skip > 0:
-            events.append({"op": "skip_notes", "count": skip, "voice": voice})
+        
+        # UI에서 계산된 빈칸(lyricSkipNotes)을 무시하고,
+        # 오직 사용자가 입력한 텍스트 토큰(가사 및 하이픈) 기반으로만 1:1 매핑하도록 강제.
+        # if skip > 0:
+        #     events.append({"op": "skip_notes", "count": skip, "voice": voice})
+
         text = it.get("text", "") or ""
         events.extend(parse_lyric_text_events(text, voice))
     return events

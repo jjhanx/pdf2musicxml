@@ -35,6 +35,44 @@ function rangeKey(r: FontStripRange): string {
   return `${r.minPt}-${r.maxPt}`;
 }
 
+/** pdf_separator.py SIZE_MATCH_EPS 와 동일 — 행별 pt ± tol 밴드 */
+const SIZE_MATCH_EPS = 0.35;
+
+function isSizeInRanges(sizePt: number, ranges: FontStripRange[]): boolean {
+  return ranges.some((r) => sizePt >= r.minPt - 0.01 && sizePt <= r.maxPt + 0.01);
+}
+
+function addSizeBand(ranges: FontStripRange[], sizePt: number): FontStripRange[] {
+  const band: FontStripRange = {
+    minPt: Math.round((sizePt - SIZE_MATCH_EPS) * 100) / 100,
+    maxPt: Math.round((sizePt + SIZE_MATCH_EPS) * 100) / 100,
+    label: `${sizePt}pt`,
+    sizePt,
+  };
+  return mergeSelectedRanges([...ranges, band]);
+}
+
+/** 병합 범위(예: 7–17pt)에서 한 pt 행만 빼기 */
+function removeSizeFromRanges(ranges: FontStripRange[], sizePt: number): FontStripRange[] {
+  const excMin = sizePt - SIZE_MATCH_EPS;
+  const excMax = sizePt + SIZE_MATCH_EPS;
+  const gap = 0.01;
+  const out: FontStripRange[] = [];
+  for (const r of ranges) {
+    if (sizePt < r.minPt - 0.01 || sizePt > r.maxPt + 0.01) {
+      out.push({ ...r });
+      continue;
+    }
+    if (r.minPt < excMin - gap) {
+      out.push({ ...r, maxPt: Math.round((excMin - gap) * 100) / 100 });
+    }
+    if (r.maxPt > excMax + gap) {
+      out.push({ ...r, minPt: Math.round((excMax + gap) * 100) / 100 });
+    }
+  }
+  return mergeSelectedRanges(out);
+}
+
 function rangesEqual(a: FontStripRange[], b: FontStripRange[]): boolean {
   if (a.length !== b.length) return false;
   const sa = [...a].map(rangeKey).sort();
@@ -72,7 +110,6 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
   const [customMax, setCustomMax] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [selectedSizes, setSelectedSizes] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -92,12 +129,6 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
           ...(data.suggestedRanges ?? []).filter((s) => (s.sizePt ?? 0) > 17),
         ]);
         setSelected(initial);
-        const sizeSet = new Set<number>();
-        for (const e of data.entries ?? []) {
-          if (e.sizePt >= 7 && e.sizePt <= 17) sizeSet.add(e.sizePt);
-          if (e.sizePt > 17 && (e.hasHangul || e.hasLatin) && e.sizePt <= 48) sizeSet.add(e.sizePt);
-        }
-        setSelectedSizes(sizeSet);
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
       }
@@ -116,26 +147,9 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
   };
 
   const toggleSizeRow = (sizePt: number) => {
-    const tol = 0.35;
-    const band: FontStripRange = {
-      minPt: Math.round((sizePt - tol) * 100) / 100,
-      maxPt: Math.round((sizePt + tol) * 100) / 100,
-      label: `${sizePt}pt`,
-      sizePt,
-    };
-    const key = rangeKey(band);
-    const has = selected.some((r) => rangeKey(r) === key);
-    setSelectedSizes((prev) => {
-      const next = new Set(prev);
-      if (has) next.delete(sizePt);
-      else next.add(sizePt);
-      return next;
-    });
-    if (has) {
-      setSelected((prev) => prev.filter((r) => rangeKey(r) !== key));
-    } else {
-      setSelected((prev) => mergeSelectedRanges([...prev, band]));
-    }
+    setSelected((prev) =>
+      isSizeInRanges(sizePt, prev) ? removeSizeFromRanges(prev, sizePt) : addSizeBand(prev, sizePt),
+    );
   };
 
   const addCustomRange = () => {
@@ -235,7 +249,7 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
               </thead>
               <tbody>
                 {(stats.entries ?? []).map((e) => {
-                  const active = selectedSizes.has(e.sizePt);
+                  const active = isSizeInRanges(e.sizePt, selected);
                   const likelyMusic = e.sizePt >= 20 && !e.hasHangul && !e.hasLatin;
                   return (
                     <tr

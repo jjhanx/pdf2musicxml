@@ -130,9 +130,9 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
         OMR이 인식한 <strong>파트(성부)</strong>마다 짧은 이름을 붙입니다. homr 등 OMR이 파트를
         적게 만들어도(예: 3개), 문자 검토에서 정한 <strong>S A T B PR PL</strong> 등 전체 성부 수에
         맞춰 라벨을 지정할 수 있습니다. OMR에 없는 파트는 가사·lint 매핑용입니다. 확정한 라벨은 OMR
-        lint·검토와 <strong>최종 MXL part-name</strong>에 반영됩니다. <strong>P</strong>·
-        <strong>PR</strong>·<strong>PL</strong>은 MusicXML에서 <strong>Piano</strong>(약어 Pno.)로
-        표기됩니다. 단일 피아노 파트는 기본 <strong>P</strong>를 권장합니다. PDF{' '}
+        lint·검토와 <strong>최종 MXL part-name</strong>에 반영됩니다. <strong>S/A/T/B/P</strong> 등은
+        MusicXML에 <strong>같은 약어</strong>로 들어갑니다. 양손 피아노만 <strong>PR</strong>·
+        <strong>PL</strong> → <strong>Piano</strong>(Pno.). PDF{' '}
         <strong>페이지(p.)</strong> 번호와 혼동하지 않도록 합니다.
       </p>
 

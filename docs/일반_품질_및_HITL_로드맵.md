@@ -71,7 +71,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 ### E. 4단계 — 성부 라벨 + OMR HITL (웹 UI)
 
 1. (선택) **문자 검토** 화면 상단에서 성부 라벨(S A T B PR PL)을 미리 적어 두면 Audiveris 이후에 초안으로 쓰입니다. **폰트 분리 모드**에서는 가사 역할·텍스트 **최종 검증 UI가 OMR·HITL 이후**에 열립니다(「OMR·HITL 후 PyMuPDF 가사 검증·편집」체크, 기본 켜짐). 미리보기는 **원본 PDF**(`input.pdf`)입니다.
-2. Audiveris 종료 후 **성부 라벨 지정** 모달(OMR HITL 켜짐 시, 매 변환마다) — 확정 시 `part_labels.json`. 문자 검토만 끝낸 경우 `part_labels_preset.json`만 있어도 MXL·lint에 초안이 쓰이며, 완료 직전 서버가 `part_labels.json`으로 복사할 수 있습니다. 확정·초안 라벨은 **최종 MXL/MusicXML**의 `<part-name>`(내부 `<display-text>` 포함)·`instrument-name`·`midi-name` 등에 쓰입니다. Audiveris 기본 **Voice**는 `scripts/apply_part_labels.py`와 `inject_ocr.py` 마지막 단계에서 덮어씁니다. `PR`·`PL` → **Piano**(`Pno.`).
+2. Audiveris 종료 후 **성부 라벨 지정** 모달(OMR HITL 켜짐 시, 매 변환마다) — 확정 시 `part_labels.json`. 문자 검토만 끝낸 경우 `part_labels_preset.json`만 있어도 MXL·lint에 초안이 쓰이며, 완료 직전 서버가 `part_labels.json`으로 복사할 수 있습니다. 확정·초안 라벨은 **최종 MXL/MusicXML**의 `<part-name>`(내부 `<display-text>` 포함)·`instrument-name`·`midi-name` 등에 쓰입니다. Audiveris 기본 **Voice**는 `scripts/apply_part_labels.py`와 `inject_ocr.py` 마지막 단계에서 덮어씁니다. **S/A/T/B/P** 등은 라벨 그대로, 양손 피아노 **PR·PL**만 **Piano**(`Pno.`).
 3. 「Audiveris 직후 OMR 품질 검토」체크 **켜짐**(기본)으로 변환.
 4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
 5. **OMR 페이지·성부 품질 검토** 모달 (MuseScore **불필요**):

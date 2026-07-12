@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""part_labels.json / preset 라벨을 MusicXML score-part 이름에 반영 (PR·PL → Piano)."""
+"""part_labels.json / preset 라벨을 MusicXML score-part 이름에 반영 (PR·PL → Piano, P·S/A/T/B는 그대로)."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +12,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-_PIANO_LABELS = frozenset({"P", "PR", "PL"})
+# 양손 피아노 약어(PR·PL)만 MusicXML 표시명 Piano. 단일 P는 S/A/T/B처럼 라벨 그대로.
+_PIANO_DISPLAY_LABELS = frozenset({"PR", "PL"})
 _DISPLAY_NAME_TAGS = frozenset({"part-name", "instrument-name", "midi-name"})
 _ABBREV_TAGS = frozenset({"part-abbreviation", "instrument-abbreviation"})
 _NAME_CONTAINER_TAGS = frozenset({"part-name", "part-abbreviation"})
@@ -66,13 +67,13 @@ def label_to_part_name(label: str) -> str:
     text = (label or "").strip()
     if not text:
         return "Part"
-    if text.upper() in _PIANO_LABELS:
+    if text.upper() in _PIANO_DISPLAY_LABELS:
         return "Piano"
     return text
 
 
 def label_to_part_abbrev(label: str, display_name: str) -> str:
-    if display_name == "Piano":
+    if display_name == "Piano" and (label or "").strip().upper() in _PIANO_DISPLAY_LABELS:
         return "Pno."
     if len(display_name) <= 4:
         return display_name
@@ -251,7 +252,7 @@ def apply_part_labels_file(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="MXL/MusicXML part-name에 성부 라벨 반영 (PR/PL → Piano)")
+    ap = argparse.ArgumentParser(description="MXL/MusicXML part-name에 성부 라벨 반영 (PR/PL→Piano, P·SATB는 라벨 그대로)")
     ap.add_argument("score_in", type=Path)
     ap.add_argument("score_out", type=Path, nargs="?", default=None)
     ap.add_argument("--part-labels-json", type=Path, default=None)

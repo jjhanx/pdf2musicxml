@@ -3637,6 +3637,48 @@ def _calculate_staff1_duration_robust(measure: ET.Element, ns: str) -> int:
     return max_staff1_time
 
 
+def _repair_same_staff_backup_before_forward(measure: ET.Element, ns: str) -> int:
+    """HITL로 앞 voice 길이가 바뀐 뒤 `<backup>` duration이 stale일 때 보조 voice `<forward>` 앞 backup을 맞춤."""
+    children = list(measure)
+    repaired = 0
+    for i, el in enumerate(children):
+        if _local(el) != "backup":
+            continue
+        j = i + 1
+        while j < len(children) and _local(children[j]) not in ("note", "forward"):
+            j += 1
+        if j >= len(children) or _local(children[j]) != "forward":
+            continue
+        fwd = children[j]
+        if fwd.find(_q(ns, "voice")) is None:
+            continue
+        seg_notes: list[ET.Element] = []
+        staff: str | None = None
+        voice: str | None = None
+        for k in range(i - 1, -1, -1):
+            if _local(children[k]) == "note":
+                v, st = _note_voice_staff(children[k], ns)
+                if staff is None:
+                    staff, voice = st, v
+                if st != staff or v != voice:
+                    break
+                seg_notes.insert(0, children[k])
+            elif _local(children[k]) in ("backup", "forward"):
+                break
+        if not seg_notes:
+            continue
+        layer_dur = _voice_layer_duration(seg_notes, ns)
+        if layer_dur <= 0:
+            continue
+        dur_el = el.find(_q(ns, "duration"))
+        if dur_el is None:
+            continue
+        if dur_el.text != str(layer_dur):
+            dur_el.text = str(layer_dur)
+            repaired += 1
+    return repaired
+
+
 def _align_staves_timeline(measure: ET.Element, ns: str) -> None:
     notes = list_note_elements(measure, ns)
     staff1_notes = [n for n in notes if _note_voice_staff(n, ns)[1] == "1" and not _is_grace_or_cue(n, ns)]
@@ -3678,6 +3720,7 @@ def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
         _rebuild_measure_preserve_voices(measure, ns)
     else:
         _rebuild_measure_flat_staffs(measure, ns)
+    _repair_same_staff_backup_before_forward(measure, ns)
     _align_staves_timeline(measure, ns)
 
 

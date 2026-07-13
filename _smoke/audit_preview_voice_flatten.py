@@ -41,20 +41,31 @@ def dur_el(el: ET.Element) -> int:
 
 
 def staff_timed_notes(measure: ET.Element) -> list[tuple[ET.Element, int, str, int]]:
-    t = 0
+    voice_cursor: dict[str, int] = {}
+    last_note_voice = "1"
     out = []
     for child in measure:
         tag = local(child)
         if tag == "backup":
-            t = max(0, t - dur_el(child))
+            v_el = child.find("{*}voice")
+            v = v_el.text if v_el is not None and v_el.text else last_note_voice
+            d = dur_el(child)
+            voice_cursor[v] = max(0, voice_cursor.get(v, 0) - d)
         elif tag == "forward":
-            t += dur_el(child)
+            v_el = child.find("{*}voice")
+            v = v_el.text if v_el is not None and v_el.text else last_note_voice
+            d = dur_el(child)
+            voice_cursor[v] = voice_cursor.get(v, 0) + d
         elif tag == "note":
+            v_el = child.find("{*}voice")
+            v = v_el.text if v_el is not None and v_el.text else "1"
+            last_note_voice = v
+            t = voice_cursor.get(v, 0)
             dur = note_dur(child)
             end = t if is_chord(child) else t + dur
-            out.append((child, t, note_voice(child), end))
+            out.append((child, t, v, end))
             if not is_chord(child):
-                t = end
+                voice_cursor[v] = end
     return out
 
 

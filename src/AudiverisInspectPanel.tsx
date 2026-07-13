@@ -385,22 +385,35 @@ function timelineDurationEl(el: Element): number {
 
 type StaffTimedNote = { note: Element; time: number; voice: string; end: number };
 
-/** 문서 순서 backup/forward로 staff 음표 시각·voice 구간을 계산. */
+function timelineVoiceN(el: Element, fallbackVoice: string): string {
+  const v = el.querySelector(':scope > voice, :scope > *|voice');
+  const text = v?.textContent?.trim();
+  return text || fallbackVoice;
+}
+
+/** voice별 cursor — backup(voice 없음)은 직전 note voice에만 적용(MusicXML·HITL 삽입 후 stale backup 대응). */
 function staffTimedNotesInMeasure(measure: Element): StaffTimedNote[] {
-  let t = 0;
+  const voiceCursor = new Map<string, number>();
+  let lastNoteVoice = '1';
   const out: StaffTimedNote[] = [];
   for (const child of [...measure.children]) {
     const tag = xmlLocalName(child);
     if (tag === 'backup') {
-      t = Math.max(0, t - timelineDurationEl(child));
+      const v = timelineVoiceN(child, lastNoteVoice);
+      const dur = timelineDurationEl(child);
+      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - dur));
     } else if (tag === 'forward') {
-      t += timelineDurationEl(child);
+      const v = timelineVoiceN(child, lastNoteVoice);
+      const dur = timelineDurationEl(child);
+      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + dur);
     } else if (tag === 'note') {
-      const dur = noteDurationN(child);
       const voice = noteVoiceN(child);
+      lastNoteVoice = voice;
+      const t = voiceCursor.get(voice) ?? 0;
+      const dur = noteDurationN(child);
       const end = isChordNote(child) ? t : t + dur;
       out.push({ note: child, time: t, voice, end });
-      if (!isChordNote(child)) t = end;
+      if (!isChordNote(child)) voiceCursor.set(voice, end);
     }
   }
   return out;

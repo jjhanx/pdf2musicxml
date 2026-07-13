@@ -65,6 +65,15 @@ def _strip_invented_keys_enabled() -> bool:
     return _env_truthy("AUDIVERIS_MXL_NORMALIZE_KEYS", default=False)
 
 
+def _opening_key_explicit_enabled() -> bool:
+    """m1 `<key>` 생략 시 C major(`fifths=0`) 명시 — 기본 off (OMR/HITL 그대로).
+
+    `AUDIVERIS_MXL_OPENING_KEY_EXPLICIT=1` 로 OSMD가 뒤쪽 조표를 첫머리로 당겨 그리는
+    현상 완화(구 동작). 조표·clef 오인은 HITL에서 수정.
+    """
+    return _env_truthy("AUDIVERIS_MXL_OPENING_KEY_EXPLICIT", default=False)
+
+
 # 조표 유무 판단: part-list 앞쪽 N개 마디(픽업·anacrusis 포함)
 _OPENING_KEY_MEASURES = 4
 
@@ -4307,8 +4316,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["directions_removed"] += dr
             stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
 
-    # 1a) m1 조표 생략 → C major 명시 (OSMD가 뒤쪽 조바꿈 조표를 첫머리로 당기는 현상 완화)
-    stats["opening_key_explicit"] += _ensure_explicit_opening_key_signatures(root, ns)
+    # 1a) m1 조표 생략 → C major 명시 (기본 off — HITL·OMR 조표는 사람이 보정)
+    if _opening_key_explicit_enabled():
+        stats["opening_key_explicit"] += _ensure_explicit_opening_key_signatures(root, ns)
 
     # 1b) Audiveris 조표: 조바꿈(앵커) 유지, 줄머리 오인·courtesy 반복만 제거
     if _strip_invented_keys_enabled():

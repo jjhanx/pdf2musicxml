@@ -670,7 +670,7 @@ async function syncOmrReviewMxl(
   hitlApplied: number;
   hitlSkipped: number;
   pendingCleared: number;
-  syncMode: 'full' | 'incremental' | 'restore' | 'init';
+  syncMode: 'full' | 'incremental' | 'restore' | 'restore-from-raw' | 'init';
   chordBeamMeasuresCleaned: number;
 }> {
   await ensureAudiverisRawBackup(scorePath, sessionRoot);
@@ -689,7 +689,7 @@ async function syncOmrReviewMxl(
     chordBeamMeasuresCleaned: 0,
   };
 
-  let syncMode: 'full' | 'incremental' | 'restore' | 'init';
+  let syncMode: 'full' | 'incremental' | 'restore' | 'restore-from-raw' | 'init';
   let postStats = { ...emptyPost };
   let hitlApplied = 0;
   let hitlSkipped = 0;
@@ -721,7 +721,22 @@ async function syncOmrReviewMxl(
     await writeOmrHitlFixes(sessionRoot, []);
   } else if (hasBaseline) {
     syncMode = 'restore';
-    await fs.copyFile(baselinePath, scorePath);
+    let priorCheckpoint: { totalHitlApplied?: number } = {};
+    try {
+      priorCheckpoint = JSON.parse(
+        await fs.readFile(sessionOmrHitlCheckpointPath(sessionRoot), 'utf8'),
+      ) as { totalHitlApplied?: number };
+    } catch {
+      /* first restore */
+    }
+    const totalHitlApplied = priorCheckpoint.totalHitlApplied ?? 0;
+    if (totalHitlApplied === 0 && fixes.length === 0 && fsSync.existsSync(rawPath)) {
+      await fs.copyFile(rawPath, scorePath);
+      await saveHitlBaseline(sessionRoot, scorePath);
+      syncMode = 'restore-from-raw';
+    } else {
+      await fs.copyFile(baselinePath, scorePath);
+    }
   } else {
     syncMode = 'init';
     if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
@@ -740,6 +755,18 @@ async function syncOmrReviewMxl(
     hitlApplied,
     hitlSkipped,
     pendingCleared,
+    totalHitlApplied: (() => {
+      let prior = 0;
+      try {
+        const prev = JSON.parse(
+          fsSync.readFileSync(sessionOmrHitlCheckpointPath(sessionRoot), 'utf8'),
+        ) as { totalHitlApplied?: number };
+        prior = prev.totalHitlApplied ?? 0;
+      } catch {
+        /* none */
+      }
+      return prior + hitlApplied;
+    })(),
   };
   await fs.writeFile(sessionOmrHitlCheckpointPath(sessionRoot), JSON.stringify(checkpoint, null, 2), 'utf8');
   return {
@@ -1559,21 +1586,22 @@ async function importOmrWorkFromExtractDir(
   if (fixesSrc) await fs.copyFile(fixesSrc, sessionOmrHitlFixesPath(sessionRoot));
   if (labelsSrc) await fs.copyFile(labelsSrc, sessionPartLabelsPath(sessionRoot));
   if (rawSrc) await fs.copyFile(rawSrc, sessionAudiverisRawMxlPath(sessionRoot));
-  if (reviewSrc) await fs.copyFile(reviewSrc, scorePath);
-  else if (rawSrc) await fs.copyFile(rawSrc, scorePath);
-  else {
+  if (rawSrc) {
+    await fs.copyFile(rawSrc, scorePath);
+  } else if (reviewSrc) {
+    await fs.copyFile(reviewSrc, scorePath);
+  } else {
     throw new Error('ZIP에 review.mxl 또는 audiveris_raw.mxl이 없습니다');
   }
   const baselineSrc = pick('omr_hitl_baseline.mxl');
-  if (baselineSrc) await fs.copyFile(baselineSrc, sessionHitlBaselineMxlPath(sessionRoot));
+  if (baselineSrc && !rawSrc) {
+    await fs.copyFile(baselineSrc, sessionHitlBaselineMxlPath(sessionRoot));
+  } else if (rawSrc && fsSync.existsSync(sessionHitlBaselineMxlPath(sessionRoot))) {
+    await fs.unlink(sessionHitlBaselineMxlPath(sessionRoot)).catch(() => {});
+  }
   const fixesAfterImport = await readOmrHitlFixes(sessionRoot);
   let stats: Awaited<ReturnType<typeof syncOmrReviewMxl>>;
-  if (fixesAfterImport.length > 0) {
-    stats = await syncOmrReviewMxl(sessionRoot, scorePath, pythonBin);
-  } else {
-    await saveHitlBaseline(sessionRoot, scorePath);
-    stats = await syncOmrReviewMxl(sessionRoot, scorePath, pythonBin);
-  }
+  stats = await syncOmrReviewMxl(sessionRoot, scorePath, pythonBin);
   await invalidateInspectScoreCache(sessionRoot);
   return {
     fixCount: fixesAfterImport.length,

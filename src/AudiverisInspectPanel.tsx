@@ -984,13 +984,9 @@ export function buildOsmdPreviewXml(
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
  * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
  */
-function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
+function sanitizeMusicXmlForOsmd(xml: string, _verbatim = false): string {
   try {
-    let out = xml;
-    if (!verbatim) {
-      out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
-    }
-    const doc = new DOMParser().parseFromString(out, 'text/xml');
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 
     const local = (el: Element) =>

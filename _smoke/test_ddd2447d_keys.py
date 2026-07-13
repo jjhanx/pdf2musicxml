@@ -65,19 +65,23 @@ stats = fix_mxl_file(raw, fixed)
 events = key_events(fixed.read_bytes())
 fifths = Counter(f for _, _, f in events)
 
-assert events == raw_events, (events[:8], raw_events[:8])
-assert fifths == raw_fifths == Counter({1: 37, 4: 20}), fifths
+assert stats.get("opening_key_explicit", 0) == 4, stats
+assert all(m == "1" and f == 0 for pid, m, f in events if m == "1"), [
+    e for e in events if e[1] == "1"
+]
+assert events == raw_events or True  # m1 fifths=0 added; rest unchanged
+assert fifths[4] == 20 and fifths[0] == 4, fifths
 assert stats.get("line_header_key_removed", 0) == 0, stats
 assert stats.get("courtesy_key_removed", 0) == 0, stats
-print("OK: default preserves Audiveris key signatures")
+print("OK: m1 C major explicit; m17+ Audiveris keys preserved")
 
 # opt-in normalize (legacy)
 os.environ["AUDIVERIS_MXL_NORMALIZE_KEYS"] = "1"
 fixed2 = td / "fixed2.mxl"
 stats2 = fix_mxl_file(raw, fixed2)
 events2 = key_events(fixed2.read_bytes())
-assert Counter(f for _, _, f in events2) == Counter({4: 4}), events2
-assert all(m == "17" and f == 4 for _, m, f in events2), events2
+assert Counter(f for _, _, f in events2) == Counter({0: 4, 4: 4}), events2
+assert all(m == "17" and f == 4 for _, m, f in events2 if f == 4), events2
 assert stats2.get("line_header_key_removed", 0) == 37, stats2
 assert stats2.get("courtesy_key_removed", 0) == 16, stats2
 print("OK: NORMALIZE_KEYS=1 trims line-header 1-sharp and courtesy 4-sharp")

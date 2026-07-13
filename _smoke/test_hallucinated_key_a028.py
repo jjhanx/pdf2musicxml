@@ -73,5 +73,6 @@ if ZIP.is_file():
                 fifths.append(int(f.text))
     c = Counter(fifths)
     assert stats.get("line_header_key_removed", 0) == 0, stats
-    assert c == Counter({1: 37, 4: 20}), c
-    print("OK: a028 preserves Audiveris keys by default")
+    assert stats.get("opening_key_explicit", 0) == 4, stats
+    assert c[0] == 4 and c[4] == 20 and c[1] == 37, c
+    print("OK: a028 m1 C major explicit; Audiveris keys preserved")

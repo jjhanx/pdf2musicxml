@@ -138,6 +138,38 @@ def _remove_key_from_event(
         measure.remove(attr_el)
 
 
+def _ensure_explicit_opening_key_signatures(root: ET.Element, ns: str) -> int:
+    """m1에 `<key>`가 없으면 암시적 C major(`fifths=0`)를 명시.
+
+    Audiveris는 조표 없는 구간에서 `<key>`를 생략하는데, OSMD 등 뷰어가
+    뒤쪽 조바꿈(m17 4♯ 등)을 악보 첫머리 조표로 당겨 그리는 경우가 있다.
+    """
+    added = 0
+    for part in root.findall(qname(ns, "part")):
+        first: ET.Element | None = None
+        for measure in part.findall(qname(ns, "measure")):
+            if int(measure.get("number") or 0) == 1:
+                first = measure
+                break
+        if first is None:
+            continue
+        attr = first.find(qname(ns, "attributes"))
+        if attr is not None and attr.find(qname(ns, "key")) is not None:
+            continue
+        if attr is None:
+            attr = ET.Element(qname(ns, "attributes"))
+            insert_idx = len(first)
+            for i, child in enumerate(first):
+                if local_tag(child) in ("note", "backup", "forward", "direction"):
+                    insert_idx = i
+                    break
+            first.insert(insert_idx, attr)
+        key_el = ET.SubElement(attr, qname(ns, "key"))
+        ET.SubElement(key_el, qname(ns, "fifths")).text = "0"
+        added += 1
+    return added
+
+
 def _normalize_audiveris_key_signatures(
     root: ET.Element, ns: str, parents: dict[ET.Element, ET.Element]
 ) -> tuple[int, int]:
@@ -2371,6 +2403,23 @@ def _part_key_fifths(part: ET.Element, ns: str) -> int:
     return fifths
 
 
+def _key_fifths_before_measure(part: ET.Element, measure_num: int, ns: str) -> int:
+    """해당 마디 직전까지 유효한 조표 fifths (마디별 문맥)."""
+    fifths = 0
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        if mnum >= measure_num:
+            break
+        for attr in measure.findall(qname(ns, "attributes")):
+            key_el = attr.find(qname(ns, "key"))
+            if key_el is None:
+                continue
+            f = key_el.find(qname(ns, "fifths"))
+            if f is not None and f.text and f.text.strip().lstrip("-").isdigit():
+                fifths = int(f.text.strip())
+    return fifths
+
+
 def _step_key_alter(step: str, fifths: int) -> int:
     if fifths > 0 and step in _SHARP_ORDER[:fifths]:
         return 1
@@ -4209,6 +4258,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "spurious_natural_removed": 0,
         "line_header_key_removed": 0,
         "courtesy_key_removed": 0,
+        "opening_key_explicit": 0,
         "tuplet_brackets_adjusted": 0,
         "tuplet_normal_fields_fixed": 0,
         "fermata_from_staccato_fixed": 0,
@@ -4221,6 +4271,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["text_nodes_cleared"] += tc
             stats["directions_removed"] += dr
             stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
+
+    # 1a) m1 조표 생략 → C major 명시 (OSMD가 뒤쪽 조바꿈 조표를 첫머리로 당기는 현상 완화)
+    stats["opening_key_explicit"] += _ensure_explicit_opening_key_signatures(root, ns)
 
     # 1b) Audiveris 조표: 조바꿈(앵커) 유지, 줄머리 오인·courtesy 반복만 제거
     if _strip_invented_keys_enabled():
@@ -4238,7 +4291,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     measure, ns, expected or 0
                 )
             stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
-            key_fifths = _part_key_fifths(part, ns)
+            mnum = int(measure.get("number") or 0)
+            key_fifths = _key_fifths_before_measure(part, mnum, ns)
             if _accidental_repair_enabled():
                 stats["misplaced_sharp_relocated"] += _repair_misplaced_sharp_via_duplicate(
                     measure, ns, key_fifths
@@ -4343,7 +4397,6 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
 
     for part in root.findall(qname(ns, "part")):
         max_staff = _max_staff_in_part(part, ns)
-        key_fifths = _part_key_fifths(part, ns)
 
         stats["tuplet_notations_added"] += _ensure_tuplet_notations(part, ns, max_staff)
         if _part_has_two_staves(part, ns):
@@ -4351,6 +4404,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
 
         for measure in part.findall(qname(ns, "measure")):
             stats["tuplet_brackets_adjusted"] += _renumber_tuplets_in_measure(measure, ns)
+            key_fifths = _key_fifths_before_measure(part, int(measure.get("number") or 0), ns)
             seen_natural: set[tuple[str, str, str, str]] = set()
             first_chord_ids = _measure_first_chord_note_ids(measure, ns)
             for note in measure.findall(qname(ns, "note")):

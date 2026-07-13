@@ -750,6 +750,54 @@ export function convertMultiStaffDirectionsToNoteAttached(xml: string): string {
   return migrateDirectionsToNotes(xml);
 }
 
+/**
+ * Audiveris는 조표 없는 구간에서 m1 `<key>`를 생략한다. OSMD는 뒤쪽 조바꿈(예: m17 4♯)을
+ * 악보 첫머리 조표로 당겨 그리는 경우가 있어, m1에 C major(`fifths=0`)를 명시한다.
+ */
+export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+
+    for (const part of findXmlParts(doc)) {
+      const firstMeas = [...part.children].find(
+        (c) => xmlLocalName(c) === 'measure' && (c.getAttribute('number') ?? '1') === '1',
+      );
+      if (!firstMeas) continue;
+
+      let attrs = [...firstMeas.children].find((c) => xmlLocalName(c) === 'attributes');
+      if (attrs?.querySelector('key, *|key')) continue;
+
+      const ns = attrs?.namespaceURI ?? firstMeas.namespaceURI;
+      const mk = (local: string) =>
+        ns ? doc.createElementNS(ns, local) : doc.createElement(local);
+
+      if (!attrs) {
+        attrs = mk('attributes');
+        let insertIdx = firstMeas.children.length;
+        for (let i = 0; i < firstMeas.children.length; i += 1) {
+          const tag = xmlLocalName(firstMeas.children[i]!);
+          if (tag === 'note' || tag === 'backup' || tag === 'forward' || tag === 'direction') {
+            insertIdx = i;
+            break;
+          }
+        }
+        firstMeas.insertBefore(attrs, firstMeas.children[insertIdx] ?? null);
+      }
+
+      const keyEl = mk('key');
+      const fifthsEl = mk('fifths');
+      fifthsEl.textContent = '0';
+      keyEl.appendChild(fifthsEl);
+      attrs.appendChild(keyEl);
+    }
+
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
   rawXml: string,
@@ -777,7 +825,8 @@ export function buildOsmdPreviewXml(
  */
 function sanitizeMusicXmlForOsmd(xml: string): string {
   try {
-    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 
     const local = (el: Element) =>

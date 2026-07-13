@@ -52,6 +52,7 @@ raw_counts = fifths_counter(raw.read_bytes())
 stats = fix_mxl_file(raw, fixed)
 after = fifths_counter(fixed.read_bytes())
 
-assert after == raw_counts, (after, raw_counts)
+assert after == raw_counts + Counter({0: 4}), (after, raw_counts)
+assert stats.get("opening_key_explicit", 0) == 4, stats
 assert stats.get("line_header_key_removed", 0) == 0, stats
-print("OK: default preserves Audiveris keys")
+print("OK: m1 C major explicit; Audiveris keys preserved")

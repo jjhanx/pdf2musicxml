@@ -341,32 +341,17 @@ function findXmlParts(doc: Document): Element[] {
   return out;
 }
 
-function rewriteClefsInAttributes(attrs: Element, staffN: number): void {
-  const clefs = [...attrs.children].filter((c) => xmlLocalName(c) === 'clef');
-  if (!clefs.length) return;
-  let pick: Element | null = null;
-  for (const c of clefs) {
-    const numAttr = c.getAttribute('number');
-    if (!numAttr && staffN === 1) {
-      pick = c;
-      break;
+/** grand staff split 시 다른 staff 전용 clef만 제거 — clef 추가·교체·복제 없음. */
+function stripForeignStaffClefsInAttributes(attrs: Element, staffN: number): void {
+  for (const clef of [...attrs.children].filter((c) => xmlLocalName(c) === 'clef')) {
+    const numAttr = clef.getAttribute('number');
+    if (!numAttr) {
+      if (staffN !== 1) clef.remove();
+      continue;
     }
-    const num = numAttr ? parseInt(numAttr, 10) : 1;
-    if (Number.isFinite(num) && num === staffN) {
-      pick = c;
-      break;
-    }
+    const num = parseInt(numAttr, 10);
+    if (Number.isFinite(num) && num !== staffN) clef.remove();
   }
-  if (!pick) {
-    // Grand staff: 다른 staff 전용 clef만 있으면 제거 — OSMD가 앞 마디 clef(F 등)를 이어받게 함.
-    // (예: m34에 PR G clef만 있을 때 PL에 G를 씌우면 왼손이 한 옥타브 이상 낮게 보임)
-    for (const c of clefs) attrs.removeChild(c);
-    return;
-  }
-  const clone = pick.cloneNode(true) as Element;
-  clone.removeAttribute('number');
-  for (const c of clefs) attrs.removeChild(c);
-  attrs.appendChild(clone);
 }
 
 function noteDurationN(note: Element): number {
@@ -538,7 +523,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
     for (const st of [...attrs.children].filter((c) => xmlLocalName(c) === 'staves')) {
       st.textContent = '1';
     }
-    rewriteClefsInAttributes(attrs, staffN);
+    stripForeignStaffClefsInAttributes(attrs, staffN);
   }
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {
@@ -965,15 +950,24 @@ export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
   }
 }
 
+export type OsmdPreviewOptions = {
+  /** true: part/성부 필터·PR·PL split만, clef/key/pitch/direction 변환 없음 (HITL 대조용) */
+  verbatim?: boolean;
+};
+
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
   rawXml: string,
   scoreParts: ScorePartForPreview[],
   filter: StaffFilterEntry | null,
+  options?: OsmdPreviewOptions,
 ): string {
+  const verbatim = options?.verbatim === true;
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
-  xml = migrateDirectionsToNotes(xml);
-  xml = promoteNoteDynamicsForOsmdPreview(xml);
+  if (!verbatim) {
+    xml = migrateDirectionsToNotes(xml);
+    xml = promoteNoteDynamicsForOsmdPreview(xml);
+  }
   if (!filter) {
     return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
   }
@@ -990,9 +984,12 @@ export function buildOsmdPreviewXml(
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
  * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
  */
-function sanitizeMusicXmlForOsmd(xml: string): string {
+function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
   try {
-    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    let out = xml;
+    if (!verbatim) {
+      out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    }
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 
@@ -1128,6 +1125,7 @@ export function OsmdBlock({
   scrollToMeasure,
   scrollToMeasureTrigger = 0,
   embeddedInOmrFrame,
+  verbatimPreview,
 }: {
   xml: string;
   zoom: number;
@@ -1139,6 +1137,8 @@ export function OsmdBlock({
   scrollToMeasureTrigger?: number;
   /** OMR 검토 패널처럼 바깥 .omr-mxl-osmd-frame이 스크롤할 때 내부 overflow 제거 */
   embeddedInOmrFrame?: boolean;
+  /** HITL: clef/key/pitch 등 MXL 그대로 — OSMD 크래시 방지(octave-shift 등)만 */
+  verbatimPreview?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
@@ -1265,7 +1265,7 @@ export function OsmdBlock({
 
     let cancelled = false;
     const stale = () => cancelled || gen !== xmlGenRef.current;
-    const xmlForOsmd = sanitizeMusicXmlForOsmd(xml);
+    const xmlForOsmd = sanitizeMusicXmlForOsmd(xml, verbatimPreview === true);
     void osmd
       .load(xmlForOsmd)
       .then(() => {

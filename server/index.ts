@@ -698,7 +698,6 @@ async function syncOmrReviewMxl(
   if (!hasBaseline && fixes.length > 0) {
     syncMode = 'full';
     if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
-    postStats = await postprocessAudiverisMxlInScoreFile(scorePath, pythonBin);
     const hitlStats = (await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin)) ?? {
       applied: 0,
       skipped: 0,
@@ -726,7 +725,6 @@ async function syncOmrReviewMxl(
   } else {
     syncMode = 'init';
     if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
-    postStats = await postprocessAudiverisMxlInScoreFile(scorePath, pythonBin);
     await saveHitlBaseline(sessionRoot, scorePath);
   }
 

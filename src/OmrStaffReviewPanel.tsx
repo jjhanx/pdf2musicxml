@@ -561,7 +561,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const filteredXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
-    return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter);
+    return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
   }, [rawXml, scoreParts, activeStaffFilter]);
   const selectedPrinted = selectedMeasure ? selectedMeasure.measureMxl + measureOffset : null;
 
@@ -680,6 +680,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   xml={filteredXml}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
+                  verbatimPreview
                   onMeasureClick={openMeasure}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}
                   highlightMeasureStaffIndex={selectedMeasure?.staffIndex ?? null}

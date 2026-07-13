@@ -53,6 +53,15 @@ def _strip_redundant_naturals_enabled() -> bool:
     return not _env_truthy("AUDIVERIS_MXL_KEEP_REDUNDANT_NATURAL", default=False)
 
 
+def _strip_invented_keys_enabled() -> bool:
+    """첫 마디에 조표 없을 때 줄마다 붙은 Audiveris 조표 제거 — 기본 on."""
+    return not _env_truthy("AUDIVERIS_MXL_KEEP_INVENTED_KEYS", default=False)
+
+
+# 조표 유무 판단: part-list 앞쪽 N개 마디(픽업·anacrusis 포함)
+_OPENING_KEY_MEASURES = 4
+
+
 def mxl_ns_uri(root: ET.Element) -> str:
     t = root.tag
     if t.startswith("{"):
@@ -2282,6 +2291,44 @@ def _strip_hallucinated_key_changes(
     return removed
 
 
+def _part_opening_has_key(part: ET.Element, ns: str) -> bool:
+    seen = 0
+    for measure in part.findall(qname(ns, "measure")):
+        if seen >= _OPENING_KEY_MEASURES:
+            break
+        seen += 1
+        for attr in measure.findall(qname(ns, "attributes")):
+            if attr.find(qname(ns, "key")) is not None:
+                return True
+    return False
+
+
+def _strip_invented_keys_without_opening(
+    part: ET.Element, ns: str, parents: dict[ET.Element, ET.Element]
+) -> int:
+    """첫 마디(앞 N마디)에 `<key>`가 없으면 이후 줄마다 붙은 조표는 전부 제거.
+
+    Audiveris HEADERS가 clef·박자만 있는 C major 등에서 SMuFL/기호를 1♯로 오인해
+    `print new-system`마다 `<fifths>1</fifths>`를 넣는 경우(8317959f 등)를 막습니다.
+    악보 1마디(또는 픽업 직후)에 조표가 있으면 건드리지 않습니다.
+    """
+    if _part_opening_has_key(part, ns):
+        return 0
+    removed = 0
+    for measure in part.findall(qname(ns, "measure")):
+        for attr in list(measure.findall(qname(ns, "attributes"))):
+            key = attr.find(qname(ns, "key"))
+            if key is None:
+                continue
+            attr.remove(key)
+            removed += 1
+            if len(attr) == 0:
+                parent = parents.get(attr)
+                if parent is not None:
+                    parent.remove(attr)
+    return removed
+
+
 def _step_key_alter(step: str, fifths: int) -> int:
     if fifths > 0 and step in _SHARP_ORDER[:fifths]:
         return 1
@@ -4119,6 +4166,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "piano_stems_fixed": 0,
         "spurious_natural_removed": 0,
         "hallucinated_key_removed": 0,
+        "invented_key_removed": 0,
         "tuplet_brackets_adjusted": 0,
         "tuplet_normal_fields_fixed": 0,
         "fermata_from_staccato_fixed": 0,
@@ -4135,6 +4183,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     # 1b) Audiveris 조표 오인(소수 fifths) 제거 — 잘못된 조표가 제자리표·accidental 오염을 유발
     for part in root.findall(qname(ns, "part")):
         stats["hallucinated_key_removed"] += _strip_hallucinated_key_changes(part, ns, parents)
+        if _strip_invented_keys_enabled():
+            stats["invented_key_removed"] += _strip_invented_keys_without_opening(
+                part, ns, parents
+            )
 
     # 2) 리듬·화음·세잇단 — AUDIVERIS_MXL_RHYTHM_FIX (기본 off = OMR 유지)
     rhythm_mode = _rhythm_fix_mode()

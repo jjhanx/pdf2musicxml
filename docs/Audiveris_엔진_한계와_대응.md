@@ -62,7 +62,7 @@
 ### 3. MXL 후처리 (`fix_audiveris_mxl.py`, inject 직전)
 
 - direction `P` / `2P` 등 제거, 이중 staccato+natural 일부 정리.  
-- **조표 오인**: Audiveris HEADERS가 SMuFL·성부 약어 등을 **4♯ 조표**처럼 읽으면 MusicXML `<key><fifths>4</fifths></key>`가 생깁니다(예: `omr-work-a028c3b5`). 파트 내 **소수 fifths** 조표 변경은 후처리에서 제거하고, 잘못된 조표 때문에 붙은 **불필요 `<accidental>natural</accidental>`** 도 기본 제거합니다. **`#`↔natural 추정 보정**은 기본 **끔**(`AUDIVERIS_MXL_ACCIDENTAL_REPAIR=1`일 때만).
+- **조표 오인**: Audiveris HEADERS가 SMuFL·성부 약어 등을 **4♯·1♯ 조표**처럼 읽으면 MusicXML `<key>`가 생깁니다(예: `omr-work-a028c3b5`, `omr-work-8317959f`). ① 파트 내 **소수 fifths** 조표 변경 제거 ② **앞 4마디에 `<key>`가 없으면** 이후 줄마다 붙은 조표 **전부 제거**(C major 등). 잘못된 조표 때문에 붙은 **불필요 `<accidental>natural</accidental>`** 도 기본 제거. **`#`↔natural 추정 보정**은 기본 **끔**(`AUDIVERIS_MXL_ACCIDENTAL_REPAIR=1`일 때만). Audiveris CLI만으로 HEADERS 조표 인식 자체를 끄는 스위치는 없습니다.
 - **특정 악보 보정 (2026-06 추가)**: '눈 (김효근)' 피아노 파트(P5)의 인쇄 7마디(MXL 6마디) 오른손 성부에서 오인식되어 빠진 이음줄(5~7번 음표 D4-D#4, 8~9번 음표 A4-B3)을 음표 피치 시퀀스 패턴 분석을 통해 정밀 복구 및 주입합니다.
 - **SYMBOLS UI에는 반영 안 됨.**
 

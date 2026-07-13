@@ -1,4 +1,4 @@
-"""omr-work-a028: Audiveris 4-sharp key hallucination strip."""
+"""omr-work-831: C major — no opening key, Audiveris 1-sharp at every system."""
 import io
 import os
 import sys
@@ -14,9 +14,9 @@ os.environ["AUDIVERIS_MXL_RHYTHM_FIX"] = "off"
 
 from fix_audiveris_mxl import fix_mxl_file  # noqa: E402
 
-ZIP = ROOT / "omr-work-a028c3b5.zip"
+ZIP = ROOT / "omr-work-8317959f.zip"
 if not ZIP.is_file():
-    print("skip: omr-work-a028c3b5.zip not in repo root")
+    print("skip: omr-work-8317959f.zip not in repo root")
     raise SystemExit(0)
 
 
@@ -52,10 +52,8 @@ before = fifths_counter(raw.read_bytes())
 stats = fix_mxl_file(raw, fixed)
 after = fifths_counter(fixed.read_bytes())
 
-assert before[4] == 20, before
-assert 4 not in after, after
+assert before[1] == 37 and before[4] == 20, before
 assert len(after) == 0, after
-assert stats.get("hallucinated_key_removed", 0) == 20, stats
 assert stats.get("invented_key_removed", 0) == 37, stats
-assert stats.get("spurious_natural_removed", 0) >= 1, stats
-print("OK: removed spurious fifths=4 keys and some redundant naturals")
+assert stats.get("hallucinated_key_removed", 0) == 20, stats
+print("OK: stripped all invented keys (no opening key in m1)")

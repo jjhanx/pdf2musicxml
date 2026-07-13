@@ -354,6 +354,23 @@ function stripForeignStaffClefsInAttributes(attrs: Element, staffN: number): voi
   }
 }
 
+/** 단일 staff part로 쪼갠 뒤 OSMD가 1줄로 그리도록 attributes 정리(staves·clef number). */
+function normalizeAttributesForSingleStaffPart(attrs: Element, staffN: number): void {
+  let stavesEl = [...attrs.children].find((c) => xmlLocalName(c) === 'staves');
+  if (!stavesEl) {
+    stavesEl = attrs.ownerDocument!.createElementNS(
+      attrs.namespaceURI || 'http://www.musicxml.org/xsd/MusicXML',
+      'staves',
+    );
+    attrs.insertBefore(stavesEl, attrs.firstChild);
+  }
+  stavesEl.textContent = '1';
+  stripForeignStaffClefsInAttributes(attrs, staffN);
+  for (const clef of [...attrs.children].filter((c) => xmlLocalName(c) === 'clef')) {
+    if (clef.getAttribute('number')) clef.setAttribute('number', '1');
+  }
+}
+
 function noteDurationN(note: Element): number {
   const d = note.querySelector(':scope > duration, :scope > *|duration');
   const n = parseInt(d?.textContent?.trim() ?? '0', 10);
@@ -520,28 +537,29 @@ function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
 
 function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number): void {
   for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
-    stripForeignStaffClefsInAttributes(attrs, staffN);
+    normalizeAttributesForSingleStaffPart(attrs, staffN);
   }
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {
       child.remove();
     }
   }
+  measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
+    el.textContent = '1';
+  });
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
     if (!staffEl?.textContent?.trim()) continue;
     const staff = parseInt(staffEl.textContent.trim(), 10);
     if (Number.isFinite(staff) && staff !== staffN) child.remove();
+    else forceStaffTagOnDirectionToOne(child);
   }
 }
 
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
-    for (const st of [...attrs.children].filter((c) => xmlLocalName(c) === 'staves')) {
-      st.textContent = '1';
-    }
-    stripForeignStaffClefsInAttributes(attrs, staffN);
+    normalizeAttributesForSingleStaffPart(attrs, staffN);
   }
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {
@@ -614,7 +632,8 @@ export function splitGrandStaffPartsForFullScoreOsmd(
 
     for (const part of findXmlParts(doc)) {
       const partId = part.getAttribute('id');
-      if (!partId || maxStavesInPart(part) < 2) continue;
+      if (!partId || partId.endsWith('__PR') || partId.endsWith('__PL')) continue;
+      if (maxStavesInPart(part) < 2) continue;
 
       const spMeta = scoreParts.find((p) => p.id === partId);
       const baseLabel = (spMeta?.displayLabel || spMeta?.suggestedLabel || partId).trim();

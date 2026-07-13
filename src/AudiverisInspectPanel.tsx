@@ -347,14 +347,22 @@ function rewriteClefsInAttributes(attrs: Element, staffN: number): void {
   let pick: Element | null = null;
   for (const c of clefs) {
     const numAttr = c.getAttribute('number');
+    if (!numAttr && staffN === 1) {
+      pick = c;
+      break;
+    }
     const num = numAttr ? parseInt(numAttr, 10) : 1;
     if (Number.isFinite(num) && num === staffN) {
       pick = c;
       break;
     }
   }
-  if (!pick && staffN === 2 && clefs.length >= 2) pick = clefs[1];
-  if (!pick) pick = clefs[0];
+  if (!pick) {
+    // Grand staff: 다른 staff 전용 clef만 있으면 제거 — OSMD가 앞 마디 clef(F 등)를 이어받게 함.
+    // (예: m34에 PR G clef만 있을 때 PL에 G를 씌우면 왼손이 한 옥타브 이상 낮게 보임)
+    for (const c of clefs) attrs.removeChild(c);
+    return;
+  }
   const clone = pick.cloneNode(true) as Element;
   clone.removeAttribute('number');
   for (const c of clefs) attrs.removeChild(c);
@@ -957,228 +965,6 @@ export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
   }
 }
 
-/**
- * 조바꿈 마디에서 Audiveris가 F 조표로 오인한 `<clef>`를 제거하고, 다른 파트와 맞춰 `<key>` 보충.
- * HITL 미리보기(`sanitizeMusicXmlForOsmd`) 전용 — `fix_audiveris_mxl.py`와 동일 규칙.
- */
-export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
-  try {
-    const doc = new DOMParser().parseFromString(xml, 'text/xml');
-    if (doc.querySelector('parsererror')) return xml;
-
-    const clefSign = (clef: Element): string =>
-      clef.querySelector('sign, *|sign')?.textContent?.trim() ?? '';
-
-    const keyFifthsBefore = (part: Element, measureNum: number): number => {
-      let fifths = 0;
-      for (const meas of [...part.children]) {
-        if (xmlLocalName(meas) !== 'measure') continue;
-        const mn = parseInt(meas.getAttribute('number') ?? '0', 10);
-        if (mn >= measureNum) break;
-        for (const attr of [...meas.children]) {
-          if (xmlLocalName(attr) !== 'attributes') continue;
-          const fText = attr.querySelector('key fifths, key *|fifths, *|key fifths, *|key *|fifths')
-            ?.textContent?.trim();
-          if (fText && /^-?\d+$/.test(fText)) fifths = parseInt(fText, 10);
-        }
-      }
-      return fifths;
-    };
-
-    const clefSignBefore = (part: Element, measureNum: number, staffNum: number): string => {
-      let current = 'G';
-      for (const meas of [...part.children]) {
-        if (xmlLocalName(meas) !== 'measure') continue;
-        const mn = parseInt(meas.getAttribute('number') ?? '0', 10);
-        if (mn >= measureNum) break;
-        for (const attr of [...meas.children]) {
-          if (xmlLocalName(attr) !== 'attributes') continue;
-          for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
-            const numAttr = clef.getAttribute('number');
-            const cStaff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
-            if (cStaff !== staffNum) continue;
-            const sign = clefSign(clef);
-            if (sign) current = sign;
-          }
-        }
-      }
-      return current;
-    };
-
-    const measureKeyChanges = (part: Element, meas: Element): number[] => {
-      const mn = parseInt(meas.getAttribute('number') ?? '0', 10);
-      const prev = keyFifthsBefore(part, mn);
-      const out: number[] = [];
-      for (const attr of [...meas.children]) {
-        if (xmlLocalName(attr) !== 'attributes') continue;
-        for (const key of [...attr.children].filter((c) => xmlLocalName(c) === 'key')) {
-          const fText = key.querySelector('fifths, *|fifths')?.textContent?.trim();
-          if (!fText || !/^-?\d+$/.test(fText)) continue;
-          const nf = parseInt(fText, 10);
-          if (nf !== prev) out.push(nf);
-        }
-      }
-      return out;
-    };
-
-    const noteStaffNum = (note: Element): number => {
-      const st = note.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
-      return st && /^\d+$/.test(st) ? parseInt(st, 10) : 1;
-    };
-
-    const pitchMidi = (note: Element): number | null => {
-      const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
-      if (!pitch) return null;
-      const step = pitch.querySelector('step, *|step')?.textContent?.trim() ?? '';
-      const octText = pitch.querySelector('octave, *|octave')?.textContent?.trim();
-      if (!octText || !/^-?\d+$/.test(octText)) return null;
-      const steps: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-      let alter = 0;
-      const alterText = pitch.querySelector('alter, *|alter')?.textContent?.trim();
-      if (alterText && /^-?\d+$/.test(alterText)) alter = parseInt(alterText, 10);
-      return (parseInt(octText, 10) + 1) * 12 + (steps[step] ?? 0) + alter;
-    };
-
-    const measureStaffMedian = (meas: Element, staffNum: number): number | null => {
-      const midis: number[] = [];
-      for (const note of [...meas.children].filter((c) => xmlLocalName(c) === 'note')) {
-        if (note.querySelector(':scope > rest, :scope > *|rest')) continue;
-        if (noteStaffNum(note) !== staffNum) continue;
-        const m = pitchMidi(note);
-        if (m != null) midis.push(m);
-      }
-      if (!midis.length) return null;
-      midis.sort((a, b) => a - b);
-      return midis[Math.floor(midis.length / 2)]!;
-    };
-
-    const neighborStaffMedian = (part: Element, measureNum: number, staffNum: number): number | null => {
-      const refs: number[] = [];
-      for (const meas of [...part.children]) {
-        if (xmlLocalName(meas) !== 'measure') continue;
-        const mn = parseInt(meas.getAttribute('number') ?? '0', 10);
-        if (mn !== measureNum - 1 && mn !== measureNum + 1) continue;
-        const med = measureStaffMedian(meas, staffNum);
-        if (med != null) refs.push(med);
-      }
-      if (!refs.length) return null;
-      return refs.reduce((a, b) => a + b, 0) / refs.length;
-    };
-
-    const octavesToNeighborRef = (curMedian: number, refMedian: number): number => {
-      if (refMedian - curMedian < 12) return 0;
-      let bestK = 0;
-      let bestDiff = Math.abs(curMedian - refMedian);
-      for (const k of [1, 2, 3]) {
-        const shifted = curMedian + 12 * k;
-        const diff = Math.abs(shifted - refMedian);
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          bestK = k;
-        }
-      }
-      if (bestK && bestDiff <= Math.abs(curMedian - refMedian) - 6) return bestK;
-      return 0;
-    };
-
-    const transposeMeasureStaff = (meas: Element, staffNum: number, octaveDelta: number): void => {
-      if (octaveDelta <= 0) return;
-      for (const note of [...meas.children].filter((c) => xmlLocalName(c) === 'note')) {
-        if (noteStaffNum(note) !== staffNum) continue;
-        const octEl = note.querySelector(':scope > pitch > octave, :scope > *|pitch > *|octave');
-        if (octEl?.textContent && /^-?\d+$/.test(octEl.textContent.trim())) {
-          octEl.textContent = String(parseInt(octEl.textContent.trim(), 10) + octaveDelta);
-        }
-        const dispOct = note.querySelector(
-          ':scope > rest > display-octave, :scope > *|rest > *|display-octave',
-        );
-        if (dispOct?.textContent && /^-?\d+$/.test(dispOct.textContent.trim())) {
-          dispOct.textContent = String(parseInt(dispOct.textContent.trim(), 10) + octaveDelta);
-        }
-      }
-    };
-
-    const parts = findXmlParts(doc);
-    const measureNums = new Set<number>();
-    for (const part of parts) {
-      for (const meas of [...part.children]) {
-        if (xmlLocalName(meas) === 'measure') {
-          measureNums.add(parseInt(meas.getAttribute('number') ?? '0', 10));
-        }
-      }
-    }
-
-    const octaveTargets: Array<{ part: Element; meas: Element; staff: number }> = [];
-
-    for (const mnum of [...measureNums].sort((a, b) => a - b)) {
-      const declared: number[] = [];
-      for (const part of parts) {
-        const meas = [...part.children].find(
-          (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
-        );
-        if (meas) declared.push(...measureKeyChanges(part, meas));
-      }
-      if (!declared.length) continue;
-      const counts = new Map<number, number>();
-      for (const f of declared) counts.set(f, (counts.get(f) ?? 0) + 1);
-      const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-      if (ranked.length > 1 && ranked[0]![1] === ranked[1]![1]) continue;
-      const newFifths = ranked[0]![0];
-
-      for (const part of parts) {
-        const meas = [...part.children].find(
-          (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
-        );
-        if (!meas) continue;
-        const ns = meas.namespaceURI;
-        const mk = (local: string) =>
-          ns ? doc.createElementNS(ns, local) : doc.createElement(local);
-
-        for (const attr of [...meas.children].filter((c) => xmlLocalName(c) === 'attributes')) {
-          let hasKey = attr.querySelector('key, *|key') != null;
-          for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
-            if (clefSign(clef) !== 'F') continue;
-            const numAttr = clef.getAttribute('number');
-            const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
-            const prevSign = clefSignBefore(part, mnum, staff);
-            if (prevSign === 'G' || hasKey) {
-              clef.remove();
-              octaveTargets.push({ part, meas, staff });
-            }
-          }
-          hasKey = attr.querySelector('key, *|key') != null;
-          const partChanges = measureKeyChanges(part, meas);
-          if (!hasKey && !partChanges.length) {
-            const keyEl = mk('key');
-            const fifthsEl = mk('fifths');
-            fifthsEl.textContent = String(newFifths);
-            keyEl.appendChild(fifthsEl);
-            attr.appendChild(keyEl);
-          }
-          if (!attr.children.length) attr.remove();
-        }
-      }
-    }
-
-    const seenOctave = new Set<string>();
-    for (const { part, meas, staff } of octaveTargets) {
-      const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
-      const key = `${parts.indexOf(part)}:${mnum}:${staff}`;
-      if (seenOctave.has(key)) continue;
-      seenOctave.add(key);
-      const cur = measureStaffMedian(meas, staff);
-      const ref = neighborStaffMedian(part, mnum, staff);
-      if (cur == null || ref == null) continue;
-      const shift = octavesToNeighborRef(cur, ref);
-      if (shift) transposeMeasureStaff(meas, staff, shift);
-    }
-
-    return new XMLSerializer().serializeToString(doc);
-  } catch {
-    return xml;
-  }
-}
-
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
   rawXml: string,
@@ -1207,7 +993,6 @@ export function buildOsmdPreviewXml(
 function sanitizeMusicXmlForOsmd(xml: string): string {
   try {
     let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
-    out = repairKeyChangeClefMisreadForOsmd(out);
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 

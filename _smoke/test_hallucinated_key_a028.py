@@ -72,6 +72,6 @@ if ZIP.is_file():
             if f is not None and f.text:
                 fifths.append(int(f.text))
     c = Counter(fifths)
-    assert c == Counter({4: 4}), c
-    assert stats.get("line_header_key_removed", 0) == 37, stats
-    print("OK: a028 keeps m17 4-sharp; removes fake 1-sharp")
+    assert stats.get("line_header_key_removed", 0) == 0, stats
+    assert c == Counter({1: 37, 4: 20}), c
+    print("OK: a028 preserves Audiveris keys by default")

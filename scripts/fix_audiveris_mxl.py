@@ -55,8 +55,14 @@ def _strip_redundant_naturals_enabled() -> bool:
 
 
 def _strip_invented_keys_enabled() -> bool:
-    """Audiveris 줄머리 오인·courtesy 조표 정리 — 기본 on."""
-    return not _env_truthy("AUDIVERIS_MXL_KEEP_INVENTED_KEYS", default=False)
+    """Audiveris `<key>` 자동 정리 — 기본 off (OMR/HITL 미리보기 그대로, 사람이 보정).
+
+    `AUDIVERIS_MXL_NORMALIZE_KEYS=1` 로 줄머리 오인·courtesy 반복 정리(구 동작).
+    `AUDIVERIS_MXL_KEEP_INVENTED_KEYS=1` 은 정리 끔(별칭, NORMALIZE_KEYS 보다 우선).
+    """
+    if _env_truthy("AUDIVERIS_MXL_KEEP_INVENTED_KEYS", default=False):
+        return False
+    return _env_truthy("AUDIVERIS_MXL_NORMALIZE_KEYS", default=False)
 
 
 # 조표 유무 판단: part-list 앞쪽 N개 마디(픽업·anacrusis 포함)

@@ -1,4 +1,4 @@
-"""omr-work-831: same score — m17 4-sharp mod kept, line-header 1-sharp removed."""
+"""omr-work-831: default preserves Audiveris keys; NORMALIZE_KEYS=1 optional."""
 import io
 import os
 import sys
@@ -48,9 +48,10 @@ fixed = td / "fixed.mxl"
 with zipfile.ZipFile(ZIP) as z:
     raw.write_bytes(z.read("audiveris_raw.mxl"))
 
+raw_counts = fifths_counter(raw.read_bytes())
 stats = fix_mxl_file(raw, fixed)
 after = fifths_counter(fixed.read_bytes())
 
-assert after == Counter({4: 4}), after
-assert stats.get("line_header_key_removed", 0) == 37, stats
-print("OK: m17 4-sharp kept; line-header 1-sharp removed")
+assert after == raw_counts, (after, raw_counts)
+assert stats.get("line_header_key_removed", 0) == 0, stats
+print("OK: default preserves Audiveris keys")

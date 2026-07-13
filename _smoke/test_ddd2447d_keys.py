@@ -1,4 +1,4 @@
-"""omr-work-ddd2447d: keep m17 4-sharp key change; drop line-header 1-sharp."""
+"""omr-work-ddd2447d: default — Audiveris `<key>` 그대로; NORMALIZE_KEYS=1 시에만 정리."""
 import io
 import os
 import sys
@@ -58,13 +58,26 @@ fixed = td / "fixed.mxl"
 with zipfile.ZipFile(ZIP) as z:
     raw.write_bytes(z.read("audiveris_raw.mxl"))
 
+raw_events = key_events(raw.read_bytes())
+raw_fifths = Counter(f for _, _, f in raw_events)
+
 stats = fix_mxl_file(raw, fixed)
 events = key_events(fixed.read_bytes())
 fifths = Counter(f for _, _, f in events)
 
-assert fifths == Counter({4: 4}), fifths
-assert 1 not in fifths, fifths
-assert all(m == "17" and f == 4 for _, m, f in events), events
-assert stats.get("line_header_key_removed", 0) == 37, stats
-assert stats.get("courtesy_key_removed", 0) == 16, stats
-print("OK: m17 4-sharp key kept; fake 1-sharp and courtesy 4-sharp removed")
+assert events == raw_events, (events[:8], raw_events[:8])
+assert fifths == raw_fifths == Counter({1: 37, 4: 20}), fifths
+assert stats.get("line_header_key_removed", 0) == 0, stats
+assert stats.get("courtesy_key_removed", 0) == 0, stats
+print("OK: default preserves Audiveris key signatures")
+
+# opt-in normalize (legacy)
+os.environ["AUDIVERIS_MXL_NORMALIZE_KEYS"] = "1"
+fixed2 = td / "fixed2.mxl"
+stats2 = fix_mxl_file(raw, fixed2)
+events2 = key_events(fixed2.read_bytes())
+assert Counter(f for _, _, f in events2) == Counter({4: 4}), events2
+assert all(m == "17" and f == 4 for _, m, f in events2), events2
+assert stats2.get("line_header_key_removed", 0) == 37, stats2
+assert stats2.get("courtesy_key_removed", 0) == 16, stats2
+print("OK: NORMALIZE_KEYS=1 trims line-header 1-sharp and courtesy 4-sharp")

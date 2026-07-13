@@ -107,7 +107,8 @@ pip install pikepdf pdfplumber
 | `AUDIVERIS_MXL_FIX` | 기본 켜짐. `0`/`false`이면 `inject_ocr.py` 직전 `fix_audiveris_mxl.py`(잔여 P/2P direction 등) 생략. **SYMBOLS UI에는 영향 없음.** |
 | `AUDIVERIS_MXL_RHYTHM_FIX` | **`off`(기본)** — OMR 리듬 duration 그대로(HITL에서 수정). `beams`=빔 근거 4분↔8분만. `legacy`=예전 전체 자동 리듬 보정. 서버·inject는 명시적으로 `off`. |
 | `AUDIVERIS_MXL_KEEP_REDUNDANT_NATURAL` | 기본 **끔**(= 조표·음높이상 불필요한 `<accidental>natural</accidental>` **제거**). `1`이면 OMR 제자리표 태그 유지. |
-| `AUDIVERIS_MXL_KEEP_INVENTED_KEYS` | 기본 **끔**(= **조바꿈(앵커) `<key>` 유지**, 줄머리 1♯ 오인·courtesy 반복만 제거). `1`이면 Audiveris `<key>` 그대로. |
+| `AUDIVERIS_MXL_NORMALIZE_KEYS` | 기본 **끔**(= Audiveris `<key>` **그대로**, OMR HITL 미리보기·사람 보정). `1`이면 줄머리 1♯ 오인·courtesy 반복만 자동 정리. |
+| `AUDIVERIS_MXL_KEEP_INVENTED_KEYS` | `1`이면 **`NORMALIZE_KEYS`와 동일하게 조표 자동 정리 끔**(별칭). |
 | `AUDIVERIS_MXL_ACCIDENTAL_REPAIR` | 기본 **끔**. `1`이면 `#`↔natural 추정·duplicate pitch sharp 보정(`fix_audiveris_mxl.py`). |
 | (문서) | SYMBOLS 단계 오인식·Audiveris 소스 패치: [docs/Audiveris_엔진_한계와_대응.md](docs/Audiveris_엔진_한계와_대응.md) |
 | `MASK_PDF_TEXT_REDACT` | (선택) `1`/`true`/`yes`일 때 **제목·작곡가 등 비-가사** 구역에 벡터 텍스트가 있으면 **전체 bbox** 텍스트 리독을 시도합니다. **가사**는 기본이 **글자별 선택 리독**(아래)이라 이 옵션과 별개입니다. |

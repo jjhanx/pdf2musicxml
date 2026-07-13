@@ -76,7 +76,7 @@ python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
 5. **OMR 페이지·성부 품질 검토** 모달 (MuseScore **불필요**):
    - **PDF**(156 DPI)와 **MusicXML(OSMD)** 를 나란히 표시. 성부 필터를 쓰면 MXL도 해당 파트만 표시.
-   - 패널을 열면 **`GET …/score-musicxml`** 이 **요청마다 `fix_audiveris_mxl` 적용 후** MusicXML을 내려줍니다. **「MXL에 반영·미리보기」**·**sync-preview**는 **`audiveris_raw.mxl` 백업 → 후처리 → HITL 보정 재적용**으로 MXL 파일을 재합성합니다.
+   - 패널을 열면 **`GET …/score-musicxml`** 은 **OMR 검토 중** HITL 반영 `review.mxl`을 **재후처리 없이** XML만 추출합니다(빔·박자 등 HITL 보정 유지). **「MXL에 반영·미리보기」**·**sync-preview**는 **`audiveris_raw.mxl` 백업 → `fix_audiveris_mxl`(조표 `<key>`는 **기본 Audiveris 그대로**) → HITL 보정 재적용**으로 MXL 파일을 재합성합니다.
    - **MusicXML(OSMD) 악보에서 마디 클릭**으로 마디를 열고 direction·쉼표·음표·점(·)·이음줄 등을 요소별로 보정 → `omr_hitl_fixes.json`에 쌓음. 음표 **길이** 메뉴에 **「4분음표 · (점)」** 등 점 붙은 길이 선택 지원. **쉼표 옆 점(·)** 은 마디 편집의 `clearRestDots`(XML `<dot>`·duration·쉼표 뒤 잘못된 짧은 음표). 클릭 영역: `osmdMeasureClick.ts`가 성부 줄×마디 열 그리드(쉼표만 있는 마디 포함)·**클릭한 줄만** 하이라이트.
    - **「MXL에 반영·미리보기」** — 마디 편집 패널 하단 또는 대기 목록 위 버튼. 위 재합성 경로로 Audiveris MXL(`preInject`)에 보정 반영 후 **오른쪽 OSMD**에서 결과 확인.
    - **「OMR 자동 정리 (전체 성부)」** — 쉼표·피아노 m6 이음줄·세잇단 `show-number="both"`·가짜 staccato·P direction 일괄 정리.

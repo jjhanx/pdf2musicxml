@@ -9,6 +9,7 @@ import re
 import sys
 import zipfile
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 
 _SPURIOUS_DIRECTION_WORDS = frozenset(
@@ -33,6 +34,23 @@ def _rhythm_fix_mode() -> str:
     if raw in ("beams", "beam"):
         return "beams"
     return "off"
+
+
+def _env_truthy(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _accidental_repair_enabled() -> bool:
+    """`#`↔natural 추정 보정 — 기본 off(OCR/OMR 그대로)."""
+    return _env_truthy("AUDIVERIS_MXL_ACCIDENTAL_REPAIR", default=False)
+
+
+def _strip_redundant_naturals_enabled() -> bool:
+    """조표·음높이상 불필요한 `<accidental>natural</accidental>` 제거 — 기본 on."""
+    return not _env_truthy("AUDIVERIS_MXL_KEEP_REDUNDANT_NATURAL", default=False)
 
 
 def mxl_ns_uri(root: ET.Element) -> str:
@@ -2224,6 +2242,46 @@ def _part_key_fifths(part: ET.Element, ns: str) -> int:
     return fifths
 
 
+def _strip_hallucinated_key_changes(
+    part: ET.Element, ns: str, parents: dict[ET.Element, ET.Element]
+) -> int:
+    """Audiveris가 SMuFL·성부 약어 등을 조표(# 4개 등)로 오인한 소수 `<key>` 제거.
+
+    파트 전체에서 다수(≥65%)를 차지하는 fifths를 기준으로, 드문 조표 변경만 삭제합니다.
+    실제 조성 전환(양쪽 조표가 비슷한 빈도)은 건드리지 않습니다.
+    """
+    events: list[tuple[int, int, ET.Element, ET.Element]] = []
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        for attr in measure.findall(qname(ns, "attributes")):
+            key = attr.find(qname(ns, "key"))
+            if key is None:
+                continue
+            f = key.find(qname(ns, "fifths"))
+            if f is None or not (f.text or "").strip().lstrip("-").isdigit():
+                continue
+            events.append((mnum, int(f.text.strip()), key, attr))
+
+    if len(events) < 2:
+        return 0
+
+    counts = Counter(fifths for _, fifths, _, _ in events)
+    stable_fifths, stable_count = counts.most_common(1)[0]
+    threshold = stable_count * 0.65
+    removed = 0
+    for _, fifths, key_el, attr_el in events:
+        if fifths == stable_fifths:
+            continue
+        if counts[fifths] >= threshold:
+            continue
+        attr_el.remove(key_el)
+        removed += 1
+        measure = parents.get(attr_el)
+        if measure is not None and len(attr_el) == 0:
+            measure.remove(attr_el)
+    return removed
+
+
 def _step_key_alter(step: str, fifths: int) -> int:
     if fifths > 0 and step in _SHARP_ORDER[:fifths]:
         return 1
@@ -4060,6 +4118,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "slur_placements_fixed": 0,
         "piano_stems_fixed": 0,
         "spurious_natural_removed": 0,
+        "hallucinated_key_removed": 0,
         "tuplet_brackets_adjusted": 0,
         "tuplet_normal_fields_fixed": 0,
         "fermata_from_staccato_fixed": 0,
@@ -4073,6 +4132,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["directions_removed"] += dr
             stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
 
+    # 1b) Audiveris 조표 오인(소수 fifths) 제거 — 잘못된 조표가 제자리표·accidental 오염을 유발
+    for part in root.findall(qname(ns, "part")):
+        stats["hallucinated_key_removed"] += _strip_hallucinated_key_changes(part, ns, parents)
+
     # 2) 리듬·화음·세잇단 — AUDIVERIS_MXL_RHYTHM_FIX (기본 off = OMR 유지)
     rhythm_mode = _rhythm_fix_mode()
     for part in root.findall(qname(ns, "part")):
@@ -4084,9 +4147,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 )
             stats["misread_natural_to_sharp"] += _repair_missing_accidental_by_backward_propagation(measure, ns)
             key_fifths = _part_key_fifths(part, ns)
-            stats["misplaced_sharp_relocated"] += _repair_misplaced_sharp_via_duplicate(
-                measure, ns, key_fifths
-            )
+            if _accidental_repair_enabled():
+                stats["misplaced_sharp_relocated"] += _repair_misplaced_sharp_via_duplicate(
+                    measure, ns, key_fifths
+                )
             stats["chord_duplicates_removed"] += _dedupe_chord_members_in_measure(measure, ns)
 
             if rhythm_mode == "legacy":
@@ -4206,13 +4270,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     stats["tuplet_show_number_fixed"] += 1
                 if _ensure_tuplet_normal_fields(note, ns):
                     stats["tuplet_normal_fields_fixed"] += 1
-            # OMR이 남긴 natural(제자리표) 태그는 그대로 둠 — m13 PR 등
-            if os.environ.get("AUDIVERIS_MXL_STRIP_REDUNDANT_NATURAL", "").strip().lower() in (
-                "1",
-                "true",
-                "yes",
-                "on",
-            ):
+            # OMR `<accidental>natural</accidental>` 중 조표·음높이상 불필요한 것만 제거(기본 on)
+            if _strip_redundant_naturals_enabled():
                 stats["spurious_natural_removed"] += _normalize_accidentals(
                     measure, ns, key_fifths
                 )

@@ -518,6 +518,24 @@ function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
   }
 }
 
+function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number): void {
+  for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
+    stripForeignStaffClefsInAttributes(attrs, staffN);
+  }
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {
+      child.remove();
+    }
+  }
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'direction') continue;
+    const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
+    if (!staffEl?.textContent?.trim()) continue;
+    const staff = parseInt(staffEl.textContent.trim(), 10);
+    if (Number.isFinite(staff) && staff !== staffN) child.remove();
+  }
+}
+
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
     for (const st of [...attrs.children].filter((c) => xmlLocalName(c) === 'staves')) {
@@ -560,9 +578,10 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   }
 }
 
-function transformPartToSingleStaff(part: Element, staffN: number): void {
+function transformPartToSingleStaff(part: Element, staffN: number, verbatim = false): void {
+  const transform = verbatim ? transformMeasureToSingleStaffVerbatim : transformMeasureToSingleStaff;
   for (const measure of [...part.children]) {
-    if (xmlLocalName(measure) === 'measure') transformMeasureToSingleStaff(measure, staffN);
+    if (xmlLocalName(measure) === 'measure') transform(measure, staffN);
   }
 }
 
@@ -584,7 +603,9 @@ export function resolveMusicXmlPartFromPreviewId(id: string): {
 export function splitGrandStaffPartsForFullScoreOsmd(
   xml: string,
   scoreParts: ScorePartForPreview[],
+  options?: { verbatim?: boolean },
 ): string {
+  const verbatim = options?.verbatim === true;
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
@@ -604,8 +625,8 @@ export function splitGrandStaffPartsForFullScoreOsmd(
       const plPart = part.cloneNode(true) as Element;
       prPart.setAttribute('id', `${partId}__PR`);
       plPart.setAttribute('id', `${partId}__PL`);
-      transformPartToSingleStaff(prPart, 1);
-      transformPartToSingleStaff(plPart, 2);
+      transformPartToSingleStaff(prPart, 1, verbatim);
+      transformPartToSingleStaff(plPart, 2, verbatim);
 
       const parent = part.parentNode;
       if (parent) {
@@ -647,15 +668,21 @@ export function prepareMultiStaffDirectionsForOsmdPreview(xml: string): string {
   return xml;
 }
 
-/** 한 part 안에서 특정 staff(1=PR, 2=PL)만 남기고 미리보기용 단일 줄로 정리. */
-export function filterMusicXmlToPartStaff(xml: string, partId: string, staffN: number): string {
+/** 한 part 안에서 특정 staff(1=PR, 2=PL)만 남김. verbatim=true면 clef/key·voice·direction 변환 없음. */
+export function filterMusicXmlToPartStaff(
+  xml: string,
+  partId: string,
+  staffN: number,
+  options?: { verbatim?: boolean },
+): string {
   if (staffN < 1) return xml;
+  const verbatim = options?.verbatim === true;
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
     const part = findXmlParts(doc).find((el) => el.getAttribute('id') === partId);
     if (!part) return xml;
-    transformPartToSingleStaff(part, staffN);
+    transformPartToSingleStaff(part, staffN, verbatim);
     return new XMLSerializer().serializeToString(doc);
   } catch {
     return xml;
@@ -969,11 +996,11 @@ export function buildOsmdPreviewXml(
     xml = promoteNoteDynamicsForOsmdPreview(xml);
   }
   if (!filter) {
-    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts);
+    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts, { verbatim });
   }
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
-    xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart);
+    xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart, { verbatim });
     xml = setPartDisplayName(xml, filter.partId, filter.label);
   }
   return xml;
@@ -984,11 +1011,14 @@ export function buildOsmdPreviewXml(
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
  * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
  */
-function sanitizeMusicXmlForOsmd(xml: string, _verbatim = false): string {
+function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
   try {
-    // 미리보기 전용: m1 `<key>` 생략 시 C major 명시 — OSMD가 m17 등 뒤쪽 조표를 첫머리로 당기는 현상 회피.
-    // 저장 MXL·HITL 편집 XML에는 적용되지 않음(이 함수는 OsmdBlock.load 직전에만 호출).
-    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    let out = xml;
+    if (!verbatim) {
+      // 미리보기 전용: m1 `<key>` 생략 시 C major 명시 — OSMD가 뒤쪽 조표를 첫머리로 당기는 현상 회피.
+      // HITL verbatim은 저장 MXL과 동일하게 두고, clef/key는 Audiveris·HITL 그대로 표시.
+      out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    }
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 

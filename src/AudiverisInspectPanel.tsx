@@ -986,7 +986,10 @@ export function buildOsmdPreviewXml(
  */
 function sanitizeMusicXmlForOsmd(xml: string, _verbatim = false): string {
   try {
-    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    // 미리보기 전용: m1 `<key>` 생략 시 C major 명시 — OSMD가 m17 등 뒤쪽 조표를 첫머리로 당기는 현상 회피.
+    // 저장 MXL·HITL 편집 XML에는 적용되지 않음(이 함수는 OsmdBlock.load 직전에만 호출).
+    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 
     const local = (el: Element) =>

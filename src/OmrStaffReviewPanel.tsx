@@ -585,9 +585,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ). 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset}.
           {' '}
           <span style={{ color: '#555' }}>
-            미리보기는 Audiveris MXL을 <strong>후처리 없이</strong> 그립니다. 앞머리에 원본과 다른 조표(♯/♭)가
-            보이면 OSMD가 m1에 <code>&lt;key&gt;</code>가 없을 때 뒤쪽 첫 조표를 앞으로 당겨 그린 경우이거나 OMR
-            조표 오인입니다 — 마디 편집(HITL)으로 고치세요.
+            저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. OSMD 미리보기만 m1 조표 생략 시 C major를
+            명시해 뒤쪽 조표가 앞머리로 당겨 그려지는 현상을 줄입니다. PDF와 m17 이후 조표가 다르면 마디
+            편집(HITL)으로 고치세요.
           </span>
         </p>
       </div>

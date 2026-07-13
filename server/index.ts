@@ -645,6 +645,17 @@ async function ensureAudiverisRawBackup(scorePath: string, sessionRoot: string):
   await fs.copyFile(scorePath, rawPath);
 }
 
+/** HITL·검토용 MXL을 세션 `audiveris_raw.mxl`과 동일하게 맞춤(후처리·baseline 오염 제거). */
+async function restoreScoreFileFromAudiverisRaw(
+  sessionRoot: string,
+  scorePath: string,
+): Promise<boolean> {
+  const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
+  if (!fsSync.existsSync(rawPath) || !fsSync.existsSync(scorePath)) return false;
+  await fs.copyFile(rawPath, scorePath);
+  return true;
+}
+
 async function invalidateInspectScoreCache(sessionRoot: string): Promise<void> {
   const lintCache = sessionMxlLintPath(sessionRoot);
   if (fsSync.existsSync(lintCache)) await fs.unlink(lintCache).catch(() => {});
@@ -1690,6 +1701,9 @@ async function enterOmrStaffHitlPhase(
       }
     }
   }
+  for (const p of mxlForInject) {
+    await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
+  }
   job.preInjectMxlPaths = [...mxlForInject];
   console.log(`[job ${jobId}] Pausing for part label setup (성부 S/A/T/B…)…`);
   setJobProgress(job, {
@@ -2647,7 +2661,11 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       pauseForAudiverisReview = job.pauseAfterAudiveris;
       for (const p of mxlForInject) {
         await ensureAudiverisRawBackup(p, job.sessionRoot);
-        await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+        if (job.enableOmrStaffReview === false) {
+          await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+        } else {
+          await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
+        }
       }
     }
 
@@ -2720,7 +2738,11 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     for (const p of mxlForInject) {
       await ensureAudiverisRawBackup(p, job.sessionRoot);
-      await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+      if (job.enableOmrStaffReview === false) {
+        await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+      } else {
+        await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
+      }
     }
     }
     }
@@ -2730,6 +2752,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     if (skipAudiverisEngine) {
       for (const p of mxlForInject) {
         await ensureAudiverisRawBackup(p, job.sessionRoot);
+        if (job.enableOmrStaffReview !== false) {
+          await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
+        }
       }
     }
 
@@ -3545,8 +3570,10 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
     const cacheDir = path.join(job.sessionRoot, '.diag-cache');
     await fs.mkdir(cacheDir, { recursive: true });
     const outXml = path.join(cacheDir, 'inspect-score.musicxml');
-    // OMR HITL: review.mxl(및 omr_hitl_baseline.mxl)이 반영된 악보 — 재후처리 시 HITL 보정이 사라질 수 있음
-    if (job.status !== 'omr_staff_review_needed') {
+    // OMR HITL: raw+HITL만 — fix_audiveris_mxl·rest 정규화는 적용하지 않음
+    if (job.status === 'omr_staff_review_needed') {
+      await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+    } else {
       await fixAudiverisMxlInScoreFile(mxlPath, pythonBin);
     }
     if (fsSync.existsSync(outXml)) await fs.unlink(outXml).catch(() => {});

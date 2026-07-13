@@ -752,7 +752,11 @@ export function convertMultiStaffDirectionsToNoteAttached(xml: string): string {
 
 /**
  * Audiveris는 조표 없는 구간에서 m1 `<key>`를 생략한다. OSMD는 뒤쪽 조바꿈(예: m17 4♯)을
- * 악보 첫머리 조표로 당겨 그리는 경우가 있어, m1에 C major(`fifths=0`)를 명시한다.
+ * 악보 첫머리 조표로 당겨 그리는 경우가 있어, 조건을 만족할 때만 m1에 C major(`fifths=0`)를 명시한다.
+ *
+ * - m1에 `<key>` 없음
+ * - 픽업(m0)에 `<key>` 없음 (m0 조표는 m1이 이어받음)
+ * - 파트의 첫 `<key>`가 m2 이후 (중간 조바꿈)
  */
 export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
   try {
@@ -760,13 +764,36 @@ export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
     if (doc.querySelector('parsererror')) return xml;
 
     for (const part of findXmlParts(doc)) {
-      const firstMeas = [...part.children].find(
-        (c) => xmlLocalName(c) === 'measure' && (c.getAttribute('number') ?? '1') === '1',
-      );
+      const measures = [...part.children].filter((c) => xmlLocalName(c) === 'measure');
+      const firstMeas = measures.find((c) => (c.getAttribute('number') ?? '1') === '1');
       if (!firstMeas) continue;
 
       let attrs = [...firstMeas.children].find((c) => xmlLocalName(c) === 'attributes');
       if (attrs?.querySelector('key, *|key')) continue;
+
+      const measureNum = (el: Element) => parseInt(el.getAttribute('number') ?? '0', 10);
+      const keyFifthsInMeasure = (meas: Element): number | null => {
+        const a = [...meas.children].find((c) => xmlLocalName(c) === 'attributes');
+        const key = a?.querySelector('key, *|key');
+        const f = key?.querySelector('fifths, *|fifths')?.textContent?.trim();
+        if (f == null || f === '' || !/^-?\d+$/.test(f)) return null;
+        return parseInt(f, 10);
+      };
+
+      const hasPickupKey = measures.some(
+        (m) => measureNum(m) < 1 && keyFifthsInMeasure(m) != null,
+      );
+      if (hasPickupKey) continue;
+
+      let firstKeyM: number | null = null;
+      for (const m of measures.sort((a, b) => measureNum(a) - measureNum(b))) {
+        const f = keyFifthsInMeasure(m);
+        if (f != null) {
+          firstKeyM = measureNum(m);
+          break;
+        }
+      }
+      if (firstKeyM == null || firstKeyM < 2) continue;
 
       const ns = attrs?.namespaceURI ?? firstMeas.namespaceURI;
       const mk = (local: string) =>

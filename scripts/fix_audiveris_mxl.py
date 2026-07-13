@@ -138,11 +138,41 @@ def _remove_key_from_event(
         measure.remove(attr_el)
 
 
+def _first_key_in_part(part: ET.Element, ns: str) -> tuple[int, int] | None:
+    """파트에서 (마디 번호, fifths) 첫 `<key>` — 마디 번호 순."""
+    found: list[tuple[int, int]] = []
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        for attr in measure.findall(qname(ns, "attributes")):
+            key_el = attr.find(qname(ns, "key"))
+            if key_el is None:
+                continue
+            f = key_el.find(qname(ns, "fifths"))
+            if f is None or not (f.text or "").strip().lstrip("-").isdigit():
+                continue
+            found.append((mnum, int(f.text.strip())))
+    if not found:
+        return None
+    return min(found, key=lambda t: t[0])
+
+
+def _part_has_pickup_key(part: ET.Element, ns: str) -> bool:
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        if mnum >= 1:
+            break
+        for attr in measure.findall(qname(ns, "attributes")):
+            if attr.find(qname(ns, "key")) is not None:
+                return True
+    return False
+
+
 def _ensure_explicit_opening_key_signatures(root: ET.Element, ns: str) -> int:
-    """m1에 `<key>`가 없으면 암시적 C major(`fifths=0`)를 명시.
+    """m1에 `<key>`가 없고, 픽업(m0) 조표도 없으며, 첫 `<key>`가 m2+일 때 C major(`fifths=0`) 명시.
 
     Audiveris는 조표 없는 구간에서 `<key>`를 생략하는데, OSMD 등 뷰어가
     뒤쪽 조바꿈(m17 4♯ 등)을 악보 첫머리 조표로 당겨 그리는 경우가 있다.
+    픽업(m0)에 이미 조표가 있으면 m1은 그 조를 이어받으므로 건드리지 않는다.
     """
     added = 0
     for part in root.findall(qname(ns, "part")):
@@ -155,6 +185,11 @@ def _ensure_explicit_opening_key_signatures(root: ET.Element, ns: str) -> int:
             continue
         attr = first.find(qname(ns, "attributes"))
         if attr is not None and attr.find(qname(ns, "key")) is not None:
+            continue
+        if _part_has_pickup_key(part, ns):
+            continue
+        first_key = _first_key_in_part(part, ns)
+        if first_key is None or first_key[0] < 2:
             continue
         if attr is None:
             attr = ET.Element(qname(ns, "attributes"))

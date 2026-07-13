@@ -1,4 +1,4 @@
-"""omr-work-831: C major — no opening key, Audiveris 1-sharp at every system."""
+"""omr-work-831: same score — m17 4-sharp mod kept, line-header 1-sharp removed."""
 import io
 import os
 import sys
@@ -48,12 +48,9 @@ fixed = td / "fixed.mxl"
 with zipfile.ZipFile(ZIP) as z:
     raw.write_bytes(z.read("audiveris_raw.mxl"))
 
-before = fifths_counter(raw.read_bytes())
 stats = fix_mxl_file(raw, fixed)
 after = fifths_counter(fixed.read_bytes())
 
-assert before[1] == 37 and before[4] == 20, before
-assert len(after) == 0, after
-assert stats.get("invented_key_removed", 0) == 37, stats
-assert stats.get("hallucinated_key_removed", 0) == 20, stats
-print("OK: stripped all invented keys (no opening key in m1)")
+assert after == Counter({4: 4}), after
+assert stats.get("line_header_key_removed", 0) == 37, stats
+print("OK: m17 4-sharp kept; line-header 1-sharp removed")

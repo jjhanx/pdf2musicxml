@@ -11,6 +11,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 _SPURIOUS_DIRECTION_WORDS = frozenset(
     {"P", "p", "2P", "2p", "PR", "PL", "R", "L"}
@@ -54,12 +55,125 @@ def _strip_redundant_naturals_enabled() -> bool:
 
 
 def _strip_invented_keys_enabled() -> bool:
-    """첫 마디에 조표 없을 때 줄마다 붙은 Audiveris 조표 제거 — 기본 on."""
+    """Audiveris 줄머리 오인·courtesy 조표 정리 — 기본 on."""
     return not _env_truthy("AUDIVERIS_MXL_KEEP_INVENTED_KEYS", default=False)
 
 
 # 조표 유무 판단: part-list 앞쪽 N개 마디(픽업·anacrusis 포함)
 _OPENING_KEY_MEASURES = 4
+
+
+def _measure_at_layout_break(measure: ET.Element, ns: str) -> bool:
+    pr = measure.find(qname(ns, "print"))
+    return pr is not None and (
+        pr.get("new-system") == "yes" or pr.get("new-page") == "yes"
+    )
+
+
+def _collect_key_events(part: ET.Element, ns: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        at_break = _measure_at_layout_break(measure, ns)
+        for attr in measure.findall(qname(ns, "attributes")):
+            key = attr.find(qname(ns, "key"))
+            if key is None:
+                continue
+            f = key.find(qname(ns, "fifths"))
+            if f is None or not (f.text or "").strip().lstrip("-").isdigit():
+                continue
+            events.append(
+                {
+                    "measure_num": mnum,
+                    "fifths": int(f.text.strip()),
+                    "at_break": at_break,
+                    "key_el": key,
+                    "attr_el": attr,
+                }
+            )
+    return events
+
+
+def _spurious_fifths_by_part_consensus(
+    root: ET.Element, ns: str
+) -> set[int]:
+    """대부분 파트에서 줄바꿈에만 나오는 fifths → 줄머리 오인(1♯ courtesy 등)."""
+    per_part: list[set[int]] = []
+    for part in root.findall(qname(ns, "part")):
+        spurious: set[int] = set()
+        by_f: dict[int, list[dict[str, Any]]] = {}
+        for ev in _collect_key_events(part, ns):
+            by_f.setdefault(ev["fifths"], []).append(ev)
+        for fifths, evs in by_f.items():
+            if not any(not e["at_break"] for e in evs):
+                spurious.add(fifths)
+        per_part.append(spurious)
+    if not per_part:
+        return set()
+    all_f = {f for s in per_part for f in s}
+    out: set[int] = set()
+    n = len(per_part)
+    for f in all_f:
+        votes = sum(1 for s in per_part if f in s)
+        if votes >= max(1, (n * 3) // 4):
+            out.add(f)
+    return out
+
+
+def _remove_key_from_event(
+    ev: dict[str, Any], parents: dict[ET.Element, ET.Element]
+) -> None:
+    attr_el = ev["attr_el"]
+    key_el = ev["key_el"]
+    if key_el in list(attr_el):
+        attr_el.remove(key_el)
+    measure = parents.get(attr_el)
+    if measure is not None and len(attr_el) == 0:
+        measure.remove(attr_el)
+
+
+def _normalize_audiveris_key_signatures(
+    root: ET.Element, ns: str, parents: dict[ET.Element, ET.Element]
+) -> tuple[int, int]:
+    """Audiveris 조표 정리 — OMR 조바꿈은 유지, 줄머리 오인·courtesy 반복만 제거.
+
+    - **유지**: 마디 중간(줄바꿈 아님)에 처음 등장하는 조표 — 예: m17 `<fifths>4</fifths>` 조바꿈
+    - **제거**: 파트 대부분에서 **줄바꿈에만** 반복되는 fifths (1♯ courtesy 오인)
+    - **제거**: 이미 유효 조표가 있는 뒤 줄바꿈마다 같은 fifths를 다시 적는 courtesy `<key>`
+    """
+    spurious_fifths = _spurious_fifths_by_part_consensus(root, ns)
+    line_removed = 0
+    courtesy_removed = 0
+
+    for part in root.findall(qname(ns, "part")):
+        events = _collect_key_events(part, ns)
+        if not events:
+            continue
+
+        for fifths in spurious_fifths:
+            for ev in events:
+                if ev["fifths"] == fifths:
+                    _remove_key_from_event(ev, parents)
+                    line_removed += 1
+
+        events = _collect_key_events(part, ns)
+        by_f: dict[int, list[dict[str, Any]]] = {}
+        for ev in events:
+            by_f.setdefault(ev["fifths"], []).append(ev)
+
+        for fifths, evs in by_f.items():
+            if fifths in spurious_fifths:
+                continue
+            anchors = [e for e in evs if not e["at_break"]]
+            if not anchors:
+                continue
+            anchor_num = min(e["measure_num"] for e in anchors)
+            for ev in evs:
+                if ev["at_break"] and ev["measure_num"] > anchor_num and ev["fifths"] == fifths:
+                    _remove_key_from_event(ev, parents)
+                    courtesy_removed += 1
+
+    return line_removed, courtesy_removed
 
 
 def mxl_ns_uri(root: ET.Element) -> str:
@@ -2251,84 +2365,6 @@ def _part_key_fifths(part: ET.Element, ns: str) -> int:
     return fifths
 
 
-def _strip_hallucinated_key_changes(
-    part: ET.Element, ns: str, parents: dict[ET.Element, ET.Element]
-) -> int:
-    """Audiveris가 SMuFL·성부 약어 등을 조표(# 4개 등)로 오인한 소수 `<key>` 제거.
-
-    파트 전체에서 다수(≥65%)를 차지하는 fifths를 기준으로, 드문 조표 변경만 삭제합니다.
-    실제 조성 전환(양쪽 조표가 비슷한 빈도)은 건드리지 않습니다.
-    """
-    events: list[tuple[int, int, ET.Element, ET.Element]] = []
-    for measure in part.findall(qname(ns, "measure")):
-        mnum = int(measure.get("number") or 0)
-        for attr in measure.findall(qname(ns, "attributes")):
-            key = attr.find(qname(ns, "key"))
-            if key is None:
-                continue
-            f = key.find(qname(ns, "fifths"))
-            if f is None or not (f.text or "").strip().lstrip("-").isdigit():
-                continue
-            events.append((mnum, int(f.text.strip()), key, attr))
-
-    if len(events) < 2:
-        return 0
-
-    counts = Counter(fifths for _, fifths, _, _ in events)
-    stable_fifths, stable_count = counts.most_common(1)[0]
-    threshold = stable_count * 0.65
-    removed = 0
-    for _, fifths, key_el, attr_el in events:
-        if fifths == stable_fifths:
-            continue
-        if counts[fifths] >= threshold:
-            continue
-        attr_el.remove(key_el)
-        removed += 1
-        measure = parents.get(attr_el)
-        if measure is not None and len(attr_el) == 0:
-            measure.remove(attr_el)
-    return removed
-
-
-def _part_opening_has_key(part: ET.Element, ns: str) -> bool:
-    seen = 0
-    for measure in part.findall(qname(ns, "measure")):
-        if seen >= _OPENING_KEY_MEASURES:
-            break
-        seen += 1
-        for attr in measure.findall(qname(ns, "attributes")):
-            if attr.find(qname(ns, "key")) is not None:
-                return True
-    return False
-
-
-def _strip_invented_keys_without_opening(
-    part: ET.Element, ns: str, parents: dict[ET.Element, ET.Element]
-) -> int:
-    """첫 마디(앞 N마디)에 `<key>`가 없으면 이후 줄마다 붙은 조표는 전부 제거.
-
-    Audiveris HEADERS가 clef·박자만 있는 C major 등에서 SMuFL/기호를 1♯로 오인해
-    `print new-system`마다 `<fifths>1</fifths>`를 넣는 경우(8317959f 등)를 막습니다.
-    악보 1마디(또는 픽업 직후)에 조표가 있으면 건드리지 않습니다.
-    """
-    if _part_opening_has_key(part, ns):
-        return 0
-    removed = 0
-    for measure in part.findall(qname(ns, "measure")):
-        for attr in list(measure.findall(qname(ns, "attributes"))):
-            key = attr.find(qname(ns, "key"))
-            if key is None:
-                continue
-            attr.remove(key)
-            removed += 1
-            if len(attr) == 0:
-                parent = parents.get(attr)
-                if parent is not None:
-                    parent.remove(attr)
-    return removed
-
-
 def _step_key_alter(step: str, fifths: int) -> int:
     if fifths > 0 and step in _SHARP_ORDER[:fifths]:
         return 1
@@ -4165,8 +4201,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "slur_placements_fixed": 0,
         "piano_stems_fixed": 0,
         "spurious_natural_removed": 0,
-        "hallucinated_key_removed": 0,
-        "invented_key_removed": 0,
+        "line_header_key_removed": 0,
+        "courtesy_key_removed": 0,
         "tuplet_brackets_adjusted": 0,
         "tuplet_normal_fields_fixed": 0,
         "fermata_from_staccato_fixed": 0,
@@ -4180,13 +4216,11 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["directions_removed"] += dr
             stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
 
-    # 1b) Audiveris 조표 오인(소수 fifths) 제거 — 잘못된 조표가 제자리표·accidental 오염을 유발
-    for part in root.findall(qname(ns, "part")):
-        stats["hallucinated_key_removed"] += _strip_hallucinated_key_changes(part, ns, parents)
-        if _strip_invented_keys_enabled():
-            stats["invented_key_removed"] += _strip_invented_keys_without_opening(
-                part, ns, parents
-            )
+    # 1b) Audiveris 조표: 조바꿈(앵커) 유지, 줄머리 오인·courtesy 반복만 제거
+    if _strip_invented_keys_enabled():
+        line_removed, courtesy_removed = _normalize_audiveris_key_signatures(root, ns, parents)
+        stats["line_header_key_removed"] += line_removed
+        stats["courtesy_key_removed"] += courtesy_removed
 
     # 2) 리듬·화음·세잇단 — AUDIVERIS_MXL_RHYTHM_FIX (기본 off = OMR 유지)
     rhythm_mode = _rhythm_fix_mode()

@@ -1035,8 +1035,29 @@ function previewClefSignBefore(part: Element, measureNum: number, staffNum: numb
   return current;
 }
 
+function transposeNotePitchByOctaves(note: Element, delta: number): void {
+  const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
+  if (!pitch) return;
+  const octEl = pitch.querySelector('octave, *|octave');
+  if (!octEl?.textContent?.trim()) return;
+  const n = parseInt(octEl.textContent.trim(), 10);
+  if (!Number.isFinite(n)) return;
+  octEl.textContent = String(Math.max(0, Math.min(9, n + delta)));
+}
+
+/** 조바꿈 F clef 오인 제거 후 같은 줄 위치의 bass-octave pitch를 treble로 복구(미리보기 전용). */
+function transposePitchedNotesOnStaffInMeasure(measure: Element, staffN: number, delta: number): void {
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (!child.querySelector(':scope > pitch, :scope > *|pitch')) continue;
+    if (noteStaffN(child) !== staffN) continue;
+    transposeNotePitchByOctaves(child, delta);
+  }
+}
+
 /**
  * 조바꿈 마디에서 Audiveris가 F clef로 오인한 `<clef>` 제거 + 빠진 `<key>` 보충.
+ * G clef part에서 F clef 오인 시 pitch octave +1(OMR이 bass octave로 export한 경우).
  * OSMD 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음.
  */
 export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
@@ -1093,6 +1114,7 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
         const ns = meas.namespaceURI;
         const mk = (local: string) =>
           ns ? doc.createElementNS(ns, local) : doc.createElement(local);
+        const octaveUpStaves = new Set<number>();
 
         for (const attr of [...meas.children].filter((c) => xmlLocalName(c) === 'attributes')) {
           let hasKey = attr.querySelector('key, *|key') != null;
@@ -1101,7 +1123,10 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
             const numAttr = clef.getAttribute('number');
             const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
             const prevSign = previewClefSignBefore(part, mnum, staff);
-            if (prevSign === 'G' || hasKey) clef.remove();
+            if (prevSign === 'G' || hasKey) {
+              clef.remove();
+              if (prevSign === 'G') octaveUpStaves.add(staff);
+            }
           }
           hasKey = attr.querySelector('key, *|key') != null;
           const partChanges = measureKeyChanges(part, meas);
@@ -1113,6 +1138,10 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
             attr.appendChild(keyEl);
           }
           if (!attr.children.length) attr.remove();
+        }
+
+        for (const staff of octaveUpStaves) {
+          transposePitchedNotesOnStaffInMeasure(meas, staff, 1);
         }
       }
     }

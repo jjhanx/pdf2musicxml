@@ -977,6 +977,162 @@ export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
   }
 }
 
+function previewKeyFifthsBefore(part: Element, measureNum: number): number {
+  let fifths = 0;
+  for (const meas of [...part.children]) {
+    if (xmlLocalName(meas) !== 'measure') continue;
+    const mn = parseInt(meas.getAttribute('number') ?? '0', 10);
+    if (mn >= measureNum) break;
+    for (const attr of [...meas.children]) {
+      if (xmlLocalName(attr) !== 'attributes') continue;
+      const fText = attr.querySelector('key fifths, key *|fifths, *|key fifths, *|key *|fifths')?.textContent?.trim();
+      if (fText && /^-?\d+$/.test(fText)) fifths = parseInt(fText, 10);
+    }
+  }
+  return fifths;
+}
+
+function previewClefSign(clef: Element): string {
+  return clef.querySelector('sign, *|sign')?.textContent?.trim() ?? '';
+}
+
+function previewClefSignBefore(part: Element, measureNum: number, staffNum: number): string {
+  let current = 'G';
+  for (const meas of [...part.children]) {
+    if (xmlLocalName(meas) !== 'measure') continue;
+    const mn = parseInt(meas.getAttribute('number') ?? '0', 10);
+    if (mn >= measureNum) break;
+    for (const attr of [...meas.children]) {
+      if (xmlLocalName(attr) !== 'attributes') continue;
+      for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
+        const numAttr = clef.getAttribute('number');
+        const cStaff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
+        if (cStaff !== staffNum) continue;
+        const sign = previewClefSign(clef);
+        if (sign) current = sign;
+      }
+    }
+  }
+  return current;
+}
+
+/**
+ * 조바꿈 마디에서 Audiveris가 F clef로 오인한 `<clef>` 제거 + 빠진 `<key>` 보충.
+ * OSMD 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음.
+ */
+export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+
+    const measureKeyChanges = (part: Element, meas: Element): number[] => {
+      const mn = parseInt(meas.getAttribute('number') ?? '0', 10);
+      const prev = previewKeyFifthsBefore(part, mn);
+      const out: number[] = [];
+      for (const attr of [...meas.children]) {
+        if (xmlLocalName(attr) !== 'attributes') continue;
+        for (const key of [...attr.children].filter((c) => xmlLocalName(c) === 'key')) {
+          const fText = key.querySelector('fifths, *|fifths')?.textContent?.trim();
+          if (!fText || !/^-?\d+$/.test(fText)) continue;
+          const nf = parseInt(fText, 10);
+          if (nf !== prev) out.push(nf);
+        }
+      }
+      return out;
+    };
+
+    const parts = findXmlParts(doc);
+    const measureNums = new Set<number>();
+    for (const part of parts) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) === 'measure') {
+          measureNums.add(parseInt(meas.getAttribute('number') ?? '0', 10));
+        }
+      }
+    }
+
+    for (const mnum of [...measureNums].sort((a, b) => a - b)) {
+      const declared: number[] = [];
+      for (const part of parts) {
+        const meas = [...part.children].find(
+          (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
+        );
+        if (meas) declared.push(...measureKeyChanges(part, meas));
+      }
+      if (!declared.length) continue;
+      const counts = new Map<number, number>();
+      for (const f of declared) counts.set(f, (counts.get(f) ?? 0) + 1);
+      const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+      if (ranked.length > 1 && ranked[0]![1] === ranked[1]![1]) continue;
+      const newFifths = ranked[0]![0];
+
+      for (const part of parts) {
+        const meas = [...part.children].find(
+          (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
+        );
+        if (!meas) continue;
+        const ns = meas.namespaceURI;
+        const mk = (local: string) =>
+          ns ? doc.createElementNS(ns, local) : doc.createElement(local);
+
+        for (const attr of [...meas.children].filter((c) => xmlLocalName(c) === 'attributes')) {
+          let hasKey = attr.querySelector('key, *|key') != null;
+          for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
+            if (previewClefSign(clef) !== 'F') continue;
+            const numAttr = clef.getAttribute('number');
+            const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
+            const prevSign = previewClefSignBefore(part, mnum, staff);
+            if (prevSign === 'G' || hasKey) clef.remove();
+          }
+          hasKey = attr.querySelector('key, *|key') != null;
+          const partChanges = measureKeyChanges(part, meas);
+          if (!hasKey && !partChanges.length) {
+            const keyEl = mk('key');
+            const fifthsEl = mk('fifths');
+            fifthsEl.textContent = String(newFifths);
+            keyEl.appendChild(fifthsEl);
+            attr.appendChild(keyEl);
+          }
+          if (!attr.children.length) attr.remove();
+        }
+      }
+    }
+
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/** 줄바꿈 등에서 이전과 동일한 `<clef>` courtesy 반복 제거 — OSMD 미리보기 전용. */
+function removeRedundantCourtesyClefsForOsmd(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+
+    for (const part of findXmlParts(doc)) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+        const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
+        for (const attr of [...meas.children].filter((c) => xmlLocalName(c) === 'attributes')) {
+          for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
+            const numAttr = clef.getAttribute('number');
+            const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
+            const sign = previewClefSign(clef);
+            if (!sign) continue;
+            if (sign === previewClefSignBefore(part, mnum, staff)) clef.remove();
+          }
+          if (!attr.children.length) attr.remove();
+        }
+      }
+    }
+
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
 export type OsmdPreviewOptions = {
   /** true: part/성부 필터·PR·PL split만, clef/key/pitch/direction 변환 없음 (HITL 대조용) */
   verbatim?: boolean;
@@ -1011,14 +1167,12 @@ export function buildOsmdPreviewXml(
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
  * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
  */
-function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
+function sanitizeMusicXmlForOsmd(xml: string, _verbatim = false): string {
   try {
-    let out = xml;
-    if (!verbatim) {
-      // 미리보기 전용: m1 `<key>` 생략 시 C major 명시 — OSMD가 뒤쪽 조표를 첫머리로 당기는 현상 회피.
-      // HITL verbatim은 저장 MXL과 동일하게 두고, clef/key는 Audiveris·HITL 그대로 표시.
-      out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
-    }
+    // 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음(OsmdBlock.load 직전).
+    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    out = repairKeyChangeClefMisreadForOsmd(out);
+    out = removeRedundantCourtesyClefsForOsmd(out);
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 

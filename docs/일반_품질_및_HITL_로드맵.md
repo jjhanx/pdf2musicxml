@@ -63,6 +63,7 @@ pm2 logs pdf2mxl --lines 200 --nostream | grep -E "Part labels saved|inject_ocr|
 ```bash
 python scripts/mxl_quality_lint.py path/to/score.mxl --measure-offset 1 --page-count 10 --json report.json
 python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
+python _smoke/audit_preview_voice_flatten.py   # omr-work*.zip — OSMD split 미리보기 순차 voice 평탄화 회귀(리듬 시각 불변)
 ```
 
 - **인쇄 마디** ≈ MXL `measure@number` + **`MXL_MEASURE_OFFSET_PRINTED`**(기본 1, pickup 가정).

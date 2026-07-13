@@ -361,6 +361,124 @@ function rewriteClefsInAttributes(attrs: Element, staffN: number): void {
   attrs.appendChild(clone);
 }
 
+function noteDurationN(note: Element): number {
+  const d = note.querySelector(':scope > duration, :scope > *|duration');
+  const n = parseInt(d?.textContent?.trim() ?? '0', 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function noteVoiceN(note: Element): string {
+  const v = note.querySelector(':scope > voice, :scope > *|voice');
+  const text = v?.textContent?.trim();
+  return text || '1';
+}
+
+function isChordNote(note: Element): boolean {
+  return note.querySelector(':scope > chord, :scope > *|chord') != null;
+}
+
+function timelineDurationEl(el: Element): number {
+  const d = el.querySelector(':scope > duration, :scope > *|duration');
+  const n = parseInt(d?.textContent?.trim() ?? '0', 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+type StaffTimedNote = { note: Element; time: number; voice: string; end: number };
+
+/** 문서 순서 backup/forward로 staff 음표 시각·voice 구간을 계산. */
+function staffTimedNotesInMeasure(measure: Element): StaffTimedNote[] {
+  let t = 0;
+  const out: StaffTimedNote[] = [];
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'backup') {
+      t = Math.max(0, t - timelineDurationEl(child));
+    } else if (tag === 'forward') {
+      t += timelineDurationEl(child);
+    } else if (tag === 'note') {
+      const dur = noteDurationN(child);
+      const voice = noteVoiceN(child);
+      const end = isChordNote(child) ? t : t + dur;
+      out.push({ note: child, time: t, voice, end });
+      if (!isChordNote(child)) t = end;
+    }
+  }
+  return out;
+}
+
+function staffVoicesOverlap(timed: StaffTimedNote[]): boolean {
+  const byVoice = new Map<string, Array<{ start: number; end: number }>>();
+  for (const { voice, time, end } of timed) {
+    const list = byVoice.get(voice) ?? [];
+    list.push({ start: time, end });
+    byVoice.set(voice, list);
+  }
+  const voices = [...byVoice.keys()];
+  for (let i = 0; i < voices.length; i += 1) {
+    for (let j = i + 1; j < voices.length; j += 1) {
+      for (const a of byVoice.get(voices[i]!)!) {
+        for (const b of byVoice.get(voices[j]!)!) {
+          if (Math.max(a.start, b.start) < Math.min(a.end, b.end)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function measureMusicalContentInsertIndex(measure: Element): number {
+  for (let i = 0; i < measure.children.length; i += 1) {
+    const tag = xmlLocalName(measure.children[i]!);
+    if (tag === 'attributes' || tag === 'print') continue;
+    if (tag === 'barline' && measure.children[i]!.getAttribute('location') === 'right') continue;
+    return i;
+  }
+  return measure.children.length;
+}
+
+/**
+ * OSMD split 미리보기: backup(voice 없음)+forward(voice 지정) 등 다중 voice를
+ * 순차(비겹침) 단일 voice + forward로 평탄화 — PL·PR 박자 정렬 유지.
+ */
+function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
+  const timed = staffTimedNotesInMeasure(measure);
+  if (timed.length < 2) return;
+  const voices = new Set(timed.map((x) => x.voice));
+  if (voices.size < 2) return;
+  if (staffVoicesOverlap(timed)) return;
+
+  const doc = measure.ownerDocument!;
+  const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+  const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
+
+  const toRemove = [...measure.children].filter((c) => {
+    const tag = xmlLocalName(c);
+    return tag === 'note' || tag === 'backup' || tag === 'forward';
+  });
+  for (const el of toRemove) measure.removeChild(el);
+
+  let insertAt = measureMusicalContentInsertIndex(measure);
+  let cursor = 0;
+  for (const { note, time } of timed) {
+    if (time > cursor) {
+      const fwd = mk('forward');
+      const durEl = mk('duration');
+      durEl.textContent = String(time - cursor);
+      fwd.appendChild(durEl);
+      measure.insertBefore(fwd, measure.children[insertAt] ?? null);
+      insertAt += 1;
+      cursor = time;
+    }
+    const clone = note.cloneNode(true) as Element;
+    clone.querySelectorAll('voice, *|voice').forEach((v) => {
+      v.textContent = '1';
+    });
+    measure.insertBefore(clone, measure.children[insertAt] ?? null);
+    insertAt += 1;
+    if (!isChordNote(clone)) cursor = time + noteDurationN(clone);
+  }
+}
+
 /** 한 마디를 part 내 특정 staff(1=PR, 2=PL) 단일 줄로 — cross-staff backup만 제거·같은 줄 병렬 voice backup 유지. */
 function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
   for (const child of [...measure.children]) {
@@ -407,6 +525,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
     }
   }
   pruneCrossStaffTimeline(measure, staffN);
+  flattenNonOverlappingStaffVoicesForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     const anchor = anchorNoteForDirection(measure, child);

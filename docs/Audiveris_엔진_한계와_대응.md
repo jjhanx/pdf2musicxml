@@ -62,7 +62,7 @@
 ### 3. MXL 후처리 (`fix_audiveris_mxl.py`, inject 직전)
 
 - direction `P` / `2P` 등 제거, 이중 staccato+natural 일부 정리.  
-- **조표 오인·조바꿈**: Audiveris HEADERS가 줄머리 SMuFL 등을 **1♯ courtesy**처럼 읽거나, **m17 4♯ 조바꿈**을 줄마다 반복 export합니다(`omr-work-8317959f`, `omr-work-ddd2447d`). **기본은 `<key>`를 Audiveris export 그대로 두고** OMR HITL 미리보기에서 사람이 고칩니다. **m1 조표 생략** 시 **`fifths=0` 명시** — OSMD가 뒤쪽 조바꿈을 악보 첫머리로 당기는 현상 완화. **`AUDIVERIS_MXL_NORMALIZE_KEYS=1`** 일 때만 후처리가 **마디 중간(줄바꿈 아님) 첫 `<key>`는 유지**, **줄바꿈에만 있는 fifths(대부분 파트 합의)는 제거**, **이미 유효한 조표의 courtesy 반복만 제거**합니다.
+- **조표 오인·조바꿈**: Audiveris HEADERS가 줄머리 SMuFL 등을 **1♯ courtesy**처럼 읽거나, **m17 4♯ 조바꿈**을 줄마다 반복 export합니다(`omr-work-8317959f`, `omr-work-ddd2447d`). **기본은 `<key>`를 Audiveris export 그대로 두고** OMR HITL 미리보기에서 사람이 고칩니다. **m1 조표 생략** 시 **`fifths=0` 명시** — OSMD가 뒤쪽 조바꿈을 악보 첫머리로 당기는 현상 완화. **조바꿈 마디 F 조표 오인** — 한 파트라도 `<key>` 조바꿈이 있는 마디에서 treble(G) 성부·피아노 1번 staff에만 F `<clef>`가 있으면 오인으로 보고 제거하고, `<key>`가 빠진 성부에는 같은 `fifths`를 보충(`fix_audiveris_mxl` + OSMD 미리보기, 마디·파트 ID 하드코딩 없음). **`AUDIVERIS_MXL_NORMALIZE_KEYS=1`** 일 때만 후처리가 **마디 중간(줄바꿈 아님) 첫 `<key>`는 유지**, **줄바꿈에만 있는 fifths(대부분 파트 합의)는 제거**, **이미 유효한 조표의 courtesy 반복만 제거**합니다.
 - **특정 악보 보정 (2026-06 추가)**: '눈 (김효근)' 피아노 파트(P5)의 인쇄 7마디(MXL 6마디) 오른손 성부에서 오인식되어 빠진 이음줄(5~7번 음표 D4-D#4, 8~9번 음표 A4-B3)을 음표 피치 시퀀스 패턴 분석을 통해 정밀 복구 및 주입합니다.
 - **SYMBOLS UI에는 반영 안 됨.**
 

@@ -2455,6 +2455,139 @@ def _key_fifths_before_measure(part: ET.Element, measure_num: int, ns: str) -> i
     return fifths
 
 
+def _clef_sign(clef_el: ET.Element, ns: str) -> str:
+    sign = clef_el.find(qname(ns, "sign"))
+    return (sign.text or "").strip() if sign is not None else ""
+
+
+def _clef_sign_before_measure(
+    part: ET.Element, measure_num: int, ns: str, staff_num: int | None = None
+) -> str:
+    """measure_num 직전까지 해당 staff(또는 전체)에 유효한 clef sign."""
+    current = "G"
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        if mnum >= measure_num:
+            break
+        for attr in measure.findall(qname(ns, "attributes")):
+            for clef_el in attr.findall(qname(ns, "clef")):
+                num_attr = clef_el.get("number")
+                if staff_num is not None:
+                    c_staff = int(num_attr) if num_attr and num_attr.isdigit() else 1
+                    if c_staff != staff_num:
+                        continue
+                elif num_attr and num_attr.isdigit() and int(num_attr) != 1:
+                    continue
+                sign = _clef_sign(clef_el, ns)
+                if sign:
+                    current = sign
+    return current
+
+
+def _measure_key_changes(part: ET.Element, measure: ET.Element, ns: str) -> list[int]:
+    mnum = int(measure.get("number") or 0)
+    prev = _key_fifths_before_measure(part, mnum, ns)
+    changes: list[int] = []
+    for attr in measure.findall(qname(ns, "attributes")):
+        for key_el in attr.findall(qname(ns, "key")):
+            f = key_el.find(qname(ns, "fifths"))
+            if f is None or not (f.text or "").strip().lstrip("-").isdigit():
+                continue
+            new_f = int(f.text.strip())
+            if new_f != prev:
+                changes.append(new_f)
+    return changes
+
+
+def _is_spurious_f_clef_at_key_change(
+    part: ET.Element,
+    measure_num: int,
+    clef_el: ET.Element,
+    ns: str,
+    has_key_in_attr: bool,
+) -> bool:
+    if _clef_sign(clef_el, ns) != "F":
+        return False
+    num_attr = clef_el.get("number")
+    staff = int(num_attr) if num_attr and num_attr.isdigit() else 1
+    prev = _clef_sign_before_measure(part, measure_num, ns, staff)
+    if prev == "G":
+        return True
+    if has_key_in_attr:
+        return True
+    return False
+
+
+def _repair_key_change_clef_misread(root: ET.Element, ns: str) -> int:
+    """조바꿈 마디의 F 조표 오인을 `<key>`로 복원하고 spurious `<clef>` 제거.
+
+    Audiveris가 조바꿈(♮·# 등)을 낮은음자리표로 읽고, `<key>`는 일부 파트·한 마디
+    늦게 넣는 경우가 있다. 같은 마디에서 한 파트라도 실제 조바꿈 `<key>`가 있으면
+    treble 파트의 G→F 오인·피아노 1번 staff F 조표를 정리하고 빠진 `<key>`를 보충한다.
+    """
+    parts = root.findall(qname(ns, "part"))
+    if not parts:
+        return 0
+
+    measure_nums: set[int] = set()
+    for part in parts:
+        for measure in part.findall(qname(ns, "measure")):
+            measure_nums.add(int(measure.get("number") or 0))
+
+    repaired = 0
+    for mnum in sorted(measure_nums):
+        declared: list[int] = []
+        for part in parts:
+            measure = next(
+                (
+                    m
+                    for m in part.findall(qname(ns, "measure"))
+                    if int(m.get("number") or 0) == mnum
+                ),
+                None,
+            )
+            if measure is not None:
+                declared.extend(_measure_key_changes(part, measure, ns))
+        if not declared:
+            continue
+        counter = Counter(declared)
+        top = counter.most_common()
+        if len(top) > 1 and top[0][1] == top[1][1]:
+            continue
+        new_fifths = top[0][0]
+
+        for part in parts:
+            measure = next(
+                (
+                    m
+                    for m in part.findall(qname(ns, "measure"))
+                    if int(m.get("number") or 0) == mnum
+                ),
+                None,
+            )
+            if measure is None:
+                continue
+            for attr in list(measure.findall(qname(ns, "attributes"))):
+                has_key = attr.find(qname(ns, "key")) is not None
+                for clef_el in list(attr.findall(qname(ns, "clef"))):
+                    if _is_spurious_f_clef_at_key_change(
+                        part, mnum, clef_el, ns, has_key
+                    ):
+                        attr.remove(clef_el)
+                        repaired += 1
+                        has_key = attr.find(qname(ns, "key")) is not None
+
+                part_changes = _measure_key_changes(part, measure, ns)
+                if not has_key and not part_changes:
+                    key_el = ET.SubElement(attr, qname(ns, "key"))
+                    ET.SubElement(key_el, qname(ns, "fifths")).text = str(new_fifths)
+                    repaired += 1
+                if len(attr) == 0:
+                    measure.remove(attr)
+
+    return repaired
+
+
 def _step_key_alter(step: str, fifths: int) -> int:
     if fifths > 0 and step in _SHARP_ORDER[:fifths]:
         return 1
@@ -4294,6 +4427,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "line_header_key_removed": 0,
         "courtesy_key_removed": 0,
         "opening_key_explicit": 0,
+        "key_change_clef_misread_fixed": 0,
         "tuplet_brackets_adjusted": 0,
         "tuplet_normal_fields_fixed": 0,
         "fermata_from_staccato_fixed": 0,
@@ -4309,6 +4443,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
 
     # 1a) m1 조표 생략 → C major 명시 (OSMD가 뒤쪽 조바꿈 조표를 첫머리로 당기는 현상 완화)
     stats["opening_key_explicit"] += _ensure_explicit_opening_key_signatures(root, ns)
+
+    # 1a2) 조바꿈 마디 F 조표 오인 → `<key>` 보충·spurious clef 제거
+    stats["key_change_clef_misread_fixed"] += _repair_key_change_clef_misread(root, ns)
 
     # 1b) Audiveris 조표: 조바꿈(앵커) 유지, 줄머리 오인·courtesy 반복만 제거
     if _strip_invented_keys_enabled():

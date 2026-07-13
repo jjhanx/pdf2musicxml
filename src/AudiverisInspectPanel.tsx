@@ -1021,6 +1021,83 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
       return out;
     };
 
+    const noteStaffNum = (note: Element): number => {
+      const st = note.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
+      return st && /^\d+$/.test(st) ? parseInt(st, 10) : 1;
+    };
+
+    const pitchMidi = (note: Element): number | null => {
+      const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
+      if (!pitch) return null;
+      const step = pitch.querySelector('step, *|step')?.textContent?.trim() ?? '';
+      const octText = pitch.querySelector('octave, *|octave')?.textContent?.trim();
+      if (!octText || !/^-?\d+$/.test(octText)) return null;
+      const steps: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+      let alter = 0;
+      const alterText = pitch.querySelector('alter, *|alter')?.textContent?.trim();
+      if (alterText && /^-?\d+$/.test(alterText)) alter = parseInt(alterText, 10);
+      return (parseInt(octText, 10) + 1) * 12 + (steps[step] ?? 0) + alter;
+    };
+
+    const measureStaffMedian = (meas: Element, staffNum: number): number | null => {
+      const midis: number[] = [];
+      for (const note of [...meas.children].filter((c) => xmlLocalName(c) === 'note')) {
+        if (note.querySelector(':scope > rest, :scope > *|rest')) continue;
+        if (noteStaffNum(note) !== staffNum) continue;
+        const m = pitchMidi(note);
+        if (m != null) midis.push(m);
+      }
+      if (!midis.length) return null;
+      midis.sort((a, b) => a - b);
+      return midis[Math.floor(midis.length / 2)]!;
+    };
+
+    const neighborStaffMedian = (part: Element, measureNum: number, staffNum: number): number | null => {
+      const refs: number[] = [];
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+        const mn = parseInt(meas.getAttribute('number') ?? '0', 10);
+        if (mn !== measureNum - 1 && mn !== measureNum + 1) continue;
+        const med = measureStaffMedian(meas, staffNum);
+        if (med != null) refs.push(med);
+      }
+      if (!refs.length) return null;
+      return refs.reduce((a, b) => a + b, 0) / refs.length;
+    };
+
+    const octavesToNeighborRef = (curMedian: number, refMedian: number): number => {
+      if (refMedian - curMedian < 12) return 0;
+      let bestK = 0;
+      let bestDiff = Math.abs(curMedian - refMedian);
+      for (const k of [1, 2, 3]) {
+        const shifted = curMedian + 12 * k;
+        const diff = Math.abs(shifted - refMedian);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestK = k;
+        }
+      }
+      if (bestK && bestDiff <= Math.abs(curMedian - refMedian) - 6) return bestK;
+      return 0;
+    };
+
+    const transposeMeasureStaff = (meas: Element, staffNum: number, octaveDelta: number): void => {
+      if (octaveDelta <= 0) return;
+      for (const note of [...meas.children].filter((c) => xmlLocalName(c) === 'note')) {
+        if (noteStaffNum(note) !== staffNum) continue;
+        const octEl = note.querySelector(':scope > pitch > octave, :scope > *|pitch > *|octave');
+        if (octEl?.textContent && /^-?\d+$/.test(octEl.textContent.trim())) {
+          octEl.textContent = String(parseInt(octEl.textContent.trim(), 10) + octaveDelta);
+        }
+        const dispOct = note.querySelector(
+          ':scope > rest > display-octave, :scope > *|rest > *|display-octave',
+        );
+        if (dispOct?.textContent && /^-?\d+$/.test(dispOct.textContent.trim())) {
+          dispOct.textContent = String(parseInt(dispOct.textContent.trim(), 10) + octaveDelta);
+        }
+      }
+    };
+
     const parts = findXmlParts(doc);
     const measureNums = new Set<number>();
     for (const part of parts) {
@@ -1030,6 +1107,8 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
         }
       }
     }
+
+    const octaveTargets: Array<{ part: Element; meas: Element; staff: number }> = [];
 
     for (const mnum of [...measureNums].sort((a, b) => a - b)) {
       const declared: number[] = [];
@@ -1062,7 +1141,10 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
             const numAttr = clef.getAttribute('number');
             const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
             const prevSign = clefSignBefore(part, mnum, staff);
-            if (prevSign === 'G' || hasKey) clef.remove();
+            if (prevSign === 'G' || hasKey) {
+              clef.remove();
+              octaveTargets.push({ part, meas, staff });
+            }
           }
           hasKey = attr.querySelector('key, *|key') != null;
           const partChanges = measureKeyChanges(part, meas);
@@ -1076,6 +1158,19 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
           if (!attr.children.length) attr.remove();
         }
       }
+    }
+
+    const seenOctave = new Set<string>();
+    for (const { part, meas, staff } of octaveTargets) {
+      const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
+      const key = `${parts.indexOf(part)}:${mnum}:${staff}`;
+      if (seenOctave.has(key)) continue;
+      seenOctave.add(key);
+      const cur = measureStaffMedian(meas, staff);
+      const ref = neighborStaffMedian(part, mnum, staff);
+      if (cur == null || ref == null) continue;
+      const shift = octavesToNeighborRef(cur, ref);
+      if (shift) transposeMeasureStaff(meas, staff, shift);
     }
 
     return new XMLSerializer().serializeToString(doc);

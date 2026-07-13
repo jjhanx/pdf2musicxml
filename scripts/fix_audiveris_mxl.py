@@ -2518,12 +2518,96 @@ def _is_spurious_f_clef_at_key_change(
     return False
 
 
+def _note_staff_num(note: ET.Element, ns: str) -> int:
+    staff_el = note.find(qname(ns, "staff"))
+    if staff_el is not None and staff_el.text and staff_el.text.strip().isdigit():
+        return int(staff_el.text.strip())
+    return 1
+
+
+def _measure_staff_median_midi(measure: ET.Element, ns: str, staff_num: int) -> int | None:
+    midis: list[int] = []
+    for note in measure.findall(qname(ns, "note")):
+        if note.find(qname(ns, "rest")) is not None:
+            continue
+        if _note_staff_num(note, ns) != staff_num:
+            continue
+        midi = _pitch_midi(note, ns)
+        if midi > -999000:
+            midis.append(midi)
+    if not midis:
+        return None
+    midis.sort()
+    return midis[len(midis) // 2]
+
+
+def _neighbor_staff_midi_ref(
+    part: ET.Element, measure_num: int, ns: str, staff_num: int
+) -> float | None:
+    refs: list[int] = []
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        if mnum not in (measure_num - 1, measure_num + 1):
+            continue
+        med = _measure_staff_median_midi(measure, ns, staff_num)
+        if med is not None:
+            refs.append(med)
+    if not refs:
+        return None
+    return sum(refs) / len(refs)
+
+
+def _octaves_to_neighbor_ref(cur_median: int, ref_median: float) -> int:
+    gap = ref_median - cur_median
+    if gap < 12:
+        return 0
+    best_k = 0
+    best_diff = abs(cur_median - ref_median)
+    for k in (1, 2, 3):
+        shifted = cur_median + 12 * k
+        diff = abs(shifted - ref_median)
+        if diff < best_diff:
+            best_diff = diff
+            best_k = k
+    if best_k and best_diff <= abs(cur_median - ref_median) - 6:
+        return best_k
+    return 0
+
+
+def _transpose_pitched_notes_in_measure_staff(
+    measure: ET.Element, ns: str, staff_num: int, octave_delta: int
+) -> int:
+    if octave_delta <= 0:
+        return 0
+    changed = 0
+    for note in measure.findall(qname(ns, "note")):
+        if _note_staff_num(note, ns) != staff_num:
+            continue
+        pitch = note.find(qname(ns, "pitch"))
+        if pitch is not None:
+            oct_el = pitch.find(qname(ns, "octave"))
+            if oct_el is not None and oct_el.text and oct_el.text.strip().lstrip("-").isdigit():
+                oct_el.text = str(int(oct_el.text.strip()) + octave_delta)
+                changed += 1
+        rest = note.find(qname(ns, "rest"))
+        if rest is not None:
+            disp_oct = rest.find(qname(ns, "display-octave"))
+            if (
+                disp_oct is not None
+                and disp_oct.text
+                and disp_oct.text.strip().lstrip("-").isdigit()
+            ):
+                disp_oct.text = str(int(disp_oct.text.strip()) + octave_delta)
+    return changed
+
+
 def _repair_key_change_clef_misread(root: ET.Element, ns: str) -> int:
     """조바꿈 마디의 F 조표 오인을 `<key>`로 복원하고 spurious `<clef>` 제거.
 
     Audiveris가 조바꿈(♮·# 등)을 낮은음자리표로 읽고, `<key>`는 일부 파트·한 마디
     늦게 넣는 경우가 있다. 같은 마디에서 한 파트라도 실제 조바꿈 `<key>`가 있으면
     treble 파트의 G→F 오인·피아노 1번 staff F 조표를 정리하고 빠진 `<key>`를 보충한다.
+    F 조표 오인으로 1~2옥타브 낮게 export된 음높이는 이웃 마디 중앙값과 맞춘다.
     """
     parts = root.findall(qname(ns, "part"))
     if not parts:
@@ -2535,6 +2619,7 @@ def _repair_key_change_clef_misread(root: ET.Element, ns: str) -> int:
             measure_nums.add(int(measure.get("number") or 0))
 
     repaired = 0
+    octave_targets: list[tuple[ET.Element, ET.Element, int]] = []
     for mnum in sorted(measure_nums):
         declared: list[int] = []
         for part in parts:
@@ -2573,9 +2658,12 @@ def _repair_key_change_clef_misread(root: ET.Element, ns: str) -> int:
                     if _is_spurious_f_clef_at_key_change(
                         part, mnum, clef_el, ns, has_key
                     ):
+                        num_attr = clef_el.get("number")
+                        staff = int(num_attr) if num_attr and num_attr.isdigit() else 1
                         attr.remove(clef_el)
                         repaired += 1
                         has_key = attr.find(qname(ns, "key")) is not None
+                        octave_targets.append((part, measure, staff))
 
                 part_changes = _measure_key_changes(part, measure, ns)
                 if not has_key and not part_changes:
@@ -2584,6 +2672,24 @@ def _repair_key_change_clef_misread(root: ET.Element, ns: str) -> int:
                     repaired += 1
                 if len(attr) == 0:
                     measure.remove(attr)
+
+    seen_octave: set[tuple[int, int, int]] = set()
+    for part, measure, staff_num in octave_targets:
+        mnum = int(measure.get("number") or 0)
+        part_idx = parts.index(part)
+        dedupe_key = (part_idx, mnum, staff_num)
+        if dedupe_key in seen_octave:
+            continue
+        seen_octave.add(dedupe_key)
+        cur = _measure_staff_median_midi(measure, ns, staff_num)
+        ref = _neighbor_staff_midi_ref(part, mnum, ns, staff_num)
+        if cur is None or ref is None:
+            continue
+        shift = _octaves_to_neighbor_ref(cur, ref)
+        if shift:
+            repaired += _transpose_pitched_notes_in_measure_staff(
+                measure, ns, staff_num, shift
+            )
 
     return repaired
 

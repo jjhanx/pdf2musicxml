@@ -656,7 +656,15 @@ def _is_injectable_lyric_item(item):
 def collect_tempo_bpm(ocr_data):
     """type==tempo 항목 중 읽기 순으로 첫 번째 유효 BPM."""
     items = [it for it in ocr_data if it.get("type") == "tempo"]
-    items.sort(key=lambda it: (it.get("page", 1), it.get("y", 0), it.get("x", 0)))
+    try:
+        _scripts_dir = Path(__file__).resolve().parent
+        if str(_scripts_dir) not in sys.path:
+            sys.path.insert(0, str(_scripts_dir))
+        from merge_lyric_sources import lyric_reading_sort_key
+
+        items.sort(key=lyric_reading_sort_key)
+    except ImportError:
+        items.sort(key=lambda it: (it.get("page", 1), it.get("y", 0), it.get("x", 0)))
     for it in items:
         bpm = parse_bpm_from_text(it.get("text", ""))
         if bpm is not None:
@@ -751,8 +759,16 @@ def collect_lyric_streams(ocr_data):
         buckets.setdefault(key, []).append(item)
 
     by_part = {}
+    try:
+        _scripts_dir = Path(__file__).resolve().parent
+        if str(_scripts_dir) not in sys.path:
+            sys.path.insert(0, str(_scripts_dir))
+        from merge_lyric_sources import lyric_reading_sort_key as _lyric_sort_key
+    except ImportError:
+        _lyric_sort_key = lambda it: (it.get("page", 1), it.get("y", 0), it.get("x", 0))
+
     for (pi, verse, mv), items in buckets.items():
-        items.sort(key=lambda it: (it.get("page", 1), it.get("y", 0), it.get("x", 0)))
+        items.sort(key=_lyric_sort_key)
         by_part.setdefault(pi, []).append(
             {"verse": verse, "melody_voice": mv, "items": items}
         )

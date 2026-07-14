@@ -94,6 +94,80 @@ def bbox_iou(a: list[float], b: list[float]) -> float:
     return inter / denom
 
 
+# 악보 읽기 순서 — A4 기본(pt). bbox 없을 때 x/y(300dpi)로 환산.
+DEFAULT_PAGE_WIDTH_PT = 595.0
+DEFAULT_PAGE_HEIGHT_PT = 842.0
+_PDF_UI_ZOOM = 300.0 / 72.0
+# 페이지 끝 오른쪽 픽업(예: m8 산) — 다음 페이지 상단 가사보다 뒤로 보냄
+_PICKUP_X_FRAC = 0.72
+_PICKUP_Y_FRAC = 0.52
+_PAGE_HEAD_Y_FRAC = 0.22
+_PICKUP_MAX_TEXT_LEN = 8
+
+
+def _item_bbox_pts(item: dict[str, Any]) -> tuple[float, float, float, float]:
+    bbox = item.get("bbox")
+    if isinstance(bbox, list) and len(bbox) >= 4:
+        return (
+            float(bbox[0]),
+            float(bbox[1]),
+            float(bbox[2]),
+            float(bbox[3]),
+        )
+    x = float(item.get("x", 0) or 0) / _PDF_UI_ZOOM
+    y = float(item.get("y", 0) or 0) / _PDF_UI_ZOOM
+    return x, y, x, y
+
+
+def _is_page_end_pickup(
+    item: dict[str, Any],
+    *,
+    page_width: float = DEFAULT_PAGE_WIDTH_PT,
+    page_height: float = DEFAULT_PAGE_HEIGHT_PT,
+) -> bool:
+    """페이지 하단·오른쪽 짧은 픽업 음절(다음 페이지 상단 가사보다 뒤에 읽힘)."""
+    x0, y0, x1, y1 = _item_bbox_pts(item)
+    if x0 < page_width * _PICKUP_X_FRAC:
+        return False
+    if y0 < page_height * _PICKUP_Y_FRAC:
+        return False
+    text = strip_pua(str(item.get("text") or "")).strip()
+    if not text:
+        return False
+    if len(text) > _PICKUP_MAX_TEXT_LEN:
+        return False
+    # 한 줄 전체 폭이 넓으면 가사 줄이지 픽업이 아님
+    if (x1 - x0) > page_width * 0.35:
+        return False
+    return True
+
+
+def _lyric_reading_wave(item: dict[str, Any]) -> int:
+    """악보 읽기 파도 — 페이지 넘김 픽업을 다음 페이지 상단 가사 뒤에 둠."""
+    page = int(item.get("page", 1) or 1)
+    if page < 1:
+        page = 1
+    x0, y0, _, _ = _item_bbox_pts(item)
+    if _is_page_end_pickup(item):
+        return 4 * page - 2
+    if page >= 2 and y0 < DEFAULT_PAGE_HEIGHT_PT * _PAGE_HEAD_Y_FRAC:
+        return 4 * page - 7
+    if page == 1:
+        return 0
+    return 4 * page - 5
+
+
+def lyric_reading_sort_key(item: dict[str, Any]) -> tuple[float, float, float]:
+    """가사 주입·검토 목록용 읽기 순서 (wave, y, x)."""
+    wave = float(_lyric_reading_wave(item))
+    x0, y0, _, _ = _item_bbox_pts(item)
+    return wave, y0, x0
+
+
+def sort_lyric_items_reading_order(items: list[dict[str, Any]]) -> None:
+    items.sort(key=lyric_reading_sort_key)
+
+
 def normalize_text(s: str) -> str:
     return re.sub(r"\s+", "", strip_pua(s or "")).lower()
 
@@ -348,7 +422,7 @@ def build_initial_review_items(
         base.append(item)
 
     if not extracted_pages:
-        base.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))
+        base.sort(key=lyric_reading_sort_key)
         return base
 
     sep_items = plumber_pages_to_items(extracted_pages, min_size=min_size, max_size=max_size)
@@ -383,7 +457,7 @@ def build_initial_review_items(
                 extra["type"] = "unknown"
             base.append(extra)
 
-    base.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))
+    base.sort(key=lyric_reading_sort_key)
     return base
 
 
@@ -417,7 +491,7 @@ def merge_sources(
         extra["provenance"] = "pymupdf_only"
         merged_items.append(extra)
 
-    merged_items.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))
+    merged_items.sort(key=lyric_reading_sort_key)
 
     match_stats = {
         "pdfplumberLines": len(sep_items),
@@ -456,7 +530,7 @@ def pymupdf_review_to_flat_inject_rows(
         if item["type"] in ("measure_number", "page_number", "unknown"):
             continue
         rows.append(item)
-    rows.sort(key=lambda it: (int(it.get("page", 1)), float(it.get("y", 0)), float(it.get("x", 0))))
+    sort_lyric_items_reading_order(rows)
     if manual_rects:
         rows.append(
             {

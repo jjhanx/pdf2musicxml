@@ -339,6 +339,56 @@ function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem
   }));
 }
 
+const PAGE_WIDTH_PT = 595;
+const PAGE_HEIGHT_PT = 842;
+const PDF_UI_ZOOM = 300 / 72;
+
+function itemBboxPts(item: OcrReviewItem): [number, number, number, number] {
+  const bb = item.bbox;
+  if (bb && bb.length >= 4) {
+    return [bb[0], bb[1], bb[2], bb[3]];
+  }
+  const x = (item.x ?? 0) / PDF_UI_ZOOM;
+  const y = (item.y ?? 0) / PDF_UI_ZOOM;
+  return [x, y, x, y];
+}
+
+function isPageEndPickup(item: OcrReviewItem): boolean {
+  const [x0, y0, x1] = itemBboxPts(item);
+  if (x0 < PAGE_WIDTH_PT * 0.72) return false;
+  if (y0 < PAGE_HEIGHT_PT * 0.52) return false;
+  const text = (item.text ?? '').trim();
+  if (!text || text.length > 8) return false;
+  if (x1 - x0 > PAGE_WIDTH_PT * 0.35) return false;
+  return true;
+}
+
+function lyricReadingWave(item: OcrReviewItem): number {
+  const page = item.page ?? 1;
+  const [, y0] = itemBboxPts(item);
+  if (isPageEndPickup(item)) return 4 * page - 2;
+  if (page >= 2 && y0 < PAGE_HEIGHT_PT * 0.22) return 4 * page - 7;
+  if (page === 1) return 0;
+  return 4 * page - 5;
+}
+
+function lyricReadingSortKey(item: OcrReviewItem): [number, number, number] {
+  const wave = lyricReadingWave(item);
+  const [x0, y0] = itemBboxPts(item);
+  return [wave, y0, x0];
+}
+
+function sortReviewItemsReadingOrder(items: OcrReviewItem[]): OcrReviewItem[] {
+  return [...items].sort((a, b) => {
+    const ka = lyricReadingSortKey(a);
+    const kb = lyricReadingSortKey(b);
+    for (let i = 0; i < 3; i++) {
+      if (ka[i] !== kb[i]) return ka[i] - kb[i];
+    }
+    return 0;
+  });
+}
+
 /** OMR·HITL 후 PDF 초기 추출 — 역할 미지정 줄은 UI 기본값 가사 (이미 편집된 줄은 유지) */
 function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
   return payloadItems.map((item) => {
@@ -689,9 +739,11 @@ export default function App() {
         }
       }
 
-      const initData = afterOmr
+      const initData = sortReviewItemsReadingOrder(
+        afterOmr
           ? normalizeReviewItemsForBaseline(payloadItems)
-          : normalizeReviewItemsForUi(payloadItems);
+          : normalizeReviewItemsForUi(payloadItems),
+      );
 
       setReviewAfterOmr(afterOmr);
       setManualLyricRects(fromPayload);
@@ -1511,9 +1563,14 @@ export default function App() {
 
   const handleReviewItemBBoxCommit = useCallback(
     (itemIndex: number, bbox: [number, number, number, number]) => {
+      const zoom = 300 / 72;
+      const xCenter = ((bbox[0] + bbox[2]) / 2) * zoom;
+      const yCenter = ((bbox[1] + bbox[3]) / 2) * zoom;
       setReviewData((prev) =>
         prev.map((item, idx) =>
-          idx === itemIndex ? { ...item, bbox: [...bbox], spans: undefined } : item,
+          idx === itemIndex
+            ? { ...item, bbox: [...bbox], x: xCenter, y: yCenter, spans: undefined }
+            : item,
         ),
       );
     },

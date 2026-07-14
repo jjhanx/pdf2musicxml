@@ -282,8 +282,6 @@ function loadReviewDraftFromLocalStorageJson(rawJson: unknown): {
 }
 
 function defaultReviewTypeForInit(t: string | undefined): string {
-  // 사용자의 요청에 따라, PyMuPDF 추출 단계 등에서 미리 'lyrics'로 태깅된 것도 'unknown'으로 시작하게 하여 
-  // 추출된 날 것 그대로의 텍스트를 HITL에서 직접 해결할 수 있도록 합니다.
   if (
     t === 'title' ||
     t === 'composer' ||
@@ -295,7 +293,10 @@ function defaultReviewTypeForInit(t: string | undefined): string {
   ) {
     return t;
   }
-  return 'unknown';
+  if (t === 'unknown' || !t) {
+    return 'lyrics';
+  }
+  return t;
 }
 
 const REVIEW_TYPE_OPTIONS = [
@@ -358,7 +359,7 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
         ? t
         : t
           ? reviewTypeSelectValue(t, true)
-          : 'unknown';
+          : 'lyrics';
     const finalRole = defaultReviewTypeForInit(role);
     return {
       ...item,
@@ -1316,7 +1317,11 @@ export default function App() {
       const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
         Array.isArray(dataRaw) ? dataRaw : [],
       );
-      setReviewData(normalizeReviewItemsForUi(payloadItems));
+      setReviewData(
+        reviewAfterOmr
+          ? normalizeReviewItemsForBaseline(payloadItems)
+          : normalizeReviewItemsForUi(payloadItems),
+      );
       setManualLyricRects(fromPayload);
       setFocusedReviewRowIndex(null);
     } catch (e) {
@@ -2364,7 +2369,7 @@ bash scripts/install-font-separator-deps.sh`}
                         fontWeight: 'bold',
                       }}
                     >
-                      PDF 초기 추출 (미분류)
+                      PDF 초기 추출
                     </button>
                   )}
                   {hasSavedData && (

@@ -227,7 +227,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/health` | 서버·Audiveris 구성·**OCR 언어**(`audiverisOcrLangEffective`, `audiverisOcrLangConstantInjected`)·**`audiverisCliExtraArgCount`**(`AUDIVERIS_CLI_EXTRA_JSON` 토큰 수)·**`audiverisPauseOnWarn`**, 선택 **`audiverisWarnPattern`**. JSON에 `jobRetentionHours`(기본 `24`), `jobRetentionNote`(한글 안내) 포함 |
 | `GET /api/audiveris-sheet-steps` | Audiveris 공식 시트 단계 이름 배열 JSON `{ "steps": [ … ] }` (단계별 디버깅 UI용). 인증 없음 |
 | `POST /api/convert` | `multipart/form-data`: 필드 `pdf`, 선택 `debug`, 선택 **`pauseAfterAudiveris`**, 선택 **`pipelineMode`** (`font_separator` \| `pymupdf_review` \| `audiveris_only`, 기본 `font_separator`), **`font_separator`일 때** 선택 **`enablePymupdfReview`** (`true`/`false`, 기본 `true`). **202 Accepted** + `{ "jobId" }`. |
-| `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → (`audiveris_review_needed`) → `completed` \| `failed`. **`Cache-Control: no-store`**. `processing`·`pending` 중일 때 **`progress`**: `phase`(`upload` \| `audiveris`), `current`, `total`, 선택 `detail` |
+| `GET /api/status/:jobId` | `pending` → `processing` → `review_needed` → (`audiveris_review_needed`) → `completed` \| `failed`. **`Cache-Control: no-store`**. `review_needed`이고 OMR·HITL 후 가사 검증이면 **`reviewAfterOmr`**, **`hasSavedLyricReview`** 포함. `processing`·대기 상태일 때 **`progress`**: `phase`, `current`, `total`, 선택 `detail`(가사 검증 생략 시 `가사 검증 생략 — 원본 PDF…` 등) |
 | `GET /api/review/:jobId` | 상태가 `review_needed`일 때 추출된 문자 영역(좌표/텍스트) 데이터 가져오기 |
 | `GET /api/review/:jobId/note-counts` | 가사 검증 UI 힌트용. 현재 MusicXML에서 **파트/voice별 가사 대상 음표 수** JSON(쉼표·그레이스 제외). |
 | `GET /api/review/:jobId/pdf-dimensions` | `review_needed` 단계만. 업로드 PDF 페이지 크기(pt) JSON(`pdf_diagnostic.py pagesizes`) — 수동 가사 마스킹 좌표 변환 |
@@ -268,7 +268,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `POST /api/diagnostic/:jobId/audiveris-step-probe` | **`completed` / `audiveris_review_needed` / `failed`** 작업만. 본문 JSON: `step`(필수, 예: `GRID`), `force?`, `sheets?`(예: `"1 4-7"`), `pdfSource?`(`clean_score`\|`masked`\|`original`). 서버가 Audiveris `-batch -save -step …`( **`-export` 없음** ) 실행 후 `exitCode`, `stdout`/`stderr`(길면 잘림), `argv`, `artifacts`, `runId` 반환. **단계 설명·사용법:** [docs/Audiveris_단계별_디버깅.md](docs/Audiveris_단계별_디버깅.md) |
 | `GET /api/diagnostic/:jobId/audiveris-step-probe/:runId/download` | 위 실행 결과물 다운로드. 쿼리 **`rel`** = 해당 실행 폴더 기준 상대 경로 (예: `piece/book.omr`). 경로 탈출 차단 |
 
-프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, `review_needed`이면 Pre-Audiveris 검토 모달, **`audiveris_review_needed`**이면 Audiveris 결과 보정 모달을 띄웩니다. 제출은 각각 `/api/review/:jobId`, `/api/continue-audiveris/:jobId`로 이어집니다. 완료 행의 **마스킹·인식 점검**은 동일 `jobId`로 진단 API를 사용합니다. **변환 실패** 행에서도 세션이 남아 있으면 동일 버튼으로 점검·**Audiveris 단계별 실행** GUI를 열 수 있습니다.
+프론트엔드(`src/App.tsx`)는 변환 접수 후 **약 2초 간격**으로 `/api/status/:jobId`를 호출하고, **`review_needed` 진입마다** 가사 검증·편집(폰트 분리·OMR·HITL 후) 또는 문자 검토(PyMuPDF 마스킹·Audiveris 전) 모달, **`audiveris_review_needed`**이면 Audiveris 결과 보정 모달을 띄웩니다. 제출은 각각 `/api/review/:jobId`, `/api/continue-audiveris/:jobId`로 이어집니다. 완료 행의 **마스킹·인식 점검**은 동일 `jobId`로 진단 API를 사용합니다. **변환 실패** 행에서도 세션이 남아 있으면 동일 버튼으로 점검·**Audiveris 단계별 실행** GUI를 열 수 있습니다.
 
 **참고**: 만료(TTL)로 작업이 삭제된 뒤에는 동일 `jobId`로 상태 조회 시 404가 됩니다.
 
@@ -296,6 +296,7 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 - **변환 버튼 클릭 시 아무 반응 없음**: 과거 빌드에서 존재하지 않는 `runBatch()`를 호출하는 버그가 있었습니다. 최신 `main`을 받아 다시 빌드하세요.
 - **HTTP(평문) 접속**: `crypto.randomUUID()`는 보안 컨텍스트에서만 안전하게 쓰이므로, 평문 HTTP에서는 대체 ID 생성으로 처리합니다.
 - **변환 버튼이 반응 없음(그 외)**: 브라우저별로 드롭 직후 `FileList`가 비는 경우가 있어 `DataTransfer.items` 경로를 추가했습니다. 서버는 정적 파일이 `/api`를 덮지 않도록 정리되어 있습니다.
+- **OMR HITL 「이어하기」 후 가사 검증 모달이 안 뜸**: (1) **「OMR·HITL 후 PyMuPDF 가사 검증·편집」** 체크. (2) OMR 패널에서 **「이어하기」** 필수. (3) 세션에 **원본 PDF**(`input.pdf`) — omr-work ZIP 포함 또는 1단계 업로드. `clean_score_only`만 있으면 서버가 단계 생략(작업 표 `가사 검증 생략…`). (4) Audiveris 보정 대기가 먼저일 수 있음. `npm run build` + `pm2 restart pdf2mxl`. 상세: [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)
 - **다운로드된 ZIP 파일 이름이 `ë__Â...` 또는 `_@…`처럼 깨지는 현상**: 멀티파트 `filename*` / `filename` 조합과 **Latin-1 오해석**이 겹칠 때 발생할 수 있습니다. 최신 서버는 UTF-8·NFC·한글·대체 문자를 고려해 디코딩합니다. 여전히 깨지면 **브라우저·역프록시가 `Content-Disposition`을 어떻게 전달하는지**(인코딩 헤더 절단 여부)를 확인하세요.
 
 ## 프로젝트 구조

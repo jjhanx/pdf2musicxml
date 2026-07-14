@@ -1686,6 +1686,7 @@ async function enterOmrStaffHitlPhase(
   scriptMergeLyrics: string,
 ): Promise<void> {
   if (mxlForInject.length === 0 || job.enableOmrStaffReview === false) return;
+  await ensureSessionLyricSourcePdf(job);
   if (
     job.pipelineMode === 'font_separator' &&
     job.enablePymupdfReview !== false &&
@@ -1834,12 +1835,33 @@ async function runFontSeparatorResumePhase(opts: {
   return true;
 }
 
-/** 가사 검증 UI 미리보기 — 원본(가사 포함) PDF 우선 */
+function isCleanScorePdfPath(job: JobRecord, absPath: string): boolean {
+  const clean = sessionCleanScorePdfPath(job.sessionRoot);
+  return fsSync.existsSync(clean) && path.resolve(absPath) === path.resolve(clean);
+}
+
+/** 가사 검증 UI 미리보기 — 원본(가사 포함) PDF 우선, clean_score_only는 최후 */
 function resolveLyricReviewPdfPath(job: JobRecord): string | null {
+  const candidates: string[] = [];
   const sessionInput = path.join(job.sessionRoot, 'input.pdf');
-  if (fsSync.existsSync(sessionInput)) return sessionInput;
-  const p = job.inputPdfPath;
-  return p && fsSync.existsSync(p) ? p : null;
+  const sessionOriginal = path.join(job.sessionRoot, 'original.pdf');
+  if (fsSync.existsSync(sessionInput)) candidates.push(sessionInput);
+  if (fsSync.existsSync(sessionOriginal)) candidates.push(sessionOriginal);
+  if (job.inputPdfPath && fsSync.existsSync(job.inputPdfPath)) {
+    candidates.push(job.inputPdfPath);
+  }
+  const lyricSource = candidates.find((p) => !isCleanScorePdfPath(job, p));
+  if (lyricSource) return lyricSource;
+  return candidates[0] ?? null;
+}
+
+/** 업로드 원본을 세션 input.pdf로 고정 — 가사 검증·ZIP 복원 경로 통일 */
+async function ensureSessionLyricSourcePdf(job: JobRecord): Promise<void> {
+  const dest = path.join(job.sessionRoot, 'input.pdf');
+  if (fsSync.existsSync(dest)) return;
+  const src = resolveLyricReviewPdfPath(job);
+  if (!src || isCleanScorePdfPath(job, src)) return;
+  await fs.copyFile(src, dest).catch(() => {});
 }
 
 /** OMR·HITL 후 가사 검증용 ocr_data_pymupdf.json — 없으면 manifest·원본 PDF에서 준비 */
@@ -2023,6 +2045,7 @@ async function preparePostOmrLyricReviewItems(
   scriptExtract: string,
   scriptMergeLyrics: string,
 ): Promise<unknown[] | null> {
+  await ensureSessionLyricSourcePdf(job);
   const pdfPath = resolveLyricReviewPdfPath(job);
   if (!pdfPath) return null;
   const baselinePath = sessionOcrPymupdfBaselinePath(job.sessionRoot);
@@ -2222,6 +2245,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       : true;
   const { sessionRoot, originalName, isDebug } = job;
   const inputPdfPath = job.inputPdfPath;
+  await ensureSessionLyricSourcePdf(job);
   const outBase = path.join(sessionRoot, 'audiveris-out');
   const wipeSession = () => fs.rm(sessionRoot, { recursive: true, force: true }).catch(() => {});
 
@@ -2891,9 +2915,17 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           }
         }
       } else {
-        console.warn(
-          `[job ${jobId}] PyMuPDF lyric review skipped: no review payload (upload lyric_manifest.json or enable extraction from original PDF).`,
-        );
+        const pdfPath = resolveLyricReviewPdfPath(job);
+        const skipDetail = !pdfPath
+          ? '가사 검증 생략 — 원본 PDF(input.pdf) 없음. omr-work ZIP에 input.pdf를 넣거나 원본 PDF를 업로드하세요.'
+          : '가사 검증 생략 — PyMuPDF 추출 데이터 없음(lyric_manifest.json 또는 원본 PDF 확인).';
+        console.warn(`[job ${jobId}] PyMuPDF lyric review skipped: ${skipDetail}`);
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 0,
+          total: 0,
+          detail: skipDetail,
+        });
       }
     }
 

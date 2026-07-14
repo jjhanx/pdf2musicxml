@@ -616,15 +616,19 @@ export default function App() {
     if (audiverisReviewJobId) setAudiverisModalTab('adjust');
   }, [audiverisReviewJobId]);
 
-  const loadLyricReviewJob = useCallback(async (jobId: string, fileName: string) => {
+  const loadLyricReviewJob = useCallback(async (jobId: string, fileName: string): Promise<boolean> => {
     try {
       const [r, st] = await Promise.all([
         fetch(`/api/review/${jobId}`),
         fetch(`/api/status/${jobId}`, { cache: 'no-store' }),
       ]);
       if (!r.ok) {
-        console.error('Failed to fetch review data', await r.text());
-        return;
+        const detail = await r.text();
+        console.error('Failed to fetch review data', detail);
+        setStatus(
+          `가사 검증 데이터를 불러오지 못했습니다 (HTTP ${r.status}). 잠시 후 다시 시도하거나 서버 로그를 확인하세요.`,
+        );
+        return false;
       }
       const dataRaw = (await r.json()) as unknown[];
       const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
@@ -665,8 +669,11 @@ export default function App() {
 
       const saved = localStorage.getItem('pdf2mxl_review_' + fileName);
       setHasSavedData(!!saved);
+      return true;
     } catch (e) {
       console.error('Failed to fetch review data', e);
+      setStatus('가사 검증 모달을 여는 중 오류가 발생했습니다.');
+      return false;
     }
   }, [pipelineMode]);
 
@@ -683,8 +690,9 @@ export default function App() {
       return;
     }
     const { jobId, fileName } = pendingLyricReview;
-    setPendingLyricReview(null);
-    void loadLyricReviewJob(jobId, fileName);
+    void loadLyricReviewJob(jobId, fileName).then((ok) => {
+      if (ok) setPendingLyricReview(null);
+    });
   }, [
     pendingLyricReview,
     omrStaffReviewJobId,
@@ -811,10 +819,7 @@ export default function App() {
     }
     const { jobId } = accepted;
     onJobAccepted?.(jobId);
-    let reviewTriggered = false;
-    let audiverisReviewTriggered = false;
-    let omrStaffReviewTriggered = false;
-    let partLabelsTriggered = false;
+    let prevStatus: string | null = null;
 
     for (;;) {
       const st = await fetchWithNetworkRetry(`/api/status/${jobId}`, { cache: 'no-store' }, {
@@ -836,6 +841,7 @@ export default function App() {
 
       const j = (await st.json()) as {
         status: string;
+        reviewAfterOmr?: boolean;
         httpError?: number;
         error?: string;
         detail?: string;
@@ -863,25 +869,23 @@ export default function App() {
         onLyricManifestSaveNeeded?.(jobId);
       }
 
-      if (j.status === 'review_needed' && !reviewTriggered) {
-        reviewTriggered = true;
+      if (j.status === 'review_needed' && prevStatus !== 'review_needed') {
         onReviewNeeded?.(jobId);
       }
 
-      if (j.status === 'part_labels_needed' && !partLabelsTriggered) {
-        partLabelsTriggered = true;
+      if (j.status === 'part_labels_needed' && prevStatus !== 'part_labels_needed') {
         onPartLabelsNeeded?.(jobId);
       }
 
-      if (j.status === 'omr_staff_review_needed' && !omrStaffReviewTriggered) {
-        omrStaffReviewTriggered = true;
+      if (j.status === 'omr_staff_review_needed' && prevStatus !== 'omr_staff_review_needed') {
         onOmrStaffReviewNeeded?.(jobId);
       }
 
-      if (j.status === 'audiveris_review_needed' && !audiverisReviewTriggered) {
-        audiverisReviewTriggered = true;
+      if (j.status === 'audiveris_review_needed' && prevStatus !== 'audiveris_review_needed') {
         onAudiverisReviewNeeded?.(jobId);
       }
+
+      prevStatus = j.status;
 
       if (j.status === 'failed') {
         const msg =

@@ -1495,13 +1495,9 @@ function reviewItemsHaveUserEdits(items: unknown[]): boolean {
     const o = item as Record<string, unknown>;
     if (o.type === MANUAL_LYRIC_MASK_TYPE) return true;
     const t = o.type;
-    if (
-      typeof t === 'string' &&
-      t &&
-      t !== 'unknown' &&
-      t !== 'measure_number' &&
-      t !== 'page_number'
-    ) {
+    if (t === 'unknown') return true;
+    if (t === 'measure_number' || t === 'page_number') continue;
+    if (typeof t === 'string' && t && t !== 'lyrics') {
       return true;
     }
     if (typeof o.lyricPartIndex === 'number' && o.lyricPartIndex > 1) return true;
@@ -2049,7 +2045,7 @@ function stripLyricReviewMetaList(items: unknown[]): unknown[] {
   return items.map(stripLyricReviewMeta);
 }
 
-/** 검토 UI PDF 초기 추출 — 역할 미분류(unknown), 마디·페이지 번호만 유지 */
+/** 검토 UI PDF 초기 추출 — 마디·페이지 번호만 유지, 나머지 기본 역할 가사 */
 function applyBaselineReviewShape(items: unknown[]): unknown[] {
   return items.map((item) => {
     if (!item || typeof item !== 'object') return item;
@@ -2061,7 +2057,7 @@ function applyBaselineReviewShape(items: unknown[]): unknown[] {
     if (t === 'measure_number' || t === 'page_number') {
       return o;
     }
-    o.type = 'unknown';
+    o.type = 'lyrics';
     return o;
   });
 }
@@ -4391,6 +4387,7 @@ app.post('/api/review/:jobId/reset-lyrics-initial', async (req, res) => {
     });
     await activateLyricReviewItems(job.sessionRoot, items);
     job.reviewData = items;
+    job.reviewPreservesEdits = false;
     res.json(items);
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -4419,6 +4416,7 @@ app.post('/api/review/:jobId/load-saved-lyrics', async (req, res) => {
     const items = await loadSavedLyricReviewItems(job.sessionRoot);
     await activateLyricReviewItems(job.sessionRoot, items);
     job.reviewData = items;
+    job.reviewPreservesEdits = true;
     job.hasSavedLyricReview = true;
     res.json(items);
   } catch (e) {

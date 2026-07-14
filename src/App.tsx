@@ -81,6 +81,8 @@ type OcrReviewItem = {
   lyricVoice?: string;
   /** 이 블록의 가사를 넣기 전, 해당 성부에서 건너뛸 선율 음표 수(박·도입 등) */
   lyricSkipNotes?: number;
+  /** 사용자가 구분 풀다운을 직접 바꿨을 때만 true — unknown을 의도적 미분류로 유지 */
+  reviewTypeUserSet?: boolean;
 };
 
 type ReviewNoteCounts = {
@@ -342,10 +344,19 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
   return payloadItems.map((item) => {
     const hasPriorEdit =
       item.type === '_manual_lyric_mask' ||
+      (item.type === 'unknown' && item.reviewTypeUserSet) ||
       (item.type &&
         item.type !== 'unknown' &&
+        item.type !== 'lyrics' &&
         item.type !== 'measure_number' &&
         item.type !== 'page_number') ||
+      (item.type === 'lyrics' &&
+        ((typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
+          (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
+          (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
+          Boolean(
+            item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1',
+          ))) ||
       (typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
       (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
       (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
@@ -650,25 +661,20 @@ export default function App() {
       );
 
       let afterOmr = pipelineMode === 'font_separator';
-      let preservesEdits = false;
       if (st.ok) {
         const sj = (await st.json()) as {
           reviewAfterOmr?: boolean;
-          reviewPreservesEdits?: boolean;
           hasSavedLyricReview?: boolean;
         };
         if (sj.reviewAfterOmr) afterOmr = true;
-        preservesEdits = Boolean(sj.reviewPreservesEdits);
         if (sj.hasSavedLyricReview) setHasSavedLyricReview(true);
         else setHasSavedLyricReview(false);
       }
       if (info.ok) {
         const ij = (await info.json()) as {
-          reviewPreservesEdits?: boolean;
           partLabelsPreset?: string[];
           partLabelsSaved?: string[];
         };
-        if (ij.reviewPreservesEdits) preservesEdits = true;
         const labels =
           Array.isArray(ij.partLabelsSaved) && ij.partLabelsSaved.length
             ? ij.partLabelsSaved
@@ -683,8 +689,7 @@ export default function App() {
         }
       }
 
-      const initData =
-        afterOmr && !preservesEdits
+      const initData = afterOmr
           ? normalizeReviewItemsForBaseline(payloadItems)
           : normalizeReviewItemsForUi(payloadItems);
 
@@ -1242,7 +1247,7 @@ export default function App() {
   const handleResetLyricsToInitial = async () => {
     if (!reviewingJobId || !reviewAfterOmr) return;
     const ok = window.confirm(
-      '원본 PDF 1차 추출(제목·작곡·가사 포함, 역할 미분류)로 되돌립니다.\n' +
+      '원본 PDF 1차 추출(구분 기본 가사)로 되돌립니다.\n' +
         'OMR·HITL(마디·성부) 교정은 그대로 유지됩니다.\n\n' +
         '지금 화면의 편집 중 내용은 「초기화 되돌리기」로 한 번 복구할 수 있습니다.',
     );
@@ -1318,9 +1323,7 @@ export default function App() {
         Array.isArray(dataRaw) ? dataRaw : [],
       );
       setReviewData(
-        reviewAfterOmr
-          ? normalizeReviewItemsForBaseline(payloadItems)
-          : normalizeReviewItemsForUi(payloadItems),
+        reviewAfterOmr ? normalizeReviewItemsForBaseline(payloadItems) : normalizeReviewItemsForUi(payloadItems),
       );
       setManualLyricRects(fromPayload);
       setFocusedReviewRowIndex(null);
@@ -1526,6 +1529,7 @@ export default function App() {
   const handleReviewTypeChange = (index: number, type: string) => {
     const newData = [...reviewData];
     newData[index].type = type;
+    newData[index].reviewTypeUserSet = true;
     if (type === 'lyrics') {
       if (newData[index].lyricPartIndex == null || newData[index].lyricPartIndex! < 1) {
         newData[index].lyricPartIndex = 1;

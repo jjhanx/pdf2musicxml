@@ -1035,6 +1035,75 @@ function previewClefSignBefore(part: Element, measureNum: number, staffNum: numb
   return current;
 }
 
+const PREVIEW_PITCH_STEP_SEMITONE: Record<string, number> = {
+  C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11,
+};
+
+function notePitchMidi(note: Element): number | null {
+  const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
+  if (!pitch) return null;
+  const step = pitch.querySelector('step, *|step')?.textContent?.trim();
+  const octEl = pitch.querySelector('octave, *|octave');
+  const oct = parseInt(octEl?.textContent?.trim() ?? '', 10);
+  if (!step || !Number.isFinite(oct)) return null;
+  const alterText = pitch.querySelector('alter, *|alter')?.textContent?.trim();
+  const alter = alterText && /^-?\d+$/.test(alterText) ? parseInt(alterText, 10) : 0;
+  const semi = PREVIEW_PITCH_STEP_SEMITONE[step.toUpperCase()];
+  if (semi == null) return null;
+  return (oct + 1) * 12 + semi + alter;
+}
+
+function medianPitchOnStaffInMeasure(measure: Element, staffN: number): number | null {
+  const midis: number[] = [];
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (noteStaffN(child) !== staffN) continue;
+    const midi = notePitchMidi(child);
+    if (midi != null) midis.push(midi);
+  }
+  if (!midis.length) return null;
+  midis.sort((a, b) => a - b);
+  const mid = Math.floor(midis.length / 2);
+  return midis.length % 2 ? midis[mid]! : (midis[mid - 1]! + midis[mid]!) / 2;
+}
+
+function medianPitchOnStaffBefore(part: Element, measureNum: number, staffN: number): number | null {
+  for (let back = 1; back <= 4; back += 1) {
+    const mn = measureNum - back;
+    if (mn < 1) break;
+    const meas = [...part.children].find(
+      (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mn,
+    );
+    if (!meas) continue;
+    const med = medianPitchOnStaffInMeasure(meas, staffN);
+    if (med != null) return med;
+  }
+  return null;
+}
+
+/** G clef part에서 F clef 오인 제거 후, 직전 마디 median 대비 bass-octave export를 복구(1~3 octave). */
+function octavesToRestoreAfterFClefMisread(
+  part: Element,
+  measure: Element,
+  staffN: number,
+): number {
+  const cur = medianPitchOnStaffInMeasure(measure, staffN);
+  const prev = medianPitchOnStaffBefore(part, parseInt(measure.getAttribute('number') ?? '0', 10), staffN);
+  if (cur == null) return 0;
+  if (prev == null) return cur < 52 ? 2 : 1;
+  if (cur >= prev - 12) return 0;
+  let best = 0;
+  let bestDist = Math.abs(cur - prev);
+  for (const n of [1, 2, 3]) {
+    const dist = Math.abs(cur + n * 12 - prev);
+    if (dist < bestDist) {
+      best = n;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 function transposeNotePitchByOctaves(note: Element, delta: number): void {
   const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
   if (!pitch) return;
@@ -1057,7 +1126,7 @@ function transposePitchedNotesOnStaffInMeasure(measure: Element, staffN: number,
 
 /**
  * 조바꿈 마디에서 Audiveris가 F clef로 오인한 `<clef>` 제거 + 빠진 `<key>` 보충.
- * G clef part에서 F clef 오인 시 pitch octave +1(OMR이 bass octave로 export한 경우).
+ * G clef part에서 F clef 오인 시 직전 마디 median과 맞춰 pitch octave 복구(OMR bass octave export).
  * OSMD 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음.
  */
 export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
@@ -1141,7 +1210,8 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
         }
 
         for (const staff of octaveUpStaves) {
-          transposePitchedNotesOnStaffInMeasure(meas, staff, 1);
+          const octaves = octavesToRestoreAfterFClefMisread(part, meas, staff);
+          if (octaves > 0) transposePitchedNotesOnStaffInMeasure(meas, staff, octaves);
         }
       }
     }

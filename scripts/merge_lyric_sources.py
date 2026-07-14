@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 MANIFEST_VERSION = 3
@@ -586,13 +587,28 @@ def main() -> int:
     parser.add_argument("--max-size", type=float, default=DEFAULT_MAX_LYRICS_SIZE)
     args = parser.parse_args()
 
-    with open(args.extracted_json, "r", encoding="utf-8") as f:
-        extracted = json.load(f)
+    pymupdf_items, manual = load_pymupdf_review(args.pymupdf_review)
+
+    extracted_path = Path(args.extracted_json)
+    if extracted_path.is_file():
+        with open(extracted_path, "r", encoding="utf-8") as f:
+            extracted = json.load(f)
+    elif args.pymupdf_review and pymupdf_items:
+        print(
+            f"merge_lyric_sources: {args.extracted_json} 없음 — PyMuPDF 검토만으로 manifest 생성",
+            file=sys.stderr,
+        )
+        extracted = []
+    else:
+        print(
+            f"extracted_json이 없고 PyMuPDF 검토 데이터도 없습니다: {args.extracted_json}",
+            file=sys.stderr,
+        )
+        return 1
     if not isinstance(extracted, list):
         print("extracted_json은 페이지 배열이어야 합니다.", file=sys.stderr)
         return 1
 
-    pymupdf_items, manual = load_pymupdf_review(args.pymupdf_review)
     manifest = merge_sources(
         extracted,
         pymupdf_items,

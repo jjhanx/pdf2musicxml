@@ -2010,6 +2010,40 @@ async function ensureSessionLyricSourcePdf(job: JobRecord): Promise<void> {
   await fs.copyFile(src, dest).catch(() => {});
 }
 
+/** omr-work.zip만으로 재개할 때 pdfplumber 추출이 없으면 병합 실패 방지 */
+async function ensureExtractedMusicTextJson(
+  sessionRoot: string,
+  opts?: {
+    inputPdfPath?: string | null;
+    pythonBin?: string;
+    scriptSeparator?: string;
+  },
+): Promise<string> {
+  const extractedJsonPath = path.join(sessionRoot, 'extracted_music_text.json');
+  if (fsSync.existsSync(extractedJsonPath)) {
+    return extractedJsonPath;
+  }
+  const inputPdf = opts?.inputPdfPath?.trim();
+  if (inputPdf && fsSync.existsSync(inputPdf) && opts.pythonBin && opts.scriptSeparator) {
+    try {
+      await exec(
+        `"${opts.pythonBin}" "${opts.scriptSeparator}" extract "${inputPdf}" "${extractedJsonPath}"`,
+      );
+      if (fsSync.existsSync(extractedJsonPath)) {
+        console.log('[session] extracted_music_text.json 생성 (pdfplumber 재추출)');
+        return extractedJsonPath;
+      }
+    } catch (err) {
+      console.warn('[session] pdfplumber 추출 실패 — 빈 extracted 사용', err);
+    }
+  }
+  await fs.writeFile(extractedJsonPath, '[]\n', 'utf8');
+  console.warn(
+    '[session] extracted_music_text.json 없음 — 빈 배열로 대체 (omr-work·PyMuPDF 검토 병합)',
+  );
+  return extractedJsonPath;
+}
+
 /** OMR·HITL 후 가사 검증용 ocr_data_pymupdf.json — 없으면 manifest·원본 PDF에서 준비 */
 async function ensurePymupdfReviewPayload(opts: {
   pymupdfReviewPath: string;
@@ -2551,6 +2585,11 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         scriptExtract,
         scriptMergeLyrics,
       );
+      await ensureExtractedMusicTextJson(sessionRoot, {
+        inputPdfPath: resolveLyricReviewPdfPath(job),
+        pythonBin,
+        scriptSeparator,
+      });
     }
 
     if (startStage === 'lyric_inject') {
@@ -3071,6 +3110,11 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           }
         } else {
           // Run merge_lyric_sources.py again to generate final lyric_manifest.json and ocr_data.json
+          await ensureExtractedMusicTextJson(sessionRoot, {
+            inputPdfPath: resolveLyricReviewPdfPath(job),
+            pythonBin,
+            scriptSeparator,
+          });
           setJobProgress(job, {
             phase: 'separator',
             current: 1,

@@ -402,13 +402,11 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
         item.type !== 'page_number') ||
       (item.type === 'lyrics' &&
         ((typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
-          (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
           (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
           Boolean(
             item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1',
           ))) ||
       (typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
-      (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
       (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
       Boolean(item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1');
     if (hasPriorEdit) {

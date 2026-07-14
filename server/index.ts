@@ -1495,7 +1495,7 @@ function reviewItemsHaveUserEdits(items: unknown[]): boolean {
     const o = item as Record<string, unknown>;
     if (o.type === MANUAL_LYRIC_MASK_TYPE) return true;
     const t = o.type;
-    if (t === 'unknown') return true;
+    if (t === 'unknown' && o.reviewTypeUserSet === true) return true;
     if (t === 'measure_number' || t === 'page_number') continue;
     if (typeof t === 'string' && t && t !== 'lyrics') {
       return true;
@@ -1508,6 +1508,34 @@ function reviewItemsHaveUserEdits(items: unknown[]): boolean {
     if (Array.isArray(o.manualRects) && o.manualRects.length > 0) return true;
   }
   return false;
+}
+
+/** 검토 UI 구분 기본값 — unknown(미분류 미선택)은 가사. 사용자가 고른 미분류만 유지 */
+function applyReviewUiDefaultRoles(items: unknown[]): unknown[] {
+  return items.map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const o = { ...(item as Record<string, unknown>) };
+    const t = o.type;
+    if (
+      t === MANUAL_LYRIC_MASK_TYPE ||
+      t === 'measure_number' ||
+      t === 'page_number' ||
+      t === 'title' ||
+      t === 'composer' ||
+      t === 'lyricist' ||
+      t === 'copyright' ||
+      t === 'tempo'
+    ) {
+      return o;
+    }
+    if (t === 'unknown' && o.reviewTypeUserSet === true) {
+      return o;
+    }
+    if (!t || t === '' || t === 'unknown') {
+      o.type = 'lyrics';
+    }
+    return o;
+  });
 }
 
 async function loadLyricReviewItemsFromManifest(manifestPath: string): Promise<unknown[] | null> {
@@ -1676,7 +1704,14 @@ async function importOmrWorkFromExtractDir(
     const pymupdfSrc = pick('ocr_data_pymupdf.json');
     if (pymupdfSrc) {
       await fs.copyFile(pymupdfSrc, sessionOcrPymupdfSavedPath(sessionRoot));
-      if (job) job.hasSavedLyricReview = true;
+      if (job) {
+        try {
+          const raw = JSON.parse(await fs.readFile(pymupdfSrc, 'utf8')) as unknown[];
+          job.hasSavedLyricReview = Array.isArray(raw) && reviewItemsHaveUserEdits(raw);
+        } catch {
+          job.hasSavedLyricReview = false;
+        }
+      }
     }
   } else {
     await restoreLyricArtifactsFromExtractDir(sessionRoot, extractDir);
@@ -2165,7 +2200,8 @@ async function preparePostOmrLyricReviewItems(
     job.startStage === 'clean_score' || job.startStage === 'lyric_inject';
 
   const activate = async (raw: unknown[], preservesEdits: boolean): Promise<unknown[]> => {
-    const items = preservesEdits ? applyEditedReviewShape(raw) : applyBaselineReviewShape(raw);
+    const shaped = preservesEdits ? applyEditedReviewShape(raw) : applyBaselineReviewShape(raw);
+    const items = applyReviewUiDefaultRoles(shaped);
     job.reviewPreservesEdits = preservesEdits;
     await activateLyricReviewItems(job.sessionRoot, items);
     return items;
@@ -2190,7 +2226,7 @@ async function preparePostOmrLyricReviewItems(
   if (fsSync.existsSync(savedPath)) {
     try {
       const raw = JSON.parse(await fs.readFile(savedPath, 'utf8')) as unknown[];
-      if (Array.isArray(raw) && raw.length > 0) {
+      if (Array.isArray(raw) && raw.length > 0 && reviewItemsHaveUserEdits(raw)) {
         return activate(raw, true);
       }
     } catch {
@@ -4413,7 +4449,7 @@ app.post('/api/review/:jobId/load-saved-lyrics', async (req, res) => {
     return;
   }
   try {
-    const items = await loadSavedLyricReviewItems(job.sessionRoot);
+    const items = applyReviewUiDefaultRoles(await loadSavedLyricReviewItems(job.sessionRoot));
     await activateLyricReviewItems(job.sessionRoot, items);
     job.reviewData = items;
     job.reviewPreservesEdits = true;

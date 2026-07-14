@@ -336,9 +336,22 @@ function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem
   }));
 }
 
-/** OMR·HITL 후 PDF 초기 추출 — 역할 미지정 줄은 UI 기본값 가사 */
+/** OMR·HITL 후 PDF 초기 추출 — 역할 미지정 줄은 UI 기본값 가사 (이미 편집된 줄은 유지) */
 function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
   return payloadItems.map((item) => {
+    const hasPriorEdit =
+      item.type === '_manual_lyric_mask' ||
+      (item.type &&
+        item.type !== 'unknown' &&
+        item.type !== 'measure_number' &&
+        item.type !== 'page_number') ||
+      (typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
+      (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
+      (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
+      Boolean(item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1');
+    if (hasPriorEdit) {
+      return normalizeReviewItemsForUi([item])[0];
+    }
     const t = item.type;
     const role =
       t === 'measure_number' || t === 'page_number'
@@ -346,7 +359,6 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
         : t
           ? reviewTypeSelectValue(t, true)
           : 'unknown';
-    // 추출 시 분류를 원치 않는 경우 unknown으로 덮어씀
     const finalRole = defaultReviewTypeForInit(role);
     return {
       ...item,
@@ -618,9 +630,10 @@ export default function App() {
 
   const loadLyricReviewJob = useCallback(async (jobId: string, fileName: string): Promise<boolean> => {
     try {
-      const [r, st] = await Promise.all([
+      const [r, st, info] = await Promise.all([
         fetch(`/api/review/${jobId}`),
         fetch(`/api/status/${jobId}`, { cache: 'no-store' }),
+        fetch(`/api/review/${jobId}/lyric-source-info`, { cache: 'no-store' }),
       ]);
       if (!r.ok) {
         const detail = await r.text();
@@ -636,16 +649,43 @@ export default function App() {
       );
 
       let afterOmr = pipelineMode === 'font_separator';
+      let preservesEdits = false;
       if (st.ok) {
-        const sj = (await st.json()) as { reviewAfterOmr?: boolean; hasSavedLyricReview?: boolean };
+        const sj = (await st.json()) as {
+          reviewAfterOmr?: boolean;
+          reviewPreservesEdits?: boolean;
+          hasSavedLyricReview?: boolean;
+        };
         if (sj.reviewAfterOmr) afterOmr = true;
+        preservesEdits = Boolean(sj.reviewPreservesEdits);
         if (sj.hasSavedLyricReview) setHasSavedLyricReview(true);
         else setHasSavedLyricReview(false);
       }
+      if (info.ok) {
+        const ij = (await info.json()) as {
+          reviewPreservesEdits?: boolean;
+          partLabelsPreset?: string[];
+          partLabelsSaved?: string[];
+        };
+        if (ij.reviewPreservesEdits) preservesEdits = true;
+        const labels =
+          Array.isArray(ij.partLabelsSaved) && ij.partLabelsSaved.length
+            ? ij.partLabelsSaved
+            : Array.isArray(ij.partLabelsPreset) && ij.partLabelsPreset.length
+              ? ij.partLabelsPreset
+              : null;
+        if (labels) {
+          setPartLabelCount(labels.length);
+          setPartLabelsPreset(
+            defaultPartLabels(labels.length).map((d, i) => labels[i]?.trim() || d),
+          );
+        }
+      }
 
-      const initData = afterOmr
-        ? normalizeReviewItemsForBaseline(payloadItems)
-        : normalizeReviewItemsForUi(payloadItems);
+      const initData =
+        afterOmr && !preservesEdits
+          ? normalizeReviewItemsForBaseline(payloadItems)
+          : normalizeReviewItemsForUi(payloadItems);
 
       setReviewAfterOmr(afterOmr);
       setManualLyricRects(fromPayload);

@@ -405,6 +405,8 @@ type JobRecord = {
   reviewData?: any;
   /** font_separator: OMR·HITL 이후 가사 검증 UI (원본 PDF 미리보기) */
   reviewAfterOmr?: boolean;
+  /** OMR·HITL 후 가사 검증 — manifest·1단계 편집 유지(초기 추출로 덮지 않음) */
+  reviewPreservesEdits?: boolean;
   /** omr-work.zip에서 가져온 가사 검증 JSON이 세션에 있음 */
   hasSavedLyricReview?: boolean;
   /** Audiveris 직후 보정 단계용 */
@@ -1484,6 +1486,102 @@ async function preparePymupdfReviewFromManifest(
   }
 }
 
+const MANUAL_LYRIC_MASK_TYPE = '_manual_lyric_mask';
+
+function reviewItemsHaveUserEdits(items: unknown[]): boolean {
+  if (!Array.isArray(items) || items.length === 0) return false;
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    if (o.type === MANUAL_LYRIC_MASK_TYPE) return true;
+    const t = o.type;
+    if (
+      typeof t === 'string' &&
+      t &&
+      t !== 'unknown' &&
+      t !== 'measure_number' &&
+      t !== 'page_number'
+    ) {
+      return true;
+    }
+    if (typeof o.lyricPartIndex === 'number' && o.lyricPartIndex > 1) return true;
+    if (typeof o.lyricVerseIndex === 'number' && o.lyricVerseIndex > 1) return true;
+    if (typeof o.lyricSkipNotes === 'number' && o.lyricSkipNotes > 0) return true;
+    const lv = o.lyricVoice;
+    if (typeof lv === 'string' && lv.trim() && lv.trim() !== '1') return true;
+    if (Array.isArray(o.manualRects) && o.manualRects.length > 0) return true;
+  }
+  return false;
+}
+
+async function loadLyricReviewItemsFromManifest(manifestPath: string): Promise<unknown[] | null> {
+  if (!fsSync.existsSync(manifestPath)) return null;
+  try {
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as { items?: unknown[] };
+    const items = Array.isArray(manifest.items)
+      ? manifest.items
+      : Array.isArray(manifest)
+        ? (manifest as unknown[])
+        : null;
+    return items && items.length > 0 ? items : null;
+  } catch {
+    return null;
+  }
+}
+
+/** manifest·1단계 편집분 — 역할·성부·bbox·수동 영역 유지 */
+function applyEditedReviewShape(items: unknown[]): unknown[] {
+  return items.map((item, i) => {
+    if (!item || typeof item !== 'object') return item;
+    const o = { ...(item as Record<string, unknown>) };
+    if (typeof o.id !== 'string' || !o.id.trim()) {
+      o.id = `lyric_review_${i + 1}`;
+    }
+    return o;
+  });
+}
+
+async function restorePartLabelsFromManifest(
+  sessionRoot: string,
+  manifestPath: string,
+): Promise<void> {
+  if (!fsSync.existsSync(manifestPath)) return;
+  try {
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as {
+      partLabelsByIndex?: unknown;
+    };
+    if (!Array.isArray(manifest.partLabelsByIndex)) return;
+    const labels = manifest.partLabelsByIndex
+      .map((x) => String(x ?? '').trim())
+      .filter((l) => l.length > 0);
+    if (!labels.length) return;
+    await fs.writeFile(
+      sessionPartLabelsPresetPath(sessionRoot),
+      JSON.stringify({ version: 1, labelsByIndex: labels }, null, 2),
+      'utf8',
+    );
+  } catch {
+    /* optional */
+  }
+}
+
+async function attachPartLabelsToManifest(
+  sessionRoot: string,
+  manifestPath: string,
+  job?: JobRecord,
+): Promise<void> {
+  if (!fsSync.existsSync(manifestPath)) return;
+  const labels = await resolvePartLabelsByIndex(sessionRoot, job);
+  if (!labels?.length) return;
+  try {
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+    manifest.partLabelsByIndex = labels;
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  } catch {
+    /* optional */
+  }
+}
+
 async function restoreLyricArtifactsFromExtractDir(
   sessionRoot: string,
   extractDir: string,
@@ -1687,9 +1785,25 @@ async function enterOmrStaffHitlPhase(
 ): Promise<void> {
   if (mxlForInject.length === 0 || job.enableOmrStaffReview === false) return;
   await ensureSessionLyricSourcePdf(job);
+  let skipBaselinePrebuild =
+    job.startStage === 'clean_score' || job.startStage === 'lyric_inject';
+  if (!skipBaselinePrebuild) {
+    const pymupdfPath = sessionOcrPymupdfReviewPath(job.sessionRoot);
+    if (fsSync.existsSync(pymupdfPath)) {
+      try {
+        const raw = JSON.parse(await fs.readFile(pymupdfPath, 'utf8')) as unknown[];
+        if (Array.isArray(raw) && reviewItemsHaveUserEdits(raw)) {
+          skipBaselinePrebuild = true;
+        }
+      } catch {
+        /* optional */
+      }
+    }
+  }
   if (
     job.pipelineMode === 'font_separator' &&
     job.enablePymupdfReview !== false &&
+    !skipBaselinePrebuild &&
     !fsSync.existsSync(sessionOcrPymupdfBaselinePath(job.sessionRoot))
   ) {
     const pdfPath = resolveLyricReviewPdfPath(job);
@@ -1830,6 +1944,7 @@ async function runFontSeparatorResumePhase(opts: {
       return false;
     }
     await preparePymupdfReviewFromManifest(lyricManifestPath, pymupdfReviewPath);
+    await restorePartLabelsFromManifest(sessionRoot, lyricManifestPath);
   }
 
   return true;
@@ -2038,7 +2153,7 @@ async function bootstrapLyricReviewAfterOmrZipImport(
   await activateLyricReviewItems(job.sessionRoot, items);
 }
 
-/** OMR·HITL 후 가사 검증 UI — baseline(미분류) 항목을 즉시 반환 (느린 병합은 HITL 전에 선행) */
+/** OMR·HITL 후 가사 검증 UI — 편집된 manifest·pymupdf 우선, 없으면 PDF 초기 추출 */
 async function preparePostOmrLyricReviewItems(
   job: JobRecord,
   pythonBin: string,
@@ -2047,14 +2162,54 @@ async function preparePostOmrLyricReviewItems(
 ): Promise<unknown[] | null> {
   await ensureSessionLyricSourcePdf(job);
   const pdfPath = resolveLyricReviewPdfPath(job);
+  const pymupdfPath = sessionOcrPymupdfReviewPath(job.sessionRoot);
+  const manifestPath = sessionLyricManifestPath(job.sessionRoot);
+  const savedPath = sessionOcrPymupdfSavedPath(job.sessionRoot);
+  const resumeFromPriorStage =
+    job.startStage === 'clean_score' || job.startStage === 'lyric_inject';
+
+  const activate = async (raw: unknown[], preservesEdits: boolean): Promise<unknown[]> => {
+    const items = preservesEdits ? applyEditedReviewShape(raw) : applyBaselineReviewShape(raw);
+    job.reviewPreservesEdits = preservesEdits;
+    await activateLyricReviewItems(job.sessionRoot, items);
+    return items;
+  };
+
+  if (fsSync.existsSync(pymupdfPath)) {
+    try {
+      const raw = JSON.parse(await fs.readFile(pymupdfPath, 'utf8')) as unknown[];
+      if (Array.isArray(raw) && raw.length > 0 && (reviewItemsHaveUserEdits(raw) || resumeFromPriorStage)) {
+        return activate(raw, reviewItemsHaveUserEdits(raw) || resumeFromPriorStage);
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const fromManifest = await loadLyricReviewItemsFromManifest(manifestPath);
+  if (fromManifest?.length && (reviewItemsHaveUserEdits(fromManifest) || resumeFromPriorStage)) {
+    return activate(fromManifest, true);
+  }
+
+  if (fsSync.existsSync(savedPath)) {
+    try {
+      const raw = JSON.parse(await fs.readFile(savedPath, 'utf8')) as unknown[];
+      if (Array.isArray(raw) && raw.length > 0) {
+        return activate(raw, true);
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
   if (!pdfPath) return null;
+
   const baselinePath = sessionOcrPymupdfBaselinePath(job.sessionRoot);
   if (fsSync.existsSync(baselinePath)) {
     const raw = JSON.parse(await fs.readFile(baselinePath, 'utf8')) as unknown[];
-    const items = applyBaselineReviewShape(raw);
-    await activateLyricReviewItems(job.sessionRoot, items);
-    return items;
+    return activate(raw, false);
   }
+
   const items = await ensureLyricReviewBaseline({
     sessionRoot: job.sessionRoot,
     pdfPath,
@@ -2063,8 +2218,7 @@ async function preparePostOmrLyricReviewItems(
     scriptMergeLyrics,
     forceRebuild: true,
   });
-  await activateLyricReviewItems(job.sessionRoot, items);
-  return items;
+  return activate(items, false);
 }
 
 async function loadSavedLyricReviewItems(sessionRoot: string): Promise<unknown[]> {
@@ -2404,6 +2558,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
       await fs.copyFile(job.resumeLyricManifestPath, lyricManifestPath);
       await preparePymupdfReviewFromManifest(lyricManifestPath, pymupdfReviewPath);
+      await restorePartLabelsFromManifest(job.sessionRoot, lyricManifestPath);
     }
 
     if (!skipAudiverisEngine) {
@@ -2604,6 +2759,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             /* optional metadata */
           }
         }
+        await attachPartLabelsToManifest(sessionRoot, lyricManifestPath, job);
 
         console.log(`[job ${jobId}] Pausing for lyric_manifest.json save…`);
         job.status = 'lyric_manifest_save_needed';
@@ -2913,6 +3069,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
               /* optional metadata */
             }
           }
+          await attachPartLabelsToManifest(sessionRoot, lyricManifestPath, job);
         }
       } else {
         const pdfPath = resolveLyricReviewPdfPath(job);
@@ -3384,12 +3541,14 @@ app.get('/api/status/:jobId', (req, res) => {
     status: JobStatus;
     progress?: JobProgress;
     reviewAfterOmr?: boolean;
+    reviewPreservesEdits?: boolean;
     hasSavedLyricReview?: boolean;
   } = {
     status: job.status,
   };
   if (job.status === 'review_needed' && job.reviewAfterOmr) {
     payload.reviewAfterOmr = true;
+    payload.reviewPreservesEdits = Boolean(job.reviewPreservesEdits);
     payload.hasSavedLyricReview =
       job.hasSavedLyricReview ?? fsSync.existsSync(sessionOcrPymupdfSavedPath(job.sessionRoot));
   }
@@ -4184,7 +4343,15 @@ app.get('/api/review/:jobId/lyric-source-info', (req, res) => {
   const hasSaved =
     job.hasSavedLyricReview ?? fsSync.existsSync(sessionOcrPymupdfSavedPath(job.sessionRoot));
   const hasBaseline = fsSync.existsSync(sessionOcrPymupdfBaselinePath(job.sessionRoot));
-  res.json({ hasSavedLyricReview: hasSaved, hasBaseline });
+  const preset = await readLabelsByIndexFromPath(sessionPartLabelsPresetPath(job.sessionRoot));
+  const savedLabels = await readLabelsByIndexFromPath(sessionPartLabelsPath(job.sessionRoot));
+  res.json({
+    hasSavedLyricReview: hasSaved,
+    hasBaseline,
+    reviewPreservesEdits: Boolean(job.reviewPreservesEdits),
+    partLabelsPreset: preset ?? undefined,
+    partLabelsSaved: savedLabels ?? undefined,
+  });
 });
 
 /** OMR·HITL 후 가사 검증 — 원본 PDF 1차 추출(제목·작곡·가사)로 되돌림 */

@@ -4333,7 +4333,7 @@ app.get('/api/review/:jobId', (req, res) => {
   res.json(job.reviewData);
 });
 
-app.get('/api/review/:jobId/lyric-source-info', (req, res) => {
+app.get('/api/review/:jobId/lyric-source-info', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {

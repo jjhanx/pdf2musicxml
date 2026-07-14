@@ -112,6 +112,63 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     }
   }, [jobId]);
 
+  const applyScorePartsResponse = useCallback(
+    (pj: {
+      parts?: Array<{
+        id: string;
+        index: number;
+        name?: string;
+        instrumentName?: string;
+        suggestedLabel: string;
+        displayLabel?: string;
+      }>;
+      presetLabelsByIndex?: string[];
+      savedLabelsByIndex?: string[];
+    }) => {
+      const list = Array.isArray(pj.parts) ? pj.parts : [];
+      const displayLabels = resolvePartDisplayLabels(
+        list.map((p) => ({
+          index: p.index,
+          name: p.name,
+          instrumentName: p.instrumentName,
+          suggestedLabel: p.suggestedLabel,
+        })),
+        pj.savedLabelsByIndex,
+        pj.presetLabelsByIndex,
+      );
+      setScoreParts(
+        list.map((p) => ({
+          id: p.id,
+          index: p.index,
+          suggestedLabel: p.suggestedLabel,
+          displayLabel: p.displayLabel ?? displayLabels[p.index] ?? p.suggestedLabel,
+        })),
+      );
+    },
+    [],
+  );
+
+  const refreshPanelAfterWorkImport = useCallback(async () => {
+    const [fixesRes, partsRes, sumRes] = await Promise.all([
+      fetch(`/api/omr-hitl/${jobId}/fixes`, { cache: 'no-store' }),
+      fetch(`/api/diagnostic/${jobId}/score-parts`, { cache: 'no-store' }),
+      fetch(`/api/diagnostic/${jobId}/summary`, { cache: 'no-store' }),
+    ]);
+    if (fixesRes.ok) {
+      const fj = (await fixesRes.json()) as { fixes?: OmrHitlFix[] };
+      if (Array.isArray(fj.fixes)) setPendingFixes(fj.fixes);
+    }
+    if (partsRes.ok) {
+      applyScorePartsResponse(
+        (await partsRes.json()) as Parameters<typeof applyScorePartsResponse>[0],
+      );
+    }
+    if (sumRes.ok) setSummary((await sumRes.json()) as InspectSummary);
+    await refreshScoreXml();
+    setPreviewRevision((n) => n + 1);
+    setEditorKey((k) => k + 1);
+  }, [jobId, refreshScoreXml, applyScorePartsResponse]);
+
   useEffect(() => {
     pendingFixesRef.current = pendingFixes;
   }, [pendingFixes]);
@@ -163,36 +220,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           }
         }
         if (partsRes.ok) {
-          const pj = (await partsRes.json()) as {
-            parts?: Array<{
-              id: string;
-              index: number;
-              name?: string;
-              instrumentName?: string;
-              suggestedLabel: string;
-              displayLabel?: string;
-            }>;
-            presetLabelsByIndex?: string[];
-            savedLabelsByIndex?: string[];
-          };
-          const list = Array.isArray(pj.parts) ? pj.parts : [];
-          const displayLabels = resolvePartDisplayLabels(
-            list.map((p) => ({
-              index: p.index,
-              name: p.name,
-              instrumentName: p.instrumentName,
-              suggestedLabel: p.suggestedLabel,
-            })),
-            pj.savedLabelsByIndex,
-            pj.presetLabelsByIndex,
-          );
-          setScoreParts(
-            list.map((p) => ({
-              id: p.id,
-              index: p.index,
-              suggestedLabel: p.suggestedLabel,
-              displayLabel: p.displayLabel ?? displayLabels[p.index] ?? p.suggestedLabel,
-            })),
+          applyScorePartsResponse(
+            (await partsRes.json()) as Parameters<typeof applyScorePartsResponse>[0],
           );
         }
         if (!cancelled) {
@@ -207,7 +236,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [jobId, refreshScoreXml]);
+  }, [jobId, refreshScoreXml, applyScorePartsResponse]);
 
   const partIdForStaff = useCallback(
     (staffLabel: string): string | null => {
@@ -440,24 +469,25 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         const fd = new FormData();
         fd.append('file', file);
         const r = await fetch(`/api/omr-hitl/${jobId}/import-work`, { method: 'POST', body: fd });
-        const j = (await r.json()) as { error?: string; fixCount?: number };
+        const j = (await r.json()) as {
+          error?: string;
+          fixCount?: number;
+          stats?: { syncMode?: string; hitlApplied?: number };
+        };
         if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-        const fixesRes = await fetch(`/api/omr-hitl/${jobId}/fixes`, { cache: 'no-store' });
-        if (fixesRes.ok) {
-          const fj = (await fixesRes.json()) as { fixes?: OmrHitlFix[] };
-          if (Array.isArray(fj.fixes)) setPendingFixes(fj.fixes);
-        }
-        await refreshScoreXml();
-        setPreviewRevision((n) => n + 1);
-        setEditorKey((k) => k + 1);
-        setWorkMsg(`작업 불러옴 — 보정 ${j.fixCount ?? 0}건, 미리보기 동기화 완료.`);
+        await refreshPanelAfterWorkImport();
+        const mode = j.stats?.syncMode ?? '';
+        const applied = j.stats?.hitlApplied ?? 0;
+        setWorkMsg(
+          `작업 불러옴 — 보정 기록 ${j.fixCount ?? 0}건${applied > 0 ? `, MXL 반영 ${applied}건` : ''}${mode ? ` (${mode})` : ''}. 미리보기를 갱신했습니다.`,
+        );
       } catch (e) {
         setWorkMsg(e instanceof Error ? e.message : String(e));
       } finally {
         setApplyBusy(false);
       }
     },
-    [jobId, refreshScoreXml],
+    [jobId, refreshPanelAfterWorkImport],
   );
 
   const applyFixesToMxl = useCallback(async () => {

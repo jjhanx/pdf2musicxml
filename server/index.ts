@@ -1594,21 +1594,32 @@ async function importOmrWorkFromExtractDir(
   const rawSrc = pick('audiveris_raw.mxl');
   const fixesSrc = pick('omr_hitl_fixes.json');
   const labelsSrc = pick('part_labels.json');
+  const baselineSrc = pick('omr_hitl_baseline.mxl');
+  const checkpointSrc = pick('omr_hitl_checkpoint.json');
   if (fixesSrc) await fs.copyFile(fixesSrc, sessionOmrHitlFixesPath(sessionRoot));
+  else if (fsSync.existsSync(sessionOmrHitlFixesPath(sessionRoot))) {
+    await fs.unlink(sessionOmrHitlFixesPath(sessionRoot)).catch(() => {});
+  }
   if (labelsSrc) await fs.copyFile(labelsSrc, sessionPartLabelsPath(sessionRoot));
   if (rawSrc) await fs.copyFile(rawSrc, sessionAudiverisRawMxlPath(sessionRoot));
-  if (rawSrc) {
-    await fs.copyFile(rawSrc, scorePath);
+  if (checkpointSrc) {
+    await fs.copyFile(checkpointSrc, sessionOmrHitlCheckpointPath(sessionRoot));
+  } else if (fsSync.existsSync(sessionOmrHitlCheckpointPath(sessionRoot))) {
+    await fs.unlink(sessionOmrHitlCheckpointPath(sessionRoot)).catch(() => {});
+  }
+  if (baselineSrc) {
+    await fs.copyFile(baselineSrc, sessionHitlBaselineMxlPath(sessionRoot));
+  } else if (fsSync.existsSync(sessionHitlBaselineMxlPath(sessionRoot))) {
+    await fs.unlink(sessionHitlBaselineMxlPath(sessionRoot)).catch(() => {});
+  }
+  if (baselineSrc) {
+    await fs.copyFile(baselineSrc, scorePath);
   } else if (reviewSrc) {
     await fs.copyFile(reviewSrc, scorePath);
+  } else if (rawSrc) {
+    await fs.copyFile(rawSrc, scorePath);
   } else {
     throw new Error('ZIP에 review.mxl 또는 audiveris_raw.mxl이 없습니다');
-  }
-  const baselineSrc = pick('omr_hitl_baseline.mxl');
-  if (baselineSrc && !rawSrc) {
-    await fs.copyFile(baselineSrc, sessionHitlBaselineMxlPath(sessionRoot));
-  } else if (rawSrc && fsSync.existsSync(sessionHitlBaselineMxlPath(sessionRoot))) {
-    await fs.unlink(sessionHitlBaselineMxlPath(sessionRoot)).catch(() => {});
   }
   const fixesAfterImport = await readOmrHitlFixes(sessionRoot);
   let stats: Awaited<ReturnType<typeof syncOmrReviewMxl>>;
@@ -4780,6 +4791,14 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
     res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
+  try {
+    const pythonBin = resolvePythonBin();
+    await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+    await invalidateInspectScoreCache(job.sessionRoot);
+  } catch (e) {
+    res.status(500).json({ error: `저장 전 MXL 동기화 실패: ${String(e)}` });
+    return;
+  }
   const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
   res.setHeader('Content-Type', 'application/zip');
   setAttachmentFilenameHeader(res, `${base}-omr-work.zip`);
@@ -4893,17 +4912,6 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
           maxBuffer: 8 * 1024 * 1024,
         });
         await fs.unlink(extractPy).catch(() => {});
-        const pick = (name: string) => {
-          const p = path.join(extractDir, name);
-          return fsSync.existsSync(p) ? p : null;
-        };
-        const reviewSrc = pick('review.mxl');
-        const rawSrc = pick('audiveris_raw.mxl');
-        const fixesSrc = pick('omr_hitl_fixes.json');
-        const labelsSrc = pick('part_labels.json');
-        if (fixesSrc) await fs.copyFile(fixesSrc, sessionOmrHitlFixesPath(job.sessionRoot));
-        if (labelsSrc) await fs.copyFile(labelsSrc, sessionPartLabelsPath(job.sessionRoot));
-        if (rawSrc) await fs.copyFile(rawSrc, sessionAudiverisRawMxlPath(job.sessionRoot));
         const { fixCount, stats } = await importOmrWorkFromExtractDir(
           job.sessionRoot,
           extractDir,

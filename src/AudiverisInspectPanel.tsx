@@ -381,6 +381,36 @@ function stripBeamsFromNoteEl(note: Element): void {
   for (const child of [...note.children]) {
     if (xmlLocalName(child) === 'beam') child.remove();
   }
+  note.querySelectorAll('notations beam, notations *|beam').forEach((el) => {
+    el.remove();
+  });
+}
+
+function noteHasDot(note: Element): boolean {
+  return note.querySelector(':scope > dot, :scope > *|dot') != null;
+}
+
+/** HITL verbatim·voice split 후 OSMD beam 크래시 방지 — 미리보기에서 `<beam>` 전부 제거. */
+function stripAllBeamsInDocument(doc: Document): void {
+  for (const part of findXmlParts(doc)) {
+    for (const meas of [...part.children]) {
+      if (xmlLocalName(meas) !== 'measure') continue;
+      for (const child of [...meas.children]) {
+        if (xmlLocalName(child) === 'note') stripBeamsFromNoteEl(child);
+      }
+    }
+  }
+}
+
+function stripAllBeamsForOsmdPreviewString(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    stripAllBeamsInDocument(doc);
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
 }
 
 function measureOwnerPart(measure: Element): Element | null {
@@ -404,15 +434,18 @@ function runningDivisionsBeforeMeasure(part: Element, measure: Element): number 
   return divisions > 0 ? divisions : 4;
 }
 
-/** OSMD: 4분음표 이상·`<chord/>` 음표에 beam이 있으면 load 크래시 — split voice 재구성 후 정리. */
+/** OSMD(VexFlow): beam은 4분음표 미만만 허용 — duration·type·dot 불일치 export 포함. */
 function stripInvalidBeamsForOsmdPreviewInMeasure(measure: Element, quarterDiv: number): void {
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'note') continue;
     const dur = noteDurationN(child);
     const typ = child.querySelector(':scope > type, :scope > *|type')?.textContent?.trim() ?? '';
+    const dotted = noteHasDot(child);
+    const beamableMax = Math.max(1, quarterDiv - 1);
     if (
       isChordNote(child) ||
       dur >= quarterDiv ||
+      (dotted && dur >= beamableMax) ||
       typ === 'quarter' ||
       typ === 'half' ||
       typ === 'whole'
@@ -1322,13 +1355,16 @@ export function buildOsmdPreviewXml(
     xml = promoteNoteDynamicsForOsmdPreview(xml);
   }
   if (!filter) {
-    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts, { verbatim });
+    xml = splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts, { verbatim });
+    if (verbatim) xml = stripAllBeamsForOsmdPreviewString(xml);
+    return xml;
   }
   xml = filterMusicXmlToPart(xml, filter.partId);
   if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
     xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart, { verbatim });
     xml = setPartDisplayName(xml, filter.partId, filter.label);
   }
+  if (verbatim) xml = stripAllBeamsForOsmdPreviewString(xml);
   return xml;
 }
 
@@ -1347,7 +1383,14 @@ function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
     }
     out = repairKeyChangeClefMisreadForOsmd(out);
     const doc = new DOMParser().parseFromString(out, 'text/xml');
-    if (doc.querySelector('parsererror')) return xml;
+    if (doc.querySelector('parsererror')) {
+      const fallback = new DOMParser().parseFromString(xml, 'text/xml');
+      if (!fallback.querySelector('parsererror')) {
+        if (verbatim) stripAllBeamsInDocument(fallback);
+        return new XMLSerializer().serializeToString(fallback);
+      }
+      return xml;
+    }
 
     const local = (el: Element) =>
       typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -1367,18 +1410,23 @@ function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
       if (!hasDirectionType) el.remove();
     });
 
-    for (const part of findXmlParts(doc)) {
-      for (const meas of [...part.children]) {
-        if (xmlLocalName(meas) !== 'measure') continue;
-        stripInvalidBeamsForOsmdPreviewInMeasure(
-          meas,
-          runningDivisionsBeforeMeasure(part, meas),
-        );
+    if (verbatim) {
+      stripAllBeamsInDocument(doc);
+    } else {
+      for (const part of findXmlParts(doc)) {
+        for (const meas of [...part.children]) {
+          if (xmlLocalName(meas) !== 'measure') continue;
+          stripInvalidBeamsForOsmdPreviewInMeasure(
+            meas,
+            runningDivisionsBeforeMeasure(part, meas),
+          );
+        }
       }
     }
 
     return new XMLSerializer().serializeToString(doc);
   } catch {
+    if (verbatim) return stripAllBeamsForOsmdPreviewString(xml);
     return xml;
   }
 }

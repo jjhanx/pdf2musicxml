@@ -262,6 +262,12 @@ def median_pitch(measure: ET.Element, staff: int) -> float | None:
     return midis[mid] if len(midis) % 2 else (midis[mid - 1] + midis[mid]) / 2
 
 
+def strip_all_beams(root: ET.Element) -> None:
+    for note in root.findall(".//{*}note"):
+        for b in list(note.findall("{*}beam")):
+            note.remove(b)
+
+
 def repair_misread_f_clef(root: ET.Element) -> None:
     for part in root.findall(".//{*}part"):
         for meas in part.findall("{*}measure"):
@@ -298,6 +304,7 @@ def main() -> int:
             return 1
 
     repair_misread_f_clef(root)
+    strip_all_beams(root)
     for pid in ["P1", "P2", "P3"]:
         part = next(p for p in root.findall(".//{*}part") if p.get("id") == pid)
         m33 = next(m for m in part.findall("{*}measure") if m.get("number") == "33")
@@ -321,6 +328,11 @@ def main() -> int:
                 f_on_st1 = True
     if not f_on_st1:
         print("P4 m33 staff1: valid F clef removed")
+        return 1
+
+    beams_left = len(root.findall(".//{*}note/{*}beam"))
+    if beams_left > 0:
+        print(f"FAIL: {beams_left} beams remain after verbatim strip")
         return 1
 
     print("OK")

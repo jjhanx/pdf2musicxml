@@ -610,7 +610,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           {activePartLabels.length > 0 ? (
             <strong>{activePartLabels.join(' / ')}</strong>
           ) : (
-            <strong>S/A/T/B/PR/PL</strong>
+            <strong>S/A/T/B/M/W/U/PR/PL</strong>
           )}
           ). 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset}.
           {' '}

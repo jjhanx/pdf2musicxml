@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { defaultPartLabels, PART_LABEL_PICKLIST, suggestedPartLabel } from './partLabelOptions';
+import { defaultPartLabels, PART_LABEL_PICKLIST, PART_LABEL_PICKLIST_HINT, suggestedPartLabel } from './partLabelOptions';
 
 type ScorePart = {
   index: number;
@@ -128,9 +128,9 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
       <h2 style={{ margin: '0 0 0.5rem' }}>성부 라벨 지정</h2>
       <p style={{ margin: '0 0 1rem', lineHeight: 1.55, fontSize: '0.92rem', color: '#333' }}>
         OMR이 인식한 <strong>파트(성부)</strong>마다 짧은 이름을 붙입니다. homr 등 OMR이 파트를
-        적게 만들어도(예: 3개), 문자 검토에서 정한 <strong>S A T B PR PL</strong> 등 전체 성부 수에
+        적게 만들어도(예: 3개), 문자 검토에서 정한 <strong>S A T B M W U PR PL</strong> 등 전체 성부 수에
         맞춰 라벨을 지정할 수 있습니다. OMR에 없는 파트는 가사·lint 매핑용입니다. 확정한 라벨은 OMR
-        lint·검토와 <strong>최종 MXL part-name</strong>에 반영됩니다. <strong>S/A/T/B/P</strong> 등은
+        lint·검토와 <strong>최종 MXL part-name</strong>에 반영됩니다. <strong>S/A/T/B/M/W/U/P</strong> 등은
         MusicXML에 <strong>같은 약어</strong>로 들어갑니다. 양손 피아노만 <strong>PR</strong>·
         <strong>PL</strong> → <strong>Piano</strong>(Pno.). PDF{' '}
         <strong>페이지(p.)</strong> 번호와 혼동하지 않도록 합니다.
@@ -144,6 +144,27 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center' }}>
             <button type="button" className="btn-muted" onClick={() => applyPreset(defaultPartLabels(6))}>
               합창+피아노 (S A T B PR PL)
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              onClick={() => applyPreset(['M', 'W', 'U'])}
+            >
+              M W U (남·녀·합창)
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              onClick={() => applyPreset(['M', 'W', 'U', 'P'])}
+            >
+              M W U + P
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              onClick={() => applyPreset(['M', 'W', 'U', 'PR', 'PL'])}
+            >
+              M W U + PR PL
             </button>
             <button
               type="button"
@@ -259,7 +280,7 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
                     >
                       {PART_LABEL_PICKLIST.map((opt) => (
                         <option key={opt} value={opt}>
-                          {opt}
+                          {PART_LABEL_PICKLIST_HINT[opt] ?? opt}
                         </option>
                       ))}
                       <option value="__custom__">직접 입력</option>

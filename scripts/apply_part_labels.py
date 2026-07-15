@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""part_labels.json / preset 라벨을 MusicXML score-part 이름에 반영 (PR·PL → Piano, P·S/A/T/B는 그대로)."""
+"""part_labels.json / preset 라벨을 MusicXML score-part 이름에 반영 (PR·PL → Piano, S/A/T/B/M/W/U/P는 라벨 그대로)."""
 from __future__ import annotations
 
 import argparse

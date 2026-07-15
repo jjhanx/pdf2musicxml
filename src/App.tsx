@@ -2496,7 +2496,7 @@ bash scripts/install-font-separator-deps.sh`}
                 성부 라벨 (PDF 페이지 번호와 구분)
               </div>
               <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: '#444', lineHeight: 1.45 }}>
-                가사를 붙일 <strong>성부</strong>를 S/A/T/B/PR/PL 등으로 미리 정합니다. OMR
+                가사를 붙일 <strong>성부</strong>를 S/A/T/B/M/W/U/PR/PL 등으로 미리 정합니다. OMR
                 lint에서도 동일 라벨을 씁니다.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>

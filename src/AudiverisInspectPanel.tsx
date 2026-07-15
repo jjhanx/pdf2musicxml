@@ -377,6 +377,51 @@ function noteDurationN(note: Element): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function stripBeamsFromNoteEl(note: Element): void {
+  for (const child of [...note.children]) {
+    if (xmlLocalName(child) === 'beam') child.remove();
+  }
+}
+
+function measureOwnerPart(measure: Element): Element | null {
+  const p = measure.parentElement;
+  return p && xmlLocalName(p) === 'part' ? p : null;
+}
+
+/** part 내 해당 마디 직전까지 유효한 `<divisions>` (기본 4). */
+function runningDivisionsBeforeMeasure(part: Element, measure: Element): number {
+  let divisions = 4;
+  for (const meas of [...part.children]) {
+    if (xmlLocalName(meas) !== 'measure') continue;
+    for (const attr of [...meas.children]) {
+      if (xmlLocalName(attr) !== 'attributes') continue;
+      const divEl = attr.querySelector('divisions, *|divisions');
+      const t = divEl?.textContent?.trim();
+      if (t && /^\d+$/.test(t)) divisions = parseInt(t, 10);
+    }
+    if (meas === measure) break;
+  }
+  return divisions > 0 ? divisions : 4;
+}
+
+/** OSMD: 4분음표 이상·`<chord/>` 음표에 beam이 있으면 load 크래시 — split voice 재구성 후 정리. */
+function stripInvalidBeamsForOsmdPreviewInMeasure(measure: Element, quarterDiv: number): void {
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    const dur = noteDurationN(child);
+    const typ = child.querySelector(':scope > type, :scope > *|type')?.textContent?.trim() ?? '';
+    if (
+      isChordNote(child) ||
+      dur >= quarterDiv ||
+      typ === 'quarter' ||
+      typ === 'half' ||
+      typ === 'whole'
+    ) {
+      stripBeamsFromNoteEl(child);
+    }
+  }
+}
+
 function noteVoiceN(note: Element): string {
   const v = note.querySelector(':scope > voice, :scope > *|voice');
   const text = v?.textContent?.trim();
@@ -496,6 +541,9 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
     clone.querySelectorAll('voice, *|voice').forEach((v) => {
       v.textContent = '1';
     });
+    const part = measureOwnerPart(measure);
+    const quarterDiv = part ? runningDivisionsBeforeMeasure(part, measure) : 4;
+    if (noteDurationN(clone) >= quarterDiv) stripBeamsFromNoteEl(clone);
     measure.insertBefore(clone, measure.children[insertAt] ?? null);
     insertAt += 1;
     if (!isChordNote(clone)) cursor = time + noteDurationN(clone);
@@ -536,6 +584,8 @@ function rebuildStaffNotesSingleVoiceForOsmd(measure: Element): void {
   let insertAt = measureMusicalContentInsertIndex(measure);
   let cursor = 0;
   let i = 0;
+  const part = measureOwnerPart(measure);
+  const quarterDiv = part ? runningDivisionsBeforeMeasure(part, measure) : 4;
   while (i < timed.length) {
     const start = timed[i]!.time;
     if (start > cursor) {
@@ -563,7 +613,9 @@ function rebuildStaffNotesSingleVoiceForOsmd(measure: Element): void {
       if (j > 0) {
         const chord = mk('chord');
         clone.insertBefore(chord, clone.firstChild);
+        stripBeamsFromNoteEl(clone);
       }
+      if (noteDurationN(clone) >= quarterDiv) stripBeamsFromNoteEl(clone);
       measure.insertBefore(clone, measure.children[insertAt] ?? null);
       insertAt += 1;
       if (!isChordNote(clone)) slotDur = Math.max(slotDur, noteDurationN(clone));
@@ -1314,6 +1366,16 @@ function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
       const hasDirectionType = [...el.children].some((c) => local(c) === 'direction-type');
       if (!hasDirectionType) el.remove();
     });
+
+    for (const part of findXmlParts(doc)) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+        stripInvalidBeamsForOsmdPreviewInMeasure(
+          meas,
+          runningDivisionsBeforeMeasure(part, meas),
+        );
+      }
+    }
 
     return new XMLSerializer().serializeToString(doc);
   } catch {

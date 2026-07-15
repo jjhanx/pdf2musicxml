@@ -64,7 +64,6 @@ pm2 logs pdf2mxl --lines 200 --nostream | grep -E "Part labels saved|inject_ocr|
 python scripts/mxl_quality_lint.py path/to/score.mxl --measure-offset 1 --page-count 10 --json report.json
 python scripts/mxl_quality_lint.py score.mxl --page 3 --staff PL
 python _smoke/audit_preview_voice_flatten.py   # omr-work*.zip — OSMD split 미리보기 순차 voice 평탄화 회귀(리듬 시각 불변)
-python _smoke/test_6cbf_preview_repair.py    # grand staff split 박자·treble F clef 미리보기 회귀(샘플 ZIP 1개, 규칙은 전 job 공통)
 ```
 
 - **인쇄 마디** ≈ MXL `measure@number` + **`MXL_MEASURE_OFFSET_PRINTED`**(기본 1, pickup 가정).
@@ -78,7 +77,7 @@ python _smoke/test_6cbf_preview_repair.py    # grand staff split 박자·treble 
 4. **성부 라벨 지정** 모달에서 확정한 뒤 **OMR 페이지·성부 품질 검토** 모달이 열립니다(순서가 바뀌면 이어하기가 거절됨).
 5. **OMR 페이지·성부 품질 검토** 모달 (MuseScore **불필요**):
    - **PDF**(156 DPI)와 **MusicXML(OSMD)** 를 나란히 표시. 성부 필터를 쓰면 MXL도 해당 파트만 표시.
-   - 패널을 열면 **`GET …/score-musicxml`** 은 **OMR 검토 중** `syncOmrReviewMxl`(raw+HITL) 후 XML만 추출합니다(**`fix_audiveris_mxl`·rest 정규화 미적용**). `buildOsmdPreviewXml`은 **verbatim**: part 라벨·PR/PL split(해당 줄 음표·clef 필터 + split part **`staves=1`·clef·note staff 정규화**)·**박자 타임라인 정리**(cross-staff backup 제거·voice 평탄화·필요 시 단일 voice 재구성)만 적용합니다. OSMD `load` 직전 **미리보기 전용**으로 treble 줄 F clef 오인(직전 G clef + median ≥ E3)만 제거·octave-shift 제거(**저장 MXL 불변**). m1 C major 명시·courtesy clef 정리는 HITL verbatim에서 **생략**. 「OMR 자동 정리」만 예외적으로 후처리 실행.
+   - 패널을 열면 **`GET …/score-musicxml`** 은 **OMR 검토 중** `syncOmrReviewMxl`(raw+HITL) 후 XML만 추출합니다(**`fix_audiveris_mxl`·rest 정규화 미적용**). OSMD 미리보기도 **verbatim**: part 라벨·PR/PL split(해당 줄 음표·clef 필터 + split part **`staves=1`·clef·note staff 정규화**) 외 **clef/key/voice/direction 변환 없음**. 「OMR 자동 정리」만 예외적으로 후처리 실행.
    - **MusicXML(OSMD) 악보에서 마디 클릭**으로 마디를 열고 direction·쉼표·음표·점(·)·이음줄 등을 요소별로 보정 → `omr_hitl_fixes.json`에 쌓음. 음표 **길이** 메뉴에 **「4분음표 · (점)」** 등 점 붙은 길이 선택 지원. **쉼표 옆 점(·)** 은 마디 편집의 `clearRestDots`(XML `<dot>`·duration·쉼표 뒤 잘못된 짧은 음표). 클릭 영역: `osmdMeasureClick.ts`가 성부 줄×마디 열 그리드(쉼표만 있는 마디 포함)·**클릭한 줄만** 하이라이트.
    - **「MXL에 반영·미리보기」** — 마디 편집 패널 하단 또는 대기 목록 위 버튼. 위 재합성 경로로 Audiveris MXL(`preInject`)에 보정 반영 후 **오른쪽 OSMD**에서 결과 확인.
    - **「OMR 자동 정리 (전체 성부)」** — 쉼표·피아노 m6 이음줄·세잇단 `show-number="both"`·가짜 staccato·P direction 일괄 정리.

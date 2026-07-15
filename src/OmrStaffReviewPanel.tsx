@@ -615,9 +615,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ). 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset}.
           {' '}
           <span style={{ color: '#555' }}>
-            저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. 미리보기는 grand staff split·박자
-            타임라인 정리·treble 줄 F clef 오인 제거·OSMD 호환을 위해 연결줄(beam) 표시를 생략합니다.
-            PDF와 다르면 마디 편집(HITL)으로 고치세요.
+            저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. 미리보기만 m1 조표·조바꿈 F clef 오인·줄바꿈
+            courtesy clef를 정리합니다. PDF와 다르면 마디 편집(HITL)으로 고치세요.
           </span>
         </p>
       </div>

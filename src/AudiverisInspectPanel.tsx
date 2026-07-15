@@ -1294,12 +1294,10 @@ export function buildOsmdPreviewXml(
 function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
   try {
     // 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음(OsmdBlock.load 직전).
-    let out = xml;
-    if (verbatim) {
-      out = repairKeyChangeClefMisreadForOsmd(out);
-    } else {
-      out = ensureExplicitOpeningKeySignaturesForOsmd(out);
-      out = repairKeyChangeClefMisreadForOsmd(out);
+    // m1 `<key>` 생략 시 OSMD가 뒤쪽 조바꿈(4♯ 등)을 첫머리에 당겨 그리므로 verbatim에서도 C major 명시.
+    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    out = repairKeyChangeClefMisreadForOsmd(out);
+    if (!verbatim) {
       out = removeRedundantCourtesyClefsForOsmd(out);
     }
     const doc = new DOMParser().parseFromString(out, 'text/xml');

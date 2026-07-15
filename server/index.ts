@@ -83,6 +83,45 @@ function safeUploadBasename(originalHeaderName: string): string {
   return safe || 'input.pdf';
 }
 
+const GENERIC_PDF_BASENAMES = new Set([
+  'input.pdf',
+  'upload_clean_score.pdf',
+  'clean_score_only.pdf',
+  'original.pdf',
+  'masked_input.pdf',
+]);
+
+function isGenericPdfBasename(name: string): boolean {
+  return GENERIC_PDF_BASENAMES.has(path.basename(name).trim().toLowerCase());
+}
+
+function sessionSourcePdfDisplayNamePath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'source_pdf_display_name.txt');
+}
+
+async function persistSourcePdfDisplayName(sessionRoot: string, displayName: string): Promise<void> {
+  const trimmed = displayName.trim();
+  if (!trimmed || isGenericPdfBasename(trimmed)) return;
+  await fs.writeFile(sessionSourcePdfDisplayNamePath(sessionRoot), trimmed, 'utf8');
+}
+
+function readSourcePdfDisplayNameSync(sessionRoot: string): string | null {
+  const p = sessionSourcePdfDisplayNamePath(sessionRoot);
+  if (!fsSync.existsSync(p)) return null;
+  try {
+    const v = fsSync.readFileSync(p, 'utf8').trim();
+    return v && !isGenericPdfBasename(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function deriveDownloadBaseFromFilename(filename: string): string {
+  let base = path.basename(filename, path.extname(filename)).trim();
+  base = base.replace(/-clean-?score-?only$/i, '').trim();
+  return base || 'score';
+}
+
 function audiverisPauseOnWarnFromEnv(): boolean {
   const v = process.env.AUDIVERIS_PAUSE_ON_WARN?.trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
@@ -435,7 +474,29 @@ type JobRecord = {
   cleanScorePreviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   cleanScorePreviewAction?: 'continue' | 'redo_font_strip';
   lyricManifestSaveDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  /** 사용자 업로드 원본 PDF 표시 이름(MXL·ZIP 다운로드 기본값) */
+  sourcePdfDisplayName?: string;
 };
+
+function rememberSourcePdfDisplayName(job: JobRecord, displayName: string): void {
+  const trimmed = displayName.trim();
+  if (!trimmed || isGenericPdfBasename(trimmed)) return;
+  job.sourcePdfDisplayName = trimmed;
+  void persistSourcePdfDisplayName(job.sessionRoot, trimmed);
+}
+
+function resolveDownloadBaseName(job: JobRecord): string {
+  for (const c of [
+    job.sourcePdfDisplayName,
+    readSourcePdfDisplayNameSync(job.sessionRoot),
+    isGenericPdfBasename(job.originalName) ? null : job.originalName,
+  ]) {
+    if (c?.trim() && !isGenericPdfBasename(c)) {
+      return deriveDownloadBaseFromFilename(c);
+    }
+  }
+  return 'score';
+}
 
 const jobs = new Map<string, JobRecord>();
 
@@ -488,8 +549,7 @@ function sessionLyricManifestPath(sessionRoot: string): string {
 }
 
 function lyricManifestDownloadBaseName(job: JobRecord): string {
-  const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
-  return `${base}-lyric_manifest.json`;
+  return `${resolveDownloadBaseName(job)}-lyric_manifest.json`;
 }
 
 function lyricManifestDownloadJobsAllowed(job: JobRecord | undefined): job is JobRecord {
@@ -1378,7 +1438,7 @@ function diagnosticPdfDownloadBaseName(
   job: JobRecord,
   kind: 'masked' | 'original' | 'clean_score',
 ): string {
-  const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
+  const base = resolveDownloadBaseName(job);
   if (kind === 'masked') return `${base}-masked-audiveris-input`;
   if (kind === 'clean_score') return `${base}-clean-score-only`;
   return `${base}-upload-original`;
@@ -1663,7 +1723,13 @@ async function restoreOmrWorkPdfsFromExtractDir(
     try {
       const manifest = JSON.parse(await fs.readFile(manifestSrc, 'utf8')) as {
         originalName?: string;
+        sourcePdfDisplayName?: string;
       };
+      if (manifest.sourcePdfDisplayName?.trim()) {
+        rememberSourcePdfDisplayName(job, manifest.sourcePdfDisplayName);
+      } else if (manifest.originalName?.trim() && !isGenericPdfBasename(manifest.originalName)) {
+        rememberSourcePdfDisplayName(job, manifest.originalName);
+      }
       if (manifest.originalName?.trim()) {
         job.originalName = manifest.originalName.trim();
       }
@@ -1782,7 +1848,7 @@ async function bootstrapFromOmrWorkZip(
     total: 3,
     detail: '저장된 MXL·보정 목록 복원 중…',
   });
-  const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
+  const base = resolveDownloadBaseName(job);
   const destMxl = path.join(outBase, `${base}.mxl`);
   await fs.mkdir(outBase, { recursive: true });
   const { fixCount, pdfRestored } = await importOmrWorkFromExtractDir(
@@ -2452,6 +2518,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
   if (!job.inputPdfPath && job.resumeCleanScorePath && fsSync.existsSync(job.resumeCleanScorePath)) {
     job.inputPdfPath = job.resumeCleanScorePath;
+    if (!job.sourcePdfDisplayName) {
+      rememberSourcePdfDisplayName(job, path.basename(job.resumeCleanScorePath));
+    }
     if (!job.originalName || job.originalName === 'input.pdf') {
       job.originalName = path.basename(job.resumeCleanScorePath) || 'clean_score_only.pdf';
     }
@@ -3220,7 +3289,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       return;
     }
 
-    const baseName = path.basename(originalName, path.extname(originalName)) || 'score';
+    const baseName = resolveDownloadBaseName(job);
 
     if (!isDebug && outputs.length === 1) {
       const p = outputs[0];
@@ -3410,6 +3479,7 @@ app.post('/api/convert', async (req, res) => {
       const diskName = safeUploadBasename(info.filename);
       const destPath = path.join(sessionRoot, diskName);
       job.originalName = decodeMultipartFilename(info.filename);
+      rememberSourcePdfDisplayName(job, job.originalName);
       setJobProgress(job, {
         phase: 'upload',
         current: 0,
@@ -3430,8 +3500,12 @@ app.post('/api/convert', async (req, res) => {
 
     if (name === 'cleanScorePdf') {
       const dest = sessionResumeCleanScoreUploadPath(sessionRoot);
+      const uploadedName = decodeMultipartFilename(info.filename);
       queueUpload(dest, (j) => {
         j.resumeCleanScorePath = dest;
+        if (!j.sourcePdfDisplayName) {
+          rememberSourcePdfDisplayName(j, uploadedName);
+        }
       });
       return;
     }
@@ -3497,6 +3571,9 @@ app.post('/api/convert', async (req, res) => {
           fsSync.existsSync(job.resumeCleanScorePath)
         ) {
           job.inputPdfPath = job.resumeCleanScorePath;
+          if (!job.sourcePdfDisplayName) {
+            rememberSourcePdfDisplayName(job, path.basename(job.resumeCleanScorePath));
+          }
           if (!job.originalName || job.originalName === 'input.pdf') {
             job.originalName = path.basename(job.resumeCleanScorePath) || 'clean_score_only.pdf';
           }
@@ -5076,7 +5153,7 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
     res.status(500).json({ error: `저장 전 MXL 동기화 실패: ${String(e)}` });
     return;
   }
-  const base = path.basename(job.originalName, path.extname(job.originalName)) || 'score';
+  const base = resolveDownloadBaseName(job);
   res.setHeader('Content-Type', 'application/zip');
   setAttachmentFilenameHeader(res, `${base}-omr-work.zip`);
   const archive = archiver('zip', { zlib: { level: 9 } });
@@ -5126,11 +5203,16 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
   if (fsSync.existsSync(extractedJsonPath)) {
     archive.file(extractedJsonPath, { name: 'extracted_music_text.json' });
   }
+  const displayPdfName =
+    job.sourcePdfDisplayName ??
+    readSourcePdfDisplayNameSync(job.sessionRoot) ??
+    (isGenericPdfBasename(job.originalName) ? null : job.originalName);
   const manifest = {
     version: 2,
     exportedAt: new Date().toISOString(),
     jobId: job.id,
-    originalName: job.originalName,
+    originalName: displayPdfName ?? job.originalName,
+    sourcePdfDisplayName: displayPdfName ?? undefined,
     pdfIncluded,
   };
   archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });

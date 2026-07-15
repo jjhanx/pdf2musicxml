@@ -1126,7 +1126,7 @@ function transposePitchedNotesOnStaffInMeasure(measure: Element, staffN: number,
 
 /**
  * 조바꿈 마디에서 Audiveris가 F clef로 오인한 `<clef>` 제거 + 빠진 `<key>` 보충.
- * G clef part에서 F clef 오인 시 직전 마디 median과 맞춰 pitch octave 복구(OMR bass octave export).
+ * G clef·treble pitch(≥E3)에서만 F clef 오인을 제거하고, 유효한 bass F clef(피아노 등)는 유지.
  * OSMD 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음.
  */
 export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
@@ -1150,6 +1150,11 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
       return out;
     };
 
+    const findMeasure = (part: Element, mnum: number): Element | undefined =>
+      [...part.children].find(
+        (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
+      );
+
     const parts = findXmlParts(doc);
     const measureNums = new Set<number>();
     for (const part of parts) {
@@ -1163,9 +1168,7 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
     for (const mnum of [...measureNums].sort((a, b) => a - b)) {
       const declared: number[] = [];
       for (const part of parts) {
-        const meas = [...part.children].find(
-          (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
-        );
+        const meas = findMeasure(part, mnum);
         if (meas) declared.push(...measureKeyChanges(part, meas));
       }
       if (!declared.length) continue;
@@ -1176,42 +1179,45 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
       const newFifths = ranked[0]![0];
 
       for (const part of parts) {
-        const meas = [...part.children].find(
-          (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
-        );
+        const meas = findMeasure(part, mnum);
         if (!meas) continue;
         const ns = meas.namespaceURI;
         const mk = (local: string) =>
           ns ? doc.createElementNS(ns, local) : doc.createElement(local);
-        const octaveUpStaves = new Set<number>();
+        const partChanges = measureKeyChanges(part, meas);
 
         for (const attr of [...meas.children].filter((c) => xmlLocalName(c) === 'attributes')) {
           let hasKey = attr.querySelector('key, *|key') != null;
+          let removedMisreadFClef = false;
+
           for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
             if (previewClefSign(clef) !== 'F') continue;
             const numAttr = clef.getAttribute('number');
             const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
             const prevSign = previewClefSignBefore(part, mnum, staff);
-            if (prevSign === 'G' || hasKey) {
+            const med = medianPitchOnStaffInMeasure(meas, staff);
+            const trebleMisread = prevSign === 'G' && med != null && med >= 52;
+            if (trebleMisread) {
               clef.remove();
-              if (prevSign === 'G') octaveUpStaves.add(staff);
+              removedMisreadFClef = true;
             }
           }
+
           hasKey = attr.querySelector('key, *|key') != null;
-          const partChanges = measureKeyChanges(part, meas);
-          if (!hasKey && !partChanges.length) {
-            const keyEl = mk('key');
-            const fifthsEl = mk('fifths');
-            fifthsEl.textContent = String(newFifths);
-            keyEl.appendChild(fifthsEl);
-            attr.appendChild(keyEl);
+          if (!hasKey) {
+            const fifthsToInject =
+              partChanges.length ? partChanges[partChanges.length - 1]!
+              : removedMisreadFClef ? newFifths
+              : null;
+            if (fifthsToInject != null) {
+              const keyEl = mk('key');
+              const fifthsEl = mk('fifths');
+              fifthsEl.textContent = String(fifthsToInject);
+              keyEl.appendChild(fifthsEl);
+              attr.appendChild(keyEl);
+            }
           }
           if (!attr.children.length) attr.remove();
-        }
-
-        for (const staff of octaveUpStaves) {
-          const octaves = octavesToRestoreAfterFClefMisread(part, meas, staff);
-          if (octaves > 0) transposePitchedNotesOnStaffInMeasure(meas, staff, octaves);
         }
       }
     }
@@ -1285,12 +1291,17 @@ export function buildOsmdPreviewXml(
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
  * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
  */
-function sanitizeMusicXmlForOsmd(xml: string, _verbatim = false): string {
+function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
   try {
     // 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음(OsmdBlock.load 직전).
-    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
-    out = repairKeyChangeClefMisreadForOsmd(out);
-    out = removeRedundantCourtesyClefsForOsmd(out);
+    let out = xml;
+    if (verbatim) {
+      out = repairKeyChangeClefMisreadForOsmd(out);
+    } else {
+      out = ensureExplicitOpeningKeySignaturesForOsmd(out);
+      out = repairKeyChangeClefMisreadForOsmd(out);
+      out = removeRedundantCourtesyClefsForOsmd(out);
+    }
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 

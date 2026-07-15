@@ -4293,6 +4293,44 @@ def _transpose_pitched_notes_on_staff_in_measure(
         oct_el.text = str(max(0, min(9, int(oct_el.text.strip()) + delta)))
 
 
+def _staff_has_key_in_measure(measure: ET.Element, staff_n: int, ns: str) -> bool:
+    for attr in measure.findall(qname(ns, "attributes")):
+        for key in attr.findall(qname(ns, "key")):
+            num_attr = key.get("number")
+            if num_attr is None:
+                return True
+            if num_attr.isdigit() and int(num_attr) == staff_n:
+                return True
+    return False
+
+
+def _promote_staff_numbered_keys_to_global_in_measure(
+    measure: ET.Element, ns: str, fifths: int | None
+) -> int:
+    """grand staff 조바꿈에서 `<key number=\"2\">`만 있는 경우 전파트 `<key>`로 통일."""
+    n = 0
+    for attr in list(measure.findall(qname(ns, "attributes"))):
+        keys = list(attr.findall(qname(ns, "key")))
+        numbered = [k for k in keys if k.get("number")]
+        if not numbered:
+            continue
+        target = fifths
+        if target is None:
+            fe = numbered[0].find(qname(ns, "fifths"))
+            if fe is not None and fe.text and fe.text.strip().lstrip("-").isdigit():
+                target = int(fe.text.strip())
+        for k in numbered:
+            attr.remove(k)
+            n += 1
+        if target is not None and attr.find(qname(ns, "key")) is None:
+            key_el = ET.SubElement(attr, qname(ns, "key"))
+            ET.SubElement(key_el, qname(ns, "fifths")).text = str(target)
+            n += 1
+        if len(attr) == 0:
+            measure.remove(attr)
+    return n
+
+
 def _is_treble_f_clef_key_change_misread(
     part: ET.Element,
     part_id: str | None,
@@ -4303,15 +4341,10 @@ def _is_treble_f_clef_key_change_misread(
     root: ET.Element,
     global_key_change: bool,
 ) -> bool:
-    if _part_is_piano(part_id, root, ns) or _part_has_two_staves(part, ns):
-        return False
     if _clef_sign_before(part, mnum, staff_n, ns) != "G":
         return False
     has_f = False
-    has_key = False
     for attr in measure.findall(qname(ns, "attributes")):
-        if attr.find(qname(ns, "key")) is not None:
-            has_key = True
         for clef in attr.findall(qname(ns, "clef")):
             sign_el = clef.find(qname(ns, "sign"))
             if sign_el is None or (sign_el.text or "").strip().upper() != "F":
@@ -4320,9 +4353,11 @@ def _is_treble_f_clef_key_change_misread(
             staff = int(num_attr) if num_attr and num_attr.isdigit() else 1
             if staff == staff_n:
                 has_f = True
-    if not has_f or has_key:
+    if not has_f or _staff_has_key_in_measure(measure, staff_n, ns):
         return False
     if global_key_change:
+        if _part_has_two_staves(part, ns):
+            return staff_n == 1
         return True
     med = _median_pitch_on_staff_in_measure(measure, ns, str(staff_n))
     return med is not None and med >= 52
@@ -4429,11 +4464,13 @@ def _repair_key_change_clef_misread_root(root: ET.Element, ns: str) -> int:
                     staff_n = int(num_attr) if num_attr and num_attr.isdigit() else 1
                     prev_sign = _clef_sign_before(part, mnum, staff_n, ns)
                     med = _median_pitch_on_staff_in_measure(meas, ns, str(staff_n))
-                    treble_misread = prev_sign == "G" and (
-                        _is_treble_f_clef_key_change_misread(
-                            part, part_id, meas, mnum, staff_n, ns, root, global_key_change
-                        )
-                        or (med is not None and med >= 52)
+                    treble_misread = _is_treble_f_clef_key_change_misread(
+                        part, part_id, meas, mnum, staff_n, ns, root, global_key_change
+                    ) or (
+                        prev_sign == "G"
+                        and not _staff_has_key_in_measure(meas, staff_n, ns)
+                        and med is not None
+                        and med >= 52
                     )
                     if treble_misread:
                         attr.remove(clef)
@@ -4462,6 +4499,10 @@ def _repair_key_change_clef_misread_root(root: ET.Element, ns: str) -> int:
                         fixed += 1
                 if len(attr) == 0:
                     meas.remove(attr)
+            if global_key_change and _part_has_two_staves(part, ns):
+                fixed += _promote_staff_numbered_keys_to_global_in_measure(
+                    meas, ns, new_fifths
+                )
     return fixed
 
 

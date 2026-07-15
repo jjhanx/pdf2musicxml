@@ -616,7 +616,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           {' '}
           <span style={{ color: '#555' }}>
             저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. 미리보기만 m1 조표·조바꿈 F clef 오인·줄바꿈
-            courtesy clef를 정리합니다. PDF와 다르면 마디 편집(HITL)으로 고치세요.
+            courtesy clef를 정리합니다(마디 끝에 원본에 없는 음자리표가 보이면 「OMR 자동 정리」 또는 이어하기 후
+            최종 MXL). PDF와 다르면 마디 편집(HITL)으로 고치세요.
           </span>
         </p>
       </div>
@@ -856,7 +857,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             className="btn-muted"
             disabled={applyBusy}
             onClick={() => void normalizeRests()}
-            title="쉼표·이음줄·세잇단 숫자 등 OMR 오류를 전체 성부에서 한 번에 정리합니다"
+            title="쉼표·조표·음자리표(courtesy)·피아노 timeline 등 OMR 오류를 전체 성부에서 한 번에 정리합니다. 마디 편집으로 고칠 수 없는 줄끝 phantom clef도 여기서 처리됩니다."
           >
             {applyBusy ? '정리 중…' : 'OMR 자동 정리 (전체 성부)'}
           </button>

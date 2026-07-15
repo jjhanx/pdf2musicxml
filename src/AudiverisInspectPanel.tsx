@@ -354,6 +354,20 @@ function stripForeignStaffClefsInAttributes(attrs: Element, staffN: number): voi
   }
 }
 
+/** grand staff split 시 다른 staff 전용 `<key number>` 제거·대상 staff는 number 속성 제거. */
+function stripForeignStaffKeysInAttributes(attrs: Element, staffN: number): void {
+  for (const key of [...attrs.children].filter((c) => xmlLocalName(c) === 'key')) {
+    const numAttr = key.getAttribute('number');
+    if (!numAttr) continue;
+    const num = parseInt(numAttr, 10);
+    if (!Number.isFinite(num) || num !== staffN) {
+      key.remove();
+      continue;
+    }
+    key.removeAttribute('number');
+  }
+}
+
 /** 단일 staff part로 쪼갠 뒤 OSMD가 1줄로 그리도록 attributes 정리(staves·clef number). */
 function normalizeAttributesForSingleStaffPart(attrs: Element, staffN: number): void {
   let stavesEl = [...attrs.children].find((c) => xmlLocalName(c) === 'staves');
@@ -366,6 +380,7 @@ function normalizeAttributesForSingleStaffPart(attrs: Element, staffN: number): 
   }
   stavesEl.textContent = '1';
   stripForeignStaffClefsInAttributes(attrs, staffN);
+  stripForeignStaffKeysInAttributes(attrs, staffN);
   for (const clef of [...attrs.children].filter((c) => xmlLocalName(c) === 'clef')) {
     if (clef.getAttribute('number')) clef.setAttribute('number', '1');
   }
@@ -1124,9 +1139,73 @@ function transposePitchedNotesOnStaffInMeasure(measure: Element, staffN: number,
   }
 }
 
+function staffHasKeyInMeasure(measure: Element, staffN: number): boolean {
+  for (const attr of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
+    for (const key of [...attr.children].filter((c) => xmlLocalName(c) === 'key')) {
+      const numAttr = key.getAttribute('number');
+      if (!numAttr) return true;
+      const num = parseInt(numAttr, 10);
+      if (Number.isFinite(num) && num === staffN) return true;
+    }
+  }
+  return false;
+}
+
+function isTrebleFClefKeyChangeMisread(
+  part: Element,
+  measure: Element,
+  mnum: number,
+  staffN: number,
+  globalKeyChange: boolean,
+): boolean {
+  if (previewClefSignBefore(part, mnum, staffN) !== 'G') return false;
+  let hasF = false;
+  for (const attr of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
+    for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
+      if (previewClefSign(clef) !== 'F') continue;
+      const numAttr = clef.getAttribute('number');
+      const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
+      if (staff === staffN) hasF = true;
+    }
+  }
+  if (!hasF || staffHasKeyInMeasure(measure, staffN)) return false;
+  if (globalKeyChange) {
+    if (maxStavesInPart(part) >= 2) return staffN === 1;
+    return true;
+  }
+  const med = medianPitchOnStaffInMeasure(measure, staffN);
+  return med != null && med >= 52;
+}
+
+function promoteStaffNumberedKeysToGlobalInMeasure(
+  measure: Element,
+  fifths: number | null,
+  mk: (local: string) => Element,
+): void {
+  for (const attr of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
+    const keys = [...attr.children].filter((c) => xmlLocalName(c) === 'key');
+    const numbered = keys.filter((k) => k.getAttribute('number'));
+    if (!numbered.length) continue;
+    let target = fifths;
+    if (target == null) {
+      const fText = numbered[0]?.querySelector('fifths, *|fifths')?.textContent?.trim();
+      if (fText && /^-?\d+$/.test(fText)) target = parseInt(fText, 10);
+    }
+    for (const k of numbered) k.remove();
+    if (target != null && !attr.querySelector('key, *|key')) {
+      const keyEl = mk('key');
+      const fifthsEl = mk('fifths');
+      fifthsEl.textContent = String(target);
+      keyEl.appendChild(fifthsEl);
+      attr.appendChild(keyEl);
+    }
+    if (!attr.children.length) attr.remove();
+  }
+}
+
 /**
  * 조바꿈 마디에서 Audiveris가 F clef로 오인한 `<clef>` 제거 + 빠진 `<key>` 보충.
- * G clef·treble pitch(≥E3)에서만 F clef 오인을 제거하고, 유효한 bass F clef(피아노 등)는 유지.
+ * G clef·전역 조바꿈·treble pitch(≥E3)에서 F clef 오인을 제거하고 octave pitch를 복구.
  * OSMD 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음.
  */
 export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
@@ -1172,6 +1251,7 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
         if (meas) declared.push(...measureKeyChanges(part, meas));
       }
       if (!declared.length) continue;
+      const globalKeyChange = true;
       const counts = new Map<number, number>();
       for (const f of declared) counts.set(f, (counts.get(f) ?? 0) + 1);
       const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
@@ -1194,12 +1274,20 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
             if (previewClefSign(clef) !== 'F') continue;
             const numAttr = clef.getAttribute('number');
             const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
-            const prevSign = previewClefSignBefore(part, mnum, staff);
             const med = medianPitchOnStaffInMeasure(meas, staff);
-            const trebleMisread = prevSign === 'G' && med != null && med >= 52;
+            const trebleMisread =
+              isTrebleFClefKeyChangeMisread(part, meas, mnum, staff, globalKeyChange)
+              || (
+                previewClefSignBefore(part, mnum, staff) === 'G'
+                && !staffHasKeyInMeasure(meas, staff)
+                && med != null
+                && med >= 52
+              );
             if (trebleMisread) {
               clef.remove();
               removedMisreadFClef = true;
+              const oct = octavesToRestoreAfterFClefMisread(part, meas, staff);
+              if (oct) transposePitchedNotesOnStaffInMeasure(meas, staff, oct);
             }
           }
 
@@ -1219,6 +1307,9 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
           }
           if (!attr.children.length) attr.remove();
         }
+        if (globalKeyChange && maxStavesInPart(part) >= 2) {
+          promoteStaffNumberedKeysToGlobalInMeasure(meas, newFifths, mk);
+        }
       }
     }
 
@@ -1229,7 +1320,7 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
 }
 
 /** 줄바꿈 등에서 이전과 동일한 `<clef>` courtesy 반복 제거 — OSMD 미리보기 전용. */
-function removeRedundantCourtesyClefsForOsmd(xml: string): string {
+export function removeRedundantCourtesyClefsForOsmd(xml: string): string {
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
@@ -1297,9 +1388,7 @@ function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
     // m1 `<key>` 생략 시 OSMD가 뒤쪽 조바꿈(4♯ 등)을 첫머리에 당겨 그리므로 verbatim에서도 C major 명시.
     let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
     out = repairKeyChangeClefMisreadForOsmd(out);
-    if (!verbatim) {
-      out = removeRedundantCourtesyClefsForOsmd(out);
-    }
+    out = removeRedundantCourtesyClefsForOsmd(out);
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 

@@ -502,6 +502,76 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   }
 }
 
+/** split staff 미리보기: backup·forward 또는 다중 voice가 남으면 OSMD가 마디 끝 쉼표를 그릴 수 있음. */
+function staffTimelineNeedsRebuildForOsmd(measure: Element): boolean {
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'backup' || tag === 'forward') return true;
+  }
+  const voices = new Set<string>();
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) === 'note') voices.add(noteVoiceN(child));
+  }
+  return voices.size > 1;
+}
+
+/**
+ * 겹치는 multi-voice를 단일 voice 타임라인으로 재구성(동시 시작은 chord).
+ * grand staff → PR·PL split 후 OSMD 마디 끝 phantom rest 방지(미리보기 전용).
+ */
+function rebuildStaffNotesSingleVoiceForOsmd(measure: Element): void {
+  const timed = staffTimedNotesInMeasure(measure);
+  if (!timed.length) return;
+  timed.sort((a, b) => a.time - b.time);
+
+  const doc = measure.ownerDocument!;
+  const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+  const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
+
+  for (const el of [...measure.children]) {
+    const tag = xmlLocalName(el);
+    if (tag === 'note' || tag === 'backup' || tag === 'forward') el.remove();
+  }
+
+  let insertAt = measureMusicalContentInsertIndex(measure);
+  let cursor = 0;
+  let i = 0;
+  while (i < timed.length) {
+    const start = timed[i]!.time;
+    if (start > cursor) {
+      const fwd = mk('forward');
+      const durEl = mk('duration');
+      durEl.textContent = String(start - cursor);
+      fwd.appendChild(durEl);
+      measure.insertBefore(fwd, measure.children[insertAt] ?? null);
+      insertAt += 1;
+      cursor = start;
+    }
+
+    const group: StaffTimedNote[] = [];
+    while (i < timed.length && timed[i]!.time === start) {
+      group.push(timed[i]!);
+      i += 1;
+    }
+
+    let slotDur = 0;
+    for (let j = 0; j < group.length; j += 1) {
+      const clone = group[j]!.note.cloneNode(true) as Element;
+      clone.querySelectorAll('voice, *|voice').forEach((v) => {
+        v.textContent = '1';
+      });
+      if (j > 0) {
+        const chord = mk('chord');
+        clone.insertBefore(chord, clone.firstChild);
+      }
+      measure.insertBefore(clone, measure.children[insertAt] ?? null);
+      insertAt += 1;
+      if (!isChordNote(clone)) slotDur = Math.max(slotDur, noteDurationN(clone));
+    }
+    cursor = start + slotDur;
+  }
+}
+
 /** 한 마디를 part 내 특정 staff(1=PR, 2=PL) 단일 줄로 — cross-staff backup만 제거·같은 줄 병렬 voice backup 유지. */
 function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
   for (const child of [...measure.children]) {
@@ -544,6 +614,11 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
       child.remove();
     }
   }
+  pruneCrossStaffTimeline(measure, staffN);
+  flattenNonOverlappingStaffVoicesForOsmd(measure);
+  if (staffTimelineNeedsRebuildForOsmd(measure)) {
+    rebuildStaffNotesSingleVoiceForOsmd(measure);
+  }
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
   });
@@ -568,6 +643,9 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   }
   pruneCrossStaffTimeline(measure, staffN);
   flattenNonOverlappingStaffVoicesForOsmd(measure);
+  if (staffTimelineNeedsRebuildForOsmd(measure)) {
+    rebuildStaffNotesSingleVoiceForOsmd(measure);
+  }
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     const anchor = anchorNoteForDirection(measure, child);
@@ -1067,66 +1145,24 @@ function medianPitchOnStaffInMeasure(measure: Element, staffN: number): number |
   return midis.length % 2 ? midis[mid]! : (midis[mid - 1]! + midis[mid]!) / 2;
 }
 
-function medianPitchOnStaffBefore(part: Element, measureNum: number, staffN: number): number | null {
-  for (let back = 1; back <= 4; back += 1) {
-    const mn = measureNum - back;
-    if (mn < 1) break;
-    const meas = [...part.children].find(
-      (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mn,
-    );
-    if (!meas) continue;
-    const med = medianPitchOnStaffInMeasure(meas, staffN);
-    if (med != null) return med;
-  }
-  return null;
-}
+/** F clef 제거 대상: 직전 G clef + 해당 줄 음높이가 treble 범위(조바꿈 오인). bass octave export는 유지. */
+const PREVIEW_TREBLE_STAFF_MIDI_MIN = 52;
 
-/** G clef part에서 F clef 오인 제거 후, 직전 마디 median 대비 bass-octave export를 복구(1~3 octave). */
-function octavesToRestoreAfterFClefMisread(
+function isMisreadTrebleFClefOnStaff(
   part: Element,
   measure: Element,
+  measureNum: number,
   staffN: number,
-): number {
-  const cur = medianPitchOnStaffInMeasure(measure, staffN);
-  const prev = medianPitchOnStaffBefore(part, parseInt(measure.getAttribute('number') ?? '0', 10), staffN);
-  if (cur == null) return 0;
-  if (prev == null) return cur < 52 ? 2 : 1;
-  if (cur >= prev - 12) return 0;
-  let best = 0;
-  let bestDist = Math.abs(cur - prev);
-  for (const n of [1, 2, 3]) {
-    const dist = Math.abs(cur + n * 12 - prev);
-    if (dist < bestDist) {
-      best = n;
-      bestDist = dist;
-    }
-  }
-  return best;
-}
-
-function transposeNotePitchByOctaves(note: Element, delta: number): void {
-  const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
-  if (!pitch) return;
-  const octEl = pitch.querySelector('octave, *|octave');
-  if (!octEl?.textContent?.trim()) return;
-  const n = parseInt(octEl.textContent.trim(), 10);
-  if (!Number.isFinite(n)) return;
-  octEl.textContent = String(Math.max(0, Math.min(9, n + delta)));
-}
-
-/** 조바꿈 F clef 오인 제거 후 같은 줄 위치의 bass-octave pitch를 treble로 복구(미리보기 전용). */
-function transposePitchedNotesOnStaffInMeasure(measure: Element, staffN: number, delta: number): void {
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) !== 'note') continue;
-    if (!child.querySelector(':scope > pitch, :scope > *|pitch')) continue;
-    if (noteStaffN(child) !== staffN) continue;
-    transposeNotePitchByOctaves(child, delta);
-  }
+): boolean {
+  if (previewClefSignBefore(part, measureNum, staffN) !== 'G') return false;
+  const median = medianPitchOnStaffInMeasure(measure, staffN);
+  if (median == null) return true;
+  return median >= PREVIEW_TREBLE_STAFF_MIDI_MIN;
 }
 
 /**
- * 조바꿈 마디에서 Audiveris가 F clef로 오인한 `<clef>` 제거 + 빠진 `<key>` 보충.
- * G clef part에서 F clef 오인 시 직전 마디 median과 맞춰 pitch octave 복구(OMR bass octave export).
+ * 조바꿈 마디에서 Audiveris가 treble 줄에 잘못 넣은 F clef만 제거하고,
+ * 해당 part에 실제 `<key>` 조바꿈이 있을 때만 빠진 key를 보충.
  * OSMD 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음.
  */
 export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
@@ -1150,68 +1186,32 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
       return out;
     };
 
-    const parts = findXmlParts(doc);
-    const measureNums = new Set<number>();
-    for (const part of parts) {
+    for (const part of findXmlParts(doc)) {
       for (const meas of [...part.children]) {
-        if (xmlLocalName(meas) === 'measure') {
-          measureNums.add(parseInt(meas.getAttribute('number') ?? '0', 10));
-        }
-      }
-    }
-
-    for (const mnum of [...measureNums].sort((a, b) => a - b)) {
-      const declared: number[] = [];
-      for (const part of parts) {
-        const meas = [...part.children].find(
-          (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
-        );
-        if (meas) declared.push(...measureKeyChanges(part, meas));
-      }
-      if (!declared.length) continue;
-      const counts = new Map<number, number>();
-      for (const f of declared) counts.set(f, (counts.get(f) ?? 0) + 1);
-      const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-      if (ranked.length > 1 && ranked[0]![1] === ranked[1]![1]) continue;
-      const newFifths = ranked[0]![0];
-
-      for (const part of parts) {
-        const meas = [...part.children].find(
-          (c) => xmlLocalName(c) === 'measure' && parseInt(c.getAttribute('number') ?? '0', 10) === mnum,
-        );
-        if (!meas) continue;
+        if (xmlLocalName(meas) !== 'measure') continue;
+        const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
         const ns = meas.namespaceURI;
         const mk = (local: string) =>
           ns ? doc.createElementNS(ns, local) : doc.createElement(local);
-        const octaveUpStaves = new Set<number>();
 
         for (const attr of [...meas.children].filter((c) => xmlLocalName(c) === 'attributes')) {
-          let hasKey = attr.querySelector('key, *|key') != null;
           for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
             if (previewClefSign(clef) !== 'F') continue;
             const numAttr = clef.getAttribute('number');
             const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
-            const prevSign = previewClefSignBefore(part, mnum, staff);
-            if (prevSign === 'G' || hasKey) {
-              clef.remove();
-              if (prevSign === 'G') octaveUpStaves.add(staff);
-            }
+            if (!isMisreadTrebleFClefOnStaff(part, meas, mnum, staff)) continue;
+            clef.remove();
           }
-          hasKey = attr.querySelector('key, *|key') != null;
+          const hasKey = attr.querySelector('key, *|key') != null;
           const partChanges = measureKeyChanges(part, meas);
-          if (!hasKey && !partChanges.length) {
+          if (!hasKey && partChanges.length > 0) {
             const keyEl = mk('key');
             const fifthsEl = mk('fifths');
-            fifthsEl.textContent = String(newFifths);
+            fifthsEl.textContent = String(partChanges[0]!);
             keyEl.appendChild(fifthsEl);
             attr.appendChild(keyEl);
           }
           if (!attr.children.length) attr.remove();
-        }
-
-        for (const staff of octaveUpStaves) {
-          const octaves = octavesToRestoreAfterFClefMisread(part, meas, staff);
-          if (octaves > 0) transposePitchedNotesOnStaffInMeasure(meas, staff, octaves);
         }
       }
     }
@@ -1285,12 +1285,15 @@ export function buildOsmdPreviewXml(
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
  * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
  */
-function sanitizeMusicXmlForOsmd(xml: string, _verbatim = false): string {
+function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
   try {
     // 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음(OsmdBlock.load 직전).
-    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
+    let out = xml;
+    if (!verbatim) {
+      out = ensureExplicitOpeningKeySignaturesForOsmd(out);
+      out = removeRedundantCourtesyClefsForOsmd(out);
+    }
     out = repairKeyChangeClefMisreadForOsmd(out);
-    out = removeRedundantCourtesyClefsForOsmd(out);
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 

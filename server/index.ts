@@ -3237,6 +3237,25 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         ? ocrJsonPath
         : null;
 
+    const finalizeMxlPaths = [
+      ...new Set(
+        [...mxlForInject, ...outputs].filter(
+          (p): p is string => typeof p === 'string' && p.toLowerCase().endsWith('.mxl'),
+        ),
+      ),
+    ];
+    if (finalizeMxlPaths.length > 0) {
+      setJobProgress(job, {
+        phase: 'audiveris',
+        current: pageHint,
+        total: pageHint,
+        detail: '최종 MXL 후처리(쉼표·피아노 timeline·조표) 중…',
+      });
+      for (const p of finalizeMxlPaths) {
+        await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+      }
+    }
+
     if (mxlForInject.length > 0 && injectJsonPath && pipelineMode !== 'audiveris_only') {
       setJobProgress(job, {
         phase: 'audiveris',

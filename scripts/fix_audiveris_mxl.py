@@ -704,7 +704,7 @@ def _ensure_stem_like_reference(
 
 
 def _part_is_piano(part_id: str | None, root: ET.Element, ns: str) -> bool:
-    if part_id in ("P5", "P6", "P", "Piano"):
+    if part_id in ("P4", "P5", "P6", "P", "Piano"):
         return True
     for sp in root.findall(f".//{qname(ns, 'score-part')}"):
         if sp.get("id") != part_id:
@@ -4188,6 +4188,410 @@ def _restore_ties_between_measures(part: ET.Element, ns: str) -> tuple[int, int]
     return completed, system_added
 
 
+_TRAILING_PHANTOM_REST_TYPES = frozenset({"eighth", "16th"})
+_HIGH_REST_DISPLAY_STEPS = frozenset({"C", "D", "E"})
+_PITCH_SEMITONE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+
+
+def _note_pitch_midi(note: ET.Element, ns: str) -> int | None:
+    pitch = note.find(qname(ns, "pitch"))
+    if pitch is None:
+        return None
+    step_el = pitch.find(qname(ns, "step"))
+    oct_el = pitch.find(qname(ns, "octave"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return None
+    step = step_el.text.strip().upper()
+    if step not in _PITCH_SEMITONE:
+        return None
+    try:
+        oct_n = int(oct_el.text.strip())
+    except ValueError:
+        return None
+    alter = 0
+    alter_el = pitch.find(qname(ns, "alter"))
+    if alter_el is not None and alter_el.text and alter_el.text.strip().lstrip("-").replace(".", "", 1).isdigit():
+        alter = int(float(alter_el.text.strip()))
+    return (oct_n + 1) * 12 + _PITCH_SEMITONE[step] + alter
+
+
+def _note_staff_default(note: ET.Element, ns: str) -> str:
+    _, staff = _note_voice_staff(note, ns)
+    return staff if staff else "1"
+
+
+def _median_pitch_on_staff_in_measure(measure: ET.Element, ns: str, staff: str) -> int | None:
+    midis: list[int] = []
+    for note in measure.findall(qname(ns, "note")):
+        if _note_staff_default(note, ns) != staff:
+            continue
+        if note.find(qname(ns, "rest")) is not None:
+            continue
+        midi = _note_pitch_midi(note, ns)
+        if midi is not None:
+            midis.append(midi)
+    if not midis:
+        return None
+    midis.sort()
+    mid = len(midis) // 2
+    return midis[mid] if len(midis) % 2 else (midis[mid - 1] + midis[mid]) // 2
+
+
+def _median_pitch_on_staff_before(
+    part: ET.Element, measure_num: int, staff: str, ns: str
+) -> int | None:
+    prev: int | None = None
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        if mnum >= measure_num:
+            break
+        med = _median_pitch_on_staff_in_measure(measure, ns, staff)
+        if med is not None:
+            prev = med
+    return prev
+
+
+def _octaves_to_restore_after_f_clef_misread(
+    part: ET.Element, measure: ET.Element, staff: str, ns: str
+) -> int:
+    """G clef 파트에서 F clef 오인 제거 후 bass-octave export를 treble로 복구."""
+    mnum = int(measure.get("number") or 0)
+    cur = _median_pitch_on_staff_in_measure(measure, ns, staff)
+    prev = _median_pitch_on_staff_before(part, mnum, staff, ns)
+    if cur is None:
+        return 0
+    if prev is None:
+        return 2 if cur < 52 else 1
+    if cur >= prev - 12:
+        return 0
+    best = 0
+    best_dist = abs(cur - prev)
+    for n in (1, 2, 3):
+        dist = abs(cur + n * 12 - prev)
+        if dist < best_dist:
+            best = n
+            best_dist = dist
+    return best
+
+
+def _transpose_pitched_notes_on_staff_in_measure(
+    measure: ET.Element, ns: str, staff: str, delta: int
+) -> None:
+    if delta <= 0:
+        return
+    for note in measure.findall(qname(ns, "note")):
+        if note.find(qname(ns, "rest")) is not None:
+            continue
+        if _note_staff_default(note, ns) != staff:
+            continue
+        pitch = note.find(qname(ns, "pitch"))
+        if pitch is None:
+            continue
+        oct_el = pitch.find(qname(ns, "octave"))
+        if oct_el is None or not oct_el.text or not oct_el.text.strip().isdigit():
+            continue
+        oct_el.text = str(max(0, min(9, int(oct_el.text.strip()) + delta)))
+
+
+def _is_treble_f_clef_key_change_misread(
+    part: ET.Element,
+    part_id: str | None,
+    measure: ET.Element,
+    mnum: int,
+    staff_n: int,
+    ns: str,
+    root: ET.Element,
+    global_key_change: bool,
+) -> bool:
+    if _part_is_piano(part_id, root, ns) or _part_has_two_staves(part, ns):
+        return False
+    if _clef_sign_before(part, mnum, staff_n, ns) != "G":
+        return False
+    has_f = False
+    has_key = False
+    for attr in measure.findall(qname(ns, "attributes")):
+        if attr.find(qname(ns, "key")) is not None:
+            has_key = True
+        for clef in attr.findall(qname(ns, "clef")):
+            sign_el = clef.find(qname(ns, "sign"))
+            if sign_el is None or (sign_el.text or "").strip().upper() != "F":
+                continue
+            num_attr = clef.get("number")
+            staff = int(num_attr) if num_attr and num_attr.isdigit() else 1
+            if staff == staff_n:
+                has_f = True
+    if not has_f or has_key:
+        return False
+    if global_key_change:
+        return True
+    med = _median_pitch_on_staff_in_measure(measure, ns, str(staff_n))
+    return med is not None and med >= 52
+
+
+def _remove_redundant_courtesy_clefs_root(root: ET.Element, ns: str) -> int:
+    removed = 0
+    for part in root.findall(qname(ns, "part")):
+        for measure in part.findall(qname(ns, "measure")):
+            mnum = int(measure.get("number") or 0)
+            for attr in list(measure.findall(qname(ns, "attributes"))):
+                for clef in list(attr.findall(qname(ns, "clef"))):
+                    num_attr = clef.get("number")
+                    staff_n = int(num_attr) if num_attr and num_attr.isdigit() else 1
+                    sign_el = clef.find(qname(ns, "sign"))
+                    sign = (sign_el.text or "").strip().upper() if sign_el is not None else ""
+                    if not sign:
+                        continue
+                    if sign == (_clef_sign_before(part, mnum, staff_n, ns) or ""):
+                        attr.remove(clef)
+                        removed += 1
+                if len(attr) == 0:
+                    measure.remove(attr)
+    return removed
+
+
+def _clef_sign_before(part: ET.Element, measure_num: int, staff_n: int, ns: str) -> str | None:
+    sign: str | None = None
+    for measure in part.findall(qname(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        if mnum >= measure_num:
+            break
+        for attr in measure.findall(qname(ns, "attributes")):
+            for clef in attr.findall(qname(ns, "clef")):
+                num_attr = clef.get("number")
+                staff = int(num_attr) if num_attr and num_attr.isdigit() else 1
+                if staff != staff_n:
+                    continue
+                sign_el = clef.find(qname(ns, "sign"))
+                if sign_el is not None and sign_el.text:
+                    sign = sign_el.text.strip().upper()
+    return sign
+
+
+def _measure_key_fifths_changes(part: ET.Element, measure: ET.Element, ns: str) -> list[int]:
+    mnum = int(measure.get("number") or 0)
+    prev = _key_fifths_before_measure(part, mnum, ns)
+    out: list[int] = []
+    for attr in measure.findall(qname(ns, "attributes")):
+        for key in attr.findall(qname(ns, "key")):
+            fifths_el = key.find(qname(ns, "fifths"))
+            if fifths_el is None or not fifths_el.text or not fifths_el.text.strip().lstrip("-").isdigit():
+                continue
+            nf = int(fifths_el.text.strip())
+            if nf != prev:
+                out.append(nf)
+    return out
+
+
+def _repair_key_change_clef_misread_root(root: ET.Element, ns: str) -> int:
+    """조바꿈 마디 F clef 오인 → `<key>` 보충 + bass-octave pitch 복구 (treble part만)."""
+    fixed = 0
+    measure_nums: set[int] = set()
+    for part in root.findall(qname(ns, "part")):
+        for measure in part.findall(qname(ns, "measure")):
+            measure_nums.add(int(measure.get("number") or 0))
+    for mnum in sorted(measure_nums):
+        declared: list[int] = []
+        parts = root.findall(qname(ns, "part"))
+        for part in parts:
+            meas = next(
+                (m for m in part.findall(qname(ns, "measure")) if int(m.get("number") or 0) == mnum),
+                None,
+            )
+            if meas is not None:
+                declared.extend(_measure_key_fifths_changes(part, meas, ns))
+        global_key_change = bool(declared)
+        new_fifths: int | None = None
+        if global_key_change:
+            counts: dict[int, int] = {}
+            for f in declared:
+                counts[f] = counts.get(f, 0) + 1
+            ranked = sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+            if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+                continue
+            new_fifths = ranked[0][0]
+        for part in parts:
+            meas = next(
+                (m for m in part.findall(qname(ns, "measure")) if int(m.get("number") or 0) == mnum),
+                None,
+            )
+            if meas is None:
+                continue
+            part_id = part.get("id")
+            part_changes = _measure_key_fifths_changes(part, meas, ns)
+            for attr in list(meas.findall(qname(ns, "attributes"))):
+                has_key = attr.find(qname(ns, "key")) is not None
+                removed_misread = False
+                for clef in list(attr.findall(qname(ns, "clef"))):
+                    sign_el = clef.find(qname(ns, "sign"))
+                    if sign_el is None or (sign_el.text or "").strip().upper() != "F":
+                        continue
+                    num_attr = clef.get("number")
+                    staff_n = int(num_attr) if num_attr and num_attr.isdigit() else 1
+                    prev_sign = _clef_sign_before(part, mnum, staff_n, ns)
+                    med = _median_pitch_on_staff_in_measure(meas, ns, str(staff_n))
+                    treble_misread = prev_sign == "G" and (
+                        _is_treble_f_clef_key_change_misread(
+                            part, part_id, meas, mnum, staff_n, ns, root, global_key_change
+                        )
+                        or (med is not None and med >= 52)
+                    )
+                    if treble_misread:
+                        attr.remove(clef)
+                        removed_misread = True
+                        fixed += 1
+                        oct_delta = _octaves_to_restore_after_f_clef_misread(
+                            part, meas, str(staff_n), ns
+                        )
+                        if oct_delta:
+                            _transpose_pitched_notes_on_staff_in_measure(
+                                meas, ns, str(staff_n), oct_delta
+                            )
+                            fixed += 1
+                has_key = attr.find(qname(ns, "key")) is not None
+                if not has_key:
+                    fifths_to_inject = (
+                        part_changes[-1]
+                        if part_changes
+                        else new_fifths
+                        if removed_misread and new_fifths is not None
+                        else None
+                    )
+                    if fifths_to_inject is not None:
+                        key_el = ET.SubElement(attr, qname(ns, "key"))
+                        ET.SubElement(key_el, qname(ns, "fifths")).text = str(fifths_to_inject)
+                        fixed += 1
+                if len(attr) == 0:
+                    meas.remove(attr)
+    return fixed
+
+
+def _repair_rest_display_high_root(root: ET.Element, ns: str) -> int:
+    """whole/half·마디전체 rest의 display-step C/D/E 제거 — 뷰어 기본 위치 사용."""
+    n = 0
+    for note in root.iter():
+        if local_tag(note) != "note":
+            continue
+        rest_el = note.find(qname(ns, "rest"))
+        if rest_el is None:
+            continue
+        typ = note.find(qname(ns, "type"))
+        tval = (typ.text or "").strip() if typ is not None and typ.text else ""
+        is_measure_rest = rest_el.get("measure") == "yes"
+        if tval not in ("whole", "half") and not is_measure_rest:
+            continue
+        step_el = rest_el.find(qname(ns, "display-step"))
+        if step_el is None or not step_el.text:
+            continue
+        if step_el.text.strip().upper() not in _HIGH_REST_DISPLAY_STEPS:
+            continue
+        for tag in ("display-step", "display-octave"):
+            el = rest_el.find(qname(ns, tag))
+            if el is not None:
+                rest_el.remove(el)
+        n += 1
+    return n
+
+
+def _remove_trailing_phantom_rests_in_measure(measure: ET.Element, ns: str) -> int:
+    note_els = [el for el in measure if local_tag(el) == "note"]
+    events: list[str] = []
+    for note in note_els:
+        if note.find(qname(ns, "rest")) is not None:
+            typ = note.find(qname(ns, "type"))
+            tval = (typ.text or "").strip() if typ is not None and typ.text else ""
+            events.append(f"rest:{tval}")
+        else:
+            events.append("note")
+    if len(events) < 2 or not events[-1].startswith("rest:"):
+        return 0
+    rest_type = events[-1].split(":", 1)[1]
+    if rest_type not in _TRAILING_PHANTOM_REST_TYPES:
+        return 0
+    if not any(not e.startswith("rest:") for e in events[:-1]):
+        return 0
+    for note in reversed(note_els):
+        if note.find(qname(ns, "rest")) is None:
+            continue
+        typ = note.find(qname(ns, "type"))
+        tval = (typ.text or "").strip() if typ is not None and typ.text else ""
+        if tval == rest_type:
+            measure.remove(note)
+            return 1
+    return 0
+
+
+def _voice_durations_on_staff(measure: ET.Element, ns: str, staff: str) -> dict[str, int]:
+    durs: dict[str, int] = {}
+    for note in measure.findall(qname(ns, "note")):
+        if note.find(qname(ns, "grace")) is not None or note.find(qname(ns, "chord")) is not None:
+            continue
+        voice, st = _note_voice_staff(note, ns)
+        if st != staff:
+            continue
+        durs[voice] = durs.get(voice, 0) + (_note_duration(note, ns) or 0)
+    return durs
+
+
+def _repair_piano_spurious_voices(measure: ET.Element, ns: str, expected: int) -> int:
+    """한 staff에 마디 길이만큼 채운 voice가 있으면 나머지 보조 voice 음·쉼 제거."""
+    if expected <= 0:
+        return 0
+    removed = 0
+    for staff in ("1", "2"):
+        durs = _voice_durations_on_staff(measure, ns, staff)
+        if len(durs) <= 1:
+            continue
+        primary = next((v for v, d in durs.items() if d == expected), None)
+        if primary is None:
+            continue
+        for note in list(measure.findall(qname(ns, "note"))):
+            voice, st = _note_voice_staff(note, ns)
+            if st == staff and voice != primary:
+                measure.remove(note)
+                removed += 1
+    return removed
+
+
+def _normalize_grand_staff_voices_in_measure(measure: ET.Element, ns: str) -> int:
+    """피아노 staff2 음표 voice를 1로 통일 — MuseScore phantom rest 완화."""
+    changed = 0
+    for note in measure.findall(qname(ns, "note")):
+        if _note_voice_staff(note, ns)[1] != "2":
+            continue
+        vel = note.find(qname(ns, "voice"))
+        if vel is None:
+            vel = ET.SubElement(note, qname(ns, "voice"))
+        if (vel.text or "").strip() != "1":
+            vel.text = "1"
+            changed += 1
+    return changed
+
+
+def _rebuild_piano_grand_staff_measures(part: ET.Element, ns: str) -> int:
+    from omr_hitl_lib import _rebuild_measure_flat_staffs
+
+    rebuilt = 0
+    for _measure, _div, expected in _iter_measures_with_timing(part, ns):
+        if not expected:
+            continue
+        removed = _repair_piano_spurious_voices(_measure, ns, expected)
+        if removed:
+            _rebuild_measure_flat_staffs(_measure, ns)
+            rebuilt += 1
+        elif _part_has_two_staves(part, ns):
+            voices_s1 = set(_voice_durations_on_staff(_measure, ns, "1"))
+            voices_s2 = set(_voice_durations_on_staff(_measure, ns, "2"))
+            if len(voices_s1) <= 1 and len(voices_s2) <= 1 and any(
+                local_tag(el) == "backup" for el in _measure
+            ):
+                _rebuild_measure_flat_staffs(_measure, ns)
+                rebuilt += 1
+        if _part_has_two_staves(part, ns):
+            _normalize_grand_staff_voices_in_measure(_measure, ns)
+            _align_staves_timeline(_measure, ns)
+    return rebuilt
+
+
 def _calculate_staff1_duration_robust(measure: ET.Element, ns: str) -> int:
     time_cursors = {}
     max_staff1_time = 0
@@ -4306,6 +4710,11 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "tuplet_brackets_adjusted": 0,
         "tuplet_normal_fields_fixed": 0,
         "fermata_from_staccato_fixed": 0,
+        "key_change_clef_misread_fixed": 0,
+        "rest_display_high_fixed": 0,
+        "trailing_phantom_rests_removed": 0,
+        "piano_grand_staff_rebuilt": 0,
+        "courtesy_clef_removed": 0,
     }
 
     # 1) 텍스트 정리 + backup/forward 겹침 voice 병합 (악보 패치보다 먼저)
@@ -4315,6 +4724,18 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["text_nodes_cleared"] += tc
             stats["directions_removed"] += dr
             stats["voice_consolidated"] += _consolidate_cross_voices_on_staff(measure, ns)
+
+    stats["key_change_clef_misread_fixed"] += _repair_key_change_clef_misread_root(root, ns)
+    stats["rest_display_high_fixed"] += _repair_rest_display_high_root(root, ns)
+    stats["courtesy_clef_removed"] += _remove_redundant_courtesy_clefs_root(root, ns)
+    for part in root.findall(qname(ns, "part")):
+        pid = part.get("id")
+        if _part_is_piano(pid, root, ns) or _part_has_two_staves(part, ns):
+            stats["piano_grand_staff_rebuilt"] += _rebuild_piano_grand_staff_measures(part, ns)
+        for measure in part.findall(qname(ns, "measure")):
+            stats["trailing_phantom_rests_removed"] += _remove_trailing_phantom_rests_in_measure(
+                measure, ns
+            )
 
     # 1a) m1 조표 생략 → C major 명시 (기본 off — HITL·OMR 조표는 사람이 보정)
     if _opening_key_explicit_enabled():

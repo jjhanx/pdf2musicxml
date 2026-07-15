@@ -3078,9 +3078,29 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
 
             measure_changed = False
 
-            # 마디 전체 쉼표의 display-step/octave 힌트 제거 — Audiveris가 잘못 내보내면
-            # 쉼표가 표준 위치(둘째줄 아래)가 아닌 엉뚱한 줄에 걸린다. 힌트를 지우면
-            # 렌더러가 기본 위치에 그린다. (한 보이스가 통째로 쉬는 마디만 대상)
+            # whole/half rest display-step C/D/E → 제거 (온쉼·2분쉼 한 줄 위로 붙는 현상)
+            for note in list_note_elements(measure, ns):
+                rest_el = note.find(_q(ns, "rest"))
+                if rest_el is None:
+                    continue
+                type_el = note.find(_q(ns, "type"))
+                note_type = (
+                    (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+                )
+                if note_type not in ("whole", "half"):
+                    continue
+                step_el = rest_el.find(_q(ns, "display-step"))
+                step = (step_el.text or "").strip().upper() if step_el is not None and step_el.text else ""
+                if step not in ("C", "D", "E"):
+                    continue
+                for tag in ("display-step", "display-octave"):
+                    el = rest_el.find(_q(ns, tag))
+                    if el is not None:
+                        rest_el.remove(el)
+                stats["restDisplayCleared"] += 1
+                measure_changed = True
+
+            # 마디 전체 쉼표(한 voice) display-step/octave 힌트 제거
             for notes in by_voice.values():
                 if not all(n.find(_q(ns, "rest")) is not None for n in notes):
                     continue

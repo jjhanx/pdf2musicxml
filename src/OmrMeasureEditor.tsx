@@ -251,7 +251,138 @@ type MeasureSnapshot = {
   measureMxl: string;
   elements?: MeasureElement[];
   notes?: MeasureNoteEl[];
+  tempos?: MeasureTempoEntry[];
+  effectiveTempoBpm?: number | null;
 };
+
+type MeasureTempoEntry = {
+  directionIndex: number;
+  tempoBpm: number | null;
+  beatUnit: string;
+  label: string;
+};
+
+const BEAT_UNIT_OPTIONS = [
+  { value: 'quarter', label: '4분음표(♩)' },
+  { value: 'half', label: '2분음표(𝅗)' },
+  { value: 'eighth', label: '8분음표(♪)' },
+] as const;
+
+function MeasureTempoEditor({
+  tempos,
+  effectiveTempoBpm,
+  onFix,
+}: {
+  tempos: MeasureTempoEntry[];
+  effectiveTempoBpm?: number | null;
+  onFix: (partial: FixPartial) => void;
+}) {
+  const primary = tempos[0];
+  const [bpmText, setBpmText] = useState(
+    primary?.tempoBpm != null ? String(primary.tempoBpm) : effectiveTempoBpm != null ? String(effectiveTempoBpm) : '',
+  );
+  const [beatUnit, setBeatUnit] = useState(primary?.beatUnit ?? 'quarter');
+
+  useEffect(() => {
+    setBpmText(
+      primary?.tempoBpm != null
+        ? String(primary.tempoBpm)
+        : effectiveTempoBpm != null
+          ? String(effectiveTempoBpm)
+          : '',
+    );
+    setBeatUnit(primary?.beatUnit ?? 'quarter');
+  }, [primary?.tempoBpm, primary?.beatUnit, effectiveTempoBpm, tempos.length]);
+
+  const parsedBpm = parseFloat(bpmText.replace(/[^\d.]/g, ''));
+  const bpmValid = Number.isFinite(parsedBpm) && parsedBpm >= 1 && parsedBpm <= 400;
+
+  return (
+    <div className="omr-measure-tempo-panel" style={{ marginBottom: '0.85rem', padding: '0.65rem 0.75rem', background: '#f3f6fb', borderRadius: 6, border: '1px solid #c5cae9' }}>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>마디 템포 (BPM)</div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        clean_score·OMR 과정에서 사라진 ♩= 템포를 복구합니다.{' '}
+        <strong>어느 파트에서 설정해도 모든 파트</strong>에 동일 재생 템포가 들어가며, 이후 마디까지 MusicXML 재생 규칙으로 유지됩니다(첫 파트만 ♩= 표기).
+      </p>
+      {tempos.length > 0 ? (
+        <ul style={{ margin: '0 0 0.5rem', paddingLeft: '1.2rem', fontSize: '0.88rem' }}>
+          {tempos.map((t) => (
+            <li key={t.directionIndex}>
+              {t.label}
+              {t.tempoBpm != null ? ` (${t.tempoBpm} BPM)` : ''}
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                style={{ marginLeft: 8 }}
+                onClick={() =>
+                  onFix({
+                    kind: 'removeMeasureTempo',
+                    directionIndex: t.directionIndex,
+                  })
+                }
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : effectiveTempoBpm != null ? (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>
+          이 마디 MXL에는 템포 표기 없음 — 직전 마디부터 재생 템포 약 <strong>{effectiveTempoBpm} BPM</strong>
+        </p>
+      ) : (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>이 마디에 템포 표기 없음</p>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <label className="omr-measure-inline-field">
+          BPM
+          <input
+            type="text"
+            inputMode="decimal"
+            value={bpmText}
+            onChange={(e) => setBpmText(e.target.value)}
+            placeholder="예: 72"
+            style={{ width: 64, marginLeft: 4 }}
+          />
+        </label>
+        <label className="omr-measure-inline-field">
+          박자 단위
+          <select value={beatUnit} onChange={(e) => setBeatUnit(e.target.value)} style={{ marginLeft: 4 }}>
+            {BEAT_UNIT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+          disabled={!bpmValid}
+          onClick={() =>
+            onFix({
+              kind: 'setMeasureTempo',
+              tempoBpm: parsedBpm,
+              beatUnit,
+              directionIndex: primary?.directionIndex,
+            })
+          }
+        >
+          {tempos.length ? '템포 변경' : '템포 추가'}
+        </button>
+        {tempos.length > 0 ? (
+          <button
+            type="button"
+            className="omr-hitl-fix-btn"
+            onClick={() => onFix({ kind: 'removeMeasureTempo' })}
+          >
+            전체 삭제
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 type Props = {
   jobId: string;
@@ -551,6 +682,14 @@ export function OmrMeasureEditor({
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
       {loadErr ? <p className="omr-measure-editor-err">{loadErr}</p> : null}
       {loading && !snapshot ? <p className="omr-measure-editor-loading">마디 요소 불러오는 중…</p> : null}
+
+      {snapshot ? (
+        <MeasureTempoEditor
+          tempos={snapshot.tempos ?? []}
+          effectiveTempoBpm={snapshot.effectiveTempoBpm}
+          onFix={pushFix}
+        />
+      ) : null}
 
       {displayElements.length > 0 && (
         <ol className="omr-measure-element-list">

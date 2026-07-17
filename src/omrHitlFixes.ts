@@ -47,6 +47,8 @@ export type OmrHitlFix = {
   directionType?: 'dynamics' | 'words' | 'rehearsal';
   directionValue?: string;
   placement?: 'above' | 'below';
+  tempoBpm?: number;
+  beatUnit?: string;
   articulation?: string;
   fermataType?: 'upright' | 'inverted';
   actualNotes?: number;
@@ -100,6 +102,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   removeTriplet: '세잇단(잇단) 해제',
   applyBeam: '빔(연결줄) 적용',
   removeBeam: '빔(연결줄) 해제',
+  setMeasureTempo: '마디 템포 설정',
+  removeMeasureTempo: '마디 템포 삭제',
 };
 
 export function fixDedupeKey(fix: OmrHitlFix): string {
@@ -147,6 +151,8 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.directionType ?? '',
     fix.directionValue ?? '',
     fix.placement ?? '',
+    fix.tempoBpm ?? '',
+    fix.beatUnit ?? '',
   ].join('|');
 }
 
@@ -168,6 +174,10 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
     if (fix.directionType) parts.push(fix.directionType);
     if (fix.directionValue?.trim()) parts.push(fix.directionValue.trim());
+  }
+  if (fix.kind === 'setMeasureTempo' || fix.kind === 'removeMeasureTempo') {
+    if (fix.tempoBpm != null) parts.push(`${fix.tempoBpm} BPM`);
+    if (fix.beatUnit) parts.push(fix.beatUnit);
   }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);

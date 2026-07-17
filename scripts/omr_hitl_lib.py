@@ -406,6 +406,273 @@ def _read_note_direction_from_notations(note: ET.Element, ns: str) -> dict[str, 
     return None
 
 
+def _format_tempo_bpm_str(bpm: float) -> str:
+    if bpm == int(bpm):
+        return str(int(bpm))
+    return str(bpm)
+
+
+def _direction_has_tempo(direction: ET.Element, ns: str) -> bool:
+    if direction.find(f".//{_q(ns, 'metronome')}") is not None:
+        return True
+    for sound in direction.findall(_q(ns, "sound")):
+        if sound.get("tempo"):
+            return True
+    return False
+
+
+def _beat_unit_from_tempo_direction(direction: ET.Element, ns: str) -> str:
+    metro = direction.find(f".//{_q(ns, 'metronome')}")
+    if metro is not None:
+        beat = metro.find(_q(ns, "beat-unit"))
+        if beat is not None and beat.text and beat.text.strip():
+            return beat.text.strip()
+    return "quarter"
+
+
+def _parse_bpm_from_tempo_direction(direction: ET.Element, ns: str) -> float | None:
+    for el in direction.iter():
+        loc = _local(el)
+        if loc == "per-minute" and el.text and el.text.strip():
+            try:
+                return float(el.text.strip())
+            except ValueError:
+                continue
+        if loc == "sound" and el.get("tempo"):
+            try:
+                return float(str(el.get("tempo")).strip())
+            except ValueError:
+                continue
+    return None
+
+
+def _tempo_label(bpm: float | None, beat_unit: str) -> str:
+    if bpm is None:
+        return "tempo"
+    bpm_i = int(bpm) if bpm == int(bpm) else bpm
+    unit_sym = {"quarter": "♩", "half": "𝅗", "eighth": "♪"}.get(beat_unit, beat_unit)
+    return f"{unit_sym}={bpm_i}"
+
+
+def _build_tempo_direction(
+    ns: str,
+    bpm: float,
+    beat_unit: str = "quarter",
+    *,
+    show_metronome: bool = True,
+) -> ET.Element:
+    bpm_str = _format_tempo_bpm_str(bpm)
+    unit = (beat_unit or "quarter").strip() or "quarter"
+    direction = ET.Element(_q(ns, "direction"))
+    direction.set("placement", "above")
+    if show_metronome:
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        metro = ET.SubElement(dtype, _q(ns, "metronome"))
+        metro.set("parentheses", "no")
+        beat = ET.SubElement(metro, _q(ns, "beat-unit"))
+        beat.text = unit
+        pm = ET.SubElement(metro, _q(ns, "per-minute"))
+        pm.text = bpm_str
+    sound = ET.SubElement(direction, _q(ns, "sound"))
+    sound.set("tempo", bpm_str)
+    return direction
+
+
+def _update_tempo_direction(
+    direction: ET.Element,
+    ns: str,
+    bpm: float,
+    beat_unit: str,
+    *,
+    show_metronome: bool,
+) -> None:
+    bpm_str = _format_tempo_bpm_str(bpm)
+    unit = (beat_unit or "quarter").strip() or "quarter"
+    metro = direction.find(f".//{_q(ns, 'metronome')}")
+    if show_metronome:
+        if metro is None:
+            dtype = direction.find(_q(ns, "direction-type"))
+            if dtype is None:
+                dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+                direction.insert(0, dtype)
+            metro = ET.SubElement(dtype, _q(ns, "metronome"))
+            metro.set("parentheses", "no")
+            ET.SubElement(metro, _q(ns, "beat-unit")).text = unit
+            ET.SubElement(metro, _q(ns, "per-minute")).text = bpm_str
+        else:
+            beat = metro.find(_q(ns, "beat-unit"))
+            if beat is None:
+                beat = ET.SubElement(metro, _q(ns, "beat-unit"))
+            beat.text = unit
+            pm = metro.find(_q(ns, "per-minute"))
+            if pm is None:
+                pm = ET.SubElement(metro, _q(ns, "per-minute"))
+            pm.text = bpm_str
+    elif metro is not None:
+        dtype = direction.find(_q(ns, "direction-type"))
+        if dtype is not None:
+            dtype.remove(metro)
+            if len(dtype) == 0:
+                direction.remove(dtype)
+    sound = direction.find(_q(ns, "sound"))
+    if sound is None:
+        sound = ET.SubElement(direction, _q(ns, "sound"))
+    sound.set("tempo", bpm_str)
+    for el in direction.iter():
+        if _local(el) == "per-minute" and el.text is not None:
+            el.text = bpm_str
+
+
+def _remove_tempo_directions_in_measure(
+    measure: ET.Element, ns: str, direction_index: int | None = None
+) -> bool:
+    directions = measure.findall(_q(ns, "direction"))
+    if direction_index is not None:
+        if 0 <= direction_index < len(directions) and _direction_has_tempo(
+            directions[direction_index], ns
+        ):
+            measure.remove(directions[direction_index])
+            return True
+        return False
+    removed = False
+    for direction in list(measure.findall(_q(ns, "direction"))):
+        if _direction_has_tempo(direction, ns):
+            measure.remove(direction)
+            removed = True
+    return removed
+
+
+def _set_tempo_on_measure(
+    measure: ET.Element,
+    ns: str,
+    bpm: float,
+    beat_unit: str,
+    *,
+    show_metronome: bool,
+    direction_index: int | None = None,
+) -> bool:
+    directions = measure.findall(_q(ns, "direction"))
+    target: ET.Element | None = None
+    if direction_index is not None and 0 <= direction_index < len(directions):
+        cand = directions[direction_index]
+        if _direction_has_tempo(cand, ns):
+            target = cand
+    if target is None:
+        for direction in directions:
+            if _direction_has_tempo(direction, ns):
+                target = direction
+                break
+    if target is not None:
+        _update_tempo_direction(target, ns, bpm, beat_unit, show_metronome=show_metronome)
+        for direction in list(measure.findall(_q(ns, "direction"))):
+            if direction is not target and _direction_has_tempo(direction, ns):
+                measure.remove(direction)
+        return True
+    new_dir = _build_tempo_direction(ns, bpm, beat_unit, show_metronome=show_metronome)
+    insert_at = 0
+    for i, child in enumerate(measure):
+        if _local(child) in ("note", "direction", "attributes", "forward", "backup"):
+            insert_at = i
+            break
+        insert_at = i + 1
+    measure.insert(insert_at, new_dir)
+    return True
+
+
+def _measure_tempo_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for i, direction in enumerate(measure.findall(_q(ns, "direction"))):
+        if not _direction_has_tempo(direction, ns):
+            continue
+        bpm = _parse_bpm_from_tempo_direction(direction, ns)
+        beat = _beat_unit_from_tempo_direction(direction, ns)
+        out.append(
+            {
+                "directionIndex": i,
+                "tempoBpm": bpm,
+                "beatUnit": beat,
+                "label": _tempo_label(bpm, beat),
+            }
+        )
+    return out
+
+
+def _effective_tempo_bpm_before(
+    root: ET.Element, ns: str, part_id: str, measure_mxl: str
+) -> float | None:
+    part = find_part(root, ns, part_id)
+    if part is None:
+        return None
+    try:
+        target_num = int(measure_mxl)
+    except ValueError:
+        return None
+    tempo: float | None = None
+    for measure in part.findall(_q(ns, "measure")):
+        mnum = int(measure.get("number") or 0)
+        if mnum >= target_num:
+            break
+        for direction in measure.findall(_q(ns, "direction")):
+            bpm = _parse_bpm_from_tempo_direction(direction, ns)
+            if bpm is not None:
+                tempo = bpm
+    return tempo
+
+
+def _apply_measure_tempo_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
+    kind = fix.get("kind")
+    measure_mxl = str(fix.get("measureMxl") or "").strip()
+    if not measure_mxl:
+        return False
+    parts = root.findall(_q(ns, "part"))
+    if not parts:
+        return False
+    direction_index_raw = fix.get("directionIndex")
+    direction_index: int | None = None
+    if direction_index_raw is not None and direction_index_raw != "":
+        try:
+            direction_index = int(direction_index_raw)
+        except (TypeError, ValueError):
+            direction_index = None
+
+    if kind == "removeMeasureTempo":
+        changed = False
+        for part in parts:
+            measure = find_measure(part, ns, measure_mxl)
+            if measure is None:
+                continue
+            if _remove_tempo_directions_in_measure(measure, ns, direction_index):
+                changed = True
+        return changed
+
+    if kind == "setMeasureTempo":
+        try:
+            bpm = float(fix.get("tempoBpm") if fix.get("tempoBpm") is not None else fix.get("detail"))
+        except (TypeError, ValueError):
+            return False
+        if not (1 <= bpm <= 400):
+            return False
+        beat_unit = str(fix.get("beatUnit") or "quarter").strip() or "quarter"
+        changed = False
+        for i, part in enumerate(parts):
+            measure = find_measure(part, ns, measure_mxl)
+            if measure is None:
+                continue
+            di = direction_index if i == 0 else None
+            if _set_tempo_on_measure(
+                measure,
+                ns,
+                bpm,
+                beat_unit,
+                show_metronome=(i == 0),
+                direction_index=di,
+            ):
+                changed = True
+        return changed
+
+    return False
+
+
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     elements: list[dict[str, Any]] = []
     note_index = 0
@@ -438,11 +705,15 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
         return None
     notes = list_note_elements(measure, ns)
     elements = measure_elements_snapshot(measure, ns)
+    tempos = _measure_tempo_snapshot(measure, ns)
+    effective = _effective_tempo_bpm_before(root, ns, part_id, measure_mxl)
     return {
         "partId": part_id,
         "measureMxl": str(measure_mxl),
         "notes": elements,
         "elements": elements,
+        "tempos": tempos,
+        "effectiveTempoBpm": effective,
     }
 
 
@@ -2084,6 +2355,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     measure_mxl = str(fix.get("measureMxl") or "").strip()
     if not part_id or not measure_mxl:
         return False
+
+    if kind in ("setMeasureTempo", "removeMeasureTempo"):
+        return _apply_measure_tempo_fix(root, ns, fix)
+
     part = find_part(root, ns, part_id)
     if part is None:
         return False

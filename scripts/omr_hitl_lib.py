@@ -1916,6 +1916,136 @@ def _chord_group_end_index(notes: list[ET.Element], ns: str, leader_idx: int) ->
     return end
 
 
+def _chord_group_note_indices(notes: list[ET.Element], ns: str, idx: int) -> list[int]:
+    leader_idx = _chord_leader_index(notes, ns, idx)
+    return [leader_idx, *_chord_follower_indices(notes, ns, leader_idx)]
+
+
+def _clone_time_modification_from_leader(leader: ET.Element, follower: ET.Element, ns: str) -> bool:
+    src_tm = leader.find(_q(ns, "time-modification"))
+    if src_tm is None:
+        dst_tm = follower.find(_q(ns, "time-modification"))
+        if dst_tm is not None:
+            follower.remove(dst_tm)
+            return True
+        return False
+    an = src_tm.find(_q(ns, "actual-notes"))
+    nn = src_tm.find(_q(ns, "normal-notes"))
+    nt = src_tm.find(_q(ns, "normal-type"))
+    if an is None or nn is None or not (an.text or "").strip() or not (nn.text or "").strip():
+        return False
+    try:
+        actual_notes = int(an.text.strip())
+        normal_notes = int(nn.text.strip())
+    except ValueError:
+        return False
+    normal_type = (nt.text or "quarter").strip() if nt is not None and nt.text else "quarter"
+    dst_tm = follower.find(_q(ns, "time-modification"))
+    if dst_tm is not None:
+        dan = dst_tm.find(_q(ns, "actual-notes"))
+        dnn = dst_tm.find(_q(ns, "normal-notes"))
+        dnt = dst_tm.find(_q(ns, "normal-type"))
+        if (
+            dan is not None
+            and dnn is not None
+            and (dan.text or "").strip() == str(actual_notes)
+            and (dnn.text or "").strip() == str(normal_notes)
+            and (dnt.text or "quarter").strip() == normal_type
+        ):
+            return False
+    _set_time_modification(follower, ns, actual_notes, normal_notes, normal_type)
+    return True
+
+
+def _sync_chord_followers_with_leader(
+    notes: list[ET.Element], ns: str, leader_idx: int, *, strip_tuplet: bool = True
+) -> bool:
+    if leader_idx < 0 or leader_idx >= len(notes):
+        return False
+    leader = notes[leader_idx]
+    if leader.find(_q(ns, "chord")) is not None:
+        return False
+    dur = _note_duration(leader, ns)
+    type_el = leader.find(_q(ns, "type"))
+    note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+    changed = False
+    followers = _chord_follower_indices(notes, ns, leader_idx)
+    if not followers:
+        return False
+    for fidx in followers:
+        follower = notes[fidx]
+        dur_el = follower.find(_q(ns, "duration"))
+        if dur_el is None:
+            dur_el = ET.SubElement(follower, _q(ns, "duration"))
+        if (dur_el.text or "").strip() != str(dur):
+            dur_el.text = str(dur)
+            changed = True
+        if note_type:
+            ft = follower.find(_q(ns, "type"))
+            if ft is None:
+                ft = ET.SubElement(follower, _q(ns, "type"))
+            if (ft.text or "").strip() != note_type:
+                ft.text = note_type
+                changed = True
+        if _clone_time_modification_from_leader(leader, follower, ns):
+            changed = True
+        if strip_tuplet and _strip_tuplet_from_note(follower, ns, keep_time_mod=True):
+            changed = True
+    return changed
+
+
+def _fix_chord_tag_consistency(notes: list[ET.Element], ns: str) -> bool:
+    changed = False
+    for grp in _chord_groups_in_order(notes, ns):
+        leader = grp[0]
+        chord_el = leader.find(_q(ns, "chord"))
+        if chord_el is not None:
+            leader.remove(chord_el)
+            changed = True
+        for mem in grp[1:]:
+            if _ensure_chord_tag(mem, ns):
+                changed = True
+    return changed
+
+
+def _sync_all_chord_groups(notes: list[ET.Element], ns: str) -> bool:
+    changed = False
+    for i, note in enumerate(notes):
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        if _sync_chord_followers_with_leader(notes, ns, i):
+            changed = True
+    return changed
+
+
+def _compact_default_x_by_voice(measure: ET.Element, ns: str) -> bool:
+    """삭제·편집 후 voice별 default-x를 박자 타임라인에 맞게 재배치."""
+    notes = list_note_elements(measure, ns)
+    leaders_by_voice: dict[tuple[str, str], list[int]] = {}
+    for i, note in enumerate(notes):
+        if _is_grace_or_cue(note, ns) or note.find(_q(ns, "chord")) is not None:
+            continue
+        voice, staff = _note_voice_staff(note, ns)
+        leaders_by_voice.setdefault((voice, staff), []).append(i)
+    changed = False
+    base_x = 32.0
+    span = 400.0
+    for leader_indices in leaders_by_voice.values():
+        total = sum(_note_duration(notes[i], ns) for i in leader_indices)
+        cursor = 0.0
+        for li in leader_indices:
+            dur = _note_duration(notes[li], ns)
+            x = base_x + (cursor / total * span if total > 0 else 0.0)
+            group = [notes[li], *[notes[j] for j in _chord_follower_indices(notes, ns, li)]]
+            new_x = f"{x:.2f}"
+            for note in group:
+                if note.get("default-x") != new_x:
+                    note.set("default-x", new_x)
+                    changed = True
+            cursor += dur
+    return changed
+
+
 def _note_pitch_key(note: ET.Element, ns: str) -> tuple[str, int, int] | None:
     pitch_el = note.find(_q(ns, "pitch"))
     if pitch_el is None:
@@ -2089,12 +2219,13 @@ def _apply_beam_to_range(
     return first_beam == "begin" and last_beam == "end"
 
 
-def _strip_tuplet_from_note(note: ET.Element, ns: str) -> bool:
+def _strip_tuplet_from_note(note: ET.Element, ns: str, *, keep_time_mod: bool = False) -> bool:
     changed = False
-    tm = note.find(_q(ns, "time-modification"))
-    if tm is not None:
-        note.remove(tm)
-        changed = True
+    if not keep_time_mod:
+        tm = note.find(_q(ns, "time-modification"))
+        if tm is not None:
+            note.remove(tm)
+            changed = True
     for notations in list(note.findall(_q(ns, "notations"))):
         for tup in list(notations.findall(_q(ns, "tuplet"))):
             notations.remove(tup)
@@ -2272,6 +2403,8 @@ def _apply_triplet_to_range(
             changed = True
         elif pos == len(indices) - 1:
             ET.SubElement(notations, _q(ns, "tuplet"), {"type": "stop"})
+            changed = True
+        if _sync_chord_followers_with_leader(notes, ns, idx):
             changed = True
     return changed
 
@@ -2555,7 +2688,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         except (TypeError, ValueError):
             return False
         if 0 <= idx < len(notes):
-            measure.remove(notes[idx])
+            group_indices = _chord_group_note_indices(notes, ns, idx)
+            group = [notes[i] for i in group_indices]
+            for el in group:
+                measure.remove(el)
             return True
         return False
 
@@ -3303,14 +3439,18 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
             return False
         changed = False
-        for idx in range(from_idx, to_idx + 1):
+        from_idx = _chord_leader_index(notes, ns, from_idx)
+        to_idx = _chord_leader_index(notes, ns, to_idx)
+        to_end = _chord_group_end_index(notes, ns, to_idx)
+        indices = _rhythmic_indices_in_range(notes, ns, from_idx, to_end)
+        divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
+        for idx in indices:
             if _strip_tuplet_from_note(notes[idx], ns):
                 changed = True
             note = notes[idx]
             type_el = note.find(_q(ns, "type"))
             note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else "eighth"
             dot_count = len(note.findall(_q(ns, "dot")))
-            divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
             target_dur = _duration_for_type_dots(note_type, divisions, dot_count)
             if target_dur > 0:
                 dur_el = note.find(_q(ns, "duration"))
@@ -3319,6 +3459,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 if (dur_el.text or "").strip() != str(target_dur):
                     dur_el.text = str(target_dur)
                     changed = True
+            if _sync_chord_followers_with_leader(notes, ns, idx, strip_tuplet=False):
+                changed = True
         return changed
 
     if kind == "applyBeam":
@@ -4122,6 +4264,9 @@ def _align_staves_timeline(measure: ET.Element, ns: str) -> None:
 
 def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
     """HITL 삽입 후 마디 timeline 정렬. 다중 voice·동시 시작(다른 박자) 보존."""
+    notes = list_note_elements(measure, ns)
+    _fix_chord_tag_consistency(notes, ns)
+    _sync_all_chord_groups(notes, ns)
     for staff in ("1", "2"):
         if _staff_parallel_onset_needs_repair(measure, ns, staff):
             _repair_parallel_onsets_on_staff(measure, ns, staff)
@@ -4131,6 +4276,10 @@ def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
         _rebuild_measure_flat_staffs(measure, ns)
     _repair_same_staff_backup_before_forward(measure, ns)
     _align_staves_timeline(measure, ns)
+    notes_after = list_note_elements(measure, ns)
+    _fix_chord_tag_consistency(notes_after, ns)
+    _sync_all_chord_groups(notes_after, ns)
+    _compact_default_x_by_voice(measure, ns)
 
 
 def _strip_all_direction_staff_tags(root: ET.Element, ns: str) -> int:

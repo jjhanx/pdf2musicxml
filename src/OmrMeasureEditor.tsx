@@ -165,6 +165,13 @@ function smallestTripletNormalType(from: number, to: number, noteEls: MeasureNot
   return best;
 }
 
+function noteDeletesWholeChord(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): boolean {
+  if (el.chord) return true;
+  const pos = noteEls.findIndex((n) => n.index === el.index);
+  if (pos < 0) return false;
+  return noteEls[pos + 1]?.chord === true;
+}
+
 function defaultTripletEndIndex(elIndex: number, noteEls: MeasureNoteEl[]): number {
   const startPos = noteEls.findIndex((n) => n.index === elIndex);
   if (startPos < 0) return elIndex;
@@ -1970,7 +1977,7 @@ function MeasureNoteEditor({
         className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
         onClick={() => onFix({ kind: 'removeNote', noteIndex: el.index })}
       >
-        {el.hasGrace ? '꾸밈음 삭제' : '이 요소 삭제'}
+        {el.hasGrace ? '꾸밈음 삭제' : noteDeletesWholeChord(el, noteEls) ? '화음 삭제' : '이 요소 삭제'}
       </button>
     </div>
   );

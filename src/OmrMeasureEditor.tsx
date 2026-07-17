@@ -48,14 +48,49 @@ function parseNoteTypeValue(value: string): { type: string; dots: number } {
 }
 
 function tripletRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: number; to: number } {
-  if (!el.timeMod) return { from: el.index, to: el.index };
-  const pos = noteEls.findIndex((n) => n.index === el.index);
-  if (pos < 0) return { from: el.index, to: el.index };
+  const sorted = [...noteEls].sort((a, b) => a.index - b.index);
+  const leaderIdx = chordLeaderIndex(el, sorted);
+  const leader = sorted.find((n) => n.index === leaderIdx) ?? el;
+  const rhythmic = sorted.filter(isRhythmicSlice);
+  const pos = rhythmic.findIndex((n) => n.index === leaderIdx);
+  if (pos < 0) return { from: leaderIdx, to: leaderIdx };
+
+  const hasTuplet =
+    Boolean(leader.timeMod) ||
+    leader.tuplet === 'start' ||
+    leader.tuplet === 'stop' ||
+    Boolean(el.timeMod) ||
+    el.tuplet === 'start' ||
+    el.tuplet === 'stop';
+  if (!hasTuplet) return { from: leaderIdx, to: leaderIdx };
+
   let start = pos;
-  while (start > 0 && noteEls[start - 1].timeMod === el.timeMod) start -= 1;
+  while (start > 0) {
+    const prev = rhythmic[start - 1];
+    if (leader.timeMod && prev.timeMod === leader.timeMod) {
+      start -= 1;
+      continue;
+    }
+    if (leader.tuplet && (prev.tuplet === 'start' || prev.tuplet === 'stop' || prev.timeMod)) {
+      start -= 1;
+      continue;
+    }
+    break;
+  }
   let end = pos;
-  while (end + 1 < noteEls.length && noteEls[end + 1].timeMod === el.timeMod) end += 1;
-  return { from: noteEls[start].index, to: noteEls[end].index };
+  while (end + 1 < rhythmic.length) {
+    const next = rhythmic[end + 1];
+    if (leader.timeMod && next.timeMod === leader.timeMod) {
+      end += 1;
+      continue;
+    }
+    if (leader.tuplet && (next.tuplet === 'stop' || next.tuplet === 'start' || next.timeMod)) {
+      end += 1;
+      continue;
+    }
+    break;
+  }
+  return { from: rhythmic[start].index, to: rhythmic[end].index };
 }
 
 function isBeamableNoteEl(n: MeasureNoteEl): boolean {
@@ -1800,14 +1835,15 @@ function MeasureNoteEditor({
               ? `세잇단 적용 (${tripletNoteCount}음·${tripletActualNotes}박)`
               : `세잇단 적용 (${tripletNoteCount}개)`}
           </button>
-          {el.timeMod ? (
+          {existingTriplet.from <= existingTriplet.to &&
+          (el.timeMod || el.tuplet || chordLeaderEl?.timeMod || chordLeaderEl?.tuplet) ? (
             <button
               type="button"
               className="omr-hitl-fix-btn"
               onClick={() =>
                 onFix({
                   kind: 'removeTriplet',
-                  fromNoteIndex: existingTriplet.from,
+                  fromNoteIndex: tripletLeaderIdx,
                   toNoteIndex: existingTriplet.to,
                 })
               }

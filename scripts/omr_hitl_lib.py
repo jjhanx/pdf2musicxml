@@ -2018,22 +2018,29 @@ def _sync_all_chord_groups(notes: list[ET.Element], ns: str) -> bool:
     return changed
 
 
-def _compact_default_x_by_voice(measure: ET.Element, ns: str) -> bool:
-    """삭제·편집 후 voice별 default-x를 박자 타임라인에 맞게 재배치."""
+def _compact_default_x_by_staff(measure: ET.Element, ns: str) -> bool:
+    """staff 단일 타임라인으로 default-x 재배치 — 다중 voice가 같은 x에 겹치는 문제 방지."""
     notes = list_note_elements(measure, ns)
-    leaders_by_voice: dict[tuple[str, str], list[int]] = {}
+    leaders_by_staff: dict[str, list[int]] = {}
     for i, note in enumerate(notes):
         if _is_grace_or_cue(note, ns) or note.find(_q(ns, "chord")) is not None:
             continue
-        voice, staff = _note_voice_staff(note, ns)
-        leaders_by_voice.setdefault((voice, staff), []).append(i)
+        _voice, staff = _note_voice_staff(note, ns)
+        leaders_by_staff.setdefault(staff, []).append(i)
     changed = False
     base_x = 32.0
     span = 400.0
-    for leader_indices in leaders_by_voice.values():
-        total = sum(_note_duration(notes[i], ns) for i in leader_indices)
+    for _staff, leader_indices in leaders_by_staff.items():
+        ordered = sorted(
+            leader_indices,
+            key=lambda li: (
+                _parse_default_x(notes[li]) if _parse_default_x(notes[li]) is not None else 1_000_000.0,
+                li,
+            ),
+        )
+        total = sum(_note_duration(notes[i], ns) for i in ordered)
         cursor = 0.0
-        for li in leader_indices:
+        for li in ordered:
             dur = _note_duration(notes[li], ns)
             x = base_x + (cursor / total * span if total > 0 else 0.0)
             group = [notes[li], *[notes[j] for j in _chord_follower_indices(notes, ns, li)]]
@@ -2044,6 +2051,84 @@ def _compact_default_x_by_voice(measure: ET.Element, ns: str) -> bool:
                     changed = True
             cursor += dur
     return changed
+
+
+def _compact_default_x_by_voice(measure: ET.Element, ns: str) -> bool:
+    return _compact_default_x_by_staff(measure, ns)
+
+
+def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> bool:
+    notes = list_note_elements(measure, ns)
+    voices: set[str] = set()
+    for note in notes:
+        if _is_grace_or_cue(note, ns):
+            continue
+        voice, st = _note_voice_staff(note, ns)
+        if st == staff:
+            voices.add(voice)
+    if len(voices) <= 1:
+        return False
+    primary = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)[0]
+    changed = False
+    for note in notes:
+        if _is_grace_or_cue(note, ns):
+            continue
+        voice, st = _note_voice_staff(note, ns)
+        if st != staff or voice == primary:
+            continue
+        _set_note_voice_staff(note, ns, primary, staff)
+        changed = True
+    if not changed:
+        return False
+    start, end = _find_staff_block_span(measure, ns, staff)
+    if start is not None and end is not None:
+        for el in list(measure)[start : end + 1]:
+            if _local(el) in ("backup", "forward"):
+                measure.remove(el)
+    return True
+
+
+def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: str) -> bool:
+    """Staff voice 병합 — 겹치지 않거나 same-x 잘못 분리된 sequential voice."""
+    notes = list_note_elements(measure, ns)
+    leaders: list[tuple[int, str, int, int]] = []
+    voice_cursor: dict[str, int] = {}
+    leader_indices: list[int] = []
+    for i, note in enumerate(notes):
+        if _is_grace_or_cue(note, ns) or note.find(_q(ns, "chord")) is not None:
+            continue
+        voice, st = _note_voice_staff(note, ns)
+        if st != staff:
+            continue
+        leader_indices.append(i)
+        start = voice_cursor.get(voice, 0)
+        dur = _note_duration(note, ns)
+        leaders.append((i, voice, start, start + dur))
+        voice_cursor[voice] = start + dur
+    voices = {v for _, v, _, _ in leaders}
+    if len(voices) <= 1:
+        return False
+    for i in range(len(leader_indices) - 1):
+        a = notes[leader_indices[i]]
+        b = notes[leader_indices[i + 1]]
+        va, _ = _note_voice_staff(a, ns)
+        vb, _ = _note_voice_staff(b, ns)
+        if va != vb:
+            xa = _parse_default_x(a) or 0.0
+            xb = _parse_default_x(b) or 0.0
+            if abs(xa - xb) <= _SAME_X_TOLERANCE:
+                return _merge_staff_voices_to_primary(measure, ns, staff)
+    intervals_by_voice: dict[str, list[tuple[int, int]]] = {}
+    for _i, voice, start, end in leaders:
+        intervals_by_voice.setdefault(voice, []).append((start, end))
+    voice_list = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)
+    for a in range(len(voice_list)):
+        for b in range(a + 1, len(voice_list)):
+            for sa, ea in intervals_by_voice.get(voice_list[a], []):
+                for sb, eb in intervals_by_voice.get(voice_list[b], []):
+                    if max(sa, sb) < min(ea, eb):
+                        return False
+    return _merge_staff_voices_to_primary(measure, ns, staff)
 
 
 def _note_pitch_key(note: ET.Element, ns: str) -> tuple[str, int, int] | None:
@@ -2233,6 +2318,75 @@ def _strip_tuplet_from_note(note: ET.Element, ns: str, *, keep_time_mod: bool = 
         if len(notations) == 0:
             note.remove(notations)
     return changed
+
+
+def _note_has_tuplet_type(note: ET.Element, ns: str, tuplet_type: str) -> bool:
+    for notations in note.findall(_q(ns, "notations")):
+        for tup in notations.findall(_q(ns, "tuplet")):
+            if (tup.get("type") or "").strip() == tuplet_type:
+                return True
+    return False
+
+
+def _tuplet_notation_runs(notes: list[ET.Element], ns: str) -> list[tuple[int, int]]:
+    """리더 index 기준 tuplet start~stop 구간."""
+    rhythmic = _rhythmic_indices_in_range(notes, ns, 0, len(notes) - 1)
+    runs: list[tuple[int, int]] = []
+    active: int | None = None
+    for idx in rhythmic:
+        note = notes[idx]
+        if _note_has_tuplet_type(note, ns, "start"):
+            active = idx
+        if _note_has_tuplet_type(note, ns, "stop") and active is not None:
+            runs.append((active, idx))
+            active = None
+    return runs
+
+
+def _tuplet_span_for_note(notes: list[ET.Element], ns: str, idx: int) -> tuple[int, int] | None:
+    leader = _chord_leader_index(notes, ns, idx)
+    for start, stop in _tuplet_notation_runs(notes, ns):
+        if start <= leader <= stop:
+            return start, stop
+    tm = notes[leader].find(_q(ns, "time-modification"))
+    if tm is None:
+        return None
+    an = tm.find(_q(ns, "actual-notes"))
+    nn = tm.find(_q(ns, "normal-notes"))
+    if an is None or nn is None or not (an.text or "").strip() or not (nn.text or "").strip():
+        return None
+    key = f"{an.text.strip()}:{nn.text.strip()}"
+    rhythmic = _rhythmic_indices_in_range(notes, ns, 0, len(notes) - 1)
+    pos = rhythmic.index(leader) if leader in rhythmic else -1
+    if pos < 0:
+        return None
+    start_pos = pos
+    while start_pos > 0:
+        prev = notes[rhythmic[start_pos - 1]]
+        ptm = prev.find(_q(ns, "time-modification"))
+        if ptm is None:
+            break
+        pan = ptm.find(_q(ns, "actual-notes"))
+        pnn = ptm.find(_q(ns, "normal-notes"))
+        if pan is None or pnn is None:
+            break
+        if f"{(pan.text or '').strip()}:{(pnn.text or '').strip()}" != key:
+            break
+        start_pos -= 1
+    end_pos = pos
+    while end_pos + 1 < len(rhythmic):
+        nxt = notes[rhythmic[end_pos + 1]]
+        ntm = nxt.find(_q(ns, "time-modification"))
+        if ntm is None:
+            break
+        nan = ntm.find(_q(ns, "actual-notes"))
+        nnn = ntm.find(_q(ns, "normal-notes"))
+        if nan is None or nnn is None:
+            break
+        if f"{(nan.text or '').strip()}:{(nnn.text or '').strip()}" != key:
+            break
+        end_pos += 1
+    return rhythmic[start_pos], rhythmic[end_pos]
 
 
 def _set_time_modification(
@@ -3432,21 +3586,32 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
     if kind == "removeTriplet":
         try:
-            from_idx = int(fix.get("fromNoteIndex"))
-            to_idx = int(fix.get("toNoteIndex"))
+            idx = int(fix.get("fromNoteIndex"))
         except (TypeError, ValueError):
             return False
-        if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
+        if idx < 0 or idx >= len(notes):
             return False
+        span = _tuplet_span_for_note(notes, ns, idx)
+        if span is not None:
+            from_idx, to_idx = span
+        else:
+            try:
+                from_idx = int(fix.get("fromNoteIndex"))
+                to_idx = int(fix.get("toNoteIndex"))
+            except (TypeError, ValueError):
+                return False
+            if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
+                return False
+            from_idx = _chord_leader_index(notes, ns, from_idx)
+            to_idx = _chord_leader_index(notes, ns, to_idx)
+            to_idx = _chord_group_end_index(notes, ns, to_idx)
         changed = False
-        from_idx = _chord_leader_index(notes, ns, from_idx)
-        to_idx = _chord_leader_index(notes, ns, to_idx)
-        to_end = _chord_group_end_index(notes, ns, to_idx)
-        indices = _rhythmic_indices_in_range(notes, ns, from_idx, to_end)
+        indices = _rhythmic_indices_in_range(notes, ns, from_idx, to_idx)
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
         for idx in indices:
-            if _strip_tuplet_from_note(notes[idx], ns):
-                changed = True
+            for note_idx in [idx, *_chord_follower_indices(notes, ns, idx)]:
+                if _strip_tuplet_from_note(notes[note_idx], ns):
+                    changed = True
             note = notes[idx]
             type_el = note.find(_q(ns, "type"))
             note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else "eighth"
@@ -3897,6 +4062,19 @@ def _repair_parallel_onsets_on_staff(measure: ET.Element, ns: str, staff: str) -
     for x_val, grps in clusters:
         if len(grps) < 2:
             continue
+        doc_order = sorted(grps, key=lambda g: notes.index(g[0]))
+        durs = [_note_duration(g[0], ns) for g in doc_order]
+        if len(set(durs)) > 1:
+            spaced = False
+            for i, grp in enumerate(doc_order):
+                new_x = f"{x_val + i * 48:.2f}"
+                for note in grp:
+                    if note.get("default-x") != new_x:
+                        note.set("default-x", new_x)
+                        spaced = True
+            if spaced:
+                changed = True
+                continue
         keeper_i = _pick_parallel_keeper_index(grps, notes, ns, staff, x_val)
         for i, extra in enumerate(grps):
             if i == keeper_i:
@@ -4268,6 +4446,8 @@ def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
     _fix_chord_tag_consistency(notes, ns)
     _sync_all_chord_groups(notes, ns)
     for staff in ("1", "2"):
+        _merge_staff_voices_if_non_overlapping(measure, ns, staff)
+    for staff in ("1", "2"):
         if _staff_parallel_onset_needs_repair(measure, ns, staff):
             _repair_parallel_onsets_on_staff(measure, ns, staff)
     if _measure_has_multivoice_layers(measure, ns):
@@ -4279,7 +4459,9 @@ def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
     notes_after = list_note_elements(measure, ns)
     _fix_chord_tag_consistency(notes_after, ns)
     _sync_all_chord_groups(notes_after, ns)
-    _compact_default_x_by_voice(measure, ns)
+    for staff in ("1", "2"):
+        _merge_staff_voices_if_non_overlapping(measure, ns, staff)
+    _compact_default_x_by_staff(measure, ns)
 
 
 def _strip_all_direction_staff_tags(root: ET.Element, ns: str) -> int:

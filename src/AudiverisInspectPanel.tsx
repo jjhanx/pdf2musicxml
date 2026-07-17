@@ -488,6 +488,8 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   if (voices.size < 2) return;
   if (staffVoicesOverlap(timed)) return;
 
+  timed.sort((a, b) => a.time - b.time || Number(a.voice) - Number(b.voice));
+
   const doc = measure.ownerDocument!;
   const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
   const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));

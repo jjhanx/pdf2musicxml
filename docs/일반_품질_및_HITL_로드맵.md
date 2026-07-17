@@ -83,7 +83,7 @@ python _smoke/test_measure_numbering_strip.py  # measure-numbering 제거 회귀
    - 패널을 열면 **`GET …/score-musicxml`** 은 **OMR 검토 중** `syncOmrReviewMxl`(raw+HITL) 후 XML만 추출합니다(**`fix_audiveris_mxl`·rest 정규화 미적용**). OSMD 미리보기는 **verbatim**: part 라벨·PR/PL split 외 **저장 MXL 변환 없음**. 단, OSMD 버그·phantom clef·phantom 마디 번호 방지를 위해 **load 직전 미리보기 전용**으로 m1 C major 명시·전역 조바꿈 F clef 오인·courtesy clef·**OSMD 자동 마디 번호 끔 + `omr-policy`의 `printedMeasureMarkers`(lyric_manifest `measure_number`)만 `<words>` 표시**·grand staff key 통일을 적용합니다. **저장 MXL에 후처리를 반영**하려면 「OMR 자동 정리」를 실행하세요.
    - **MusicXML(OSMD) 악보에서 마디 클릭**으로 마디를 열고 direction·쉼표·음표·점(·)·이음줄 등을 요소별로 보정 → `omr_hitl_fixes.json`에 쌓음. 음표 **길이** 메뉴에 **「4분음표 · (점)」** 등 점 붙은 길이 선택 지원. **쉼표 옆 점(·)** 은 마디 편집의 `clearRestDots`(XML `<dot>`·duration·쉼표 뒤 잘못된 짧은 음표). 클릭 영역: `osmdMeasureClick.ts`가 성부 줄×마디 열 그리드(쉼표만 있는 마디 포함)·**클릭한 줄만** 하이라이트.
    - **「MXL에 반영·미리보기」** — 마디 편집 패널 하단 또는 대기 목록 위 버튼. 위 재합성 경로로 Audiveris MXL(`preInject`)에 보정 반영 후 **오른쪽 OSMD**에서 결과 확인.
-   - **「OMR 자동 정리 (전체 성부)」** — 쉼표·피아노 m6 이음줄·세잇단 `show-number="both"`·가짜 staccato·P direction 일괄 정리.
+   - **「OMR 자동 정리 (전체 성부)」** — 쉼표·피아노 m6 이음줄·세잇단 `show-number="actual"`·빔 없으면 bracket·가짜 staccato·P direction 일괄 정리.
    - **작업 저장(ZIP) / 작업 불러오기** — 검토 중단·재개용(`review.mxl`, `audiveris_raw.mxl`, `omr_hitl_fixes.json`, **`clean_score_only.pdf`·`input.pdf`·`lyric_manifest.json`** 등). **같은 job** 안에서는 「작업 불러오기」. **새 변환**에서는 **3단계 omr-work.zip**(+ 예전 ZIP이면 **비교용 PDF**) 또는 **4단계 omr-work.zip + 가사 JSON**으로 이어갑니다.
    - **변환 시작 단계 (같은 PDF 반복)** — ① **원본 PDF**(선택: **omr-work.zip**으로 Audiveris 생략·기존 MXL로 HITL), ② **clean_score_only.pdf + 분리된 가사 JSON**(필수), ③ **omr-work.zip**(가사 포함), ④ **omr-work.zip**(교정 완료 MXL) + **가사 JSON**. 작업 표에 **OMR·HITL·가사 검증** 대기 진행 문구가 표시됩니다.
    - **이어하기** — 대기 보정을 MXL에 적용한 뒤, (가사 검증 켜짐 시) **`review_needed` 가사 검증·편집** → `merge_lyric_sources.py` → `inject_ocr`·최종 MXL로 진행.
@@ -108,7 +108,8 @@ python _smoke/test_measure_numbering_strip.py  # measure-numbering 제거 회귀
 
 | 현상 | 웹/스크립트로 | 사용자 |
 |------|----------------|--------|
-| 세잇단 괄호·PL 마디 세잇단 소실 | 자동 복구 어려움 | Audiveris GUI SYMBOLS/BEAMS, HITL 계획 |
+| 빔 없는 세잇단 괄호(4분 등) | HITL 「세잇단 적용」(기준 박자 4분)·`fix_audiveris_mxl` bracket 규칙. 검증: `python _smoke/test_triplet_hitl.py` | 마디 편집에서 범위·기준 박자 지정 |
+| PL 마디 세잇단 소실 | 자동 복구 어려움 | Audiveris GUI SYMBOLS/BEAMS, HITL |
 | 이음줄·순서 대량 오류 | lint만 | PDF 품질·스캔, Audiveris 단계 디버깅 |
 | 합창 예제 회귀 | `python scripts/verify_score_issues.py --regression` | [합창_피아노_SYMBOLS_오인식_대조.md](합창_피아노_SYMBOLS_오인식_대조.md) |
 

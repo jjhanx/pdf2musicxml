@@ -879,12 +879,33 @@ def _tuplet_run_has_rest(measure: ET.Element, start_note: ET.Element, ns: str) -
     return False
 
 
+def _tuplet_run_has_beam(measure: ET.Element, start_note: ET.Element, ns: str) -> bool:
+    """잇단 start~stop 구간에 beam이 있으면 True (빔 잇단은 bracket 생략)."""
+    voice, staff = _note_voice_staff(start_note, ns)
+    in_run = False
+    for grp in _iter_chord_groups(measure, ns):
+        leader = grp[0]
+        if leader is start_note:
+            in_run = True
+        if not in_run:
+            continue
+        if (grp[2], grp[3]) != (staff or "1", voice or "1"):
+            continue
+        if leader.find(qname(ns, "beam")) is not None:
+            return True
+        for notations in leader.findall(qname(ns, "notations")):
+            for tuplet in notations.findall(qname(ns, "tuplet")):
+                if tuplet.get("type") == "stop":
+                    return False
+    return False
+
+
 def _set_tuplet_bracket_attrs(
-    tuplet: ET.Element, has_rest: bool, placement: str | None = None
+    tuplet: ET.Element, show_bracket: bool, placement: str | None = None
 ) -> None:
-    """쉼표 없는 잇단: 숫자 '3'만(show-bracket=no). 쉼표 포함: bracket 유지."""
+    """빔·쉼표 없는 잇단(4분 세잇단 등): bracket+숫자. 빔 8분 잇단: 숫자만."""
     tuplet.set("show-number", "actual")
-    if has_rest:
+    if show_bracket:
         tuplet.set("show-bracket", "yes")
         tuplet.set("bracket", "yes")
         if placement:
@@ -941,11 +962,17 @@ def _fix_tuplet_show_numbers(
                 if measure is not None
                 else note.find(qname(ns, "rest")) is not None
             )
+            has_beam = (
+                _tuplet_run_has_beam(measure, note, ns)
+                if measure is not None
+                else note.find(qname(ns, "beam")) is not None
+            )
+            show_bracket = has_rest or not has_beam
             placement = None
             if actual == 3 and not has_rest:
                 placement = _infer_tuplet_placement(note, ns, max_staff)
             before = (tuplet.get("show-number"), tuplet.get("show-bracket"), tuplet.get("bracket"))
-            _set_tuplet_bracket_attrs(tuplet, has_rest, placement)
+            _set_tuplet_bracket_attrs(tuplet, show_bracket, placement)
             after = (tuplet.get("show-number"), tuplet.get("show-bracket"), tuplet.get("bracket"))
             if before != after or (placement and tuplet.get("placement") != placement):
                 changed = True
@@ -3340,14 +3367,21 @@ def _ensure_tuplet_bracket(
     stop_leader: ET.Element,
     *,
     has_rest: bool = False,
+    has_beam: bool | None = None,
 ) -> None:
     _strip_tuplet_notations(leader, ns)
     _strip_tuplet_notations(stop_leader, ns)
+    if has_beam is None:
+        has_beam = (
+            leader.find(qname(ns, "beam")) is not None
+            or stop_leader.find(qname(ns, "beam")) is not None
+        )
+    show_bracket = has_rest or not has_beam
     notations = leader.find(qname(ns, "notations"))
     if notations is None:
         notations = ET.SubElement(leader, qname(ns, "notations"))
     tuplet = ET.SubElement(notations, qname(ns, "tuplet"), {"type": "start"})
-    _set_tuplet_bracket_attrs(tuplet, has_rest, placement if not has_rest else placement)
+    _set_tuplet_bracket_attrs(tuplet, show_bracket, placement)
     stop_n = stop_leader.find(qname(ns, "notations"))
     if stop_n is None:
         stop_n = ET.SubElement(stop_leader, qname(ns, "notations"))
@@ -3984,11 +4018,13 @@ def _fix_tuplet_brackets_in_measure(measure: ET.Element, ns: str, max_staff: int
                     if is_stop: break
                     
                 has_rest = any(_is_rest(n, ns) for n in run_notes)
+                has_beam = any(n.find(qname(ns, "beam")) is not None for n in run_notes)
+                show_bracket = has_rest or not has_beam
                 placement = None
                 if _tuplet_actual_notes(note, ns) == 3:
                     placement = _infer_tuplet_placement(run_notes, ns, max_staff)
                 before = (tuplet.get("show-bracket"), tuplet.get("bracket"))
-                _set_tuplet_bracket_attrs(tuplet, has_rest, placement)
+                _set_tuplet_bracket_attrs(tuplet, show_bracket, placement)
                 if before != (tuplet.get("show-bracket"), tuplet.get("bracket")):
                     fixed += 1
     return fixed
@@ -4008,13 +4044,14 @@ def _add_tuplet_element(
     placement: str | None = None,
     *,
     has_rest: bool = False,
+    has_beam: bool = False,
 ) -> None:
     notations = note.find(qname(ns, "notations"))
     if notations is None:
         notations = ET.SubElement(note, qname(ns, "notations"))
     if tuplet_type == "start":
         tuplet = ET.SubElement(notations, qname(ns, "tuplet"), {"type": "start"})
-        _set_tuplet_bracket_attrs(tuplet, has_rest, placement if not has_rest else placement)
+        _set_tuplet_bracket_attrs(tuplet, has_rest or not has_beam, placement)
     else:
         ET.SubElement(notations, qname(ns, "tuplet"), {"type": tuplet_type})
 

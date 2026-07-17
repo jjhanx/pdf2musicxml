@@ -2059,6 +2059,18 @@ def _tuplet_group_has_rest(notes: list[ET.Element], indices: list[int], ns: str)
     return False
 
 
+def _tuplet_group_has_beam(notes: list[ET.Element], indices: list[int], ns: str) -> bool:
+    for i in indices:
+        if notes[i].find(_q(ns, "beam")) is not None:
+            return True
+    return False
+
+
+def _tuplet_show_bracket(has_rest: bool, has_beam: bool) -> bool:
+    """빔·쉼표 없는 잇단(4분 세잇단 등)은 숫자 3 좌우 bracket 필요."""
+    return has_rest or not has_beam
+
+
 def _is_chord_member_note(note: ET.Element, ns: str) -> bool:
     return note.find(_q(ns, "chord")) is not None
 
@@ -2136,6 +2148,8 @@ def _apply_triplet_to_range(
     total = normal_dur * normal_notes
     per_note = max(1, total // actual_notes)
     has_rest = _tuplet_group_has_rest(notes, indices, ns)
+    has_beam = _tuplet_group_has_beam(notes, indices, ns)
+    show_bracket = _tuplet_show_bracket(has_rest, has_beam)
     placement = _infer_tuplet_placement_for_range(notes, indices, ns)
     changed = False
     for pos, idx in enumerate(indices):
@@ -2163,7 +2177,7 @@ def _apply_triplet_to_range(
             tuplet = ET.SubElement(notations, _q(ns, "tuplet"), {"type": "start"})
             tuplet.set("number", "1")
             tuplet.set("show-number", "actual")
-            if has_rest:
+            if show_bracket:
                 tuplet.set("show-bracket", "yes")
                 tuplet.set("bracket", "yes")
                 tuplet.set("placement", placement)

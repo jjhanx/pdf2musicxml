@@ -97,6 +97,31 @@ function isRhythmicSlice(n: MeasureNoteEl): boolean {
   return n.kind === 'rest' || (n.kind === 'note' && !n.chord);
 }
 
+function defaultTripletNormalType(el: MeasureNoteEl): string {
+  const t = el.type ?? 'quarter';
+  if (t === '32nd' || t === '64th') return '32nd';
+  if (t === '16th') return '16th';
+  if (t === 'quarter' || t === 'half' || t === 'whole') return t;
+  return 'eighth';
+}
+
+function tripletNormalTypeLabel(normalType: string): string {
+  switch (normalType) {
+    case 'whole':
+      return '온음표';
+    case 'half':
+      return '2분음표';
+    case 'quarter':
+      return '4분음표';
+    case '16th':
+      return '16분음표';
+    case '32nd':
+      return '32분음표';
+    default:
+      return '8분음표';
+  }
+}
+
 function defaultTripletEndIndex(elIndex: number, noteEls: MeasureNoteEl[]): number {
   const startPos = noteEls.findIndex((n) => n.index === elIndex);
   if (startPos < 0) return elIndex;
@@ -1162,9 +1187,7 @@ function MeasureNoteEditor({
   const [tieTo, setTieTo] = useState('');
   const [slurTo, setSlurTo] = useState('');
   const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
-  const [tripletNormalType, setTripletNormalType] = useState(
-    el.type === '16th' || el.type === '32nd' ? el.type : 'eighth',
-  );
+  const [tripletNormalType, setTripletNormalType] = useState(() => defaultTripletNormalType(el));
   const [beamEnd, setBeamEnd] = useState(() =>
     defaultBeamEndIndex(chordLeaderIndex(el, noteEls), noteEls, el),
   );
@@ -1195,7 +1218,7 @@ function MeasureNoteEditor({
     );
     setStaffN(el.staff ?? 1);
     setTripletEnd(defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
-    setTripletNormalType(el.type === '16th' || el.type === '32nd' ? el.type : 'eighth');
+    setTripletNormalType(defaultTripletNormalType(el));
     setBeamEnd(
       clampBeamEnd(
         chordLeaderIndex(el, noteEls),
@@ -1647,9 +1670,10 @@ function MeasureNoteEditor({
       {tripletCandidates.length >= 2 && (
         <div className="omr-measure-tuplet-row">
           <p className="omr-measure-tuplet-hint">
-            <strong>빔 끝</strong>과 <strong>세잇단 끝</strong>은 별도입니다. 8분 3연음이면 보통 같은 3개(#) 범위를
-            씁니다 — 「세잇단 적용」→ (필요 시) 「빔 연결」→ 「MXL에 반영·미리보기」. 숫자 <strong>3</strong>은
-            괄호 없이 빔·줄기 쪽에 그려지며, 가짜 스타카토 점이 가리면 「세잇단 숫자 가린 점 제거」를 누르세요.
+            <strong>빔 끝</strong>과 <strong>세잇단 끝</strong>은 별도입니다. 4분 3연음은{' '}
+            <strong>기준 박자 → 4분음표</strong>를 선택하세요(8분으로 두면 음표가 8분으로 바뀝니다). 빔 없는
+            잇단은 숫자 <strong>3</strong> 좌우 bracket이 그려집니다. 8분 3연음은 보통 「빔 연결」 후 숫자만.
+            가짜 스타카토 점이 가리면 「세잇단 숫자 가린 점 제거」를 누르세요.
           </p>
           <label className="omr-measure-inline-field">
             세잇단 끝
@@ -1664,8 +1688,10 @@ function MeasureNoteEditor({
           <label className="omr-measure-inline-field">
             기준 박자
             <select value={tripletNormalType} onChange={(e) => setTripletNormalType(e.target.value)}>
+              <option value="quarter">4분음표</option>
               <option value="eighth">8분음표</option>
               <option value="16th">16분음표</option>
+              <option value="half">2분음표</option>
             </select>
           </label>
           <button
@@ -1675,7 +1701,7 @@ function MeasureNoteEditor({
             title={
               tripletNoteCount < 2
                 ? '세잇단은 연속 음·쉼표 2개 이상이 필요합니다'
-                : `${tripletNoteCount}개를 ${tripletNoteCount}:2 ${tripletNormalType === '16th' ? '16분' : '8분'} 잇단으로 표시`
+                : `${tripletNoteCount}개를 ${tripletNoteCount}:2 ${tripletNormalTypeLabel(tripletNormalType)} 잇단으로 표시`
             }
             onClick={() =>
               onFix({

@@ -24,7 +24,7 @@ SAMPLE = ROOT / "_smoke" / "x" / "clean_score_only.xml"
 
 def test_manifest_parse() -> None:
     allowed = load_printed_measure_mxl_set(MANIFEST, measure_offset=1)
-    assert 2 in allowed  # printed "3" -> mxl 2
+    assert 3 in allowed  # printed "3" -> mxl 3 (offset 1 + sidebar +1 보정)
     assert len(allowed) >= 10
 
 

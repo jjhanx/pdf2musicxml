@@ -37,6 +37,11 @@ def is_measure_number_item(item: dict) -> bool:
     return t in ("", "unknown")
 
 
+def printed_sidebar_number_to_mxl_measure(printed_num: int, measure_offset: int = 1) -> int:
+    """PDF 줄머리 measure_number → MusicXML measure@number (미리보기·MuseScore용 +1 보정)."""
+    return printed_num - int(measure_offset) + 1
+
+
 def load_printed_measure_mxl_set(manifest_path: Path, measure_offset: int = 1) -> set[int]:
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     items = data.get("items") if isinstance(data, dict) else None
@@ -49,7 +54,7 @@ def load_printed_measure_mxl_set(manifest_path: Path, measure_offset: int = 1) -
         printed = _strip_pua(str(item.get("text") or "")).strip()
         if not printed.isdigit():
             continue
-        mxl = int(printed) - int(measure_offset)
+        mxl = printed_sidebar_number_to_mxl_measure(int(printed), measure_offset)
         if mxl >= 1:
             out.add(mxl)
     return out

@@ -11,6 +11,19 @@ function stripPua(text: string): string {
   return text.replace(/[\uE000-\uF8FF]/g, '');
 }
 
+/**
+ * PDF 줄머리 `measure_number` 숫자 → MusicXML `measure@number`.
+ * HITL 편집(인쇄≈MXL+offset)과 달리, sidebar 숫자 N은 **그 줄의 MXL N**에 붙는 경우가 많아
+ * pickup offset만 쓰면 미리보기에서 1마디 앞당겨 보임 → +1 보정.
+ */
+export function printedSidebarNumberToMxlMeasure(
+  printedNum: number,
+  measureOffsetPrinted: number,
+): number {
+  const offset = Number.isFinite(measureOffsetPrinted) ? measureOffsetPrinted : 1;
+  return printedNum - offset + 1;
+}
+
 export function isMeasureNumberManifestItem(item: Record<string, unknown>): boolean {
   const t = String(item.type ?? '');
   if (t === 'page_number') return false;
@@ -41,7 +54,7 @@ export function parsePrintedMeasureMarkersFromManifest(
     const printed = stripPua(String(item.text ?? '')).trim();
     const printedNum = parseInt(printed, 10);
     if (!Number.isFinite(printedNum)) continue;
-    const mxlMeasure = printedNum - offset;
+    const mxlMeasure = printedSidebarNumberToMxlMeasure(printedNum, offset);
     if (mxlMeasure < 1) continue;
     if (!byMxl.has(mxlMeasure)) byMxl.set(mxlMeasure, printed);
   }

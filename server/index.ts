@@ -16,13 +16,23 @@ import { promisify } from 'node:util';
 const exec = promisify(execCallback);
 
 /** fix_audiveris_mxl — 리듬 duration 변경은 기본 off(OMR 유지). */
-function pythonMxlFixEnv(): NodeJS.ProcessEnv {
-  return {
+function pythonMxlFixEnv(sessionRoot?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     OMR_ENGINE: process.env.OMR_ENGINE?.trim() || 'audiveris',
     AI_OMR_BACKEND: process.env.AI_OMR_BACKEND?.trim() || 'homr',
     AUDIVERIS_MXL_RHYTHM_FIX: process.env.AUDIVERIS_MXL_RHYTHM_FIX ?? 'off',
   };
+  if (sessionRoot) {
+    const manifestPath = sessionLyricManifestPath(sessionRoot);
+    if (fsSync.existsSync(manifestPath)) {
+      env.PDF2MXL_LYRIC_MANIFEST = manifestPath;
+    }
+    env.MXL_MEASURE_OFFSET_PRINTED = String(
+      Number(process.env.MXL_MEASURE_OFFSET_PRINTED ?? '1') || 1,
+    );
+  }
+  return env;
 }
 
 import {
@@ -48,6 +58,10 @@ import {
   resolveP2mpBin,
   runOmrEngine,
 } from '../shared/omr.js';
+import {
+  parsePrintedMeasureMarkersFromManifest,
+  type PrintedMeasureMarker,
+} from '../shared/printedMeasureNumbers.js';
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -567,6 +581,20 @@ function lyricManifestDownloadJobsAllowed(job: JobRecord | undefined): job is Jo
   );
 }
 
+async function readPrintedMeasureMarkersFromSession(
+  sessionRoot: string,
+  measureOffsetPrinted: number,
+): Promise<PrintedMeasureMarker[]> {
+  const manifestPath = sessionLyricManifestPath(sessionRoot);
+  if (!fsSync.existsSync(manifestPath)) return [];
+  try {
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as { items?: unknown[] };
+    return parsePrintedMeasureMarkersFromManifest(manifest, measureOffsetPrinted);
+  } catch {
+    return [];
+  }
+}
+
 async function readLyricManifestSummary(sessionRoot: string): Promise<{
   itemCount: number;
   matchStats: Record<string, unknown> | null;
@@ -676,7 +704,7 @@ async function runOmrHitlAutoNormalize(
   } else if (fsSync.existsSync(rawPath)) {
     await fs.copyFile(rawPath, scorePath);
   }
-  const postStats = await postprocessAudiverisMxlInScoreFile(scorePath, pythonBin);
+  const postStats = await postprocessAudiverisMxlInScoreFile(scorePath, pythonBin, sessionRoot);
   const fixes = await readOmrHitlFixes(sessionRoot);
   let hitlApplied = 0;
   let hitlSkipped = 0;
@@ -1223,6 +1251,7 @@ async function cleanupChordBeamsInScoreFile(
 async function fixAudiverisMxlInScoreFile(
   scorePath: string,
   pythonBin: string,
+  sessionRoot?: string,
 ): Promise<{
   slursInjected: number;
   tupletShowNumberFixed: number;
@@ -1234,7 +1263,7 @@ async function fixAudiverisMxlInScoreFile(
   try {
     const { stdout, stderr } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
       maxBuffer: 8 * 1024 * 1024,
-      env: pythonMxlFixEnv(),
+      env: pythonMxlFixEnv(sessionRoot),
     });
     if (stderr?.trim()) console.warn(`fix_audiveris_mxl stderr (${scorePath}): ${stderr.trim()}`);
     const line = String(stdout).trim();
@@ -1271,6 +1300,7 @@ async function fixAudiverisMxlInScoreFile(
 async function postprocessAudiverisMxlInScoreFile(
   scorePath: string,
   pythonBin: string,
+  sessionRoot?: string,
 ): Promise<{
   restsFixed: number;
   measuresChanged: number;
@@ -1287,7 +1317,7 @@ async function postprocessAudiverisMxlInScoreFile(
     restDisplayCleared: 0,
     tupletStaccatoRemoved: 0,
   };
-  const fixStats = (await fixAudiverisMxlInScoreFile(scorePath, pythonBin)) ?? {
+  const fixStats = (await fixAudiverisMxlInScoreFile(scorePath, pythonBin, sessionRoot)) ?? {
     slursInjected: 0,
     tupletShowNumberFixed: 0,
     tupletStaccatoRemoved: 0,
@@ -2993,7 +3023,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       for (const p of mxlForInject) {
         await ensureAudiverisRawBackup(p, job.sessionRoot);
         if (job.enableOmrStaffReview === false) {
-          await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+          await postprocessAudiverisMxlInScoreFile(p, pythonBin, job.sessionRoot);
         } else {
           await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
         }
@@ -3070,7 +3100,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     for (const p of mxlForInject) {
       await ensureAudiverisRawBackup(p, job.sessionRoot);
       if (job.enableOmrStaffReview === false) {
-        await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+        await postprocessAudiverisMxlInScoreFile(p, pythonBin, job.sessionRoot);
       } else {
         await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
       }
@@ -3252,7 +3282,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         detail: '최종 MXL 후처리(쉼표·피아노 timeline·조표) 중…',
       });
       for (const p of finalizeMxlPaths) {
-        await postprocessAudiverisMxlInScoreFile(p, pythonBin);
+        await postprocessAudiverisMxlInScoreFile(p, pythonBin, job.sessionRoot);
       }
     }
 
@@ -3948,7 +3978,7 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
     if (job.status === 'omr_staff_review_needed') {
       await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
     } else {
-      await fixAudiverisMxlInScoreFile(mxlPath, pythonBin);
+      await fixAudiverisMxlInScoreFile(mxlPath, pythonBin, job.sessionRoot);
     }
     if (fsSync.existsSync(outXml)) await fs.unlink(outXml).catch(() => {});
     const mxlScript = path.join(__dirname, '..', 'scripts', 'mxl_to_musicxml_file.py');
@@ -4832,10 +4862,15 @@ app.get('/api/diagnostic/:jobId/omr-policy', async (req, res) => {
     }
   }
   const ocrSpec = resolvedAudiverisOcrLangSpec();
+  const printedMeasureMarkers = await readPrintedMeasureMarkersFromSession(
+    job.sessionRoot,
+    measureOffsetPrinted,
+  );
   res.json({
     jobId: req.params.jobId,
     status: job.status,
     measureOffsetPrinted,
+    printedMeasureMarkers,
     audiverisOcrLangEffective: ocrSpec,
     audiverisOcrLangConstantInjected: ocrLanguageConstantArgsFromEnv().length > 0,
     textEngineConstantsActive: audiverisTextEngineConstantArgsFromEnv().length > 0,

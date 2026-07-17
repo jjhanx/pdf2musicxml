@@ -42,6 +42,9 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderPartNames = false;
   rules.RenderPartAbbreviations = false;
   rules.RenderSystemLabelsAfterFirstPage = false;
+  // OSMD 기본 줄머리 번호는 measure@number+layout으로 전부 그려짐 — PDF 인쇄 번호만 direction으로 표시
+  rules.RenderMeasureNumbers = false;
+  rules.RenderMeasureNumbersOnlyAtSystemStart = false;
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
@@ -1346,6 +1349,70 @@ export function removeAudiverisMeasureNumberingForOsmd(xml: string): string {
   }
 }
 
+function measureHasPrintedNumberWords(meas: Element, label: string): boolean {
+  for (const dir of [...meas.children].filter((c) => xmlLocalName(c) === 'direction')) {
+    for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+      for (const words of [...dt.children].filter((c) => xmlLocalName(c) === 'words')) {
+        if (words.textContent?.trim() === label) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function insertIndexForMeasureHeader(meas: Element): number {
+  let idx = 0;
+  for (const child of [...meas.children]) {
+    const name = xmlLocalName(child);
+    if (name === 'print' || name === 'attributes') idx += 1;
+    else break;
+  }
+  return idx;
+}
+
+/**
+ * lyric_manifest 인쇄 마디 번호만 OSMD `<words>` direction으로 표시 (첫 part만).
+ * OSMD 자동 measure@number 라벨은 applyOsmdPreviewEngravingRules에서 끔.
+ */
+export function injectPrintedMeasureNumberDirectionsForOsmd(
+  xml: string,
+  markers: ReadonlyMap<number, string>,
+): string {
+  if (!markers.size) return xml;
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    const ns = doc.documentElement.namespaceURI;
+    const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
+    const parts = findXmlParts(doc);
+    if (!parts.length) return xml;
+    const part = parts[0]!;
+
+    for (const meas of [...part.children]) {
+      if (xmlLocalName(meas) !== 'measure') continue;
+      const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
+      const label = markers.get(mnum);
+      if (!label || measureHasPrintedNumberWords(meas, label)) continue;
+
+      const dir = mk('direction');
+      dir.setAttribute('placement', 'above');
+      const dt = mk('direction-type');
+      const words = mk('words');
+      words.setAttribute('font-weight', 'bold');
+      words.textContent = label;
+      dt.appendChild(words);
+      dir.appendChild(dt);
+      const idx = insertIndexForMeasureHeader(meas);
+      if (idx >= meas.childElementCount) meas.appendChild(dir);
+      else meas.insertBefore(dir, meas.children[idx] ?? null);
+    }
+
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
 /** 줄바꿈 등에서 이전과 동일한 `<clef>` courtesy 반복 제거 — OSMD 미리보기 전용. */
 export function removeRedundantCourtesyClefsForOsmd(xml: string): string {
   try {
@@ -1409,7 +1476,11 @@ export function buildOsmdPreviewXml(
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
  * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
  */
-function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
+function sanitizeMusicXmlForOsmd(
+  xml: string,
+  verbatim = false,
+  printedMeasureMarkers?: ReadonlyMap<number, string>,
+): string {
   try {
     // 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음(OsmdBlock.load 직전).
     // m1 `<key>` 생략 시 OSMD가 뒤쪽 조바꿈(4♯ 등)을 첫머리에 당겨 그리므로 verbatim에서도 C major 명시.
@@ -1417,6 +1488,9 @@ function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
     out = repairKeyChangeClefMisreadForOsmd(out);
     out = removeRedundantCourtesyClefsForOsmd(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
+    if (printedMeasureMarkers?.size) {
+      out = injectPrintedMeasureNumberDirectionsForOsmd(out, printedMeasureMarkers);
+    }
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 
@@ -1553,6 +1627,7 @@ export function OsmdBlock({
   scrollToMeasureTrigger = 0,
   embeddedInOmrFrame,
   verbatimPreview,
+  printedMeasureMarkers,
 }: {
   xml: string;
   zoom: number;
@@ -1566,6 +1641,8 @@ export function OsmdBlock({
   embeddedInOmrFrame?: boolean;
   /** HITL: clef/key/pitch 등 MXL 그대로 — OSMD 크래시 방지(octave-shift 등)만 */
   verbatimPreview?: boolean;
+  /** lyric_manifest 인쇄 마디 번호만 미리보기에 표시 */
+  printedMeasureMarkers?: ReadonlyMap<number, string>;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
@@ -1581,6 +1658,11 @@ export function OsmdBlock({
   const scrollToMeasureRef = useRef(scrollToMeasure);
   const scrollToMeasureTriggerRef = useRef(scrollToMeasureTrigger);
   const lastHandledScrollTriggerRef = useRef(0);
+  const printedMeasureMarkersRef = useRef(printedMeasureMarkers);
+
+  useEffect(() => {
+    printedMeasureMarkersRef.current = printedMeasureMarkers;
+  }, [printedMeasureMarkers]);
 
   useEffect(() => {
     scrollToMeasureRef.current = scrollToMeasure;
@@ -1692,7 +1774,11 @@ export function OsmdBlock({
 
     let cancelled = false;
     const stale = () => cancelled || gen !== xmlGenRef.current;
-    const xmlForOsmd = sanitizeMusicXmlForOsmd(xml, verbatimPreview === true);
+    const xmlForOsmd = sanitizeMusicXmlForOsmd(
+      xml,
+      verbatimPreview === true,
+      printedMeasureMarkersRef.current,
+    );
     void osmd
       .load(xmlForOsmd)
       .then(() => {
@@ -1744,7 +1830,7 @@ export function OsmdBlock({
       }
       osmdRef.current = null;
     };
-  }, [xml]);
+  }, [xml, printedMeasureMarkers]);
 
   useEffect(() => {
     const host = hostRef.current;

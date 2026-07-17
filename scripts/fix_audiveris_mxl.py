@@ -75,11 +75,33 @@ def _opening_key_explicit_enabled() -> bool:
 
 
 def _strip_measure_numbering_enabled() -> bool:
-    """Audiveris `<measure-numbering>` 제거 — 기본 on (원본에 없는 줄머리 마디 번호 방지).
+    """Audiveris `<measure-numbering>` 정리 — 기본 on.
 
-    `AUDIVERIS_MXL_KEEP_MEASURE_NUMBERING=1` 이면 MusicXML의 measure-numbering 유지.
+    `AUDIVERIS_MXL_KEEP_MEASURE_NUMBERING=1` 이면 Audiveris measure-numbering 그대로.
+    그 외: lyric_manifest(`PDF2MXL_LYRIC_MANIFEST`)에 있는 인쇄 마디만 `<measure-numbering>system`,
+    없으면 전부 제거.
     """
     return not _env_truthy("AUDIVERIS_MXL_KEEP_MEASURE_NUMBERING", default=False)
+
+
+def _manifest_path_for_measure_numbers() -> Path | None:
+    raw = os.environ.get("PDF2MXL_LYRIC_MANIFEST") or os.environ.get("LYRIC_MANIFEST_PATH")
+    if not raw or not str(raw).strip():
+        return None
+    p = Path(str(raw).strip())
+    return p if p.is_file() else None
+
+
+def _printed_measure_mxl_set_from_env() -> set[int] | None:
+    manifest = _manifest_path_for_measure_numbers()
+    if manifest is None:
+        return None
+    try:
+        from printed_measure_numbers import load_printed_measure_mxl_set
+    except ImportError:
+        from scripts.printed_measure_numbers import load_printed_measure_mxl_set  # type: ignore
+    offset = int(os.environ.get("MXL_MEASURE_OFFSET_PRINTED", "1") or "1")
+    return load_printed_measure_mxl_set(manifest, offset)
 
 
 # 조표 유무 판단: part-list 앞쪽 N개 마디(픽업·anacrusis 포함)
@@ -4384,6 +4406,31 @@ def _remove_measure_numbering_root(root: ET.Element, ns: str) -> int:
     return removed
 
 
+def _normalize_measure_numbering_from_manifest_root(root: ET.Element, ns: str) -> tuple[int, int]:
+    """`<measure-numbering>` 전부 제거 후 manifest 인쇄 마디만 system 복원."""
+    removed = _remove_measure_numbering_root(root, ns)
+    allowed = _printed_measure_mxl_set_from_env()
+    if allowed is None or not allowed:
+        return removed, 0
+    added = 0
+    for part in root.findall(qname(ns, "part")):
+        for measure in part.findall(qname(ns, "measure")):
+            mnum = int(measure.get("number") or 0)
+            if mnum not in allowed:
+                continue
+            pr = measure.find(qname(ns, "print"))
+            if pr is None:
+                pr = ET.Element(qname(ns, "print"))
+                measure.insert(0, pr)
+            mn = pr.find(qname(ns, "measure-numbering"))
+            if mn is None:
+                mn = ET.SubElement(pr, qname(ns, "measure-numbering"))
+            mn.text = "system"
+            added += 1
+        break  # 첫 part만 — MuseScore 줄머리 번호는 보통 한 번만
+    return removed, added
+
+
 def _remove_redundant_courtesy_clefs_root(root: ET.Element, ns: str) -> int:
     removed = 0
     for part in root.findall(qname(ns, "part")):
@@ -4778,6 +4825,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "piano_grand_staff_rebuilt": 0,
         "courtesy_clef_removed": 0,
         "measure_numbering_removed": 0,
+        "measure_numbering_restored": 0,
     }
 
     # 1) 텍스트 정리 + backup/forward 겹침 voice 병합 (악보 패치보다 먼저)
@@ -4792,7 +4840,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     stats["rest_display_high_fixed"] += _repair_rest_display_high_root(root, ns)
     stats["courtesy_clef_removed"] += _remove_redundant_courtesy_clefs_root(root, ns)
     if _strip_measure_numbering_enabled():
-        stats["measure_numbering_removed"] += _remove_measure_numbering_root(root, ns)
+        mn_removed, mn_restored = _normalize_measure_numbering_from_manifest_root(root, ns)
+        stats["measure_numbering_removed"] += mn_removed
+        stats["measure_numbering_restored"] += mn_restored
     for part in root.findall(qname(ns, "part")):
         pid = part.get("id")
         if _part_is_piano(pid, root, ns) or _part_has_two_staves(part, ns):

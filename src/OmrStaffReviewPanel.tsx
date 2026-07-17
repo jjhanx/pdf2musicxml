@@ -14,6 +14,10 @@ import { OmrMeasureEditor } from './OmrMeasureEditor';
 import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
+import {
+  printedMeasureMarkerMap,
+  type PrintedMeasureMarker,
+} from '../shared/printedMeasureNumbers';
 
 type ScorePartRow = ScorePartForPreview & {
   index: number;
@@ -22,6 +26,7 @@ type ScorePartRow = ScorePartForPreview & {
 type OmrPolicy = {
   audiverisOcrLangEffective?: string | null;
   measureOffsetPrinted?: number;
+  printedMeasureMarkers?: PrintedMeasureMarker[];
   pCauses?: string[];
 };
 
@@ -76,6 +81,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       : 'original';
   const pngDpi = 156;
   const measureOffset = policy?.measureOffsetPrinted ?? 1;
+
+  const printedMeasureMarkers = useMemo(
+    () => printedMeasureMarkerMap(policy?.printedMeasureMarkers ?? []),
+    [policy?.printedMeasureMarkers],
+  );
 
   const staffFilterEntries = useMemo(
     () => buildStaffFilterEntries(scoreParts, rawXml),
@@ -616,9 +626,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           {' '}
           <span style={{ color: '#555' }}>
             저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. 미리보기만 m1 조표·조바꿈 F clef 오인·줄바꿈
-            courtesy clef·<strong>줄머리 마디 번호</strong>(Audiveris <code>measure-numbering</code>)를 정리합니다(마디 끝
-            phantom clef·원본에 없는 마디 번호는 「OMR 자동 정리」 또는 이어하기 후 최종 MXL). PDF와 다르면 마디
-            편집(HITL)으로 고치세요.
+            courtesy clef·<strong>줄머리 마디 번호</strong>는 PDF·가사 검토에서 인식한{' '}
+            <code>measure_number</code>만 표시합니다(OSMD 자동 번호는 끔). 마디 끝 phantom clef·최종 MXL
+            measure-numbering은 「OMR 자동 정리」 또는 이어하기 후 반영. PDF와 다르면 마디 편집(HITL) 또는 가사
+            검토에서 마디 번호 구분을 확인하세요.
           </span>
         </p>
       </div>
@@ -718,6 +729,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   zoom={scoreZoom}
                   embeddedInOmrFrame
                   verbatimPreview
+                  printedMeasureMarkers={printedMeasureMarkers}
                   onMeasureClick={openMeasure}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}
                   highlightMeasureStaffIndex={selectedMeasure?.staffIndex ?? null}

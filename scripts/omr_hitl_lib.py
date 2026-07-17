@@ -149,6 +149,77 @@ def _duration_for_type_dots(note_type: str, divisions: int, dot_count: int) -> i
     return max(1, int(round(beats * divisions * mult)))
 
 
+def _note_written_type(note: ET.Element, ns: str) -> str:
+    type_el = note.find(_q(ns, "type"))
+    if type_el is not None and type_el.text and type_el.text.strip():
+        return type_el.text.strip()
+    return "quarter"
+
+
+def _note_dot_count(note: ET.Element, ns: str) -> int:
+    return len(note.findall(_q(ns, "dot")))
+
+
+def _type_weight_quarters(note_type: str, dot_count: int = 0) -> float:
+    """음표 종류의 상대 박(4분=1) — 잇단 slot 가중치."""
+    base = {
+        "whole": 4.0,
+        "half": 2.0,
+        "quarter": 1.0,
+        "eighth": 0.5,
+        "16th": 0.25,
+        "32nd": 0.125,
+    }.get(note_type, 1.0)
+    if dot_count == 1:
+        base *= 1.5
+    elif dot_count >= 2:
+        base *= 1.75
+    return base
+
+
+def _tuplet_slot_weights(notes: list[ET.Element], indices: list[int], ns: str) -> list[float]:
+    return [
+        _type_weight_quarters(_note_written_type(notes[i], ns), _note_dot_count(notes[i], ns))
+        for i in indices
+    ]
+
+
+def _smallest_written_type(types: list[str]) -> str:
+    order = ["32nd", "64th", "16th", "eighth", "quarter", "half", "whole"]
+    rank = {t: i for i, t in enumerate(order)}
+    best = "quarter"
+    best_rank = rank.get(best, 99)
+    for t in types:
+        r = rank.get(t, 99)
+        if r < best_rank:
+            best_rank = r
+            best = t
+    return best
+
+
+def _distribute_tuplet_durations(total: int, weights: list[float]) -> list[int]:
+    if total <= 0 or not weights:
+        return []
+    weight_sum = sum(weights)
+    if weight_sum <= 0:
+        per = max(1, total // len(weights))
+        return [per] * len(weights)
+    raw = [total * w / weight_sum for w in weights]
+    out = [max(1, int(round(x))) for x in raw]
+    diff = total - sum(out)
+    if diff != 0:
+        order = sorted(range(len(out)), key=lambda i: raw[i] - out[i], reverse=(diff > 0))
+        step = 1 if diff > 0 else -1
+        for i in order:
+            if diff == 0:
+                break
+            nxt = out[i] + step
+            if nxt >= 1:
+                out[i] = nxt
+                diff -= step
+    return out
+
+
 def _undot_duration_guess(current: int, divisions: int, measure_len: int) -> int | None:
     """<type> 없는 쉼표: duration이 표준 길이의 1.5배(점)·1.75배(겹점)이면 기본 길이로 줄인다.
 
@@ -2139,6 +2210,8 @@ def _apply_triplet_to_range(
     actual_notes: int,
     normal_notes: int,
     normal_type: str,
+    *,
+    preserve_types: bool = False,
 ) -> bool:
     if len(indices) < 2 or actual_notes < 2 or normal_notes < 1:
         return False
@@ -2146,7 +2219,16 @@ def _apply_triplet_to_range(
     if normal_dur <= 0:
         return False
     total = normal_dur * normal_notes
-    per_note = max(1, total // actual_notes)
+    slot_weights = _tuplet_slot_weights(notes, indices, ns)
+    if preserve_types:
+        weight_sum = sum(slot_weights)
+        if weight_sum <= 0:
+            return False
+        actual_notes = max(2, int(round(weight_sum)))
+        per_durs = _distribute_tuplet_durations(total, slot_weights)
+    else:
+        per_note = max(1, total // actual_notes)
+        per_durs = [per_note] * len(indices)
     has_rest = _tuplet_group_has_rest(notes, indices, ns)
     has_beam = _tuplet_group_has_beam(notes, indices, ns)
     show_bracket = _tuplet_show_bracket(has_rest, has_beam)
@@ -2156,16 +2238,18 @@ def _apply_triplet_to_range(
         note = notes[idx]
         if note.find(_q(ns, "rest")) is not None and note.find(_q(ns, "pitch")) is None:
             pass
-        type_el = note.find(_q(ns, "type"))
-        if type_el is None:
-            type_el = ET.SubElement(note, _q(ns, "type"))
-        if (type_el.text or "").strip() != normal_type:
-            type_el.text = normal_type
-            changed = True
+        if not preserve_types:
+            type_el = note.find(_q(ns, "type"))
+            if type_el is None:
+                type_el = ET.SubElement(note, _q(ns, "type"))
+            if (type_el.text or "").strip() != normal_type:
+                type_el.text = normal_type
+                changed = True
         _set_time_modification(note, ns, actual_notes, normal_notes, normal_type)
         dur_el = note.find(_q(ns, "duration"))
         if dur_el is None:
             dur_el = ET.SubElement(note, _q(ns, "duration"))
+        per_note = per_durs[pos] if pos < len(per_durs) else per_durs[-1]
         if (dur_el.text or "").strip() != str(per_note):
             dur_el.text = str(per_note)
             changed = True
@@ -3176,22 +3260,38 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         except (TypeError, ValueError):
             return False
         normal_type = str(fix.get("normalType") or "eighth").strip()
+        preserve_types = bool(fix.get("preserveNoteTypes"))
         if from_idx < 0 or to_idx < from_idx or to_idx >= len(notes):
             return False
         from_idx = _chord_leader_index(notes, ns, from_idx)
         indices = _rhythmic_indices_in_range(notes, ns, from_idx, to_idx)
         if len(indices) < 2:
             return False
+        written_types = [_note_written_type(notes[i], ns) for i in indices]
+        if preserve_types:
+            normal_type = _smallest_written_type(written_types + [normal_type])
         try:
             actual_notes_req = int(fix.get("actualNotes", len(indices)))
         except (TypeError, ValueError):
             actual_notes_req = len(indices)
-        if actual_notes_req >= 2 and len(indices) > actual_notes_req:
+        if preserve_types:
+            slot_weights = _tuplet_slot_weights(notes, indices, ns)
+            actual_notes = max(2, int(round(sum(slot_weights))))
+        elif actual_notes_req >= 2 and len(indices) > actual_notes_req:
             indices = indices[:actual_notes_req]
-        actual_notes = len(indices)
+            actual_notes = len(indices)
+        else:
+            actual_notes = len(indices)
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
         return _apply_triplet_to_range(
-            notes, ns, indices, divisions, actual_notes, normal_notes, normal_type
+            notes,
+            ns,
+            indices,
+            divisions,
+            actual_notes,
+            normal_notes,
+            normal_type,
+            preserve_types=preserve_types,
         )
 
     if kind == "removeTriplet":

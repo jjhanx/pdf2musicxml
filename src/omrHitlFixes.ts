@@ -54,6 +54,7 @@ export type OmrHitlFix = {
   actualNotes?: number;
   normalNotes?: number;
   normalType?: string;
+  preserveNoteTypes?: boolean;
   beamNumber?: number;
   beamNoteCount?: number;
   beforeNoteIndex?: number;
@@ -140,6 +141,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.actualNotes ?? '',
     fix.normalNotes ?? '',
     fix.normalType ?? '',
+    fix.preserveNoteTypes ? '1' : '',
     fix.beamNumber ?? '',
     fix.beamNoteCount ?? '',
     fix.beforeNoteIndex ?? '',

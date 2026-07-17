@@ -74,6 +74,14 @@ def _opening_key_explicit_enabled() -> bool:
     return _env_truthy("AUDIVERIS_MXL_OPENING_KEY_EXPLICIT", default=False)
 
 
+def _strip_measure_numbering_enabled() -> bool:
+    """Audiveris `<measure-numbering>` 제거 — 기본 on (원본에 없는 줄머리 마디 번호 방지).
+
+    `AUDIVERIS_MXL_KEEP_MEASURE_NUMBERING=1` 이면 MusicXML의 measure-numbering 유지.
+    """
+    return not _env_truthy("AUDIVERIS_MXL_KEEP_MEASURE_NUMBERING", default=False)
+
+
 # 조표 유무 판단: part-list 앞쪽 N개 마디(픽업·anacrusis 포함)
 _OPENING_KEY_MEASURES = 4
 
@@ -4363,6 +4371,19 @@ def _is_treble_f_clef_key_change_misread(
     return med is not None and med >= 52
 
 
+def _remove_measure_numbering_root(root: ET.Element, ns: str) -> int:
+    removed = 0
+    for part in root.findall(qname(ns, "part")):
+        for measure in part.findall(qname(ns, "measure")):
+            for pr in list(measure.findall(qname(ns, "print"))):
+                for mn in list(pr.findall(qname(ns, "measure-numbering"))):
+                    pr.remove(mn)
+                    removed += 1
+                if len(pr) == 0 and not (pr.text and pr.text.strip()):
+                    measure.remove(pr)
+    return removed
+
+
 def _remove_redundant_courtesy_clefs_root(root: ET.Element, ns: str) -> int:
     removed = 0
     for part in root.findall(qname(ns, "part")):
@@ -4756,6 +4777,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "trailing_phantom_rests_removed": 0,
         "piano_grand_staff_rebuilt": 0,
         "courtesy_clef_removed": 0,
+        "measure_numbering_removed": 0,
     }
 
     # 1) 텍스트 정리 + backup/forward 겹침 voice 병합 (악보 패치보다 먼저)
@@ -4769,6 +4791,8 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     stats["key_change_clef_misread_fixed"] += _repair_key_change_clef_misread_root(root, ns)
     stats["rest_display_high_fixed"] += _repair_rest_display_high_root(root, ns)
     stats["courtesy_clef_removed"] += _remove_redundant_courtesy_clefs_root(root, ns)
+    if _strip_measure_numbering_enabled():
+        stats["measure_numbering_removed"] += _remove_measure_numbering_root(root, ns)
     for part in root.findall(qname(ns, "part")):
         pid = part.get("id")
         if _part_is_piano(pid, root, ns) or _part_has_two_staves(part, ns):

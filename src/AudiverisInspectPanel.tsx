@@ -1319,6 +1319,33 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
   }
 }
 
+/**
+ * Audiveris `<print><measure-numbering>system</measure-numbering>` 제거 — OSMD 미리보기 전용.
+ * OMR이 줄머리 마디 번호를 추론해 MusicXML에 넣지만 원본 PDF(clean_score)에는 없을 수 있음.
+ */
+export function removeAudiverisMeasureNumberingForOsmd(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+
+    for (const part of findXmlParts(doc)) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+        for (const print of [...meas.children].filter((c) => xmlLocalName(c) === 'print')) {
+          for (const mn of [...print.children].filter((c) => xmlLocalName(c) === 'measure-numbering')) {
+            mn.remove();
+          }
+          if (print.childElementCount === 0 && !print.textContent?.trim()) print.remove();
+        }
+      }
+    }
+
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
 /** 줄바꿈 등에서 이전과 동일한 `<clef>` courtesy 반복 제거 — OSMD 미리보기 전용. */
 export function removeRedundantCourtesyClefsForOsmd(xml: string): string {
   try {
@@ -1389,6 +1416,7 @@ function sanitizeMusicXmlForOsmd(xml: string, verbatim = false): string {
     let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
     out = repairKeyChangeClefMisreadForOsmd(out);
     out = removeRedundantCourtesyClefsForOsmd(out);
+    out = removeAudiverisMeasureNumberingForOsmd(out);
     const doc = new DOMParser().parseFromString(out, 'text/xml');
     if (doc.querySelector('parsererror')) return xml;
 

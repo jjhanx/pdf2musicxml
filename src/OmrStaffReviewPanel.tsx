@@ -616,8 +616,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           {' '}
           <span style={{ color: '#555' }}>
             저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. 미리보기만 m1 조표·조바꿈 F clef 오인·줄바꿈
-            courtesy clef를 정리합니다(마디 끝에 원본에 없는 음자리표가 보이면 「OMR 자동 정리」 또는 이어하기 후
-            최종 MXL). PDF와 다르면 마디 편집(HITL)으로 고치세요.
+            courtesy clef·<strong>줄머리 마디 번호</strong>(Audiveris <code>measure-numbering</code>)를 정리합니다(마디 끝
+            phantom clef·원본에 없는 마디 번호는 「OMR 자동 정리」 또는 이어하기 후 최종 MXL). PDF와 다르면 마디
+            편집(HITL)으로 고치세요.
           </span>
         </p>
       </div>

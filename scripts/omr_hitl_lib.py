@@ -383,6 +383,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
             ftype = (ferm.get("type") or "upright").strip() or "upright"
             placement = ferm.get("placement")
             fermatas.append(f"{ftype}({placement})" if placement else ftype)
+    dx = _parse_default_x(note)
     return {
         "index": index,
         "elementKind": "note",
@@ -412,6 +413,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "tuplet": tuplet,
         "articulations": articulations,
         "fermatas": fermatas,
+        "defaultX": round(dx, 2) if dx is not None else None,
         "noteDirection": None,
         "noteDirections": None,
     }
@@ -744,6 +746,15 @@ def _apply_measure_tempo_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> 
     return False
 
 
+def _snapshot_timeline_sort_key(snap: dict[str, Any]) -> tuple[Any, ...]:
+    staff = snap.get("staff") or 1
+    dx = snap.get("timelineX")
+    if dx is None:
+        dx = snap.get("defaultX")
+    x = dx if dx is not None else 1_000_000.0 + int(snap.get("index") or 0)
+    return (staff, x, 0 if not snap.get("chord") else 1, snap.get("index") or 0)
+
+
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     elements: list[dict[str, Any]] = []
     note_index = 0
@@ -764,6 +775,16 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
                 j -= 1
             if j >= 0 and elements[j].get("beams"):
                 snap["beams"] = list(elements[j]["beams"])
+    for i, snap in enumerate(elements):
+        if snap.get("chord"):
+            j = i - 1
+            while j >= 0 and elements[j].get("chord"):
+                j -= 1
+            leader_dx = elements[j].get("defaultX") if j >= 0 else None
+        else:
+            leader_dx = snap.get("defaultX")
+        snap["timelineX"] = leader_dx
+    elements.sort(key=_snapshot_timeline_sort_key)
     return elements
 
 
@@ -1945,12 +1966,13 @@ def _clone_time_modification_from_leader(leader: ET.Element, follower: ET.Elemen
         dan = dst_tm.find(_q(ns, "actual-notes"))
         dnn = dst_tm.find(_q(ns, "normal-notes"))
         dnt = dst_tm.find(_q(ns, "normal-type"))
+        dst_normal_type = (dnt.text or "quarter").strip() if dnt is not None and dnt.text else "quarter"
         if (
             dan is not None
             and dnn is not None
             and (dan.text or "").strip() == str(actual_notes)
             and (dnn.text or "").strip() == str(normal_notes)
-            and (dnt.text or "quarter").strip() == normal_type
+            and dst_normal_type == normal_type
         ):
             return False
     _set_time_modification(follower, ns, actual_notes, normal_notes, normal_type)
@@ -2108,6 +2130,10 @@ def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: 
     voices = {v for _, v, _, _ in leaders}
     if len(voices) <= 1:
         return False
+    leader_xs = [_parse_default_x(notes[i]) for i in leader_indices]
+    distinct_x = {round(x, 0) for x in leader_xs if x is not None}
+    if len(distinct_x) >= len(voices):
+        return _merge_staff_voices_to_primary(measure, ns, staff)
     for i in range(len(leader_indices) - 1):
         a = notes[leader_indices[i]]
         b = notes[leader_indices[i + 1]]
@@ -4440,6 +4466,70 @@ def _align_staves_timeline(measure: ET.Element, ns: str) -> None:
             break
 
 
+def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> bool:
+    """Staff note를 default-x 타임라인 순으로 XML 재배열 — voice 블록·편집기·OSMD 순서 일치."""
+    children = list(measure)
+    span_start: int | None = None
+    span_end: int | None = None
+    for i, el in enumerate(children):
+        if _local(el) != "note" or _note_voice_staff(el, ns)[1] != staff:
+            continue
+        if _is_grace_or_cue(el, ns):
+            continue
+        span_start = i if span_start is None else span_start
+        span_end = i
+    if span_start is None or span_end is None:
+        return False
+
+    extract: list[ET.Element] = []
+    for i in range(span_start, span_end + 1):
+        el = children[i]
+        loc = _local(el)
+        if loc == "note" and _note_voice_staff(el, ns)[1] == staff:
+            extract.append(el)
+        elif loc in ("backup", "forward"):
+            extract.append(el)
+
+    notes_only = [el for el in extract if _local(el) == "note"]
+    if len(notes_only) < 2:
+        return False
+    notes = list_note_elements(measure, ns)
+    groups = _chord_groups_in_order(notes_only, ns)
+    indexed = [
+        (
+            grp,
+            _parse_default_x(grp[0]) if _parse_default_x(grp[0]) is not None else 1_000_000.0,
+            notes.index(grp[0]),
+        )
+        for grp in groups
+    ]
+    indexed.sort(key=lambda t: (t[1], t[2]))
+    voices = {_note_voice_staff(g[0], ns)[0] for g, _, _ in indexed}
+    primary = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)[0]
+    sorted_notes: list[ET.Element] = []
+    for grp, _, _ in indexed:
+        for note in grp:
+            _set_note_voice_staff(note, ns, primary, staff)
+        sorted_notes.extend(grp)
+
+    current_leaders = [
+        n
+        for n in notes_only
+        if n.find(_q(ns, "chord")) is None and not _is_grace_or_cue(n, ns)
+    ]
+    new_leader_order = [g[0] for g, _, _ in indexed]
+    if [id(n) for n in current_leaders] == [id(n) for n in new_leader_order] and len(voices) <= 1:
+        return False
+
+    for el in extract:
+        measure.remove(el)
+    insert_at = span_start
+    for el in sorted_notes:
+        measure.insert(insert_at, el)
+        insert_at += 1
+    return True
+
+
 def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
     """HITL 삽입 후 마디 timeline 정렬. 다중 voice·동시 시작(다른 박자) 보존."""
     notes = list_note_elements(measure, ns)
@@ -4461,6 +4551,8 @@ def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
     _sync_all_chord_groups(notes_after, ns)
     for staff in ("1", "2"):
         _merge_staff_voices_if_non_overlapping(measure, ns, staff)
+    for staff in ("1", "2"):
+        _normalize_staff_note_order(measure, ns, staff)
     _compact_default_x_by_staff(measure, ns)
 
 

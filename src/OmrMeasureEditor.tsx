@@ -93,9 +93,12 @@ function tripletRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: n
   return { from: rhythmic[start].index, to: rhythmic[end].index };
 }
 
+const SHORT_BEAM_TYPES = new Set(['eighth', '16th', '32nd', '64th', '128th', '256th']);
+
 function isBeamableNoteEl(n: MeasureNoteEl): boolean {
   if (n.hasGrace || n.isCue) return false;
-  return n.kind === 'note' && !n.chord;
+  if (n.kind !== 'note' || n.chord) return false;
+  return SHORT_BEAM_TYPES.has(n.type ?? '');
 }
 
 const DYNAMICS_DIRECTION_VALUES = ['p', 'pp', 'mp', 'mf', 'f', 'ff', 'sf', 'sfz'] as const;
@@ -1725,7 +1728,7 @@ function MeasureNoteEditor({
             disabled={beamNoteCount < 2}
             title={
               beamNoteCount < 2
-                ? '빔 연결은 음표 2개 이상이 필요합니다 (쉼표·화음 하위음·grace 제외)'
+                ? '빔은 8분음표 이하(16·32분 등)에만 적용됩니다 — 2분·4분·세잇단 혼합은 「세잇단 적용」과 bracket을 사용하세요'
                 : `${beamNoteCount}개 음표를 빔 ${beamNumber}로 연결`
             }
             onClick={() => {

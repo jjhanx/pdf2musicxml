@@ -2280,6 +2280,9 @@ def _apply_beam_to_range(
     ]
     if len(pitched) < 2:
         return False
+    for idx in pitched:
+        if not _is_short_beamable_type(_note_written_type(notes[idx], ns)):
+            return False
 
     leader_voice, leader_staff = _note_voice_staff(notes[pitched[0]], ns)
     leader_stem_el = notes[pitched[0]].find(_q(ns, "stem"))
@@ -2441,16 +2444,62 @@ def _tuplet_group_has_rest(notes: list[ET.Element], indices: list[int], ns: str)
     return False
 
 
+_SHORT_BEAM_TYPES = frozenset({"eighth", "16th", "32nd", "64th", "128th", "256th"})
+
+
+def _is_short_beamable_type(note_type: str) -> bool:
+    return (note_type or "").strip() in _SHORT_BEAM_TYPES
+
+
 def _tuplet_group_has_beam(notes: list[ET.Element], indices: list[int], ns: str) -> bool:
+    """구간에 `<beam>` 태그가 하나라도 있으면 True (레거시)."""
     for i in indices:
         if notes[i].find(_q(ns, "beam")) is not None:
+            return True
+        notations = notes[i].find(_q(ns, "notations"))
+        if notations is not None and notations.findall(_q(ns, "beam")):
             return True
     return False
 
 
-def _tuplet_show_bracket(has_rest: bool, has_beam: bool) -> bool:
+def _tuplet_group_has_connected_beam(
+    notes: list[ET.Element], indices: list[int], ns: str
+) -> bool:
+    """리더 음표가 begin→continue*→end로 실제 빔 run을 이루고, 모두 8분 이하일 때만 True."""
+    leaders = [i for i in indices if not _is_chord_member_note(notes[i], ns)]
+    if len(leaders) < 2:
+        return False
+    for i in leaders:
+        if not _is_short_beamable_type(_note_written_type(notes[i], ns)):
+            return False
+    beam_vals = [_note_beam_value(notes[i], ns) for i in leaders]
+    if not any(beam_vals):
+        return False
+    if beam_vals[0] != "begin" or beam_vals[-1] != "end":
+        return False
+    for mid in beam_vals[1:-1]:
+        if mid not in ("continue", "end"):
+            return False
+    return True
+
+
+def _tuplet_span_needs_bracket(
+    notes: list[ET.Element], indices: list[int], ns: str, *, preserve_types: bool = False
+) -> bool:
+    """2분+4분 혼합 등 — bracket 필수(빔으로 대체 불가)."""
+    if preserve_types:
+        return True
+    types = {_note_written_type(notes[i], ns) for i in indices}
+    return any(not _is_short_beamable_type(t) for t in types)
+
+
+def _tuplet_show_bracket(
+    has_rest: bool, has_connected_beam: bool, *, needs_bracket: bool = False
+) -> bool:
     """빔·쉼표 없는 잇단(4분 세잇단 등)은 숫자 3 좌우 bracket 필요."""
-    return has_rest or not has_beam
+    if needs_bracket:
+        return True
+    return has_rest or not has_connected_beam
 
 
 def _is_chord_member_note(note: ET.Element, ns: str) -> bool:
@@ -2541,8 +2590,17 @@ def _apply_triplet_to_range(
         per_note = max(1, total // actual_notes)
         per_durs = [per_note] * len(indices)
     has_rest = _tuplet_group_has_rest(notes, indices, ns)
-    has_beam = _tuplet_group_has_beam(notes, indices, ns)
-    show_bracket = _tuplet_show_bracket(has_rest, has_beam)
+    needs_bracket = _tuplet_span_needs_bracket(
+        notes, indices, ns, preserve_types=preserve_types
+    )
+    has_connected_beam = _tuplet_group_has_connected_beam(notes, indices, ns)
+    show_bracket = _tuplet_show_bracket(
+        has_rest, has_connected_beam, needs_bracket=needs_bracket
+    )
+    if needs_bracket or not has_connected_beam:
+        for idx in indices:
+            for note_idx in [idx, *_chord_follower_indices(notes, ns, idx)]:
+                _strip_beams_from_note(notes[note_idx], ns)
     placement = _infer_tuplet_placement_for_range(notes, indices, ns)
     changed = False
     for pos, idx in enumerate(indices):
@@ -4554,6 +4612,50 @@ def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
     for staff in ("1", "2"):
         _normalize_staff_note_order(measure, ns, staff)
     _compact_default_x_by_staff(measure, ns)
+    _repair_tuplet_brackets_in_measure(measure, ns)
+
+
+def _repair_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> bool:
+    """혼합 세잇단·orphan beam 태그 — bracket 복구·4분/2분 빔 제거."""
+    notes = list_note_elements(measure, ns)
+    changed = False
+    for start, stop in _tuplet_notation_runs(notes, ns):
+        indices = _rhythmic_indices_in_range(notes, ns, start, stop)
+        if len(indices) < 2:
+            continue
+        needs_bracket = _tuplet_span_needs_bracket(notes, indices, ns)
+        has_rest = _tuplet_group_has_rest(notes, indices, ns)
+        connected = _tuplet_group_has_connected_beam(notes, indices, ns)
+        show = _tuplet_show_bracket(
+            has_rest, connected, needs_bracket=needs_bracket
+        )
+        if needs_bracket or not connected:
+            for idx in range(start, stop + 1):
+                note = notes[idx]
+                if _strip_beams_from_note(note, ns):
+                    changed = True
+                for fidx in _chord_follower_indices(notes, ns, idx):
+                    if _strip_beams_from_note(notes[fidx], ns):
+                        changed = True
+        start_note = notes[start]
+        notations = start_note.find(_q(ns, "notations"))
+        if notations is None:
+            continue
+        for tup in notations.findall(_q(ns, "tuplet")):
+            if (tup.get("type") or "").strip() != "start":
+                continue
+            want_sb = "yes" if show else "no"
+            want_br = "yes" if show else "no"
+            if (tup.get("show-bracket") or "") != want_sb:
+                tup.set("show-bracket", want_sb)
+                changed = True
+            if (tup.get("bracket") or "") != want_br:
+                tup.set("bracket", want_br)
+                changed = True
+            if show and not tup.get("placement"):
+                tup.set("placement", _infer_tuplet_placement_for_range(notes, indices, ns))
+                changed = True
+    return changed
 
 
 def _strip_all_direction_staff_tags(root: ET.Element, ns: str) -> int:

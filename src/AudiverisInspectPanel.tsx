@@ -1358,8 +1358,10 @@ export function removeAudiverisMeasureNumberingForOsmd(xml: string): string {
   }
 }
 
+import { normalizePrintedMeasureNumberText } from '../shared/measureNumberText';
+
 function normalizeMeasureNumberWords(text: string): string {
-  return text.replace(/[\uE000-\uF8FF]/g, '').trim();
+  return normalizePrintedMeasureNumberText(text) ?? text.replace(/[\uE000-\uF8FF]/g, '').trim();
 }
 
 function isLikelyPrintedMeasureNumberWords(text: string): boolean {

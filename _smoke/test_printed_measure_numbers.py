@@ -43,8 +43,9 @@ def test_restore_only_manifest_measures() -> None:
     try:
         fixed, stats = fix_score_xml(raw)
         xml = fixed.decode("utf-8")
+        restored = stats.get("measure_numbering_restored", 0)
         assert stats.get("measure_numbering_removed", 0) > 0
-        assert stats.get("measure_numbering_restored", 0) == 5
+        assert restored == 5, f"expected 5 restored, got {restored} stats={stats}"
         assert xml.count("<measure-numbering>") == 5
     finally:
         os.environ.pop("PDF2MXL_LYRIC_MANIFEST", None)

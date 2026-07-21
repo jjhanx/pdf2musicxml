@@ -19,6 +19,8 @@ _MEASURE_NUM_RE = re.compile(r"^\d{1,3}$")
 
 def is_measure_number_item(item: dict[str, Any]) -> bool:
     """악보 좌측 마디 번호(14, 17 등) — 가사 주입 대상이 아님."""
+    from measure_number_text import normalize_printed_measure_number_text
+
     t = str(item.get("type") or "")
     if t == "page_number":
         return False
@@ -26,7 +28,9 @@ def is_measure_number_item(item: dict[str, Any]) -> bool:
         return True
     if t in ("title", "composer", "copyright", "tempo"):
         return False
-    text = strip_pua(str(item.get("text") or "")).strip()
+    text = normalize_printed_measure_number_text(str(item.get("text") or ""))
+    if not text:
+        text = strip_pua(str(item.get("text") or "")).strip()
     if not _MEASURE_NUM_RE.fullmatch(text):
         return False
     bbox = item.get("bbox")

@@ -22,6 +22,7 @@ import {
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
+import { finalizeOsmdMeasureNumberPreview } from './osmdMeasureNumberSuppress';
 
 type InspectErrorBoundaryProps = {
   children: ReactNode;
@@ -43,9 +44,10 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderPartNames = false;
   rules.RenderPartAbbreviations = false;
   rules.RenderSystemLabelsAfterFirstPage = false;
-  // OSMD 기본 줄머리 번호는 measure@number+layout으로 전부 그려짐 — PDF 인쇄 번호만 direction으로 표시
+  // OSMD 기본 줄머리 번호는 measure@number+layout으로 전부 그려짐 — PDF 인쇄 번호만 HTML 오버레이
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
+  rules.UseXMLMeasureNumbers = false;
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
@@ -1334,13 +1336,12 @@ export function removeAudiverisMeasureNumberingForOsmd(xml: string): string {
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return xml;
 
+    doc.querySelectorAll('measure-numbering').forEach((mn) => mn.remove());
+
     for (const part of findXmlParts(doc)) {
       for (const meas of [...part.children]) {
         if (xmlLocalName(meas) !== 'measure') continue;
         for (const print of [...meas.children].filter((c) => xmlLocalName(c) === 'print')) {
-          for (const mn of [...print.children].filter((c) => xmlLocalName(c) === 'measure-numbering')) {
-            mn.remove();
-          }
           if (print.childElementCount === 0 && !print.textContent?.trim()) print.remove();
         }
       }
@@ -1448,8 +1449,8 @@ export function injectPrintedMeasureNumberDirectionsForOsmd(
 ): string {
   if (!markers.size) return xml;
   try {
-    const doc = new DOMParser().parseFromString(xml, 'text/xml');
-    if (doc.querySelector('parsererror')) return xml;
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
     const ns = doc.documentElement.namespaceURI;
     const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
     const parts = findXmlParts(doc);
@@ -1475,7 +1476,7 @@ export function injectPrintedMeasureNumberDirectionsForOsmd(
       else meas.insertBefore(dir, meas.children[idx] ?? null);
     }
 
-    return new XMLSerializer().serializeToString(doc);
+    return serializeMusicXmlDocument(doc);
   } catch {
     return xml;
   }
@@ -1555,9 +1556,7 @@ function sanitizeMusicXmlForOsmd(
     out = removeRedundantCourtesyClefsForOsmd(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, printedMeasureMarkers ?? new Map());
-    if (printedMeasureMarkers?.size) {
-      out = injectPrintedMeasureNumberDirectionsForOsmd(out, printedMeasureMarkers);
-    }
+    // 인쇄 번호는 XML <words> 주입 대신 finalizeOsmdMeasureNumberPreview HTML 오버레이로만 표시
     const doc = parseMusicXmlDocument(out);
     if (!doc) return xml;
 
@@ -1582,22 +1581,6 @@ function sanitizeMusicXmlForOsmd(
     return serializeMusicXmlDocument(doc);
   } catch {
     return xml;
-  }
-}
-
-/** OSMD가 XML sanitize 후에도 measure@number·words로 그리는 phantom 번호를 SVG에서 숨김 */
-export function hideSpuriousOsmdMeasureNumberText(
-  host: HTMLElement,
-  allowed: ReadonlyMap<number, string> | undefined,
-): void {
-  const allowedLabels = new Set(allowed?.values() ?? []);
-  for (const el of host.querySelectorAll('svg text, svg tspan')) {
-    const t = el.textContent?.trim() ?? '';
-    if (!MEASURE_NUM_WORDS_RE.test(t)) continue;
-    if (allowedLabels.has(t)) continue;
-    const svgEl = el as SVGElement;
-    svgEl.setAttribute('visibility', 'hidden');
-    svgEl.style.visibility = 'hidden';
   }
 }
 
@@ -1807,8 +1790,10 @@ export function OsmdBlock({
       requestAnimationFrame(() => {
         syncMeasureClickUi();
         const host = hostRef.current;
-        if (host) hideSpuriousOsmdMeasureNumberText(host, printedMeasureMarkersRef.current);
         const osmd = osmdRef.current;
+        if (host && osmd?.IsReadyToRender()) {
+          finalizeOsmdMeasureNumberPreview(host, osmd, printedMeasureMarkersRef.current);
+        }
         const trigger = scrollToMeasureTriggerRef.current;
         const target = scrollToMeasureRef.current;
         if (
@@ -1842,7 +1827,9 @@ export function OsmdBlock({
       osmd = new OpenSheetMusicDisplay(host, {
         autoResize: true,
         backend: 'svg',
-      });
+        drawMeasureNumbers: false,
+        useXMLMeasureNumbers: false,
+      } as ConstructorParameters<typeof OpenSheetMusicDisplay>[1]);
       applyOsmdPreviewEngravingRules(osmd.EngravingRules);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1867,6 +1854,7 @@ export function OsmdBlock({
       .load(xmlForOsmd)
       .then(() => {
         if (stale() || !host) return;
+        applyOsmdPreviewEngravingRules(osmd.EngravingRules);
         try {
           retargetGraphicalChordSlurBeziers(osmd);
         } catch (e) {

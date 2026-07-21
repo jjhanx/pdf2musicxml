@@ -22,7 +22,11 @@ import {
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
-import { finalizeOsmdMeasureNumberPreview } from './osmdMeasureNumberSuppress';
+import {
+  enforceOsmdPreviewMeasureNumberRules,
+  finalizeOsmdMeasureNumberPreview,
+  patchOsmdRenderForMeasureNumbers,
+} from './osmdMeasureNumberSuppress';
 
 type InspectErrorBoundaryProps = {
   children: ReactNode;
@@ -1632,6 +1636,7 @@ function scheduleOsmdRender(opts: {
     if (isStale()) return;
     try {
       osmd.zoom = zoom;
+      enforceOsmdPreviewMeasureNumberRules(osmd);
       osmd.render();
       host.querySelector('[data-osmd-warn="width"]')?.remove();
       onAfterRender?.();
@@ -1831,6 +1836,7 @@ export function OsmdBlock({
         useXMLMeasureNumbers: false,
       } as ConstructorParameters<typeof OpenSheetMusicDisplay>[1]);
       applyOsmdPreviewEngravingRules(osmd.EngravingRules);
+      patchOsmdRenderForMeasureNumbers(osmd, host, () => printedMeasureMarkersRef.current);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const d = document.createElement('div');

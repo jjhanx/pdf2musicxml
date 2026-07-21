@@ -7,47 +7,53 @@ function asRecord(v: unknown): RecordLike | null {
   return v && typeof v === 'object' ? (v as RecordLike) : null;
 }
 
-function hideGraphicalObject(obj: unknown): void {
-  const rec = asRecord(obj);
-  if (!rec) return;
-  rec.Visible = false;
-  rec.visible = false;
-  const ps = asRecord(rec.PositionAndShape ?? rec.positionAndShape);
-  if (ps) {
-    ps.Visible = false;
-    ps.visible = false;
-  }
-  for (const key of ['SVGElement', 'svgElement', 'domElement', 'HTMLSVGElement']) {
-    const el = rec[key];
-    if (el instanceof Element) {
-      (el as HTMLElement).style.visibility = 'hidden';
-      el.setAttribute('visibility', 'hidden');
-    }
-  }
+function normalizeMeasureNumberLabel(text: string): string {
+  return text
+    .replace(/[\uE000-\uF8FF]/g, '')
+    .replace(/[\uFF10-\uFF19]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xff10 + 0x30))
+    .trim();
 }
 
-/** OSMD MusicSystem.measureNumberLabels */
+function isMeasureNumberLabel(text: string): boolean {
+  return /^\d{1,3}$/.test(normalizeMeasureNumberLabel(text));
+}
+
+/** OSMD MusicSystem.measureNumberLabels — render 후 DOM/SVG 정리 */
 export function suppressOsmdAutoMeasureNumberGraphics(osmd: OpenSheetMusicDisplay): void {
   forEachOsmdSystem(osmd, (system) => {
     const labels = (system.measureNumberLabels ?? system.MeasureNumberLabels) as unknown[] | undefined;
-    for (const label of labels ?? []) hideGraphicalObject(label);
+    for (const label of labels ?? []) {
+      const rec = asRecord(label);
+      if (!rec) continue;
+      rec.Visible = false;
+      rec.visible = false;
+      const graphical = asRecord(rec.GraphicalLabel ?? rec.graphicalLabel);
+      if (graphical) {
+        graphical.Visible = false;
+        graphical.visible = false;
+      }
+    }
   });
 }
 
-const MEASURE_NUM_RE = /^\d{1,3}$/;
+function hideNumericSvgNode(el: Element, keepLabels: ReadonlySet<string>): void {
+  const t = normalizeMeasureNumberLabel(el.textContent ?? '');
+  if (!isMeasureNumberLabel(t)) return;
+  if (keepLabels.has(t)) return;
+  el.remove();
+}
 
+/** phantom 마디 번호 SVG text/tspan 제거 — 허용 라벨은 HTML 오버레이만 사용 */
 export function hideSpuriousMeasureNumberSvgText(
-  host: HTMLElement,
+  root: HTMLElement,
   allowed: ReadonlyMap<number, string> | undefined,
 ): void {
-  const allowedLabels = new Set(allowed?.values() ?? []);
-  for (const el of host.querySelectorAll('svg text, svg tspan')) {
-    const t = el.textContent?.trim() ?? '';
-    if (!MEASURE_NUM_RE.test(t)) continue;
-    if (allowedLabels.has(t)) continue;
-    const svgEl = el as SVGElement;
-    svgEl.setAttribute('visibility', 'hidden');
-    svgEl.style.visibility = 'hidden';
+  const keepLabels = new Set<string>(); // SVG 숫자는 전부 제거, manifest만 HTML overlay
+  void allowed;
+  for (const svg of root.querySelectorAll('svg')) {
+    for (const el of [...svg.querySelectorAll('text, tspan')]) {
+      hideNumericSvgNode(el, keepLabels);
+    }
   }
 }
 
@@ -95,12 +101,47 @@ export function applyPrintedMeasureNumberPreviewOverlay(
   });
 }
 
+export function previewMeasureNumberRoots(host: HTMLElement): HTMLElement[] {
+  const roots = new Set<HTMLElement>();
+  roots.add(host);
+  const frame = host.closest('.omr-mxl-osmd-frame');
+  if (frame instanceof HTMLElement) roots.add(frame);
+  return [...roots];
+}
+
 export function finalizeOsmdMeasureNumberPreview(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
   allowed: ReadonlyMap<number, string> | undefined,
 ): void {
   suppressOsmdAutoMeasureNumberGraphics(osmd);
-  hideSpuriousMeasureNumberSvgText(host, allowed);
+  for (const root of previewMeasureNumberRoots(host)) {
+    hideSpuriousMeasureNumberSvgText(root, allowed);
+  }
   if (allowed?.size) applyPrintedMeasureNumberPreviewOverlay(host, osmd, allowed);
+}
+
+/** 매 render 직전 OSMD 자동 마디번호 끔 */
+export function enforceOsmdPreviewMeasureNumberRules(osmd: OpenSheetMusicDisplay): void {
+  const rules = osmd.EngravingRules;
+  rules.RenderMeasureNumbers = false;
+  rules.RenderMeasureNumbersOnlyAtSystemStart = false;
+  rules.UseXMLMeasureNumbers = false;
+}
+
+/** osmd.render()마다 규칙 적용 + phantom 번호 DOM 제거 */
+export function patchOsmdRenderForMeasureNumbers(
+  osmd: OpenSheetMusicDisplay,
+  host: HTMLElement,
+  getAllowed: () => ReadonlyMap<number, string> | undefined,
+): void {
+  const raw = osmd as unknown as RecordLike;
+  if (raw.__omrMeasureNumberPatch) return;
+  raw.__omrMeasureNumberPatch = true;
+  const original = osmd.render.bind(osmd);
+  osmd.render = () => {
+    enforceOsmdPreviewMeasureNumberRules(osmd);
+    original();
+    finalizeOsmdMeasureNumberPreview(host, osmd, getAllowed());
+  };
 }

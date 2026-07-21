@@ -1534,8 +1534,9 @@ export function buildOsmdPreviewXml(
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
   if (!verbatim) {
     xml = migrateDirectionsToNotes(xml);
-    xml = promoteNoteDynamicsForOsmdPreview(xml);
   }
+  /** HITL `addNoteDirection`(dynamics)는 MXL에 `<notations><dynamics>`로 저장 — OSMD는 이를 거의 그리지 않음 */
+  xml = promoteNoteDynamicsForOsmdPreview(xml);
   if (!filter) {
     return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts, { verbatim });
   }

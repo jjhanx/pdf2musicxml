@@ -1,6 +1,9 @@
 /** lyric_manifest / PyMuPDF 검토에서 인쇄 마디 번호 → MXL measure@number 매핑 */
 
-import { normalizePrintedMeasureNumberText } from './measureNumberText';
+import {
+  extractLeadingPrintedMeasureNumberText,
+  normalizePrintedMeasureNumberText,
+} from './measureNumberText';
 
 export type PrintedMeasureMarker = {
   mxlMeasure: number;
@@ -24,6 +27,9 @@ const MEASURE_NUM_RE = /^\d{1,3}$/;
 /** A4 기본 폭(pt) — manifest에 pageWidth 없을 때 */
 const DEFAULT_PAGE_WIDTH_PT = 595;
 
+/** 좌측 줄머리 — 원문자·숫자 마디 번호 위치 */
+const SIDEBAR_X_MAX_PT = 130;
+
 function stripPua(text: string): string {
   return text.replace(/[\uE000-\uF8FF]/g, '');
 }
@@ -39,22 +45,28 @@ function itemPage(item: Record<string, unknown>): number {
   return Number.isFinite(p) ? p : 0;
 }
 
-function itemKey(item: Record<string, unknown>): string {
+function itemKey(item: Record<string, unknown>, label: string): string {
   const id = String(item.id ?? item.matchId ?? '');
   if (id) return id;
   const bb = bboxOf(item);
   const pg = itemPage(item);
-  const label =
-    normalizePrintedMeasureNumberText(String(item.text ?? '')) ??
-    stripPua(String(item.text ?? '')).trim();
   if (!bb) return `p${pg}:${label}`;
   return `p${pg}:${label}:${bb.map((v) => Math.round(v)).join(',')}`;
 }
 
+function isExcludedManifestItemType(item: Record<string, unknown>): boolean {
+  const t = String(item.type ?? '');
+  return (
+    t === 'page_number' ||
+    t === 'title' ||
+    t === 'composer' ||
+    t === 'copyright' ||
+    t === 'tempo'
+  );
+}
+
 /**
  * PDF 줄머리 `measure_number` 숫자 → MusicXML `measure@number`.
- * HITL 편집(인쇄≈MXL+offset)과 달리, sidebar 숫자 N은 **그 줄의 MXL N**에 붙는 경우가 많아
- * pickup offset만 쓰면 미리보기에서 1마디 앞당겨 보임 → +1 보정.
  */
 export function printedSidebarNumberToMxlMeasure(
   printedNum: number,
@@ -64,11 +76,7 @@ export function printedSidebarNumberToMxlMeasure(
   return printedNum - offset + 1;
 }
 
-/**
- * 악보 인쇄 관례:
- * - 초반(2–11): 페이지 우상단 좁은 숫자(원문자 OCR → 한 자리씩 페이지마다)
- * - 이후: 좌측 줄머리(위·아래 시스템)에 17, 23, 28 …
- */
+/** 우상단 좁은 숫자 = PDF 페이지 인덱스 오인(실제 마디 번호 아님) */
 export function classifyMeasureNumberZone(
   bbox: number[],
   pageWidthPt = DEFAULT_PAGE_WIDTH_PT,
@@ -79,79 +87,83 @@ export function classifyMeasureNumberZone(
   const w = Math.abs(x1 - x0);
   const rightEdge = pageWidthPt * 0.72;
   if (x0 >= rightEdge && y0 < 110 && w <= 14) return 'header';
-  if (x0 < 130) {
+  if (x0 < SIDEBAR_X_MAX_PT) {
     return y0 < 200 ? 'sidebar_top' : 'sidebar_bottom';
   }
   return 'other';
 }
 
-export function isMeasureNumberManifestItem(item: Record<string, unknown>): boolean {
+export function isSidebarMeasureNumberBbox(bbox: number[]): boolean {
+  return bbox[0] < SIDEBAR_X_MAX_PT;
+}
+
+type ResolvedMeasureNumber = {
+  label: string;
+  bbox: number[];
+  fromSpan: boolean;
+};
+
+/** manifest 한 줄에서 인쇄 마디 번호 후보 추출 (없으면 null) */
+export function resolveMeasureNumberFromManifestItem(
+  item: Record<string, unknown>,
+  pageWidthPt = DEFAULT_PAGE_WIDTH_PT,
+): ResolvedMeasureNumber | null {
+  if (isExcludedManifestItemType(item)) return null;
+
+  const spans = item.spans;
+  if (Array.isArray(spans) && spans.length > 0) {
+    const first = spans[0];
+    if (first && typeof first === 'object') {
+      const span = first as Record<string, unknown>;
+      const label = extractLeadingPrintedMeasureNumberText(String(span.text ?? ''));
+      const spanBbox = span.bbox;
+      if (
+        label &&
+        Array.isArray(spanBbox) &&
+        spanBbox.length >= 4 &&
+        isSidebarMeasureNumberBbox(spanBbox.map((v) => Number(v)))
+      ) {
+        const bb = spanBbox.map((v) => Number(v));
+        if (classifyMeasureNumberZone(bb, pageWidthPt) !== 'header') {
+          return { label, bbox: bb, fromSpan: true };
+        }
+      }
+    }
+  }
+
+  const bbox = bboxOf(item);
+  if (!bbox) return null;
+  const zone = classifyMeasureNumberZone(bbox, pageWidthPt);
+  if (zone === 'header') return null;
+
+  const rawText = String(item.text ?? '');
+  const leading = extractLeadingPrintedMeasureNumberText(rawText);
+  const pure = normalizePrintedMeasureNumberText(rawText);
+  const label =
+    leading ??
+    (pure && pure === stripPua(rawText).trim() ? pure : null);
+  if (!label || !MEASURE_NUM_RE.test(label)) return null;
+
+  if (isSidebarMeasureNumberBbox(bbox)) {
+    return { label, bbox, fromSpan: false };
+  }
+
+  const w = Math.abs(bbox[2] - bbox[0]);
   const t = String(item.type ?? '');
-  if (t === 'page_number') return false;
-  if (t === 'title' || t === 'composer' || t === 'copyright' || t === 'tempo') return false;
-
-  const normalized = normalizePrintedMeasureNumberText(String(item.text ?? ''));
-  if (normalized && MEASURE_NUM_RE.test(normalized)) {
-    if (t === 'measure_number') return true;
-    const bbox = bboxOf(item);
-    if (bbox) {
-      const w = Math.abs(bbox[2] - bbox[0]);
-      if (w > 100) return false;
-      if (w <= 24) return true;
-    }
-    return t === '' || t === 'unknown';
+  if (w <= 24 && (t === 'measure_number' || t === '' || t === 'unknown')) {
+    return { label, bbox, fromSpan: false };
   }
-
-  if (t === 'measure_number') {
-    const fallback = stripPua(String(item.text ?? '')).trim();
-    return MEASURE_NUM_RE.test(fallback);
-  }
-  return false;
+  return null;
 }
 
-function zonePriority(zone: MeasureNumberZone): number {
-  switch (zone) {
-    case 'sidebar_bottom':
-      return 3;
-    case 'sidebar_top':
-      return 2;
-    case 'header':
-      return 1;
-    default:
-      return 0;
-  }
+export function isMeasureNumberManifestItem(item: Record<string, unknown>): boolean {
+  return resolveMeasureNumberFromManifestItem(item) !== null;
 }
 
-/** 영역·숫자 크기 규칙으로 OCR 잡음(사이드바 5·9, 44 등) 제거 */
-export function shouldKeepMeasureNumberCandidate(
-  c: ManifestMeasureNumberCandidate,
-  hasHeaderOpening: boolean,
-): boolean {
-  const { printed, zone } = c;
-
-  if (!hasHeaderOpening) {
-    if (zone === 'sidebar_top' || zone === 'sidebar_bottom') return printed >= 2;
-    if (zone === 'header') return printed >= 2 && printed <= 11;
-    return c.typed && c.bboxWidth >= 10 && printed >= 2;
-  }
-
-  if (zone === 'header') return printed >= 2 && printed <= 11;
-  if (zone === 'sidebar_bottom') return printed >= 17;
-  if (zone === 'sidebar_top') {
-    if (printed <= 11) return false;
-    if (printed >= 30) {
-      if (printed < 50 && printed % 10 === 4) return false;
-      return true;
-    }
-    return false;
-  }
-  return c.typed && c.bboxWidth >= 10 && printed >= 2;
-}
-
-export function manifestUsesHeaderOpeningMeasureNumbers(
-  candidates: ManifestMeasureNumberCandidate[],
-): boolean {
-  return candidates.some((c) => c.zone === 'header' && c.printed >= 2 && c.printed <= 11);
+export function shouldKeepMeasureNumberCandidate(c: ManifestMeasureNumberCandidate): boolean {
+  if (c.zone === 'header') return false;
+  if (c.zone === 'sidebar_top' || c.zone === 'sidebar_bottom') return c.printed >= 2;
+  return c.typed && c.bboxWidth >= 10 && c.printed >= 2;
 }
 
 export function collectMeasureNumberCandidatesFromManifest(
@@ -170,30 +182,24 @@ export function collectMeasureNumberCandidatesFromManifest(
     for (const raw of coll) {
       if (!raw || typeof raw !== 'object') continue;
       const item = raw as Record<string, unknown>;
-      if (!isMeasureNumberManifestItem(item)) continue;
+      const resolved = resolveMeasureNumberFromManifestItem(item, pageWidth);
+      if (!resolved) continue;
 
-      const key = itemKey(item);
+      const key = itemKey(item, resolved.label);
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const label =
-        normalizePrintedMeasureNumberText(String(item.text ?? '')) ??
-        stripPua(String(item.text ?? '')).trim();
-      if (!MEASURE_NUM_RE.test(label)) continue;
-
-      const printed = parseInt(label, 10);
+      const printed = parseInt(resolved.label, 10);
       if (!Number.isFinite(printed)) continue;
 
-      const bbox = bboxOf(item);
-      if (!bbox) continue;
-      const w = Math.abs(bbox[2] - bbox[0]);
-      const zone = classifyMeasureNumberZone(bbox, pageWidth);
+      const w = Math.abs(resolved.bbox[2] - resolved.bbox[0]);
+      const zone = classifyMeasureNumberZone(resolved.bbox, pageWidth);
       const typed = String(item.type ?? '') === 'measure_number';
 
       out.push({
         page: itemPage(item),
         printed,
-        printedLabel: label,
+        printedLabel: resolved.label,
         zone,
         bboxWidth: w,
         typed,
@@ -209,14 +215,7 @@ export function selectPrintedMeasureMarkersFromCandidates(
   candidates: ManifestMeasureNumberCandidate[],
   measureOffsetPrinted: number,
 ): PrintedMeasureMarker[] {
-  const hasHeaderOpening = manifestUsesHeaderOpeningMeasureNumbers(candidates);
-  const minHeaderPage = hasHeaderOpening
-    ? Math.min(...candidates.filter((c) => c.zone === 'header').map((c) => c.page))
-    : 0;
-  const kept = candidates.filter((c) => {
-    if (hasHeaderOpening && c.zone !== 'header' && c.page < minHeaderPage) return false;
-    return shouldKeepMeasureNumberCandidate(c, hasHeaderOpening);
-  });
+  const kept = candidates.filter(shouldKeepMeasureNumberCandidate);
   const byMxl = new Map<number, ManifestMeasureNumberCandidate>();
 
   for (const c of kept) {
@@ -228,7 +227,7 @@ export function selectPrintedMeasureMarkersFromCandidates(
       continue;
     }
     const score = (x: ManifestMeasureNumberCandidate) =>
-      zonePriority(x.zone) * 1000 + x.bboxWidth + (x.typed ? 50 : 0);
+      (x.typed ? 100 : 0) + x.bboxWidth + (x.zone === 'sidebar_bottom' ? 10 : 0);
     if (score(c) > score(prev)) byMxl.set(mxl, c);
   }
 
@@ -251,4 +250,7 @@ export function printedMeasureMarkerMap(
   return new Map(markers.map((m) => [m.mxlMeasure, m.printedLabel]));
 }
 
-export { normalizePrintedMeasureNumberText } from './measureNumberText';
+export {
+  extractLeadingPrintedMeasureNumberText,
+  normalizePrintedMeasureNumberText,
+} from './measureNumberText';

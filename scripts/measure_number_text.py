@@ -46,3 +46,33 @@ def normalize_printed_measure_number_text(raw: str) -> str | None:
     if n < 1 or n > 999:
         return None
     return digits
+
+
+def extract_leading_printed_measure_number_text(raw: str) -> str | None:
+    """OCR 병합 \"13 T\", \"36 To Coda\" 등 — 앞쪽 마디 번호만."""
+    trimmed = _PUA_RE.sub("", str(raw or "")).strip()
+    if not trimmed:
+        return None
+
+    digits = ""
+    started = False
+    for ch in trimmed:
+        mapped = _map_special_digit(ord(ch))
+        if mapped is not None:
+            digits += mapped
+            started = True
+            continue
+        if ch.isdigit():
+            digits += ch
+            started = True
+            continue
+        if started:
+            break
+        return None
+
+    if not re.fullmatch(r"\d{1,3}", digits):
+        return None
+    n = int(digits)
+    if n < 1 or n > 999:
+        return None
+    return digits

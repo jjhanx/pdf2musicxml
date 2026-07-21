@@ -19,29 +19,9 @@ _MEASURE_NUM_RE = re.compile(r"^\d{1,3}$")
 
 def is_measure_number_item(item: dict[str, Any]) -> bool:
     """악보 좌측 마디 번호(14, 17 등) — 가사 주입 대상이 아님."""
-    from measure_number_text import normalize_printed_measure_number_text
+    from printed_measure_numbers import resolve_measure_number_from_manifest_item
 
-    t = str(item.get("type") or "")
-    if t == "page_number":
-        return False
-    if t == "measure_number":
-        return True
-    if t in ("title", "composer", "copyright", "tempo"):
-        return False
-    text = normalize_printed_measure_number_text(str(item.get("text") or ""))
-    if not text:
-        text = strip_pua(str(item.get("text") or "")).strip()
-    if not _MEASURE_NUM_RE.fullmatch(text):
-        return False
-    bbox = item.get("bbox")
-    if isinstance(bbox, list) and len(bbox) >= 4:
-        w = abs(float(bbox[2]) - float(bbox[0]))
-        if w > 100:
-            return False
-        # 좁은 bbox 숫자는 UI에서 lyrics로 잘못 태깅돼도 마디 번호로 본다.
-        if w <= 24:
-            return True
-    return t in ("", "unknown")
+    return resolve_measure_number_from_manifest_item(item) is not None
 
 
 def is_page_number_item(item: dict[str, Any]) -> bool:

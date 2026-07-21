@@ -9,7 +9,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from measure_number_text import normalize_printed_measure_number_text
+from measure_number_text import (
+    extract_leading_printed_measure_number_text,
+    normalize_printed_measure_number_text,
+)
 from printed_measure_numbers import (
     collect_measure_number_candidates_from_manifest,
     load_printed_measure_marker_map,
@@ -20,23 +23,25 @@ MANIFEST = ROOT / "_smoke" / "_6cbf_q" / "lyric_manifest.json"
 CHEongsan = ROOT / "청산에 살리라 F장조(이현철 곡)-lyric_manifest.json"
 
 EXPECTED_CHEONGSAN = {
-    2,
-    3,
-    4,
     5,
-    6,
-    7,
-    8,
     9,
-    10,
-    11,
+    13,
     17,
+    21,
     23,
+    25,
     28,
     32,
+    36,
+    38,
     41,
+    44,
+    47,
+    50,
     53,
     56,
+    59,
+    62,
     66,
 }
 
@@ -50,6 +55,13 @@ def test_normalize_circled_digits() -> None:
     assert normalize_printed_measure_number_text("  17  ") == "17"
 
 
+def test_leading_extract_merged_ocr() -> None:
+    assert extract_leading_printed_measure_number_text("13 T") == "13"
+    assert extract_leading_printed_measure_number_text("36 To Coda") == "36"
+    assert extract_leading_printed_measure_number_text("62 ritard.C C C") == "62"
+    assert extract_leading_printed_measure_number_text("T 13") is None
+
+
 def test_cheongsan_manifest_zones() -> None:
     if not CHEongsan.is_file():
         return
@@ -58,18 +70,18 @@ def test_cheongsan_manifest_zones() -> None:
     markers = select_printed_measure_markers_from_candidates(candidates, 1)
     mxl_set = {m for m, _ in markers}
     assert mxl_set == EXPECTED_CHEONGSAN, f"got {sorted(mxl_set)}"
-    assert 44 not in mxl_set
+    assert 2 not in mxl_set
+    assert 3 not in mxl_set
 
 
-def test_synthetic_header_and_sidebar() -> None:
+def test_synthetic_sidebar_and_reject_page_corner() -> None:
     manifest = {
         "items": [
-            {"id": "h2", "page": 2, "type": "measure_number", "text": "2", "bbox": [516, 65, 521, 74]},
-            {"id": "h3", "page": 3, "type": "measure_number", "text": "3", "bbox": [516, 65, 521, 74]},
-            {"id": "s17", "page": 3, "type": "measure_number", "text": "17", "bbox": [74, 425, 91, 436]},
-            {"id": "bad5", "page": 2, "type": "measure_number", "text": "5", "bbox": [77, 83, 88, 94]},
-            {"id": "bad44", "page": 8, "type": "measure_number", "text": "44", "bbox": [74, 83, 91, 94]},
-            {"id": "circled", "page": 4, "type": "measure_number", "text": "④", "bbox": [516, 65, 521, 74]},
+            {"id": "page5", "page": 5, "type": "measure_number", "text": "5", "bbox": [516, 65, 521, 74]},
+            {"id": "m5", "page": 2, "type": "measure_number", "text": "5", "bbox": [77, 83, 88, 94]},
+            {"id": "m13", "page": 3, "type": "unknown", "text": "13 T", "bbox": [74, 69, 207, 100],
+             "spans": [{"text": "13", "bbox": [74, 83, 91, 94]}, {"text": "T", "bbox": [193, 69, 207, 100]}]},
+            {"id": "m44", "page": 8, "type": "measure_number", "text": "44", "bbox": [74, 83, 91, 94]},
         ]
     }
     markers = select_printed_measure_markers_from_candidates(
@@ -77,12 +89,10 @@ def test_synthetic_header_and_sidebar() -> None:
         1,
     )
     by_mxl = dict(markers)
-    assert by_mxl[2] == "2"
-    assert by_mxl[3] == "3"
-    assert by_mxl[4] == "4"
-    assert by_mxl[17] == "17"
-    assert 44 not in by_mxl
-    assert 5 not in by_mxl
+    assert by_mxl[5] == "5"
+    assert by_mxl[13] == "13"
+    assert by_mxl[44] == "44"
+    assert 2 not in by_mxl
 
 
 def test_marker_map_from_6cbf() -> None:
@@ -94,7 +104,8 @@ def test_marker_map_from_6cbf() -> None:
 
 if __name__ == "__main__":
     test_normalize_circled_digits()
-    test_synthetic_header_and_sidebar()
+    test_leading_extract_merged_ocr()
+    test_synthetic_sidebar_and_reject_page_corner()
     test_cheongsan_manifest_zones()
     test_marker_map_from_6cbf()
     print("ok")

@@ -70,6 +70,7 @@ export type OmrHitlFix = {
 export const FIX_KIND_LABEL: Record<string, string> = {
   removeSpuriousDirection: 'P·9 direction 제거',
   removeDirection: 'direction 제거',
+  setMeasureDirectionText: '마디 direction 텍스트',
   insertDirection: 'direction 추가',
   addNoteDirection: '음표 direction 추가',
   removeNoteDirection: '음표 direction 제거',

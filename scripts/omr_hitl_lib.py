@@ -755,6 +755,34 @@ def _snapshot_timeline_sort_key(snap: dict[str, Any]) -> tuple[Any, ...]:
     return (staff, x, 0 if not snap.get("chord") else 1, snap.get("index") or 0)
 
 
+def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
+    """마디 `<direction>` (템포 제외) — OCR 제목·마디번호 words 등 HITL 편집용."""
+    out: list[dict[str, Any]] = []
+    for i, direction in enumerate(measure.findall(_q(ns, "direction"))):
+        if _direction_has_tempo(direction, ns):
+            continue
+        info = _direction_element_info(direction, ns)
+        text = _direction_text(direction)
+        if not text and not info.get("directionValue"):
+            continue
+        staff_el = direction.find(_q(ns, "staff"))
+        staff_n: int | None = None
+        if staff_el is not None and staff_el.text and staff_el.text.strip().isdigit():
+            staff_n = int(staff_el.text.strip())
+        out.append(
+            {
+                "elementKind": "direction",
+                "directionIndex": i,
+                "text": text or str(info.get("directionValue") or ""),
+                "directionType": info.get("directionType") or "words",
+                "directionValue": info.get("directionValue") or text,
+                "placement": (direction.get("placement") or "").strip() or None,
+                "staff": staff_n,
+            }
+        )
+    return out
+
+
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     elements: list[dict[str, Any]] = []
     note_index = 0
@@ -799,12 +827,14 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
     elements = measure_elements_snapshot(measure, ns)
     tempos = _measure_tempo_snapshot(measure, ns)
     effective = _effective_tempo_bpm_before(root, ns, part_id, measure_mxl)
+    measure_directions = _measure_standalone_directions_snapshot(measure, ns)
     return {
         "partId": part_id,
         "measureMxl": str(measure_mxl),
         "notes": elements,
         "elements": elements,
         "tempos": tempos,
+        "measureDirections": measure_directions,
         "effectiveTempoBpm": effective,
     }
 
@@ -3025,6 +3055,28 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             measure.remove(directions[direction_index])
             return True
         return False
+
+    if kind == "setMeasureDirectionText":
+        try:
+            direction_index = int(fix.get("directionIndex"))
+        except (TypeError, ValueError):
+            return False
+        new_text = str(fix.get("text") or fix.get("directionValue") or fix.get("detail") or "").strip()
+        directions = measure.findall(_q(ns, "direction"))
+        if not (0 <= direction_index < len(directions)):
+            return False
+        direction = directions[direction_index]
+        dtype = direction.find(_q(ns, "direction-type"))
+        if dtype is None:
+            dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        words = dtype.find(_q(ns, "words"))
+        reh = dtype.find(_q(ns, "rehearsal"))
+        target = words if words is not None else reh
+        if target is None:
+            words = ET.SubElement(dtype, _q(ns, "words"))
+            target = words
+        target.text = new_text
+        return True
 
     if kind == "clearNoteDirection":
         try:

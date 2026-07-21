@@ -41,22 +41,27 @@ export function isMeasureNumberManifestItem(item: Record<string, unknown>): bool
 }
 
 export function parsePrintedMeasureMarkersFromManifest(
-  manifest: { items?: unknown[] } | null | undefined,
+  manifest: { items?: unknown[]; pymupdfReviewItems?: unknown[] } | null | undefined,
   measureOffsetPrinted: number,
 ): PrintedMeasureMarker[] {
-  if (!manifest || !Array.isArray(manifest.items)) return [];
+  if (!manifest) return [];
   const offset = Number.isFinite(measureOffsetPrinted) ? measureOffsetPrinted : 1;
   const byMxl = new Map<number, string>();
-  for (const raw of manifest.items) {
-    if (!raw || typeof raw !== 'object') continue;
-    const item = raw as Record<string, unknown>;
-    if (!isMeasureNumberManifestItem(item)) continue;
-    const printed = stripPua(String(item.text ?? '')).trim();
-    const printedNum = parseInt(printed, 10);
-    if (!Number.isFinite(printedNum)) continue;
-    const mxlMeasure = printedSidebarNumberToMxlMeasure(printedNum, offset);
-    if (mxlMeasure < 1) continue;
-    if (!byMxl.has(mxlMeasure)) byMxl.set(mxlMeasure, printed);
+  const sources: unknown[][] = [];
+  if (Array.isArray(manifest.items)) sources.push(manifest.items);
+  if (Array.isArray(manifest.pymupdfReviewItems)) sources.push(manifest.pymupdfReviewItems);
+  for (const coll of sources) {
+    for (const raw of coll) {
+      if (!raw || typeof raw !== 'object') continue;
+      const item = raw as Record<string, unknown>;
+      if (!isMeasureNumberManifestItem(item)) continue;
+      const printed = stripPua(String(item.text ?? '')).trim();
+      const printedNum = parseInt(printed, 10);
+      if (!Number.isFinite(printedNum)) continue;
+      const mxlMeasure = printedSidebarNumberToMxlMeasure(printedNum, offset);
+      if (mxlMeasure < 1) continue;
+      if (!byMxl.has(mxlMeasure)) byMxl.set(mxlMeasure, printed);
+    }
   }
   return [...byMxl.entries()]
     .sort((a, b) => a[0] - b[0])

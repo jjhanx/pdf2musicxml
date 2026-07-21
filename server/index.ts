@@ -588,7 +588,10 @@ async function readPrintedMeasureMarkersFromSession(
   const manifestPath = sessionLyricManifestPath(sessionRoot);
   if (!fsSync.existsSync(manifestPath)) return [];
   try {
-    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as { items?: unknown[] };
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as {
+      items?: unknown[];
+      pymupdfReviewItems?: unknown[];
+    };
     return parsePrintedMeasureMarkersFromManifest(manifest, measureOffsetPrinted);
   } catch {
     return [];

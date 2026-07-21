@@ -627,9 +627,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           <span style={{ color: '#555' }}>
             저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. 미리보기만 m1 조표·조바꿈 F clef 오인·줄바꿈
             courtesy clef·<strong>줄머리 마디 번호</strong>는 PDF·가사 검토에서 인식한{' '}
-            <code>measure_number</code>만 표시합니다(OSMD 자동 번호는 끔). 마디 끝 phantom clef·최종 MXL
-            measure-numbering은 「OMR 자동 정리」 또는 이어하기 후 반영. PDF와 다르면 마디 편집(HITL) 또는 가사
-            검토에서 마디 번호 구분을 확인하세요.
+            <code>measure_number</code>만 표시합니다(OSMD 자동 번호·Audiveris OCR 숫자 words는 끔).{' '}
+            <strong>1마디</strong>를 클릭하면 「마디 텍스트 (제목·OCR 찌끼)」에서 direction을 삭제·수정할 수 있습니다.
+            마디 끝 phantom clef·최종 MXL measure-numbering은 「OMR 자동 정리」 또는 이어하기 후 반영. PDF와 다르면 마디
+            편집(HITL) 또는 가사 검토에서 마디 번호 구분을 확인하세요.
           </span>
         </p>
       </div>

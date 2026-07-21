@@ -309,6 +309,9 @@ export type MeasureDirectionEl = {
   directionIndex: number;
   text: string;
   staff?: number | null;
+  placement?: string | null;
+  directionType?: string;
+  directionValue?: string;
   /** `<notations><dynamics>` — 음표 #index에 붙음 */
   attachedToNoteIndex?: number;
   fromNoteDynamics?: boolean;
@@ -365,6 +368,7 @@ type MeasureSnapshot = {
   elements?: MeasureElement[];
   notes?: MeasureNoteEl[];
   tempos?: MeasureTempoEntry[];
+  measureDirections?: MeasureDirectionEl[];
   effectiveTempoBpm?: number | null;
 };
 
@@ -380,6 +384,105 @@ const BEAT_UNIT_OPTIONS = [
   { value: 'half', label: '2분음표(𝅗)' },
   { value: 'eighth', label: '8분음표(♪)' },
 ] as const;
+
+function MeasureDirectionsEditor({
+  directions,
+  measureMxl,
+  onFix,
+}: {
+  directions: MeasureDirectionEl[];
+  measureMxl: number;
+  onFix: (partial: FixPartial) => void;
+}) {
+  const [edits, setEdits] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    const next: Record<number, string> = {};
+    for (const d of directions) {
+      next[d.directionIndex] = d.text;
+    }
+    setEdits(next);
+  }, [directions, measureMxl]);
+
+  if (!directions.length) return null;
+
+  return (
+    <div
+      className="omr-measure-directions-panel"
+      style={{
+        marginBottom: '0.85rem',
+        padding: '0.65rem 0.75rem',
+        background: '#fff8e6',
+        borderRadius: 6,
+        border: '1px solid #ffe082',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>마디 텍스트 (제목·OCR 찌끼)</div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        OMR이 넣은 <code>&lt;direction&gt;&lt;words&gt;</code> 입니다. clean_score에 남은 제목 한글·숫자 찌끼를{' '}
+        <strong>삭제</strong>하거나 올바른 제목으로 <strong>고친 뒤</strong> 「MXL에 반영·미리보기」를 누르세요.
+        {measureMxl === 1 ? ' 1마디 상단 제목은 여기서 지우는 경우가 많습니다.' : ''}
+      </p>
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {directions.map((d) => (
+          <li
+            key={`dir-${d.directionIndex}`}
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              alignItems: 'center',
+              padding: '0.35rem 0',
+              borderBottom: '1px solid #ffe082',
+            }}
+          >
+            <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
+              dir #{d.directionIndex}
+              {d.placement ? ` · ${d.placement}` : ''}
+              {d.staff != null ? ` · staff ${d.staff}` : ''}
+            </span>
+            <input
+              type="text"
+              value={edits[d.directionIndex] ?? d.text}
+              onChange={(e) =>
+                setEdits((prev) => ({
+                  ...prev,
+                  [d.directionIndex]: e.target.value,
+                }))
+              }
+              style={{ flex: '1 1 12rem', minWidth: '8rem', padding: '0.35rem 0.5rem' }}
+            />
+            <button
+              type="button"
+              className="omr-hitl-fix-btn"
+              onClick={() =>
+                onFix({
+                  kind: 'setMeasureDirectionText',
+                  directionIndex: d.directionIndex,
+                  text: (edits[d.directionIndex] ?? d.text).trim(),
+                })
+              }
+            >
+              텍스트 적용
+            </button>
+            <button
+              type="button"
+              className="omr-hitl-fix-btn"
+              onClick={() =>
+                onFix({
+                  kind: 'removeDirection',
+                  directionIndex: d.directionIndex,
+                })
+              }
+            >
+              삭제
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function MeasureTempoEditor({
   tempos,
@@ -797,11 +900,18 @@ export function OmrMeasureEditor({
       {loading && !snapshot ? <p className="omr-measure-editor-loading">마디 요소 불러오는 중…</p> : null}
 
       {snapshot ? (
-        <MeasureTempoEditor
-          tempos={snapshot.tempos ?? []}
-          effectiveTempoBpm={snapshot.effectiveTempoBpm}
-          onFix={pushFix}
-        />
+        <>
+          <MeasureDirectionsEditor
+            directions={snapshot.measureDirections ?? []}
+            measureMxl={measureMxl}
+            onFix={pushFix}
+          />
+          <MeasureTempoEditor
+            tempos={snapshot.tempos ?? []}
+            effectiveTempoBpm={snapshot.effectiveTempoBpm}
+            onFix={pushFix}
+          />
+        </>
       ) : null}
 
       {displayElements.length > 0 && (

@@ -104,6 +104,18 @@ def _printed_measure_mxl_set_from_env() -> set[int] | None:
     return load_printed_measure_mxl_set(manifest, offset)
 
 
+def _printed_measure_marker_map_from_env() -> dict[int, str] | None:
+    manifest = _manifest_path_for_measure_numbers()
+    if manifest is None:
+        return None
+    try:
+        from printed_measure_numbers import load_printed_measure_marker_map
+    except ImportError:
+        from scripts.printed_measure_numbers import load_printed_measure_marker_map  # type: ignore
+    offset = int(os.environ.get("MXL_MEASURE_OFFSET_PRINTED", "1") or "1")
+    return load_printed_measure_marker_map(manifest, offset)
+
+
 # 조표 유무 판단: part-list 앞쪽 N개 마디(픽업·anacrusis 포함)
 _OPENING_KEY_MEASURES = 4
 
@@ -4446,7 +4458,13 @@ def _remove_measure_numbering_root(root: ET.Element, ns: str) -> int:
 def _normalize_measure_numbering_from_manifest_root(root: ET.Element, ns: str) -> tuple[int, int]:
     """`<measure-numbering>` 전부 제거 후 manifest 인쇄 마디만 system 복원."""
     removed = _remove_measure_numbering_root(root, ns)
-    allowed = _printed_measure_mxl_set_from_env()
+    marker_map = _printed_measure_marker_map_from_env() or {}
+    try:
+        from printed_measure_numbers import strip_spurious_measure_number_words_root
+    except ImportError:
+        from scripts.printed_measure_numbers import strip_spurious_measure_number_words_root  # type: ignore
+    strip_spurious_measure_number_words_root(root, ns, marker_map)
+    allowed = set(marker_map.keys()) if marker_map else _printed_measure_mxl_set_from_env()
     if allowed is None or not allowed:
         return removed, 0
     added = 0

@@ -1372,6 +1372,60 @@ function insertIndexForMeasureHeader(meas: Element): number {
   return idx;
 }
 
+const MEASURE_NUM_WORDS_RE = /^\d{1,3}$/;
+
+function directionWordsText(dir: Element): string | null {
+  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    for (const words of [...dt.children].filter((c) => xmlLocalName(c) === 'words')) {
+      const t = words.textContent?.trim();
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
+function directionHasTempo(dir: Element): boolean {
+  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    if ([...dt.children].some((c) => xmlLocalName(c) === 'metronome')) return true;
+  }
+  return false;
+}
+
+/**
+ * Audiveris OCR·`<measure-numbering>` 잔여가 아닌, 마디마다 생긴 `<words>` 숫자(1,2,3…) 제거.
+ * lyric_manifest에 있는 인쇄 마디만 injectPrintedMeasureNumberDirectionsForOsmd에서 다시 넣습니다.
+ */
+export function stripSpuriousMeasureNumberWordsForOsmd(
+  xml: string,
+  allowed: ReadonlyMap<number, string>,
+): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    const parts = findXmlParts(doc);
+    if (!parts.length) return xml;
+
+    for (const part of parts) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+        const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
+        const allowedLabel = allowed.get(mnum);
+        for (const dir of [...meas.children].filter((c) => xmlLocalName(c) === 'direction')) {
+          if (directionHasTempo(dir)) continue;
+          const words = directionWordsText(dir);
+          if (!words || !MEASURE_NUM_WORDS_RE.test(words)) continue;
+          if (allowedLabel && words === allowedLabel) continue;
+          dir.remove();
+        }
+      }
+    }
+
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
 /**
  * lyric_manifest 인쇄 마디 번호만 OSMD `<words>` direction으로 표시 (첫 part만).
  * OSMD 자동 measure@number 라벨은 applyOsmdPreviewEngravingRules에서 끔.
@@ -1490,6 +1544,7 @@ function sanitizeMusicXmlForOsmd(
     out = repairKeyChangeClefMisreadForOsmd(out);
     out = removeRedundantCourtesyClefsForOsmd(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
+    out = stripSpuriousMeasureNumberWordsForOsmd(out, printedMeasureMarkers ?? new Map());
     if (printedMeasureMarkers?.size) {
       out = injectPrintedMeasureNumberDirectionsForOsmd(out, printedMeasureMarkers);
     }

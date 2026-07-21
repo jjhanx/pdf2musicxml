@@ -402,11 +402,13 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
         item.type !== 'page_number') ||
       (item.type === 'lyrics' &&
         ((typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
+          (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
           (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
           Boolean(
             item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1',
           ))) ||
       (typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
+      (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
       (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
       Boolean(item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1');
     if (hasPriorEdit) {
@@ -1372,9 +1374,7 @@ export default function App() {
       const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
         Array.isArray(dataRaw) ? dataRaw : [],
       );
-      setReviewData(
-        reviewAfterOmr ? normalizeReviewItemsForBaseline(payloadItems) : normalizeReviewItemsForUi(payloadItems),
-      );
+      setReviewData(normalizeReviewItemsForUi(payloadItems));
       setManualLyricRects(fromPayload);
       setFocusedReviewRowIndex(null);
     } catch (e) {
@@ -1614,6 +1614,18 @@ export default function App() {
     const newData = [...reviewData];
     newData[index].lyricVerseIndex = Number.isFinite(v) && v >= 1 ? Math.min(32, Math.floor(v)) : 1;
     setReviewData(newData);
+  };
+
+  const handleApplyLyricVerseToPart = (index: number) => {
+    const anchor = reviewData[index];
+    if (!anchor || anchor.type !== 'lyrics') return;
+    const pi = anchor.lyricPartIndex ?? 1;
+    const vn = anchor.lyricVerseIndex ?? 1;
+    setReviewData((prev) =>
+      prev.map((row) =>
+        row.type === 'lyrics' && (row.lyricPartIndex ?? 1) === pi ? { ...row, lyricVerseIndex: vn } : row,
+      ),
+    );
   };
 
   const handleLyricPartIndexChange = (index: number, v: number) => {
@@ -2674,17 +2686,38 @@ bash scripts/install-font-separator-deps.sh`}
                           </label>
                           <label className="review-field">
                             <span className="review-field-label">가사 절</span>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             <input
                               type="number"
                               min={1}
                               max={32}
                               title="1절=1, 2절=2 … MusicXML lyric number"
                               value={item.lyricVerseIndex ?? 1}
-                              onChange={(e) =>
-                                handleLyricVerseIndexChange(i, parseInt(e.target.value, 10))
-                              }
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                if (raw === '') return;
+                                const v = parseInt(raw, 10);
+                                if (!Number.isFinite(v)) return;
+                                handleLyricVerseIndexChange(i, v);
+                              }}
+                              onBlur={(e) => {
+                                const v = parseInt(e.target.value, 10);
+                                if (!Number.isFinite(v) || v < 1) {
+                                  handleLyricVerseIndexChange(i, 1);
+                                }
+                              }}
                               style={{ width: '3.5rem', padding: '0.4rem' }}
                             />
+                            <button
+                              type="button"
+                              className="btn-muted"
+                              style={{ fontSize: '0.78rem', padding: '0.25rem 0.45rem', whiteSpace: 'nowrap' }}
+                              title="같은 성부(W 등)의 모든 가사 줄에 이 절 번호 적용"
+                              onClick={() => handleApplyLyricVerseToPart(i)}
+                            >
+                              성부 전체
+                            </button>
+                            </div>
                           </label>
                           <label className="review-field">
                             <span className="review-field-label">멜로디 줄</span>

@@ -695,7 +695,9 @@ button.btn-muted {
 .modal-light .omr-mxl-osmd-frame svg g.measure-number,
 .modal-light .omr-mxl-osmd-frame svg .measure-number,
 .modal-light .omr-osmd-clickable svg g.measure-number,
-.modal-light .omr-osmd-clickable svg .measure-number {
+.modal-light .omr-osmd-clickable svg .measure-number,
+[data-omr-suppress-measure-numbers] svg g.measure-number,
+[data-omr-suppress-measure-numbers] svg .measure-number {
   display: none !important;
   visibility: hidden !important;
   pointer-events: none !important;

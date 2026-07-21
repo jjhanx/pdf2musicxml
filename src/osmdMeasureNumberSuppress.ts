@@ -1,21 +1,10 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
-import { forEachOsmdSystem, getOsmdPageLayout, measureMxlFromGraphic } from './osmdMeasureClick';
+import { forEachOsmdSystem } from './osmdMeasureClick';
 
 type RecordLike = Record<string, unknown>;
 
 function asRecord(v: unknown): RecordLike | null {
   return v && typeof v === 'object' ? (v as RecordLike) : null;
-}
-
-function normalizeMeasureNumberLabel(text: string): string {
-  return text
-    .replace(/[\uE000-\uF8FF]/g, '')
-    .replace(/[\uFF10-\uFF19]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xff10 + 0x30))
-    .trim();
-}
-
-function isMeasureNumberLabel(text: string): boolean {
-  return /^\d{1,3}$/.test(normalizeMeasureNumberLabel(text));
 }
 
 /** OSMD 1.9.x: measure labels are g.measure-number (see VexFlowMusicSheetDrawer.drawLabel). */
@@ -58,65 +47,9 @@ export function suppressOsmdAutoMeasureNumberGraphics(osmd: OpenSheetMusicDispla
   });
 }
 
-/** phantom 마디 번호 SVG 제거 — 인쇄 번호는 HTML 오ver레이만 */
+/** phantom OSMD g.measure-number SVG만 제거 — manifest 번호는 XML <words>로 표시 */
 export function hideSpuriousMeasureNumberSvgText(root: ParentNode): void {
   removeOsmdMeasureNumberSvgNodes(root);
-  for (const svg of root.querySelectorAll('svg')) {
-    for (const el of [...svg.querySelectorAll('text, tspan')]) {
-      const t = normalizeMeasureNumberLabel(el.textContent ?? '');
-      if (!isMeasureNumberLabel(t)) continue;
-      const inMeasureNumberGroup = el.closest('g.measure-number, .measure-number');
-      if (inMeasureNumberGroup) {
-        inMeasureNumberGroup.remove();
-      } else {
-        el.remove();
-      }
-    }
-  }
-}
-
-export function applyPrintedMeasureNumberPreviewOverlay(
-  host: HTMLElement,
-  osmd: OpenSheetMusicDisplay,
-  allowed: ReadonlyMap<number, string>,
-): void {
-  const layerAttr = 'data-omr-measure-number-overlay';
-  host.querySelectorAll(`[${layerAttr}]`).forEach((n) => n.remove());
-  if (!allowed.size) return;
-
-  const layer = document.createElement('div');
-  layer.setAttribute(layerAttr, '1');
-  layer.style.cssText =
-    'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:6;';
-  if (!host.style.position) host.style.position = 'relative';
-  host.appendChild(layer);
-
-  forEachOsmdSystem(osmd, (_system, rows, pageIndex) => {
-    const layout = getOsmdPageLayout(host, osmd, pageIndex);
-    const placed = new Set<number>();
-    for (const row of rows) {
-      for (const gm of row) {
-        if (!gm) continue;
-        const mxl = measureMxlFromGraphic(gm);
-        if (mxl == null || placed.has(mxl)) continue;
-        const label = allowed.get(mxl);
-        if (!label) continue;
-        placed.add(mxl);
-        const ps = asRecord(gm.PositionAndShape ?? gm.positionAndShape);
-        const abs = asRecord(ps?.AbsolutePosition ?? ps?.absolutePosition);
-        const bbox = asRecord(ps?.BoundingRectangle ?? ps?.boundingRectangle);
-        const x0 = Number(abs?.x ?? abs?.X ?? bbox?.x ?? bbox?.X ?? 0);
-        const y0 = Number(abs?.y ?? abs?.Y ?? bbox?.y ?? bbox?.Y ?? 0);
-        const span = document.createElement('span');
-        span.textContent = label;
-        span.style.cssText =
-          'position:absolute;font-weight:700;font-size:11px;line-height:1;color:#111;font-family:Arial,sans-serif;';
-        span.style.left = `${Math.max(0, layout.offsetX + x0 * layout.scale - 4)}px`;
-        span.style.top = `${Math.max(0, layout.offsetY + y0 * layout.scale - 20)}px`;
-        layer.appendChild(span);
-      }
-    }
-  });
 }
 
 export function previewMeasureNumberRoots(host: HTMLElement): HTMLElement[] {
@@ -130,13 +63,12 @@ export function previewMeasureNumberRoots(host: HTMLElement): HTMLElement[] {
 export function finalizeOsmdMeasureNumberPreview(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
-  allowed: ReadonlyMap<number, string> | undefined,
+  _allowed: ReadonlyMap<number, string> | undefined,
 ): void {
   suppressOsmdAutoMeasureNumberGraphics(osmd);
   for (const root of previewMeasureNumberRoots(host)) {
     hideSpuriousMeasureNumberSvgText(root);
   }
-  if (allowed?.size) applyPrintedMeasureNumberPreviewOverlay(host, osmd, allowed);
 }
 
 /** 매 render 직전 OSMD 자동 마디번호 끔 */

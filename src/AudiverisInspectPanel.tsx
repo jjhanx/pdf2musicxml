@@ -1560,8 +1560,10 @@ function sanitizeMusicXmlForOsmd(
     out = repairKeyChangeClefMisreadForOsmd(out);
     out = removeRedundantCourtesyClefsForOsmd(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
-    out = stripSpuriousMeasureNumberWordsForOsmd(out, printedMeasureMarkers ?? new Map());
-    // 인쇄 번호는 XML <words> 주입 대신 finalizeOsmdMeasureNumberPreview HTML 오버레이로만 표시
+    out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
+    if (printedMeasureMarkers?.size) {
+      out = injectPrintedMeasureNumberDirectionsForOsmd(out, printedMeasureMarkers);
+    }
     const doc = parseMusicXmlDocument(out);
     if (!doc) return xml;
 
@@ -1625,8 +1627,10 @@ function scheduleOsmdRender(opts: {
   onPaintFailure: () => void;
   roRef: MutableRefObject<ResizeObserver | null>;
   onAfterRender?: () => void;
+  afterOsmdRenderSync?: (host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => void;
 }) {
-  const { host, osmd, zoom, isStale, onPaintFailure, roRef, onAfterRender } = opts;
+  const { host, osmd, zoom, isStale, onPaintFailure, roRef, onAfterRender, afterOsmdRenderSync } =
+    opts;
 
   const disconnectRo = () => {
     roRef.current?.disconnect();
@@ -1639,6 +1643,7 @@ function scheduleOsmdRender(opts: {
       osmd.zoom = zoom;
       enforceOsmdPreviewMeasureNumberRules(osmd);
       osmd.render();
+      afterOsmdRenderSync?.(host, osmd);
       host.querySelector('[data-osmd-warn="width"]')?.remove();
       onAfterRender?.();
     } catch (e) {
@@ -1878,6 +1883,9 @@ export function OsmdBlock({
           },
           roRef,
           onAfterRender: afterOsmdRender,
+          afterOsmdRenderSync: (h, o) => {
+            finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
+          },
         });
       })
       .catch((loadErr: unknown) => {
@@ -1934,6 +1942,9 @@ export function OsmdBlock({
       },
       roRef,
       onAfterRender: afterOsmdRender,
+      afterOsmdRenderSync: (h, o) => {
+        finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
+      },
     });
   }, [zoom, afterOsmdRender]);
 
@@ -1993,6 +2004,7 @@ export function OsmdBlock({
     <div
       ref={hostRef}
       className="audiveris-inspect-osmd omr-osmd-clickable"
+      data-omr-suppress-measure-numbers="1"
       style={{
         minHeight: 160,
         minWidth: 'min(100%, 260px)',

@@ -427,6 +427,288 @@ def load_extracted_pages(path: str) -> list[dict[str, Any]]:
     return data
 
 
+_TITLE_LINE_Y_TOL_PT = 4.0
+_TITLE_TOP_FRAC = 0.28
+_MEASURE_NUM_RE = re.compile(r"^\d{1,3}$")
+
+
+def _cluster_chars_to_lines(
+    chars: list[dict[str, Any]],
+    *,
+    y_tol: float = _TITLE_LINE_Y_TOL_PT,
+) -> list[list[dict[str, Any]]]:
+    usable: list[dict[str, Any]] = []
+    for ch in chars:
+        if not isinstance(ch, dict):
+            continue
+        text = str(ch.get("raw_text", "")).strip()
+        if not text:
+            continue
+        try:
+            y_center = (float(ch["y0"]) + float(ch["y1"])) / 2.0
+        except (KeyError, TypeError, ValueError):
+            continue
+        usable.append({**ch, "_y_center": y_center})
+    usable.sort(key=lambda c: (c["_y_center"], float(c.get("x0", 0))))
+    lines: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for ch in usable:
+        if not current:
+            current = [ch]
+            continue
+        avg_y = sum(x["_y_center"] for x in current) / len(current)
+        if abs(ch["_y_center"] - avg_y) <= y_tol:
+            current.append(ch)
+        else:
+            lines.append(current)
+            current = [ch]
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _line_bbox(line_chars: list[dict[str, Any]]) -> list[float]:
+    xs0 = [float(c["x0"]) for c in line_chars]
+    ys0 = [float(c["y0"]) for c in line_chars]
+    xs1 = [float(c["x1"]) for c in line_chars]
+    ys1 = [float(c["y1"]) for c in line_chars]
+    return [min(xs0), min(ys0), max(xs1), max(ys1)]
+
+
+def _line_merged_text(line_chars: list[dict[str, Any]]) -> str:
+    line_chars = sorted(line_chars, key=lambda c: float(c.get("x0", 0)))
+    merged = ""
+    for i, ch in enumerate(line_chars):
+        if i > 0:
+            prev = line_chars[i - 1]
+            gap = float(ch["x0"]) - float(prev["x1"])
+            if gap > 3:
+                merged += " "
+        merged += str(ch.get("raw_text", ""))
+    return re.sub(r"\s+", " ", merged).strip()
+
+
+def detect_title_candidate_from_pages(pages: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """1페이지 상단 한글 한 줄 — 가사·제목 pt가 같을 때 bbox 마스킹·수동 제목 입력용."""
+    if not pages:
+        return None
+    page1 = next((p for p in pages if int(p.get("page_number", 0)) == 1), pages[0])
+    try:
+        page_h = float(page1.get("height") or 842.0)
+    except (TypeError, ValueError):
+        page_h = 842.0
+    top_limit = page_h * _TITLE_TOP_FRAC
+    chars = page1.get("text_elements") or []
+    if not isinstance(chars, list):
+        return None
+
+    candidates: list[dict[str, Any]] = []
+    for line_chars in _cluster_chars_to_lines(chars):
+        bbox = _line_bbox(line_chars)
+        if bbox[1] > top_limit:
+            continue
+        text = _line_merged_text(line_chars)
+        if not text or not _HANGUL_RE.search(text):
+            continue
+        if _MEASURE_NUM_RE.fullmatch(text.replace(" ", "")):
+            continue
+        if len(text.replace(" ", "")) > 48:
+            continue
+        sizes = [float(c.get("size", 0) or 0) for c in line_chars if float(c.get("size", 0) or 0) > 0]
+        avg_size = round(sum(sizes) / len(sizes), 2) if sizes else None
+        candidates.append(
+            {
+                "text": text,
+                "page": 1,
+                "bbox": bbox,
+                "fontSize": avg_size,
+                "y0": bbox[1],
+            }
+        )
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: (c["y0"], -len(str(c["text"]))))
+    best = candidates[0]
+    return {
+        "text": best["text"],
+        "page": 1,
+        "bbox": best["bbox"],
+        "fontSize": best.get("fontSize"),
+        "detected": True,
+    }
+
+
+def detect_title_candidate(extracted_json_path: str) -> dict[str, Any] | None:
+    pages = load_extracted_pages(extracted_json_path)
+    return detect_title_candidate_from_pages(pages)
+
+
+def _char_is_music_glyph(cp: int) -> bool:
+    if 0xE000 <= cp <= 0xF8FF:
+        return True
+    if 0x1D100 <= cp <= 0x1D1FF:
+        return True
+    if cp in (0x2669, 0x266A, 0x266B, 0x266C):
+        return True
+    if 0xF0000 <= cp <= 0xFFFFD or 0x100000 <= cp <= 0x10FFFD:
+        return True
+    return False
+
+
+def _apply_page_redactions(page) -> bool:
+    import fitz
+
+    img = int(getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0))
+    gra = int(getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0))
+    txt = int(getattr(fitz, "PDF_REDACT_TEXT_REMOVE", 0))
+    safe_kw = {"images": img, "graphics": gra, "text": txt}
+    try:
+        page.apply_redactions(**safe_kw)
+        return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        page.apply_redactions(img, gra, txt)
+        return True
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
+def mask_bbox_text_regions(
+    pdf_path: str,
+    regions: list[dict[str, Any]],
+    *,
+    pad_pt: float = 2.5,
+    output_path: str | None = None,
+) -> int:
+    """
+    제목 등 지정 bbox 안의 남은 텍스트 글림을 PyMuPDF로 제거합니다.
+    pikepdf 폰트 크기 strip 후 찌끄러기(같은 pt 가사·제목) 제거용.
+    """
+    import fitz
+
+    if not regions:
+        return 0
+    out_path = output_path or pdf_path
+    doc = fitz.open(pdf_path)
+    redacts_total = 0
+    try:
+        flags = int(getattr(fitz, "TEXT_ACCURATE_BBOXES", 0) or 0)
+        flags |= int(getattr(fitz, "TEXT_ACCURATE_SIDE_BEARINGS", 0) or 0)
+        flags |= int(getattr(fitz, "TEXT_ACCURATE_ASCENDERS", 0) or 0)
+        for reg in regions:
+            try:
+                page_idx = int(reg.get("page", 1)) - 1
+            except (TypeError, ValueError):
+                continue
+            bbox = reg.get("bbox")
+            if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+                continue
+            if page_idx < 0 or page_idx >= len(doc):
+                continue
+            page = doc[page_idx]
+            rect = fitz.Rect(
+                float(bbox[0]),
+                float(bbox[1]),
+                float(bbox[2]),
+                float(bbox[3]),
+            ).normalize()
+            if pad_pt:
+                rect = fitz.Rect(
+                    rect.x0 - pad_pt,
+                    rect.y0 - pad_pt,
+                    rect.x1 + pad_pt,
+                    rect.y1 + pad_pt,
+                ).normalize()
+            pr = fitz.Rect(page.rect).normalize()
+            clip = (rect & pr).normalize()
+            if clip.is_empty:
+                continue
+            redacts_added = 0
+            raw = page.get_text("rawdict", flags=flags)
+            for block in raw.get("blocks") or []:
+                if block.get("type") != 0:
+                    continue
+                for line in block.get("lines") or []:
+                    for span in line.get("spans") or []:
+                        for ch in span.get("chars") or []:
+                            cb = fitz.Rect(ch.get("bbox") or [0, 0, 0, 0]).normalize()
+                            if (clip & cb).is_empty:
+                                continue
+                            c = str(ch.get("c") or "")
+                            if not c:
+                                continue
+                            cp = ord(c[0])
+                            if _char_is_music_glyph(cp):
+                                continue
+                            page.add_redact_annot(
+                                cb,
+                                text=" ",
+                                fontname="helv",
+                                fontsize=max(4.0, float(span.get("size") or 10)),
+                                align=0,
+                                fill=False,
+                                text_color=(0, 0, 0),
+                                cross_out=False,
+                            )
+                            redacts_added += 1
+            if redacts_added > 0 and _apply_page_redactions(page):
+                redacts_total += redacts_added
+        doc.save(out_path, deflate=True, garbage=3)
+    finally:
+        doc.close()
+    return redacts_total
+
+
+def apply_score_title_mask(
+    pdf_path: str,
+    score_title: dict[str, Any] | None,
+    *,
+    pad_pt: float = 2.5,
+) -> int:
+    if not score_title or score_title.get("mask") is False:
+        return 0
+    bbox = score_title.get("bbox")
+    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return 0
+    page = int(score_title.get("page") or 1)
+    return mask_bbox_text_regions(
+        pdf_path,
+        [{"page": page, "bbox": list(bbox)}],
+        pad_pt=pad_pt,
+    )
+
+
+def cmd_detect_title(args: argparse.Namespace) -> int:
+    candidate = detect_title_candidate(args.extracted_json)
+    json.dump(candidate or {}, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_mask_title(args: argparse.Namespace) -> int:
+    with open(args.regions_json, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if isinstance(payload, dict) and isinstance(payload.get("bbox"), (list, tuple)):
+        regions = [payload]
+    elif isinstance(payload, dict) and isinstance(payload.get("regions"), list):
+        regions = payload["regions"]
+    elif isinstance(payload, list):
+        regions = payload
+    else:
+        print("regions JSON은 scoreTitle 객체, {regions:[…]} 또는 배열이어야 합니다.", file=sys.stderr)
+        return 1
+    n = mask_bbox_text_regions(
+        args.input_pdf,
+        regions,
+        pad_pt=float(args.pad_pt),
+        output_path=args.output_pdf or args.input_pdf,
+    )
+    print(f"[mask-title] {n} glyph redactions", file=sys.stderr)
+    return 0
+
+
 def cmd_extract(args: argparse.Namespace) -> int:
     extract_layout(args.input_pdf, args.output_json)
     return 0
@@ -493,6 +775,17 @@ def main() -> int:
     p_analyze = sub.add_parser("analyze", help="extracted JSON에서 폰트 크기 통계(JSON stdout)")
     p_analyze.add_argument("extracted_json")
     p_analyze.set_defaults(func=cmd_analyze)
+
+    p_detect_title = sub.add_parser("detect-title", help="1페이지 상단 제목 후보(JSON stdout)")
+    p_detect_title.add_argument("extracted_json")
+    p_detect_title.set_defaults(func=cmd_detect_title)
+
+    p_mask_title = sub.add_parser("mask-title", help="지정 bbox 텍스트 글림 제거(PyMuPDF)")
+    p_mask_title.add_argument("input_pdf")
+    p_mask_title.add_argument("regions_json", help="scoreTitle 객체 또는 regions 배열 JSON")
+    p_mask_title.add_argument("output_pdf", nargs="?", help="생략 시 input_pdf 덮어쓰기")
+    p_mask_title.add_argument("--pad-pt", type=float, default=2.5)
+    p_mask_title.set_defaults(func=cmd_mask_title)
 
     p_all = sub.add_parser("all", help="extract + strip 한 번에")
     p_all.add_argument("input_pdf")

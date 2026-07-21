@@ -1710,6 +1710,12 @@ async function restoreLyricArtifactsFromExtractDir(
     await fs.copyFile(manifestSrc, path.join(sessionRoot, 'lyric_manifest.json'));
     restored = true;
   }
+  const fontStripSrc = pick('font_strip_config.json');
+  if (fontStripSrc) {
+    await fs.copyFile(fontStripSrc, fontStripConfigPath(sessionRoot));
+  } else {
+    await restoreFontStripConfigFromManifest(sessionRoot);
+  }
   const pymupdfSrc = pick('ocr_data_pymupdf.json');
   if (pymupdfSrc) {
     await fs.copyFile(pymupdfSrc, sessionOcrPymupdfSavedPath(sessionRoot));
@@ -2053,6 +2059,7 @@ async function runFontSeparatorResumePhase(opts: {
   }
   if (job.resumeLyricManifestPath && fsSync.existsSync(job.resumeLyricManifestPath)) {
     await fs.copyFile(job.resumeLyricManifestPath, lyricManifestPath);
+    await restoreFontStripConfigFromManifest(sessionRoot);
   }
   console.log(
     `[job ${jobId}] Resuming font_separator from ${startStage} (uploaded clean_score${job.resumeLyricManifestPath ? ', manifest' : ''})`,
@@ -2530,6 +2537,218 @@ function parseFontStripRangesBody(body: unknown): FontStripRangeDto[] | null {
   return out.length ? out : null;
 }
 
+type ScoreTitleDto = {
+  text: string;
+  page?: number;
+  bbox?: [number, number, number, number];
+  fontSize?: number;
+  detected?: boolean;
+  mask?: boolean;
+};
+
+function bboxIou(a: number[], b: number[]): number {
+  const ix0 = Math.max(a[0], b[0]);
+  const iy0 = Math.max(a[1], b[1]);
+  const ix1 = Math.min(a[2], b[2]);
+  const iy1 = Math.min(a[3], b[3]);
+  if (ix1 <= ix0 || iy1 <= iy0) return 0;
+  const inter = (ix1 - ix0) * (iy1 - iy0);
+  const areaA = Math.max(0, (a[2] - a[0]) * (a[3] - a[1]));
+  const areaB = Math.max(0, (b[2] - b[0]) * (b[3] - b[1]));
+  const denom = areaA + areaB - inter;
+  return denom <= 0 ? 0 : inter / denom;
+}
+
+function applyScoreTitleToManifest(manifest: Record<string, unknown>): void {
+  const fontStrip = manifest.fontStrip;
+  if (!fontStrip || typeof fontStrip !== 'object') return;
+  const scoreTitle = (fontStrip as { scoreTitle?: ScoreTitleDto }).scoreTitle;
+  if (!scoreTitle?.text?.trim()) return;
+  const text = scoreTitle.text.trim();
+  const page = Number.isFinite(scoreTitle.page) ? Math.max(1, Math.round(scoreTitle.page!)) : 1;
+  const bbox = scoreTitle.bbox;
+  const hasBbox = Array.isArray(bbox) && bbox.length >= 4;
+
+  const matchItem = (item: Record<string, unknown>): boolean => {
+    if (Number(item.page) !== page) return false;
+    const ib = item.bbox;
+    if (hasBbox && Array.isArray(ib) && ib.length >= 4) {
+      return bboxIou(bbox as number[], ib as number[]) >= 0.2;
+    }
+    if (item.type === 'title') return true;
+    const itemText = String(item.text ?? '').replace(/\s/g, '');
+    const cand = text.replace(/\s/g, '');
+    return Boolean(itemText && cand && (itemText.includes(cand) || cand.includes(itemText)));
+  };
+
+  const patchItem = (item: Record<string, unknown>): void => {
+    item.type = 'title';
+    item.text = text;
+    if (hasBbox) item.bbox = [...bbox!];
+  };
+
+  for (const key of ['items', 'pymupdfReviewItems'] as const) {
+    const coll = manifest[key];
+    if (!Array.isArray(coll)) continue;
+    let matched = false;
+    for (const raw of coll) {
+      if (!raw || typeof raw !== 'object') continue;
+      const item = raw as Record<string, unknown>;
+      const t = String(item.type ?? '');
+      if (t.startsWith('_')) continue;
+      if (matchItem(item)) {
+        patchItem(item);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched && key === 'items' && hasBbox) {
+      coll.unshift({
+        id: 'score_title',
+        page,
+        text,
+        type: 'title',
+        bbox: [...bbox!],
+        confidence: 1,
+        provenance: 'scoreTitle',
+      });
+    }
+  }
+}
+
+async function detectScoreTitleCandidate(
+  pythonBin: string,
+  scriptSeparator: string,
+  extractedJsonPath: string,
+): Promise<ScoreTitleDto | null> {
+  if (!fsSync.existsSync(extractedJsonPath)) return null;
+  try {
+    const { stdout } = await exec(
+      `"${pythonBin}" "${scriptSeparator}" detect-title "${extractedJsonPath}"`,
+      { maxBuffer: 4 * 1024 * 1024 },
+    );
+    const data = JSON.parse(String(stdout).trim()) as ScoreTitleDto;
+    if (!data?.text?.trim()) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function invalidateCleanScorePreviewCache(sessionRoot: string): Promise<void> {
+  const cacheDir = path.join(sessionRoot, '.diag-cache');
+  try {
+    const files = await fs.readdir(cacheDir);
+    await Promise.all(
+      files
+        .filter((f) => f.includes('clean_score-preview'))
+        .map((f) => fs.unlink(path.join(cacheDir, f)).catch(() => {})),
+    );
+  } catch {
+    /* no cache */
+  }
+}
+
+async function applyScoreTitleMaskOnPdf(
+  pythonBin: string,
+  scriptSeparator: string,
+  sessionRoot: string,
+  cleanPdfPath: string,
+  scoreTitle: ScoreTitleDto,
+): Promise<void> {
+  if (scoreTitle.mask === false) return;
+  if (!Array.isArray(scoreTitle.bbox) || scoreTitle.bbox.length < 4) return;
+  const tmpJson = path.join(sessionRoot, '.score_title_mask.json');
+  await fs.writeFile(tmpJson, JSON.stringify(scoreTitle), 'utf8');
+  try {
+    await exec(
+      `"${pythonBin}" "${scriptSeparator}" mask-title "${cleanPdfPath}" "${tmpJson}"`,
+      { maxBuffer: 16 * 1024 * 1024 },
+    );
+    await invalidateCleanScorePreviewCache(sessionRoot);
+  } finally {
+    await fs.unlink(tmpJson).catch(() => {});
+  }
+}
+
+async function readFontStripConfig(sessionRoot: string): Promise<Record<string, unknown>> {
+  const cfgPath = fontStripConfigPath(sessionRoot);
+  if (!fsSync.existsSync(cfgPath)) return { ranges: [] };
+  try {
+    return JSON.parse(await fs.readFile(cfgPath, 'utf8')) as Record<string, unknown>;
+  } catch {
+    return { ranges: [] };
+  }
+}
+
+async function writeFontStripConfig(sessionRoot: string, cfg: Record<string, unknown>): Promise<void> {
+  await fs.writeFile(fontStripConfigPath(sessionRoot), JSON.stringify(cfg, null, 2), 'utf8');
+}
+
+/** scoreTitle을 font_strip_config ↔ lyric_manifest 양쪽에 맞추고 inject용 title 항목을 갱신 */
+async function syncScoreTitlePersistence(sessionRoot: string, manifestPath: string): Promise<void> {
+  if (!fsSync.existsSync(manifestPath)) return;
+  try {
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+    const cfg = await readFontStripConfig(sessionRoot);
+    const fromCfg = cfg.scoreTitle as ScoreTitleDto | undefined;
+    const fromManifestTop = manifest.scoreTitle as ScoreTitleDto | undefined;
+    const fromFontStrip = (manifest.fontStrip as { scoreTitle?: ScoreTitleDto } | undefined)?.scoreTitle;
+    const winner =
+      (fromCfg?.text?.trim() ? fromCfg : undefined) ??
+      (fromManifestTop?.text?.trim() ? fromManifestTop : undefined) ??
+      (fromFontStrip?.text?.trim() ? fromFontStrip : undefined);
+    if (winner?.text?.trim()) {
+      if (!manifest.fontStrip || typeof manifest.fontStrip !== 'object') {
+        manifest.fontStrip = {};
+      }
+      (manifest.fontStrip as Record<string, unknown>).scoreTitle = winner;
+      manifest.scoreTitle = winner;
+      cfg.scoreTitle = winner;
+      if (!Array.isArray(cfg.ranges)) {
+        const fsRanges = (manifest.fontStrip as { ranges?: FontStripRangeDto[] }).ranges;
+        if (Array.isArray(fsRanges)) cfg.ranges = fsRanges;
+      }
+      await writeFontStripConfig(sessionRoot, cfg);
+    }
+    applyScoreTitleToManifest(manifest);
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[syncScoreTitlePersistence]', e);
+  }
+}
+
+async function restoreFontStripConfigFromManifest(sessionRoot: string): Promise<void> {
+  const manifestPath = sessionLyricManifestPath(sessionRoot);
+  const cfgPath = fontStripConfigPath(sessionRoot);
+  if (fsSync.existsSync(cfgPath) || !fsSync.existsSync(manifestPath)) return;
+  try {
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+    const fontStrip = manifest.fontStrip;
+    if (fontStrip && typeof fontStrip === 'object') {
+      await fs.writeFile(cfgPath, JSON.stringify(fontStrip, null, 2), 'utf8');
+    }
+  } catch {
+    /* optional */
+  }
+}
+
+async function ensureAutoScoreTitleInConfig(
+  sessionRoot: string,
+  extractedJsonPath: string,
+  pythonBin: string,
+  scriptSeparator: string,
+): Promise<ScoreTitleDto | null> {
+  const cfg = await readFontStripConfig(sessionRoot);
+  const existing = cfg.scoreTitle as ScoreTitleDto | undefined;
+  if (existing?.text?.trim()) return existing;
+  const cand = await detectScoreTitleCandidate(pythonBin, scriptSeparator, extractedJsonPath);
+  if (!cand) return null;
+  cfg.scoreTitle = { ...cand, mask: true };
+  await writeFontStripConfig(sessionRoot, cfg);
+  return cfg.scoreTitle as ScoreTitleDto;
+}
+
 async function analyzeFontSizesFromExtracted(
   pythonBin: string,
   scriptSeparator: string,
@@ -2865,6 +3084,29 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           return;
         }
 
+        const scoreTitleForMask = await ensureAutoScoreTitleInConfig(
+          sessionRoot,
+          extractedJsonPath,
+          pythonBin,
+          scriptSeparator,
+        );
+        if (scoreTitleForMask) {
+          try {
+            await applyScoreTitleMaskOnPdf(
+              pythonBin,
+              scriptSeparator,
+              sessionRoot,
+              cleanScorePath,
+              scoreTitleForMask,
+            );
+            console.log(
+              `[job ${jobId}] scoreTitle bbox mask applied (${scoreTitleForMask.text?.slice(0, 24) ?? ''})`,
+            );
+          } catch (maskErr) {
+            console.warn(`[job ${jobId}] scoreTitle mask failed:`, maskErr);
+          }
+        }
+
         console.log(`[job ${jobId}] Pausing for clean_score PDF preview…`);
         job.cleanScorePreviewAction = undefined;
         job.status = 'clean_score_preview_needed';
@@ -2929,6 +3171,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             /* optional metadata */
           }
         }
+        await syncScoreTitlePersistence(sessionRoot, lyricManifestPath);
         await attachPartLabelsToManifest(sessionRoot, lyricManifestPath, job);
 
         console.log(`[job ${jobId}] Pausing for lyric_manifest.json save…`);
@@ -3203,6 +3446,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as Record<string, unknown>;
             manifest.items = updatedItems;
             await fs.writeFile(lyricManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+            await syncScoreTitlePersistence(sessionRoot, lyricManifestPath);
             console.log(`[job ${jobId}] Updated lyric_manifest.json directly with submitted review items.`);
           } catch (e) {
             console.error('[job] Failed to update lyric_manifest.json directly', e);
@@ -3244,6 +3488,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
               /* optional metadata */
             }
           }
+          await syncScoreTitlePersistence(sessionRoot, lyricManifestPath);
           await attachPartLabelsToManifest(sessionRoot, lyricManifestPath, job);
         }
       } else {
@@ -3266,6 +3511,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       : fsSync.existsSync(ocrJsonPath)
         ? ocrJsonPath
         : null;
+
+    if (injectJsonPath === lyricManifestPath) {
+      await syncScoreTitlePersistence(sessionRoot, lyricManifestPath);
+    }
 
     const finalizeMxlPaths = [
       ...new Set(
@@ -4378,14 +4627,26 @@ app.get('/api/clean-score-preview/:jobId', async (req, res) => {
     pdfPageCountViaPython(cleanScorePath),
   ]);
   let ranges: FontStripRangeDto[] = [];
+  let scoreTitle: ScoreTitleDto | null = null;
   const cfgPath = fontStripConfigPath(job.sessionRoot);
   if (fsSync.existsSync(cfgPath)) {
     try {
-      const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf8')) as { ranges?: FontStripRangeDto[] };
+      const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf8')) as {
+        ranges?: FontStripRangeDto[];
+        scoreTitle?: ScoreTitleDto;
+      };
       ranges = cfg.ranges ?? [];
+      if (cfg.scoreTitle?.text?.trim()) scoreTitle = cfg.scoreTitle;
     } catch {
       /* ignore */
     }
+  }
+  const extractedJsonPath = path.join(job.sessionRoot, 'extracted_music_text.json');
+  const scriptSeparator = path.join(__dirname, '..', 'scripts', 'pdf_separator.py');
+  const pythonBin = resolvePythonBin();
+  let titleCandidate: ScoreTitleDto | null = null;
+  if (fsSync.existsSync(extractedJsonPath)) {
+    titleCandidate = await detectScoreTitleCandidate(pythonBin, scriptSeparator, extractedJsonPath);
   }
   res.json({
     jobId: req.params.jobId,
@@ -4393,6 +4654,8 @@ app.get('/api/clean-score-preview/:jobId', async (req, res) => {
     pageCount: Math.max(1, origCount ?? cleanCount ?? 1),
     ranges,
     replaceTripletPua: process.env.CLEAN_SCORE_REPLACE_TRIPLET_PUA === '1',
+    scoreTitle,
+    titleCandidate,
   });
 });
 
@@ -4450,6 +4713,73 @@ app.get('/api/clean-score-preview/:jobId/pdf', (req, res) => {
     diagnosticPdfDownloadBaseName(job, 'clean_score'),
     attachment,
   );
+});
+
+app.post('/api/clean-score-preview/:jobId/score-title', express.json({ limit: '64kb' }), async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!cleanScorePreviewJobsAllowed(job)) {
+    res.status(400).json({ error: 'clean_score 미리보기 단계가 아닙니다' });
+    return;
+  }
+  const body = req.body as {
+    text?: unknown;
+    bbox?: unknown;
+    page?: unknown;
+    mask?: unknown;
+    applyMask?: unknown;
+  };
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) {
+    res.status(400).json({ error: '제목 텍스트가 필요합니다' });
+    return;
+  }
+  const cfg = await readFontStripConfig(job.sessionRoot);
+  const prev = (cfg.scoreTitle ?? {}) as ScoreTitleDto;
+  let bbox = prev.bbox;
+  if (Array.isArray(body.bbox) && body.bbox.length >= 4) {
+    const nums = body.bbox.map((v) => Number(v));
+    if (nums.every((n) => Number.isFinite(n))) {
+      bbox = [nums[0], nums[1], nums[2], nums[3]];
+    }
+  }
+  if (!bbox) {
+    const extractedJsonPath = path.join(job.sessionRoot, 'extracted_music_text.json');
+    const scriptSeparator = path.join(__dirname, '..', 'scripts', 'pdf_separator.py');
+    const pythonBin = resolvePythonBin();
+    const cand = await detectScoreTitleCandidate(pythonBin, scriptSeparator, extractedJsonPath);
+    if (cand?.bbox) bbox = cand.bbox;
+  }
+  const pageNum =
+    Number.isFinite(Number(body.page)) ? Math.max(1, Math.round(Number(body.page))) : (prev.page ?? 1);
+  const scoreTitle: ScoreTitleDto = {
+    text,
+    page: pageNum,
+    bbox,
+    mask: body.mask === false ? false : true,
+    detected: prev.detected,
+  };
+  cfg.scoreTitle = scoreTitle;
+  await writeFontStripConfig(job.sessionRoot, cfg);
+  const applyMask = body.applyMask !== false;
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  if (applyMask && scoreTitle.mask !== false && fsSync.existsSync(cleanScorePath)) {
+    try {
+      const pythonBin = resolvePythonBin();
+      const scriptSeparator = path.join(__dirname, '..', 'scripts', 'pdf_separator.py');
+      await applyScoreTitleMaskOnPdf(
+        pythonBin,
+        scriptSeparator,
+        job.sessionRoot,
+        cleanScorePath,
+        scoreTitle,
+      );
+    } catch (e) {
+      res.status(500).json({ error: `제목 영역 마스킹 실패: ${String(e)}` });
+      return;
+    }
+  }
+  res.json({ ok: true, scoreTitle });
 });
 
 app.post('/api/clean-score-preview/:jobId/continue', express.json(), (req, res) => {
@@ -5246,6 +5576,10 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
   const extractedJsonPath = path.join(job.sessionRoot, 'extracted_music_text.json');
   if (fsSync.existsSync(lyricManifestPath)) {
     archive.file(lyricManifestPath, { name: 'lyric_manifest.json' });
+  }
+  const fontStripCfgPath = fontStripConfigPath(job.sessionRoot);
+  if (fsSync.existsSync(fontStripCfgPath)) {
+    archive.file(fontStripCfgPath, { name: 'font_strip_config.json' });
   }
   if (fsSync.existsSync(pymupdfReviewPath)) {
     archive.file(pymupdfReviewPath, { name: 'ocr_data_pymupdf.json' });

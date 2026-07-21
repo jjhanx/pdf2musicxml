@@ -517,17 +517,145 @@ def merge_sources(
     return manifest
 
 
+def resolve_score_title(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """fontStrip.scoreTitle 또는 manifest 최상위 scoreTitle."""
+    font_strip = manifest.get("fontStrip")
+    if isinstance(font_strip, dict):
+        st = font_strip.get("scoreTitle")
+        if isinstance(st, dict) and str(st.get("text") or "").strip():
+            return st
+    st = manifest.get("scoreTitle")
+    if isinstance(st, dict) and str(st.get("text") or "").strip():
+        return st
+    return None
+
+
+def _manifest_has_user_set_title(manifest: dict[str, Any]) -> bool:
+    for key in ("pymupdfReviewItems", "items"):
+        coll = manifest.get(key)
+        if not isinstance(coll, list):
+            continue
+        for item in coll:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "title" and item.get("reviewTypeUserSet"):
+                return True
+    return False
+
+
+def apply_score_title_to_manifest(manifest: dict[str, Any]) -> None:
+    """scoreTitle → manifest items·pymupdfReviewItems에 type=title 반영."""
+    score_title = resolve_score_title(manifest)
+    if not isinstance(score_title, dict):
+        return
+    if _manifest_has_user_set_title(manifest):
+        return
+    text = str(score_title.get("text") or "").strip()
+    if not text:
+        return
+    try:
+        page = int(score_title.get("page") or 1)
+    except (TypeError, ValueError):
+        page = 1
+    bbox = score_title.get("bbox")
+    has_bbox = isinstance(bbox, (list, tuple)) and len(bbox) >= 4
+
+    def match_item(item: dict[str, Any]) -> bool:
+        if int(item.get("page") or 0) != page:
+            return False
+        if has_bbox and isinstance(item.get("bbox"), (list, tuple)) and len(item["bbox"]) >= 4:
+            return bbox_iou(list(bbox), list(item["bbox"])) >= 0.2
+        t = str(item.get("type") or "")
+        if t == "title":
+            return True
+        item_text = strip_pua(str(item.get("text") or "")).replace(" ", "")
+        cand = text.replace(" ", "")
+        if item_text and cand and (item_text in cand or cand in item_text):
+            return True
+        return False
+
+    def patch_item(item: dict[str, Any]) -> None:
+        item["type"] = "title"
+        item["text"] = text
+        item["provenance"] = "scoreTitle"
+        if has_bbox:
+            item["bbox"] = [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])]
+
+    for key in ("items", "pymupdfReviewItems"):
+        coll = manifest.get(key)
+        if not isinstance(coll, list):
+            continue
+        matched = False
+        for item in coll:
+            if not isinstance(item, dict) or is_meta_item(item):
+                continue
+            if match_item(item):
+                patch_item(item)
+                matched = True
+                break
+        if not matched and key == "items" and has_bbox:
+            coll.insert(
+                0,
+                {
+                    "id": "score_title",
+                    "page": page,
+                    "text": text,
+                    "type": "title",
+                    "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
+                    "confidence": 1.0,
+                    "provenance": "scoreTitle",
+                },
+            )
+
+
+def ensure_score_title_in_flat_rows(manifest: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """inject 직전 — scoreTitle이 flat에 title 한 줄로 들어가도록 보장."""
+    if _manifest_has_user_set_title(manifest):
+        return rows
+    score_title = resolve_score_title(manifest)
+    if not isinstance(score_title, dict):
+        return rows
+    text = str(score_title.get("text") or "").strip()
+    if not text:
+        return rows
+    try:
+        page = int(score_title.get("page") or 1)
+    except (TypeError, ValueError):
+        page = 1
+    filtered = [
+        r
+        for r in rows
+        if not (r.get("type") == "title" and r.get("provenance") != "scoreTitle")
+    ]
+    filtered.insert(
+        0,
+        {
+            "id": "score_title_inject",
+            "page": page,
+            "text": text,
+            "type": "title",
+            "provenance": "scoreTitle",
+            "confidence": 1.0,
+        },
+    )
+    return filtered
+
+
 def pymupdf_review_to_flat_inject_rows(
     pymupdf_items: list[dict[str, Any]],
     manual_rects: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """PyMuPDF 검토 JSON — 가사 주입의 단일 진실 공급원(성부·순서·텍스트)."""
     rows: list[dict[str, Any]] = []
+    meta_types = {"title", "composer", "lyricist", "copyright", "tempo"}
     for raw in pymupdf_items:
         if not isinstance(raw, dict) or is_meta_item(raw):
             continue
         item = dict(raw)
         item["type"] = resolve_inject_type(item)
+        if item["type"] in meta_types:
+            rows.append(item)
+            continue
         if item["type"] in ("measure_number", "page_number", "unknown"):
             continue
         rows.append(item)
@@ -545,11 +673,14 @@ def pymupdf_review_to_flat_inject_rows(
 
 def manifest_to_flat_inject_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     """inject_ocr.py용 flat 배열 — PyMuPDF 검토가 있으면 그쪽만 사용(pdfplumber IoU 병합 제외)."""
+    manifest = dict(manifest)
+    apply_score_title_to_manifest(manifest)
     manual = manifest.get("manualLyricRects") or []
     sources = manifest.get("sources") or {}
     review_items = manifest.get("pymupdfReviewItems")
     if sources.get("pymupdfReview") and isinstance(review_items, list) and review_items:
-        return pymupdf_review_to_flat_inject_rows(review_items, manual)
+        rows = pymupdf_review_to_flat_inject_rows(review_items, manual)
+        return ensure_score_title_in_flat_rows(manifest, rows)
 
     items = manifest.get("items") or []
     rows = [
@@ -565,7 +696,7 @@ def manifest_to_flat_inject_rows(manifest: dict[str, Any]) -> list[dict[str, Any
                 "manualRects": manual,
             }
         )
-    return rows
+    return ensure_score_title_in_flat_rows(manifest, rows)
 
 
 def main() -> int:

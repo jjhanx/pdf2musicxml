@@ -358,6 +358,7 @@ export type MeasureNoteEl = {
 export type NoteDirectionInfo = {
   directionType: 'dynamics' | 'words' | 'rehearsal';
   directionValue: string;
+  placement?: 'above' | 'below';
 };
 
 export type MeasureElement = MeasureNoteEl;
@@ -699,7 +700,10 @@ function noteDirectionsSummary(el: MeasureNoteEl): string {
 
 function noteDirectionLabel(dir: NoteDirectionInfo | null | undefined): string {
   if (!dir?.directionValue && dir?.directionType !== 'dynamics') return '';
-  if (dir.directionType === 'dynamics') return `dir:${dir.directionValue || 'p'}`;
+  if (dir.directionType === 'dynamics') {
+    const pl = dir.placement === 'below' ? '↓' : dir.placement === 'above' ? '↑' : '';
+    return `dir:${dir.directionValue || 'p'}${pl}`;
+  }
   if (dir.directionType === 'rehearsal') return `reh:${dir.directionValue || 'A'}`;
   return `txt:${dir.directionValue}`;
 }
@@ -1273,18 +1277,26 @@ function NoteDirectionEditor({
   const dirs = currentDirections ?? [];
   const [mode, setMode] = useState<'none' | 'dynamics' | 'words' | 'rehearsal'>('none');
   const [dynValue, setDynValue] = useState('mf');
+  const [dynPlacement, setDynPlacement] = useState<'above' | 'below'>('above');
   const [textValue, setTextValue] = useState('');
 
   useEffect(() => {
     setMode('none');
     setDynValue('mf');
+    setDynPlacement('above');
     setTextValue('');
   }, [noteIndex]);
 
   const apply = () => {
     if (mode === 'none') return;
     if (mode === 'dynamics') {
-      onFix({ kind: 'addNoteDirection', noteIndex, directionType: 'dynamics', directionValue: dynValue });
+      onFix({
+        kind: 'addNoteDirection',
+        noteIndex,
+        directionType: 'dynamics',
+        directionValue: dynValue,
+        placement: dynPlacement,
+      });
       return;
     }
     onFix({
@@ -1343,13 +1355,26 @@ function NoteDirectionEditor({
         </select>
       </label>
       {mode === 'dynamics' ? (
-        <select value={dynValue} onChange={(e) => setDynValue(e.target.value)} aria-label="dynamics">
-          {DYNAMICS_DIRECTION_VALUES.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
+        <>
+          <select value={dynValue} onChange={(e) => setDynValue(e.target.value)} aria-label="dynamics">
+            {DYNAMICS_DIRECTION_VALUES.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <label className="omr-measure-inline-field">
+            위치
+            <select
+              value={dynPlacement}
+              onChange={(e) => setDynPlacement(e.target.value as 'above' | 'below')}
+              aria-label="dynamics placement"
+            >
+              <option value="above">음표 위</option>
+              <option value="below">음표 아래</option>
+            </select>
+          </label>
+        </>
       ) : mode === 'words' || mode === 'rehearsal' ? (
         <input
           type="text"

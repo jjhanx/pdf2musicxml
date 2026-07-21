@@ -36,6 +36,7 @@ _DYNAMICS_TAGS = frozenset(
         "sffz",
     }
 )
+_DEFAULT_DYNAMICS_PLACEMENT = "above"
 _ARTICULATION_TAGS = frozenset(
     {
         "accent",
@@ -465,7 +466,11 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
     if dyn is not None:
         tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
         if tags:
-            return {"directionType": "dynamics", "directionValue": tags[0]}
+            pl = (dyn.get("placement") or direction.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT).strip()
+            out: dict[str, Any] = {"directionType": "dynamics", "directionValue": tags[0]}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
     words = dtype.find(_q(ns, "words"))
     if words is not None and words.text and words.text.strip():
         return {"directionType": "words", "directionValue": words.text.strip()}
@@ -483,7 +488,11 @@ def _read_note_direction_from_notations(note: ET.Element, ns: str) -> dict[str, 
             continue
         tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
         if tags:
-            return {"directionType": "dynamics", "directionValue": tags[0]}
+            pl = (dyn.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT).strip()
+            out: dict[str, Any] = {"directionType": "dynamics", "directionValue": tags[0]}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
     return None
 
 
@@ -1577,7 +1586,7 @@ def _apply_note_direction(
     if kind == "dynamics":
         tag = val.lower() or "p"
         if placement is None:
-            placement = "below"
+            placement = _DEFAULT_DYNAMICS_PLACEMENT
         _attach_dynamics_to_note(note, ns, tag, placement)
         return True
     if not val and kind == "words":
@@ -1608,7 +1617,7 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
         if dyn is not None:
             tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
             if tags:
-                placement = direction.get("placement") or dyn.get("placement") or "below"
+                placement = direction.get("placement") or dyn.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT
                 _attach_dynamics_to_note(anchor, ns, tags[0], placement)
                 measure.remove(direction)
                 changed = True
@@ -3120,7 +3129,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if placement not in ("above", "below", ""):
             placement = None
         if direction_type == "dynamics" and placement is None:
-            placement = "below"
+            placement = _DEFAULT_DYNAMICS_PLACEMENT
         return _apply_note_direction(
             measure, notes, note_idx, ns, direction_type, direction_value, placement
         )
@@ -3172,7 +3181,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if placement not in ("above", "below", ""):
             placement = None
         if direction_type == "dynamics" and placement is None:
-            placement = "below"
+            placement = _DEFAULT_DYNAMICS_PLACEMENT
         note_idx: int | None
         if 0 <= after_idx < len(notes):
             note_idx = after_idx

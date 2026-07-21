@@ -841,7 +841,7 @@ function extractAndRemoveDynamicsFromNote(
         .filter((t) => DYNAMICS_TAGS.has(t));
       if (!tags.length) continue;
       const pl = dyn.getAttribute('placement');
-      const placement: 'above' | 'below' = pl === 'above' ? 'above' : 'below';
+      const placement: 'above' | 'below' = pl === 'below' ? 'below' : 'above';
       dyn.remove();
       if (!notations.children.length) note.removeChild(notations);
       return { tag: tags[0], placement };
@@ -928,7 +928,7 @@ export function migrateDirectionsToNotes(xml: string): string {
           if (dyn) {
             const tags = [...dyn.children].map((c) => xmlLocalName(c)).filter((t) => DYNAMICS_TAGS.has(t));
             if (tags.length) {
-              const placement = direction.getAttribute('placement') || dyn.getAttribute('placement') || 'below';
+              const placement = direction.getAttribute('placement') || dyn.getAttribute('placement') || 'above';
               attachDynamicsToNote(anchor, tags[0], placement);
               direction.remove();
               continue;

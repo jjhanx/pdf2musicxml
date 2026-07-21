@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 import pikepdf
@@ -543,6 +544,84 @@ def detect_title_candidate(extracted_json_path: str) -> dict[str, Any] | None:
     return detect_title_candidate_from_pages(pages)
 
 
+def detect_title_candidate_from_pdf(pdf_path: str) -> dict[str, Any] | None:
+    """clean_score_only.pdf에서 PyMuPDF로 1페이지 상단 한글 제목 bbox 감지."""
+    import fitz
+
+    path = Path(pdf_path)
+    if not path.is_file():
+        return None
+    doc = fitz.open(str(path))
+    try:
+        if len(doc) < 1:
+            return None
+        page = doc[0]
+        page_h = float(page.rect.height or 842.0)
+        top_limit = page_h * _TITLE_TOP_FRAC
+        flags = int(getattr(fitz, "TEXT_ACCURATE_BBOXES", 0) or 0)
+        raw = page.get_text("rawdict", flags=flags)
+        line_chars: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        last_y: float | None = None
+        for block in raw.get("blocks") or []:
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines") or []:
+                for span in line.get("spans") or []:
+                    for ch in span.get("chars") or []:
+                        c = str(ch.get("c") or "")
+                        if not c or _char_is_music_glyph(ord(c[0])):
+                            continue
+                        bbox = ch.get("bbox") or [0, 0, 0, 0]
+                        y0 = float(bbox[1])
+                        if last_y is not None and abs(y0 - last_y) > 4:
+                            if current:
+                                line_chars.append(current)
+                            current = []
+                        last_y = y0
+                        current.append(
+                            {
+                                "x0": float(bbox[0]),
+                                "y0": y0,
+                                "x1": float(bbox[2]),
+                                "y1": float(bbox[3]),
+                                "raw_text": c,
+                                "size": float(span.get("size") or 0),
+                            }
+                        )
+        if current:
+            line_chars.append(current)
+        candidates: list[dict[str, Any]] = []
+        for chars in line_chars:
+            bbox = _line_bbox(chars)
+            if bbox[1] > top_limit:
+                continue
+            text = _line_merged_text(chars)
+            if not text or not _HANGUL_RE.search(text):
+                continue
+            if _MEASURE_NUM_RE.fullmatch(text.replace(" ", "")):
+                continue
+            sizes = [float(c.get("size", 0) or 0) for c in chars if float(c.get("size", 0) or 0) > 0]
+            avg_size = round(sum(sizes) / len(sizes), 2) if sizes else None
+            candidates.append(
+                {
+                    "text": text,
+                    "page": 1,
+                    "bbox": bbox,
+                    "fontSize": avg_size,
+                    "y0": bbox[1],
+                    "detected": True,
+                    "source": "pymupdf_pdf",
+                }
+            )
+        if not candidates:
+            return None
+        candidates.sort(key=lambda c: (c["y0"], -len(str(c["text"]))))
+        return candidates[0]
+    finally:
+        doc.close()
+
+
 def _char_is_music_glyph(cp: int) -> bool:
     if 0xE000 <= cp <= 0xF8FF:
         return True
@@ -555,11 +634,15 @@ def _char_is_music_glyph(cp: int) -> bool:
     return False
 
 
-def _apply_page_redactions(page) -> bool:
+def _apply_page_redactions(page, *, remove_line_art: bool = False) -> bool:
     import fitz
 
     img = int(getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0))
-    gra = int(getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0))
+    gra = int(
+        getattr(fitz, "PDF_REDACT_LINE_ART_REMOVE", 2)
+        if remove_line_art
+        else getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
+    )
     txt = int(getattr(fitz, "PDF_REDACT_TEXT_REMOVE", 0))
     safe_kw = {"images": img, "graphics": gra, "text": txt}
     try:
@@ -573,6 +656,44 @@ def _apply_page_redactions(page) -> bool:
     except (TypeError, ValueError):
         pass
     return False
+
+
+def _count_text_chars_in_rect(page, clip, flags: int) -> int:
+    import fitz
+
+    n = 0
+    raw = page.get_text("rawdict", flags=flags)
+    for block in raw.get("blocks") or []:
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines") or []:
+            for span in line.get("spans") or []:
+                for ch in span.get("chars") or []:
+                    cb = fitz.Rect(ch.get("bbox") or [0, 0, 0, 0]).normalize()
+                    if (clip & cb).is_empty:
+                        continue
+                    c = str(ch.get("c") or "")
+                    if not c:
+                        continue
+                    if _char_is_music_glyph(ord(c[0])):
+                        continue
+                    n += 1
+    return n
+
+
+def _save_pymupdf_document(doc, opened_path: str, out_path: str) -> None:
+    import os
+
+    abs_in = os.path.abspath(opened_path)
+    abs_out = os.path.abspath(out_path)
+    if abs_in == abs_out:
+        tmp = opened_path + ".mask-tmp.pdf"
+        doc.save(tmp, deflate=True, garbage=3)
+        doc.close()
+        os.replace(tmp, opened_path)
+    else:
+        doc.save(out_path, deflate=True, garbage=3)
+        doc.close()
 
 
 def mask_bbox_text_regions(
@@ -655,9 +776,15 @@ def mask_bbox_text_regions(
                             redacts_added += 1
             if redacts_added > 0 and _apply_page_redactions(page):
                 redacts_total += redacts_added
-        doc.save(out_path, deflate=True, garbage=3)
-    finally:
+            remaining = _count_text_chars_in_rect(page, clip, flags)
+            if remaining > 0 or redacts_added == 0:
+                page.add_redact_annot(clip, fill=(1, 1, 1))
+                if _apply_page_redactions(page, remove_line_art=True):
+                    redacts_total += max(1, remaining or 1)
+        _save_pymupdf_document(doc, pdf_path, out_path)
+    except Exception:
         doc.close()
+        raise
     return redacts_total
 
 
@@ -682,6 +809,13 @@ def apply_score_title_mask(
 
 def cmd_detect_title(args: argparse.Namespace) -> int:
     candidate = detect_title_candidate(args.extracted_json)
+    json.dump(candidate or {}, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_detect_title_pdf(args: argparse.Namespace) -> int:
+    candidate = detect_title_candidate_from_pdf(args.input_pdf)
     json.dump(candidate or {}, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
     return 0
@@ -779,6 +913,10 @@ def main() -> int:
     p_detect_title = sub.add_parser("detect-title", help="1페이지 상단 제목 후보(JSON stdout)")
     p_detect_title.add_argument("extracted_json")
     p_detect_title.set_defaults(func=cmd_detect_title)
+
+    p_detect_title_pdf = sub.add_parser("detect-title-pdf", help="PDF에서 PyMuPDF로 제목 bbox(JSON stdout)")
+    p_detect_title_pdf.add_argument("input_pdf")
+    p_detect_title_pdf.set_defaults(func=cmd_detect_title_pdf)
 
     p_mask_title = sub.add_parser("mask-title", help="지정 bbox 텍스트 글림 제거(PyMuPDF)")
     p_mask_title.add_argument("input_pdf")

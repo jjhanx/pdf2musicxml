@@ -369,6 +369,7 @@ type MeasureSnapshot = {
   notes?: MeasureNoteEl[];
   tempos?: MeasureTempoEntry[];
   measureDirections?: MeasureDirectionEl[];
+  directionSourcePartId?: string;
   effectiveTempoBpm?: number | null;
 };
 
@@ -388,10 +389,12 @@ const BEAT_UNIT_OPTIONS = [
 function MeasureDirectionsEditor({
   directions,
   measureMxl,
+  directionSourcePartId,
   onFix,
 }: {
   directions: MeasureDirectionEl[];
   measureMxl: number;
+  directionSourcePartId?: string;
   onFix: (partial: FixPartial) => void;
 }) {
   const [edits, setEdits] = useState<Record<number, string>>({});
@@ -422,6 +425,9 @@ function MeasureDirectionsEditor({
         OMR이 넣은 <code>&lt;direction&gt;&lt;words&gt;</code> 입니다. clean_score에 남은 제목 한글·숫자 찌끼를{' '}
         <strong>삭제</strong>하거나 올바른 제목으로 <strong>고친 뒤</strong> 「MXL에 반영·미리보기」를 누르세요.
         {measureMxl === 1 ? ' 1마디 상단 제목은 여기서 지우는 경우가 많습니다.' : ''}
+        {directionSourcePartId ?
+          ` (제목 direction은 part ${directionSourcePartId}에 저장됩니다.)`
+        : ''}
       </p>
       <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {directions.map((d) => (
@@ -823,9 +829,14 @@ export function OmrMeasureEditor({
 
   const pushFix = (partial: FixPartial) => {
     const { measureMxl: overrideMxl, ...rest } = partial;
+    const directionKinds = new Set(['setMeasureDirectionText', 'removeDirection']);
+    const fixPartId =
+      directionKinds.has(String(rest.kind)) && snapshot?.directionSourcePartId
+        ? snapshot.directionSourcePartId
+        : partId;
     onAddFix({
       id: newFixId(),
-      partId,
+      partId: fixPartId,
       measureMxl: overrideMxl ?? String(measureMxl),
       source: 'manual',
       ...rest,
@@ -904,6 +915,7 @@ export function OmrMeasureEditor({
           <MeasureDirectionsEditor
             directions={snapshot.measureDirections ?? []}
             measureMxl={measureMxl}
+            directionSourcePartId={snapshot.directionSourcePartId}
             onFix={pushFix}
           />
           <MeasureTempoEditor

@@ -2638,6 +2638,64 @@ async function detectScoreTitleCandidate(
   }
 }
 
+async function detectScoreTitleFromPdf(
+  pythonBin: string,
+  scriptSeparator: string,
+  pdfPath: string,
+): Promise<ScoreTitleDto | null> {
+  if (!fsSync.existsSync(pdfPath)) return null;
+  try {
+    const { stdout } = await exec(
+      `"${pythonBin}" "${scriptSeparator}" detect-title-pdf "${pdfPath}"`,
+      { maxBuffer: 4 * 1024 * 1024 },
+    );
+    const data = JSON.parse(String(stdout).trim()) as ScoreTitleDto;
+    if (!data?.text?.trim() || !Array.isArray(data.bbox) || data.bbox.length < 4) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveScoreTitleBbox(
+  sessionRoot: string,
+  cleanPdfPath: string,
+  pythonBin: string,
+  scriptSeparator: string,
+  extractedJsonPath: string,
+  prevBbox?: [number, number, number, number],
+  bodyBbox?: [number, number, number, number],
+): Promise<[number, number, number, number] | undefined> {
+  if (bodyBbox) return bodyBbox;
+  if (prevBbox) return prevBbox;
+  const manifestPath = sessionLyricManifestPath(sessionRoot);
+  if (fsSync.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as {
+        items?: Array<{ type?: string; text?: string; bbox?: number[]; page?: number }>;
+        pymupdfReviewItems?: Array<{ type?: string; text?: string; bbox?: number[]; page?: number }>;
+      };
+      for (const coll of [manifest.items, manifest.pymupdfReviewItems]) {
+        if (!Array.isArray(coll)) continue;
+        for (const item of coll) {
+          const text = String(item.text ?? '').trim();
+          if (!text || !Array.isArray(item.bbox) || item.bbox.length < 4) continue;
+          if (/[\uac00-\ud7a3]/.test(text) && item.bbox[1] < 200) {
+            return [item.bbox[0], item.bbox[1], item.bbox[2], item.bbox[3]];
+          }
+        }
+      }
+    } catch {
+      /* optional */
+    }
+  }
+  const fromExtracted = await detectScoreTitleCandidate(pythonBin, scriptSeparator, extractedJsonPath);
+  if (fromExtracted?.bbox) return fromExtracted.bbox;
+  const fromPdf = await detectScoreTitleFromPdf(pythonBin, scriptSeparator, cleanPdfPath);
+  if (fromPdf?.bbox) return fromPdf.bbox;
+  return undefined;
+}
+
 async function invalidateCleanScorePreviewCache(sessionRoot: string): Promise<void> {
   const cacheDir = path.join(sessionRoot, '.diag-cache');
   try {
@@ -2658,17 +2716,19 @@ async function applyScoreTitleMaskOnPdf(
   sessionRoot: string,
   cleanPdfPath: string,
   scoreTitle: ScoreTitleDto,
-): Promise<void> {
-  if (scoreTitle.mask === false) return;
-  if (!Array.isArray(scoreTitle.bbox) || scoreTitle.bbox.length < 4) return;
+): Promise<number> {
+  if (scoreTitle.mask === false) return 0;
+  if (!Array.isArray(scoreTitle.bbox) || scoreTitle.bbox.length < 4) return 0;
   const tmpJson = path.join(sessionRoot, '.score_title_mask.json');
   await fs.writeFile(tmpJson, JSON.stringify(scoreTitle), 'utf8');
   try {
-    await exec(
+    const { stderr } = await exec(
       `"${pythonBin}" "${scriptSeparator}" mask-title "${cleanPdfPath}" "${tmpJson}"`,
       { maxBuffer: 16 * 1024 * 1024 },
     );
     await invalidateCleanScorePreviewCache(sessionRoot);
+    const m = String(stderr ?? '').match(/\[mask-title\] (\d+) glyph redactions/);
+    return m ? parseInt(m[1], 10) : 0;
   } finally {
     await fs.unlink(tmpJson).catch(() => {});
   }
@@ -2741,12 +2801,16 @@ async function ensureAutoScoreTitleInConfig(
   extractedJsonPath: string,
   pythonBin: string,
   scriptSeparator: string,
+  cleanPdfPath?: string,
 ): Promise<ScoreTitleDto | null> {
   const cfg = await readFontStripConfig(sessionRoot);
   const existing = cfg.scoreTitle as ScoreTitleDto | undefined;
-  if (existing?.text?.trim()) return existing;
-  const cand = await detectScoreTitleCandidate(pythonBin, scriptSeparator, extractedJsonPath);
-  if (!cand) return null;
+  if (existing?.text?.trim() && existing.bbox) return existing;
+  let cand = await detectScoreTitleCandidate(pythonBin, scriptSeparator, extractedJsonPath);
+  if (!cand?.bbox && cleanPdfPath && fsSync.existsSync(cleanPdfPath)) {
+    cand = (await detectScoreTitleFromPdf(pythonBin, scriptSeparator, cleanPdfPath)) ?? cand;
+  }
+  if (!cand) return existing?.text?.trim() ? existing : null;
   cfg.scoreTitle = { ...cand, mask: true };
   await writeFontStripConfig(sessionRoot, cfg);
   return cfg.scoreTitle as ScoreTitleDto;
@@ -3092,6 +3156,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           extractedJsonPath,
           pythonBin,
           scriptSeparator,
+          cleanScorePath,
         );
         if (scoreTitleForMask) {
           try {
@@ -4566,9 +4631,18 @@ app.post('/api/font-strip/:jobId', express.json({ limit: '256kb' }), async (req,
     return;
   }
   try {
+    const prevCfg = await readFontStripConfig(job.sessionRoot);
     await fs.writeFile(
       fontStripConfigPath(job.sessionRoot),
-      JSON.stringify({ ranges, savedAt: new Date().toISOString() }, null, 2),
+      JSON.stringify(
+        {
+          ranges,
+          savedAt: new Date().toISOString(),
+          ...(prevCfg.scoreTitle ? { scoreTitle: prevCfg.scoreTitle } : {}),
+        },
+        null,
+        2,
+      ),
       'utf8',
     );
     job.fontStripDeferred.resolve();
@@ -4650,6 +4724,9 @@ app.get('/api/clean-score-preview/:jobId', async (req, res) => {
   let titleCandidate: ScoreTitleDto | null = null;
   if (fsSync.existsSync(extractedJsonPath)) {
     titleCandidate = await detectScoreTitleCandidate(pythonBin, scriptSeparator, extractedJsonPath);
+  }
+  if (!titleCandidate?.bbox && fsSync.existsSync(cleanScorePath)) {
+    titleCandidate = (await detectScoreTitleFromPdf(pythonBin, scriptSeparator, cleanScorePath)) ?? titleCandidate;
   }
   res.json({
     jobId: req.params.jobId,
@@ -4746,12 +4823,20 @@ app.post('/api/clean-score-preview/:jobId/score-title', express.json({ limit: '6
       bbox = [nums[0], nums[1], nums[2], nums[3]];
     }
   }
+  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+  const extractedJsonPath = path.join(job.sessionRoot, 'extracted_music_text.json');
+  const scriptSeparator = path.join(__dirname, '..', 'scripts', 'pdf_separator.py');
+  const pythonBin = resolvePythonBin();
   if (!bbox) {
-    const extractedJsonPath = path.join(job.sessionRoot, 'extracted_music_text.json');
-    const scriptSeparator = path.join(__dirname, '..', 'scripts', 'pdf_separator.py');
-    const pythonBin = resolvePythonBin();
-    const cand = await detectScoreTitleCandidate(pythonBin, scriptSeparator, extractedJsonPath);
-    if (cand?.bbox) bbox = cand.bbox;
+    const resolved = await resolveScoreTitleBbox(
+      job.sessionRoot,
+      cleanScorePath,
+      pythonBin,
+      scriptSeparator,
+      extractedJsonPath,
+      prev.bbox,
+    );
+    if (resolved) bbox = resolved;
   }
   const pageNum =
     Number.isFinite(Number(body.page)) ? Math.max(1, Math.round(Number(body.page))) : (prev.page ?? 1);
@@ -4765,24 +4850,29 @@ app.post('/api/clean-score-preview/:jobId/score-title', express.json({ limit: '6
   cfg.scoreTitle = scoreTitle;
   await writeFontStripConfig(job.sessionRoot, cfg);
   const applyMask = body.applyMask !== false;
-  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
-  if (applyMask && scoreTitle.mask !== false && fsSync.existsSync(cleanScorePath)) {
+  let maskRedactions = 0;
+  let maskWarning: string | undefined;
+  if (!bbox) {
+    maskWarning = '제목 bbox를 찾지 못해 PDF 마스킹을 건너뛰었습니다. 제목 위치가 pdfplumber·PyMuPDF 모두에서 보이지 않을 수 있습니다.';
+  } else if (applyMask && scoreTitle.mask !== false && fsSync.existsSync(cleanScorePath)) {
     try {
-      const pythonBin = resolvePythonBin();
-      const scriptSeparator = path.join(__dirname, '..', 'scripts', 'pdf_separator.py');
-      await applyScoreTitleMaskOnPdf(
+      maskRedactions = await applyScoreTitleMaskOnPdf(
         pythonBin,
         scriptSeparator,
         job.sessionRoot,
         cleanScorePath,
         scoreTitle,
       );
+      if (maskRedactions <= 0) {
+        maskWarning =
+          '제목 영역 마스킹이 적용되지 않았습니다(bbox 안에 제거할 텍스트·도형이 없음). clean_score 미리보기 PNG를 확인하세요.';
+      }
     } catch (e) {
       res.status(500).json({ error: `제목 영역 마스킹 실패: ${String(e)}` });
       return;
     }
   }
-  res.json({ ok: true, scoreTitle });
+  res.json({ ok: true, scoreTitle, maskRedactions, maskWarning });
 });
 
 app.post('/api/clean-score-preview/:jobId/continue', express.json(), (req, res) => {

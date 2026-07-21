@@ -713,6 +713,10 @@ function collectFromSystem(
         bounds = domBoundsForMeasure(gm, host);
       }
       if (!bounds || !isValidHostBounds(bounds)) continue;
+      if (measureMxl === 1) {
+        const extend = Math.min(120, Math.max(48, (bounds.bottom - bounds.top) * 1.2));
+        bounds = { ...bounds, top: bounds.top - extend };
+      }
       const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
       if (seen.has(key)) continue;
       seen.add(key);

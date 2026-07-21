@@ -98,6 +98,14 @@ def find_part(root: ET.Element, ns: str, part_id: str) -> ET.Element | None:
     return None
 
 
+def first_score_part_id(root: ET.Element, ns: str) -> str | None:
+    parts = root.findall(_q(ns, "part"))
+    if not parts:
+        return None
+    pid = parts[0].get("id")
+    return str(pid).strip() if pid else None
+
+
 def _effective_divisions_and_time(
     part: ET.Element, ns: str, target_measure: ET.Element
 ) -> tuple[int, int, int]:
@@ -828,7 +836,18 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
     tempos = _measure_tempo_snapshot(measure, ns)
     effective = _effective_tempo_bpm_before(root, ns, part_id, measure_mxl)
     measure_directions = _measure_standalone_directions_snapshot(measure, ns)
-    return {
+    direction_source_part_id = part_id
+    if not measure_directions and str(measure_mxl).strip() in ("0", "1"):
+        first_pid = first_score_part_id(root, ns)
+        if first_pid and first_pid != part_id:
+            first_part = find_part(root, ns, first_pid)
+            first_measure = find_measure(first_part, ns, measure_mxl) if first_part is not None else None
+            if first_measure is not None:
+                borrowed = _measure_standalone_directions_snapshot(first_measure, ns)
+                if borrowed:
+                    measure_directions = borrowed
+                    direction_source_part_id = first_pid
+    out: dict[str, Any] = {
         "partId": part_id,
         "measureMxl": str(measure_mxl),
         "notes": elements,
@@ -837,6 +856,9 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
         "measureDirections": measure_directions,
         "effectiveTempoBpm": effective,
     }
+    if direction_source_part_id != part_id:
+        out["directionSourcePartId"] = direction_source_part_id
+    return out
 
 
 def _diatonic_index(step: str, octave: int) -> int:

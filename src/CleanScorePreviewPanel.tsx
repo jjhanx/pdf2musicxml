@@ -96,6 +96,10 @@ export function CleanScorePreviewPanel({ jobId, onContinue, onRedoFontStrip }: P
         const j = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
+      const saved = (await r.json()) as { maskWarning?: string; maskRedactions?: number };
+      if (saved.maskWarning) {
+        setErr(saved.maskWarning);
+      }
       const data = await reloadSummary();
       setSummary(data);
       setTitleSaved(true);
@@ -215,7 +219,8 @@ export function CleanScorePreviewPanel({ jobId, onContinue, onRedoFontStrip }: P
           </div>
           {titleSaved ?
             <p className="font-strip-muted" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem' }}>
-              제목이 저장되었고 MusicXML 주입 시 <code>work-title</code>로 사용됩니다.
+              제목이 저장되었고 clean_score PDF·MusicXML 주입 시 반영됩니다. 오른쪽 clean_score 미리보기 PNG에서
+              제목 찌끼가 사라졌는지 확인하세요.
             </p>
           : null}
         </div>

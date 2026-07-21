@@ -21,6 +21,7 @@ import {
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
+import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 
 type InspectErrorBoundaryProps = {
   children: ReactNode;
@@ -1330,8 +1331,8 @@ export function repairKeyChangeClefMisreadForOsmd(xml: string): string {
  */
 export function removeAudiverisMeasureNumberingForOsmd(xml: string): string {
   try {
-    const doc = new DOMParser().parseFromString(xml, 'text/xml');
-    if (doc.querySelector('parsererror')) return xml;
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
 
     for (const part of findXmlParts(doc)) {
       for (const meas of [...part.children]) {
@@ -1345,10 +1346,18 @@ export function removeAudiverisMeasureNumberingForOsmd(xml: string): string {
       }
     }
 
-    return new XMLSerializer().serializeToString(doc);
+    return serializeMusicXmlDocument(doc);
   } catch {
     return xml;
   }
+}
+
+function normalizeMeasureNumberWords(text: string): string {
+  return text.replace(/[\uE000-\uF8FF]/g, '').trim();
+}
+
+function isLikelyPrintedMeasureNumberWords(text: string): boolean {
+  return /^\d{1,3}$/.test(normalizeMeasureNumberWords(text));
 }
 
 function measureHasPrintedNumberWords(meas: Element, label: string): boolean {
@@ -1376,9 +1385,11 @@ const MEASURE_NUM_WORDS_RE = /^\d{1,3}$/;
 
 function directionWordsText(dir: Element): string | null {
   for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
-    for (const words of [...dt.children].filter((c) => xmlLocalName(c) === 'words')) {
-      const t = words.textContent?.trim();
-      if (t) return t;
+    for (const tag of ['words', 'rehearsal'] as const) {
+      for (const el of [...dt.children].filter((c) => xmlLocalName(c) === tag)) {
+        const t = el.textContent?.trim();
+        if (t) return t;
+      }
     }
   }
   return null;
@@ -1400,8 +1411,8 @@ export function stripSpuriousMeasureNumberWordsForOsmd(
   allowed: ReadonlyMap<number, string>,
 ): string {
   try {
-    const doc = new DOMParser().parseFromString(xml, 'text/xml');
-    if (doc.querySelector('parsererror')) return xml;
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
     const parts = findXmlParts(doc);
     if (!parts.length) return xml;
 
@@ -1413,14 +1424,15 @@ export function stripSpuriousMeasureNumberWordsForOsmd(
         for (const dir of [...meas.children].filter((c) => xmlLocalName(c) === 'direction')) {
           if (directionHasTempo(dir)) continue;
           const words = directionWordsText(dir);
-          if (!words || !MEASURE_NUM_WORDS_RE.test(words)) continue;
-          if (allowedLabel && words === allowedLabel) continue;
+          if (!words || !isLikelyPrintedMeasureNumberWords(words)) continue;
+          const normalized = normalizeMeasureNumberWords(words);
+          if (allowedLabel && normalized === allowedLabel) continue;
           dir.remove();
         }
       }
     }
 
-    return new XMLSerializer().serializeToString(doc);
+    return serializeMusicXmlDocument(doc);
   } catch {
     return xml;
   }
@@ -1538,8 +1550,6 @@ function sanitizeMusicXmlForOsmd(
   printedMeasureMarkers?: ReadonlyMap<number, string>,
 ): string {
   try {
-    // 미리보기 전용 — 저장 MXL·HITL 편집 XML에는 적용하지 않음(OsmdBlock.load 직전).
-    // m1 `<key>` 생략 시 OSMD가 뒤쪽 조바꿈(4♯ 등)을 첫머리에 당겨 그리므로 verbatim에서도 C major 명시.
     let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
     out = repairKeyChangeClefMisreadForOsmd(out);
     out = removeRedundantCourtesyClefsForOsmd(out);
@@ -1548,8 +1558,8 @@ function sanitizeMusicXmlForOsmd(
     if (printedMeasureMarkers?.size) {
       out = injectPrintedMeasureNumberDirectionsForOsmd(out, printedMeasureMarkers);
     }
-    const doc = new DOMParser().parseFromString(out, 'text/xml');
-    if (doc.querySelector('parsererror')) return xml;
+    const doc = parseMusicXmlDocument(out);
+    if (!doc) return xml;
 
     const local = (el: Element) =>
       typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -1569,9 +1579,25 @@ function sanitizeMusicXmlForOsmd(
       if (!hasDirectionType) el.remove();
     });
 
-    return new XMLSerializer().serializeToString(doc);
+    return serializeMusicXmlDocument(doc);
   } catch {
     return xml;
+  }
+}
+
+/** OSMD가 XML sanitize 후에도 measure@number·words로 그리는 phantom 번호를 SVG에서 숨김 */
+export function hideSpuriousOsmdMeasureNumberText(
+  host: HTMLElement,
+  allowed: ReadonlyMap<number, string> | undefined,
+): void {
+  const allowedLabels = new Set(allowed?.values() ?? []);
+  for (const el of host.querySelectorAll('svg text, svg tspan')) {
+    const t = el.textContent?.trim() ?? '';
+    if (!MEASURE_NUM_WORDS_RE.test(t)) continue;
+    if (allowedLabels.has(t)) continue;
+    const svgEl = el as SVGElement;
+    svgEl.setAttribute('visibility', 'hidden');
+    svgEl.style.visibility = 'hidden';
   }
 }
 
@@ -1781,6 +1807,7 @@ export function OsmdBlock({
       requestAnimationFrame(() => {
         syncMeasureClickUi();
         const host = hostRef.current;
+        if (host) hideSpuriousOsmdMeasureNumberText(host, printedMeasureMarkersRef.current);
         const osmd = osmdRef.current;
         const trigger = scrollToMeasureTriggerRef.current;
         const target = scrollToMeasureRef.current;

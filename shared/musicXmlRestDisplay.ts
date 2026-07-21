@@ -1,7 +1,5 @@
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 
-const HIGH_REST_DISPLAY_STEPS = new Set(['C', 'D', 'E']);
-
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
 
@@ -17,26 +15,6 @@ function findXmlParts(doc: Document): Element[] {
   return out;
 }
 
-function clefSign(clef: Element): string {
-  return clef.querySelector('sign, *|sign')?.textContent?.trim() ?? '';
-}
-
-function noteStaffN(noteEl: Element): number {
-  const staffEl = noteEl.querySelector(':scope > staff, :scope > *|staff');
-  if (!staffEl) return 1;
-  const n = parseInt(staffEl.textContent?.trim() ?? '1', 10);
-  return Number.isFinite(n) ? n : 1;
-}
-
-function restDisplayStepOctave(restEl: Element): { step: string; octave: number | null } {
-  const stepEl = restEl.querySelector(':scope > display-step, :scope > *|display-step');
-  const octEl = restEl.querySelector(':scope > display-octave, :scope > *|display-octave');
-  const step = stepEl?.textContent?.trim().toUpperCase() ?? '';
-  const octText = octEl?.textContent?.trim();
-  const octave = octText && /^-?\d+$/.test(octText) ? parseInt(octText, 10) : null;
-  return { step, octave };
-}
-
 function clearRestDisplayHints(restEl: Element): void {
   restEl
     .querySelectorAll(
@@ -45,81 +23,21 @@ function clearRestDisplayHints(restEl: Element): void {
     .forEach((el) => el.remove());
 }
 
-function noteTypeText(note: Element): string {
-  return note.querySelector(':scope > type, :scope > *|type')?.textContent?.trim() ?? '';
-}
-
-function noteVoiceText(note: Element): string {
-  return note.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim() ?? '1';
-}
-
-function listMeasureNotes(measure: Element): Element[] {
-  return [...measure.children].filter((c) => xmlLocalName(c) === 'note');
-}
-
 function repairRestDisplayInPart(part: Element): void {
-  const clefByStaff = new Map<number, string>();
-  clefByStaff.set(1, 'G');
-
   for (const measure of [...part.children]) {
     if (xmlLocalName(measure) !== 'measure') continue;
-
-    for (const attr of [...measure.children]) {
-      if (xmlLocalName(attr) !== 'attributes') continue;
-      for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
-        const staffN = parseInt(clef.getAttribute('number') ?? '1', 10) || 1;
-        const sign = clefSign(clef);
-        if (sign) clefByStaff.set(staffN, sign);
-      }
-    }
-
-    const notes = listMeasureNotes(measure);
-    const byVoice = new Map<string, Element[]>();
-    for (const note of notes) {
-      const voice = noteVoiceText(note);
-      if (!byVoice.has(voice)) byVoice.set(voice, []);
-      byVoice.get(voice)!.push(note);
-    }
-
-    for (const note of notes) {
+    for (const note of [...measure.children]) {
+      if (xmlLocalName(note) !== 'note') continue;
       const restEl = note.querySelector(':scope > rest, :scope > *|rest');
-      if (!restEl) continue;
-
-      const noteType = noteTypeText(note);
-      const isMeasureRest = restEl.getAttribute('measure') === 'yes';
-      const { step, octave } = restDisplayStepOctave(restEl);
-      const staffN = noteStaffN(note);
-      const clef = clefByStaff.get(staffN) ?? 'G';
-
-      if (
-        (noteType === 'whole' || noteType === 'half' || isMeasureRest)
-        && step
-        && HIGH_REST_DISPLAY_STEPS.has(step)
-      ) {
-        clearRestDisplayHints(restEl);
-        continue;
-      }
-
-      if (clef === 'F' && step && octave != null && octave >= 4) {
-        clearRestDisplayHints(restEl);
-      }
-    }
-
-    for (const voiceNotes of byVoice.values()) {
-      if (!voiceNotes.every((n) => n.querySelector(':scope > rest, :scope > *|rest'))) continue;
-      for (const note of voiceNotes) {
-        const restEl = note.querySelector(':scope > rest, :scope > *|rest');
-        if (!restEl) continue;
-        const noteType = noteTypeText(note);
-        const isMeasureRest = restEl.getAttribute('measure') === 'yes';
-        if (noteType !== 'whole' && noteType !== '' && !isMeasureRest) continue;
-        clearRestDisplayHints(restEl);
-      }
+      if (restEl) clearRestDisplayHints(restEl);
     }
   }
 }
 
-/** OSMD/HITL 미리보기 전용 — Audiveris rest `display-step`/`display-octave` 힌트 제거. */
+/**
+ * OSMD/HITL 미리보기 전용 — Audiveris rest `display-step`/`display-octave` 힌트 제거.
+ * 온·2분·마디전체(D/C/E)뿐 아니라 4·8·16분 등 짧은 쉼(B4 등)도 OSMD 기본 위치로 그리게 한다.
+ */
 export function repairRestDisplayForOsmdPreview(xml: string): string {
   try {
     const doc = parseMusicXmlDocument(xml);

@@ -3963,6 +3963,27 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                 stats["restDisplayCleared"] += 1
                 measure_changed = True
 
+            # 4·8·16분 등 짧은 쉼 display-step(B4 등) → 제거
+            for note in list_note_elements(measure, ns):
+                rest_el = note.find(_q(ns, "rest"))
+                if rest_el is None:
+                    continue
+                type_el = note.find(_q(ns, "type"))
+                note_type = (
+                    (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+                )
+                if note_type not in ("quarter", "eighth", "16th", "32nd", "64th", "128th"):
+                    continue
+                step_el = rest_el.find(_q(ns, "display-step"))
+                if step_el is None or not step_el.text:
+                    continue
+                for tag in ("display-step", "display-octave"):
+                    el = rest_el.find(_q(ns, tag))
+                    if el is not None:
+                        rest_el.remove(el)
+                stats["restDisplayCleared"] += 1
+                measure_changed = True
+
             # 마디 전체 쉼표(한 voice) display-step/octave 힌트 제거
             for notes in by_voice.values():
                 if not all(n.find(_q(ns, "rest")) is not None for n in notes):

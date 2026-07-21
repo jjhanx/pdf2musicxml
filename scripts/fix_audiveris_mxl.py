@@ -4269,6 +4269,7 @@ def _restore_ties_between_measures(part: ET.Element, ns: str) -> tuple[int, int]
 
 _TRAILING_PHANTOM_REST_TYPES = frozenset({"eighth", "16th"})
 _HIGH_REST_DISPLAY_STEPS = frozenset({"C", "D", "E"})
+_SHORT_REST_DISPLAY_TYPES = frozenset({"quarter", "eighth", "16th", "32nd", "64th", "128th"})
 _PITCH_SEMITONE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
@@ -4630,7 +4631,7 @@ def _repair_key_change_clef_misread_root(root: ET.Element, ns: str) -> int:
 
 
 def _repair_rest_display_high_root(root: ET.Element, ns: str) -> int:
-    """whole/half·마디전체 rest의 display-step C/D/E 제거 — 뷰어 기본 위치 사용."""
+    """whole/half·마디전체·짧은 쉼 rest display-step 제거 — 뷰어 기본 위치 사용."""
     n = 0
     for note in root.iter():
         if local_tag(note) != "note":
@@ -4641,12 +4642,17 @@ def _repair_rest_display_high_root(root: ET.Element, ns: str) -> int:
         typ = note.find(qname(ns, "type"))
         tval = (typ.text or "").strip() if typ is not None and typ.text else ""
         is_measure_rest = rest_el.get("measure") == "yes"
-        if tval not in ("whole", "half") and not is_measure_rest:
-            continue
         step_el = rest_el.find(qname(ns, "display-step"))
         if step_el is None or not step_el.text:
             continue
-        if step_el.text.strip().upper() not in _HIGH_REST_DISPLAY_STEPS:
+        step = step_el.text.strip().upper()
+        clear = False
+        if tval in ("whole", "half") or is_measure_rest:
+            if step in _HIGH_REST_DISPLAY_STEPS:
+                clear = True
+        if tval in _SHORT_REST_DISPLAY_TYPES:
+            clear = True
+        if not clear:
             continue
         for tag in ("display-step", "display-octave"):
             el = rest_el.find(qname(ns, tag))

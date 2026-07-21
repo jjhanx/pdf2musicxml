@@ -3,8 +3,6 @@ import { forEachOsmdSystem, getOsmdPageLayout, measureMxlFromGraphic } from './o
 
 type RecordLike = Record<string, unknown>;
 
-const OBSERVER_KEY = '__omrMeasureNumberObserver';
-
 function asRecord(v: unknown): RecordLike | null {
   return v && typeof v === 'object' ? (v as RecordLike) : null;
 }
@@ -147,48 +145,6 @@ export function enforceOsmdPreviewMeasureNumberRules(osmd: OpenSheetMusicDisplay
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
   rules.UseXMLMeasureNumbers = false;
-  const raw = osmd as unknown as RecordLike;
-  if (typeof raw.setOptions === 'function') {
-    raw.setOptions({
-      drawMeasureNumbers: false,
-      useXMLMeasureNumbers: false,
-      drawMeasureNumbersOnlyAtSystemStart: false,
-    });
-  }
-}
-
-export function uninstallOsmdMeasureNumberSuppressObserver(host: HTMLElement): void {
-  const raw = host as unknown as RecordLike;
-  const obs = raw[OBSERVER_KEY] as MutationObserver | undefined;
-  if (obs) {
-    obs.disconnect();
-    delete raw[OBSERVER_KEY];
-  }
-}
-
-/** OSMD가 resize 후 measure-number SVG를 다시 붙이면 즉시 제거 */
-export function installOsmdMeasureNumberSuppressObserver(
-  host: HTMLElement,
-  osmd: OpenSheetMusicDisplay,
-  getAllowed: () => ReadonlyMap<number, string> | undefined,
-): void {
-  uninstallOsmdMeasureNumberSuppressObserver(host);
-  const observer = new MutationObserver(() => {
-    if (!host.isConnected) {
-      observer.disconnect();
-      return;
-    }
-    for (const root of previewMeasureNumberRoots(host)) {
-      if (removeOsmdMeasureNumberSvgNodes(root) > 0) {
-        hideSpuriousMeasureNumberSvgText(root);
-      }
-    }
-    if (osmd.IsReadyToRender()) {
-      applyPrintedMeasureNumberPreviewOverlay(host, osmd, getAllowed() ?? new Map());
-    }
-  });
-  observer.observe(host, { childList: true, subtree: true });
-  (host as unknown as RecordLike)[OBSERVER_KEY] = observer;
 }
 
 /** osmd.render()마다 규칙 적용 + phantom 번호 DOM 제거 */
@@ -201,23 +157,15 @@ export function patchOsmdRenderForMeasureNumbers(
   if (raw.__omrMeasureNumberPatch) return;
   raw.__omrMeasureNumberPatch = true;
 
-  const finalize = () => finalizeOsmdMeasureNumberPreview(host, osmd, getAllowed());
-
   const original = osmd.render.bind(osmd);
   osmd.render = () => {
     enforceOsmdPreviewMeasureNumberRules(osmd);
     original();
-    finalize();
+    finalizeOsmdMeasureNumberPreview(host, osmd, getAllowed());
   };
+}
 
-  const origScroll = osmd.renderAndScrollBack?.bind(osmd);
-  if (origScroll) {
-    osmd.renderAndScrollBack = () => {
-      enforceOsmdPreviewMeasureNumberRules(osmd);
-      origScroll();
-      finalize();
-    };
-  }
-
-  installOsmdMeasureNumberSuppressObserver(host, osmd, getAllowed);
+/** @deprecated MutationObserver 제거됨 — CSS + render 패치만 사용 */
+export function uninstallOsmdMeasureNumberSuppressObserver(_host: HTMLElement): void {
+  /* no-op */
 }

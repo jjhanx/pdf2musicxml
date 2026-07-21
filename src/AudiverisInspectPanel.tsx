@@ -1776,7 +1776,6 @@ export function OsmdBlock({
     const host = hostRef.current;
     const osmd = osmdRef.current;
     if (!host || !osmd?.IsReadyToRender()) return;
-    finalizeOsmdMeasureNumberPreview(host, osmd, printedMeasureMarkersRef.current);
     syncPartLabelOverlay();
     if (onMeasureClickRef.current) {
       installMeasureClickOverlays(host, osmd);

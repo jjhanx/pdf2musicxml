@@ -22,6 +22,7 @@ import {
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
+import { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import {
   enforceOsmdPreviewMeasureNumberRules,
   finalizeOsmdMeasureNumberPreview,
@@ -1523,6 +1524,8 @@ export type OsmdPreviewOptions = {
   verbatim?: boolean;
 };
 
+export { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
+
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
   rawXml: string,
@@ -1559,9 +1562,13 @@ function sanitizeMusicXmlForOsmd(
   printedMeasureMarkers?: ReadonlyMap<number, string>,
 ): string {
   try {
-    let out = ensureExplicitOpeningKeySignaturesForOsmd(xml);
-    out = repairKeyChangeClefMisreadForOsmd(out);
-    out = removeRedundantCourtesyClefsForOsmd(out);
+    let out = xml;
+    if (!verbatim) {
+      out = ensureExplicitOpeningKeySignaturesForOsmd(out);
+      out = repairKeyChangeClefMisreadForOsmd(out);
+      out = removeRedundantCourtesyClefsForOsmd(out);
+    }
+    out = repairRestDisplayForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
     if (printedMeasureMarkers?.size) {

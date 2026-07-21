@@ -691,6 +691,16 @@ button.btn-muted {
   -webkit-user-select: none;
 }
 
+/* OSMD phantom measure@number — lyric_manifest 인쇄 번호만 HTML overlay로 표시 */
+.modal-light .omr-mxl-osmd-frame svg g.measure-number,
+.modal-light .omr-mxl-osmd-frame svg .measure-number,
+.modal-light .omr-osmd-clickable svg g.measure-number,
+.modal-light .omr-osmd-clickable svg .measure-number {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .modal-light .omr-osmd-clickable [data-omr-measure-click-layer] button {
   touch-action: manipulation;
 }

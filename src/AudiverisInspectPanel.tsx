@@ -26,6 +26,7 @@ import {
   enforceOsmdPreviewMeasureNumberRules,
   finalizeOsmdMeasureNumberPreview,
   patchOsmdRenderForMeasureNumbers,
+  uninstallOsmdMeasureNumberSuppressObserver,
 } from './osmdMeasureNumberSuppress';
 
 type InspectErrorBoundaryProps = {
@@ -1775,6 +1776,7 @@ export function OsmdBlock({
     const host = hostRef.current;
     const osmd = osmdRef.current;
     if (!host || !osmd?.IsReadyToRender()) return;
+    finalizeOsmdMeasureNumberPreview(host, osmd, printedMeasureMarkersRef.current);
     syncPartLabelOverlay();
     if (onMeasureClickRef.current) {
       installMeasureClickOverlays(host, osmd);
@@ -1900,6 +1902,7 @@ export function OsmdBlock({
     return () => {
       cancelled = true;
       disconnectRo();
+      uninstallOsmdMeasureNumberSuppressObserver(host);
       removeOsmdPartLabelOverlay(host);
       try {
         osmd.clear();

@@ -44,11 +44,17 @@ async function main() {
   const page5Start = inferFirstMxlMeasureForPdfPage(raw, 5);
   if (page5Start !== 25) throw new Error(`expected PDF page 5 -> m25, got ${page5Start}`);
 
-  if (cleaned.includes('new-page="yes"')) {
-    throw new Error('stripPageBreakPrintForOsmdPreview must remove new-page attributes');
+  if (cleaned.includes('new-page="yes"') || cleaned.includes('new-system="yes"')) {
+    throw new Error('repairTimelineForOsmdPreview must remove print layout (new-page/new-system)');
   }
-  if (cleaned.includes('new-system="yes"')) {
-    throw new Error('stripNewSystemPrintForOsmdPreview must remove new-system attributes');
+  if (/<print[\s>]/i.test(cleaned)) {
+    throw new Error('stripPrintElementsForOsmdPreview must remove all <print> elements');
+  }
+  if (/\bmeasure[^>]*\swidth="/i.test(cleaned)) {
+    throw new Error('stripMeasureWidthAttributesForOsmdPreview must remove measure@width');
+  }
+  if (/\bdefault-x="/i.test(cleaned)) {
+    throw new Error('stripDefaultXyForOsmdPreview must remove default-x');
   }
 
   const notes26 = countM26Notes(cleaned);

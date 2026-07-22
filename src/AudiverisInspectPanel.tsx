@@ -22,7 +22,7 @@ import {
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
-import { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
+import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import {
   removeDanglingTimelineElementsForOsmdPreview,
   repairTimelineForOsmdPreview,
@@ -1530,10 +1530,13 @@ export type OsmdPreviewOptions = {
   verbatim?: boolean;
 };
 
-export { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
+export { repairRestDisplayForOsmdPreview, repairMissingNoteTypesForOsmdPreview, repairNotesForOsmdPreview } from '../shared/musicXmlRestDisplay';
 export {
   removeDanglingTimelineElementsForOsmdPreview,
   repairTimelineForOsmdPreview,
+  stripPrintElementsForOsmdPreview,
+  stripMeasureWidthAttributesForOsmdPreview,
+  stripDefaultXyForOsmdPreview,
   stripNewSystemPrintForOsmdPreview,
   stripPageBreakPrintForOsmdPreview,
   inferFirstMxlMeasureForPdfPage,
@@ -1586,6 +1589,7 @@ function sanitizeMusicXmlForOsmd(
       out = removeRedundantCourtesyClefsForOsmd(out);
     }
     out = repairRestDisplayForOsmdPreview(out);
+    out = repairMissingNoteTypesForOsmdPreview(out);
     out = repairTimelineForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());

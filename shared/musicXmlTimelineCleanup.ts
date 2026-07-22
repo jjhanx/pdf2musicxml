@@ -41,17 +41,77 @@ function removeDanglingTimelineInMeasure(measure: Element): void {
   }
 }
 
-/** OSMD/HITL 미리보기 전용 — dangling timeline + 페이지·시스템 나눔 print 정리(저장 MXL 불변). */
+/** OSMD/HITL 미리보기 전용 — dangling timeline + `<print>`·Audiveris 레이아웃 힌트 제거(저장 MXL 불변). */
 export function repairTimelineForOsmdPreview(xml: string): string {
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
-  out = stripPageBreakPrintForOsmdPreview(out);
-  out = stripNewSystemPrintForOsmdPreview(out);
+  out = stripPrintElementsForOsmdPreview(out);
+  out = stripMeasureWidthAttributesForOsmdPreview(out);
+  out = stripDefaultXyForOsmdPreview(out);
   return out;
 }
 
 /**
+ * OSMD/HITL 미리보기 전용 — 마디 안 `<print>` 전체 제거.
+ * `new-page`/`new-system` 속성만 빼도 `<system-layout>` 등이 남으면 OSMD가 페이지·시스템 경계에서
+ * 다음 마디(예: 26)를 0폭·skip하거나 한 칸 밀어 그릴 수 있음. 연속 스크롤 미리보기는 OSMD가 레이아웃 재계산.
+ */
+export function stripPrintElementsForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    for (const part of findXmlParts(doc)) {
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        for (const child of [...measure.children]) {
+          if (xmlLocalName(child) === 'print') child.remove();
+        }
+      }
+    }
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — note·direction 등 Audiveris `default-x`/`default-y` 제거.
+ * 페이지·시스템 경계에서 절대 X가 OSMD 자동 줄바꿈·마디 폭 계산을 깨뜨려 0폭·skip·한 칸 밀림을 유발할 수 있음.
+ */
+export function stripDefaultXyForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    doc.querySelectorAll('*').forEach((el) => {
+      el.removeAttribute('default-x');
+      el.removeAttribute('default-y');
+    });
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — Audiveris `measure@width` 제거.
+ * OSMD가 인쇄 폭(tenths)을 그대로 쓰면 `<print>` 제거 후 **width≤0** 으로 마디가 0폭·skip되어
+ * 다음 마디(27) 내용이 26칸에 그려지는 현상이 난다(`SkyBottomLineBatchCalculatorBackend: width not > 0`).
+ */
+export function stripMeasureWidthAttributesForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    doc.querySelectorAll('measure, *|measure').forEach((el) => {
+      el.removeAttribute('width');
+    });
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/**
  * OSMD/HITL 미리보기 전용 — `<print new-page="yes">` 제거(연속 스크롤 레이아웃).
- * 페이지 직후 마디(예: 5쪽→26마디)가 OSMD에서 화면 밖·0폭으로 그려지는 경우 방지.
+ * @deprecated stripPrintElementsForOsmdPreview — `<print>` 전체 제거가 더 안전
  */
 export function stripPageBreakPrintForOsmdPreview(xml: string): string {
   try {
@@ -70,7 +130,7 @@ export function stripPageBreakPrintForOsmdPreview(xml: string): string {
 
 /**
  * OSMD/HITL 미리보기 전용 — `<print new-system="yes">` 제거.
- * 페이지 직후(25→26) + 새 시스템(27) 조합에서 OSMD가 26마디 칸을 비우거나 27 내용을 당겨 그리는 경우 방지.
+ * @deprecated stripPrintElementsForOsmdPreview
  */
 export function stripNewSystemPrintForOsmdPreview(xml: string): string {
   try {

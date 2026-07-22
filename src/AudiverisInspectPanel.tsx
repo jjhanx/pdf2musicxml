@@ -1680,8 +1680,6 @@ function scheduleOsmdRender(opts: {
     try {
       osmd.zoom = zoom;
       enforceOsmdPreviewMeasureNumberRules(osmd);
-      const sheet = (osmd as unknown as { Sheet?: { drawErroneousMeasures?: boolean } }).Sheet;
-      if (sheet) sheet.drawErroneousMeasures = true;
       osmd.render();
       afterOsmdRenderSync?.(host, osmd);
       host.querySelector('[data-osmd-warn="width"]')?.remove();

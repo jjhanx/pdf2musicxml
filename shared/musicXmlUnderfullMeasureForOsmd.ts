@@ -67,7 +67,35 @@ function readMeasureTiming(measure: Element, inherited: MeasureTiming): MeasureT
   return { divisions, beats, beatType, expected };
 }
 
-function appendForwardAtMeasureEnd(measure: Element, duration: number, voice?: string): void {
+function appendForwardAfterVoice(measure: Element, voice: string, duration: number): void {
+  if (duration <= 0) return;
+  const doc = measure.ownerDocument;
+  if (!doc) return;
+
+  let insertAfter: Element | null = null;
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    const vEl = child.querySelector(':scope > voice, :scope > *|voice');
+    const v = (vEl?.textContent ?? '1').trim() || '1';
+    if (v === voice) insertAfter = child;
+  }
+
+  const forward = doc.createElementNS(measure.namespaceURI, 'forward');
+  const dur = doc.createElementNS(measure.namespaceURI, 'duration');
+  dur.textContent = String(duration);
+  forward.appendChild(dur);
+  const voiceEl = doc.createElementNS(measure.namespaceURI, 'voice');
+  voiceEl.textContent = voice;
+  forward.appendChild(voiceEl);
+
+  if (insertAfter) {
+    insertAfter.parentNode?.insertBefore(forward, insertAfter.nextSibling);
+  } else {
+    measure.appendChild(forward);
+  }
+}
+
+function appendForwardAtMeasureEnd(measure: Element, duration: number): void {
   if (duration <= 0) return;
   const doc = measure.ownerDocument;
   if (!doc) return;
@@ -75,11 +103,6 @@ function appendForwardAtMeasureEnd(measure: Element, duration: number, voice?: s
   const dur = doc.createElementNS(measure.namespaceURI, 'duration');
   dur.textContent = String(duration);
   forward.appendChild(dur);
-  if (voice) {
-    const voiceEl = doc.createElementNS(measure.namespaceURI, 'voice');
-    voiceEl.textContent = voice;
-    forward.appendChild(voiceEl);
-  }
   measure.appendChild(forward);
 }
 
@@ -101,7 +124,7 @@ function repairUnderfullVoicesInMeasure(measure: Element, expected: number): voi
   if (!byVoice.size) return;
   for (const [voice, total] of byVoice) {
     const gap = expected - total;
-    if (gap > 0) appendForwardAtMeasureEnd(measure, gap, voice);
+    if (gap > 0) appendForwardAfterVoice(measure, voice, gap);
   }
 }
 

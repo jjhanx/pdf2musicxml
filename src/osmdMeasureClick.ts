@@ -738,58 +738,6 @@ function interpolateColumnBoundsForMeasure(
   return null;
 }
 
-/** graphic 열에 없는 MXL 마디 번호(건너뛴·0폭) — 이웃 마디로 X 슬롯 보간해 HITL 클릭 가능 */
-function fillMissingMeasureColumns(
-  rows: GraphicalMeasureLike[][],
-  layout: HostLayout,
-  staffBands: (HostBounds | null)[],
-  colByMxl: Map<number, { left: number; right: number }>,
-  out: MeasureHitTarget[],
-  seen: Set<string>,
-): void {
-  if (!colByMxl.size) return;
-  const sorted = [...colByMxl.keys()].sort((a, b) => a - b);
-  const min = sorted[0]!;
-  const max = sorted[sorted.length - 1]!;
-  const fallbackW = Math.max(24, medianMeasureWidthOsmd(rows[0] ?? []) * layout.scale);
-
-  for (let mxl = min; mxl <= max; mxl += 1) {
-    if (colByMxl.has(mxl)) continue;
-    const prev = [...colByMxl.entries()].filter(([n]) => n < mxl).sort((a, b) => b[0] - a[0])[0];
-    const next = [...colByMxl.entries()].filter(([n]) => n > mxl).sort((a, b) => a[0] - b[0])[0];
-    let col: { left: number; right: number } | null = null;
-    if (prev && next && next[0] > prev[0]) {
-      const t = (mxl - prev[0]) / (next[0] - prev[0]);
-      const left = prev[1].right + t * Math.max(8, next[1].left - prev[1].right);
-      col = { left, right: left + fallbackW };
-    } else if (prev) {
-      col = { left: prev[1].right, right: prev[1].right + fallbackW };
-    } else if (next) {
-      col = { left: next[1].left - fallbackW, right: next[1].left };
-    }
-    if (!col) continue;
-    colByMxl.set(mxl, col);
-
-    for (let si = 0; si < rows.length; si += 1) {
-      const band = staffBands[si];
-      if (!band) continue;
-      const bounds: HostBounds = { left: col.left, right: col.right, top: band.top, bottom: band.bottom };
-      if (!isValidHostBounds(bounds)) continue;
-      const key = `${si}|${mxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({
-        measureMxl: mxl,
-        staffIndex: si,
-        partId: null,
-        staffWithinPart: 1,
-        bounds,
-        gm: {},
-      });
-    }
-  }
-}
-
 function collectFromSystem(
   system: Record<string, unknown>,
   rows: GraphicalMeasureLike[][],
@@ -847,7 +795,6 @@ function collectFromSystem(
       });
     }
   }
-  fillMissingMeasureColumns(rows, layout, staffBands, colByMxl, out, seen);
 }
 
 export function collectMeasureHitTargets(

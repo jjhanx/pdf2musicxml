@@ -583,6 +583,8 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
     el.textContent = '1';
   });
   pruneCrossStaffTimeline(measure, staffN);
+  /** verbatim HITL도 OSMD split part는 voice 타임라인 평탄화 — PL 박자 부족·음수 폭 skip 방지 */
+  flattenNonOverlappingStaffVoicesForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
@@ -1678,6 +1680,8 @@ function scheduleOsmdRender(opts: {
     try {
       osmd.zoom = zoom;
       enforceOsmdPreviewMeasureNumberRules(osmd);
+      const sheet = (osmd as unknown as { Sheet?: { drawErroneousMeasures?: boolean } }).Sheet;
+      if (sheet) sheet.drawErroneousMeasures = true;
       osmd.render();
       afterOsmdRenderSync?.(host, osmd);
       host.querySelector('[data-osmd-warn="width"]')?.remove();

@@ -48,6 +48,7 @@ const repaired = repairUnderfullMeasuresForOsmdPreview(underfull);
 const m2 = parseMusicXmlDocument(repaired)!.querySelector('measure')!;
 if (measureTimelineEndDivisions(m2) !== 16) throw new Error('after repair timeline must be 16/16');
 if (!repaired.includes('<forward')) throw new Error('must append forward at measure end');
+if (!/<forward[^>]*>[\s\S]*<voice>/.test(repaired)) throw new Error('forward should tag voice for underfull');
 
 async function main() {
   const { OpenSheetMusicDisplay } = await import('opensheetmusicdisplay');

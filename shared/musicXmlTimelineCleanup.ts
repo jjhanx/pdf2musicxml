@@ -52,9 +52,9 @@ export function repairTimelineForOsmdPreview(xml: string): string {
 }
 
 /**
- * OSMD/HITL 미리보기 전용 — 마디 안 `<print>` 전체 제거.
- * `new-page`/`new-system` 속성만 빼도 `<system-layout>` 등이 남으면 OSMD가 페이지·시스템 경계에서
- * 다음 마디(예: 26)를 0폭·skip하거나 한 칸 밀어 그릴 수 있음. 연속 스크롤 미리보기는 OSMD가 레이아웃 재계산.
+ * OSMD/HITL 미리보기 전용 — Audiveris `<print>`의 layout 자식·좌표는 제거하되
+ * `new-page`/`new-system`은 빈 `<print new-system="yes"/>`로 남겨 OSMD가 줄바꿈을 인식하게 함.
+ * layout·measure-numbering·system-margins 등이 남으면 0·음수 마디 폭·한 칸 밀림(26→27)이 난다.
  */
 export function stripPrintElementsForOsmdPreview(xml: string): string {
   try {
@@ -64,7 +64,18 @@ export function stripPrintElementsForOsmdPreview(xml: string): string {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         for (const child of [...measure.children]) {
-          if (xmlLocalName(child) === 'print') child.remove();
+          if (xmlLocalName(child) !== 'print') continue;
+          const needsBreak =
+            child.getAttribute('new-page') === 'yes' || child.getAttribute('new-system') === 'yes';
+          const insertAt = [...measure.children].indexOf(child);
+          child.remove();
+          if (!needsBreak) continue;
+          const docRef = measure.ownerDocument;
+          if (!docRef) continue;
+          const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+          const minimal = ns ? docRef.createElementNS(ns, 'print') : docRef.createElement('print');
+          minimal.setAttribute('new-system', 'yes');
+          measure.insertBefore(minimal, measure.children[insertAt] ?? null);
         }
       }
     }

@@ -44,11 +44,14 @@ async function main() {
   const page5Start = inferFirstMxlMeasureForPdfPage(raw, 5);
   if (page5Start !== 25) throw new Error(`expected PDF page 5 -> m25, got ${page5Start}`);
 
-  if (cleaned.includes('new-page="yes"') || cleaned.includes('new-system="yes"')) {
-    throw new Error('repairTimelineForOsmdPreview must remove print layout (new-page/new-system)');
+  if (cleaned.includes('new-page="yes"')) {
+    throw new Error('repairTimelineForOsmdPreview must remove new-page print layout');
   }
-  if (/<print[\s>]/i.test(cleaned)) {
-    throw new Error('stripPrintElementsForOsmdPreview must remove all <print> elements');
+  if (/<print[^>]*>\s*<system-layout/i.test(cleaned)) {
+    throw new Error('stripPrintElementsForOsmdPreview must remove system-layout inside print');
+  }
+  if (!/<print[^>]*new-system="yes"/i.test(cleaned)) {
+    throw new Error('expected minimal new-system print breaks for OSMD layout');
   }
   if (/\bmeasure[^>]*\swidth="/i.test(cleaned)) {
     throw new Error('stripMeasureWidthAttributesForOsmdPreview must remove measure@width');

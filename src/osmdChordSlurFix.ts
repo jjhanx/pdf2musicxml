@@ -1,4 +1,4 @@
-import { EngravingRules, OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 
 /** OSMD PlacementEnum — 패키지 루트에서 런타임 export 되지 않음 */
 const PLACEMENT_ABOVE = 0;
@@ -89,7 +89,7 @@ export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): 
   if (!sheet?.MusicPages) return;
 
   const rules = osmd.EngravingRules;
-  const unit = EngravingRules.unit ?? 10;
+  const unit = (rules as { unit?: number }).unit ?? 10;
   const headOffset = (rules.SlurNoteHeadYOffset ?? 0.136) * unit;
   const headShiftX = -0.42 * unit;
 

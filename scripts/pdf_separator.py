@@ -16,6 +16,54 @@ DEFAULT_MIN_LYRICS_SIZE = 7.0
 DEFAULT_MAX_LYRICS_SIZE = 17.0
 DEFAULT_LEGACY_RANGES = [(DEFAULT_MIN_LYRICS_SIZE, DEFAULT_MAX_LYRICS_SIZE)]
 SIZE_MATCH_EPS = 0.35
+# NWC·SMuFL 등 악보 글꼴 — pt 범위에 넣어도 strip 금지(7–36pt 선택 시 22.8pt 음표 전멸 방지).
+_MUSIC_FONT_HINTS = (
+    "NWC",
+    "BRAVURA",
+    "SMUFL",
+    "MAESTRO",
+    "OPUS",
+    "ENGRAVER",
+    "PETALUMA",
+    "GONVILL",
+    "LELAND",
+    "MUSEJAZZ",
+    "MUSEJAZZTEXT",
+)
+# 표시 pt가 이 값 이상이면 lyrics·제목이 아닌 악보 SMuFL(≈22.8pt)로 간주해 strip 생략.
+_MUSIC_GLYPH_MIN_PT = 18.0
+
+
+def _is_music_font_name(name: str) -> bool:
+    u = (name or "").upper().replace(" ", "")
+    return any(h in u for h in _MUSIC_FONT_HINTS)
+
+
+def _should_strip_shown_glyph(current_font: str, eff_pt: float, ranges: list[tuple[float, float]]) -> bool:
+    if not font_size_in_ranges(eff_pt, ranges):
+        return False
+    if _is_music_font_name(current_font):
+        return False
+    if eff_pt >= _MUSIC_GLYPH_MIN_PT:
+        return False
+    return True
+
+
+def _blank_pdf_string(text: str, *, replacement: str = " ") -> pikepdf.String:
+    if not text:
+        return pikepdf.String("")
+    rep = (replacement or " ")[:1]
+    return pikepdf.String(rep * len(text))
+
+
+def _blank_tj_array(arr, *, replacement: str = " "):
+    out = pikepdf.Array()
+    for item in arr:
+        if isinstance(item, (int, float)):
+            out.append(item)
+        else:
+            out.append(_blank_pdf_string(str(item), replacement=replacement))
+    return out
 
 _HANGUL_RE = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3131-\u318E]")
 _LATIN_RE = re.compile(r"[A-Za-z\u00C0-\u024F]")
@@ -98,6 +146,7 @@ def _strip_commands_in_stream(
     initial_ctm: list[float] | None = None,
 ) -> list:
     ctm_stack: list[list[float]] = [list(initial_ctm or [1.0, 0.0, 0.0, 1.0, 0.0, 0.0])]
+    current_font = ""
     current_font_size = 0.0
     tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     clean_commands = []
@@ -116,6 +165,7 @@ def _strip_commands_in_stream(
         elif op_name == "BT":
             tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
         elif op_name == "Tf" and len(operands) > 1:
+            current_font = str(operands[0])
             try:
                 current_font_size = float(operands[1])
             except (ValueError, TypeError):
@@ -125,11 +175,11 @@ def _strip_commands_in_stream(
 
         if op_name in ["Tj", "TJ", "'", '"']:
             eff = _effective_font_size_pt(current_font_size, ctm_stack[-1], tm)
-            if font_size_in_ranges(eff, ranges) and operands:
+            if operands and _should_strip_shown_glyph(current_font, eff, ranges):
                 if op_name == "TJ":
-                    operands[0] = pikepdf.Array([])
+                    operands[0] = _blank_tj_array(operands[0])
                 else:
-                    operands[0] = pikepdf.String("")
+                    operands[0] = _blank_pdf_string(str(operands[0]))
 
         clean_commands.append((operands, operator))
 
@@ -414,7 +464,8 @@ def analyze_font_sizes(extracted_pages: list[dict[str, Any]]) -> dict[str, Any]:
         "presets": presets,
         "note": (
             "UI에서 고른 pt 범위의 텍스트만 제거합니다(CTM 반영 표시 pt). "
-            "22.8pt 등 SMuFL은 음자리표·성부 약어와 같을 수 있으니 선택하지 마세요. "
+            "22.8pt NWC·SMuFL **악보 글꼴**은 범위에 7–36pt를 넣어도 **자동 보호**합니다. "
+            "그래도 **가사(7–17pt)** 만 고르는 것을 권장합니다. "
             "가사·제목·작곡 등 inject_ocr로 넣을 텍스트만 고르세요."
         ),
     }

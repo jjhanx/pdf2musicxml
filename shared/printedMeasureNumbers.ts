@@ -76,6 +76,15 @@ export function printedSidebarNumberToMxlMeasure(
   return printedNum - offset + 1;
 }
 
+/** `printedSidebarNumberToMxlMeasure`의 역함수 — HITL UI·마디 편집 표시용. */
+export function mxlMeasureToPrintedSidebar(
+  mxlMeasure: number,
+  measureOffsetPrinted: number,
+): number {
+  const offset = Number.isFinite(measureOffsetPrinted) ? measureOffsetPrinted : 1;
+  return mxlMeasure + offset - 1;
+}
+
 /** 우상단 좁은 숫자 = PDF 페이지 인덱스 오인(실제 마디 번호 아님) */
 export function classifyMeasureNumberZone(
   bbox: number[],

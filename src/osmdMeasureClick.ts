@@ -1,4 +1,12 @@
-import { PointF2D, type OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+
+/** OSMD re-export가 Node/tsx에서 없을 수 있어 로컬 정의(브라우저·Node 공통). */
+class PointF2D {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+}
 
 export type OsmdMeasureClickInfo = {
   measureMxl: number;

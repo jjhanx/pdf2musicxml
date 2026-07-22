@@ -5307,7 +5307,7 @@ app.get('/api/diagnostic/:jobId/omr-policy', async (req, res) => {
     ],
     lintSummary,
     hints: {
-      printedMeasureFormula: '인쇄 마디 ≈ MusicXML measure@number + measureOffsetPrinted',
+      printedMeasureFormula: '인쇄 마디 ≈ MusicXML measure@number + measureOffsetPrinted − 1',
       symbolsUi: 'SYMBOLS 탭 오인식은 MXL 후처리만으로는 제거되지 않음 — Audiveris GUI·엔진',
       fixMxlScript: 'scripts/fix_audiveris_mxl.py — direction words P/9 등 일부',
     },

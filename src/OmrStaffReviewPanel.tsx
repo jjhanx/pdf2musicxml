@@ -15,7 +15,12 @@ import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
+  inferFirstMxlMeasureForPdfPage,
+} from '../shared/musicXmlTimelineCleanup';
+import {
+  mxlMeasureToPrintedSidebar,
   printedMeasureMarkerMap,
+  printedSidebarNumberToMxlMeasure,
   type PrintedMeasureMarker,
 } from '../shared/printedMeasureNumbers';
 
@@ -66,6 +71,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [editorKey, setEditorKey] = useState(0);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [scrollToMeasureTrigger, setScrollToMeasureTrigger] = useState(0);
+  const [pageScrollTarget, setPageScrollTarget] = useState<OsmdMeasureClickInfo | null>(null);
   const [lastPreviewMsg, setLastPreviewMsg] = useState('');
   const [measureClickMsg, setMeasureClickMsg] = useState('');
   const fixesHydratedRef = useRef(false);
@@ -81,6 +87,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       : 'original';
   const pngDpi = 156;
   const measureOffset = policy?.measureOffsetPrinted ?? 1;
+
+  useEffect(() => {
+    if (!rawXml || page < 1) return;
+    const mxl = inferFirstMxlMeasureForPdfPage(rawXml, page);
+    if (mxl < 1) return;
+    setPageScrollTarget({ measureMxl: mxl, staffIndex: 0, partId: null });
+    setScrollToMeasureTrigger((t) => t + 1);
+  }, [page, rawXml]);
 
   const printedMeasureMarkers = useMemo(
     () => printedMeasureMarkerMap(policy?.printedMeasureMarkers ?? []),
@@ -553,7 +567,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo) => {
       setSelectedMeasure(info);
-      const printed = info.measureMxl + measureOffset;
+      const printed = mxlMeasureToPrintedSidebar(info.measureMxl, measureOffset);
       setManualMeasurePrinted(String(printed));
       const partId = resolvePartIdForMeasure(info);
       const staffLabel =
@@ -574,7 +588,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const openManualMeasure = useCallback(() => {
     const printed = parseInt(manualMeasurePrinted.trim(), 10);
     if (!Number.isFinite(printed) || printed < 1) return;
-    const measureMxl = Math.max(1, printed - measureOffset);
+    const measureMxl = Math.max(1, printedSidebarNumberToMxlMeasure(printed, measureOffset));
     const staffIndex = staffFilter
       ? Math.max(0, staffList.indexOf(staffFilter))
       : 0;
@@ -603,7 +617,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     if (!rawXml || !scoreParts.length) return '';
     return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
   }, [rawXml, scoreParts, activeStaffFilter]);
-  const selectedPrinted = selectedMeasure ? selectedMeasure.measureMxl + measureOffset : null;
+  const selectedPrinted = selectedMeasure
+    ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
+    : null;
 
   const activePartLabels = staffList.length
     ? staffList
@@ -622,7 +638,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ) : (
             <strong>S/A/T/B/M/W/U/PR/PL</strong>
           )}
-          ). 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset}.
+          ). 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset} − 1 (offset={measureOffset}이면 인쇄 ≈ MXL).
           {' '}
           <span style={{ color: '#555' }}>
             저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. 미리보기만 m1 조표·조바꿈 F clef 오인·줄바꿈
@@ -735,7 +751,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   onMeasureClick={openMeasure}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}
                   highlightMeasureStaffIndex={selectedMeasure?.staffIndex ?? null}
-                  scrollToMeasure={selectedMeasure}
+                  scrollToMeasure={selectedMeasure ?? pageScrollTarget}
                   scrollToMeasureTrigger={scrollToMeasureTrigger}
                 />
               ) : (
@@ -771,7 +787,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               type="button"
               className="btn-muted"
               onClick={() => {
-                const measureMxl = Math.max(1, 1 - measureOffset);
+                const measureMxl = Math.max(1, printedSidebarNumberToMxlMeasure(1, measureOffset));
                 const staffIndex = staffFilter ? Math.max(0, staffList.indexOf(staffFilter)) : 0;
                 setManualMeasurePrinted('1');
                 openMeasure({

@@ -23,7 +23,10 @@ import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdP
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
-import { removeDanglingTimelineElementsForOsmdPreview } from '../shared/musicXmlTimelineCleanup';
+import {
+  removeDanglingTimelineElementsForOsmdPreview,
+  stripPageBreakPrintForOsmdPreview,
+} from '../shared/musicXmlTimelineCleanup';
 import {
   enforceOsmdPreviewMeasureNumberRules,
   finalizeOsmdMeasureNumberPreview,
@@ -1527,7 +1530,11 @@ export type OsmdPreviewOptions = {
 };
 
 export { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
-export { removeDanglingTimelineElementsForOsmdPreview } from '../shared/musicXmlTimelineCleanup';
+export {
+  removeDanglingTimelineElementsForOsmdPreview,
+  stripPageBreakPrintForOsmdPreview,
+  inferFirstMxlMeasureForPdfPage,
+} from '../shared/musicXmlTimelineCleanup';
 
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
@@ -1544,13 +1551,16 @@ export function buildOsmdPreviewXml(
   /** HITL `addNoteDirection`(dynamics)는 MXL에 `<notations><dynamics>`로 저장 — OSMD는 이를 거의 그리지 않음 */
   xml = promoteNoteDynamicsForOsmdPreview(xml);
   if (!filter) {
-    return splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts, { verbatim });
+    xml = splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts, { verbatim });
+  } else {
+    xml = filterMusicXmlToPart(xml, filter.partId);
+    if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
+      xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart, { verbatim });
+      xml = setPartDisplayName(xml, filter.partId, filter.label);
+    }
   }
-  xml = filterMusicXmlToPart(xml, filter.partId);
-  if (filter.staffWithinPart != null && filter.staffWithinPart > 0) {
-    xml = filterMusicXmlToPartStaff(xml, filter.partId, filter.staffWithinPart, { verbatim });
-    xml = setPartDisplayName(xml, filter.partId, filter.label);
-  }
+  xml = removeDanglingTimelineElementsForOsmdPreview(xml);
+  xml = stripPageBreakPrintForOsmdPreview(xml);
   return xml;
 }
 
@@ -1573,6 +1583,7 @@ function sanitizeMusicXmlForOsmd(
     }
     out = repairRestDisplayForOsmdPreview(out);
     out = removeDanglingTimelineElementsForOsmdPreview(out);
+    out = stripPageBreakPrintForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
     if (printedMeasureMarkers?.size) {

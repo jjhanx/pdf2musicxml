@@ -22,14 +22,30 @@ function hasNoteAfter(measure: Element, index: number): boolean {
   return false;
 }
 
+function hasNoteBefore(measure: Element, index: number): boolean {
+  for (let i = 0; i < index; i++) {
+    if (xmlLocalName(measure.children[i]!) === 'note') return true;
+  }
+  return false;
+}
+
 function removeDanglingTimelineInMeasure(measure: Element): void {
   for (const child of [...measure.children]) {
     const tag = xmlLocalName(child);
     if (tag !== 'backup' && tag !== 'forward') continue;
     const idx = [...measure.children].indexOf(child);
-    if (idx < 0 || hasNoteAfter(measure, idx)) continue;
-    child.remove();
+    if (idx < 0) continue;
+    if (!hasNoteAfter(measure, idx) || !hasNoteBefore(measure, idx)) {
+      child.remove();
+    }
   }
+}
+
+/** OSMD 미리보기 직전 — dangling timeline + 페이지 나눔 print 정리(저장 MXL 불변). */
+export function repairTimelineForOsmdPreview(xml: string): string {
+  let out = removeDanglingTimelineElementsForOsmdPreview(xml);
+  out = stripPageBreakPrintForOsmdPreview(out);
+  return out;
 }
 
 /**
@@ -83,8 +99,8 @@ export function inferFirstMxlMeasureForPdfPage(xml: string, pdfPage: number): nu
 }
 
 /**
- * OSMD/HITL 미리보기 전용 — 마디 끝 `<backup>`/`<forward>` 뒤에 `<note>`가 없으면 제거.
- * Audiveris가 voice 전환 backup만 넣고 음표를 비워 둔 경우 OSMD가 다음 마디를 통째로 비우는 문제 방지.
+ * OSMD/HITL 미리보기 전용 — 같은 마디 안에서 `<backup>`/`<forward>` 앞뒤에 `<note>`가 없으면 제거.
+ * Audiveris orphan backup(25마디 끝 backup만·voice 2 비어 있음) → OSMD가 26마디를 건너뛰고 27 내용이 26 칸에 그려짐.
  */
 export function removeDanglingTimelineElementsForOsmdPreview(xml: string): string {
   try {
@@ -114,7 +130,7 @@ export function countDanglingTimelineElements(xml: string): number {
         for (let i = 0; i < measure.children.length; i++) {
           const tag = xmlLocalName(measure.children[i]!);
           if (tag !== 'backup' && tag !== 'forward') continue;
-          if (!hasNoteAfter(measure, i)) n += 1;
+          if (!hasNoteAfter(measure, i) || !hasNoteBefore(measure, i)) n += 1;
         }
       }
     }

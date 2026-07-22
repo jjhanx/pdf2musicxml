@@ -390,6 +390,36 @@ def _direction_has_non_text_content(direction: ET.Element) -> bool:
     return False
 
 
+def _measure_has_note_before(measure: ET.Element, index: int) -> bool:
+    children = list(measure)
+    for i in range(index):
+        if local_tag(children[i]) == "note":
+            return True
+    return False
+
+
+def _measure_has_note_after(measure: ET.Element, index: int) -> bool:
+    children = list(measure)
+    for i in range(index + 1, len(children)):
+        if local_tag(children[i]) == "note":
+            return True
+    return False
+
+
+def _remove_dangling_timeline_in_measure(measure: ET.Element, ns: str) -> int:
+    """Audiveris orphan backup/forward — 앞뒤 note 없으면 제거(OSMD·MuseScore voice 오류 방지)."""
+    removed = 0
+    for el in list(measure):
+        tag = local_tag(el)
+        if tag not in ("backup", "forward"):
+            continue
+        idx = list(measure).index(el)
+        if not _measure_has_note_after(measure, idx) or not _measure_has_note_before(measure, idx):
+            measure.remove(el)
+            removed += 1
+    return removed
+
+
 def _clean_measure(measure: ET.Element, ns: str, parents: dict[ET.Element, ET.Element]) -> tuple[int, int]:
     text_cleared = 0
     directions_removed = 0
@@ -4887,11 +4917,13 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "courtesy_clef_removed": 0,
         "measure_numbering_removed": 0,
         "measure_numbering_restored": 0,
+        "dangling_timeline_removed": 0,
     }
 
-    # 1) 텍스트 정리 + backup/forward 겹침 voice 병합 (악보 패치보다 먼저)
+    # 1) 텍스트 정리 + orphan backup/forward + backup/forward 겹침 voice 병합
     for part in root.findall(qname(ns, "part")):
         for measure in part.findall(qname(ns, "measure")):
+            stats["dangling_timeline_removed"] += _remove_dangling_timeline_in_measure(measure, ns)
             tc, dr = _clean_measure(measure, ns, parents)
             stats["text_nodes_cleared"] += tc
             stats["directions_removed"] += dr

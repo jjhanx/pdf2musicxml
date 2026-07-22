@@ -25,6 +25,7 @@ import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musi
 import { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import {
   removeDanglingTimelineElementsForOsmdPreview,
+  repairTimelineForOsmdPreview,
   stripPageBreakPrintForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 import {
@@ -1532,6 +1533,7 @@ export type OsmdPreviewOptions = {
 export { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 export {
   removeDanglingTimelineElementsForOsmdPreview,
+  repairTimelineForOsmdPreview,
   stripPageBreakPrintForOsmdPreview,
   inferFirstMxlMeasureForPdfPage,
 } from '../shared/musicXmlTimelineCleanup';
@@ -1559,8 +1561,7 @@ export function buildOsmdPreviewXml(
       xml = setPartDisplayName(xml, filter.partId, filter.label);
     }
   }
-  xml = removeDanglingTimelineElementsForOsmdPreview(xml);
-  xml = stripPageBreakPrintForOsmdPreview(xml);
+  xml = repairTimelineForOsmdPreview(xml);
   return xml;
 }
 
@@ -1582,8 +1583,7 @@ function sanitizeMusicXmlForOsmd(
       out = removeRedundantCourtesyClefsForOsmd(out);
     }
     out = repairRestDisplayForOsmdPreview(out);
-    out = removeDanglingTimelineElementsForOsmdPreview(out);
-    out = stripPageBreakPrintForOsmdPreview(out);
+    out = repairTimelineForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
     if (printedMeasureMarkers?.size) {

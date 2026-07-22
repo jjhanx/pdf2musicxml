@@ -7,8 +7,7 @@ import { JSDOM } from 'jsdom';
 import {
   countDanglingTimelineElements,
   inferFirstMxlMeasureForPdfPage,
-  removeDanglingTimelineElementsForOsmdPreview,
-  stripPageBreakPrintForOsmdPreview,
+  repairTimelineForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
@@ -38,9 +37,7 @@ async function main() {
   const before = countDanglingTimelineElements(raw);
   if (before < 5) throw new Error(`expected >=5 dangling backups before cleanup, got ${before}`);
 
-  const cleaned = stripPageBreakPrintForOsmdPreview(
-    removeDanglingTimelineElementsForOsmdPreview(raw),
-  );
+  const cleaned = repairTimelineForOsmdPreview(raw);
   const after = countDanglingTimelineElements(cleaned);
   if (after !== 0) throw new Error(`expected 0 dangling after cleanup, got ${after}`);
 

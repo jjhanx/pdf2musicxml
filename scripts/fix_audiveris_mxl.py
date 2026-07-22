@@ -4761,8 +4761,8 @@ def _normalize_grand_staff_voices_in_measure(measure: ET.Element, ns: str) -> in
         vel = note.find(qname(ns, "voice"))
         if vel is None:
             vel = ET.SubElement(note, qname(ns, "voice"))
-        if (vel.text or "").strip() != "1":
-            vel.text = "1"
+        if (vel.text or "").strip() != "5":
+            vel.text = "5"
             changed += 1
     return changed
 

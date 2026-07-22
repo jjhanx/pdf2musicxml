@@ -23,6 +23,7 @@ import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdP
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
+import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
 import {
   removeDanglingTimelineElementsForOsmdPreview,
   repairTimelineForOsmdPreview,
@@ -1530,6 +1531,7 @@ export type OsmdPreviewOptions = {
   verbatim?: boolean;
 };
 
+export { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
 export { repairRestDisplayForOsmdPreview, repairMissingNoteTypesForOsmdPreview, repairNotesForOsmdPreview } from '../shared/musicXmlRestDisplay';
 export {
   removeDanglingTimelineElementsForOsmdPreview,
@@ -1568,6 +1570,7 @@ export function buildOsmdPreviewXml(
     }
   }
   xml = repairTimelineForOsmdPreview(xml);
+  xml = repairUnderfullMeasuresForOsmdPreview(xml);
   return xml;
 }
 
@@ -1591,6 +1594,7 @@ function sanitizeMusicXmlForOsmd(
     out = repairRestDisplayForOsmdPreview(out);
     out = repairMissingNoteTypesForOsmdPreview(out);
     out = repairTimelineForOsmdPreview(out);
+    out = repairUnderfullMeasuresForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
     if (printedMeasureMarkers?.size) {

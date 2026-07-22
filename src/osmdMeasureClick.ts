@@ -426,7 +426,13 @@ function graphicHorizontalOsmd(
   }
   const sizeRec = asRecord(bb?.Size ?? bb?.size);
   const w = sizeRec ? coordNum(sizeRec.width ?? sizeRec.Width) : null;
-  const width = w != null && w > 0.5 && w < 180 ? w : fallbackWidth;
+  if (nextPos && nextPos.x > pos.x + 0.5) {
+    const gap = nextPos.x - pos.x;
+    if (gap >= 3) return { left: pos.x, right: nextPos.x };
+  }
+  const sizeWidthValid = w != null && w > 0.5 && w < 180;
+  const width = sizeWidthValid ? w! : fallbackWidth > 0.5 ? fallbackWidth : 28;
+  if (width <= 0.5) return null;
   return { left: pos.x, right: pos.x + width };
 }
 
@@ -685,6 +691,53 @@ function buildColumnBoundsByMeasureMxl(
   return map;
 }
 
+function interpolateColumnBoundsForMeasure(
+  row: GraphicalMeasureLike[],
+  mi: number,
+  layout: HostLayout,
+  colByMxl: Map<number, { left: number; right: number }>,
+): { left: number; right: number } | null {
+  const gm = row[mi];
+  if (!gm || isExtraMeasure(gm)) return null;
+  const measureMxl = measureMxlFromGraphic(gm);
+  if (measureMxl == null) return null;
+
+  let prev: { mxl: number; col: { left: number; right: number } } | null = null;
+  let next: { mxl: number; col: { left: number; right: number } } | null = null;
+  for (let j = mi - 1; j >= 0; j -= 1) {
+    const other = row[j];
+    if (!other || isExtraMeasure(other)) continue;
+    const n = measureMxlFromGraphic(other);
+    if (n == null) continue;
+    const col = colByMxl.get(n);
+    if (col && col.right - col.left >= 3) {
+      prev = { mxl: n, col };
+      break;
+    }
+  }
+  for (let j = mi + 1; j < row.length; j += 1) {
+    const other = row[j];
+    if (!other || isExtraMeasure(other)) continue;
+    const n = measureMxlFromGraphic(other);
+    if (n == null) continue;
+    const col = colByMxl.get(n);
+    if (col && col.right - col.left >= 3) {
+      next = { mxl: n, col };
+      break;
+    }
+  }
+
+  const fallbackW = Math.max(24, medianMeasureWidthOsmd(row) * layout.scale);
+  if (prev && next && next.mxl > prev.mxl) {
+    const t = (measureMxl - prev.mxl) / (next.mxl - prev.mxl);
+    const slotLeft = prev.col.right + t * Math.max(8, next.col.left - prev.col.right);
+    return { left: slotLeft, right: slotLeft + fallbackW };
+  }
+  if (prev) return { left: prev.col.right, right: prev.col.right + fallbackW };
+  if (next) return { left: next.col.left - fallbackW, right: next.col.left };
+  return null;
+}
+
 function collectFromSystem(
   system: Record<string, unknown>,
   rows: GraphicalMeasureLike[][],
@@ -709,6 +762,10 @@ function collectFromSystem(
       let col = colByMxl.get(measureMxl) ?? null;
       if (!col) {
         col = horizontalBoundsForGraphic(gm, row[mi + 1], row, layout);
+        if (col) colByMxl.set(measureMxl, col);
+      }
+      if (!col) {
+        col = interpolateColumnBoundsForMeasure(row, mi, layout, colByMxl);
         if (col) colByMxl.set(measureMxl, col);
       }
       let bounds: HostBounds | null = null;

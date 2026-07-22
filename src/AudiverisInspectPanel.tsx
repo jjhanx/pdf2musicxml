@@ -23,6 +23,7 @@ import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdP
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
+import { removeDanglingTimelineElementsForOsmdPreview } from '../shared/musicXmlTimelineCleanup';
 import {
   enforceOsmdPreviewMeasureNumberRules,
   finalizeOsmdMeasureNumberPreview,
@@ -576,6 +577,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
   });
+  pruneCrossStaffTimeline(measure, staffN);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
@@ -1525,6 +1527,7 @@ export type OsmdPreviewOptions = {
 };
 
 export { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
+export { removeDanglingTimelineElementsForOsmdPreview } from '../shared/musicXmlTimelineCleanup';
 
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
@@ -1569,6 +1572,7 @@ function sanitizeMusicXmlForOsmd(
       out = removeRedundantCourtesyClefsForOsmd(out);
     }
     out = repairRestDisplayForOsmdPreview(out);
+    out = removeDanglingTimelineElementsForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
     if (printedMeasureMarkers?.size) {

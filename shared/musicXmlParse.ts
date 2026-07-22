@@ -15,5 +15,7 @@ export function parseMusicXmlDocument(xml: string): Document | null {
 }
 
 export function serializeMusicXmlDocument(doc: Document): string {
-  return new XMLSerializer().serializeToString(doc);
+  const body = new XMLSerializer().serializeToString(doc);
+  if (body.startsWith('<?xml')) return body;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${body}`;
 }

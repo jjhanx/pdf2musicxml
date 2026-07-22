@@ -12,9 +12,13 @@ Object.assign(globalThis, {
   requestAnimationFrame: (cb: FrameRequestCallback) => { setTimeout(() => cb(0), 0); return 0; },
 });
 
+import { repairMissingNoteTypesForOsmdPreview } from '../shared/musicXmlRestDisplay.ts';
+
 async function main() {
-  let xml = repairUnderfullMeasuresForOsmdPreview(
-    repairTimelineForOsmdPreview(readFileSync('_smoke/_cheongsan_review.xml', 'utf8')),
+  let xml = repairMissingNoteTypesForOsmdPreview(
+    repairUnderfullMeasuresForOsmdPreview(
+      repairTimelineForOsmdPreview(readFileSync('_smoke/_cheongsan_review.xml', 'utf8')),
+    ),
   );
   const { OpenSheetMusicDisplay } = await import('opensheetmusicdisplay');
   const osmd = new OpenSheetMusicDisplay(document.getElementById('host')!, { backend: 'svg' });

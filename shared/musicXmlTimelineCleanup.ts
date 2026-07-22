@@ -47,6 +47,7 @@ export function repairTimelineForOsmdPreview(xml: string): string {
   out = stripPrintElementsForOsmdPreview(out);
   out = stripMeasureWidthAttributesForOsmdPreview(out);
   out = stripDefaultXyForOsmdPreview(out);
+  out = stripChordBeamsForOsmdPreview(out);
   return out;
 }
 
@@ -102,6 +103,30 @@ export function stripMeasureWidthAttributesForOsmdPreview(xml: string): string {
     if (!doc) return xml;
     doc.querySelectorAll('measure, *|measure').forEach((el) => {
       el.removeAttribute('width');
+    });
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — chord 노트의 beam 제거.
+ * MusicXML 스펙상 beam은 화음의 주 노트에만 있어야 하지만, 일부 OMR은 화음의 모든 노트에 beam을 달기도 합니다.
+ * 이 경우 OSMD의 SkyBottomLineBatchCalculatorBackend 등에서 width를 0으로 계산하여 
+ * 마디 전체가 스킵되는 치명적 렌더링 오류(예: 26마디 실종)를 유발할 수 있습니다.
+ */
+export function stripChordBeamsForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    
+    // 화음 노트를 찾아 내부의 beam을 모두 제거
+    doc.querySelectorAll('note, *|note').forEach((note) => {
+      const hasChord = note.querySelector('chord, *|chord') !== null;
+      if (hasChord) {
+        note.querySelectorAll('beam, *|beam').forEach((beam) => beam.remove());
+      }
     });
     return serializeMusicXmlDocument(doc);
   } catch {

@@ -37,6 +37,17 @@ _DYNAMICS_TAGS = frozenset(
     }
 )
 _DEFAULT_DYNAMICS_PLACEMENT = "above"
+_NAVIGATION_DIRECTION_TAGS = frozenset(
+    {"segno", "coda", "fine", "dacapo", "dalsegno", "tocoda"}
+)
+_NAVIGATION_DIRECTION_LABELS = {
+    "segno": "Segno",
+    "coda": "Coda",
+    "fine": "Fine",
+    "dacapo": "D.C.",
+    "dalsegno": "D.S.",
+    "tocoda": "To Coda",
+}
 _ARTICULATION_TAGS = frozenset(
     {
         "accent",
@@ -457,6 +468,10 @@ def _note_direction_infos(
     return infos
 
 
+def _is_navigation_direction_type(kind: str) -> bool:
+    return (kind or "").strip().lower() in _NAVIGATION_DIRECTION_TAGS
+
+
 def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
     dtype = direction.find(_q(ns, "direction-type"))
     if dtype is None:
@@ -468,6 +483,13 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
         if tags:
             pl = (dyn.get("placement") or direction.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT).strip()
             out: dict[str, Any] = {"directionType": "dynamics", "directionValue": tags[0]}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+    for tag in _NAVIGATION_DIRECTION_TAGS:
+        if dtype.find(_q(ns, tag)) is not None:
+            pl = (direction.get("placement") or "").strip()
+            out = {"directionType": tag, "directionValue": tag}
             if pl in ("above", "below"):
                 out["placement"] = pl
             return out
@@ -780,7 +802,8 @@ def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> lis
             continue
         info = _direction_element_info(direction, ns)
         text = _direction_text(direction)
-        if not text and not info.get("directionValue"):
+        dtype_kind = str(info.get("directionType") or "")
+        if not text and not info.get("directionValue") and dtype_kind not in _NAVIGATION_DIRECTION_TAGS:
             continue
         staff_el = direction.find(_q(ns, "staff"))
         staff_n: int | None = None
@@ -2725,6 +2748,8 @@ def _direction_text(direction: ET.Element) -> str:
         elif loc in ("words", "text", "syllable", "rehearsal"):
             if el.text and el.text.strip():
                 parts.append(el.text.strip())
+        elif loc in _NAVIGATION_DIRECTION_TAGS:
+            parts.append(_NAVIGATION_DIRECTION_LABELS.get(loc, loc))
         elif loc == "wedge" and el.get("type"):
             parts.append(f"wedge({el.get('type')})")
         elif loc == "pedal" and el.get("type"):
@@ -2828,6 +2853,10 @@ def _build_direction_element(
     elif kind == "rehearsal":
         el = ET.SubElement(dtype, _q(ns, "rehearsal"))
         el.text = val or "A"
+    elif kind in _NAVIGATION_DIRECTION_TAGS:
+        ET.SubElement(dtype, _q(ns, kind))
+        if placement is None:
+            placement = "above"
     else:
         el = ET.SubElement(dtype, _q(ns, "words"))
         el.text = val or " "
@@ -3180,6 +3209,31 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         placement = str(fix.get("placement") or "").strip().lower() or None
         if placement not in ("above", "below", ""):
             placement = None
+        if _is_navigation_direction_type(direction_type):
+            if placement is None:
+                placement = "above"
+            new_dir = _build_direction_element(
+                ns,
+                direction_type,
+                direction_value or direction_type,
+                staff_n=staff_n,
+                placement=placement,
+            )
+            if after_idx < 0:
+                _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
+            elif fix.get("afterRest") and 0 <= after_idx < len(notes):
+                _insert_before_note_element(measure, ns, new_dir, after_idx, staff_n=staff_n)
+            else:
+                _insert_note_element(
+                    measure,
+                    ns,
+                    new_dir,
+                    after_idx,
+                    staff_n=staff_n,
+                    expand_chord_group=False,
+                )
+            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
+            return True
         if direction_type == "dynamics" and placement is None:
             placement = _DEFAULT_DYNAMICS_PLACEMENT
         note_idx: int | None

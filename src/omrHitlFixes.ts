@@ -44,7 +44,7 @@ export type OmrHitlFix = {
   fromPitchOctave?: number;
   fromPitchAlter?: number;
   removeFollowingNote?: boolean;
-  directionType?: 'dynamics' | 'words' | 'rehearsal';
+  directionType?: 'dynamics' | 'words' | 'rehearsal' | 'segno' | 'coda' | 'fine' | 'dacapo' | 'dalsegno' | 'tocoda';
   directionValue?: string;
   placement?: 'above' | 'below';
   tempoBpm?: number;
@@ -175,7 +175,13 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     else if (fix.afterNoteIndex != null && fix.afterNoteIndex < 0) parts.push('마디 앞');
     else if (fix.afterNoteIndex != null) parts.push(`#${fix.afterNoteIndex}`);
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
-    if (fix.directionType) parts.push(fix.directionType);
+    if (fix.directionType) {
+      parts.push(
+        isNavigationDirectionType(fix.directionType, fix.directionValue)
+          ? navigationDirectionLabel(fix.directionType, fix.directionValue)
+          : fix.directionType,
+      );
+    }
     if (fix.directionValue?.trim()) parts.push(fix.directionValue.trim());
   }
   if (fix.kind === 'setMeasureTempo' || fix.kind === 'removeMeasureTempo') {
@@ -186,4 +192,29 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);
   }
   return parts.join(' · ');
+}
+
+const NAVIGATION_TAG_LABELS: Record<string, string> = {
+  segno: 'Segno',
+  coda: 'Coda',
+  fine: 'Fine',
+  dacapo: 'D.C.',
+  dalsegno: 'D.S.',
+  tocoda: 'To Coda',
+};
+
+export function navigationDirectionLabel(type?: string, value?: string): string {
+  const t = (type || '').trim();
+  if (NAVIGATION_TAG_LABELS[t]) return NAVIGATION_TAG_LABELS[t];
+  return (value || t || '').trim();
+}
+
+export function isNavigationDirectionType(type?: string, value?: string): boolean {
+  const t = (type || '').trim();
+  if (t in NAVIGATION_TAG_LABELS) return true;
+  if (t === 'words') {
+    const v = (value || '').trim();
+    return /^(D\.(C|S)\.|To Coda|Fine\b)/i.test(v);
+  }
+  return false;
 }

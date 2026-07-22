@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { newFixId, type OmrHitlFix } from './omrHitlFixes';
+import { isNavigationDirectionType, navigationDirectionLabel, newFixId, type OmrHitlFix } from './omrHitlFixes';
 import {
   PitchAlterSelect,
   formatPitchLabel,
@@ -387,6 +387,161 @@ const BEAT_UNIT_OPTIONS = [
   { value: 'eighth', label: '8분음표(♪)' },
 ] as const;
 
+const NAVIGATION_INSERT_OPTIONS = [
+  { directionType: 'segno' as const, directionValue: '', label: 'Segno (𝄋)' },
+  { directionType: 'coda' as const, directionValue: '', label: 'Coda (𝄌)' },
+  { directionType: 'fine' as const, directionValue: '', label: 'Fine' },
+  { directionType: 'dacapo' as const, directionValue: '', label: 'D.C. (Da Capo)' },
+  { directionType: 'dalsegno' as const, directionValue: '', label: 'D.S. (Dal Segno)' },
+  { directionType: 'tocoda' as const, directionValue: '', label: 'To Coda' },
+  { directionType: 'words' as const, directionValue: 'D.S. al Fine', label: 'D.S. al Fine' },
+  { directionType: 'words' as const, directionValue: 'D.C. al Fine', label: 'D.C. al Fine' },
+  { directionType: 'words' as const, directionValue: 'D.S. al Coda', label: 'D.S. al Coda' },
+  { directionType: 'words' as const, directionValue: 'D.C. al Coda', label: 'D.C. al Coda' },
+];
+
+function isNavigationDirection(d: MeasureDirectionEl): boolean {
+  return isNavigationDirectionType(d.directionType, d.directionValue || d.text);
+}
+
+function MeasureNavigationEditor({
+  directions,
+  partStaveCount,
+  editStaffWithinPart,
+  insertAfter,
+  insertStaff,
+  noteEls,
+  onFix,
+}: {
+  directions: MeasureDirectionEl[];
+  partStaveCount: number;
+  editStaffWithinPart?: number | null;
+  insertAfter: number;
+  insertStaff: number;
+  noteEls: MeasureNoteEl[];
+  onFix: (partial: FixPartial) => void;
+}) {
+  const [navKind, setNavKind] = useState(0);
+  const [placement, setPlacement] = useState<'above' | 'below'>('above');
+  const [staff, setStaff] = useState(editStaffWithinPart ?? insertStaff ?? 1);
+
+  useEffect(() => {
+    setStaff(editStaffWithinPart ?? insertStaff ?? 1);
+  }, [editStaffWithinPart, insertStaff]);
+
+  const selected = NAVIGATION_INSERT_OPTIONS[navKind] ?? NAVIGATION_INSERT_OPTIONS[0];
+  const positionLabel =
+    insertAfter < 0
+      ? '마디 앞'
+      : `#${insertAfter} ${noteEls.find((n) => n.index === insertAfter) ? '뒤' : ''}`.trim();
+
+  return (
+    <div
+      className="omr-measure-navigation-panel"
+      style={{
+        marginBottom: '0.85rem',
+        padding: '0.65rem 0.75rem',
+        background: '#eef7ff',
+        borderRadius: 6,
+        border: '1px solid #90caf9',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>진행 제어 (Segno·Coda·Fine 등)</div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        OMR이 Segno(𝄋)를 <code>$5-f</code> 같은 OCR 찌끼로 오인한 경우, 위 「마디 텍스트」에서 삭제한 뒤 여기서{' '}
+        <strong>올바른 기호를 추가</strong>하세요. 위치는 아래 요소 목록의 「여기 뒤」로 정하거나, 기본은{' '}
+        <strong>마디 앞</strong>입니다.
+      </p>
+      {directions.length > 0 ? (
+        <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {directions.map((d) => (
+            <li
+              key={`nav-${d.directionIndex}`}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                padding: '0.35rem 0',
+                borderBottom: '1px solid #bbdefb',
+              }}
+            >
+              <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
+                dir #{d.directionIndex}
+                {d.placement ? ` · ${d.placement}` : ''}
+                {d.staff != null ? ` · staff ${d.staff}` : ''}
+              </span>
+              <strong>{navigationDirectionLabel(d.directionType, d.directionValue || d.text)}</strong>
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                onClick={() =>
+                  onFix({
+                    kind: 'removeDirection',
+                    directionIndex: d.directionIndex,
+                  })
+                }
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>이 마디에 진행 제어 기호 없음</p>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <label className="omr-measure-inline-field">
+          기호
+          <select value={navKind} onChange={(e) => setNavKind(Number(e.target.value))} style={{ marginLeft: 4, minWidth: '10rem' }}>
+            {NAVIGATION_INSERT_OPTIONS.map((o, i) => (
+              <option key={`${o.directionType}-${o.directionValue}-${i}`} value={i}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          위치
+          <span style={{ marginLeft: 4, fontSize: '0.88rem' }}>{positionLabel}</span>
+        </label>
+        <label className="omr-measure-inline-field">
+          배치
+          <select value={placement} onChange={(e) => setPlacement(e.target.value as 'above' | 'below')} style={{ marginLeft: 4 }}>
+            <option value="above">위</option>
+            <option value="below">아래</option>
+          </select>
+        </label>
+        {partStaveCount >= 2 && editStaffWithinPart == null ? (
+          <label className="omr-measure-inline-field">
+            staff
+            <select value={String(staff)} onChange={(e) => setStaff(parseInt(e.target.value, 10) || 1)} style={{ marginLeft: 4 }}>
+              <option value="1">staff 1 (PR)</option>
+              <option value="2">staff 2 (PL)</option>
+            </select>
+          </label>
+        ) : null}
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() =>
+            onFix({
+              kind: 'insertDirection',
+              directionType: selected.directionType,
+              directionValue: selected.directionValue || undefined,
+              afterNoteIndex: insertAfter,
+              staff: editStaffWithinPart ?? staff,
+              placement,
+            })
+          }
+        >
+          진행 제어 추가
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MeasureDirectionsEditor({
   directions,
   measureMxl,
@@ -409,6 +564,9 @@ function MeasureDirectionsEditor({
   }, [directions, measureMxl]);
 
   if (!directions.length) return null;
+
+  const textDirections = directions.filter((d) => !isNavigationDirection(d));
+  if (!textDirections.length) return null;
 
   return (
     <div
@@ -831,6 +989,16 @@ export function OmrMeasureEditor({
     [elements],
   );
 
+  const measureDirections = snapshot?.measureDirections ?? [];
+  const navigationDirections = useMemo(
+    () => measureDirections.filter((d) => isNavigationDirection(d)),
+    [measureDirections],
+  );
+  const textDirections = useMemo(
+    () => measureDirections.filter((d) => !isNavigationDirection(d)),
+    [measureDirections],
+  );
+
   const pushFix = (partial: FixPartial) => {
     const { measureMxl: overrideMxl, ...rest } = partial;
     const directionKinds = new Set(['setMeasureDirectionText', 'removeDirection']);
@@ -916,8 +1084,17 @@ export function OmrMeasureEditor({
 
       {snapshot ? (
         <>
+          <MeasureNavigationEditor
+            directions={navigationDirections}
+            partStaveCount={partStaveCount}
+            editStaffWithinPart={editStaffWithinPart}
+            insertAfter={insertAfter}
+            insertStaff={insertStaff}
+            noteEls={noteEls}
+            onFix={pushFix}
+          />
           <MeasureDirectionsEditor
-            directions={snapshot.measureDirections ?? []}
+            directions={textDirections}
             measureMxl={measureMxl}
             directionSourcePartId={snapshot.directionSourcePartId}
             onFix={pushFix}

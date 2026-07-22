@@ -47,6 +47,9 @@ async function main() {
   if (cleaned.includes('new-page="yes"')) {
     throw new Error('stripPageBreakPrintForOsmdPreview must remove new-page attributes');
   }
+  if (cleaned.includes('new-system="yes"')) {
+    throw new Error('stripNewSystemPrintForOsmdPreview must remove new-system attributes');
+  }
 
   const notes26 = countM26Notes(cleaned);
   if (notes26 < 20) throw new Error(`expected m26 notes preserved, got ${notes26}`);

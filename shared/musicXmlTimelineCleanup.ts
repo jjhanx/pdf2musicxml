@@ -41,10 +41,11 @@ function removeDanglingTimelineInMeasure(measure: Element): void {
   }
 }
 
-/** OSMD 미리보기 직전 — dangling timeline + 페이지 나눔 print 정리(저장 MXL 불변). */
+/** OSMD/HITL 미리보기 전용 — dangling timeline + 페이지·시스템 나눔 print 정리(저장 MXL 불변). */
 export function repairTimelineForOsmdPreview(xml: string): string {
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
   out = stripPageBreakPrintForOsmdPreview(out);
+  out = stripNewSystemPrintForOsmdPreview(out);
   return out;
 }
 
@@ -59,6 +60,25 @@ export function stripPageBreakPrintForOsmdPreview(xml: string): string {
     doc.querySelectorAll('*').forEach((el) => {
       if (xmlLocalName(el) !== 'print') return;
       el.removeAttribute('new-page');
+      if (el.attributes.length === 0 && el.childElementCount === 0) el.remove();
+    });
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — `<print new-system="yes">` 제거.
+ * 페이지 직후(25→26) + 새 시스템(27) 조합에서 OSMD가 26마디 칸을 비우거나 27 내용을 당겨 그리는 경우 방지.
+ */
+export function stripNewSystemPrintForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    doc.querySelectorAll('*').forEach((el) => {
+      if (xmlLocalName(el) !== 'print') return;
+      el.removeAttribute('new-system');
       if (el.attributes.length === 0 && el.childElementCount === 0) el.remove();
     });
     return serializeMusicXmlDocument(doc);

@@ -1534,6 +1534,7 @@ export { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 export {
   removeDanglingTimelineElementsForOsmdPreview,
   repairTimelineForOsmdPreview,
+  stripNewSystemPrintForOsmdPreview,
   stripPageBreakPrintForOsmdPreview,
   inferFirstMxlMeasureForPdfPage,
 } from '../shared/musicXmlTimelineCleanup';
@@ -1547,6 +1548,8 @@ export function buildOsmdPreviewXml(
 ): string {
   const verbatim = options?.verbatim === true;
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
+  /** split·dynamics 변환 전에 timeline 정리 — orphan backup이 clone/part split에 복제되기 전 제거 */
+  xml = repairTimelineForOsmdPreview(xml);
   if (!verbatim) {
     xml = migrateDirectionsToNotes(xml);
   }

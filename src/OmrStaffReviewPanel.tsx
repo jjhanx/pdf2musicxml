@@ -68,7 +68,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [selectedMeasure, setSelectedMeasure] = useState<OsmdMeasureClickInfo | null>(null);
   const [editPartId, setEditPartId] = useState('');
   const [manualMeasurePrinted, setManualMeasurePrinted] = useState('');
-  const [manualMeasureMxl, setManualMeasureMxl] = useState('');
   const [editorKey, setEditorKey] = useState(0);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [scrollToMeasureTrigger, setScrollToMeasureTrigger] = useState(0);
@@ -570,14 +569,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setSelectedMeasure(info);
       const printed = mxlMeasureToPrintedSidebar(info.measureMxl, measureOffset);
       setManualMeasurePrinted(String(printed));
-      setManualMeasureMxl(String(info.measureMxl));
       const partId = resolvePartIdForMeasure(info);
       const staffLabel =
         labelForPartStaff(partId, info.staffWithinPart) ??
         staffList[info.staffIndex] ??
         `줄 ${info.staffIndex + 1}`;
       setMeasureClickMsg(
-        `마디 선택됨 · MXL ${info.measureMxl} · 인쇄 ${printed} · ${staffLabel}`,
+        `마디 선택됨 · 인쇄 ${printed} · MXL ${info.measureMxl} · ${staffLabel}`,
       );
       if (!staffFilter) {
         setEditPartId(partId);
@@ -587,44 +585,33 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [staffFilter, measureOffset, resolvePartIdForMeasure, labelForPartStaff, staffList],
   );
 
-  const openMeasureByMxl = useCallback(
-    (measureMxl: number) => {
-      const staffIndex = staffFilter ? Math.max(0, staffList.indexOf(staffFilter)) : 0;
-      openMeasure({
-        measureMxl,
-        staffIndex,
-        partId: staffFilter ? partIdForStaff(staffFilter) : null,
-        staffWithinPart: staffFilter ? staffWithinPartForLabel(staffFilter) ?? undefined : undefined,
-      });
-      if (!staffFilter && !editPartId) {
-        setEditPartId(resolvePartIdForStaffIndex(staffIndex));
-      }
-    },
-    [
-      staffFilter,
-      staffList,
-      openMeasure,
-      editPartId,
-      partIdForStaff,
-      staffWithinPartForLabel,
-      resolvePartIdForStaffIndex,
-    ],
-  );
-
-  const openManualMeasureByMxl = useCallback(() => {
-    const measureMxl = parseInt(manualMeasureMxl.trim(), 10);
-    if (!Number.isFinite(measureMxl) || measureMxl < 1) return;
-    setManualMeasurePrinted(String(mxlMeasureToPrintedSidebar(measureMxl, measureOffset)));
-    openMeasureByMxl(measureMxl);
-  }, [manualMeasureMxl, measureOffset, openMeasureByMxl]);
-
   const openManualMeasure = useCallback(() => {
     const printed = parseInt(manualMeasurePrinted.trim(), 10);
     if (!Number.isFinite(printed) || printed < 1) return;
     const measureMxl = Math.max(1, printedSidebarNumberToMxlMeasure(printed, measureOffset));
-    setManualMeasureMxl(String(measureMxl));
-    openMeasureByMxl(measureMxl);
-  }, [manualMeasurePrinted, measureOffset, openMeasureByMxl]);
+    const staffIndex = staffFilter
+      ? Math.max(0, staffList.indexOf(staffFilter))
+      : 0;
+    openMeasure({
+      measureMxl,
+      staffIndex,
+      partId: staffFilter ? partIdForStaff(staffFilter) : null,
+      staffWithinPart: staffFilter ? staffWithinPartForLabel(staffFilter) ?? undefined : undefined,
+    });
+    if (!staffFilter && !editPartId) {
+      setEditPartId(resolvePartIdForStaffIndex(staffIndex));
+    }
+  }, [
+    manualMeasurePrinted,
+    measureOffset,
+    staffFilter,
+    staffList,
+    openMeasure,
+    editPartId,
+    partIdForStaff,
+    staffWithinPartForLabel,
+    resolvePartIdForStaffIndex,
+  ]);
 
   const filteredXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
@@ -783,37 +770,19 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ) : null}
           <div className="omr-manual-measure-open">
             <label>
-              MXL 마디로 열기
-              <input
-                type="number"
-                min={1}
-                value={manualMeasureMxl}
-                onChange={(e) => setManualMeasureMxl(e.target.value)}
-                placeholder="26"
-                style={{ width: 72, marginLeft: 6 }}
-              />
-            </label>
-            <button type="button" className="btn-muted" onClick={() => openManualMeasureByMxl()}>
-              MXL 편집 열기
-            </button>
-            <span className="omr-manual-measure-sep">|</span>
-            <label>
-              인쇄 마디
+              인쇄 마디로 열기(보조)
               <input
                 type="number"
                 min={1}
                 value={manualMeasurePrinted}
                 onChange={(e) => setManualMeasurePrinted(e.target.value)}
-                placeholder="인쇄"
+                placeholder="인쇄 마디"
                 style={{ width: 72, marginLeft: 6 }}
               />
             </label>
             <button type="button" className="btn-muted" onClick={() => openManualMeasure()}>
-              인쇄→MXL 열기
+              마디 편집 열기
             </button>
-            <span className="omr-manual-measure-offset">
-              offset={measureOffset} → MXL ≈ 인쇄 − {measureOffset} + 1
-            </span>
             <button
               type="button"
               className="btn-muted"
@@ -821,7 +790,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 const measureMxl = Math.max(1, printedSidebarNumberToMxlMeasure(1, measureOffset));
                 const staffIndex = staffFilter ? Math.max(0, staffList.indexOf(staffFilter)) : 0;
                 setManualMeasurePrinted('1');
-                setManualMeasureMxl(String(measureMxl));
                 openMeasure({
                   measureMxl,
                   staffIndex,
@@ -833,11 +801,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               1마디 제목·찌끼
             </button>
           </div>
-          <p className="omr-manual-measure-hint">
-            미리보기에서 27마디 음이 26칸에 보이면 OSMD 칸 밀림입니다.{' '}
-            <strong>MXL 26</strong>으로 열면 MusicXML <code>measure@number=26</code> 내용(F5·C5 등)을 편집합니다.
-            PDF와 다른 음은 OMR 누락이므로 아래 편집기에서 음표를 추가·수정하세요.
-          </p>
         </div>
       </div>
 
@@ -900,7 +863,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         </div>
       ) : (
         <p className="omr-measure-editor-prompt">
-          PDF와 MXL이 다른 마디가 있으면 <strong>MXL 마디 번호</strong>로 열거나 오른쪽 악보에서 해당 마디를 클릭하세요.
+          PDF와 MXL이 다른 마디가 있으면 오른쪽 악보에서 <strong>해당 마디를 클릭</strong>하세요.
           {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 성부가 자동 선택됩니다.' : ''}
         </p>
       )}

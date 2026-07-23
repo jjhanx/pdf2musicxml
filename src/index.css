@@ -675,40 +675,6 @@ button.btn-muted {
   color: #444;
 }
 
-.modal-light .omr-manual-measure-sep {
-  color: #bbb;
-  user-select: none;
-}
-
-.modal-light .omr-manual-measure-offset {
-  font-size: 0.78rem;
-  color: #666;
-}
-
-.modal-light .omr-manual-measure-hint {
-  margin: 0.35rem 0 0;
-  font-size: 0.8rem;
-  line-height: 1.45;
-  color: #555;
-}
-
-.modal-light .omr-measure-pitch-summary {
-  margin: 0 0 0.65rem;
-  padding: 0.55rem 0.65rem;
-  font-size: 0.88rem;
-  line-height: 1.45;
-  color: #1b5e20;
-  background: #e8f5e9;
-  border: 1px solid #a5d6a7;
-  border-radius: 4px;
-}
-
-.modal-light .omr-measure-pitch-summary-note {
-  font-size: 0.82rem;
-  color: #33691e;
-  font-weight: normal;
-}
-
 .modal-light .omr-osmd-clickable {
   cursor: crosshair;
   user-select: none;

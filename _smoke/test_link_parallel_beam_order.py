@@ -1,4 +1,4 @@
-"""linkParallelOnsets must not move E4 to measure start or break E5-F5 beam."""
+"""linkParallelOnsets must not reorder notes or break beams — only align selected default-x."""
 import importlib
 import sys
 import xml.etree.ElementTree as ET
@@ -8,7 +8,6 @@ import omr_hitl_lib as lib
 
 importlib.reload(lib)
 
-# prefix quarter + parallel pair (E5-F5 beam) + E4 quarter wrongly between beam
 xml = """<score-partwise version="3.1">
 <part id="P5"><measure number="16">
 <attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
@@ -21,7 +20,8 @@ root = ET.fromstring(xml)
 ns = lib._ns(root)
 m = lib.find_measure(lib.find_part(root, ns, "P5"), ns, "16")
 notes_before = lib.list_note_elements(m, ns)
-# G4=0, E5=1, E4=2, F5=3 — link 1 and 2 (E5 + E4)
+order_before = [i for i in range(len(notes_before))]
+
 lib.apply_fixes_to_root(
     root,
     [{"kind": "linkParallelOnsets", "partId": "P5", "measureMxl": "16", "staff": 1, "parallelNoteIndices": [1, 2]}],
@@ -32,30 +32,12 @@ for n in notes:
     p = n.find(lib._q(ns, "pitch"))
     pitches.append(p.find(lib._q(ns, "step")).text + p.find(lib._q(ns, "octave")).text)
 
-# prefix notes keep document order; linked pair must not jump ahead of earlier beams
-assert pitches.index("E5") > pitches.index("G4"), pitches
-assert pitches.index("F5") > pitches.index("G4"), pitches
-# E5 before F5 (beam intact in same voice layer)
-e5_i = pitches.index("E5")
-f5_i = pitches.index("F5")
-assert e5_i < f5_i, pitches
-# beam tags preserved
-e5 = notes[e5_i]
-f5 = notes[f5_i]
+# XML 문서 순서·빔 그대로 (E4는 E5–F5 사이에 남음)
+assert pitches == ["G4", "E5", "E4", "F5"], pitches
+e5, e4, f5 = notes[1], notes[2], notes[3]
+assert e5.get("default-x") == e4.get("default-x"), (e5.get("default-x"), e4.get("default-x"))
 assert any(b.text == "begin" for b in e5.findall(".//" + lib._q(ns, "beam")))
 assert any(b.text == "end" for b in f5.findall(".//" + lib._q(ns, "beam")))
-# E4 not at index 0
-assert pitches.index("E4") > 0, pitches
-# parallel onset same timeline
-starts = lib._staff_timed_leader_starts(m, ns, "1")
-by_pitch_start = {}
-for i, n in enumerate(notes):
-    if n.find(lib._q(ns, "chord")) is not None:
-        continue
-    p = n.find(lib._q(ns, "pitch"))
-    name = p.find(lib._q(ns, "step")).text + p.find(lib._q(ns, "octave")).text
-    for ni, t in starts:
-        if ni == i:
-            by_pitch_start[name] = t
-assert by_pitch_start.get("E5") == by_pitch_start.get("E4"), by_pitch_start
+starts = {i: t for i, t in lib._staff_timed_leader_starts(m, ns, "1")}
+assert starts[1] == starts[2], starts
 print("link parallel beam order ok", pitches)

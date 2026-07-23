@@ -4442,9 +4442,59 @@ def _apply_parallel_groups_to_staff(
     return changed
 
 
+def _leftmost_selected_note_index(
+    notes: list[ET.Element], ns: str, selected: list[int]
+) -> int:
+    def key(i: int) -> tuple[float, int]:
+        x = _parse_default_x(notes[i])
+        return (x if x is not None else 1_000_000.0, i)
+
+    return min(selected, key=key)
+
+
+def _parallel_onset_time_for_note_index(
+    measure: ET.Element, ns: str, staff: str, notes: list[ET.Element], index: int
+) -> int:
+    starts = dict(_staff_timed_leader_starts(measure, ns, staff))
+    note = notes[index]
+    if note.find(_q(ns, "chord")) is not None:
+        leader_i = _chord_leader_index(notes, ns, index)
+        return starts.get(leader_i, 0)
+    return starts.get(index, 0)
+
+
+def _set_or_insert_forward_before_note(
+    measure: ET.Element, ns: str, note: ET.Element, voice: str, duration: int
+) -> bool:
+    if duration <= 0:
+        return False
+    children = list(measure)
+    try:
+        pos = children.index(note)
+    except ValueError:
+        return False
+    if pos > 0 and _local(children[pos - 1]) == "forward":
+        fwd = children[pos - 1]
+        dur_el = fwd.find(_q(ns, "duration"))
+        if dur_el is None:
+            dur_el = ET.SubElement(fwd, _q(ns, "duration"))
+        dur_el.text = str(duration)
+        voice_el = fwd.find(_q(ns, "voice"))
+        if voice_el is None:
+            voice_el = ET.SubElement(fwd, _q(ns, "voice"))
+        voice_el.text = voice
+        return True
+    fwd = ET.Element(_q(ns, "forward"))
+    ET.SubElement(fwd, _q(ns, "duration")).text = str(duration)
+    ET.SubElement(fwd, _q(ns, "voice")).text = voice
+    measure.insert(pos, fwd)
+    return True
+
+
 def _link_parallel_onsets_by_indices(
     measure: ET.Element, ns: str, staff: str, indices: list[int]
 ) -> bool:
+    """선택 #index만 — 가장 왼쪽 default-x로 맞춤. 미선택·빔·문서 순서는 그대로."""
     notes = list_note_elements(measure, ns)
     if len(indices) < 2:
         return False
@@ -4457,17 +4507,49 @@ def _link_parallel_onsets_by_indices(
         if i < 0 or i >= len(notes):
             return False
         _voice, st = _note_voice_staff(notes[i], ns)
-        if st != staff:
+        if st != staff or _is_grace_or_cue(notes[i], ns):
             return False
         if i not in selected:
             selected.append(i)
     if len(selected) < 2:
         return False
-    selected_set = set(selected)
-    groups = [_parallel_link_group_notes(notes, ns, i, selected_set) for i in selected]
-    return _apply_parallel_groups_to_staff(
-        measure, ns, staff, groups, notes, keeper_by_doc_index=True
-    )
+
+    left_i = _leftmost_selected_note_index(notes, ns, selected)
+    xs = [_parse_default_x(notes[i]) for i in selected]
+    finite_xs = [x for x in xs if x is not None]
+    x_val = min(finite_xs) if finite_xs else 32.0
+    x_str = f"{x_val:.2f}"
+    parallel_t = _parallel_onset_time_for_note_index(measure, ns, staff, notes, left_i)
+    durs = [_note_duration(notes[i], ns) for i in selected]
+    changed = False
+
+    if len(set(durs)) == 1:
+        for i in selected:
+            note = notes[i]
+            if i != left_i and _ensure_chord_tag(note, ns):
+                changed = True
+            if note.get("default-x") != x_str:
+                note.set("default-x", x_str)
+                changed = True
+        return changed
+
+    used_voices = {_note_voice_staff(notes[i], ns)[0] for i in selected}
+    for i in selected:
+        note = notes[i]
+        if note.get("default-x") != x_str:
+            note.set("default-x", x_str)
+            changed = True
+        if i == left_i:
+            continue
+        new_voice = _allocate_staff_voice(staff, used_voices)
+        used_voices.add(new_voice)
+        cur_v, _ = _note_voice_staff(note, ns)
+        if cur_v != new_voice:
+            _set_note_voice_staff(note, ns, new_voice, staff)
+            changed = True
+        if _set_or_insert_forward_before_note(measure, ns, note, new_voice, parallel_t):
+            changed = True
+    return changed
 
 
 def _is_grace_or_cue(note: ET.Element, ns: str) -> bool:
@@ -5250,7 +5332,6 @@ def _strip_all_direction_staff_tags(root: ET.Element, ns: str) -> int:
 def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[str, int]:
     ns = _ns(root)
     stats = {"applied": 0, "skipped": 0}
-    touched: set[tuple[str, str]] = set()
     deferred_kinds = {
         "applyBeam",
         "removeBeam",
@@ -5261,11 +5342,13 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "applyTriplet",
         "removeTriplet",
     }
+    skip_rebuild_kinds = {"linkParallelOnsets"}
     measure_structure_kinds = {"insertEmptyMeasureBefore", "insertEmptyMeasureAfter"}
     pending = list(fixes)
     structure_fixes = [f for f in pending if f.get("kind") in measure_structure_kinds]
     other_fixes = [f for f in pending if f.get("kind") not in measure_structure_kinds]
     deferred: list[dict[str, Any]] = []
+    rebuild_touched: set[tuple[str, str]] = set()
 
     for fix in structure_fixes:
         anchor = _parse_measure_number(str(fix.get("measureMxl") or ""))
@@ -5285,16 +5368,18 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
     for fix in other_fixes:
         part_id = str(fix.get("partId") or "").strip()
         measure_mxl = str(fix.get("measureMxl") or "").strip()
+        kind = str(fix.get("kind") or "")
         if part_id and measure_mxl:
-            touched.add((part_id, measure_mxl))
+            if kind not in skip_rebuild_kinds:
+                rebuild_touched.add((part_id, measure_mxl))
         if fix.get("kind") in deferred_kinds:
             deferred.append(fix)
             to_m = str(fix.get("toMeasureMxl") or "").strip()
             if to_m and part_id and to_m != measure_mxl:
-                touched.add((part_id, to_m))
+                rebuild_touched.add((part_id, to_m))
             from_m = str(fix.get("fromMeasureMxl") or "").strip()
             if from_m and part_id and from_m != measure_mxl:
-                touched.add((part_id, from_m))
+                rebuild_touched.add((part_id, from_m))
             continue
         if apply_fix(root, ns, fix):
             stats["applied"] += 1
@@ -5305,7 +5390,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             stats["applied"] += 1
         else:
             stats["skipped"] += 1
-    for part_id, measure_mxl in touched:
+    for part_id, measure_mxl in rebuild_touched:
         part = find_part(root, ns, part_id)
         if part is None:
             continue

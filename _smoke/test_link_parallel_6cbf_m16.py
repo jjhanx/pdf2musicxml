@@ -1,4 +1,4 @@
-"""Real 6cbf PR m16: link #16 (E5 chord) + #17 (E4) must not reorder or corrupt PL."""
+"""Real 6cbf PR m16: link #16+#17 — document order unchanged, x aligned only."""
 import io
 import sys
 import zipfile
@@ -29,32 +29,31 @@ def pitch(n, ns):
     o = p.find(lib._q(ns, "octave")).text
     a = p.find(lib._q(ns, "alter"))
     acc = { "-1": "b", "1": "#" }.get(a.text.strip(), "") if a is not None and a.text else ""
-    return f"{s}{acc}{o}"
+    ch = " chord" if n.find(lib._q(ns, "chord")) is not None else ""
+    return f"{s}{acc}{o}{ch}"
 
 
 root = load()
 ns = lib._ns(root)
 m = lib.find_measure(lib.find_part(root, ns, PART), ns, "16")
-before_pr = [pitch(n, ns) for n in lib.list_note_elements(m, ns) if lib._note_voice_staff(n, ns)[1] == "1"]
+notes = lib.list_note_elements(m, ns)
+before = [pitch(n, ns) for n in notes]
 
 lib.apply_fixes_to_root(
     root,
     [{"kind": "linkParallelOnsets", "partId": PART, "measureMxl": "16", "staff": 1, "parallelNoteIndices": [16, 17]}],
 )
 
-notes = lib.list_note_elements(m, ns)
-after_pr = [pitch(n, ns) for n in notes if lib._note_voice_staff(n, ns)[1] == "1"]
-starts = dict(lib._staff_timed_leader_starts(m, ns, "1"))
+notes2 = lib.list_note_elements(m, ns)
+after = [pitch(n, ns) for n in notes2]
+assert after == before, (before[14:20], after[14:20])
 
-# 마디 앞쪽(PR #0 A4…) 상대 순서 유지 — 특정 음 이름(G4 등)에 묶지 않음
-assert after_pr[:10] == before_pr[:10], (before_pr[:10], after_pr[:10])
-# E4가 마디 맨 앞·중간 빔 블록 앞으로 끼어들지 않음
-e4_i = next(i for i, n in enumerate(notes) if pitch(n, ns) == "E4" and n.find(lib._q(ns, "chord")) is None)
-assert e4_i >= 15, e4_i
-# 동시 시작 = 화음 리더 A4(#15) 시각과 E4(#17) 일치
-assert starts[15] == starts[e4_i], (starts.get(15), starts.get(e4_i))
-# PL(staff 2) 오염 없음
-pl = [(i, lib._note_voice_staff(n, ns)) for i, n in enumerate(notes) if lib._note_voice_staff(n, ns)[1] == "2"]
-assert pl and all(st == "2" for _, (_, st) in pl), pl[:3]
-assert all(v in ("5", "6") for _, (v, _) in pl), pl
+e5 = notes2[16]
+e4 = notes2[17]
+left_x = e5.get("default-x")
+assert e4.get("default-x") == left_x, (left_x, e4.get("default-x"))
+starts = dict(lib._staff_timed_leader_starts(m, ns, "1"))
+assert starts[15] == starts[17], (starts.get(15), starts.get(17))
+pl = [lib._note_voice_staff(n, ns) for n in notes2 if lib._note_voice_staff(n, ns)[1] == "2"]
+assert pl and all(st == "2" for _, st in pl)
 print("6cbf m16 E5+E4 link ok")

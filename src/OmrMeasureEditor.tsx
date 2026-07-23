@@ -866,6 +866,22 @@ function noteDirectionLabel(dir: NoteDirectionInfo | null | undefined): string {
   return `txt:${dir.directionValue}`;
 }
 
+/** 편집기 상단 — MXL에서 불러온 음높이 요약(쉼표 제외, 화음은 한 번만). */
+export function formatMeasurePitchSummary(notes: MeasureNoteEl[]): string {
+  const out: string[] = [];
+  for (const el of notes) {
+    if (el.kind === 'rest') continue;
+    if (el.chord) continue;
+    const label =
+      el.pitch ??
+      (el.displayStep && el.displayOctave != null
+        ? formatPitchLabel(el.displayStep, Number(el.displayOctave), el.pitchAlter ?? 0)
+        : null);
+    if (label) out.push(label);
+  }
+  return out.length ? out.join(', ') : '(음표 없음 — 쉼표만 있거나 비어 있음)';
+}
+
 function elementTitle(
   el: MeasureElement,
   _noteEls: MeasureNoteEl[],
@@ -984,6 +1000,8 @@ export function OmrMeasureEditor({
     return notes.filter((el) => (el.staff ?? 1) === editStaffWithinPart);
   }, [elements, editStaffWithinPart]);
 
+  const pitchSummary = useMemo(() => formatMeasurePitchSummary(displayElements), [displayElements]);
+
   const noteEls = useMemo(
     () => elements.filter((e): e is MeasureNoteEl => e.elementKind === 'note'),
     [elements],
@@ -1034,6 +1052,16 @@ export function OmrMeasureEditor({
       <p className="omr-measure-editor-hint">
         요소를 고친 뒤 아래 <strong>「MXL에 반영·미리보기」</strong>를 눌러 오른쪽 MusicXML에서 결과를 확인하세요. 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset} − 1.
       </p>
+      {snapshot && !loading ? (
+        <p className="omr-measure-pitch-summary">
+          <strong>MXL {measureMxl}에서 불러온 음</strong>
+          {staffLabel ? ` (${staffLabel})` : ''}: {pitchSummary}
+          <span className="omr-measure-pitch-summary-note">
+            {' '}
+            — 오른쪽 미리보기 칸과 다르면 OSMD 칸 밀림일 수 있습니다. 편집·보정은 <strong>아래 목록</strong> 기준입니다.
+          </span>
+        </p>
+      ) : null}
       {editStaffWithinPart != null ? (
         <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
           {staffLabel ?? `staff ${editStaffWithinPart}`} 줄만 표시 — 보정은 MusicXML part <code>{partId}</code> staff{' '}

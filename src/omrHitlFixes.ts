@@ -106,6 +106,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   removeBeam: '빔(연결줄) 해제',
   setMeasureTempo: '마디 템포 설정',
   removeMeasureTempo: '마디 템포 삭제',
+  insertEmptyMeasureBefore: '빈 마디 삽입(앞)',
+  insertEmptyMeasureAfter: '빈 마디 삽입(뒤)',
 };
 
 export function fixDedupeKey(fix: OmrHitlFix): string {
@@ -187,6 +189,9 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   if (fix.kind === 'setMeasureTempo' || fix.kind === 'removeMeasureTempo') {
     if (fix.tempoBpm != null) parts.push(`${fix.tempoBpm} BPM`);
     if (fix.beatUnit) parts.push(fix.beatUnit);
+  }
+  if (fix.kind === 'insertEmptyMeasureBefore' || fix.kind === 'insertEmptyMeasureAfter') {
+    parts.push(fix.kind === 'insertEmptyMeasureBefore' ? '앞' : '뒤');
   }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);

@@ -1034,6 +1034,31 @@ export function OmrMeasureEditor({
       <p className="omr-measure-editor-hint">
         요소를 고친 뒤 아래 <strong>「MXL에 반영·미리보기」</strong>를 눌러 오른쪽 MusicXML에서 결과를 확인하세요. 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset} − 1.
       </p>
+      <div className="omr-measure-insert-row">
+        <strong>빈 마디 삽입</strong>
+        <span className="omr-measure-editor-hint" style={{ margin: '0 0 0 6px' }}>
+          OMR이 마디를 통째로 빠뜨리거나 다음 마디 내용이 당겨진 경우 — <strong>모든 파트</strong>에 동시에 빈 마디(온쉼)를 넣고 이후 MXL 번호를 밀어 넣습니다.
+        </span>
+        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <button
+            type="button"
+            className="btn-muted"
+            onClick={() => pushFix({ kind: 'insertEmptyMeasureBefore' })}
+          >
+            MXL {measureMxl} <strong>앞</strong>에 빈 마디
+          </button>
+          <button
+            type="button"
+            className="btn-muted"
+            onClick={() => pushFix({ kind: 'insertEmptyMeasureAfter' })}
+          >
+            MXL {measureMxl} <strong>뒤</strong>에 빈 마디
+          </button>
+        </div>
+        <p className="omr-measure-editor-hint" style={{ margin: '6px 0 0', fontSize: '0.84rem' }}>
+          예: 26마디에 27마디 내용이 들어와 있으면 「26 <strong>앞</strong>에 빈 마디」→ 반영 후 새 26마디에 음표를 추가하세요.
+        </p>
+      </div>
       {editStaffWithinPart != null ? (
         <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
           {staffLabel ?? `staff ${editStaffWithinPart}`} 줄만 표시 — 보정은 MusicXML part <code>{partId}</code> staff{' '}

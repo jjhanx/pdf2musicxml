@@ -1363,6 +1363,158 @@ def _measure_staves_count(measure: ET.Element, ns: str) -> int:
     return max_s
 
 
+def _part_staves_count(part: ET.Element, ns: str) -> int:
+    max_s = 1
+    for measure in part.findall(_q(ns, "measure")):
+        max_s = max(max_s, _measure_staves_count(measure, ns))
+    return max_s
+
+
+def _parse_measure_number(measure_mxl: str) -> int | None:
+    s = str(measure_mxl or "").strip()
+    if not s.lstrip("-").isdigit():
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
+def _measure_list_index(part: ET.Element, ns: str, measure_mxl: str) -> int:
+    target = str(measure_mxl).strip()
+    for i, measure in enumerate(part.findall(_q(ns, "measure"))):
+        if measure.get("number") == target:
+            return i
+    return -1
+
+
+def _shift_measure_numbers(root: ET.Element, ns: str, threshold: int, delta: int, *, inclusive: bool) -> None:
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            num = _parse_measure_number(measure.get("number") or "")
+            if num is None:
+                continue
+            if inclusive:
+                if num >= threshold:
+                    measure.set("number", str(num + delta))
+            elif num > threshold:
+                measure.set("number", str(num + delta))
+
+
+def _build_whole_measure_rest_note(
+    ns: str,
+    *,
+    measure_len: int,
+    staff_n: int,
+    voice: str,
+) -> ET.Element:
+    note = ET.Element(_q(ns, "note"))
+    rest_el = ET.SubElement(note, _q(ns, "rest"))
+    rest_el.set("measure", "yes")
+    ET.SubElement(note, _q(ns, "duration")).text = str(measure_len)
+    ET.SubElement(note, _q(ns, "voice")).text = voice
+    ET.SubElement(note, _q(ns, "type")).text = "whole"
+    if staff_n > 1:
+        ET.SubElement(note, _q(ns, "staff")).text = str(staff_n)
+    return note
+
+
+def _build_empty_measure_element(
+    ns: str,
+    number: str,
+    *,
+    divisions: int,
+    beats: int,
+    beat_type: int,
+    staves_count: int,
+) -> ET.Element:
+    measure = ET.Element(_q(ns, "measure"))
+    measure.set("number", number)
+    measure_len = _measure_length_units(divisions, beats, beat_type)
+    if staves_count <= 1:
+        measure.append(
+            _build_whole_measure_rest_note(ns, measure_len=measure_len, staff_n=1, voice="1")
+        )
+        return measure
+    for staff_n in range(1, staves_count + 1):
+        voice = "1" if staff_n == 1 else "5"
+        if staff_n > 1:
+            backup = ET.SubElement(measure, _q(ns, "backup"))
+            ET.SubElement(backup, _q(ns, "duration")).text = str(measure_len)
+        measure.append(
+            _build_whole_measure_rest_note(
+                ns, measure_len=measure_len, staff_n=staff_n, voice=voice
+            )
+        )
+    return measure
+
+
+def _insert_empty_measure(root: ET.Element, ns: str, anchor_mxl: str, position: str) -> bool:
+    """모든 `<part>`에 동일 위치로 빈 마디(온쉼)를 삽입하고 이후 `measure@number`를 밀어 넣는다."""
+    anchor_num = _parse_measure_number(anchor_mxl)
+    if anchor_num is None:
+        return False
+    pos = (position or "").strip().lower()
+    if pos not in ("before", "after"):
+        return False
+
+    parts = root.findall(_q(ns, "part"))
+    if not parts:
+        return False
+
+    ref_part = parts[0]
+    insert_idx = _measure_list_index(ref_part, ns, str(anchor_num))
+    if insert_idx < 0:
+        return False
+
+    for part in parts[1:]:
+        if _measure_list_index(part, ns, str(anchor_num)) != insert_idx:
+            return False
+
+    if pos == "before":
+        _shift_measure_numbers(root, ns, anchor_num, 1, inclusive=True)
+        new_number = str(anchor_num)
+    else:
+        _shift_measure_numbers(root, ns, anchor_num, 1, inclusive=False)
+        insert_idx += 1
+        new_number = str(anchor_num + 1)
+
+    for part in parts:
+        ref_measure = find_measure(part, ns, str(anchor_num))
+        if ref_measure is None:
+            measures = part.findall(_q(ns, "measure"))
+            ref_measure = measures[min(insert_idx, len(measures) - 1)] if measures else None
+        if ref_measure is None:
+            return False
+        divisions, beats, beat_type = _effective_divisions_and_time(part, ns, ref_measure)
+        staves_count = _part_staves_count(part, ns)
+        new_measure = _build_empty_measure_element(
+            ns,
+            new_number,
+            divisions=divisions,
+            beats=beats,
+            beat_type=beat_type,
+            staves_count=staves_count,
+        )
+        part.insert(insert_idx, new_measure)
+    return True
+
+
+def _bump_fix_measure_numbers(fix: dict[str, Any], anchor: int, position: str, delta: int = 1) -> None:
+    for field in ("measureMxl", "toMeasureMxl", "fromMeasureMxl"):
+        val = fix.get(field)
+        if val is None or val == "":
+            continue
+        num = _parse_measure_number(str(val))
+        if num is None:
+            continue
+        if position == "before":
+            if num >= anchor:
+                fix[field] = str(num + delta)
+        elif num > anchor:
+            fix[field] = str(num + delta)
+
+
 def _first_note_on_staff(measure: ET.Element, ns: str, staff_n: int) -> ET.Element | None:
     for child in measure:
         if _local(child) == "note" and (_note_staff_number(child, ns) or 1) == staff_n:
@@ -2917,6 +3069,11 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
     if kind in ("setMeasureTempo", "removeMeasureTempo"):
         return _apply_measure_tempo_fix(root, ns, fix)
+
+    if kind == "insertEmptyMeasureBefore":
+        return _insert_empty_measure(root, ns, measure_mxl, "before")
+    if kind == "insertEmptyMeasureAfter":
+        return _insert_empty_measure(root, ns, measure_mxl, "after")
 
     part = find_part(root, ns, part_id)
     if part is None:
@@ -4843,8 +5000,28 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "applyTriplet",
         "removeTriplet",
     }
+    measure_structure_kinds = {"insertEmptyMeasureBefore", "insertEmptyMeasureAfter"}
+    pending = list(fixes)
+    structure_fixes = [f for f in pending if f.get("kind") in measure_structure_kinds]
+    other_fixes = [f for f in pending if f.get("kind") not in measure_structure_kinds]
     deferred: list[dict[str, Any]] = []
-    for fix in fixes:
+
+    for fix in structure_fixes:
+        anchor = _parse_measure_number(str(fix.get("measureMxl") or ""))
+        position = "before" if fix.get("kind") == "insertEmptyMeasureBefore" else "after"
+        if apply_fix(root, ns, fix):
+            stats["applied"] += 1
+            if anchor is not None:
+                for other in other_fixes:
+                    _bump_fix_measure_numbers(other, anchor, position)
+                for other in structure_fixes:
+                    if other is fix:
+                        continue
+                    _bump_fix_measure_numbers(other, anchor, position)
+        else:
+            stats["skipped"] += 1
+
+    for fix in other_fixes:
         part_id = str(fix.get("partId") or "").strip()
         measure_mxl = str(fix.get("measureMxl") or "").strip()
         if part_id and measure_mxl:

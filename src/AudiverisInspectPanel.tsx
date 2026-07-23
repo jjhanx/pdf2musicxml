@@ -587,11 +587,13 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   flattenNonOverlappingStaffVoicesForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
-    const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
-    if (!staffEl?.textContent?.trim()) continue;
-    const staff = parseInt(staffEl.textContent.trim(), 10);
-    if (Number.isFinite(staff) && staff !== staffN) child.remove();
-    else forceStaffTagOnDirectionToOne(child);
+    const anchor = anchorNoteForDirection(measure, child);
+    if (!anchor || noteStaffN(anchor) !== staffN) {
+      child.remove();
+      continue;
+    }
+    ensureDirectionBeforeAnchor(measure, child, anchor);
+    forceStaffTagOnDirectionToOne(child);
   }
 }
 
@@ -877,6 +879,15 @@ function buildDynamicsDirectionElement(
   dtype.appendChild(dyn);
   direction.appendChild(dtype);
   attachVoiceFromNote(direction, note);
+  const staffN = noteStaffN(note);
+  if (staffN > 0) {
+    let staffEl = direction.querySelector(':scope > staff, :scope > *|staff');
+    if (!staffEl) {
+      staffEl = note.ownerDocument!.createElementNS(ns || null, ns ? 'staff' : 'staff');
+      direction.appendChild(staffEl);
+    }
+    staffEl.textContent = String(staffN);
+  }
   copyLayoutFromAnchor(direction, note);
   return direction;
 }
@@ -1560,8 +1571,6 @@ export function buildOsmdPreviewXml(
   if (!verbatim) {
     xml = migrateDirectionsToNotes(xml);
   }
-  /** HITL `addNoteDirection`(dynamics)는 MXL에 `<notations><dynamics>`로 저장 — OSMD는 이를 거의 그리지 않음 */
-  xml = promoteNoteDynamicsForOsmdPreview(xml);
   if (!filter) {
     xml = splitGrandStaffPartsForFullScoreOsmd(xml, scoreParts, { verbatim });
   } else {
@@ -1571,6 +1580,8 @@ export function buildOsmdPreviewXml(
       xml = setPartDisplayName(xml, filter.partId, filter.label);
     }
   }
+  /** 셈여림 승격은 PR/PL·staff 분리 **후** — 분리 전이면 direction이 양쪽 줄에 복제되어 다음 마디 PR에 mf가 붙음 */
+  xml = promoteNoteDynamicsForOsmdPreview(xml);
   xml = repairTimelineForOsmdPreview(xml);
   xml = repairUnderfullMeasuresForOsmdPreview(xml);
   return xml;

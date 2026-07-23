@@ -1539,6 +1539,9 @@ function NoteDirectionEditor({
           <button type="button" className="omr-hitl-fix-btn" onClick={() => onFix({ kind: 'clearNoteDirection', noteIndex })}>
             전체 지우기
           </button>
+          <span className="omr-measure-editor-hint" style={{ fontSize: '0.8rem' }}>
+            「삭제」= 표시된 항목 하나만 · 「전체 지우기」= 이 음표의 셈여림·텍스트 direction 전부
+          </span>
         </div>
       ) : null}
       <label className="omr-measure-inline-field">

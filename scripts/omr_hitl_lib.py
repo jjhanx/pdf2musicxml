@@ -2277,37 +2277,42 @@ def _sync_all_chord_groups(notes: list[ET.Element], ns: str) -> bool:
 
 
 def _compact_default_x_by_staff(measure: ET.Element, ns: str) -> bool:
-    """staff 단일 타임라인으로 default-x 재배치 — 다중 voice가 같은 x에 겹치는 문제 방지."""
+    """voice timeline 시작이 같은 음은 같은 default-x — 동시 시작(다른 박자·줄기) 정렬."""
     notes = list_note_elements(measure, ns)
-    leaders_by_staff: dict[str, list[int]] = {}
-    for i, note in enumerate(notes):
-        if _is_grace_or_cue(note, ns) or note.find(_q(ns, "chord")) is not None:
-            continue
-        _voice, staff = _note_voice_staff(note, ns)
-        leaders_by_staff.setdefault(staff, []).append(i)
+    divisions = 1
+    beats = 4
+    beat_type = 4
+    for attr in measure.findall(_q(ns, "attributes")):
+        div_el = attr.find(_q(ns, "divisions"))
+        if div_el is not None and div_el.text and div_el.text.strip().isdigit():
+            divisions = max(1, int(div_el.text.strip()))
+        time_el = attr.find(_q(ns, "time"))
+        if time_el is not None:
+            b_el = time_el.find(_q(ns, "beats"))
+            bt_el = time_el.find(_q(ns, "beat-type"))
+            try:
+                if b_el is not None and b_el.text and b_el.text.strip():
+                    beats = max(1, int(b_el.text.strip()))
+                if bt_el is not None and bt_el.text and bt_el.text.strip():
+                    beat_type = max(1, int(bt_el.text.strip()))
+            except ValueError:
+                pass
+    measure_len = max(1, _measure_length_units(divisions, beats, beat_type))
     changed = False
     base_x = 32.0
     span = 400.0
-    for _staff, leader_indices in leaders_by_staff.items():
-        ordered = sorted(
-            leader_indices,
-            key=lambda li: (
-                _parse_default_x(notes[li]) if _parse_default_x(notes[li]) is not None else 1_000_000.0,
-                li,
-            ),
-        )
-        total = sum(_note_duration(notes[i], ns) for i in ordered)
-        cursor = 0.0
-        for li in ordered:
-            dur = _note_duration(notes[li], ns)
-            x = base_x + (cursor / total * span if total > 0 else 0.0)
-            group = [notes[li], *[notes[j] for j in _chord_follower_indices(notes, ns, li)]]
+    for staff in ("1", "2"):
+        timed = _staff_timed_leader_starts(measure, ns, staff)
+        if not timed:
+            continue
+        for ni, start in timed:
+            x = base_x + (start / measure_len * span)
             new_x = f"{x:.2f}"
+            group = [notes[ni], *[notes[j] for j in _chord_follower_indices(notes, ns, ni)]]
             for note in group:
                 if note.get("default-x") != new_x:
                     note.set("default-x", new_x)
                     changed = True
-            cursor += dur
     return changed
 
 
@@ -2366,6 +2371,16 @@ def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: 
     voices = {v for _, v, _, _ in leaders}
     if len(voices) <= 1:
         return False
+    intervals_by_voice: dict[str, list[tuple[int, int]]] = {}
+    for _i, voice, start, end in leaders:
+        intervals_by_voice.setdefault(voice, []).append((start, end))
+    voice_list = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)
+    for a in range(len(voice_list)):
+        for b in range(a + 1, len(voice_list)):
+            for sa, ea in intervals_by_voice.get(voice_list[a], []):
+                for sb, eb in intervals_by_voice.get(voice_list[b], []):
+                    if max(sa, sb) < min(ea, eb):
+                        return False
     leader_xs = [_parse_default_x(notes[i]) for i in leader_indices]
     distinct_x = {round(x, 0) for x in leader_xs if x is not None}
     if len(distinct_x) >= len(voices):
@@ -2380,16 +2395,6 @@ def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: 
             xb = _parse_default_x(b) or 0.0
             if abs(xa - xb) <= _SAME_X_TOLERANCE:
                 return _merge_staff_voices_to_primary(measure, ns, staff)
-    intervals_by_voice: dict[str, list[tuple[int, int]]] = {}
-    for _i, voice, start, end in leaders:
-        intervals_by_voice.setdefault(voice, []).append((start, end))
-    voice_list = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)
-    for a in range(len(voice_list)):
-        for b in range(a + 1, len(voice_list)):
-            for sa, ea in intervals_by_voice.get(voice_list[a], []):
-                for sb, eb in intervals_by_voice.get(voice_list[b], []):
-                    if max(sa, sb) < min(ea, eb):
-                        return False
     return _merge_staff_voices_to_primary(measure, ns, staff)
 
 
@@ -3482,6 +3487,33 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             staff = "1"
         return _repair_parallel_onsets_on_staff(measure, ns, str(staff))
 
+    if kind == "linkParallelOnsets":
+        try:
+            staff = str(int(fix.get("staff", 1)))
+        except (TypeError, ValueError):
+            staff = "1"
+        raw_indices = fix.get("parallelNoteIndices")
+        indices: list[int] = []
+        if isinstance(raw_indices, list):
+            for item in raw_indices:
+                try:
+                    indices.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+        elif raw_indices is not None:
+            try:
+                indices.append(int(raw_indices))
+            except (TypeError, ValueError):
+                pass
+        if len(indices) < 2:
+            detail = str(fix.get("detail") or "").strip()
+            if detail:
+                for part in detail.split(","):
+                    part = part.strip().lstrip("#")
+                    if part.isdigit():
+                        indices.append(int(part))
+        return _link_parallel_onsets_by_indices(measure, ns, staff, indices)
+
     if kind == "addArticulation":
         try:
             idx = int(fix.get("noteIndex"))
@@ -4275,6 +4307,146 @@ def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
 
 
 _SAME_X_TOLERANCE = 2.0
+_PARALLEL_STEM_X_TOLERANCE = 72.0
+
+
+def _note_stem_direction(note: ET.Element, ns: str) -> str:
+    stem_el = note.find(_q(ns, "stem"))
+    if stem_el is not None and stem_el.text:
+        return stem_el.text.strip().lower()
+    return ""
+
+
+def _parallel_cluster_x_tolerance(grps: list[list[ET.Element]], ns: str) -> float:
+    stems = {_note_stem_direction(g[0], ns) for g in grps if g}
+    stems.discard("")
+    if len(stems) > 1:
+        return _PARALLEL_STEM_X_TOLERANCE
+    return _SAME_X_TOLERANCE
+
+
+def _staff_timed_leader_starts(
+    measure: ET.Element, ns: str, staff: str
+) -> list[tuple[int, int]]:
+    """(note `<note>` index, voice timeline start divisions) for chord leaders on staff."""
+    notes = list_note_elements(measure, ns)
+    voice_cursor: dict[str, int] = {}
+    last_note_voice = "1"
+    out: list[tuple[int, int]] = []
+    for i, el in enumerate(measure):
+        loc = _local(el)
+        if loc == "backup":
+            v = _timeline_voice(el, last_note_voice)
+            dur_el = el.find(_q(ns, "duration"))
+            dur = int(dur_el.text.strip()) if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit() else 0
+            voice_cursor[v] = max(0, voice_cursor.get(v, 0) - dur)
+        elif loc == "forward":
+            v = _timeline_voice(el, last_note_voice)
+            dur_el = el.find(_q(ns, "duration"))
+            dur = int(dur_el.text.strip()) if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit() else 0
+            voice_cursor[v] = voice_cursor.get(v, 0) + dur
+        elif loc == "note":
+            if el.find(_q(ns, "chord")) is not None:
+                continue
+            voice, st = _note_voice_staff(el, ns)
+            if st != staff or _is_grace_or_cue(el, ns):
+                continue
+            last_note_voice = voice
+            try:
+                ni = notes.index(el)
+            except ValueError:
+                continue
+            start = voice_cursor.get(voice, 0)
+            out.append((ni, start))
+            voice_cursor[voice] = start + _note_duration(el, ns)
+    return out
+
+
+def _timeline_voice(el: ET.Element, fallback: str) -> str:
+    for child in el:
+        if _local(child) == "voice" and child.text and child.text.strip():
+            return child.text.strip()
+    return fallback
+
+
+def _apply_parallel_groups_to_staff(
+    measure: ET.Element,
+    ns: str,
+    staff: str,
+    groups: list[list[ET.Element]],
+    notes: list[ET.Element],
+) -> bool:
+    if len(groups) < 2:
+        return False
+    xs = [_parse_default_x(g[0]) for g in groups]
+    finite_xs = [x for x in xs if x is not None]
+    x_val = min(finite_xs) if finite_xs else 32.0
+    durs = [_note_duration(g[0], ns) for g in groups]
+    changed = False
+    if len(set(durs)) == 1:
+        keeper_i = _pick_parallel_keeper_index(groups, notes, ns, staff, x_val)
+        for i, grp in enumerate(groups):
+            if i == keeper_i:
+                for note in grp:
+                    if note.get("default-x") != f"{x_val:.2f}":
+                        note.set("default-x", f"{x_val:.2f}")
+                        changed = True
+                continue
+            for note in grp:
+                if _ensure_chord_tag(note, ns):
+                    changed = True
+                if note.get("default-x") != f"{x_val:.2f}":
+                    note.set("default-x", f"{x_val:.2f}")
+                    changed = True
+        return changed
+    keeper_i = _pick_parallel_keeper_index(groups, notes, ns, staff, x_val)
+    primary_voice = _note_voice_staff(groups[keeper_i][0], ns)[0]
+    used_voices = {_note_voice_staff(g[0], ns)[0] for g in groups}
+    for i, grp in enumerate(groups):
+        for note in grp:
+            if note.get("default-x") != f"{x_val:.2f}":
+                note.set("default-x", f"{x_val:.2f}")
+                changed = True
+        if i == keeper_i:
+            continue
+        new_voice = _allocate_staff_voice(staff, used_voices)
+        used_voices.add(new_voice)
+        for note in grp:
+            cur_v, _ = _note_voice_staff(note, ns)
+            if cur_v != new_voice:
+                _set_note_voice_staff(note, ns, new_voice, staff)
+                changed = True
+    if changed:
+        _rebuild_staff_voice_block(measure, ns, staff, primary_voice)
+    return changed
+
+
+def _link_parallel_onsets_by_indices(
+    measure: ET.Element, ns: str, staff: str, indices: list[int]
+) -> bool:
+    notes = list_note_elements(measure, ns)
+    if len(indices) < 2:
+        return False
+    leader_indices: list[int] = []
+    for idx in indices:
+        try:
+            i = int(idx)
+        except (TypeError, ValueError):
+            return False
+        if i < 0 or i >= len(notes):
+            return False
+        li = _chord_leader_index(notes, ns, i)
+        _voice, st = _note_voice_staff(notes[li], ns)
+        if st != staff:
+            return False
+        if li not in leader_indices:
+            leader_indices.append(li)
+    if len(leader_indices) < 2:
+        return False
+    groups = [
+        [notes[i] for i in _chord_group_note_indices(notes, ns, li)] for li in leader_indices
+    ]
+    return _apply_parallel_groups_to_staff(measure, ns, staff, groups, notes)
 
 
 def _is_grace_or_cue(note: ET.Element, ns: str) -> bool:
@@ -4367,10 +4539,13 @@ def _staff_parallel_onset_needs_repair(measure: ET.Element, ns: str, staff: str)
     for grp in leaders:
         x = _parse_default_x(grp[0])
         x_val = x if x is not None else 1_000_000.0
-        if clusters and abs(x_val - clusters[-1][0]) <= _SAME_X_TOLERANCE:
-            clusters[-1][1].append(grp)
-        else:
-            clusters.append((x_val, [grp]))
+        if clusters:
+            merged = clusters[-1][1] + [grp]
+            tol = _parallel_cluster_x_tolerance(merged, ns)
+            if abs(x_val - clusters[-1][0]) <= tol:
+                clusters[-1][1].append(grp)
+                continue
+        clusters.append((x_val, [grp]))
     for _x, grps in clusters:
         if len(grps) > 1:
             return True
@@ -4446,49 +4621,24 @@ def _repair_parallel_onsets_on_staff(measure: ET.Element, ns: str, staff: str) -
     voices = {_note_voice_staff(n, ns)[0] for n in notes}
     if len(voices) != 1:
         return False
-    primary_voice = next(iter(voices))
     leaders = _chord_groups_in_order(notes, ns)
     clusters: list[tuple[float, list[list[ET.Element]]]] = []
     for grp in leaders:
         x = _parse_default_x(grp[0])
         x_val = x if x is not None else 1_000_000.0
-        if clusters and abs(x_val - clusters[-1][0]) <= _SAME_X_TOLERANCE:
-            clusters[-1][1].append(grp)
-        else:
-            clusters.append((x_val, [grp]))
+        if clusters:
+            merged = clusters[-1][1] + [grp]
+            tol = _parallel_cluster_x_tolerance(merged, ns)
+            if abs(x_val - clusters[-1][0]) <= tol:
+                clusters[-1][1].append(grp)
+                continue
+        clusters.append((x_val, [grp]))
     changed = False
-    used_voices = set(voices)
-    for x_val, grps in clusters:
+    for _x_val, grps in clusters:
         if len(grps) < 2:
             continue
-        doc_order = sorted(grps, key=lambda g: notes.index(g[0]))
-        durs = [_note_duration(g[0], ns) for g in doc_order]
-        if len(set(durs)) > 1:
-            spaced = False
-            for i, grp in enumerate(doc_order):
-                new_x = f"{x_val + i * 48:.2f}"
-                for note in grp:
-                    if note.get("default-x") != new_x:
-                        note.set("default-x", new_x)
-                        spaced = True
-            if spaced:
-                changed = True
-                continue
-        keeper_i = _pick_parallel_keeper_index(grps, notes, ns, staff, x_val)
-        for i, extra in enumerate(grps):
-            if i == keeper_i:
-                continue
-            if _note_duration(grps[keeper_i][0], ns) == _note_duration(extra[0], ns):
-                for note in extra:
-                    changed |= _ensure_chord_tag(note, ns)
-            else:
-                new_voice = _allocate_staff_voice(staff, used_voices)
-                used_voices.add(new_voice)
-                for note in _collect_beam_followers(notes, ns, extra[0]):
-                    _set_note_voice_staff(note, ns, new_voice, staff)
-                changed = True
-    if changed:
-        _rebuild_staff_voice_block(measure, ns, staff, primary_voice)
+        if _apply_parallel_groups_to_staff(measure, ns, staff, grps, notes):
+            changed = True
     return changed
 
 
@@ -4878,6 +5028,8 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
     ]
     indexed.sort(key=lambda t: (t[1], t[2]))
     voices = {_note_voice_staff(g[0], ns)[0] for g, _, _ in indexed}
+    if len(voices) > 1:
+        return False
     primary = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)[0]
     sorted_notes: list[ET.Element] = []
     for grp, _, _ in indexed:

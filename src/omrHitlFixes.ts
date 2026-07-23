@@ -63,6 +63,7 @@ export type OmrHitlFix = {
   toPitch?: string;
   fromStaff?: number;
   toStaff?: number;
+  parallelNoteIndices?: number[];
   source?: string;
   lintCode?: string;
 };
@@ -96,6 +97,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   insertGraceNote: '꾸밈음 추가',
   removeGraceBeforeNote: '앞 꾸밈음 삭제',
   repairParallelOnsets: '동시 시작 voice 복원',
+  linkParallelOnsets: '동시 시작 묶기',
   insertChordMember: '화음 음 추가',
   removeArticulation: '표(스타카토 등) 제거',
   addFermata: '늘임표 추가',
@@ -149,6 +151,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.beamNoteCount ?? '',
     fix.beforeNoteIndex ?? '',
     fix.graceSlash === undefined ? '' : fix.graceSlash ? '1' : '0',
+    fix.parallelNoteIndices?.join(',') ?? '',
     fix.fromPitch ?? '',
     fix.toPitch ?? '',
     fix.fromStaff ?? '',
@@ -192,6 +195,9 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   }
   if (fix.kind === 'insertEmptyMeasureBefore' || fix.kind === 'insertEmptyMeasureAfter') {
     parts.push(fix.kind === 'insertEmptyMeasureBefore' ? '앞' : '뒤');
+  }
+  if (fix.kind === 'linkParallelOnsets' && fix.parallelNoteIndices?.length) {
+    parts.push(`#${fix.parallelNoteIndices.join(',#')}`);
   }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);

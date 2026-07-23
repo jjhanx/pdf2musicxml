@@ -936,6 +936,7 @@ export function OmrMeasureEditor({
   const [fixMsg, setFixMsg] = useState('');
   const [pendingInsertLeader, setPendingInsertLeader] = useState<PendingInsertLeader | null>(null);
   const [repairStaff, setRepairStaff] = useState(editStaffWithinPart ?? 1);
+  const [parallelPick, setParallelPick] = useState<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -973,6 +974,10 @@ export function OmrMeasureEditor({
   useEffect(() => {
     if (editStaffWithinPart != null) setRepairStaff(editStaffWithinPart);
   }, [editStaffWithinPart]);
+
+  useEffect(() => {
+    setParallelPick(new Set());
+  }, [previewRevision, measureMxl, partId]);
 
   useEffect(() => {
     setPendingInsertLeader(null);
@@ -1066,7 +1071,9 @@ export function OmrMeasureEditor({
         </p>
       ) : null}
       <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
-        <strong>동시 시작·박자 다른 음</strong>(화음 아님)이 차례로 그려지면:{' '}
+        <strong>동시 시작·박자·줄기 다른 음</strong> (화음 아님): 아래 목록에서 해당 음에 ☑ 후{' '}
+        <strong>「선택 동시 시작으로 묶기」</strong>
+        — 예: 8분 E5(줄기 위) + 4분 E4(줄기 아래). 자동 정리는{' '}
         {partStaveCount >= 2 && editStaffWithinPart == null ? (
           <label style={{ marginRight: 6 }}>
             줄
@@ -1081,7 +1088,7 @@ export function OmrMeasureEditor({
           </label>
         ) : (
           <span style={{ marginRight: 6 }}>
-            part <code>{partId}</code> staff {repairStaff}
+            staff {repairStaff}
             {staffLabel ? ` (${staffLabel})` : ''}
           </span>
         )}
@@ -1096,12 +1103,42 @@ export function OmrMeasureEditor({
             })
           }
         >
-          동시 시작 voice 복원
+          동시 시작 voice 복원(자동)
         </button>
         <span style={{ marginLeft: 6, color: '#555' }}>
-          → 「MXL에 반영·미리보기」 (전체·PR·PL 필터 모두에서 사용 가능)
+          → 「MXL에 반영·미리보기」
         </span>
       </p>
+      <div className="omr-measure-parallel-pick" style={{ margin: '0.35rem 0 0.75rem', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <button
+          type="button"
+          className="btn-muted"
+          disabled={parallelPick.size < 2}
+          onClick={() => {
+            const picked = [...parallelPick].sort((a, b) => a - b);
+            pushFix({
+              kind: 'linkParallelOnsets',
+              staff: repairStaff,
+              parallelNoteIndices: picked,
+            });
+            setParallelPick(new Set());
+            setFixMsg(`동시 시작 #${picked.join(', #')} 대기 목록 추가`);
+          }}
+        >
+          선택 {parallelPick.size}개 동시 시작으로 묶기
+        </button>
+        <button
+          type="button"
+          className="btn-muted"
+          disabled={parallelPick.size === 0}
+          onClick={() => setParallelPick(new Set())}
+        >
+          선택 해제
+        </button>
+        <span className="omr-measure-editor-hint" style={{ fontSize: '0.82rem', margin: 0 }}>
+          각 음표 ☑ → 묶기 (빔 연결 음은 리더만 선택해도 됨)
+        </span>
+      </div>
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
       {loadErr ? <p className="omr-measure-editor-err">{loadErr}</p> : null}
@@ -1137,6 +1174,23 @@ export function OmrMeasureEditor({
           {displayElements.map((el) => (
             <li key={`note-${el.index}`}>
               <div className="omr-measure-element-title">
+                {el.kind !== 'rest' ? (
+                  <label style={{ marginRight: 8, fontWeight: 400, fontSize: '0.86rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={parallelPick.has(el.index)}
+                      onChange={(e) => {
+                        setParallelPick((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(el.index);
+                          else next.delete(el.index);
+                          return next;
+                        });
+                      }}
+                    />{' '}
+                    동시
+                  </label>
+                ) : null}
                 {elementTitle(el, noteEls, { partId, staffLabel, editStaffWithinPart })}
               </div>
               <MeasureNoteEditor

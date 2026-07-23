@@ -1572,6 +1572,7 @@ export function buildOsmdPreviewXml(
     }
   }
   xml = repairTimelineForOsmdPreview(xml);
+  xml = repairUnderfullMeasuresForOsmdPreview(xml);
   return xml;
 }
 
@@ -1595,6 +1596,7 @@ function sanitizeMusicXmlForOsmd(
     out = repairRestDisplayForOsmdPreview(out);
     out = repairMissingNoteTypesForOsmdPreview(out);
     out = repairTimelineForOsmdPreview(out);
+    out = repairUnderfullMeasuresForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
     if (printedMeasureMarkers?.size) {

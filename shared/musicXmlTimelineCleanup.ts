@@ -46,6 +46,9 @@ export function repairTimelineForOsmdPreview(xml: string): string {
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
   out = capBackupDurationsForOsmdPreview(out);
   out = stripPrintElementsForOsmdPreview(out);
+  out = stripMeasureWidthAttributesForOsmdPreview(out);
+  out = stripDefaultXyForOsmdPreview(out);
+  out = stripChordBeamsForOsmdPreview(out);
   return out;
 }
 

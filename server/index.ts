@@ -659,6 +659,16 @@ function sessionHitlBaselineMxlPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'omr_hitl_baseline.mxl');
 }
 
+/** HITL 세션 `review.mxl` — export·재개·미리보기 canonical 복사본 */
+function sessionReviewMxlPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'review.mxl');
+}
+
+async function mirrorSessionReviewMxl(sessionRoot: string, scorePath: string): Promise<void> {
+  if (!fsSync.existsSync(scorePath)) return;
+  await fs.copyFile(scorePath, sessionReviewMxlPath(sessionRoot));
+}
+
 async function readOmrHitlFixes(sessionRoot: string): Promise<unknown[]> {
   const fixesPath = sessionOmrHitlFixesPath(sessionRoot);
   if (!fsSync.existsSync(fixesPath)) return [];
@@ -852,6 +862,8 @@ async function syncOmrReviewMxl(
   if (chordBeamCleaned > 0) {
     await saveHitlBaseline(sessionRoot, scorePath);
   }
+
+  await mirrorSessionReviewMxl(sessionRoot, scorePath);
 
   const checkpoint = {
     version: 2,
@@ -1449,6 +1461,10 @@ function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
       job.status === 'part_labels_needed') &&
     job.preInjectMxlPaths?.length
   ) {
+    if (job.status === 'omr_staff_review_needed') {
+      const review = sessionReviewMxlPath(job.sessionRoot);
+      if (fsSync.existsSync(review)) return review;
+    }
     const p = job.preInjectMxlPaths[0];
     if (p && fsSync.existsSync(p)) return p;
     return null;
@@ -1855,6 +1871,22 @@ async function importOmrWorkFromExtractDir(
     await fs.copyFile(rawSrc, scorePath);
   } else {
     throw new Error('ZIP에 review.mxl 또는 audiveris_raw.mxl이 없습니다');
+  }
+  /** ZIP의 review.mxl이 예전 score patch 등으로 baseline/raw와 다를 수 있음 — sync 후 canonical review.mxl 갱신 */
+  if (baselineSrc && reviewSrc) {
+    try {
+      const [baseBuf, reviewBuf] = await Promise.all([
+        fs.readFile(baselineSrc),
+        fs.readFile(reviewSrc),
+      ]);
+      if (!baseBuf.equals(reviewBuf)) {
+        console.warn(
+          '[omr-work import] review.mxl ≠ omr_hitl_baseline.mxl — baseline(raw+HITL) 기준으로 동기화합니다',
+        );
+      }
+    } catch {
+      /* optional compare */
+    }
   }
   const fixesAfterImport = await readOmrHitlFixes(sessionRoot);
   let stats: Awaited<ReturnType<typeof syncOmrReviewMxl>>;

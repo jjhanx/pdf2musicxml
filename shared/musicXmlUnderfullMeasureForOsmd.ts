@@ -67,7 +67,33 @@ function readMeasureTiming(measure: Element, inherited: MeasureTiming): MeasureT
   return { divisions, beats, beatType, expected };
 }
 
+function appendForwardAfterVoice(measure: Element, voice: string, duration: number): void {
+  if (duration <= 0) return;
+  const doc = measure.ownerDocument;
+  if (!doc) return;
 
+  let insertAfter: Element | null = null;
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    const vEl = child.querySelector(':scope > voice, :scope > *|voice');
+    const v = (vEl?.textContent ?? '1').trim() || '1';
+    if (v === voice) insertAfter = child;
+  }
+
+  const forward = doc.createElementNS(measure.namespaceURI, 'forward');
+  const dur = doc.createElementNS(measure.namespaceURI, 'duration');
+  dur.textContent = String(duration);
+  forward.appendChild(dur);
+  const voiceEl = doc.createElementNS(measure.namespaceURI, 'voice');
+  voiceEl.textContent = voice;
+  forward.appendChild(voiceEl);
+
+  if (insertAfter) {
+    insertAfter.parentNode?.insertBefore(forward, insertAfter.nextSibling);
+  } else {
+    measure.appendChild(forward);
+  }
+}
 
 function appendForwardAtMeasureEnd(measure: Element, duration: number): void {
   if (duration <= 0) return;
@@ -80,7 +106,27 @@ function appendForwardAtMeasureEnd(measure: Element, duration: number): void {
   measure.appendChild(forward);
 }
 
+function voiceDurationSums(measure: Element): Map<string, number> {
+  const byVoice = new Map<string, number>();
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (child.querySelector(':scope > chord, :scope > *|chord')) continue;
+    if (child.querySelector(':scope > grace, :scope > *|grace')) continue;
+    const vEl = child.querySelector(':scope > voice, :scope > *|voice');
+    const voice = (vEl?.textContent ?? '1').trim() || '1';
+    byVoice.set(voice, (byVoice.get(voice) ?? 0) + readDuration(child));
+  }
+  return byVoice;
+}
 
+function repairUnderfullVoicesInMeasure(measure: Element, expected: number): void {
+  const byVoice = voiceDurationSums(measure);
+  if (!byVoice.size) return;
+  for (const [voice, total] of byVoice) {
+    const gap = expected - total;
+    if (gap > 0) appendForwardAfterVoice(measure, voice, gap);
+  }
+}
 
 /**
  * OSMD/HITL 미리보기 전용 — 마디·성부(voice) 타임라인이 박자보다 짧을 때 끝에 invisible `<forward>`만 추가.
@@ -98,6 +144,7 @@ export function repairUnderfullMeasuresForOsmdPreview(xml: string): string {
         if (xmlLocalName(measure) !== 'measure') continue;
         if (measure.getAttribute('implicit') === 'yes') continue;
         timing = readMeasureTiming(measure, timing);
+        repairUnderfullVoicesInMeasure(measure, timing.expected);
         const end = measureTimelineEndDivisions(measure);
         const gap = timing.expected - end;
         if (gap > 0) appendForwardAtMeasureEnd(measure, gap);

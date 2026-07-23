@@ -759,25 +759,6 @@ async function invalidateInspectScoreCache(sessionRoot: string): Promise<void> {
   if (fsSync.existsSync(fixStamp)) await fs.unlink(fixStamp).catch(() => {});
 }
 
-async function applyScorePatchesInScoreFile(
-  scorePath: string,
-  pythonBin: string,
-): Promise<number> {
-  const script = path.join(__dirname, '..', 'scripts', 'apply_score_patches_mxl.py');
-  if (!fsSync.existsSync(script) || !fsSync.existsSync(scorePath)) return 0;
-  try {
-    const { stdout } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    const parsed = JSON.parse(String(stdout).trim() || '{}') as { score_patches_applied?: number };
-    return parsed.score_patches_applied ?? 0;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`apply_score_patches_mxl failed (${scorePath}): ${msg}`);
-    return 0;
-  }
-}
-
 async function syncOmrReviewMxl(
   sessionRoot: string,
   scorePath: string,
@@ -818,6 +799,16 @@ async function syncOmrReviewMxl(
   let hitlSkipped = 0;
   let pendingCleared = 0;
 
+  let priorCheckpoint: { totalHitlApplied?: number } = {};
+  try {
+    priorCheckpoint = JSON.parse(
+      await fs.readFile(sessionOmrHitlCheckpointPath(sessionRoot), 'utf8'),
+    ) as { totalHitlApplied?: number };
+  } catch {
+    /* first sync */
+  }
+  const totalHitlApplied = priorCheckpoint.totalHitlApplied ?? 0;
+
   if (!hasBaseline && fixes.length > 0) {
     syncMode = 'full';
     if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
@@ -844,15 +835,6 @@ async function syncOmrReviewMxl(
     await writeOmrHitlFixes(sessionRoot, []);
   } else if (hasBaseline) {
     syncMode = 'restore';
-    let priorCheckpoint: { totalHitlApplied?: number } = {};
-    try {
-      priorCheckpoint = JSON.parse(
-        await fs.readFile(sessionOmrHitlCheckpointPath(sessionRoot), 'utf8'),
-      ) as { totalHitlApplied?: number };
-    } catch {
-      /* first restore */
-    }
-    const totalHitlApplied = priorCheckpoint.totalHitlApplied ?? 0;
     if (totalHitlApplied === 0 && fixes.length === 0 && fsSync.existsSync(rawPath)) {
       await fs.copyFile(rawPath, scorePath);
       await saveHitlBaseline(sessionRoot, scorePath);
@@ -867,8 +849,7 @@ async function syncOmrReviewMxl(
   }
 
   const chordBeamCleaned = await cleanupChordBeamsInScoreFile(scorePath, pythonBin);
-  const scorePatchesApplied = await applyScorePatchesInScoreFile(scorePath, pythonBin);
-  if (chordBeamCleaned > 0 || scorePatchesApplied > 0) {
+  if (chordBeamCleaned > 0) {
     await saveHitlBaseline(sessionRoot, scorePath);
   }
 

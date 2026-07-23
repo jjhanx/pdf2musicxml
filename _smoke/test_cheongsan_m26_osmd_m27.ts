@@ -1,6 +1,6 @@
 /**
- * Patched cheongsan — m27 must render for all parts (P5 m26 backup regression).
- * Run: npx tsx _smoke/test_cheongsan_m26_osmd_m27.ts [path/to/score.xml]
+ * Raw Audiveris OMR — m26/m27 must both render (HITL preview pipeline, no score patches).
+ * Run: python _smoke/export_raw_cheongsan.py && npx tsx _smoke/test_cheongsan_m26_osmd_m27.ts
  */
 import { readFileSync } from 'fs';
 import { JSDOM } from 'jsdom';
@@ -191,8 +191,8 @@ function countNotesInMeasure(osmd: import('opensheetmusicdisplay').OpenSheetMusi
 }
 
 async function main() {
-  const xmlPath = process.argv[2] ?? '_smoke/_cheongsan_review.xml';
-  const xml = buildHitlPreview(readFileSync(xmlPath, 'utf8'));
+  const rawPath = process.argv[2] ?? '_smoke/_raw_cheongsan.xml';
+  const xml = buildHitlPreview(readFileSync(rawPath, 'utf8'));
   const { OpenSheetMusicDisplay } = await import('opensheetmusicdisplay');
   const host = document.getElementById('host') as HTMLDivElement;
   const osmd = new OpenSheetMusicDisplay(host, { autoResize: true, backend: 'svg' });
@@ -213,7 +213,7 @@ async function main() {
   const p1m27 = countNotesInMeasure(osmd, 'P1', 27);
   if (p1m26 === p1m27 && p1m26 <= 3) throw new Error('P1 m26/m27 likely shifted');
 
-  console.log('cheongsan m27 osmd ok');
+  console.log('raw omr m27 osmd ok');
 }
 
 void main().catch((e) => {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MXL in-place — omr_score_patches만 적용(HITL raw 유지 + PDF 대조 복원)."""
+"""MXL in-place — omr_score_patches (최종 fix_audiveris_mxl 전용, HITL 미사용)."""
 from __future__ import annotations
 
 import json

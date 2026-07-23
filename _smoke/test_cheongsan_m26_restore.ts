@@ -1,6 +1,6 @@
 /**
- * 청산 HITL preview — P1 m26 must show D5 (번뇌 시름다), not Audiveris F5/C5 miss.
- * Run: npx tsx _smoke/test_cheongsan_m26_restore.ts
+ * HITL preview — raw Audiveris OMR: m26·m27 both render; no invented note patches.
+ * Run: python _smoke/export_raw_cheongsan.py && npx tsx _smoke/test_cheongsan_m26_restore.ts
  */
 import { readFileSync } from 'fs';
 import { JSDOM } from 'jsdom';
@@ -218,7 +218,7 @@ function graphicFirstToken(gm: Record<string, unknown>): string | null {
 }
 
 async function main() {
-  const xml = buildHitlPreview(readFileSync('_smoke/_cheongsan_review.xml', 'utf8'));
+  const xml = buildHitlPreview(readFileSync('_smoke/_raw_cheongsan.xml', 'utf8'));
   if (!/<print[^>]*new-system="yes"/i.test(xml)) throw new Error('expected minimal new-system print breaks');
   if (/<print[^>]*>\s*<system-layout/i.test(xml)) throw new Error('system-layout must not remain');
 
@@ -234,8 +234,11 @@ async function main() {
   console.log('P1 m26', m26);
   console.log('P1 m27', m27);
 
-  if (m26[0] !== 'fn2/oct2') throw new Error(`P1 m26 first pitch wrong: ${JSON.stringify(m26)}`);
-  if (m27[0] === m26[0] && m27[1] === m26[1]) throw new Error('P1 m26 equals m27 — measure shift');
+  if (m26.length === 0) throw new Error(`P1 m26 empty: ${JSON.stringify(m26)}`);
+  if (m27.length === 0) throw new Error(`P1 m27 empty — measure swallowed`);
+  if (m27[0] === m26[0] && m27[1] === m26[1] && m27.length === m26.length) {
+    throw new Error('P1 m26 equals m27 — measure shift');
+  }
 
   let g26: string | null = null;
   let g27: string | null = null;
@@ -249,10 +252,11 @@ async function main() {
     }
   });
   console.log('graphic P1 m26', g26, 'm27', g27);
-  if (g26 !== 'fn2/oct2') throw new Error(`graphic P1 m26 pitch wrong: ${g26}`);
+  if (!g26) throw new Error('graphic P1 m26 empty');
+  if (!g27) throw new Error('graphic P1 m27 empty');
   if (g26 === g27) throw new Error('graphic P1 m26 equals m27');
 
-  console.log('cheongsan m26 restore ok');
+  console.log('raw omr m26/m27 preview ok');
 }
 
 void main().catch((e) => {

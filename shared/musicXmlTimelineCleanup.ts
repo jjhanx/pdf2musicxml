@@ -44,6 +44,7 @@ function removeDanglingTimelineInMeasure(measure: Element): void {
 /** OSMD/HITL 미리보기 전용 — dangling timeline + `<print>`·Audiveris 레이아웃 힌트 제거(저장 MXL 불변). */
 export function repairTimelineForOsmdPreview(xml: string): string {
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
+  out = capBackupDurationsForOsmdPreview(out);
   out = stripPrintElementsForOsmdPreview(out);
   out = stripMeasureWidthAttributesForOsmdPreview(out);
   out = stripDefaultXyForOsmdPreview(out);
@@ -253,5 +254,56 @@ export function countDanglingTimelineElements(xml: string): number {
     return n;
   } catch {
     return 0;
+  }
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — `<backup>` 시간이 누적 cursor보다 커서 음수 시간이 생기는 버그 방지.
+ * OMR 오류로 note duration 총합이 부족한 상태에서 전체 마디 길이에 맞춰 `<backup>`을 하면
+ * OSMD에서 마디 렌더링이 통째로 스킵되는 문제(예: 26마디 실종)를 방지합니다.
+ */
+export function capBackupDurationsForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    for (const part of findXmlParts(doc)) {
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        let cursor = 0;
+        for (const child of Array.from(measure.children)) {
+          const tag = xmlLocalName(child);
+          if (tag === 'note') {
+            const isChord = child.querySelector('chord, *|chord') !== null;
+            const durationEl = child.querySelector('duration, *|duration');
+            if (durationEl && !isChord) {
+              const dur = parseInt(durationEl.textContent || '0', 10);
+              if (!isNaN(dur)) cursor += dur;
+            }
+          } else if (tag === 'forward') {
+            const durationEl = child.querySelector('duration, *|duration');
+            if (durationEl) {
+              const dur = parseInt(durationEl.textContent || '0', 10);
+              if (!isNaN(dur)) cursor += dur;
+            }
+          } else if (tag === 'backup') {
+            const durationEl = child.querySelector('duration, *|duration');
+            if (durationEl) {
+              const dur = parseInt(durationEl.textContent || '0', 10);
+              if (!isNaN(dur)) {
+                if (dur > cursor) {
+                  durationEl.textContent = cursor.toString();
+                  cursor = 0;
+                } else {
+                  cursor -= dur;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
   }
 }

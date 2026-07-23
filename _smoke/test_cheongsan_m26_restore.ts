@@ -1,5 +1,5 @@
 /**
- * 청산 HITL preview — P1 m26 must stay F5 in OSMD source (not m27 Bb shift).
+ * 청산 HITL preview — P1 m26 must show D5 (번뇌 시름다), not Audiveris F5/C5 miss.
  * Run: npx tsx _smoke/test_cheongsan_m26_restore.ts
  */
 import { readFileSync } from 'fs';
@@ -234,8 +234,8 @@ async function main() {
   console.log('P1 m26', m26);
   console.log('P1 m27', m27);
 
-  if (m26[0] !== 'fn5/oct2') throw new Error(`P1 m26 first pitch wrong: ${JSON.stringify(m26)}`);
-  if (m27[0] === m26[0]) throw new Error('P1 m26 equals m27 — measure shift');
+  if (m26[0] !== 'fn2/oct2') throw new Error(`P1 m26 first pitch wrong: ${JSON.stringify(m26)}`);
+  if (m27[0] === m26[0] && m27[1] === m26[1]) throw new Error('P1 m26 equals m27 — measure shift');
 
   let g26: string | null = null;
   let g27: string | null = null;
@@ -249,7 +249,7 @@ async function main() {
     }
   });
   console.log('graphic P1 m26', g26, 'm27', g27);
-  if (g26 !== 'fn5/oct2') throw new Error(`graphic P1 m26 pitch wrong: ${g26}`);
+  if (g26 !== 'fn2/oct2') throw new Error(`graphic P1 m26 pitch wrong: ${g26}`);
   if (g26 === g27) throw new Error('graphic P1 m26 equals m27');
 
   console.log('cheongsan m26 restore ok');

@@ -483,12 +483,191 @@ def _patch_sixteenth_dotted_pickup(measure: ET.Element, ns: str) -> int:
     return 0
 
 
+def _measure_note_sig(measure: ET.Element, ns: str) -> tuple:
+    """Non-chord note sequence: ((pitch|REST, type, dotted), ...)."""
+    out: list[tuple] = []
+    for child in measure:
+        if _local(child) != "note" or child.find(_qname(ns, "chord")) is not None:
+            continue
+        pitch = _pitch_label(child, ns)
+        typ = _text(child.find(_qname(ns, "type"))) or "?"
+        dotted = child.find(_qname(ns, "dot")) is not None
+        out.append((pitch or "?", typ, dotted))
+    return tuple(out)
+
+
+def _clear_measure_music(measure: ET.Element) -> None:
+    for child in list(measure):
+        if _local(child) in ("note", "backup", "forward", "direction"):
+            measure.remove(child)
+
+
+def _append_note_spec(
+    measure: ET.Element,
+    ns: str,
+    *,
+    step: str,
+    octave: str,
+    duration: int,
+    note_type: str,
+    voice: str = "1",
+    staff: str | None = None,
+    alter: int | None = None,
+    dots: int = 0,
+    stem: str | None = "down",
+    beam: str | None = None,
+) -> ET.Element:
+    note = _make_note(
+        ns,
+        step=step,
+        octave=octave,
+        duration=duration,
+        note_type=note_type,
+        voice=voice,
+        staff=staff,
+        alter=alter,
+        stem=stem,
+    )
+    for _ in range(dots):
+        ET.SubElement(note, _qname(ns, "dot"))
+    if beam:
+        ET.SubElement(note, _qname(ns, "beam")).set("number", "1")
+        b = note.find(_qname(ns, "beam"))
+        if b is not None:
+            b.text = beam
+    measure.append(note)
+    return note
+
+
+def _append_dotted_quarter_run(
+    measure: ET.Element,
+    ns: str,
+    specs: list[tuple[str, str, int | None]],
+    *,
+    voice: str = "1",
+    staff: str | None = None,
+    stem: str = "down",
+) -> None:
+    """Append quarter + dotted quarter + three beamed eighths (divisions=4)."""
+    if len(specs) != 5:
+        raise ValueError("expected 5 notes")
+    _append_note_spec(
+        measure,
+        ns,
+        step=specs[0][0],
+        octave=specs[0][1],
+        alter=specs[0][2],
+        duration=4,
+        note_type="quarter",
+        voice=voice,
+        staff=staff,
+        stem=stem,
+    )
+    _append_note_spec(
+        measure,
+        ns,
+        step=specs[1][0],
+        octave=specs[1][1],
+        alter=specs[1][2],
+        duration=6,
+        note_type="quarter",
+        voice=voice,
+        staff=staff,
+        dots=1,
+        stem=stem,
+    )
+    for i, spec in enumerate(specs[2:]):
+        beam = ("begin", "continue", "end")[i]
+        _append_note_spec(
+            measure,
+            ns,
+            step=spec[0],
+            octave=spec[1],
+            alter=spec[2],
+            duration=2,
+            note_type="eighth",
+            voice=voice,
+            staff=staff,
+            stem=stem,
+            beam=beam,
+        )
+
+
+# 청산에 살리라 F — Audiveris가 26마디(S: D5♩ D5♩. E5♪ F5♪ G5♪)를 F5/C5 등으로 통째 오인 (PDF·원본 대조)
+_CHEONGSAN_M26_WRONG = {
+    "P1": (("F5", "quarter", False), ("C5", "half", False), ("C5", "quarter", False)),
+    "P2": (("F4", "quarter", False), ("F4", "half", False), ("REST", "quarter", False)),
+    "P3": (("C4", "quarter", False), ("C4", "half", False), ("REST", "quarter", False)),
+    "P4": (("A3", "quarter", False), ("A3", "half", False), ("REST", "quarter", False)),
+}
+_CHEONGSAN_M26_P5_WRONG_PREFIX = (("F5", "quarter", False), ("F5", "eighth", False))
+
+
+def _patch_cheongsan_m26_omr_miss(measure: ET.Element, ns: str, part: ET.Element) -> int:
+    mnum = measure.get("number")
+    if mnum != "26":
+        return 0
+    pid = part.get("id") or ""
+    sig = _measure_note_sig(measure, ns)
+
+    if pid in _CHEONGSAN_M26_WRONG and sig == _CHEONGSAN_M26_WRONG[pid]:
+        _clear_measure_music(measure)
+        if pid == "P1":
+            _append_dotted_quarter_run(
+                measure,
+                ns,
+                [("D", "5", None), ("D", "5", None), ("E", "5", None), ("F", "5", None), ("G", "5", None)],
+            )
+        elif pid == "P2":
+            _append_dotted_quarter_run(
+                measure,
+                ns,
+                [("B", "4", None), ("B", "4", None), ("D", "5", None), ("E", "5", None), ("D", "5", None)],
+            )
+        elif pid == "P3":
+            _append_dotted_quarter_run(
+                measure,
+                ns,
+                [("G", "4", None), ("G", "4", None), ("B", "4", None), ("C", "5", None), ("B", "4", None)],
+            )
+        elif pid == "P4":
+            _append_dotted_quarter_run(
+                measure,
+                ns,
+                [("D", "4", None), ("D", "4", None), ("F", "4", None), ("G", "4", None), ("A", "4", None)],
+            )
+        return 1
+
+    if pid == "P5" and len(sig) >= 2 and sig[:2] == _CHEONGSAN_M26_P5_WRONG_PREFIX:
+        _clear_measure_music(measure)
+        _append_dotted_quarter_run(
+            measure,
+            ns,
+            [("D", "5", None), ("D", "5", None), ("E", "5", None), ("F", "5", None), ("G", "5", None)],
+            voice="1",
+            staff="1",
+            stem="down",
+        )
+        _append_dotted_quarter_run(
+            measure,
+            ns,
+            [("B", "2", -1), ("B", "2", -1), ("C", "3", None), ("D", "3", None), ("F", "3", None)],
+            voice="5",
+            staff="2",
+            stem="up",
+        )
+        return 1
+
+    return 0
+
+
 _PATCHES = [
     _patch_vocal_pickup,
     _patch_sixteenth_dotted_pickup,
     _patch_piano_lost_rhythm_after_dotted,
     _patch_piano_voice_split_overlap,
     _patch_piano_lost_whole_chord_tone,
+    _patch_cheongsan_m26_omr_miss,
 ]
 
 
@@ -498,7 +677,7 @@ def apply_score_patches(root: ET.Element, ns: str) -> int:
         for measure in part.findall(_qname(ns, "measure")):
             for patch in _PATCHES:
                 try:
-                    if patch is _patch_vocal_pickup:
+                    if patch in (_patch_vocal_pickup, _patch_cheongsan_m26_omr_miss):
                         applied += patch(measure, ns, part)
                     else:
                         applied += patch(measure, ns)

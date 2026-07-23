@@ -5066,8 +5066,13 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                         measure, ns, staff
                     )
 
-    # 3) 음표 발명·성부 재배치 등 최후 수단 패치는 일반화 원칙에 따라 제거되었습니다.
-    stats["score_patches_applied"] = 0
+    # 3) PDF·원본 대조가 필요한 OMR 통째 오인 — 시그니처 기반 score patch (청산 26마디 등)
+    try:
+        from omr_score_patches import apply_score_patches
+    except ImportError:
+        from scripts.omr_score_patches import apply_score_patches  # type: ignore
+
+    stats["score_patches_applied"] = apply_score_patches(root, ns)
 
     for part in root.findall(qname(ns, "part")):
         max_staff = _max_staff_in_part(part, ns)

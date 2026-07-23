@@ -4375,6 +4375,8 @@ def _apply_parallel_groups_to_staff(
     staff: str,
     groups: list[list[ET.Element]],
     notes: list[ET.Element],
+    *,
+    keeper_by_doc_index: bool = False,
 ) -> bool:
     if len(groups) < 2:
         return False
@@ -4383,8 +4385,11 @@ def _apply_parallel_groups_to_staff(
     x_val = min(finite_xs) if finite_xs else 32.0
     durs = [_note_duration(g[0], ns) for g in groups]
     changed = False
-    if len(set(durs)) == 1:
+    if keeper_by_doc_index:
+        keeper_i = _pick_parallel_keeper_by_doc_index(groups, notes)
+    else:
         keeper_i = _pick_parallel_keeper_index(groups, notes, ns, staff, x_val)
+    if len(set(durs)) == 1:
         for i, grp in enumerate(groups):
             if i == keeper_i:
                 for note in grp:
@@ -4399,9 +4404,9 @@ def _apply_parallel_groups_to_staff(
                     note.set("default-x", f"{x_val:.2f}")
                     changed = True
         return changed
-    keeper_i = _pick_parallel_keeper_index(groups, notes, ns, staff, x_val)
     primary_voice = _note_voice_staff(groups[keeper_i][0], ns)[0]
     used_voices = {_note_voice_staff(g[0], ns)[0] for g in groups}
+    secondary_voices: dict[int, str] = {}
     for i, grp in enumerate(groups):
         for note in grp:
             if note.get("default-x") != f"{x_val:.2f}":
@@ -4411,13 +4416,29 @@ def _apply_parallel_groups_to_staff(
             continue
         new_voice = _allocate_staff_voice(staff, used_voices)
         used_voices.add(new_voice)
+        secondary_voices[i] = new_voice
         for note in grp:
             cur_v, _ = _note_voice_staff(note, ns)
             if cur_v != new_voice:
                 _set_note_voice_staff(note, ns, new_voice, staff)
                 changed = True
     if changed:
-        _rebuild_staff_voice_block(measure, ns, staff, primary_voice)
+        voice_forward: dict[str, int] = {}
+        if secondary_voices:
+            staff_notes = [
+                n
+                for n in list_note_elements(measure, ns)
+                if _note_voice_staff(n, ns)[1] == staff and not _is_grace_or_cue(n, ns)
+            ]
+            keeper_leader = groups[keeper_i][0]
+            if keeper_leader.find(_q(ns, "chord")) is not None:
+                onset_leader = notes[_chord_leader_index(notes, ns, notes.index(keeper_leader))]
+            else:
+                onset_leader = keeper_leader
+            onset = _note_onset_in_voice_layer(staff_notes, ns, primary_voice, onset_leader)
+            for new_voice in secondary_voices.values():
+                voice_forward[new_voice] = onset
+        _rebuild_staff_voice_block(measure, ns, staff, primary_voice, voice_forward)
     return changed
 
 
@@ -4427,7 +4448,7 @@ def _link_parallel_onsets_by_indices(
     notes = list_note_elements(measure, ns)
     if len(indices) < 2:
         return False
-    leader_indices: list[int] = []
+    selected: list[int] = []
     for idx in indices:
         try:
             i = int(idx)
@@ -4435,18 +4456,18 @@ def _link_parallel_onsets_by_indices(
             return False
         if i < 0 or i >= len(notes):
             return False
-        li = _chord_leader_index(notes, ns, i)
-        _voice, st = _note_voice_staff(notes[li], ns)
+        _voice, st = _note_voice_staff(notes[i], ns)
         if st != staff:
             return False
-        if li not in leader_indices:
-            leader_indices.append(li)
-    if len(leader_indices) < 2:
+        if i not in selected:
+            selected.append(i)
+    if len(selected) < 2:
         return False
-    groups = [
-        [notes[i] for i in _chord_group_note_indices(notes, ns, li)] for li in leader_indices
-    ]
-    return _apply_parallel_groups_to_staff(measure, ns, staff, groups, notes)
+    selected_set = set(selected)
+    groups = [_parallel_link_group_notes(notes, ns, i, selected_set) for i in selected]
+    return _apply_parallel_groups_to_staff(
+        measure, ns, staff, groups, notes, keeper_by_doc_index=True
+    )
 
 
 def _is_grace_or_cue(note: ET.Element, ns: str) -> bool:
@@ -4552,8 +4573,15 @@ def _staff_parallel_onset_needs_repair(measure: ET.Element, ns: str, staff: str)
     return False
 
 
-def _collect_beam_followers(notes: list[ET.Element], ns: str, leader: ET.Element) -> list[ET.Element]:
-    """리더 음표와 `<beam>`으로 이어진 후속 음표(화음 멤버 포함)를 수집."""
+def _collect_beam_followers(
+    notes: list[ET.Element],
+    ns: str,
+    leader: ET.Element,
+    *,
+    staff: str | None = None,
+    stop_at_indices: set[int] | None = None,
+) -> list[ET.Element]:
+    """리더 음표와 `<beam>`으로 이어진 후속 음표(화음 멤버 포함)를 수집 — 같은 staff만."""
     try:
         start = notes.index(leader)
     except ValueError:
@@ -4562,9 +4590,15 @@ def _collect_beam_followers(notes: list[ET.Element], ns: str, leader: ET.Element
     beams = _note_beams(leader, ns)
     if not beams or not any(b in ("begin", "continue", "end") for b in beams):
         return span
+    leader_staff = _note_voice_staff(leader, ns)[1]
+    staff = staff or leader_staff
     j = start + 1
     while j < len(notes):
+        if stop_at_indices and j in stop_at_indices:
+            break
         note = notes[j]
+        if _note_voice_staff(note, ns)[1] != staff:
+            break
         if note.find(_q(ns, "chord")) is not None:
             span.append(note)
             j += 1
@@ -4607,6 +4641,66 @@ def _pick_parallel_keeper_index(
         return (1 - dup, _note_duration(lead, ns))
 
     return max(range(len(grps)), key=score)
+
+
+def _pick_parallel_keeper_by_doc_index(
+    grps: list[list[ET.Element]], notes: list[ET.Element]
+) -> int:
+    def min_doc_index(i: int) -> int:
+        return min(notes.index(note) for note in grps[i])
+
+    return min(range(len(grps)), key=min_doc_index)
+
+
+def _parallel_link_group_notes(
+    notes: list[ET.Element],
+    ns: str,
+    index: int,
+    selected_indices: set[int],
+) -> list[ET.Element]:
+    """사용자가 고른 #index 기준 — 같은 staff·화음·빔만 확장(다른 선택·PL staff 제외)."""
+    note = notes[index]
+    staff = _note_voice_staff(note, ns)[1]
+    indices: set[int] = {index}
+    if note.find(_q(ns, "chord")) is None:
+        for follower_idx in _chord_follower_indices(notes, ns, index):
+            if follower_idx not in selected_indices:
+                indices.add(follower_idx)
+        beam_leader = note
+    else:
+        beam_leader = note
+    other_selected = selected_indices - {index}
+    for follower in _collect_beam_followers(
+        notes,
+        ns,
+        beam_leader,
+        staff=staff,
+        stop_at_indices=other_selected,
+    ):
+        try:
+            follower_idx = notes.index(follower)
+        except ValueError:
+            continue
+        if follower_idx in other_selected:
+            continue
+        indices.add(follower_idx)
+    return [notes[i] for i in sorted(indices)]
+
+
+def _note_onset_in_voice_layer(
+    notes: list[ET.Element], ns: str, voice: str, leader: ET.Element
+) -> int:
+    cursor = 0
+    for note in notes:
+        note_voice, _ = _note_voice_staff(note, ns)
+        if note_voice != voice:
+            continue
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        if note is leader:
+            return cursor
+        cursor += _note_duration(note, ns)
+    return 0
 
 
 def _repair_parallel_onsets_on_staff(measure: ET.Element, ns: str, staff: str) -> bool:
@@ -4660,51 +4754,66 @@ def _find_staff_block_span(measure: ET.Element, ns: str, staff: str) -> tuple[in
     return start, end
 
 
-def _rebuild_staff_voice_block(measure: ET.Element, ns: str, staff: str, primary_voice: str | None = None) -> None:
-    """한 staff의 note·backup·forward 블록을 voice별 default-x 순으로 재구성."""
+def _rebuild_staff_voice_block(
+    measure: ET.Element,
+    ns: str,
+    staff: str,
+    primary_voice: str | None = None,
+    voice_forward: dict[str, int] | None = None,
+) -> None:
+    """한 staff의 note·backup·forward 블록을 voice별 문서 순서로 재구성."""
     start, end = _find_staff_block_span(measure, ns, staff)
     if start is None or end is None:
         return
     children = list(measure)
     block = children[start : end + 1]
-    forwards: list[ET.Element] = []
+    block_note_order = [
+        el
+        for el in block
+        if _local(el) == "note" and _note_voice_staff(el, ns)[1] == staff
+    ]
+    doc_pos = {id(note): idx for idx, note in enumerate(block_note_order)}
     notes_by_voice: dict[str, list[ET.Element]] = {}
     for el in block:
-        loc = _local(el)
-        if loc == "note":
-            voice, st = _note_voice_staff(el, ns)
-            if st != staff:
-                continue
-            notes_by_voice.setdefault(voice, []).append(el)
-        elif loc == "forward":
-            forwards.append(el)
+        if _local(el) != "note":
+            continue
+        voice, st = _note_voice_staff(el, ns)
+        if st != staff:
+            continue
+        notes_by_voice.setdefault(voice, []).append(el)
 
     if not notes_by_voice:
         return
 
-    def voice_sort_key(v: str) -> tuple[int, float, int]:
-        notes = notes_by_voice[v]
-        xs = [_parse_default_x(n) for n in notes if _parse_default_x(n) is not None]
-        min_x = min(xs) if xs else 1_000_000.0
+    def voice_sort_key(v: str) -> tuple[int, int, int]:
+        min_pos = min(doc_pos.get(id(note), 1_000_000) for note in notes_by_voice[v])
         pri = 0 if primary_voice is not None and v == primary_voice else 1
         try:
             vn = int(v)
         except ValueError:
             vn = 999
-        return (pri, min_x, vn)
+        return (pri, min_pos, vn)
 
     voice_order = sorted(notes_by_voice.keys(), key=voice_sort_key)
     rebuilt: list[ET.Element] = []
     for i, voice in enumerate(voice_order):
-        rebuilt.extend(_sort_notes_by_default_x(notes_by_voice[voice], ns))
+        ordered = sorted(
+            notes_by_voice[voice], key=lambda note: doc_pos.get(id(note), 1_000_000)
+        )
+        rebuilt.extend(ordered)
         if i + 1 < len(voice_order):
             backup_el = ET.Element(_q(ns, "backup"))
             ET.SubElement(backup_el, _q(ns, "duration")).text = str(
                 _voice_layer_duration(notes_by_voice[voice], ns)
             )
             rebuilt.append(backup_el)
-            if forwards:
-                rebuilt.append(forwards.pop(0))
+            next_voice = voice_order[i + 1]
+            fwd = (voice_forward or {}).get(next_voice, 0)
+            if fwd > 0:
+                fwd_el = ET.Element(_q(ns, "forward"))
+                ET.SubElement(fwd_el, _q(ns, "duration")).text = str(fwd)
+                ET.SubElement(fwd_el, _q(ns, "voice")).text = next_voice
+                rebuilt.append(fwd_el)
 
     for el in block:
         measure.remove(el)

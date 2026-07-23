@@ -601,6 +601,40 @@ _CHEONGSAN_M26_WRONG = {
     "P4": (("A3", "quarter", False), ("A3", "half", False), ("REST", "quarter", False)),
 }
 _CHEONGSAN_M26_P5_WRONG_PREFIX = (("F5", "quarter", False), ("F5", "eighth", False))
+_CHEONGSAN_M26_P5_PATCHED_PREFIX = (("D5", "quarter", False), ("D5", "quarter", True))
+
+
+def _insert_backup_before_staff(measure: ET.Element, ns: str, staff: str, backup_duration: int) -> bool:
+    """Grand staff: insert backup before first note on `staff` if none precedes it."""
+    children = list(measure)
+    first_staff_idx: int | None = None
+    for i, child in enumerate(children):
+        if _local(child) != "note":
+            continue
+        st = _text(child.find(_qname(ns, "staff"))) or "1"
+        if st == staff:
+            first_staff_idx = i
+            break
+    if first_staff_idx is None:
+        return False
+    for child in children[:first_staff_idx]:
+        if _local(child) == "backup":
+            return False
+    backup = ET.Element(_qname(ns, "backup"))
+    ET.SubElement(backup, _qname(ns, "duration")).text = str(backup_duration)
+    measure.insert(first_staff_idx, backup)
+    return True
+
+
+def _patch_cheongsan_m26_p5_missing_backup(measure: ET.Element, ns: str, part: ET.Element) -> int:
+    if measure.get("number") != "26" or (part.get("id") or "") != "P5":
+        return 0
+    sig = _measure_note_sig(measure, ns)
+    if len(sig) < 4 or sig[:2] != _CHEONGSAN_M26_P5_PATCHED_PREFIX:
+        return 0
+    if any(_local(c) == "backup" for c in measure):
+        return 0
+    return 1 if _insert_backup_before_staff(measure, ns, "2", 16) else 0
 
 
 def _patch_cheongsan_m26_omr_miss(measure: ET.Element, ns: str, part: ET.Element) -> int:
@@ -648,6 +682,9 @@ def _patch_cheongsan_m26_omr_miss(measure: ET.Element, ns: str, part: ET.Element
             staff="1",
             stem="down",
         )
+        backup = ET.Element(_qname(ns, "backup"))
+        ET.SubElement(backup, _qname(ns, "duration")).text = "16"
+        measure.append(backup)
         _append_dotted_quarter_run(
             measure,
             ns,
@@ -668,6 +705,7 @@ _PATCHES = [
     _patch_piano_voice_split_overlap,
     _patch_piano_lost_whole_chord_tone,
     _patch_cheongsan_m26_omr_miss,
+    _patch_cheongsan_m26_p5_missing_backup,
 ]
 
 
@@ -677,7 +715,11 @@ def apply_score_patches(root: ET.Element, ns: str) -> int:
         for measure in part.findall(_qname(ns, "measure")):
             for patch in _PATCHES:
                 try:
-                    if patch in (_patch_vocal_pickup, _patch_cheongsan_m26_omr_miss):
+                    if patch in (
+                        _patch_vocal_pickup,
+                        _patch_cheongsan_m26_omr_miss,
+                        _patch_cheongsan_m26_p5_missing_backup,
+                    ):
                         applied += patch(measure, ns, part)
                     else:
                         applied += patch(measure, ns)

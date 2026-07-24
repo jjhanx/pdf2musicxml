@@ -4452,6 +4452,42 @@ def _leftmost_selected_note_index(
     return min(selected, key=key)
 
 
+def _parallel_anchor_index(
+    notes: list[ET.Element], ns: str, selected: list[int], beam_locked: set[int]
+) -> int:
+    """기준 음: 미선택과 빔으로 이어진 선택음이 있으면 그중 가장 왼쪽 x, 아니면 전체 min x."""
+    if beam_locked:
+        return min(
+            beam_locked,
+            key=lambda i: (
+                _parse_default_x(notes[_chord_leader_index(notes, ns, i)]) or 1_000_000.0,
+                _chord_leader_index(notes, ns, i),
+            ),
+        )
+    return _leftmost_selected_note_index(notes, ns, selected)
+
+
+def _selected_chord_leader_indices(
+    notes: list[ET.Element], ns: str, selected: set[int]
+) -> list[int]:
+    leaders: list[int] = []
+    seen: set[int] = set()
+    for i in sorted(selected):
+        li = _chord_leader_index(notes, ns, i)
+        if li not in seen:
+            seen.add(li)
+            leaders.append(li)
+    return leaders
+
+
+def _set_note_chord_group_voice(
+    notes: list[ET.Element], ns: str, leader_i: int, voice: str, staff: str
+) -> None:
+    _set_note_voice_staff(notes[leader_i], ns, voice, staff)
+    for fi in _chord_follower_indices(notes, ns, leader_i):
+        _set_note_voice_staff(notes[fi], ns, voice, staff)
+
+
 def _parallel_onset_time_for_note_index(
     measure: ET.Element, ns: str, staff: str, notes: list[ET.Element], index: int
 ) -> int:
@@ -4514,13 +4550,18 @@ def _beam_span_note_indices(
             if _note_voice_staff(note, ns)[1] != staff:
                 break
             if note.find(_q(ns, "chord")) is not None:
-                span.add(j)
-                j -= 1
-                continue
+                li = _chord_leader_index(notes, ns, j)
+                if li in span:
+                    span.add(j)
+                    j -= 1
+                    continue
+                break
             beams = _note_beams(note, ns)
             if not beams:
                 break
             span.add(j)
+            for fi in _chord_follower_indices(notes, ns, j):
+                span.add(fi)
             if "begin" in beams:
                 break
             j -= 1
@@ -4533,10 +4574,32 @@ def _selected_beam_locked_indices(
     """선택 음표 중 미선택 음과 `<beam>`으로 이어진 것 — voice 변경 금지."""
     locked: set[int] = set()
     for i in selected:
+        leader_i = _chord_leader_index(notes, ns, i)
+        if not _note_beams(notes[leader_i], ns):
+            continue
         span = _beam_span_note_indices(notes, ns, i, staff)
         if any(j not in selected for j in span):
             locked.update(j for j in span if j in selected)
     return locked
+
+
+def _remove_chord_tag(note: ET.Element, ns: str) -> bool:
+    chord_el = note.find(_q(ns, "chord"))
+    if chord_el is None:
+        return False
+    note.remove(chord_el)
+    return True
+
+
+def _detach_unselected_chord_followers(
+    notes: list[ET.Element], ns: str, leader_i: int, selected: set[int]
+) -> bool:
+    """선택 리더에서 미선택 화음 멤버를 분리 — `<chord/>` 제거."""
+    changed = False
+    for fi in _chord_follower_indices(notes, ns, leader_i):
+        if fi not in selected and _remove_chord_tag(notes[fi], ns):
+            changed = True
+    return changed
 
 
 def _insert_backup_before_note(
@@ -4570,7 +4633,7 @@ def _insert_backup_before_note(
 def _link_parallel_onsets_by_indices(
     measure: ET.Element, ns: str, staff: str, indices: list[int]
 ) -> bool:
-    """선택 #index만 — 가장 왼쪽 연주 시점·default-x로 맞춤. 미선택·빔 partner 유지."""
+    """선택 #index만 — 기준음(빔 anchor 또는 min x)의 default-x·연주 시점으로 맞춤."""
     notes = list_note_elements(measure, ns)
     if len(indices) < 2:
         return False
@@ -4592,13 +4655,11 @@ def _link_parallel_onsets_by_indices(
 
     selected_set = set(selected)
     beam_locked = _selected_beam_locked_indices(notes, ns, staff, selected_set)
-    left_i = _leftmost_selected_note_index(notes, ns, selected)
-    xs = [_parse_default_x(notes[i]) for i in selected]
-    finite_xs = [x for x in xs if x is not None]
-    x_val = min(finite_xs) if finite_xs else 32.0
-    x_str = f"{x_val:.2f}"
-    anchor_t = _parallel_onset_time_for_note_index(measure, ns, staff, notes, left_i)
-    anchor_dur = _note_duration(notes[left_i], ns)
+    anchor_i = _parallel_anchor_index(notes, ns, selected, beam_locked)
+    anchor_leader = _chord_leader_index(notes, ns, anchor_i)
+    anchor_x = _parse_default_x(notes[anchor_leader])
+    x_str = f"{(anchor_x if anchor_x is not None else 32.0):.2f}"
+    anchor_t = _parallel_onset_time_for_note_index(measure, ns, staff, notes, anchor_leader)
     changed = False
 
     for i in selected:
@@ -4609,7 +4670,7 @@ def _link_parallel_onsets_by_indices(
     by_dur: dict[int, list[int]] = {}
     for i in selected:
         by_dur.setdefault(_note_duration(notes[i], ns), []).append(i)
-    for dur, idxs in by_dur.items():
+    for _dur, idxs in by_dur.items():
         if len(idxs) < 2:
             continue
         leader = min(idxs, key=lambda i: (_parse_default_x(notes[i]) or 1_000_000.0, i))
@@ -4621,6 +4682,8 @@ def _link_parallel_onsets_by_indices(
 
     for i in sorted(beam_locked):
         leader_i = _chord_leader_index(notes, ns, i)
+        if leader_i == anchor_leader:
+            continue
         note = notes[leader_i]
         cur_t = _parallel_onset_time_for_note_index(measure, ns, staff, notes, leader_i)
         if cur_t > anchor_t:
@@ -4629,23 +4692,19 @@ def _link_parallel_onsets_by_indices(
                 changed = True
 
     used_voices = {_note_voice_staff(notes[i], ns)[0] for i in selected}
-    for i in selected:
-        if i in beam_locked:
+    for leader_i in _selected_chord_leader_indices(notes, ns, selected_set):
+        if leader_i in beam_locked or leader_i == anchor_leader:
             continue
-        if i == left_i:
-            continue
-        note = notes[i]
-        if note.find(_q(ns, "chord")) is not None:
-            leader_i = _chord_leader_index(notes, ns, i)
-            if leader_i in selected and _note_duration(notes[leader_i], ns) == anchor_dur:
-                continue
-        if _note_duration(note, ns) == anchor_dur:
+        if _detach_unselected_chord_followers(notes, ns, leader_i, selected_set):
+            changed = True
+        note = notes[leader_i]
+        cur_t = _parallel_onset_time_for_note_index(measure, ns, staff, notes, leader_i)
+        if cur_t == anchor_t:
             continue
         new_voice = _allocate_staff_voice(staff, used_voices)
         used_voices.add(new_voice)
-        cur_v, _ = _note_voice_staff(note, ns)
-        if cur_v != new_voice:
-            _set_note_voice_staff(note, ns, new_voice, staff)
+        if _note_voice_staff(note, ns)[0] != new_voice:
+            _set_note_chord_group_voice(notes, ns, leader_i, new_voice, staff)
             changed = True
         if _set_or_insert_forward_before_note(measure, ns, note, new_voice, anchor_t):
             changed = True

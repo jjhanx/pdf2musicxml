@@ -56,6 +56,7 @@ assert after == before, after[:6]
 
 f4, bb, d5, e5, f5 = notes[0], notes[1], notes[2], notes[3], notes[4]
 assert f4.get("default-x") == e5.get("default-x"), (f4.get("default-x"), e5.get("default-x"))
+assert f4.get("default-x") == "118.00", "beam-locked E5 x is anchor; F4/Bb4 pulled right"
 assert bb.find(lib._q(ns2, "chord")) is not None
 assert lib._note_voice_staff(e5, ns2)[0] == lib._note_voice_staff(f5, ns2)[0]
 assert lib._note_beams(e5, ns2) == ["begin"] and lib._note_beams(f5, ns2) == ["end"]

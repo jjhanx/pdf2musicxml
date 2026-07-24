@@ -476,9 +476,13 @@ function noteTypeWeight(note: Element): number {
   return rank[type] ?? noteDurationValue(note);
 }
 
+function noteHasBeamTag(note: Element): boolean {
+  return note.querySelector('beam, *|beam') !== null;
+}
+
 /**
  * OSMD split-staff 미리보기 — `<forward>`로 맞춘 동시 onset(다른 voice)을 **긴 duration leader + chord** 로 합침.
- * 4분 F4 + 8분 E5(빔)처럼 voice column·빔 충돌을 피함(저장 MXL·미리보기 변환만).
+ * **`<beam>`이 있는 음(E5 8분 빔 등)은 합치지 않음** — 4분 leader chord로 8분이 4분·빔 끊김 회귀 방지.
  */
 export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
   const leaders: Array<{ note: Element; start: number; voice: string; dur: number }> = [];
@@ -525,6 +529,7 @@ export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
       entry,
       nodes: noteGroupWithChords(measure, entry.note),
     }));
+    if (packed.some(({ nodes }) => nodes.some(noteHasBeamTag))) continue;
     for (const { entry } of packed) {
       if (entry.note !== leaderNote) removeForwardBeforeNote(measure, entry.note, entry.voice);
     }

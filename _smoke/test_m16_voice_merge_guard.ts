@@ -1,9 +1,8 @@
 /**
- * m17 PR: beamed E5 must NOT merge as chord; types/beams preserved.
- * Run: npx tsx _smoke/test_m17_voice_merge.ts
+ * m16 PR: mergeSameOnsetVoices must NOT chord-merge beamed eighths (E5/F5).
+ * Run: npx tsx _smoke/test_m16_voice_merge_guard.ts
  */
 import fs from 'node:fs';
-import { execSync } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import {
   repairTimelineForOsmdPreview,
@@ -23,7 +22,7 @@ Object.assign(globalThis, {
 
 const local = (el: Element) => el.localName?.toLowerCase() ?? el.tagName.toLowerCase();
 
-function transformM17(measure: Element): void {
+function transformMeasure(measure: Element): void {
   for (const child of [...measure.children]) {
     if (local(child) === 'note') {
       const st = child.querySelector('staff, *|staff')?.textContent?.trim();
@@ -45,37 +44,56 @@ function pitch(n: Element): string {
   const oct = n.querySelector('octave, *|octave')?.textContent ?? '?';
   const alter = n.querySelector('alter, *|alter')?.textContent ?? '';
   const acc = alter === '-1' ? 'b' : '';
-  return `${step}${acc}${oct}`;
+  const ch = n.querySelector('chord, *|chord') ? '*' : '';
+  return `${step}${acc}${oct}${ch}`;
 }
 
 async function main() {
-  if (!fs.existsSync('omr-work-0ea5ea52.zip')) {
+  const zip = 'omr-work-0ea5ea52.zip';
+  if (!fs.existsSync(zip)) {
     console.log('skip');
     return;
   }
-  const raw = execSync('python _smoke/_export_m17_parallel_fix.py', { encoding: 'utf8', maxBuffer: 20e6 });
+  const { execSync } = await import('node:child_process');
+  const { readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const out = join(tmpdir(), '0ea5_review.xml');
+  execSync(`python -c "import io,zipfile;z=zipfile.ZipFile('${zip}');d=z.read('review.mxl');inner=zipfile.ZipFile(io.BytesIO(d));x=[n for n in inner.namelist() if n.endswith('.xml') and 'META' not in n.upper()][0];open(r'${out.replace(/\\/g, '\\\\')}', 'wb').write(inner.read(x))"`, {
+    cwd: process.cwd(),
+    stdio: 'pipe',
+  });
+  const raw = readFileSync(out, 'utf8');
   let xml = repairTimelineForOsmdPreview(raw);
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   const part = [...doc.querySelectorAll('part, *|part')].find((p) => p.getAttribute('id') === 'P5')!;
-  const m17 = [...part.children].find(
-    (c) => local(c as Element) === 'measure' && (c as Element).getAttribute('number') === '17',
+  const m16 = [...part.children].find(
+    (c) => local(c as Element) === 'measure' && (c as Element).getAttribute('number') === '16',
   ) as Element;
-  transformM17(m17);
+  transformMeasure(m16);
 
-  const notes = [...m17.children].filter((c) => local(c) === 'note') as Element[];
-  const e5 = notes.find((n) => pitch(n) === 'E5');
-  const f4 = notes.find((n) => pitch(n) === 'F4');
-  if (!e5 || !f4) throw new Error('missing notes');
+  const e5notes = [...m16.children]
+    .filter((c) => local(c) === 'note')
+    .map((n) => n as Element)
+    .filter((n) => pitch(n).startsWith('E5'));
 
-  if (e5.querySelector('type, *|type')?.textContent !== 'eighth') throw new Error('E5 type must stay eighth');
-  if (e5.querySelector('chord, *|chord') !== null) throw new Error('beamed E5 must not become chord');
-  if (e5.querySelector('beam, *|beam')?.textContent !== 'begin') throw new Error('E5 beam begin missing');
+  for (const n of e5notes) {
+    const typ = n.querySelector('type, *|type')?.textContent;
+    const isChord = n.querySelector('chord, *|chord') !== null;
+    const beam = n.querySelector('beam, *|beam')?.textContent;
+    if (typ !== 'eighth') throw new Error(`E5 must stay eighth, got type=${typ} chord=${isChord}`);
+    if (isChord) throw new Error('beamed E5 must not become chord under quarter leader');
+    if (!beam) throw new Error('E5 beam tag missing');
+  }
 
-  const f5 = notes.find((n) => pitch(n) === 'F5');
+  const f5 = [...m16.children]
+    .filter((c) => local(c) === 'note')
+    .map((n) => n as Element)
+    .find((n) => pitch(n) === 'F5');
   if (f5?.querySelector('type,*|type')?.textContent !== 'eighth') throw new Error('F5 not eighth');
   if (f5?.querySelector('beam,*|beam')?.textContent !== 'end') throw new Error('F5 beam end missing');
 
-  console.log('m17 beam guard ok — merge skipped, eighth+beam preserved');
+  console.log('m16 voice merge guard ok', e5notes.length, 'E5 eighths preserved');
 }
 
 main().catch((e) => {

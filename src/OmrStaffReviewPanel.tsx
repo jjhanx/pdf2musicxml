@@ -747,6 +747,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   zoom={scoreZoom}
                   embeddedInOmrFrame
                   verbatimPreview
+                  collapseParallelVoiceColumns={activeStaffFilter != null}
                   printedMeasureMarkers={printedMeasureMarkers}
                   onMeasureClick={openMeasure}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}

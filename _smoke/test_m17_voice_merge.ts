@@ -63,7 +63,7 @@ async function main() {
   ) as Element;
   transformM17(m17);
 
-  const hints = collectLinkedParallelOnsetHintsFromMeasure(m17, 2, 8);
+  const hints = collectLinkedParallelOnsetHintsFromMeasure('P5', m17, 2, 8);
   if (!hints.length) throw new Error('expected linked parallel hint for m17');
 
   const notes = [...m17.children].filter((c) => local(c) === 'note') as Element[];

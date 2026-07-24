@@ -29,7 +29,7 @@ import {
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
-import { alignLinkedParallelOnsetGraphics, applyLinkedParallelVoiceSpacingForOsmdPreview } from './osmdLinkedParallelAlignFix';
+import { alignLinkedParallelOnsetGraphics } from './osmdLinkedParallelAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
@@ -1676,7 +1676,6 @@ function scheduleOsmdRender(opts: {
   roRef: MutableRefObject<ResizeObserver | null>;
   onAfterRender?: () => void;
   afterOsmdRenderSync?: (host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => void;
-  linkedParallelHintCount?: number;
 }) {
   const {
     host,
@@ -1687,7 +1686,6 @@ function scheduleOsmdRender(opts: {
     roRef,
     onAfterRender,
     afterOsmdRenderSync,
-    linkedParallelHintCount = 0,
   } = opts;
 
   const disconnectRo = () => {
@@ -1700,7 +1698,6 @@ function scheduleOsmdRender(opts: {
     try {
       osmd.zoom = zoom;
       enforceOsmdPreviewMeasureNumberRules(osmd);
-      applyLinkedParallelVoiceSpacingForOsmdPreview(osmd.EngravingRules, linkedParallelHintCount);
       osmd.render();
       afterOsmdRenderSync?.(host, osmd);
       host.querySelector('[data-osmd-warn="width"]')?.remove();
@@ -1914,10 +1911,6 @@ export function OsmdBlock({
         useXMLMeasureNumbers: false,
       } as ConstructorParameters<typeof OpenSheetMusicDisplay>[1]);
       applyOsmdPreviewEngravingRules(osmd.EngravingRules);
-      applyLinkedParallelVoiceSpacingForOsmdPreview(
-        osmd.EngravingRules,
-        linkedParallelHintsRef.current.length,
-      );
       patchOsmdRenderForMeasureNumbers(osmd, host, () => printedMeasureMarkersRef.current);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1943,10 +1936,6 @@ export function OsmdBlock({
       .then(() => {
         if (stale() || !host) return;
         applyOsmdPreviewEngravingRules(osmd.EngravingRules);
-        applyLinkedParallelVoiceSpacingForOsmdPreview(
-          osmd.EngravingRules,
-          linkedParallelHintsRef.current.length,
-        );
         try {
           retargetGraphicalChordSlurBeziers(osmd);
         } catch (e) {
@@ -1967,7 +1956,6 @@ export function OsmdBlock({
             applyLinkedParallelGraphicAlign(h, o);
             finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
           },
-          linkedParallelHintCount: linkedParallelHintsRef.current.length,
         });
       })
       .catch((loadErr: unknown) => {
@@ -2028,7 +2016,6 @@ export function OsmdBlock({
         applyLinkedParallelGraphicAlign(h, o);
         finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
       },
-      linkedParallelHintCount: linkedParallelHintsRef.current.length,
     });
   }, [zoom, afterOsmdRender, applyLinkedParallelGraphicAlign]);
 

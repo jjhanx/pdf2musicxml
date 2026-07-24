@@ -622,6 +622,8 @@ export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
 }
 
 export type LinkedParallelOnsetHint = {
+  /** MusicXML part id (미리보기 XML 기준 — split 시 P5__PR 등) */
+  partId: string;
   measureNumber: number;
   /** voice timeline onset (divisions) */
   onset: number;
@@ -670,6 +672,7 @@ function collectParallelOnsetLeaders(measure: Element): Array<{ note: Element; s
 
 /** linkParallelOnsets 미리보기 — XML 구조·beam·duration 유지, OSMD 그래픽 정렬 힌트만 수집. */
 export function collectLinkedParallelOnsetHintsFromMeasure(
+  partId: string,
   measure: Element,
   divisions: number,
   measureLength: number,
@@ -704,6 +707,7 @@ export function collectLinkedParallelOnsetHintsFromMeasure(
       }
     }
     hints.push({
+      partId,
       measureNumber,
       onset: anchorEntry.start,
       divisions: Math.max(1, divisions),
@@ -723,6 +727,7 @@ export function collectLinkedParallelOnsetHintsFromXml(xml: string): LinkedParal
     if (!doc) return [];
     const hints: LinkedParallelOnsetHint[] = [];
     for (const part of findXmlParts(doc)) {
+      const partId = part.getAttribute('id')?.trim() ?? '';
       let divisions = 4;
       let beats = 4;
       let beatType = 4;
@@ -744,7 +749,7 @@ export function collectLinkedParallelOnsetHintsFromXml(xml: string): LinkedParal
           }
         }
         const measureLength = Math.max(1, Math.round((divisions * beats * 4) / beatType));
-        hints.push(...collectLinkedParallelOnsetHintsFromMeasure(measure, divisions, measureLength));
+        hints.push(...collectLinkedParallelOnsetHintsFromMeasure(partId, measure, divisions, measureLength));
       }
     }
     return hints;

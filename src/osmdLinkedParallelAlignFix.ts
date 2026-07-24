@@ -1,6 +1,6 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import type { LinkedParallelOnsetHint } from '../shared/musicXmlTimelineCleanup';
-import { forEachGraphicalMeasure, measureMxlFromGraphic } from './osmdMeasureClick';
+import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
@@ -110,6 +110,10 @@ function collectNoteTargetsFromGraphic(
 
   forEachGraphicalMeasure(osmd, (gmRaw) => {
     if (measureMxlFromGraphic(gmRaw) !== hint.measureNumber) return;
+    if (hint.partId) {
+      const gmPartId = partIdFromGraphic(gmRaw);
+      if (gmPartId && gmPartId !== hint.partId) return;
+    }
     const gm = asRecord(gmRaw);
     if (!gm) return;
 
@@ -157,8 +161,8 @@ function median(values: number[]): number {
 }
 
 /**
- * linkParallelOnsets — OSMD/VexFlow voice column 간격으로 벌어진 동시 onset notehead x만 맞춤.
- * MusicXML voice·duration·beam은 건드리지 않음. render() 직후 호출.
+ * linkParallelOnsets — 선택된 동시 onset notehead만 anchor x로 SVG translate.
+ * MusicXML·OSMD layout rules(voice spacing 등)는 건드리지 않음. render() 직후 호출.
  */
 export function alignLinkedParallelOnsetGraphics(
   osmd: OpenSheetMusicDisplay,
@@ -197,14 +201,4 @@ export function alignLinkedParallelOnsetGraphics(
       applySvgTranslateX(t.svg, dx);
     }
   }
-}
-
-/** linkParallel 힌트가 있으면 VexFlow voice column 간격을 끔(미리보기 전용). */
-export function applyLinkedParallelVoiceSpacingForOsmdPreview(
-  rules: OpenSheetMusicDisplay['EngravingRules'],
-  hintCount: number,
-): void {
-  if (hintCount <= 0) return;
-  rules.VoiceSpacingMultiplierVexflow = 0;
-  rules.VoiceSpacingAddendVexflow = 0;
 }

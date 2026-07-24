@@ -69,6 +69,7 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
   rules.UseXMLMeasureNumbers = false;
   /** PR/PL 단일 staff — voice column 간격 제거(동시 onset F4·E5). 전체 파트는 마디 폭 붕괴 회귀 */
+  /** true일 때만 VoiceSpacing 0 — 전체 파트 미리보기 마디 폭 붕괴 방지 */
   if (options?.collapseParallelVoiceColumns) {
     rules.VoiceSpacingMultiplierVexflow = 0;
     rules.VoiceSpacingAddendVexflow = 0;
@@ -1791,14 +1792,11 @@ export function OsmdBlock({
   const scrollToMeasureTriggerRef = useRef(scrollToMeasureTrigger);
   const lastHandledScrollTriggerRef = useRef(0);
   const printedMeasureMarkersRef = useRef(printedMeasureMarkers);
-  const collapseParallelVoiceColumnsRef = useRef(
-    collapseParallelVoiceColumns ?? embeddedInOmrFrame ?? false,
-  );
+  const collapseParallelVoiceColumnsRef = useRef(collapseParallelVoiceColumns ?? false);
 
   useEffect(() => {
-    collapseParallelVoiceColumnsRef.current =
-      collapseParallelVoiceColumns ?? embeddedInOmrFrame ?? false;
-  }, [collapseParallelVoiceColumns, embeddedInOmrFrame]);
+    collapseParallelVoiceColumnsRef.current = collapseParallelVoiceColumns ?? false;
+  }, [collapseParallelVoiceColumns]);
 
   useEffect(() => {
     printedMeasureMarkersRef.current = printedMeasureMarkers;

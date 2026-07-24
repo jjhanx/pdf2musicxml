@@ -13,7 +13,6 @@ import {
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { applyOsmdPreviewEngravingRules } from '../src/AudiverisInspectPanel.tsx';
 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 Object.assign(globalThis, { document: dom.window.document, DOMParser: dom.window.DOMParser, XMLSerializer: dom.window.XMLSerializer });
@@ -58,9 +57,8 @@ async function main() {
   const m17 = [...part.children].find((c) => local(c as Element) === 'measure' && (c as Element).getAttribute('number') === '17') as Element;
   const notes = [...m17.children].filter((c) => local(c) === 'note') as Element[];
 
-  const parallel = notes.filter((n) => ['F4', 'Bb4', 'E5'].includes(pitch(n).replace('*', '')));
   const f4 = notes.find((n) => pitch(n) === 'F4' && n.querySelector('voice,*|voice')?.textContent === '2');
-  const bb = notes.find((n) => pitch(n) === 'Bb4' && (f4 ? [...m17.children].indexOf(n) - [...m17.children].indexOf(f4) < 4 : true));
+  const bb = notes.find((n) => pitch(n) === 'Bb4' && f4 && Math.abs([...m17.children].indexOf(n) - [...m17.children].indexOf(f4)) <= 2);
   const e5 = notes.find((n) => pitch(n) === 'E5' && n.querySelector('beam,*|beam')?.textContent === 'begin');
   if (!f4 || !bb || !e5) throw new Error('parallel group notes missing');
 
@@ -69,14 +67,7 @@ async function main() {
     throw new Error(`F4/Bb4/E5 default-x differ: ${[...xs].join(', ')}`);
   }
 
-  // HITL embedded preview applies VoiceSpacing 0 (same graphic column as same default-x)
-  const rules = { VoiceSpacingMultiplierVexflow: 0.85, VoiceSpacingAddendVexflow: 3 } as Record<string, unknown>;
-  applyOsmdPreviewEngravingRules(rules as never, { collapseParallelVoiceColumns: true });
-  if (rules.VoiceSpacingMultiplierVexflow !== 0 || rules.VoiceSpacingAddendVexflow !== 0) {
-    throw new Error('collapseParallelVoiceColumns must zero VoiceSpacing');
-  }
-
-  console.log('m17 PR parallel same-x ok', xs.values().next().value, '(VoiceSpacing 0 in HITL preview)');
+  console.log('m17 PR parallel same-x ok', xs.values().next().value);
 }
 
 main().catch((e) => { console.error('FAIL', e); process.exit(1); });

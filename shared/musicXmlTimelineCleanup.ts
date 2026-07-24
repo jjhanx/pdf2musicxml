@@ -397,6 +397,181 @@ function noteGroupWithChords(measure: Element, leader: Element): Element[] {
   return group;
 }
 
+function ensureChordTag(note: Element): void {
+  if (note.querySelector('chord, *|chord') !== null) return;
+  const doc = note.ownerDocument;
+  if (!doc) return;
+  const ns = note.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+  const chord = ns ? doc.createElementNS(ns, 'chord') : doc.createElement('chord');
+  const pitch = note.querySelector('pitch, *|pitch');
+  if (pitch) note.insertBefore(chord, pitch);
+  else note.insertBefore(chord, note.firstChild);
+}
+
+function setNoteVoice(note: Element, voice: string): void {
+  let voiceEl = note.querySelector(':scope > voice, :scope > *|voice');
+  if (!voiceEl) {
+    const doc = note.ownerDocument!;
+    const ns = note.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+    voiceEl = ns ? doc.createElementNS(ns, 'voice') : doc.createElement('voice');
+    const dur = note.querySelector('duration, *|duration');
+    if (dur?.nextSibling) note.insertBefore(voiceEl, dur.nextSibling);
+    else note.appendChild(voiceEl);
+  }
+  voiceEl.textContent = voice;
+}
+
+function voiceLeaderHadForwardPrefix(measure: Element, leader: Element, voice: string): boolean {
+  let seenForward = false;
+  for (const child of [...measure.children]) {
+    if (child === leader) return seenForward;
+    const tag = xmlLocalName(child);
+    if (tag === 'forward' && timelineVoiceEl(child, '1') === voice) seenForward = true;
+    if (tag === 'note' && noteVoiceNumber(child) === voice && child.querySelector('chord, *|chord') === null) {
+      seenForward = false;
+    }
+  }
+  return false;
+}
+
+function nextNonChordSibling(measure: Element, leader: Element): Element | null {
+  const siblings = [...measure.children];
+  const start = siblings.indexOf(leader);
+  if (start < 0) return null;
+  for (let i = start + 1; i < siblings.length; i += 1) {
+    const el = siblings[i]!;
+    if (xmlLocalName(el) !== 'note') return el;
+    if (el.querySelector('chord, *|chord') === null) return el;
+  }
+  return null;
+}
+
+function removeForwardBeforeNote(measure: Element, note: Element, voice: string): void {
+  const siblings = [...measure.children];
+  const idx = siblings.indexOf(note);
+  if (idx <= 0) return;
+  for (let i = idx - 1; i >= 0; i -= 1) {
+    const el = siblings[i]!;
+    const tag = xmlLocalName(el);
+    if (tag === 'forward' && timelineVoiceEl(el, voice) === voice) {
+      el.remove();
+      return;
+    }
+    if (tag === 'note' || tag === 'backup') break;
+  }
+}
+
+function noteTypeWeight(note: Element): number {
+  const type = note.querySelector('type, *|type')?.textContent?.trim() ?? '';
+  const rank: Record<string, number> = {
+    breve: 8,
+    whole: 7,
+    half: 6,
+    quarter: 5,
+    eighth: 4,
+    '16th': 3,
+    '32nd': 2,
+    '64th': 1,
+  };
+  return rank[type] ?? noteDurationValue(note);
+}
+
+/**
+ * OSMD split-staff 미리보기 — `<forward>`로 맞춘 동시 onset(다른 voice)을 **긴 duration leader + chord** 로 합침.
+ * 4분 F4 + 8분 E5(빔)처럼 voice column·빔 충돌을 피함(저장 MXL·미리보기 변환만).
+ */
+export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
+  const leaders: Array<{ note: Element; start: number; voice: string; dur: number }> = [];
+  const voiceCursor = new Map<string, number>();
+  let lastNoteVoice = '1';
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'backup') {
+      const v = timelineVoiceEl(child, lastNoteVoice);
+      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - timelineDurationEl(child)));
+    } else if (tag === 'forward') {
+      const v = timelineVoiceEl(child, lastNoteVoice);
+      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + timelineDurationEl(child));
+    } else if (tag === 'note') {
+      if (child.querySelector('chord, *|chord') !== null) continue;
+      const voice = noteVoiceNumber(child);
+      lastNoteVoice = voice;
+      const start = voiceCursor.get(voice) ?? 0;
+      leaders.push({ note: child, start, voice, dur: noteDurationValue(child) });
+      voiceCursor.set(voice, start + noteDurationValue(child));
+    }
+  }
+
+  const byStart = new Map<number, Array<{ note: Element; start: number; voice: string; dur: number }>>();
+  for (const entry of leaders) {
+    const list = byStart.get(entry.start) ?? [];
+    list.push(entry);
+    byStart.set(entry.start, list);
+  }
+
+  let changed = false;
+  for (const group of byStart.values()) {
+    const voices = [...new Set(group.map((g) => g.voice))];
+    if (voices.length < 2) continue;
+    if (!group.some((g) => voiceLeaderHadForwardPrefix(measure, g.note, g.voice))) continue;
+
+    const targetVoice = [...voices].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99))[0]!;
+    const leaderEntry = [...group].sort(
+      (a, b) => b.dur - a.dur || noteTypeWeight(b.note) - noteTypeWeight(a.note) || (parseInt(a.voice, 10) || 99) - (parseInt(b.voice, 10) || 99),
+    )[0]!;
+    const leaderNote = leaderEntry.note;
+
+    const packed = group.map((entry) => ({
+      entry,
+      nodes: noteGroupWithChords(measure, entry.note),
+    }));
+    for (const { entry } of packed) {
+      if (entry.note !== leaderNote) removeForwardBeforeNote(measure, entry.note, entry.voice);
+    }
+
+    const mergedNodes = packed.flatMap((p) => p.nodes);
+    const mergedSet = new Set(mergedNodes);
+    const firstIdx = Math.min(...mergedNodes.map((n) => [...measure.children].indexOf(n)).filter((i) => i >= 0));
+    if (firstIdx < 0) continue;
+    let insertRef: Element | null = null;
+    for (let i = firstIdx - 1; i >= 0; i -= 1) {
+      const cand = measure.children[i]!;
+      if (!mergedSet.has(cand)) {
+        insertRef = cand;
+        break;
+      }
+    }
+
+    for (const n of mergedNodes) {
+      if (n.parentNode === measure) measure.removeChild(n);
+    }
+
+    leaderNote.querySelector('chord, *|chord')?.remove();
+    setNoteVoice(leaderNote, targetVoice);
+
+    const chordMembers: Element[] = [];
+    for (const { nodes } of packed) {
+      for (const n of nodes) {
+        if (n === leaderNote) continue;
+        ensureChordTag(n);
+        setNoteVoice(n, targetVoice);
+        chordMembers.push(n);
+      }
+    }
+
+    const insertBefore = insertRef ? insertRef.nextSibling : measure.firstChild;
+    measure.insertBefore(leaderNote, insertBefore);
+    let anchor: Element | null = leaderNote.nextSibling;
+    for (const n of chordMembers) {
+      measure.insertBefore(n, anchor);
+    }
+    changed = true;
+  }
+
+  if (changed) removeDanglingTimelineInMeasure(measure);
+  return changed;
+}
+
 function collectStaffNoteOnsets(measure: Element): Map<Element, number> {
   const out = new Map<Element, number>();
   const voiceCursor = new Map<string, number>();

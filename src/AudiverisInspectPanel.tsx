@@ -14,6 +14,7 @@ import {
   realignMeasureDefaultXFromTimelineForOsmd,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
+  mergeSameOnsetVoicesForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 import {
   drawOsmdMeasureHighlight,
@@ -575,6 +576,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   flattenNonOverlappingStaffVoicesForOsmd(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
+  mergeSameOnsetVoicesForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -601,6 +603,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   flattenNonOverlappingStaffVoicesForOsmd(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
+  mergeSameOnsetVoicesForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;

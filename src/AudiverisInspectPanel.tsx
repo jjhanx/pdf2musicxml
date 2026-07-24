@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 import {
   drawOsmdMeasureHighlight,
   drawOsmdMeasureHover,
@@ -537,37 +538,9 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   }
 }
 
-/** 한 마디를 part 내 특정 staff(1=PR, 2=PL) 단일 줄로 — cross-staff backup만 제거·같은 줄 병렬 voice backup 유지. */
+/** @deprecated use pruneCrossStaffTimelineForOsmdPreview from shared/musicXmlStaffPreview */
 function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
-  for (const child of [...measure.children]) {
-    const tag = xmlLocalName(child);
-    if (tag !== 'backup' && tag !== 'forward') continue;
-    const idx = [...measure.children].indexOf(child);
-    if (idx < 0) continue;
-    let prevStaff: number | null = null;
-    for (let j = idx - 1; j >= 0; j--) {
-      const c = measure.children[j];
-      if (xmlLocalName(c) === 'note') {
-        prevStaff = noteStaffN(c);
-        break;
-      }
-    }
-    let nextStaff: number | null = null;
-    for (let j = idx + 1; j < measure.children.length; j++) {
-      const c = measure.children[j];
-      if (xmlLocalName(c) === 'note') {
-        nextStaff = noteStaffN(c);
-        break;
-      }
-    }
-    if (nextStaff !== staffN) {
-      child.remove();
-      continue;
-    }
-    if ((tag === 'backup' || tag === 'forward') && (prevStaff === null || prevStaff !== staffN)) {
-      child.remove();
-    }
-  }
+  pruneCrossStaffTimelineForOsmdPreview(measure, staffN);
 }
 
 function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number): void {

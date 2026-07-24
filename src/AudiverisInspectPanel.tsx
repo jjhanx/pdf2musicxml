@@ -11,6 +11,10 @@ import {
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 import {
+  realignMeasureDefaultXFromTimelineForOsmd,
+  reorderSingleStaffTimelineByOnsetForOsmdPreview,
+} from '../shared/musicXmlTimelineCleanup';
+import {
   drawOsmdMeasureHighlight,
   drawOsmdMeasureHover,
   hitTestOsmdMeasure,
@@ -493,6 +497,15 @@ function measureMusicalContentInsertIndex(measure: Element): number {
   return measure.children.length;
 }
 
+function measureHasLeadingForward(measure: Element): boolean {
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'forward') return true;
+    if (tag === 'note') return false;
+  }
+  return false;
+}
+
 /**
  * OSMD split 미리보기: backup(voice 없음)+forward(voice 지정) 등 다중 voice를
  * 순차(비겹침) 단일 voice + forward로 평탄화 — PL·PR 박자 정렬 유지.
@@ -502,6 +515,7 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   if (timed.length < 2) return;
   const voices = new Set(timed.map((x) => x.voice));
   if (voices.size < 2) return;
+  if (measureHasLeadingForward(measure)) return;
   if (staffVoicesOverlap(timed)) return;
 
   timed.sort((a, b) => a.time - b.time || Number(a.voice) - Number(b.voice));
@@ -558,6 +572,8 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   pruneCrossStaffTimeline(measure, staffN);
   /** verbatim HITL도 OSMD split part는 voice 타임라인 평탄화 — PL 박자 부족·음수 폭 skip 방지 */
   flattenNonOverlappingStaffVoicesForOsmd(measure);
+  reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
+  realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     const anchor = anchorNoteForDirection(measure, child);
@@ -581,6 +597,8 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   }
   pruneCrossStaffTimeline(measure, staffN);
   flattenNonOverlappingStaffVoicesForOsmd(measure);
+  reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
+  realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     const anchor = anchorNoteForDirection(measure, child);

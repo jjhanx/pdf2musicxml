@@ -378,6 +378,94 @@ function realignMeasureDefaultXFromTimeline(measure: Element): void {
   }
 }
 
+/** 단일 마디 OSMD 미리보기 — voice timeline 시작 시점으로 default-x 재주입. */
+export function realignMeasureDefaultXFromTimelineForOsmd(measure: Element): void {
+  realignMeasureDefaultXFromTimeline(measure);
+}
+
+function noteGroupWithChords(measure: Element, leader: Element): Element[] {
+  const group: Element[] = [leader];
+  const siblings = [...measure.children];
+  const start = siblings.indexOf(leader);
+  if (start < 0) return group;
+  for (let j = start + 1; j < siblings.length; j += 1) {
+    const next = siblings[j]!;
+    if (xmlLocalName(next) !== 'note') break;
+    if (next.querySelector('chord, *|chord') === null) break;
+    group.push(next);
+  }
+  return group;
+}
+
+function collectStaffNoteOnsets(measure: Element): Map<Element, number> {
+  const out = new Map<Element, number>();
+  const voiceCursor = new Map<string, number>();
+  let lastNoteVoice = '1';
+  for (const el of [...measure.children]) {
+    const tag = xmlLocalName(el);
+    if (tag === 'backup') {
+      const v = timelineVoiceEl(el, lastNoteVoice);
+      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - timelineDurationEl(el)));
+    } else if (tag === 'forward') {
+      const v = timelineVoiceEl(el, lastNoteVoice);
+      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + timelineDurationEl(el));
+    } else if (tag === 'note') {
+      if (el.querySelector('chord, *|chord') !== null) continue;
+      const voice = noteVoiceNumber(el);
+      lastNoteVoice = voice;
+      out.set(el, voiceCursor.get(voice) ?? 0);
+      voiceCursor.set(voice, (voiceCursor.get(voice) ?? 0) + noteDurationValue(el));
+    }
+  }
+  return out;
+}
+
+/**
+ * OSMD split-staff 미리보기 — `<forward>` 뒤에 더 이른 onset 음이 있으면
+ * 해당 음(화음 그룹)만 forward 앞으로 이동(빔·저장 MXL 불변).
+ */
+export function reorderSingleStaffTimelineByOnsetForOsmdPreview(measure: Element): boolean {
+  const onsets = collectStaffNoteOnsets(measure);
+  const children = [...measure.children];
+  let changed = false;
+
+  for (let i = 0; i < children.length; i += 1) {
+    const el = children[i]!;
+    if (xmlLocalName(el) !== 'forward') continue;
+
+    let anchorOnset = Number.POSITIVE_INFINITY;
+    for (let j = i + 1; j < children.length; j += 1) {
+      const next = children[j]!;
+      if (xmlLocalName(next) !== 'note') continue;
+      if (next.querySelector('chord, *|chord') !== null) continue;
+      anchorOnset = onsets.get(next) ?? 0;
+      break;
+    }
+    if (!Number.isFinite(anchorOnset)) continue;
+
+    const groupsToMove: Element[][] = [];
+    for (let j = i + 1; j < children.length; j += 1) {
+      const next = children[j]!;
+      if (xmlLocalName(next) !== 'note') continue;
+      if (next.querySelector('chord, *|chord') !== null) continue;
+      const start = onsets.get(next) ?? 0;
+      if (start >= anchorOnset) continue;
+      groupsToMove.push(noteGroupWithChords(measure, next));
+    }
+    if (groupsToMove.length === 0) continue;
+
+    for (const group of groupsToMove) {
+      for (const node of group) measure.removeChild(node);
+    }
+    for (const group of groupsToMove) {
+      for (const node of group) measure.insertBefore(node, el);
+    }
+    changed = true;
+    return reorderSingleStaffTimelineByOnsetForOsmdPreview(measure) || changed;
+  }
+  return changed;
+}
+
 /**
  * OSMD/HITL 미리보기 전용 — Audiveris 절대 좌표 제거 후 voice timeline 시작 시점으로
  * `default-x` 재주입. 동시 시작(다른 voice·박자) 음이 같은 수평선에 그려지게 함.

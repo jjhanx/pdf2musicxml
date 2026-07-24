@@ -4491,10 +4491,86 @@ def _set_or_insert_forward_before_note(
     return True
 
 
+def _beam_span_note_indices(
+    notes: list[ET.Element], ns: str, index: int, staff: str
+) -> set[int]:
+    """`<beam>`으로 연결된 인접 음표 index(같은 staff, 화음 포함)."""
+    leader_i = _chord_leader_index(notes, ns, index)
+    leader = notes[leader_i]
+    if _note_voice_staff(leader, ns)[1] != staff:
+        return {index}
+    span: set[int] = {leader_i}
+    for follower in _chord_follower_indices(notes, ns, leader_i):
+        span.add(follower)
+    if _note_beams(leader, ns):
+        for note in _collect_beam_followers(notes, ns, leader, staff=staff):
+            try:
+                span.add(notes.index(note))
+            except ValueError:
+                pass
+        j = leader_i - 1
+        while j >= 0:
+            note = notes[j]
+            if _note_voice_staff(note, ns)[1] != staff:
+                break
+            if note.find(_q(ns, "chord")) is not None:
+                span.add(j)
+                j -= 1
+                continue
+            beams = _note_beams(note, ns)
+            if not beams:
+                break
+            span.add(j)
+            if "begin" in beams:
+                break
+            j -= 1
+    return span
+
+
+def _selected_beam_locked_indices(
+    notes: list[ET.Element], ns: str, staff: str, selected: set[int]
+) -> set[int]:
+    """선택 음표 중 미선택 음과 `<beam>`으로 이어진 것 — voice 변경 금지."""
+    locked: set[int] = set()
+    for i in selected:
+        span = _beam_span_note_indices(notes, ns, i, staff)
+        if any(j not in selected for j in span):
+            locked.update(j for j in span if j in selected)
+    return locked
+
+
+def _insert_backup_before_note(
+    measure: ET.Element, ns: str, note: ET.Element, voice: str, duration: int
+) -> bool:
+    if duration <= 0:
+        return False
+    children = list(measure)
+    try:
+        pos = children.index(note)
+    except ValueError:
+        return False
+    if pos > 0 and _local(children[pos - 1]) == "backup":
+        backup = children[pos - 1]
+        dur_el = backup.find(_q(ns, "duration"))
+        if dur_el is None:
+            dur_el = ET.SubElement(backup, _q(ns, "duration"))
+        dur_el.text = str(duration)
+        voice_el = backup.find(_q(ns, "voice"))
+        if voice_el is None:
+            voice_el = ET.SubElement(backup, _q(ns, "voice"))
+        voice_el.text = voice
+        return True
+    backup = ET.Element(_q(ns, "backup"))
+    ET.SubElement(backup, _q(ns, "duration")).text = str(duration)
+    ET.SubElement(backup, _q(ns, "voice")).text = voice
+    measure.insert(pos, backup)
+    return True
+
+
 def _link_parallel_onsets_by_indices(
     measure: ET.Element, ns: str, staff: str, indices: list[int]
 ) -> bool:
-    """선택 #index만 — 가장 왼쪽 default-x로 맞춤. 미선택·빔·문서 순서는 그대로."""
+    """선택 #index만 — 가장 왼쪽 연주 시점·default-x로 맞춤. 미선택·빔 partner 유지."""
     notes = list_note_elements(measure, ns)
     if len(indices) < 2:
         return False
@@ -4514,32 +4590,56 @@ def _link_parallel_onsets_by_indices(
     if len(selected) < 2:
         return False
 
+    selected_set = set(selected)
+    beam_locked = _selected_beam_locked_indices(notes, ns, staff, selected_set)
     left_i = _leftmost_selected_note_index(notes, ns, selected)
     xs = [_parse_default_x(notes[i]) for i in selected]
     finite_xs = [x for x in xs if x is not None]
     x_val = min(finite_xs) if finite_xs else 32.0
     x_str = f"{x_val:.2f}"
-    parallel_t = _parallel_onset_time_for_note_index(measure, ns, staff, notes, left_i)
-    durs = [_note_duration(notes[i], ns) for i in selected]
+    anchor_t = _parallel_onset_time_for_note_index(measure, ns, staff, notes, left_i)
+    anchor_dur = _note_duration(notes[left_i], ns)
     changed = False
 
-    if len(set(durs)) == 1:
-        for i in selected:
-            note = notes[i]
-            if i != left_i and _ensure_chord_tag(note, ns):
+    for i in selected:
+        if notes[i].get("default-x") != x_str:
+            notes[i].set("default-x", x_str)
+            changed = True
+
+    by_dur: dict[int, list[int]] = {}
+    for i in selected:
+        by_dur.setdefault(_note_duration(notes[i], ns), []).append(i)
+    for dur, idxs in by_dur.items():
+        if len(idxs) < 2:
+            continue
+        leader = min(idxs, key=lambda i: (_parse_default_x(notes[i]) or 1_000_000.0, i))
+        for i in idxs:
+            if i == leader:
+                continue
+            if _ensure_chord_tag(notes[i], ns):
                 changed = True
-            if note.get("default-x") != x_str:
-                note.set("default-x", x_str)
+
+    for i in sorted(beam_locked):
+        leader_i = _chord_leader_index(notes, ns, i)
+        note = notes[leader_i]
+        cur_t = _parallel_onset_time_for_note_index(measure, ns, staff, notes, leader_i)
+        if cur_t > anchor_t:
+            voice = _note_voice_staff(note, ns)[0]
+            if _insert_backup_before_note(measure, ns, note, voice, cur_t - anchor_t):
                 changed = True
-        return changed
 
     used_voices = {_note_voice_staff(notes[i], ns)[0] for i in selected}
     for i in selected:
-        note = notes[i]
-        if note.get("default-x") != x_str:
-            note.set("default-x", x_str)
-            changed = True
+        if i in beam_locked:
+            continue
         if i == left_i:
+            continue
+        note = notes[i]
+        if note.find(_q(ns, "chord")) is not None:
+            leader_i = _chord_leader_index(notes, ns, i)
+            if leader_i in selected and _note_duration(notes[leader_i], ns) == anchor_dur:
+                continue
+        if _note_duration(note, ns) == anchor_dur:
             continue
         new_voice = _allocate_staff_voice(staff, used_voices)
         used_voices.add(new_voice)
@@ -4547,7 +4647,7 @@ def _link_parallel_onsets_by_indices(
         if cur_v != new_voice:
             _set_note_voice_staff(note, ns, new_voice, staff)
             changed = True
-        if _set_or_insert_forward_before_note(measure, ns, note, new_voice, parallel_t):
+        if _set_or_insert_forward_before_note(measure, ns, note, new_voice, anchor_t):
             changed = True
     return changed
 

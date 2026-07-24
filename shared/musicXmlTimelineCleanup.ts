@@ -466,6 +466,118 @@ export function reorderSingleStaffTimelineByOnsetForOsmdPreview(measure: Element
   return changed;
 }
 
+type VoiceLayerBlock = { kind: 'forward' | 'note-group'; nodes: Element[] };
+
+function collectVoiceLayerBlocks(measure: Element): Map<string, VoiceLayerBlock[]> {
+  const byVoice = new Map<string, VoiceLayerBlock[]>();
+  let lastVoice = '1';
+  for (const el of [...measure.children]) {
+    const tag = xmlLocalName(el);
+    if (tag === 'backup') continue;
+    if (tag === 'forward') {
+      const v = timelineVoiceEl(el, lastVoice);
+      const list = byVoice.get(v) ?? [];
+      list.push({ kind: 'forward', nodes: [el] });
+      byVoice.set(v, list);
+      continue;
+    }
+    if (tag === 'note') {
+      if (el.querySelector('chord, *|chord') !== null) continue;
+      const v = noteVoiceNumber(el);
+      lastVoice = v;
+      const list = byVoice.get(v) ?? [];
+      list.push({ kind: 'note-group', nodes: noteGroupWithChords(measure, el) });
+      byVoice.set(v, list);
+    }
+  }
+  return byVoice;
+}
+
+function voiceLayerBlocksDuration(blocks: VoiceLayerBlock[]): number {
+  let cursor = 0;
+  for (const block of blocks) {
+    if (block.kind === 'forward') cursor += timelineDurationEl(block.nodes[0]!);
+    else cursor += noteDurationValue(block.nodes[0]!);
+  }
+  return cursor;
+}
+
+function measureHasInterleavedVoices(measure: Element): boolean {
+  const seenVoices = new Set<string>();
+  let lastVoice = '1';
+  for (const el of [...measure.children]) {
+    const tag = xmlLocalName(el);
+    if (tag === 'forward') {
+      seenVoices.add(timelineVoiceEl(el, lastVoice));
+      continue;
+    }
+    if (tag !== 'note' || el.querySelector('chord, *|chord') !== null) continue;
+    const v = noteVoiceNumber(el);
+    lastVoice = v;
+    seenVoices.add(v);
+    if (seenVoices.size < 2) continue;
+    const voices = [...seenVoices].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99));
+    if (v !== voices[voices.length - 1]) return true;
+  }
+  return false;
+}
+
+/**
+ * OSMD split-staff 미리보기 — interleaved voice를 MusicXML 관례( voice1 전체 → backup → voice2 … )로
+ * 재배치해 동시 onset 음(F4·E5 등)이 같은 staff column에 그려지게 함(저장 MXL 불변).
+ */
+export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boolean {
+  if (!measureHasInterleavedVoices(measure)) return false;
+  const byVoice = collectVoiceLayerBlocks(measure);
+  const voices = [...byVoice.keys()].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99));
+  if (voices.length < 2) return false;
+
+  const timelineTags = new Set(['note', 'backup', 'forward']);
+  const detached: Element[] = [];
+  for (const child of [...measure.children]) {
+    if (!timelineTags.has(xmlLocalName(child))) continue;
+    measure.removeChild(child);
+    detached.push(child);
+  }
+  if (detached.length === 0) return false;
+
+  let insertAt = 0;
+  while (insertAt < measure.children.length) {
+    const tag = xmlLocalName(measure.children[insertAt]!);
+    if (tag === 'attributes' || tag === 'print' || tag === 'direction') insertAt += 1;
+    else break;
+  }
+
+  const doc = measure.ownerDocument!;
+  const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+  const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
+
+  for (let vi = 0; vi < voices.length; vi += 1) {
+    const voice = voices[vi]!;
+    const blocks = byVoice.get(voice) ?? [];
+    if (vi > 0) {
+      const prevVoice = voices[vi - 1]!;
+      const backupDur = voiceLayerBlocksDuration(byVoice.get(prevVoice) ?? []);
+      if (backupDur > 0) {
+        const backup = mk('backup');
+        const durEl = mk('duration');
+        durEl.textContent = String(backupDur);
+        backup.appendChild(durEl);
+        measure.insertBefore(backup, measure.children[insertAt] ?? null);
+        insertAt += 1;
+      }
+    }
+    for (const block of blocks) {
+      for (const node of block.nodes) {
+        node.querySelectorAll('staff, *|staff').forEach((st) => st.remove());
+        measure.insertBefore(node, measure.children[insertAt] ?? null);
+        insertAt += 1;
+      }
+    }
+  }
+  return true;
+}
+
 /**
  * OSMD/HITL 미리보기 전용 — Audiveris 절대 좌표 제거 후 voice timeline 시작 시점으로
  * `default-x` 재주입. 동시 시작(다른 voice·박자) 음이 같은 수평선에 그려지게 함.

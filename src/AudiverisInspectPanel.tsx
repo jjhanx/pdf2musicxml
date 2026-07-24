@@ -13,6 +13,7 @@ import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPr
 import {
   realignMeasureDefaultXFromTimelineForOsmd,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
+  normalizeMultiVoiceLayersForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 import {
   drawOsmdMeasureHighlight,
@@ -573,6 +574,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   /** verbatim HITL도 OSMD split part는 voice 타임라인 평탄화 — PL 박자 부족·음수 폭 skip 방지 */
   flattenNonOverlappingStaffVoicesForOsmd(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
+  normalizeMultiVoiceLayersForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -598,6 +600,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   pruneCrossStaffTimeline(measure, staffN);
   flattenNonOverlappingStaffVoicesForOsmd(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
+  normalizeMultiVoiceLayersForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;

@@ -56,8 +56,8 @@ async function main() {
   if (/\bmeasure[^>]*\swidth="/i.test(cleaned)) {
     throw new Error('stripMeasureWidthAttributesForOsmdPreview must remove measure@width');
   }
-  if (/\bdefault-x="/i.test(cleaned)) {
-    throw new Error('stripDefaultXyForOsmdPreview must remove default-x');
+  if (!/\bdefault-x="/i.test(cleaned)) {
+    throw new Error('realignDefaultXFromStaffTimelineForOsmdPreview must inject timeline default-x');
   }
 
   const notes26 = countM26Notes(cleaned);

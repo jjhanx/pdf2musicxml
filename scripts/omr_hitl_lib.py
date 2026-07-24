@@ -4708,6 +4708,8 @@ def _link_parallel_onsets_by_indices(
             changed = True
         if _set_or_insert_forward_before_note(measure, ns, note, new_voice, anchor_t):
             changed = True
+    if _compact_default_x_by_staff(measure, ns):
+        changed = True
     return changed
 
 

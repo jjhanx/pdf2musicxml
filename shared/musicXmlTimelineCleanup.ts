@@ -35,9 +35,13 @@ function removeDanglingTimelineInMeasure(measure: Element): void {
     if (tag !== 'backup' && tag !== 'forward') continue;
     const idx = [...measure.children].indexOf(child);
     if (idx < 0) continue;
-    if (!hasNoteAfter(measure, idx) || !hasNoteBefore(measure, idx)) {
-      child.remove();
+    const hasAfter = hasNoteAfter(measure, idx);
+    const hasBefore = hasNoteBefore(measure, idx);
+    if (tag === 'forward') {
+      if (!hasAfter) child.remove();
+      continue;
     }
+    if (!hasAfter || !hasBefore) child.remove();
   }
 }
 
@@ -48,6 +52,7 @@ export function repairTimelineForOsmdPreview(xml: string): string {
   out = stripPrintElementsForOsmdPreview(out);
   out = stripMeasureWidthAttributesForOsmdPreview(out);
   out = stripDefaultXyForOsmdPreview(out);
+  out = realignDefaultXFromStaffTimelineForOsmdPreview(out);
   out = stripChordBeamsForOsmdPreview(out);
   return out;
 }
@@ -247,13 +252,149 @@ export function countDanglingTimelineElements(xml: string): number {
         for (let i = 0; i < measure.children.length; i++) {
           const tag = xmlLocalName(measure.children[i]!);
           if (tag !== 'backup' && tag !== 'forward') continue;
-          if (!hasNoteAfter(measure, i) || !hasNoteBefore(measure, i)) n += 1;
+          const hasAfter = hasNoteAfter(measure, i);
+          const hasBefore = hasNoteBefore(measure, i);
+          if (tag === 'forward') {
+            if (!hasAfter) n += 1;
+          } else if (!hasAfter || !hasBefore) {
+            n += 1;
+          }
         }
       }
     }
     return n;
   } catch {
     return 0;
+  }
+}
+
+function timelineVoiceEl(el: Element, fallbackVoice: string): string {
+  const v = el.querySelector(':scope > voice, :scope > *|voice');
+  const text = v?.textContent?.trim();
+  return text || fallbackVoice;
+}
+
+function timelineDurationEl(el: Element): number {
+  const durEl = el.querySelector(':scope > duration, :scope > *|duration');
+  const n = parseInt(durEl?.textContent?.trim() ?? '0', 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function noteStaffNumber(note: Element): number {
+  const st = note.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
+  return st && /^\d+$/.test(st) ? parseInt(st, 10) : 1;
+}
+
+function noteVoiceNumber(note: Element): string {
+  const v = note.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+  return v || '1';
+}
+
+function noteDurationValue(note: Element): number {
+  const durEl = note.querySelector(':scope > duration, :scope > *|duration');
+  const n = parseInt(durEl?.textContent?.trim() ?? '0', 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function measureLengthUnits(measure: Element): number {
+  let divisions = 1;
+  let beats = 4;
+  let beatType = 4;
+  for (const attr of [...measure.children]) {
+    if (xmlLocalName(attr) !== 'attributes') continue;
+    const divEl = attr.querySelector('divisions, *|divisions');
+    if (divEl?.textContent?.trim() && /^\d+$/.test(divEl.textContent.trim())) {
+      divisions = Math.max(1, parseInt(divEl.textContent.trim(), 10));
+    }
+    const timeEl = attr.querySelector('time, *|time');
+    if (timeEl) {
+      const bEl = timeEl.querySelector('beats, *|beats');
+      const btEl = timeEl.querySelector('beat-type, *|beat-type');
+      if (bEl?.textContent?.trim() && /^\d+$/.test(bEl.textContent.trim())) {
+        beats = Math.max(1, parseInt(bEl.textContent.trim(), 10));
+      }
+      if (btEl?.textContent?.trim() && /^\d+$/.test(btEl.textContent.trim())) {
+        beatType = Math.max(1, parseInt(btEl.textContent.trim(), 10));
+      }
+    }
+  }
+  return Math.max(1, Math.round((divisions * beats * 4) / beatType));
+}
+
+function staffTimedLeaderStarts(
+  measure: Element,
+  staffN: number,
+): Array<{ note: Element; start: number }> {
+  const voiceCursor = new Map<string, number>();
+  let lastNoteVoice = '1';
+  const out: Array<{ note: Element; start: number }> = [];
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'backup') {
+      const v = timelineVoiceEl(child, lastNoteVoice);
+      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - timelineDurationEl(child)));
+    } else if (tag === 'forward') {
+      const v = timelineVoiceEl(child, lastNoteVoice);
+      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + timelineDurationEl(child));
+    } else if (tag === 'note') {
+      if (child.querySelector('chord, *|chord') !== null) continue;
+      if (noteStaffNumber(child) !== staffN) continue;
+      const voice = noteVoiceNumber(child);
+      lastNoteVoice = voice;
+      const start = voiceCursor.get(voice) ?? 0;
+      out.push({ note: child, start });
+      voiceCursor.set(voice, start + noteDurationValue(child));
+    }
+  }
+  return out;
+}
+
+function setDefaultXOnChordGroup(measure: Element, leader: Element, x: string): void {
+  leader.setAttribute('default-x', x);
+  const children = [...measure.children];
+  const start = children.indexOf(leader);
+  if (start < 0) return;
+  for (let i = start + 1; i < children.length; i += 1) {
+    const el = children[i]!;
+    if (xmlLocalName(el) !== 'note') break;
+    if (el.querySelector('chord, *|chord') === null) break;
+    el.setAttribute('default-x', x);
+  }
+}
+
+function realignMeasureDefaultXFromTimeline(measure: Element): void {
+  const measureLen = measureLengthUnits(measure);
+  const baseX = 32;
+  const span = 400;
+  const staves = new Set<number>();
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
+  }
+  for (const staffN of staves) {
+    for (const { note, start } of staffTimedLeaderStarts(measure, staffN)) {
+      const x = (baseX + (start / measureLen) * span).toFixed(2);
+      setDefaultXOnChordGroup(measure, note, x);
+    }
+  }
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — Audiveris 절대 좌표 제거 후 voice timeline 시작 시점으로
+ * `default-x` 재주입. 동시 시작(다른 voice·박자) 음이 같은 수평선에 그려지게 함.
+ */
+export function realignDefaultXFromStaffTimelineForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    for (const part of findXmlParts(doc)) {
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        realignMeasureDefaultXFromTimeline(measure);
+      }
+    }
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
   }
 }
 

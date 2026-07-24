@@ -631,6 +631,9 @@ export type LinkedParallelOnsetHint = {
   measureLength: number;
   anchorVoice: string;
   memberVoices: string[];
+  /** linkParallel 선택 음 pitch — chord 멤버 포함(F4·Bb4·E5 등) */
+  memberPitches: string[];
+  anchorPitch: string;
 };
 
 export function xmlPitchLabelForOsmdPreview(note: Element): string {
@@ -694,6 +697,12 @@ export function collectLinkedParallelOnsetHintsFromMeasure(
       const bx = Number.parseFloat(noteOrigDefaultX(b.note) ?? '999999');
       return ax - bx || a.dur - b.dur;
     })[0]!;
+    const memberPitches: string[] = [];
+    for (const entry of group) {
+      for (const n of noteGroupWithChords(measure, entry.note)) {
+        memberPitches.push(xmlPitchLabelForOsmdPreview(n));
+      }
+    }
     hints.push({
       measureNumber,
       onset: anchorEntry.start,
@@ -701,6 +710,8 @@ export function collectLinkedParallelOnsetHintsFromMeasure(
       measureLength: Math.max(1, measureLength),
       anchorVoice: anchorEntry.voice,
       memberVoices: voices,
+      memberPitches: [...new Set(memberPitches)],
+      anchorPitch: xmlPitchLabelForOsmdPreview(anchorEntry.note),
     });
   }
   return hints;

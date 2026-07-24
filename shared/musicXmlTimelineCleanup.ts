@@ -625,6 +625,10 @@ export type LinkedParallelOnsetHint = {
   measureNumber: number;
   /** voice timeline onset (divisions) */
   onset: number;
+  /** part `<divisions>` when hint was collected */
+  divisions: number;
+  /** measure length in the same divisions units — OSMD timestamp = onset / measureLength */
+  measureLength: number;
   anchorVoice: string;
   memberVoices: string[];
 };
@@ -662,7 +666,11 @@ function collectParallelOnsetLeaders(measure: Element): Array<{ note: Element; s
 }
 
 /** linkParallelOnsets 미리보기 — XML 구조·beam·duration 유지, OSMD 그래픽 정렬 힌트만 수집. */
-export function collectLinkedParallelOnsetHintsFromMeasure(measure: Element): LinkedParallelOnsetHint[] {
+export function collectLinkedParallelOnsetHintsFromMeasure(
+  measure: Element,
+  divisions: number,
+  measureLength: number,
+): LinkedParallelOnsetHint[] {
   const measureNumber = parseInt(measure.getAttribute('number') ?? '0', 10);
   if (!Number.isFinite(measureNumber) || measureNumber <= 0) return [];
 
@@ -689,6 +697,8 @@ export function collectLinkedParallelOnsetHintsFromMeasure(measure: Element): Li
     hints.push({
       measureNumber,
       onset: anchorEntry.start,
+      divisions: Math.max(1, divisions),
+      measureLength: Math.max(1, measureLength),
       anchorVoice: anchorEntry.voice,
       memberVoices: voices,
     });
@@ -702,9 +712,28 @@ export function collectLinkedParallelOnsetHintsFromXml(xml: string): LinkedParal
     if (!doc) return [];
     const hints: LinkedParallelOnsetHint[] = [];
     for (const part of findXmlParts(doc)) {
+      let divisions = 4;
+      let beats = 4;
+      let beatType = 4;
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
-        hints.push(...collectLinkedParallelOnsetHintsFromMeasure(measure));
+        for (const child of [...measure.children]) {
+          if (xmlLocalName(child) !== 'attributes') continue;
+          const divEl = child.querySelector('divisions, *|divisions');
+          const parsed = parseInt(divEl?.textContent?.trim() ?? '', 10);
+          if (Number.isFinite(parsed) && parsed > 0) divisions = parsed;
+          const timeEl = child.querySelector('time, *|time');
+          if (timeEl) {
+            const bEl = timeEl.querySelector('beats, *|beats');
+            const btEl = timeEl.querySelector('beat-type, *|beat-type');
+            const b = parseInt(bEl?.textContent?.trim() ?? '', 10);
+            const bt = parseInt(btEl?.textContent?.trim() ?? '', 10);
+            if (Number.isFinite(b) && b > 0) beats = b;
+            if (Number.isFinite(bt) && bt > 0) beatType = bt;
+          }
+        }
+        const measureLength = Math.max(1, Math.round((divisions * beats * 4) / beatType));
+        hints.push(...collectLinkedParallelOnsetHintsFromMeasure(measure, divisions, measureLength));
       }
     }
     return hints;

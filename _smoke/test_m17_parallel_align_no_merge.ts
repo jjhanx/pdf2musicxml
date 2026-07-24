@@ -8,7 +8,7 @@ import { JSDOM } from 'jsdom';
 import osmdLib from 'opensheetmusicdisplay';
 import { collectLinkedParallelOnsetHintsFromXml, repairTimelineForOsmdPreview, reorderSingleStaffTimelineByOnsetForOsmdPreview, normalizeMultiVoiceLayersForOsmdPreview, snapshotNoteDefaultXForOsmdPreview, realignMeasureDefaultXFromTimelineForOsmd } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { alignLinkedParallelOnsetGraphics } from '../src/osmdLinkedParallelAlignFix';
+import { alignLinkedParallelOnsetGraphics, osmdTimestampFromLinkedParallelHint } from '../src/osmdLinkedParallelAlignFix';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown }).OpenSheetMusicDisplay ??
@@ -19,6 +19,7 @@ Object.assign(globalThis, {
   document: dom.window.document,
   window: dom.window,
   DOMParser: dom.window.DOMParser,
+  XMLSerializer: dom.window.XMLSerializer,
   Node: dom.window.Node,
   Element: dom.window.Element,
   requestAnimationFrame: (cb: FrameRequestCallback) => {
@@ -36,7 +37,7 @@ function pitch(n: Element): string {
   return `${step}${alter === '-1' ? 'b' : ''}${oct}`;
 }
 
-function buildPrPreview(raw: string): string {
+function buildPrPreview(raw: string): { previewSlice: string; hints: ReturnType<typeof collectLinkedParallelOnsetHintsFromXml> } {
   let xml = repairTimelineForOsmdPreview(raw);
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   const part = [...doc.querySelectorAll('part,*|part')].find((p) => p.getAttribute('id') === 'P5')!;
@@ -55,8 +56,11 @@ function buildPrPreview(raw: string): string {
     normalizeMultiVoiceLayersForOsmdPreview(measure);
     realignMeasureDefaultXFromTimelineForOsmd(measure);
   }
+  xml = repairTimelineForOsmdPreview(new XMLSerializer().serializeToString(doc));
+  const hints = collectLinkedParallelOnsetHintsFromXml(xml);
   const m17 = [...part.children].find((c) => local(c) === 'measure' && c.getAttribute('number') === '17')!;
-  return `<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P5"><part-name/></score-part></part-list><part id="P5">${m17.outerHTML}</part></score-partwise>`;
+  const previewSlice = `<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P5"><part-name/></score-part></part-list><part id="P5">${m17.outerHTML}</part></score-partwise>`;
+  return { previewSlice, hints };
 }
 
 async function main() {
@@ -65,11 +69,13 @@ async function main() {
     return;
   }
   const raw = execSync('python _smoke/_export_m17_parallel_fix.py', { encoding: 'utf8', maxBuffer: 20e6 });
-  const preview = buildPrPreview(raw);
-  const hints = collectLinkedParallelOnsetHintsFromXml(preview);
-  if (!hints.some((h) => h.measureNumber === 17 && h.memberVoices.includes('1'))) {
-    throw new Error('m17 linked parallel hint missing');
-  }
+  const { previewSlice: preview, hints } = buildPrPreview(raw);
+  const m17hint = hints.find((h) => h.measureNumber === 17);
+  if (!m17hint) throw new Error('m17 hint missing');
+  if (m17hint.divisions < 1) throw new Error('m17 hint divisions missing');
+  const ts = osmdTimestampFromLinkedParallelHint(m17hint);
+  if (Math.abs(ts - 0.25) > 0.001) throw new Error(`m17 OSMD ts expected 0.25 got ${ts}`);
+  if (!m17hint.memberVoices.includes('1')) throw new Error('m17 hint missing voice 1');
 
   const doc = new DOMParser().parseFromString(preview, 'text/xml');
   const part = [...doc.querySelectorAll('part,*|part')].find((p) => p.getAttribute('id') === 'P5')!;
@@ -85,8 +91,8 @@ async function main() {
   host.style.width = '900px';
   const osmd = new OSMD!(host, { autoResize: true, backend: 'svg', drawMeasureNumbers: false });
   await (osmd as { load: (x: string) => Promise<void> }).load(preview);
-  alignLinkedParallelOnsetGraphics(osmd, hints);
   (osmd as { render: () => void }).render();
+  alignLinkedParallelOnsetGraphics(osmd, hints, host);
   console.log('m17 no-merge align ok', hints.filter((h) => h.measureNumber === 17));
 }
 

@@ -1784,6 +1784,11 @@ export function OsmdBlock({
   const scrollToMeasureTriggerRef = useRef(scrollToMeasureTrigger);
   const lastHandledScrollTriggerRef = useRef(0);
   const printedMeasureMarkersRef = useRef(printedMeasureMarkers);
+  const linkedParallelHintsRef = useRef<ReturnType<typeof collectLinkedParallelOnsetHintsFromXml>>([]);
+
+  useEffect(() => {
+    linkedParallelHintsRef.current = collectLinkedParallelOnsetHintsFromXml(xml);
+  }, [xml]);
 
   useEffect(() => {
     printedMeasureMarkersRef.current = printedMeasureMarkers;
@@ -1843,6 +1848,14 @@ export function OsmdBlock({
       highlightMeasureStaffIndexRef.current ?? null,
     );
   }, [syncPartLabelOverlay]);
+
+  const applyLinkedParallelGraphicAlign = useCallback((host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => {
+    try {
+      alignLinkedParallelOnsetGraphics(osmd, linkedParallelHintsRef.current, host);
+    } catch (e) {
+      console.warn('[osmd] linked parallel graphic align skipped:', e);
+    }
+  }, []);
 
   const afterOsmdRender = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1917,7 +1930,6 @@ export function OsmdBlock({
         applyOsmdPreviewEngravingRules(osmd.EngravingRules);
         try {
           retargetGraphicalChordSlurBeziers(osmd);
-          alignLinkedParallelOnsetGraphics(osmd, collectLinkedParallelOnsetHintsFromXml(xml));
         } catch (e) {
           console.warn('[osmd] preview engraving adjust skipped:', e);
         }
@@ -1933,6 +1945,7 @@ export function OsmdBlock({
           roRef,
           onAfterRender: afterOsmdRender,
           afterOsmdRenderSync: (h, o) => {
+            applyLinkedParallelGraphicAlign(h, o);
             finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
           },
         });
@@ -1992,10 +2005,11 @@ export function OsmdBlock({
       roRef,
       onAfterRender: afterOsmdRender,
       afterOsmdRenderSync: (h, o) => {
+        applyLinkedParallelGraphicAlign(h, o);
         finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
       },
     });
-  }, [zoom, afterOsmdRender]);
+  }, [zoom, afterOsmdRender, applyLinkedParallelGraphicAlign]);
 
   useEffect(() => {
     const host = hostRef.current;

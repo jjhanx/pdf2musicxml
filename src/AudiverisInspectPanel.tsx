@@ -66,9 +66,6 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
   rules.UseXMLMeasureNumbers = false;
-  // 동시 onset multi-voice(F4 v2 + E5 v1 등) — voice column 간격을 없애 같은 수평선에 그림
-  rules.VoiceSpacingMultiplierVexflow = 0;
-  rules.VoiceSpacingAddendVexflow = 0;
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */

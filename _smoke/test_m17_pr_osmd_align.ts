@@ -10,6 +10,7 @@ import {
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
   mergeSameOnsetVoicesForOsmdPreview,
+  snapshotNoteDefaultXForOsmdPreview,
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
@@ -33,6 +34,7 @@ function buildPrPreview(raw: string): string {
     }
     measure.querySelectorAll('note staff,note *|staff').forEach((el) => { el.textContent = '1'; });
     pruneCrossStaffTimelineForOsmdPreview(measure, 1);
+    snapshotNoteDefaultXForOsmdPreview(measure);
     reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
     normalizeMultiVoiceLayersForOsmdPreview(measure);
     mergeSameOnsetVoicesForOsmdPreview(measure);
@@ -57,9 +59,9 @@ async function main() {
   const m17 = [...part.children].find((c) => local(c as Element) === 'measure' && (c as Element).getAttribute('number') === '17') as Element;
   const notes = [...m17.children].filter((c) => local(c) === 'note') as Element[];
 
-  const f4 = notes.find((n) => pitch(n) === 'F4' && n.querySelector('voice,*|voice')?.textContent === '2');
-  const bb = notes.find((n) => pitch(n) === 'Bb4' && f4 && Math.abs([...m17.children].indexOf(n) - [...m17.children].indexOf(f4)) <= 2);
-  const e5 = notes.find((n) => pitch(n) === 'E5' && n.querySelector('beam,*|beam')?.textContent === 'begin');
+  const f4 = notes.find((n) => pitch(n) === 'F4' && n.querySelector('chord, *|chord') === null);
+  const bb = notes.find((n) => pitch(n) === 'Bb4');
+  const e5 = notes.find((n) => pitch(n) === 'E5');
   if (!f4 || !bb || !e5) throw new Error('parallel group notes missing');
 
   const xs = new Set([f4.getAttribute('default-x'), bb.getAttribute('default-x'), e5.getAttribute('default-x')]);

@@ -1,5 +1,7 @@
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 
+const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
+
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
 
@@ -99,7 +101,11 @@ export function stripDefaultXyForOsmdPreview(xml: string): string {
   try {
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return xml;
-    doc.querySelectorAll('*').forEach((el) => {
+    doc.querySelectorAll('note, *|note').forEach((el) => {
+      const x = el.getAttribute('default-x')?.trim();
+      if (x && !el.getAttribute(OSMD_ORIG_DEFAULT_X_ATTR)) {
+        el.setAttribute(OSMD_ORIG_DEFAULT_X_ATTR, x);
+      }
       el.removeAttribute('default-x');
       el.removeAttribute('default-y');
     });
@@ -383,6 +389,36 @@ export function realignMeasureDefaultXFromTimelineForOsmd(measure: Element): voi
   realignMeasureDefaultXFromTimeline(measure);
 }
 
+/** reorder·layer 정규화 전 MXL default-x 보존 — linkParallel(동일 x) vs 자연 다성부(미세히 다른 x) 구분. */
+export function snapshotNoteDefaultXForOsmdPreview(measure: Element): void {
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (child.getAttribute(OSMD_ORIG_DEFAULT_X_ATTR)) continue;
+    const x = child.getAttribute('default-x')?.trim();
+    if (x) child.setAttribute(OSMD_ORIG_DEFAULT_X_ATTR, x);
+  }
+}
+
+export function stripNoteDefaultXSnapshotsForOsmdPreview(measure: Element): void {
+  measure.querySelectorAll(`note[${OSMD_ORIG_DEFAULT_X_ATTR}], note *|note[${OSMD_ORIG_DEFAULT_X_ATTR}]`).forEach((el) => {
+    el.removeAttribute(OSMD_ORIG_DEFAULT_X_ATTR);
+  });
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) === 'note') child.removeAttribute(OSMD_ORIG_DEFAULT_X_ATTR);
+  }
+}
+
+function noteOrigDefaultX(note: Element): string | null {
+  return note.getAttribute(OSMD_ORIG_DEFAULT_X_ATTR)?.trim() ?? note.getAttribute('default-x')?.trim() ?? null;
+}
+
+function defaultXValuesEqual(a: string, b: string): boolean {
+  const na = Number.parseFloat(a);
+  const nb = Number.parseFloat(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return Math.abs(na - nb) < 0.01;
+  return a === b;
+}
+
 function noteGroupWithChords(measure: Element, leader: Element): Element[] {
   const group: Element[] = [leader];
   const siblings = [...measure.children];
@@ -476,13 +512,20 @@ function noteTypeWeight(note: Element): number {
   return rank[type] ?? noteDurationValue(note);
 }
 
-function noteHasBeamTag(note: Element): boolean {
-  return note.querySelector('beam, *|beam') !== null;
+/** linkParallelOnsets — 선택 음들이 저장 MXL에서 같은 default-x로 맞춰진 경우만 (m16 자연 다성부 제외). */
+function leadersShareLinkedParallelX(
+  group: Array<{ note: Element; start: number; voice: string; dur: number }>,
+): boolean {
+  const xs = group.map((g) => noteOrigDefaultX(g.note)).filter((x): x is string => !!x);
+  if (xs.length < group.length) return false;
+  const first = xs[0]!;
+  return xs.every((x) => defaultXValuesEqual(x, first));
 }
 
 /**
- * OSMD split-staff 미리보기 — `<forward>`로 맞춘 동시 onset(다른 voice)을 **긴 duration leader + chord** 로 합침.
- * **`<beam>`이 있는 음(E5 8분 빔 등)은 합치지 않음** — 4분 leader chord로 8분이 4분·빔 끊김 회귀 방지.
+ * OSMD 미리보기 — linkParallelOnsets(같은 default-x) + forward 맞춘 동시 onset을
+ * **긴 duration leader + chord** 로 한 column에 그림. VoiceSpacing 0 불필요.
+ * m16(E5 x=70, F4 x=69) 등 x가 다른 자연 다성부는 merge 안 함.
  */
 export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
   const leaders: Array<{ note: Element; start: number; voice: string; dur: number }> = [];
@@ -518,6 +561,7 @@ export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
     const voices = [...new Set(group.map((g) => g.voice))];
     if (voices.length < 2) continue;
     if (!group.some((g) => voiceLeaderHadForwardPrefix(measure, g.note, g.voice))) continue;
+    if (!leadersShareLinkedParallelX(group)) continue;
 
     const targetVoice = [...voices].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99))[0]!;
     const leaderEntry = [...group].sort(
@@ -529,7 +573,6 @@ export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
       entry,
       nodes: noteGroupWithChords(measure, entry.note),
     }));
-    if (packed.some(({ nodes }) => nodes.some(noteHasBeamTag))) continue;
     for (const { entry } of packed) {
       if (entry.note !== leaderNote) removeForwardBeforeNote(measure, entry.note, entry.voice);
     }
@@ -574,6 +617,7 @@ export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
   }
 
   if (changed) removeDanglingTimelineInMeasure(measure);
+  stripNoteDefaultXSnapshotsForOsmdPreview(measure);
   return changed;
 }
 

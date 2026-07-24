@@ -9,6 +9,7 @@ import {
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
   mergeSameOnsetVoicesForOsmdPreview,
+  snapshotNoteDefaultXForOsmdPreview,
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
@@ -33,6 +34,7 @@ function transformMeasure(measure: Element): void {
     el.textContent = '1';
   });
   pruneCrossStaffTimelineForOsmdPreview(measure, 1);
+  snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
   mergeSameOnsetVoicesForOsmdPreview(measure);
@@ -77,12 +79,20 @@ async function main() {
     .map((n) => n as Element)
     .filter((n) => pitch(n).startsWith('E5'));
 
+  const e5Leader = e5notes.find((n) => n.querySelector('chord, *|chord') === null);
+  if (!e5Leader || e5Leader.querySelector('beam, *|beam')?.textContent !== 'begin') {
+    throw new Error('parallel F4·E5 group: first E5 must stay non-chord beam leader');
+  }
+  const f4Voice2 = [...m16.children]
+    .filter((c) => local(c) === 'note')
+    .map((n) => n as Element)
+    .find((n) => pitch(n) === 'F4' && n.querySelector('voice, *|voice')?.textContent === '2');
+  if (!f4Voice2) throw new Error('F4 voice 2 must remain separate from parallel E5');
+
   for (const n of e5notes) {
     const typ = n.querySelector('type, *|type')?.textContent;
-    const isChord = n.querySelector('chord, *|chord') !== null;
     const beam = n.querySelector('beam, *|beam')?.textContent;
-    if (typ !== 'eighth') throw new Error(`E5 must stay eighth, got type=${typ} chord=${isChord}`);
-    if (isChord) throw new Error('beamed E5 must not become chord under quarter leader');
+    if (typ !== 'eighth') throw new Error(`E5 must stay eighth, got type=${typ}`);
     if (!beam) throw new Error('E5 beam tag missing');
   }
 

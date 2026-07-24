@@ -15,6 +15,7 @@ import {
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
   mergeSameOnsetVoicesForOsmdPreview,
+  snapshotNoteDefaultXForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 import {
   drawOsmdMeasureHighlight,
@@ -53,7 +54,6 @@ type InspectErrorBoundaryState = { error: Error | null };
 /** OMR·HITL 미리보기 — 이음줄·성부 라벨 등 OSMD 규칙 조정 */
 export function applyOsmdPreviewEngravingRules(
   rules: OpenSheetMusicDisplay['EngravingRules'],
-  options?: { collapseParallelVoiceColumns?: boolean },
 ): void {
   rules.TupletNumberLimitConsecutiveRepetitions = false;
   rules.TupletNumberAlwaysDisableAfterFirstMax = false;
@@ -68,12 +68,6 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
   rules.UseXMLMeasureNumbers = false;
-  /** PR/PL 단일 staff — voice column 간격 제거(동시 onset F4·E5). 전체 파트는 마디 폭 붕괴 회귀 */
-  /** true일 때만 VoiceSpacing 0 — 전체 파트 미리보기 마디 폭 붕괴 방지 */
-  if (options?.collapseParallelVoiceColumns) {
-    rules.VoiceSpacingMultiplierVexflow = 0;
-    rules.VoiceSpacingAddendVexflow = 0;
-  }
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
@@ -581,6 +575,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   pruneCrossStaffTimeline(measure, staffN);
   /** verbatim HITL도 OSMD split part는 voice 타임라인 평탄화 — PL 박자 부족·음수 폭 skip 방지 */
   flattenNonOverlappingStaffVoicesForOsmd(measure);
+  snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
   mergeSameOnsetVoicesForOsmdPreview(measure);
@@ -608,6 +603,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   }
   pruneCrossStaffTimeline(measure, staffN);
   flattenNonOverlappingStaffVoicesForOsmd(measure);
+  snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
   mergeSameOnsetVoicesForOsmdPreview(measure);
@@ -1758,7 +1754,6 @@ export function OsmdBlock({
   embeddedInOmrFrame,
   verbatimPreview,
   printedMeasureMarkers,
-  collapseParallelVoiceColumns,
 }: {
   xml: string;
   zoom: number;
@@ -1774,8 +1769,6 @@ export function OsmdBlock({
   verbatimPreview?: boolean;
   /** lyric_manifest 인쇄 마디 번호만 미리보기에 표시 */
   printedMeasureMarkers?: ReadonlyMap<number, string>;
-  /** PR/PL 단일 staff 미리보기 — OSMD voice column 간격 0(전체 파트에는 적용 금지) */
-  collapseParallelVoiceColumns?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
@@ -1792,11 +1785,6 @@ export function OsmdBlock({
   const scrollToMeasureTriggerRef = useRef(scrollToMeasureTrigger);
   const lastHandledScrollTriggerRef = useRef(0);
   const printedMeasureMarkersRef = useRef(printedMeasureMarkers);
-  const collapseParallelVoiceColumnsRef = useRef(collapseParallelVoiceColumns ?? false);
-
-  useEffect(() => {
-    collapseParallelVoiceColumnsRef.current = collapseParallelVoiceColumns ?? false;
-  }, [collapseParallelVoiceColumns]);
 
   useEffect(() => {
     printedMeasureMarkersRef.current = printedMeasureMarkers;
@@ -1902,9 +1890,7 @@ export function OsmdBlock({
         drawMeasureNumbers: false,
         useXMLMeasureNumbers: false,
       } as ConstructorParameters<typeof OpenSheetMusicDisplay>[1]);
-      applyOsmdPreviewEngravingRules(osmd.EngravingRules, {
-        collapseParallelVoiceColumns: collapseParallelVoiceColumnsRef.current,
-      });
+      applyOsmdPreviewEngravingRules(osmd.EngravingRules);
       patchOsmdRenderForMeasureNumbers(osmd, host, () => printedMeasureMarkersRef.current);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1929,9 +1915,7 @@ export function OsmdBlock({
       .load(xmlForOsmd)
       .then(() => {
         if (stale() || !host) return;
-        applyOsmdPreviewEngravingRules(osmd.EngravingRules, {
-        collapseParallelVoiceColumns: collapseParallelVoiceColumnsRef.current,
-      });
+        applyOsmdPreviewEngravingRules(osmd.EngravingRules);
         try {
           retargetGraphicalChordSlurBeziers(osmd);
         } catch (e) {

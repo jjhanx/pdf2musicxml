@@ -9,9 +9,9 @@ import {
   repairTimelineForOsmdPreview,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
-  mergeSameOnsetVoicesForOsmdPreview,
   snapshotNoteDefaultXForOsmdPreview,
   realignMeasureDefaultXFromTimelineForOsmd,
+  collectLinkedParallelOnsetHintsFromMeasure,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 
@@ -37,7 +37,6 @@ function buildPrPreview(raw: string): string {
     snapshotNoteDefaultXForOsmdPreview(measure);
     reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
     normalizeMultiVoiceLayersForOsmdPreview(measure);
-    mergeSameOnsetVoicesForOsmdPreview(measure);
     realignMeasureDefaultXFromTimelineForOsmd(measure);
   }
   return repairTimelineForOsmdPreview(new XMLSerializer().serializeToString(doc));

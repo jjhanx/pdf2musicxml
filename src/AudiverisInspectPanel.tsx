@@ -14,8 +14,8 @@ import {
   realignMeasureDefaultXFromTimelineForOsmd,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
-  mergeSameOnsetVoicesForOsmdPreview,
   snapshotNoteDefaultXForOsmdPreview,
+  collectLinkedParallelOnsetHintsFromXml,
 } from '../shared/musicXmlTimelineCleanup';
 import {
   drawOsmdMeasureHighlight,
@@ -29,6 +29,7 @@ import {
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
+import { alignLinkedParallelOnsetGraphics } from './osmdLinkedParallelAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
@@ -578,7 +579,6 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
-  mergeSameOnsetVoicesForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -606,7 +606,6 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
-  mergeSameOnsetVoicesForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -1918,8 +1917,9 @@ export function OsmdBlock({
         applyOsmdPreviewEngravingRules(osmd.EngravingRules);
         try {
           retargetGraphicalChordSlurBeziers(osmd);
+          alignLinkedParallelOnsetGraphics(osmd, collectLinkedParallelOnsetHintsFromXml(xml));
         } catch (e) {
-          console.warn('[osmd] chord slur bezier retarget skipped:', e);
+          console.warn('[osmd] preview engraving adjust skipped:', e);
         }
         const seq = ++paintSeqRef.current;
         scheduleOsmdRender({

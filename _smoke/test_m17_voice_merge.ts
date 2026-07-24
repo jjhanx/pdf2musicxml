@@ -1,5 +1,5 @@
 /**
- * m17 PR: linkParallelOnsets same-x group merges F4 leader + E5 chord; beams preserved.
+ * m17 PR: linkParallelOnsets — XML keeps eighth+beam; no chord merge.
  * Run: npx tsx _smoke/test_m17_voice_merge.ts
  */
 import fs from 'node:fs';
@@ -9,9 +9,9 @@ import {
   repairTimelineForOsmdPreview,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
-  mergeSameOnsetVoicesForOsmdPreview,
   snapshotNoteDefaultXForOsmdPreview,
   realignMeasureDefaultXFromTimelineForOsmd,
+  collectLinkedParallelOnsetHintsFromMeasure,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 
@@ -38,7 +38,6 @@ function transformM17(measure: Element): void {
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
-  mergeSameOnsetVoicesForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
 }
 
@@ -64,21 +63,23 @@ async function main() {
   ) as Element;
   transformM17(m17);
 
+  const hints = collectLinkedParallelOnsetHintsFromMeasure(m17);
+  if (!hints.length) throw new Error('expected linked parallel hint for m17');
+
   const notes = [...m17.children].filter((c) => local(c) === 'note') as Element[];
   const e5 = notes.find((n) => pitch(n) === 'E5');
   const f4 = notes.find((n) => pitch(n) === 'F4' && !n.querySelector('chord, *|chord'));
   if (!e5 || !f4) throw new Error('missing notes');
 
-  if (f4.querySelector('type, *|type')?.textContent !== 'quarter') throw new Error('F4 must be quarter leader');
   if (e5.querySelector('type, *|type')?.textContent !== 'eighth') throw new Error('E5 type must stay eighth');
-  if (e5.querySelector('chord, *|chord') === null) throw new Error('same-x E5 must merge as chord under F4');
+  if (e5.querySelector('chord, *|chord') !== null) throw new Error('E5 must not become chord');
   if (e5.querySelector('beam, *|beam')?.textContent !== 'begin') throw new Error('E5 beam begin missing');
 
   const f5 = notes.find((n) => pitch(n) === 'F5');
   if (f5?.querySelector('type,*|type')?.textContent !== 'eighth') throw new Error('F5 not eighth');
   if (f5?.querySelector('beam,*|beam')?.textContent !== 'end') throw new Error('F5 beam end missing');
 
-  console.log('m17 same-x merge ok — F4 quarter leader + E5 eighth chord, beam preserved');
+  console.log('m17 no-merge xml ok — eighth+beam preserved, hints=', hints);
 }
 
 main().catch((e) => {

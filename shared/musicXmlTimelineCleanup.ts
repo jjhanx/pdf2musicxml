@@ -621,6 +621,98 @@ export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
   return changed;
 }
 
+export type LinkedParallelOnsetHint = {
+  measureNumber: number;
+  /** voice timeline onset (divisions) */
+  onset: number;
+  anchorVoice: string;
+  memberVoices: string[];
+};
+
+export function xmlPitchLabelForOsmdPreview(note: Element): string {
+  const step = note.querySelector('step, *|step')?.textContent?.trim() ?? '';
+  const alter = note.querySelector('alter, *|alter')?.textContent?.trim();
+  const oct = note.querySelector('octave, *|octave')?.textContent?.trim() ?? '';
+  const acc = alter === '-1' ? 'b' : alter === '1' ? '#' : '';
+  return `${step}${acc}${oct}`;
+}
+
+function collectParallelOnsetLeaders(measure: Element): Array<{ note: Element; start: number; voice: string; dur: number }> {
+  const leaders: Array<{ note: Element; start: number; voice: string; dur: number }> = [];
+  const voiceCursor = new Map<string, number>();
+  let lastNoteVoice = '1';
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'backup') {
+      const v = timelineVoiceEl(child, lastNoteVoice);
+      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - timelineDurationEl(child)));
+    } else if (tag === 'forward') {
+      const v = timelineVoiceEl(child, lastNoteVoice);
+      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + timelineDurationEl(child));
+    } else if (tag === 'note') {
+      if (child.querySelector('chord, *|chord') !== null) continue;
+      const voice = noteVoiceNumber(child);
+      lastNoteVoice = voice;
+      const start = voiceCursor.get(voice) ?? 0;
+      leaders.push({ note: child, start, voice, dur: noteDurationValue(child) });
+      voiceCursor.set(voice, start + noteDurationValue(child));
+    }
+  }
+  return leaders;
+}
+
+/** linkParallelOnsets 미리보기 — XML 구조·beam·duration 유지, OSMD 그래픽 정렬 힌트만 수집. */
+export function collectLinkedParallelOnsetHintsFromMeasure(measure: Element): LinkedParallelOnsetHint[] {
+  const measureNumber = parseInt(measure.getAttribute('number') ?? '0', 10);
+  if (!Number.isFinite(measureNumber) || measureNumber <= 0) return [];
+
+  const leaders = collectParallelOnsetLeaders(measure);
+  const byStart = new Map<number, Array<{ note: Element; start: number; voice: string; dur: number }>>();
+  for (const entry of leaders) {
+    const list = byStart.get(entry.start) ?? [];
+    list.push(entry);
+    byStart.set(entry.start, list);
+  }
+
+  const hints: LinkedParallelOnsetHint[] = [];
+  for (const group of byStart.values()) {
+    const voices = [...new Set(group.map((g) => g.voice))];
+    if (voices.length < 2) continue;
+    if (!group.some((g) => voiceLeaderHadForwardPrefix(measure, g.note, g.voice))) continue;
+    if (!leadersShareLinkedParallelX(group)) continue;
+
+    const anchorEntry = [...group].sort((a, b) => {
+      const ax = Number.parseFloat(noteOrigDefaultX(a.note) ?? '999999');
+      const bx = Number.parseFloat(noteOrigDefaultX(b.note) ?? '999999');
+      return ax - bx || a.dur - b.dur;
+    })[0]!;
+    hints.push({
+      measureNumber,
+      onset: anchorEntry.start,
+      anchorVoice: anchorEntry.voice,
+      memberVoices: voices,
+    });
+  }
+  return hints;
+}
+
+export function collectLinkedParallelOnsetHintsFromXml(xml: string): LinkedParallelOnsetHint[] {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return [];
+    const hints: LinkedParallelOnsetHint[] = [];
+    for (const part of findXmlParts(doc)) {
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        hints.push(...collectLinkedParallelOnsetHintsFromMeasure(measure));
+      }
+    }
+    return hints;
+  } catch {
+    return [];
+  }
+}
+
 function collectStaffNoteOnsets(measure: Element): Map<Element, number> {
   const out = new Map<Element, number>();
   const voiceCursor = new Map<string, number>();

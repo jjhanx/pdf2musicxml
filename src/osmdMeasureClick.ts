@@ -306,7 +306,7 @@ export function forEachOsmdSystem(
   }
 }
 
-function forEachGraphicalMeasure(
+export function forEachGraphicalMeasure(
   osmd: OpenSheetMusicDisplay,
   fn: (gm: GraphicalMeasureLike, staffIndex: number, measureIndex: number, row: GraphicalMeasureLike[]) => void,
 ): void {

@@ -8,8 +8,8 @@ import {
   repairTimelineForOsmdPreview,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
-  mergeSameOnsetVoicesForOsmdPreview,
   snapshotNoteDefaultXForOsmdPreview,
+  collectLinkedParallelOnsetHintsFromMeasure,
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
@@ -37,7 +37,6 @@ function transformMeasure(measure: Element): void {
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
-  mergeSameOnsetVoicesForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
 }
 

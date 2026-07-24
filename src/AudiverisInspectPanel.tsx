@@ -1791,11 +1791,14 @@ export function OsmdBlock({
   const scrollToMeasureTriggerRef = useRef(scrollToMeasureTrigger);
   const lastHandledScrollTriggerRef = useRef(0);
   const printedMeasureMarkersRef = useRef(printedMeasureMarkers);
-  const collapseParallelVoiceColumnsRef = useRef(collapseParallelVoiceColumns);
+  const collapseParallelVoiceColumnsRef = useRef(
+    collapseParallelVoiceColumns ?? embeddedInOmrFrame ?? false,
+  );
 
   useEffect(() => {
-    collapseParallelVoiceColumnsRef.current = collapseParallelVoiceColumns;
-  }, [collapseParallelVoiceColumns]);
+    collapseParallelVoiceColumnsRef.current =
+      collapseParallelVoiceColumns ?? embeddedInOmrFrame ?? false;
+  }, [collapseParallelVoiceColumns, embeddedInOmrFrame]);
 
   useEffect(() => {
     printedMeasureMarkersRef.current = printedMeasureMarkers;

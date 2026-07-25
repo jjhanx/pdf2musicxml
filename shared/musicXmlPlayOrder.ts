@@ -6,7 +6,6 @@ import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlPars
 import {
   collectStaffNoteOnsets,
   measureLengthUnits,
-  measureTimelineEndUnits,
   defaultXFromOnset,
 } from './musicXmlPreviewOnsetLayout';
 
@@ -14,6 +13,7 @@ const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
 
 export const HITL_PLAY_ORDER_ATTR = 'data-hitl-play-order';
+const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
 
 const PREVIEW_LAYOUT_BASE_X = 32;
 const PREVIEW_LAYOUT_SPAN = 400;
@@ -121,76 +121,86 @@ function setLayoutAttrsOnGroup(
   }
 }
 
+function origDefaultX(note: Element): number | null {
+  const raw =
+    note.getAttribute(OSMD_ORIG_DEFAULT_X_ATTR)?.trim() ?? note.getAttribute('default-x')?.trim();
+  if (!raw) return null;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function noteDurationValue(note: Element): number {
   const durEl = note.querySelector(':scope > duration, :scope > *|duration');
   const n = parseInt(durEl?.textContent?.trim() ?? '0', 10);
   return Number.isFinite(n) ? n : 0;
 }
 
-function layoutOnsetsForStaff(
+/** OMR orig default-x → 0..layoutLen 비례 onset. voice cursor 대신 Audiveris 박자 폭 유지. */
+function layoutOnsetsFromOrigDefaultX(
   leaders: Element[],
+  layoutLen: number,
   onsets: Map<Element, number>,
-  explicitGroupMinOnset: Map<number, number>,
 ): Map<Element, number> {
-  const layoutOnset = new Map<Element, number>();
+  const xs = leaders.map((l) => origDefaultX(l)).filter((x): x is number => x != null);
+  const minX = xs.length ? Math.min(...xs) : 0;
+  const maxX = xs.length ? Math.max(...xs) : minX;
+  const span = maxX - minX;
+
+  const unsnapped = new Map<Element, number>();
+  for (const leader of leaders) {
+    const x = origDefaultX(leader);
+    if (x != null && span > 0.01) {
+      unsnapped.set(leader, ((x - minX) / span) * layoutLen);
+    } else {
+      unsnapped.set(leader, onsets.get(leader) ?? 0);
+    }
+  }
+
+  const layoutOnset = new Map(unsnapped);
+
+  const byPo = new Map<number, Element[]>();
   for (const leader of leaders) {
     const po = readPlayOrder(leader);
     if (po == null) continue;
-    const raw = onsets.get(leader) ?? 0;
-    layoutOnset.set(leader, explicitGroupMinOnset.get(po) ?? raw);
+    const list = byPo.get(po) ?? [];
+    list.push(leader);
+    byPo.set(po, list);
   }
+  for (const group of byPo.values()) {
+    if (group.length < 2) continue;
+    const minLayout = Math.min(...group.map((l) => layoutOnset.get(l) ?? 0));
+    for (const leader of group) layoutOnset.set(leader, minLayout);
+  }
+
   const voices = [...new Set(leaders.map((l) => noteVoiceNumber(l)))].sort(
     (a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99),
   );
   for (const voice of voices) {
-    let prevLeader: Element | null = null;
+    let prev: Element | null = null;
     for (const leader of leaders) {
       if (noteVoiceNumber(leader) !== voice) continue;
-      if (layoutOnset.has(leader)) {
-        prevLeader = leader;
-        continue;
+      if (prev != null && readPlayOrder(leader) == null && noteDurationValue(prev) <= 1) {
+        const delta = (unsnapped.get(leader) ?? 0) - (unsnapped.get(prev) ?? 0);
+        layoutOnset.set(leader, (layoutOnset.get(prev) ?? 0) + delta);
       }
-      const raw = onsets.get(leader) ?? 0;
-      if (prevLeader == null) {
-        layoutOnset.set(leader, raw);
-      } else {
-        const prevRaw = onsets.get(prevLeader) ?? 0;
-        const prevLayout = layoutOnset.get(prevLeader) ?? prevRaw;
-        layoutOnset.set(leader, prevLayout + (raw - prevRaw));
-      }
-      prevLeader = leader;
+      prev = leader;
     }
   }
   return layoutOnset;
 }
 
-/** staff별 default-x — voice onset 비례 + 명시 연주순번은 그룹 min onset column + voice 내 상대 간격 유지. */
+/** staff별 default-x — OMR orig-x 박자 비례 + 명시 연주순번 min column. layoutLen=박자표 길이. */
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   const staves = new Set<number>();
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
   }
-  const nominalLen = measureLengthUnits(measure);
+  const layoutLen = measureLengthUnits(measure);
 
   for (const staffN of staves) {
     const onsets = collectStaffNoteOnsets(measure, staffN);
     const leaders = noteLeadersOnStaff(measure, staffN);
-
-    const explicitGroupMinOnset = new Map<number, number>();
-    for (const leader of leaders) {
-      const po = readPlayOrder(leader);
-      if (po == null) continue;
-      const onset = onsets.get(leader) ?? 0;
-      const prev = explicitGroupMinOnset.get(po);
-      explicitGroupMinOnset.set(po, prev == null ? onset : Math.min(prev, onset));
-    }
-
-    const layoutOnset = layoutOnsetsForStaff(leaders, onsets, explicitGroupMinOnset);
-    let layoutLen = Math.max(nominalLen, measureTimelineEndUnits(measure, staffN));
-    for (const leader of leaders) {
-      const lo = layoutOnset.get(leader) ?? onsets.get(leader) ?? 0;
-      layoutLen = Math.max(layoutLen, lo + noteDurationValue(leader));
-    }
+    const layoutOnset = layoutOnsetsFromOrigDefaultX(leaders, layoutLen, onsets);
 
     for (const leader of leaders) {
       const po = readPlayOrder(leader);

@@ -14,7 +14,7 @@ import {
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { dedupeSamePlayOrderPitchLayersForOsmdPreview } from '../shared/musicXmlPlayOrder';
+import { unifyVoiceForSamePlayOrderPreview } from '../shared/musicXmlPlayOrder';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown }).OpenSheetMusicDisplay ??
@@ -71,7 +71,7 @@ function buildM17(raw: string): Element {
   snapshotNoteDefaultXForOsmdPreview(m17);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(m17);
   normalizeMultiVoiceLayersForOsmdPreview(m17);
-  dedupeSamePlayOrderPitchLayersForOsmdPreview(m17);
+  unifyVoiceForSamePlayOrderPreview(m17);
   realignMeasureDefaultXFromTimelineForOsmd(m17);
   return m17;
 }
@@ -115,9 +115,6 @@ async function main() {
   if (f4.getAttribute('default-x') !== e5.getAttribute('default-x')) {
     throw new Error('F4/E5 must share default-x column');
   }
-  const f4On = parseInt(f4.getAttribute('data-osmd-onset-units') ?? '-1', 10);
-  const e5On = parseInt(e5.getAttribute('data-osmd-onset-units') ?? '-1', 10);
-  if (e5On <= f4On) throw new Error(`E5 rhythmic onset must follow F4 got F4=${f4On} E5=${e5On}`);
 
   const staves = await osmdStavenoteCount(m17);
   if (staves < 4) throw new Error(`expected >=4 OSMD stavenotes got ${staves}`);

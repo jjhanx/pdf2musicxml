@@ -14,7 +14,7 @@ import {
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 import {
-  dedupeSamePlayOrderPitchLayersForOsmdPreview,
+  unifyVoiceForSamePlayOrderPreview,
   collectPlayOrderAlignGroupsFromXml,
   HITL_PLAY_ORDER_ATTR,
 } from '../shared/musicXmlPlayOrder';
@@ -51,7 +51,7 @@ function buildPrM17(raw: string): string {
   snapshotNoteDefaultXForOsmdPreview(m17);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(m17);
   normalizeMultiVoiceLayersForOsmdPreview(m17);
-  dedupeSamePlayOrderPitchLayersForOsmdPreview(m17);
+  unifyVoiceForSamePlayOrderPreview(m17);
   realignMeasureDefaultXFromTimelineForOsmd(m17);
   return `<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P5"><part-name/></score-part></part-list><part id="P5">${m17.outerHTML}</part></score-partwise>`;
 }

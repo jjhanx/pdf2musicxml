@@ -8,7 +8,6 @@ import {
   measureLengthUnits,
   measureTimelineEndUnits,
   defaultXFromOnset,
-  OSMD_ONSET_UNITS_ATTR,
 } from './musicXmlPreviewOnsetLayout';
 
 const xmlLocalName = (el: Element) =>
@@ -107,19 +106,17 @@ export function effectivePlayOrder(
   return readPlayOrder(leader) ?? defaults.get(leader) ?? 1;
 }
 
+/** default-x만 조정 — voice timeline·data-osmd-onset-units는 건드리지 않음(OSMD 음표 소실 방지). */
 function setLayoutAttrsOnGroup(
   measure: Element,
   leader: Element,
   layoutOnset: number,
-  rhythmicOnset: number,
   layoutLen: number,
   playOrder: number | null,
 ): void {
   const x = defaultXFromOnset(layoutOnset, layoutLen);
   for (const note of noteGroupWithChords(measure, leader)) {
     if (playOrder != null) note.setAttribute(HITL_PLAY_ORDER_ATTR, String(playOrder));
-    // rhythmic onset — OSMD voice timeline; layoutOnset는 default-x(연주순번 column)만
-    note.setAttribute(OSMD_ONSET_UNITS_ATTR, String(rhythmicOnset));
     note.setAttribute('default-x', x);
   }
 }
@@ -198,8 +195,7 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     for (const leader of leaders) {
       const po = readPlayOrder(leader);
       const layoutPos = layoutOnset.get(leader) ?? onsets.get(leader) ?? 0;
-      const rhythmicPos = onsets.get(leader) ?? layoutPos;
-      setLayoutAttrsOnGroup(measure, leader, layoutPos, rhythmicPos, layoutLen, po);
+      setLayoutAttrsOnGroup(measure, leader, layoutPos, layoutLen, po);
     }
   }
 }
@@ -215,71 +211,7 @@ function noteLeadersOnStaff(measure: Element, staffN: number): Element[] {
   return out;
 }
 
-/** 같은 명시 연주순번·같은 pitch OMR duplicate leader 제거(가장 이른 onset 1개만 유지). */
-function dedupePlayOrderPitchDuplicates(measure: Element, staffN: number, leaders: Element[]): boolean {
-  let onsets = collectStaffNoteOnsets(measure, staffN);
-  const sorted = [...leaders].sort(
-    (a, b) => (onsets.get(a) ?? 0) - (onsets.get(b) ?? 0) || [...measure.children].indexOf(a) - [...measure.children].indexOf(b),
-  );
-  const keeperByPitch = new Map<string, Element>();
-  let changed = false;
-  for (const leader of sorted) {
-    const pitch = xmlPitchLabel(leader);
-    if (!keeperByPitch.has(pitch)) {
-      keeperByPitch.set(pitch, leader);
-      continue;
-    }
-    for (const n of noteGroupWithChords(measure, leader)) {
-      if (n.parentNode === measure) measure.removeChild(n);
-    }
-    changed = true;
-    onsets = collectStaffNoteOnsets(measure, staffN);
-  }
-  return changed;
-}
-
-/**
- * OSMD 미리보기 — 같은 명시 연주순번의 **동일 pitch leader** OMR duplicate만 제거.
- * 박자·pitch가 다른 음(F4 4분 + E5 8분 등)은 chord/onset 병합하지 않음 → render 후 SVG column 정렬.
- */
-export function dedupeSamePlayOrderPitchLayersForOsmdPreview(measure: Element): boolean {
-  const staves = new Set<number>();
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
-  }
-  let changed = false;
-  for (const staffN of staves) {
-    const byOrder = new Map<number, Element[]>();
-    for (const leader of noteLeadersOnStaff(measure, staffN)) {
-      const po = readPlayOrder(leader);
-      if (po == null) continue;
-      const list = byOrder.get(po) ?? [];
-      list.push(leader);
-      byOrder.set(po, list);
-    }
-    let staffChanged = false;
-    const leadersWithPo = noteLeadersOnStaff(measure, staffN).filter((l) => readPlayOrder(l) != null);
-    if (leadersWithPo.length >= 2) {
-      staffChanged = dedupePlayOrderPitchDuplicates(measure, staffN, leadersWithPo) || staffChanged;
-    }
-    changed = staffChanged || changed;
-  }
-  return changed;
-}
-
-/** @deprecated dedupeSamePlayOrderPitchLayersForOsmdPreview — chord/onset 병합은 사용하지 않음 */
-export function coalesceSamePlayOrderOnsetsForOsmdPreview(measure: Element): boolean {
-  return dedupeSamePlayOrderPitchLayersForOsmdPreview(measure);
-}
-
-/** @deprecated dedupeSamePlayOrderPitchLayersForOsmdPreview */
-export function alignOnsetsForSamePlayOrderPreview(measure: Element): boolean {
-  return dedupeSamePlayOrderPitchLayersForOsmdPreview(measure);
-}
-
-/**
- * @deprecated voice·박자가 다른 연주순번 음을 한 voice로 합치면 timeline·빔이 깨짐. 미리보기에서 호출하지 않음.
- */
+/** OSMD 미리보기 — 같은 명시 연주순번 leader를 동일 voice로(OSMD column 분리 완화). 저장 MXL 불변 경로 밖에서만 호출. */
 export function unifyVoiceForSamePlayOrderPreview(measure: Element): boolean {
   const staves = new Set<number>();
   for (const child of [...measure.children]) {

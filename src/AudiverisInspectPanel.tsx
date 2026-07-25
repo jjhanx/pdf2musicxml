@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { dedupeSamePlayOrderPitchLayersForOsmdPreview } from '../shared/musicXmlPlayOrder';
+import { unifyVoiceForSamePlayOrderPreview } from '../shared/musicXmlPlayOrder';
 import {
   realignMeasureDefaultXFromTimelineForOsmd,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
@@ -579,7 +579,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
-  dedupeSamePlayOrderPitchLayersForOsmdPreview(measure);
+  unifyVoiceForSamePlayOrderPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -607,7 +607,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
-  dedupeSamePlayOrderPitchLayersForOsmdPreview(measure);
+  unifyVoiceForSamePlayOrderPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;

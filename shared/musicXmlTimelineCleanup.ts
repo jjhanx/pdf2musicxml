@@ -1,4 +1,5 @@
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
+import { applyPreviewOnsetSlotLayoutToMeasure, applyPreviewOnsetSlotLayoutToXml } from './musicXmlPreviewOnsetLayout';
 
 const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
 
@@ -327,64 +328,11 @@ function measureLengthUnits(measure: Element): number {
   return Math.max(1, Math.round((divisions * beats * 4) / beatType));
 }
 
-function staffTimedLeaderStarts(
-  measure: Element,
-  staffN: number,
-): Array<{ note: Element; start: number }> {
-  const voiceCursor = new Map<string, number>();
-  let lastNoteVoice = '1';
-  const out: Array<{ note: Element; start: number }> = [];
-  for (const child of [...measure.children]) {
-    const tag = xmlLocalName(child);
-    if (tag === 'backup') {
-      const v = timelineVoiceEl(child, lastNoteVoice);
-      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - timelineDurationEl(child)));
-    } else if (tag === 'forward') {
-      const v = timelineVoiceEl(child, lastNoteVoice);
-      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + timelineDurationEl(child));
-    } else if (tag === 'note') {
-      if (child.querySelector('chord, *|chord') !== null) continue;
-      if (noteStaffNumber(child) !== staffN) continue;
-      const voice = noteVoiceNumber(child);
-      lastNoteVoice = voice;
-      const start = voiceCursor.get(voice) ?? 0;
-      out.push({ note: child, start });
-      voiceCursor.set(voice, start + noteDurationValue(child));
-    }
-  }
-  return out;
-}
-
-function setDefaultXOnChordGroup(measure: Element, leader: Element, x: string): void {
-  leader.setAttribute('default-x', x);
-  const children = [...measure.children];
-  const start = children.indexOf(leader);
-  if (start < 0) return;
-  for (let i = start + 1; i < children.length; i += 1) {
-    const el = children[i]!;
-    if (xmlLocalName(el) !== 'note') break;
-    if (el.querySelector('chord, *|chord') === null) break;
-    el.setAttribute('default-x', x);
-  }
-}
-
 function realignMeasureDefaultXFromTimeline(measure: Element): void {
-  const measureLen = measureLengthUnits(measure);
-  const baseX = 32;
-  const span = 400;
-  const staves = new Set<number>();
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
-  }
-  for (const staffN of staves) {
-    for (const { note, start } of staffTimedLeaderStarts(measure, staffN)) {
-      const x = (baseX + (start / measureLen) * span).toFixed(2);
-      setDefaultXOnChordGroup(measure, note, x);
-    }
-  }
+  applyPreviewOnsetSlotLayoutToMeasure(measure);
 }
 
-/** 단일 마디 OSMD 미리보기 — voice timeline 시작 시점으로 default-x 재주입. */
+/** 단일 마디 OSMD 미리보기 — onset slot·lyric slot·default-x 재주입. */
 export function realignMeasureDefaultXFromTimelineForOsmd(measure: Element): void {
   realignMeasureDefaultXFromTimeline(measure);
 }
@@ -944,19 +892,7 @@ export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boole
  * `default-x` 재주입. 동시 시작(다른 voice·박자) 음이 같은 수평선에 그려지게 함.
  */
 export function realignDefaultXFromStaffTimelineForOsmdPreview(xml: string): string {
-  try {
-    const doc = parseMusicXmlDocument(xml);
-    if (!doc) return xml;
-    for (const part of findXmlParts(doc)) {
-      for (const measure of [...part.children]) {
-        if (xmlLocalName(measure) !== 'measure') continue;
-        realignMeasureDefaultXFromTimeline(measure);
-      }
-    }
-    return serializeMusicXmlDocument(doc);
-  } catch {
-    return xml;
-  }
+  return applyPreviewOnsetSlotLayoutToXml(xml);
 }
 
 /**

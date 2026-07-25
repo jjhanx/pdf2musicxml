@@ -350,6 +350,25 @@ def _read_play_order(note: ET.Element) -> int | None:
     return n if n > 0 else None
 
 
+def _note_pitch_label(note: ET.Element, ns: str) -> str | None:
+    pitch_el = note.find(_q(ns, "pitch"))
+    if pitch_el is None:
+        return None
+    step = pitch_el.find(_q(ns, "step"))
+    oct_el = pitch_el.find(_q(ns, "octave"))
+    alter_el = pitch_el.find(_q(ns, "alter"))
+    if step is None or oct_el is None or not step.text or not oct_el.text:
+        return None
+    acc = ""
+    if alter_el is not None and alter_el.text:
+        try:
+            a = int(float(alter_el.text.strip()))
+            acc = "b" if a == -1 else "#" if a == 1 else ""
+        except ValueError:
+            pass
+    return f"{step.text.strip()}{acc}{oct_el.text.strip()}"
+
+
 def _set_play_order_on_leader(notes: list[ET.Element], ns: str, leader_i: int, order: int) -> bool:
     if order < 1:
         changed = False
@@ -367,6 +386,27 @@ def _set_play_order_on_leader(notes: list[ET.Element], ns: str, leader_i: int, o
             break
         if notes[j].get(PLAY_ORDER_ATTR) != order_s:
             notes[j].set(PLAY_ORDER_ATTR, order_s)
+            changed = True
+    return changed
+
+
+def _set_play_order_same_pitch_staff_leaders(
+    notes: list[ET.Element], ns: str, leader_i: int, order: int,
+) -> bool:
+    """같은 staff·음높이의 다른 voice 중복 leader에도 연주순번을 맞춤 (OMR 다중 voice 잔여)."""
+    target_pitch = _note_pitch_label(notes[leader_i], ns)
+    if not target_pitch:
+        return _set_play_order_on_leader(notes, ns, leader_i, order)
+    _, target_staff = _note_voice_staff(notes[leader_i], ns)
+    changed = False
+    for i, note in enumerate(notes):
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        if _note_pitch_label(note, ns) != target_pitch:
+            continue
+        if _note_voice_staff(note, ns)[1] != target_staff:
+            continue
+        if _set_play_order_on_leader(notes, ns, i, order):
             changed = True
     return changed
 
@@ -3607,7 +3647,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if idx < 0 or idx >= len(notes):
             return False
         leader_i = _chord_leader_index(notes, ns, idx)
-        return _set_play_order_on_leader(notes, ns, leader_i, order)
+        return _set_play_order_same_pitch_staff_leaders(notes, ns, leader_i, order)
 
     if kind == "addArticulation":
         try:
@@ -4806,10 +4846,12 @@ def _link_parallel_onsets_by_indices(
     if _compact_default_x_by_staff(measure, ns):
         changed = True
     defaults = _default_play_orders_for_staff(measure, ns, staff)
-    anchor_order = defaults.get(anchor_leader, anchor_leader + 1)
+    parallel_order = min(
+        defaults.get(_chord_leader_index(notes, ns, i), i + 1) for i in selected
+    )
     for i in selected:
         leader_i = _chord_leader_index(notes, ns, i)
-        if _set_play_order_on_leader(notes, ns, leader_i, anchor_order):
+        if _set_play_order_same_pitch_staff_leaders(notes, ns, leader_i, parallel_order):
             changed = True
     return changed
 

@@ -5,7 +5,7 @@ import {
   type PlayOrderAlignGroup,
   type PlayOrderAlignMember,
 } from '../shared/musicXmlPlayOrder';
-import { forEachGraphicalMeasure, measureMxlFromGraphic } from './osmdMeasureClick';
+import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
 
 const previewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
 
@@ -55,15 +55,6 @@ function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
   const accRaw = coordNum(pitch.Accidental ?? pitch.accidental);
   const acc = accRaw === -1 ? 'b' : accRaw === 1 ? '#' : '';
   return `${STEP_NAMES[fn] ?? 'C'}${acc}${oct}`;
-}
-
-function voiceFromGraphicNote(gn: Record<string, unknown>): string | null {
-  const src = asRecord(gn.sourceNote ?? gn.SourceNote);
-  const parent = asRecord(src?.ParentVoiceEntry ?? src?.parentVoiceEntry);
-  const voice = asRecord(parent?.Voice ?? parent?.voice);
-  const vid = voice?.VoiceId ?? voice?.voiceId ?? voice?.voiceNumber ?? voice?.VoiceNumber;
-  if (vid == null) return null;
-  return String(vid);
 }
 
 function noteheadCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
@@ -130,12 +121,6 @@ type StaveGraphic = {
   centerX: number;
 };
 
-function memberMatches(graphicPitch: string | null, graphicVoice: string | null, member: PlayOrderAlignMember): boolean {
-  if (!graphicPitch || graphicPitch !== member.pitch) return false;
-  if (graphicVoice == null) return true;
-  return graphicVoice === member.voice || graphicVoice === String(parseInt(member.voice, 10));
-}
-
 function alignPlayOrderGroup(items: StaveGraphic[]): void {
   const bySvg = new Map<SVGGraphicsElement, StaveGraphic>();
   for (const item of items) {
@@ -153,8 +138,11 @@ function alignPlayOrderGroup(items: StaveGraphic[]): void {
 }
 
 function collectGraphicsForGroup(osmd: OpenSheetMusicDisplay, group: PlayOrderAlignGroup): StaveGraphic[] {
+  const targetPitches = new Set(group.members.map((m) => m.pitch));
   const out: StaveGraphic[] = [];
-  forEachGraphicalMeasure(osmd, (gmRaw, partId) => {
+  forEachGraphicalMeasure(osmd, (gmRaw) => {
+    const partId = partIdFromGraphic(gmRaw);
+    if (!partId) return;
     const basePart = group.partId.replace(/__PR$|__PL$/, '');
     if (partId !== group.partId && partId !== basePart && partId !== `${basePart}__PR` && partId !== `${basePart}__PL`) {
       return;
@@ -171,8 +159,7 @@ function collectGraphicsForGroup(osmd: OpenSheetMusicDisplay, group: PlayOrderAl
           const gn = asRecord(gnRaw);
           if (!gn) continue;
           const pitch = pitchFromGraphicNote(gn);
-          const voice = voiceFromGraphicNote(gn);
-          if (!group.members.some((m) => memberMatches(pitch, voice, m))) continue;
+          if (!targetPitches.has(pitch ?? '')) continue;
           const svgEl = (gn as { getSVGGElement?: () => SVGGraphicsElement | null }).getSVGGElement?.();
           const stavenote = stavenoteFromGraphicEl(svgEl);
           if (!stavenote) continue;
@@ -217,17 +204,15 @@ export function alignOsmdPreviewNotesByOnsetColumn(
     if (items.length >= 2) alignPlayOrderGroup(items);
   }
 
-  if (groups.length === 0) {
-    forEachGraphicalMeasure(osmd, (gmRaw) => {
-      const gm = asRecord(gmRaw);
-      if (!gm) return;
-      for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
-        const se = asRecord(seRaw);
-        if (!se) continue;
-        alignStaffEntryColumnFallback(se);
-      }
-    });
-  }
+  forEachGraphicalMeasure(osmd, (gmRaw) => {
+    const gm = asRecord(gmRaw);
+    if (!gm) return;
+    for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
+      const se = asRecord(seRaw);
+      if (!se) continue;
+      alignStaffEntryColumnFallback(se);
+    }
+  });
 }
 
 export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHint): number {

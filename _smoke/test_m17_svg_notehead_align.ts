@@ -14,7 +14,10 @@ import {
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { alignOsmdPreviewNotesByOnsetColumn } from '../src/osmdOnsetColumnAlignFix';
+import {
+  alignOsmdPreviewNotesByOnsetColumn,
+  registerOsmdPreviewXmlForAlign,
+} from '../src/osmdOnsetColumnAlignFix';
 import { forEachGraphicalMeasure, measureMxlFromGraphic } from '../src/osmdMeasureClick';
 
 const OSMD =
@@ -114,6 +117,7 @@ async function main() {
   host.style.width = '900px';
   const osmd = new OSMD!(host, { autoResize: true, backend: 'svg', drawMeasureNumbers: false });
   const rules = (osmd as { EngravingRules: Record<string, unknown> }).EngravingRules;
+  registerOsmdPreviewXmlForAlign(osmd as never, slice);
   await (osmd as { load: (x: string) => Promise<void> }).load(slice);
   (osmd as { render: () => void }).render();
 

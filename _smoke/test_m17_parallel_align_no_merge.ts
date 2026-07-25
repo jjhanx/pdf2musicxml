@@ -1,5 +1,5 @@
 /**
- * m17 PR: no chord merge — E5 stays eighth + beam; preview VoiceSpacing=0 + same default-x.
+ * m17 PR: eighth+beam preserved; preview onset-column align (no VoiceSpacing change).
  * Run: npx tsx _smoke/test_m17_parallel_align_no_merge.ts
  */
 import fs from 'node:fs';
@@ -15,7 +15,10 @@ import {
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { osmdTimestampFromLinkedParallelHint } from '../src/osmdLinkedParallelAlignFix';
+import {
+  alignOsmdPreviewNotesByOnsetColumn,
+  osmdTimestampFromLinkedParallelHint,
+} from '../src/osmdOnsetColumnAlignFix';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown }).OpenSheetMusicDisplay ??
@@ -35,6 +38,17 @@ Object.assign(globalThis, {
     return 0;
   },
 });
+if (!dom.window.SVGSVGElement.prototype.createSVGPoint) {
+  dom.window.SVGSVGElement.prototype.createSVGPoint = function () {
+    const pt = { x: 0, y: 0 };
+    return {
+      ...pt,
+      matrixTransform(m: DOMMatrix) {
+        return { x: m.a * pt.x + m.c * pt.y + m.e, y: m.b * pt.x + m.d * pt.y + m.f };
+      },
+    };
+  } as typeof dom.window.SVGSVGElement.prototype.createSVGPoint;
+}
 
 const local = (el: Element) => el.localName?.toLowerCase() ?? el.tagName.toLowerCase();
 
@@ -43,11 +57,6 @@ function pitch(n: Element): string {
   const oct = n.querySelector('octave,*|octave')?.textContent ?? '';
   const alter = n.querySelector('alter,*|alter')?.textContent ?? '';
   return `${step}${alter === '-1' ? 'b' : ''}${oct}`;
-}
-
-function applyPreviewVoiceSpacing(rules: Record<string, unknown>): void {
-  rules.VoiceSpacingMultiplierVexflow = 0;
-  rules.VoiceSpacingAddendVexflow = 0;
 }
 
 function buildPrPreview(raw: string): {
@@ -102,27 +111,17 @@ async function main() {
   if (!e5 || e5.querySelector('chord,*|chord')) throw new Error('E5 must not be chord');
   if (e5.querySelector('type,*|type')?.textContent !== 'eighth') throw new Error('E5 must stay eighth');
 
-  const f4 = [...m17.children]
-    .filter((c) => local(c) === 'note')
-    .find((n) => pitch(n as Element) === 'F4') as Element;
-  const bb = [...m17.children]
-    .filter((c) => local(c) === 'note')
-    .find((n) => pitch(n as Element) === 'Bb4') as Element;
-  const xs = new Set([f4?.getAttribute('default-x'), bb?.getAttribute('default-x'), e5.getAttribute('default-x')]);
-  if (xs.size !== 1) throw new Error(`parallel default-x differ: ${[...xs].join(',')}`);
-
   const host = document.getElementById('h')!;
   host.style.width = '900px';
   const osmd = new OSMD!(host, { autoResize: true, backend: 'svg', drawMeasureNumbers: false });
   const rules = (osmd as { EngravingRules: Record<string, unknown> }).EngravingRules;
-  applyPreviewVoiceSpacing(rules);
   await (osmd as { load: (x: string) => Promise<void> }).load(preview);
-  applyPreviewVoiceSpacing(rules);
   (osmd as { render: () => void }).render();
-  console.log('m17 preview ok', {
-    hints: hints.filter((h) => h.measureNumber === 17),
-    voiceSpacing: rules.VoiceSpacingMultiplierVexflow,
-  });
+  alignOsmdPreviewNotesByOnsetColumn(osmd as never);
+  if (rules.VoiceSpacingMultiplierVexflow === 0) {
+    throw new Error('VoiceSpacing must stay at OSMD default');
+  }
+  console.log('m17 onset-column preview ok', hints.filter((h) => h.measureNumber === 17));
 }
 
 main().catch((e) => {

@@ -28,6 +28,7 @@ import {
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
+import { alignOsmdPreviewNotesByOnsetColumn } from './osmdOnsetColumnAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
@@ -67,9 +68,6 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
   rules.UseXMLMeasureNumbers = false;
-  /** 각 오선 = 한 성부 — voice column 없이 onset·default-x 기준 왼→오 배치(미리보기 전용, MXL voice·빔 유지) */
-  rules.VoiceSpacingMultiplierVexflow = 0;
-  rules.VoiceSpacingAddendVexflow = 0;
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
@@ -1854,6 +1852,14 @@ export function OsmdBlock({
     );
   }, [syncPartLabelOverlay]);
 
+  const syncOnsetColumnAlign = useCallback((_host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => {
+    try {
+      alignOsmdPreviewNotesByOnsetColumn(osmd);
+    } catch (e) {
+      console.warn('[osmd] onset column align skipped:', e);
+    }
+  }, []);
+
   const afterOsmdRender = useCallback(() => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -1942,6 +1948,7 @@ export function OsmdBlock({
           roRef,
           onAfterRender: afterOsmdRender,
           afterOsmdRenderSync: (h, o) => {
+            syncOnsetColumnAlign(h, o);
             finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
           },
         });
@@ -2001,10 +2008,11 @@ export function OsmdBlock({
       roRef,
       onAfterRender: afterOsmdRender,
       afterOsmdRenderSync: (h, o) => {
+        syncOnsetColumnAlign(h, o);
         finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
       },
     });
-  }, [zoom, afterOsmdRender]);
+  }, [zoom, afterOsmdRender, syncOnsetColumnAlign]);
 
   useEffect(() => {
     const host = hostRef.current;

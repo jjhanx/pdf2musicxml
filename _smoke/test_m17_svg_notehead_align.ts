@@ -1,19 +1,20 @@
 /**
- * m17 linkParallel: same default-x + preview VoiceSpacing=0 (no SVG post-align).
+ * m17: onset-column align without VoiceSpacing=0.
  * Run: npx tsx _smoke/test_m17_svg_notehead_align.ts
  */
+import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import osmdLib from 'opensheetmusicdisplay';
 import {
   repairTimelineForOsmdPreview,
-  collectLinkedParallelOnsetHintsFromXml,
   snapshotNoteDefaultXForOsmdPreview,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
+import { alignOsmdPreviewNotesByOnsetColumn } from '../src/osmdOnsetColumnAlignFix';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown }).OpenSheetMusicDisplay ??
@@ -25,7 +26,6 @@ Object.assign(globalThis, {
   document: dom.window.document,
   window: dom.window,
   DOMParser: dom.window.DOMParser,
-  XMLSerializer: dom.window.XMLSerializer,
   Node: dom.window.Node,
   Element: dom.window.Element,
   requestAnimationFrame: (cb: FrameRequestCallback) => {
@@ -50,16 +50,16 @@ const local = (el: Element) => el.localName?.toLowerCase() ?? el.tagName.toLower
 function buildM17Slice(raw: string): string {
   let xml = repairTimelineForOsmdPreview(raw);
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
-  const part = [...doc.getElementsByTagName('part')].find((p) => p.getAttribute('id') === 'P5')!;
+  const part = [...doc.querySelectorAll('part,*|part')].find((p) => p.getAttribute('id') === 'P5')!;
   for (const measure of [...part.children]) {
     if (local(measure) !== 'measure') continue;
     for (const child of [...measure.children]) {
       if (local(child) === 'note') {
-        const st = child.querySelector('staff')?.textContent?.trim();
+        const st = child.querySelector('staff,*|staff')?.textContent?.trim();
         if (st && st !== '1') child.remove();
       }
     }
-    [...measure.querySelectorAll('note staff')].forEach((el) => {
+    [...measure.querySelectorAll('note staff,note *|staff')].forEach((el) => {
       el.textContent = '1';
     });
     pruneCrossStaffTimelineForOsmdPreview(measure, 1);
@@ -71,55 +71,62 @@ function buildM17Slice(raw: string): string {
   const m17 = [...part.children].find(
     (c) => local(c) === 'measure' && c.getAttribute('number') === '17',
   )!;
-  return repairTimelineForOsmdPreview(
-    `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P5"><part-name>PR</part-name></score-part></part-list><part id="P5">${m17.outerHTML}</part></score-partwise>`,
-  );
+  return `<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P5"><part-name/></score-part></part-list><part id="P5">${m17.outerHTML}</part></score-partwise>`;
 }
 
 function noteheadCenterX(stavenote: SVGGraphicsElement): number | null {
-  const svg = stavenote.ownerSVGElement;
-  if (!svg) return null;
   const xs: number[] = [];
   for (const path of stavenote.querySelectorAll('.vf-notehead path')) {
     const d = path.getAttribute('d');
     if (!d) continue;
     const m = /^M\s*([-\d.]+)/.exec(d.trim());
     if (!m) continue;
-    const pt = svg.createSVGPoint();
-    pt.x = parseFloat(m[1]!);
-    pt.y = 0;
-    const ctm = (path as SVGGraphicsElement).getCTM?.();
-    if (ctm) xs.push(pt.matrixTransform(ctm).x);
+    const localX = parseFloat(m[1]!);
+    const pathEl = path as SVGGraphicsElement;
+    const ctm = pathEl.getCTM?.();
+    if (ctm) {
+      xs.push(ctm.a * localX + ctm.e);
+      continue;
+    }
+    let tx = 0;
+    let cur: Element | null = pathEl;
+    while (cur) {
+      const tr = cur.getAttribute?.('transform') ?? '';
+      const tm = /translate\(\s*([-\d.]+)/.exec(tr);
+      if (tm) tx += parseFloat(tm[1]!);
+      cur = cur.parentElement;
+    }
+    xs.push(tx + localX);
   }
   if (!xs.length) return null;
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
 async function main() {
+  if (!fs.existsSync('omr-work-0ea5ea52.zip')) {
+    console.log('skip');
+    return;
+  }
   const raw = execSync('python _smoke/_export_m17_parallel_fix.py', { encoding: 'utf8', maxBuffer: 20e6 });
   const slice = buildM17Slice(raw);
-  const hints = collectLinkedParallelOnsetHintsFromXml(slice).filter((h) => h.measureNumber === 17);
-  if (!hints.length) throw new Error('no m17 linked parallel hints');
-
   const host = document.getElementById('host')!;
   host.style.width = '900px';
-  const osmd = new OSMD!(host, { autoResize: false, backend: 'svg', drawMeasureNumbers: false });
+  const osmd = new OSMD!(host, { autoResize: true, backend: 'svg', drawMeasureNumbers: false });
   const rules = (osmd as { EngravingRules: Record<string, unknown> }).EngravingRules;
-  rules.VoiceSpacingMultiplierVexflow = 0;
-  rules.VoiceSpacingAddendVexflow = 0;
   await (osmd as { load: (x: string) => Promise<void> }).load(slice);
   (osmd as { render: () => void }).render();
+  alignOsmdPreviewNotesByOnsetColumn(osmd as never);
 
-  const xs = [...host.querySelectorAll('.vf-stavenote')]
+  const xs = [...host.querySelectorAll('.vf-stavenote, .vf-staveNote')]
     .map((sn) => noteheadCenterX(sn as SVGGraphicsElement))
     .filter((x): x is number => x != null)
     .sort((a, b) => a - b);
   if (xs.length < 3) throw new Error(`expected >=3 stavenotes, got ${xs.length}`);
-
   const parallelXs = xs.slice(1, 3);
   const spread = Math.abs(parallelXs[1]! - parallelXs[0]!);
   if (spread > 0.5) throw new Error(`misalign spread=${spread}`);
-  console.log('OK m17 voiceSpacing preview', { spread, xs });
+  if (rules.VoiceSpacingMultiplierVexflow === 0) throw new Error('VoiceSpacing unchanged');
+  console.log('OK m17 onset column', { spread, xs });
 }
 
 main().catch((e) => {

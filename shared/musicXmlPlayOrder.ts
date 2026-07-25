@@ -367,6 +367,60 @@ export function applyPlayOrderLayoutToXml(xml: string): string {
   }
 }
 
+export type ExplicitPlayOrderColumn = {
+  partId: string;
+  measureNumber: number;
+  playOrder: number;
+  defaultXTenths: number;
+  pitches: string[];
+};
+
+/** 명시 연주순번 column — part·마디·순번별 default-x·pitch(화음 member 포함). */
+export function collectExplicitPlayOrderColumnsFromXml(xml: string): ExplicitPlayOrderColumn[] {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return [];
+    const byKey = new Map<string, ExplicitPlayOrderColumn>();
+    for (const part of findXmlParts(doc)) {
+      const partId = part.getAttribute('id')?.trim() ?? '';
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        const measureNumber = parseInt(measure.getAttribute('number') ?? '0', 10);
+        if (!Number.isFinite(measureNumber) || measureNumber <= 0) continue;
+        for (const leader of allLeadersInMeasure(measure)) {
+          if (isRestNote(leader) || isGraceNote(leader)) continue;
+          const playOrder = readPlayOrder(leader);
+          if (playOrder == null) continue;
+          const rawX = leader.getAttribute('default-x')?.trim();
+          if (!rawX) continue;
+          const defaultXTenths = parseFloat(rawX);
+          if (!Number.isFinite(defaultXTenths)) continue;
+          const key = `${partId}|${measureNumber}|${playOrder}`;
+          let col = byKey.get(key);
+          if (!col) {
+            col = { partId, measureNumber, playOrder, defaultXTenths, pitches: [] };
+            byKey.set(key, col);
+          } else {
+            col.defaultXTenths = Math.min(col.defaultXTenths, defaultXTenths);
+          }
+          const pitchSet = new Set(col.pitches);
+          for (const note of noteGroupWithChords(measure, leader)) {
+            if (isRestNote(note) || isGraceNote(note)) continue;
+            const p = xmlPitchLabel(note);
+            if (!pitchSet.has(p)) {
+              pitchSet.add(p);
+              col.pitches.push(p);
+            }
+          }
+        }
+      }
+    }
+    return [...byKey.values()].filter((c) => c.pitches.length >= 1);
+  } catch {
+    return [];
+  }
+}
+
 export type PlayOrderAlignMember = {
   pitch: string;
 };
@@ -403,7 +457,10 @@ export function collectPlayOrderAlignGroupsFromXml(xml: string): PlayOrderAlignG
             const order = readPlayOrder(leader);
             if (order == null) continue;
             const list = byOrder.get(order) ?? [];
-            list.push({ pitch: xmlPitchLabel(leader) });
+            for (const note of noteGroupWithChords(measure, leader)) {
+              if (isRestNote(note) || isGraceNote(note)) continue;
+              list.push({ pitch: xmlPitchLabel(note) });
+            }
             byOrder.set(order, list);
           }
           for (const [playOrder, members] of byOrder) {

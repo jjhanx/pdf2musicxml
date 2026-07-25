@@ -981,10 +981,6 @@ export function OmrMeasureEditor({
   }, [editStaffWithinPart]);
 
   useEffect(() => {
-    setParallelPick(new Set());
-  }, [previewRevision, measureMxl, partId]);
-
-  useEffect(() => {
     setPendingInsertLeader(null);
   }, [previewRevision, insertAfter, partId, measureMxl]);
 

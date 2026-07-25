@@ -1,6 +1,22 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import type { LinkedParallelOnsetHint } from '../shared/musicXmlTimelineCleanup';
-import { forEachGraphicalMeasure } from './osmdMeasureClick';
+import {
+  collectPlayOrderAlignGroupsFromXml,
+  type PlayOrderAlignGroup,
+  type PlayOrderAlignMember,
+} from '../shared/musicXmlPlayOrder';
+import { forEachGraphicalMeasure, measureMxlFromGraphic } from './osmdMeasureClick';
+
+const previewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
+
+export function registerOsmdPreviewXmlForAlign(osmd: OpenSheetMusicDisplay, xml: string): void {
+  previewXmlByOsmd.set(osmd, xml);
+}
+
+function resolvePreviewXml(osmd: OpenSheetMusicDisplay, explicit?: string | null): string | null {
+  if (explicit?.trim()) return explicit;
+  return previewXmlByOsmd.get(osmd) ?? null;
+}
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
@@ -18,7 +34,38 @@ function parseAccumulatedTranslateX(el: Element | null): number {
   return x;
 }
 
-/** notehead → SVG 루트 x. 브라우저는 getBoundingClientRect, jsdom은 CTM/transform fallback. */
+const STEP_NAMES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+
+function coordNum(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const r = asRecord(v);
+  if (!r) return null;
+  if (typeof r.realValue === 'number' && Number.isFinite(r.realValue)) return r.realValue;
+  if (typeof r.RealValue === 'number' && Number.isFinite(r.RealValue)) return r.RealValue;
+  return null;
+}
+
+function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
+  const src = asRecord(gn.sourceNote ?? gn.SourceNote);
+  const pitch = asRecord(src?.Pitch ?? src?.pitch);
+  if (!pitch) return null;
+  const fn = coordNum(pitch.FundamentalNote ?? pitch.fundamentalNote);
+  const oct = coordNum(pitch.Octave ?? pitch.octave);
+  if (fn == null || oct == null || fn < 0 || fn > 6) return null;
+  const accRaw = coordNum(pitch.Accidental ?? pitch.accidental);
+  const acc = accRaw === -1 ? 'b' : accRaw === 1 ? '#' : '';
+  return `${STEP_NAMES[fn] ?? 'C'}${acc}${oct}`;
+}
+
+function voiceFromGraphicNote(gn: Record<string, unknown>): string | null {
+  const src = asRecord(gn.sourceNote ?? gn.SourceNote);
+  const parent = asRecord(src?.ParentVoiceEntry ?? src?.parentVoiceEntry);
+  const voice = asRecord(parent?.Voice ?? parent?.voice);
+  const vid = voice?.VoiceId ?? voice?.voiceId ?? voice?.voiceNumber ?? voice?.VoiceNumber;
+  if (vid == null) return null;
+  return String(vid);
+}
+
 function noteheadCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
   const svg = stavenote.ownerSVGElement;
   const xs: number[] = [];
@@ -76,16 +123,71 @@ function applySvgTranslateX(svg: SVGGraphicsElement, dxRoot: number): void {
   svg.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
 }
 
+const MAX_PLAY_ORDER_ALIGN_SHIFT_PX = 120;
+
 type StaveGraphic = {
   svg: SVGGraphicsElement;
   centerX: number;
 };
 
-/** voice column 간격보다 큰 이동은 좌표계 오류 신호 — staffEntry 정렬 생략. */
-const MAX_ONSET_ALIGN_SHIFT_PX = 120;
+function memberMatches(graphicPitch: string | null, graphicVoice: string | null, member: PlayOrderAlignMember): boolean {
+  if (!graphicPitch || graphicPitch !== member.pitch) return false;
+  if (graphicVoice == null) return true;
+  return graphicVoice === member.voice || graphicVoice === String(parseInt(member.voice, 10));
+}
 
-function collectStaveGraphicsFromStaffEntry(se: Record<string, unknown>): StaveGraphic[] {
+function alignPlayOrderGroup(items: StaveGraphic[]): void {
+  const bySvg = new Map<SVGGraphicsElement, StaveGraphic>();
+  for (const item of items) {
+    const prev = bySvg.get(item.svg);
+    if (!prev || item.centerX < prev.centerX) bySvg.set(item.svg, item);
+  }
+  const unique = [...bySvg.values()];
+  if (unique.length < 2) return;
+  const anchorX = Math.min(...unique.map((u) => u.centerX));
+  const maxShift = Math.max(...unique.map((u) => Math.abs(anchorX - u.centerX)));
+  if (maxShift > MAX_PLAY_ORDER_ALIGN_SHIFT_PX) return;
+  for (const u of unique) {
+    applySvgTranslateX(u.svg, anchorX - u.centerX);
+  }
+}
+
+function collectGraphicsForGroup(osmd: OpenSheetMusicDisplay, group: PlayOrderAlignGroup): StaveGraphic[] {
   const out: StaveGraphic[] = [];
+  forEachGraphicalMeasure(osmd, (gmRaw, partId) => {
+    const basePart = group.partId.replace(/__PR$|__PL$/, '');
+    if (partId !== group.partId && partId !== basePart && partId !== `${basePart}__PR` && partId !== `${basePart}__PL`) {
+      return;
+    }
+    if (measureMxlFromGraphic(gmRaw) !== group.measureNumber) return;
+
+    for (const seRaw of ((asRecord(gmRaw)?.staffEntries ?? asRecord(gmRaw)?.StaffEntries) as unknown[]) ?? []) {
+      const se = asRecord(seRaw);
+      if (!se) continue;
+      for (const gveRaw of (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[]) {
+        const gve = asRecord(gveRaw);
+        if (!gve) continue;
+        for (const gnRaw of (gve.notes ?? gve.Notes ?? []) as unknown[]) {
+          const gn = asRecord(gnRaw);
+          if (!gn) continue;
+          const pitch = pitchFromGraphicNote(gn);
+          const voice = voiceFromGraphicNote(gn);
+          if (!group.members.some((m) => memberMatches(pitch, voice, m))) continue;
+          const svgEl = (gn as { getSVGGElement?: () => SVGGraphicsElement | null }).getSVGGElement?.();
+          const stavenote = stavenoteFromGraphicEl(svgEl);
+          if (!stavenote) continue;
+          const centerX = noteheadCenterXInSvgRoot(stavenote);
+          if (centerX == null || !Number.isFinite(centerX)) continue;
+          out.push({ svg: stavenote, centerX });
+        }
+      }
+    }
+  });
+  return out;
+}
+
+function alignStaffEntryColumnFallback(se: Record<string, unknown>): void {
+  const items: StaveGraphic[] = [];
   for (const gveRaw of (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[]) {
     const gve = asRecord(gveRaw);
     if (!gve) continue;
@@ -97,46 +199,35 @@ function collectStaveGraphicsFromStaffEntry(se: Record<string, unknown>): StaveG
       if (!stavenote) continue;
       const centerX = noteheadCenterXInSvgRoot(stavenote);
       if (centerX == null || !Number.isFinite(centerX)) continue;
-      out.push({ svg: stavenote, centerX });
+      items.push({ svg: stavenote, centerX });
     }
   }
-  return out;
+  alignPlayOrderGroup(items);
 }
 
-/** 동일 staffEntry 내 notehead x 정렬 — SVG 픽셀 공간만 사용(OSMD AbsolutePosition과 혼용 금지). */
-function alignStaffEntryColumn(se: Record<string, unknown>): void {
-  const items = collectStaveGraphicsFromStaffEntry(se);
-  const bySvg = new Map<SVGGraphicsElement, StaveGraphic>();
-  for (const item of items) {
-    const prev = bySvg.get(item.svg);
-    if (!prev || item.centerX < prev.centerX) bySvg.set(item.svg, item);
+export function alignOsmdPreviewNotesByOnsetColumn(
+  osmd: OpenSheetMusicDisplay,
+  previewXml?: string | null,
+): void {
+  const xml = resolvePreviewXml(osmd, previewXml);
+  const groups = xml ? collectPlayOrderAlignGroupsFromXml(xml) : [];
+
+  for (const group of groups) {
+    const items = collectGraphicsForGroup(osmd, group);
+    if (items.length >= 2) alignPlayOrderGroup(items);
   }
-  const unique = [...bySvg.values()];
-  if (unique.length < 2) return;
 
-  const anchorX = Math.min(...unique.map((u) => u.centerX));
-  const maxShift = Math.max(...unique.map((u) => Math.abs(anchorX - u.centerX)));
-  if (maxShift > MAX_ONSET_ALIGN_SHIFT_PX) return;
-
-  for (const u of unique) {
-    applySvgTranslateX(u.svg, anchorX - u.centerX);
+  if (groups.length === 0) {
+    forEachGraphicalMeasure(osmd, (gmRaw) => {
+      const gm = asRecord(gmRaw);
+      if (!gm) return;
+      for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
+        const se = asRecord(seRaw);
+        if (!se) continue;
+        alignStaffEntryColumnFallback(se);
+      }
+    });
   }
-}
-
-/**
- * 미리보기 전용 — OSMD staffEntry(onset column)마다 notehead x를 타임라인 column에 맞춤.
- * XML onset slot/default-x와 독립적으로 zoom·voice column offset을 SVG translate로 보정.
- */
-export function alignOsmdPreviewNotesByOnsetColumn(osmd: OpenSheetMusicDisplay): void {
-  forEachGraphicalMeasure(osmd, (gmRaw) => {
-    const gm = asRecord(gmRaw);
-    if (!gm) return;
-    for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
-      const se = asRecord(seRaw);
-      if (!se) continue;
-      alignStaffEntryColumn(se);
-    }
-  });
 }
 
 export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHint): number {
@@ -144,7 +235,6 @@ export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHin
   return hint.onset / len;
 }
 
-/** @deprecated alignOsmdPreviewNotesByOnsetColumn 사용 */
 export function alignLinkedParallelOnsetGraphics(
   osmd: OpenSheetMusicDisplay,
   _hints: readonly LinkedParallelOnsetHint[],

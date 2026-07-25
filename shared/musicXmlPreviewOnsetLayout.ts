@@ -3,6 +3,7 @@
  * 저장 MXL voice·빔·duration은 불변; preview XML attribute만 추가.
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
+import { applyPlayOrderLayoutToMeasure } from './musicXmlPlayOrder';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -153,23 +154,7 @@ function setPreviewAttrsOnGroup(
  * 동시 onset(다 voice·다른 박자)은 같은 column·같은 x.
  */
 export function applyPreviewOnsetSlotLayoutToMeasure(measure: Element): void {
-  const measureLen = measureLengthUnits(measure);
-  const staves = new Set<number>();
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
-  }
-
-  for (const staffN of staves) {
-    const onsets = collectStaffNoteOnsets(measure, staffN);
-    const uniqueOnsets = [...new Set(onsets.values())].sort((a, b) => a - b);
-    const onsetToSlot = new Map(uniqueOnsets.map((o, i) => [o, i]));
-
-    for (const [leader, onset] of onsets) {
-      const slot = onsetToSlot.get(onset) ?? 0;
-      setPreviewAttrsOnGroup(measure, leader, onset, slot, measureLen);
-    }
-  }
-
+  applyPlayOrderLayoutToMeasure(measure);
   assignPreviewLyricSlotsToMeasure(measure);
 }
 

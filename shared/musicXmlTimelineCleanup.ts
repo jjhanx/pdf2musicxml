@@ -1,5 +1,6 @@
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import { applyPreviewOnsetSlotLayoutToMeasure, applyPreviewOnsetSlotLayoutToXml } from './musicXmlPreviewOnsetLayout';
+import { applyPlayOrderLayoutToMeasure, applyPlayOrderLayoutToXml } from './musicXmlPlayOrder';
 
 const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
 
@@ -329,7 +330,7 @@ function measureLengthUnits(measure: Element): number {
 }
 
 function realignMeasureDefaultXFromTimeline(measure: Element): void {
-  applyPreviewOnsetSlotLayoutToMeasure(measure);
+  applyPlayOrderLayoutToMeasure(measure);
 }
 
 /** 단일 마디 OSMD 미리보기 — onset slot·lyric slot·default-x 재주입. */
@@ -892,7 +893,7 @@ export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boole
  * `default-x` 재주입. 동시 시작(다른 voice·박자) 음이 같은 수평선에 그려지게 함.
  */
 export function realignDefaultXFromStaffTimelineForOsmdPreview(xml: string): string {
-  return applyPreviewOnsetSlotLayoutToXml(xml);
+  return applyPlayOrderLayoutToXml(xml);
 }
 
 /**

@@ -353,6 +353,12 @@ export type MeasureNoteEl = {
   noteDirection?: NoteDirectionInfo | null;
   /** 동일 음표에 words + dynamics 등 복수 direction */
   noteDirections?: NoteDirectionInfo[] | null;
+  /** HITL 명시 연주순번 (1-based). 없으면 자동. */
+  playOrder?: number | null;
+  /** voice timeline 기본 연주순번 */
+  defaultPlayOrder?: number | null;
+  /** UI 표시용 — playOrder ?? defaultPlayOrder */
+  displayPlayOrder?: number | null;
 };
 
 export type NoteDirectionInfo = {
@@ -936,7 +942,6 @@ export function OmrMeasureEditor({
   const [fixMsg, setFixMsg] = useState('');
   const [pendingInsertLeader, setPendingInsertLeader] = useState<PendingInsertLeader | null>(null);
   const [repairStaff, setRepairStaff] = useState(editStaffWithinPart ?? 1);
-  const [parallelPick, setParallelPick] = useState<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1071,74 +1076,10 @@ export function OmrMeasureEditor({
         </p>
       ) : null}
       <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
-        <strong>동시 시작·박자·줄기 다른 음</strong> (화음 아님): 아래 목록에서 해당 음에 ☑ 후{' '}
-        <strong>「선택 동시 시작으로 묶기」</strong>
-        — 예: 8분 E5(줄기 위) + 4분 E4(줄기 아래). 자동 정리는{' '}
-        {partStaveCount >= 2 && editStaffWithinPart == null ? (
-          <label style={{ marginRight: 6 }}>
-            줄
-            <select
-              value={String(repairStaff)}
-              onChange={(e) => setRepairStaff(parseInt(e.target.value, 10) || 1)}
-              style={{ marginLeft: 4 }}
-            >
-              <option value="1">{staffLabel === 'PL' ? 'staff 1' : 'PR / staff 1'}</option>
-              <option value="2">PL / staff 2</option>
-            </select>
-          </label>
-        ) : (
-          <span style={{ marginRight: 6 }}>
-            staff {repairStaff}
-            {staffLabel ? ` (${staffLabel})` : ''}
-          </span>
-        )}
-        <button
-          type="button"
-          className="btn-muted"
-          onClick={() =>
-            pushFix({
-              kind: 'repairParallelOnsets',
-              staff: repairStaff,
-              detail: 'same-x parallel',
-            })
-          }
-        >
-          동시 시작 voice 복원(자동)
-        </button>
-        <span style={{ marginLeft: 6, color: '#555' }}>
-          → 「MXL에 반영·미리보기」
-        </span>
+        <strong>연주순번</strong> — 마디 안에서 왼쪽→오른쪽(가사·연주) 순서입니다.{' '}
+        <strong>같은 번호 = 동시 시작</strong>으로 미리보기에 배치됩니다(피아노·성부 공통). 성부에 가사가
+        있으면 순번이 가사 음절 순서와 맞습니다. 빈 칸·0 입력 시 자동 순번으로 되돌립니다.
       </p>
-      <div className="omr-measure-parallel-pick" style={{ margin: '0.35rem 0 0.75rem', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        <button
-          type="button"
-          className="btn-muted"
-          disabled={parallelPick.size < 2}
-          onClick={() => {
-            const picked = [...parallelPick].sort((a, b) => a - b);
-            pushFix({
-              kind: 'linkParallelOnsets',
-              staff: repairStaff,
-              parallelNoteIndices: picked,
-            });
-            setParallelPick(new Set());
-            setFixMsg(`동시 시작 #${picked.join(', #')} 대기 목록 추가`);
-          }}
-        >
-          선택 {parallelPick.size}개 동시 시작으로 묶기
-        </button>
-        <button
-          type="button"
-          className="btn-muted"
-          disabled={parallelPick.size === 0}
-          onClick={() => setParallelPick(new Set())}
-        >
-          선택 해제
-        </button>
-        <span className="omr-measure-editor-hint" style={{ fontSize: '0.82rem', margin: 0 }}>
-          각 음표 ☑ → 묶기 (빔 연결 음은 리더만 선택해도 됨)
-        </span>
-      </div>
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
       {loadErr ? <p className="omr-measure-editor-err">{loadErr}</p> : null}
@@ -1174,21 +1115,38 @@ export function OmrMeasureEditor({
           {displayElements.map((el) => (
             <li key={`note-${el.index}`}>
               <div className="omr-measure-element-title">
-                {el.kind !== 'rest' ? (
-                  <label style={{ marginRight: 8, fontWeight: 400, fontSize: '0.86rem' }}>
+                {el.kind !== 'rest' && !el.chord ? (
+                  <label style={{ marginRight: 10, fontWeight: 400, fontSize: '0.86rem' }}>
+                    순번{' '}
                     <input
-                      type="checkbox"
-                      checked={parallelPick.has(el.index)}
+                      type="number"
+                      min={0}
+                      step={1}
+                      style={{ width: 48, marginLeft: 2 }}
+                      value={
+                        el.playOrder != null
+                          ? String(el.playOrder)
+                          : el.displayPlayOrder != null
+                            ? String(el.displayPlayOrder)
+                            : ''
+                      }
                       onChange={(e) => {
-                        setParallelPick((prev) => {
-                          const next = new Set(prev);
-                          if (e.target.checked) next.add(el.index);
-                          else next.delete(el.index);
-                          return next;
+                        const raw = e.target.value.trim();
+                        const order = raw === '' || raw === '0' ? 0 : parseInt(raw, 10);
+                        if (!Number.isFinite(order)) return;
+                        pushFix({
+                          kind: 'setPlayOrder',
+                          noteIndex: el.index,
+                          playOrder: order,
+                          staff: el.staff ?? repairStaff,
                         });
+                        setFixMsg(
+                          order > 0
+                            ? `#${el.index} 연주순번 ${order} (반영 대기)`
+                            : `#${el.index} 연주순번 자동 (반영 대기)`,
+                        );
                       }}
-                    />{' '}
-                    동시
+                    />
                   </label>
                 ) : null}
                 {elementTitle(el, noteEls, { partId, staffLabel, editStaffWithinPart })}

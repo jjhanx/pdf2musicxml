@@ -64,6 +64,7 @@ export type OmrHitlFix = {
   fromStaff?: number;
   toStaff?: number;
   parallelNoteIndices?: number[];
+  playOrder?: number;
   source?: string;
   lintCode?: string;
 };
@@ -98,6 +99,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   removeGraceBeforeNote: '앞 꾸밈음 삭제',
   repairParallelOnsets: '동시 시작 voice 복원',
   linkParallelOnsets: '동시 시작 묶기',
+  setPlayOrder: '연주순번',
   insertChordMember: '화음 음 추가',
   removeArticulation: '표(스타카토 등) 제거',
   addFermata: '늘임표 추가',
@@ -152,6 +154,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.beforeNoteIndex ?? '',
     fix.graceSlash === undefined ? '' : fix.graceSlash ? '1' : '0',
     fix.parallelNoteIndices?.join(',') ?? '',
+    fix.playOrder ?? '',
     fix.fromPitch ?? '',
     fix.toPitch ?? '',
     fix.fromStaff ?? '',
@@ -198,6 +201,9 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   }
   if (fix.kind === 'linkParallelOnsets' && fix.parallelNoteIndices?.length) {
     parts.push(`#${fix.parallelNoteIndices.join(',#')}`);
+  }
+  if (fix.kind === 'setPlayOrder' && fix.playOrder != null) {
+    parts.push(`순번 ${fix.playOrder}`);
   }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);

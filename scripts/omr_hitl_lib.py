@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 _STEPS = ("C", "D", "E", "F", "G", "A", "B")
+PLAY_ORDER_ATTR = "data-hitl-play-order"
 _DYNAMICS_TAGS = frozenset(
     {
         "p",
@@ -341,6 +342,74 @@ def _note_beams(note: ET.Element, ns: str) -> list[str]:
     return out
 
 
+def _read_play_order(note: ET.Element) -> int | None:
+    raw = note.get(PLAY_ORDER_ATTR)
+    if raw is None or not str(raw).strip().isdigit():
+        return None
+    n = int(str(raw).strip())
+    return n if n > 0 else None
+
+
+def _set_play_order_on_leader(notes: list[ET.Element], ns: str, leader_i: int, order: int) -> bool:
+    if order < 1:
+        changed = False
+        for j in range(leader_i, len(notes)):
+            if j > leader_i and notes[j].find(_q(ns, "chord")) is None:
+                break
+            if notes[j].get(PLAY_ORDER_ATTR) is not None:
+                del notes[j].attrib[PLAY_ORDER_ATTR]
+                changed = True
+        return changed
+    order_s = str(int(order))
+    changed = False
+    for j in range(leader_i, len(notes)):
+        if j > leader_i and notes[j].find(_q(ns, "chord")) is None:
+            break
+        if notes[j].get(PLAY_ORDER_ATTR) != order_s:
+            notes[j].set(PLAY_ORDER_ATTR, order_s)
+            changed = True
+    return changed
+
+
+def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> dict[int, int]:
+    voice_cursor: dict[str, int] = {}
+    last_voice = "1"
+    onset_by_index: dict[int, int] = {}
+    note_i = 0
+    for child in measure:
+        local = _local(child)
+        if local == "backup":
+            v_el = child.find(_q(ns, "voice"))
+            v = (v_el.text or last_voice).strip() if v_el is not None and v_el.text else last_voice
+            voice_cursor[v] = max(0, voice_cursor.get(v, 0) - _timeline_el_duration(child, ns))
+        elif local == "forward":
+            v_el = child.find(_q(ns, "voice"))
+            v = (v_el.text or last_voice).strip() if v_el is not None and v_el.text else last_voice
+            voice_cursor[v] = voice_cursor.get(v, 0) + _timeline_el_duration(child, ns)
+        elif local == "note":
+            note = child
+            if note.find(_q(ns, "chord")) is not None:
+                continue
+            voice, st = _note_voice_staff(note, ns)
+            last_voice = voice
+            if st != staff:
+                note_i += 1
+                continue
+            onset_by_index[note_i] = voice_cursor.get(voice, 0)
+            voice_cursor[voice] = voice_cursor.get(voice, 0) + _note_duration(note, ns)
+            note_i += 1
+    unique_onsets = sorted(set(onset_by_index.values()))
+    onset_to_order = {o: i + 1 for i, o in enumerate(unique_onsets)}
+    return {idx: onset_to_order.get(onset, 1) for idx, onset in onset_by_index.items()}
+
+
+def _timeline_el_duration(el: ET.Element, ns: str) -> int:
+    dur_el = el.find(_q(ns, "duration"))
+    if dur_el is None or not dur_el.text or not dur_el.text.strip().isdigit():
+        return 0
+    return int(dur_el.text.strip())
+
+
 def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
     rest_el = note.find(_q(ns, "rest"))
     pitch_el = note.find(_q(ns, "pitch"))
@@ -434,6 +503,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "articulations": articulations,
         "fermatas": fermatas,
         "defaultX": round(dx, 2) if dx is not None else None,
+        "playOrder": _read_play_order(note),
         "noteDirection": None,
         "noteDirections": None,
     }
@@ -852,6 +922,17 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
         else:
             leader_dx = snap.get("defaultX")
         snap["timelineX"] = leader_dx
+    for staff_n in sorted({s.get("staff") for s in elements if s.get("staff") is not None}):
+        defaults = _default_play_orders_for_staff(measure, ns, str(staff_n))
+        for snap in elements:
+            if snap.get("staff") != staff_n or snap.get("chord"):
+                continue
+            idx = int(snap["index"])
+            snap["defaultPlayOrder"] = defaults.get(idx)
+            if snap.get("playOrder") is None:
+                snap["displayPlayOrder"] = defaults.get(idx)
+            else:
+                snap["displayPlayOrder"] = snap.get("playOrder")
     elements.sort(key=_snapshot_timeline_sort_key)
     return elements
 
@@ -3514,6 +3595,20 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                         indices.append(int(part))
         return _link_parallel_onsets_by_indices(measure, ns, staff, indices)
 
+    if kind == "setPlayOrder":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        try:
+            order = int(fix.get("playOrder"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        leader_i = _chord_leader_index(notes, ns, idx)
+        return _set_play_order_on_leader(notes, ns, leader_i, order)
+
     if kind == "addArticulation":
         try:
             idx = int(fix.get("noteIndex"))
@@ -4710,6 +4805,12 @@ def _link_parallel_onsets_by_indices(
             changed = True
     if _compact_default_x_by_staff(measure, ns):
         changed = True
+    defaults = _default_play_orders_for_staff(measure, ns, staff)
+    anchor_order = defaults.get(anchor_leader, anchor_leader + 1)
+    for i in selected:
+        leader_i = _chord_leader_index(notes, ns, i)
+        if _set_play_order_on_leader(notes, ns, leader_i, anchor_order):
+            changed = True
     return changed
 
 
@@ -5503,7 +5604,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "applyTriplet",
         "removeTriplet",
     }
-    skip_rebuild_kinds = {"linkParallelOnsets"}
+    skip_rebuild_kinds = {"linkParallelOnsets", "setPlayOrder"}
     measure_structure_kinds = {"insertEmptyMeasureBefore", "insertEmptyMeasureAfter"}
     pending = list(fixes)
     structure_fixes = [f for f in pending if f.get("kind") in measure_structure_kinds]

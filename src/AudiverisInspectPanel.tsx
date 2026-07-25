@@ -28,7 +28,7 @@ import {
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
-import { alignOsmdPreviewNotesByOnsetColumn } from './osmdOnsetColumnAlignFix';
+import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
@@ -1856,7 +1856,7 @@ export function OsmdBlock({
     try {
       alignOsmdPreviewNotesByOnsetColumn(osmd);
     } catch (e) {
-      console.warn('[osmd] onset column align skipped:', e);
+      console.warn('[osmd] play-order align skipped:', e);
     }
   }, []);
 
@@ -1926,6 +1926,7 @@ export function OsmdBlock({
       verbatimPreview === true,
       printedMeasureMarkersRef.current,
     );
+    registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
     void osmd
       .load(xmlForOsmd)
       .then(() => {

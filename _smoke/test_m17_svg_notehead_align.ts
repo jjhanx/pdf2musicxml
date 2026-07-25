@@ -15,6 +15,7 @@ import {
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 import { alignOsmdPreviewNotesByOnsetColumn } from '../src/osmdOnsetColumnAlignFix';
+import { forEachGraphicalMeasure, measureMxlFromGraphic } from '../src/osmdMeasureClick';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown }).OpenSheetMusicDisplay ??
@@ -115,6 +116,25 @@ async function main() {
   const rules = (osmd as { EngravingRules: Record<string, unknown> }).EngravingRules;
   await (osmd as { load: (x: string) => Promise<void> }).load(slice);
   (osmd as { render: () => void }).render();
+
+  let offsetTarget: SVGGraphicsElement | null = null;
+  forEachGraphicalMeasure(osmd as never, (gm) => {
+    if (measureMxlFromGraphic(gm) !== 17) return;
+    const g = gm as Record<string, unknown>;
+    for (const se of (g.staffEntries ?? g.StaffEntries ?? []) as Record<string, unknown>[]) {
+      const gves = (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as Record<string, unknown>[];
+      if (gves.length < 2) continue;
+      const gn = ((gves[0]?.notes ?? gves[0]?.Notes ?? []) as Record<string, unknown>[])[0];
+      if (gn && typeof gn.getSVGGElement === 'function') {
+        offsetTarget = gn.getSVGGElement() as SVGGraphicsElement;
+      }
+    }
+  });
+  if (offsetTarget) {
+    const tr = offsetTarget.getAttribute('transform') ?? '';
+    offsetTarget.setAttribute('transform', tr ? `translate(30, 0) ${tr}` : 'translate(30, 0)');
+  }
+
   alignOsmdPreviewNotesByOnsetColumn(osmd as never);
 
   const xs = [...host.querySelectorAll('.vf-stavenote, .vf-staveNote')]
@@ -122,8 +142,10 @@ async function main() {
     .filter((x): x is number => x != null)
     .sort((a, b) => a - b);
   if (xs.length < 3) throw new Error(`expected >=3 stavenotes, got ${xs.length}`);
-  const parallelXs = xs.slice(1, 3);
-  const spread = Math.abs(parallelXs[1]! - parallelXs[0]!);
+  const anchor = xs[1]!;
+  const parallelXs = xs.filter((x) => Math.abs(x - anchor) < 1);
+  if (parallelXs.length < 2) throw new Error(`expected parallel cluster, got ${JSON.stringify(xs)}`);
+  const spread = Math.max(...parallelXs) - Math.min(...parallelXs);
   if (spread > 0.5) throw new Error(`misalign spread=${spread}`);
   if (rules.VoiceSpacingMultiplierVexflow === 0) throw new Error('VoiceSpacing unchanged');
   console.log('OK m17 onset column', { spread, xs });

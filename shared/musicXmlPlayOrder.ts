@@ -3,7 +3,7 @@
  * 같은 순번 = 동시 시작 column. 저장 MXL voice·duration·빔은 불변.
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
-import { collectStaffNoteOnsets, measureLengthUnits } from './musicXmlPreviewOnsetLayout';
+import { measureLengthUnits } from './musicXmlPreviewOnsetLayout';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -75,16 +75,23 @@ export function readPlayOrder(note: Element): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** voice timeline onset → 기본 연주순번(1-based). 같은 onset = 같은 번호. */
-export function defaultPlayOrdersFromTimeline(measure: Element, staffN?: number): Map<Element, number> {
-  const onsets = collectStaffNoteOnsets(measure, staffN);
-  const uniqueOnsets = [...new Set(onsets.values())].sort((a, b) => a - b);
-  const onsetToOrder = new Map(uniqueOnsets.map((o, i) => [o, i + 1]));
+/** staff 문서 순서 → 기본 연주순번(1-based). voice timeline과 무관 — 마디 편집 #index 순서. */
+export function defaultPlayOrdersFromDocumentOrder(measure: Element, staffN?: number): Map<Element, number> {
   const out = new Map<Element, number>();
-  for (const [leader, onset] of onsets) {
-    out.set(leader, onsetToOrder.get(onset) ?? 1);
+  let order = 0;
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (isChordMember(child)) continue;
+    if (staffN != null && noteStaffNumber(child) !== staffN) continue;
+    order += 1;
+    out.set(child, order);
   }
   return out;
+}
+
+/** @deprecated HITL UI·미리보기는 document order 사용. voice timeline은 OMR 내부용. */
+export function defaultPlayOrdersFromTimeline(measure: Element, staffN?: number): Map<Element, number> {
+  return defaultPlayOrdersFromDocumentOrder(measure, staffN);
 }
 
 export function effectivePlayOrder(
@@ -135,7 +142,7 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   }
 
   for (const staffN of staves) {
-    const defaults = defaultPlayOrdersFromTimeline(measure, staffN);
+    const defaults = defaultPlayOrdersFromDocumentOrder(measure, staffN);
     const leaders = noteLeadersOnStaff(measure, staffN);
     const orders = leaders.map((l) => effectivePlayOrder(l, defaults));
     const uniqueOrders = [...new Set(orders)].sort((a, b) => a - b);
@@ -147,6 +154,41 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
       setPlayOrderAttrsOnGroup(measure, leader, order, col, uniqueOrders.length);
     }
   }
+}
+
+/** OSMD 미리보기 — 같은 명시 연주순번 leader를 동일 voice로 (OSMD column 분리 완화). 저장 MXL 불변 경로 밖에서만 호출. */
+export function unifyVoiceForSamePlayOrderPreview(measure: Element): boolean {
+  const staves = new Set<number>();
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
+  }
+  let changed = false;
+  for (const staffN of staves) {
+    const byOrder = new Map<number, Element[]>();
+    for (const leader of noteLeadersOnStaff(measure, staffN)) {
+      const po = readPlayOrder(leader);
+      if (po == null) continue;
+      const list = byOrder.get(po) ?? [];
+      list.push(leader);
+      byOrder.set(po, list);
+    }
+    for (const group of byOrder.values()) {
+      if (group.length < 2) continue;
+      const targetVoice = [...group.map((l) => noteVoiceNumber(l))].sort(
+        (a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99),
+      )[0]!;
+      for (const leader of group) {
+        for (const note of noteGroupWithChords(measure, leader)) {
+          const vEl = note.querySelector(':scope > voice, :scope > *|voice');
+          if (vEl && vEl.textContent?.trim() !== targetVoice) {
+            vEl.textContent = targetVoice;
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+  return changed;
 }
 
 export function applyPlayOrderLayoutToXml(xml: string): string {
@@ -167,7 +209,6 @@ export function applyPlayOrderLayoutToXml(xml: string): string {
 
 export type PlayOrderAlignMember = {
   pitch: string;
-  voice: string;
 };
 
 export type PlayOrderAlignGroup = {
@@ -178,7 +219,7 @@ export type PlayOrderAlignGroup = {
   members: PlayOrderAlignMember[];
 };
 
-/** OSMD render 후 pitch+voice 매칭용 — 같은 playOrder·2명 이상만. */
+/** OSMD render 후 pitch 매칭 — 같은 playOrder·2명 이상만. voice는 사용하지 않음. */
 export function collectPlayOrderAlignGroupsFromXml(xml: string): PlayOrderAlignGroup[] {
   try {
     const doc = parseMusicXmlDocument(xml);
@@ -196,13 +237,13 @@ export function collectPlayOrderAlignGroupsFromXml(xml: string): PlayOrderAlignG
           if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
         }
         for (const staffN of staves) {
-          const defaults = defaultPlayOrdersFromTimeline(measure, staffN);
+          const defaults = defaultPlayOrdersFromDocumentOrder(measure, staffN);
           const byOrder = new Map<number, PlayOrderAlignMember[]>();
           for (const leader of noteLeadersOnStaff(measure, staffN)) {
             if (isRestNote(leader) || isGraceNote(leader)) continue;
             const order = effectivePlayOrder(leader, defaults);
             const list = byOrder.get(order) ?? [];
-            list.push({ pitch: xmlPitchLabel(leader), voice: noteVoiceNumber(leader) });
+            list.push({ pitch: xmlPitchLabel(leader) });
             byOrder.set(order, list);
           }
           for (const [playOrder, members] of byOrder) {

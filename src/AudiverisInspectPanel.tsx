@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
+import { unifyVoiceForSamePlayOrderPreview } from '../shared/musicXmlPlayOrder';
 import {
   realignMeasureDefaultXFromTimelineForOsmd,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
@@ -578,6 +579,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
+  unifyVoiceForSamePlayOrderPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -605,6 +607,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
+  unifyVoiceForSamePlayOrderPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -1867,6 +1870,7 @@ export function OsmdBlock({
         const host = hostRef.current;
         const osmd = osmdRef.current;
         if (host && osmd?.IsReadyToRender()) {
+          syncOnsetColumnAlign(host, osmd);
           finalizeOsmdMeasureNumberPreview(host, osmd, printedMeasureMarkersRef.current);
         }
         const trigger = scrollToMeasureTriggerRef.current;
@@ -1883,7 +1887,7 @@ export function OsmdBlock({
         }
       });
     });
-  }, [syncMeasureClickUi]);
+  }, [syncMeasureClickUi, syncOnsetColumnAlign]);
 
   useEffect(() => {
     const disconnectRo = () => {
@@ -1949,7 +1953,6 @@ export function OsmdBlock({
           roRef,
           onAfterRender: afterOsmdRender,
           afterOsmdRenderSync: (h, o) => {
-            syncOnsetColumnAlign(h, o);
             finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
           },
         });

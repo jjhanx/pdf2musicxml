@@ -355,7 +355,7 @@ export type MeasureNoteEl = {
   noteDirections?: NoteDirectionInfo[] | null;
   /** HITL 명시 연주순번 (1-based). 없으면 자동. */
   playOrder?: number | null;
-  /** voice timeline 기본 연주순번 */
+  /** voice timeline 기본 연주순번 — UI에는 document order만 표시 */
   defaultPlayOrder?: number | null;
   /** UI 표시용 — playOrder ?? defaultPlayOrder */
   displayPlayOrder?: number | null;

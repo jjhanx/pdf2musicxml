@@ -412,35 +412,21 @@ def _set_play_order_same_pitch_staff_leaders(
 
 
 def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> dict[int, int]:
-    voice_cursor: dict[str, int] = {}
-    last_voice = "1"
-    onset_by_index: dict[int, int] = {}
+    """staff 문서 순서 기본 연주순번 — voice timeline과 무관(마디 편집 #index 순)."""
+    out: dict[int, int] = {}
     note_i = 0
+    order = 0
     for child in measure:
-        local = _local(child)
-        if local == "backup":
-            v_el = child.find(_q(ns, "voice"))
-            v = (v_el.text or last_voice).strip() if v_el is not None and v_el.text else last_voice
-            voice_cursor[v] = max(0, voice_cursor.get(v, 0) - _timeline_el_duration(child, ns))
-        elif local == "forward":
-            v_el = child.find(_q(ns, "voice"))
-            v = (v_el.text or last_voice).strip() if v_el is not None and v_el.text else last_voice
-            voice_cursor[v] = voice_cursor.get(v, 0) + _timeline_el_duration(child, ns)
-        elif local == "note":
-            note = child
-            if note.find(_q(ns, "chord")) is not None:
-                continue
-            voice, st = _note_voice_staff(note, ns)
-            last_voice = voice
-            if st != staff:
-                note_i += 1
-                continue
-            onset_by_index[note_i] = voice_cursor.get(voice, 0)
-            voice_cursor[voice] = voice_cursor.get(voice, 0) + _note_duration(note, ns)
-            note_i += 1
-    unique_onsets = sorted(set(onset_by_index.values()))
-    onset_to_order = {o: i + 1 for i, o in enumerate(unique_onsets)}
-    return {idx: onset_to_order.get(onset, 1) for idx, onset in onset_by_index.items()}
+        if _local(child) != "note":
+            continue
+        note = child
+        is_chord = note.find(_q(ns, "chord")) is not None
+        _, st = _note_voice_staff(note, ns)
+        if not is_chord and st == staff:
+            order += 1
+            out[note_i] = order
+        note_i += 1
+    return out
 
 
 def _timeline_el_duration(el: ET.Element, ns: str) -> int:

@@ -2,8 +2,7 @@
  * HITL 연주순번(가사순번) — 미리보기 배치·OSMD 정렬의 단일 기준.
  * 같은 순번 = 동시 시작 column. 저장 MXL voice·duration·빔은 불변.
  *
- * 미리보기 x: 마디 공통 — 순번 1(또는 최소 순번) = 32, 마디 끝 = 432, 박자표 길이로 N등분.
- * 각 음표 onset(박자 단위) = 순번 column + 빔 후속 누적 duration.
+ * 미리보기 x: 마디 공통 grid(순번1=32 ~ 끝=432). voice·timeline은 건드리지 않음 — 표시는 SVG translate.
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import {
@@ -254,193 +253,7 @@ function allLeadersInMeasure(measure: Element): Element[] {
   return out;
 }
 
-function appendTimelineForward(measure: Element, duration: number): void {
-  if (duration <= 0) return;
-  const doc = measure.ownerDocument!;
-  if (!doc) return;
-  const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
-  const fwd = ns ? doc.createElementNS(ns, 'forward') : doc.createElement('forward');
-  const dur = ns ? doc.createElementNS(ns, 'duration') : doc.createElement('duration');
-  dur.textContent = String(duration);
-  fwd.appendChild(dur);
-  measure.appendChild(fwd);
-}
-
-function appendTimelineBackup(measure: Element, duration: number): void {
-  if (duration <= 0) return;
-  const doc = measure.ownerDocument!;
-  if (!doc) return;
-  const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
-  const backup = ns ? doc.createElementNS(ns, 'backup') : doc.createElement('backup');
-  const dur = ns ? doc.createElementNS(ns, 'duration') : doc.createElement('duration');
-  dur.textContent = String(duration);
-  backup.appendChild(dur);
-  measure.appendChild(backup);
-}
-
-function setNoteVoice(note: Element, voice: string): void {
-  let vEl = note.querySelector(':scope > voice, :scope > *|voice');
-  if (!vEl) {
-    const doc = note.ownerDocument!;
-    const ns = note.namespaceURI || 'http://www.musicxml.org/ns/partwise';
-    vEl = ns ? doc.createElementNS(ns, 'voice') : doc.createElement('voice');
-    const dur = note.querySelector('duration, *|duration');
-    if (dur?.nextSibling) note.insertBefore(vEl, dur.nextSibling);
-    else note.appendChild(vEl);
-  }
-  vEl.textContent = voice;
-}
-
-function appendNoteGroupToMeasure(measure: Element, group: Element[], voice: string): void {
-  for (const note of group) {
-    setNoteVoice(note, voice);
-    measure.appendChild(note);
-  }
-}
-
-function chainTotalDuration(chain: Element[]): number {
-  return chain.reduce((sum, l) => sum + noteDurationValue(l), 0);
-}
-
-/** 같은 onset의 leader들을 beam chain 단위로 분리. */
-function leadersToBeamChains(leaders: Element[]): Element[][] {
-  const chains: Element[][] = [];
-  const used = new Set<Element>();
-  for (const l of leaders) {
-    if (used.has(l)) continue;
-    const beamStart = findBeamStartLeader(leaders, l);
-    if (beamStart && beamStart !== l) continue;
-    const chain = [l];
-    used.add(l);
-    const startIdx = leaders.indexOf(l);
-    for (let j = startIdx + 1; j < leaders.length; j += 1) {
-      const next = leaders[j]!;
-      const bs = findBeamStartLeader(leaders, next);
-      if (bs && chain.includes(bs)) {
-        chain.push(next);
-        used.add(next);
-      } else break;
-    }
-    chains.push(chain);
-  }
-  for (const l of leaders) {
-    if (!used.has(l)) chains.push([l]);
-  }
-  return chains;
-}
-
-/**
- * OSMD는 voice timeline으로 spacing — default-x만으론 부족.
- * layout onset 기준으로 voice·backup·forward 재구성(미리보기 전용).
- */
-function rebuildStaffTimelineFromPlayOrderLayout(
-  measure: Element,
-  staffN: number,
-  layout: Map<Element, number>,
-): void {
-  const staffLeaders = noteLeadersOnStaff(measure, staffN);
-  if (!staffLeaders.length) return;
-
-  const leaderGroups = new Map<Element, Element[]>();
-  for (const l of staffLeaders) {
-    leaderGroups.set(l, [...noteGroupWithChords(measure, l)]);
-  }
-
-  const sortedLeaders = [...staffLeaders].sort((a, b) => {
-    const oa = layout.get(a) ?? 0;
-    const ob = layout.get(b) ?? 0;
-    if (oa !== ob) return oa - ob;
-    return staffLeaders.indexOf(a) - staffLeaders.indexOf(b);
-  });
-
-  const onsetGroups: Element[][] = [];
-  for (const l of sortedLeaders) {
-    const o = layout.get(l) ?? 0;
-    const last = onsetGroups[onsetGroups.length - 1];
-    if (last && (layout.get(last[0]!) ?? 0) === o) last.push(l);
-    else onsetGroups.push([l]);
-  }
-
-  /** 같은 onset·같은 pitch 중복 leader는 1개만 (OMR 잔여). */
-  for (let gi = 0; gi < onsetGroups.length; gi += 1) {
-    const group = onsetGroups[gi]!;
-    const seen = new Set<string>();
-    onsetGroups[gi] = group.filter((l) => {
-      const p = xmlPitchLabel(l);
-      if (seen.has(p)) return false;
-      seen.add(p);
-      return true;
-    });
-  }
-
-  for (const child of [...measure.children]) {
-    const tag = xmlLocalName(child);
-    if (tag === 'backup' || tag === 'forward') {
-      child.remove();
-      continue;
-    }
-    if (tag === 'note' && noteStaffNumber(child) === staffN) child.remove();
-  }
-
-  const PRIMARY = '1';
-  const voiceCursor = new Map<string, number>();
-  const leaderVoice = new Map<Element, string>();
-  let nextVoice = 2;
-
-  for (const group of onsetGroups) {
-    const onset = layout.get(group[0]!) ?? 0;
-    const first = group[0]!;
-    const beamStart = findBeamStartLeader(staffLeaders, first, true);
-
-    if (beamStart && beamStart !== first && leaderVoice.has(beamStart)) {
-      const voice = leaderVoice.get(beamStart)!;
-      let cursor = voiceCursor.get(voice) ?? 0;
-      if (onset > cursor) {
-        appendTimelineForward(measure, onset - cursor);
-        cursor = onset;
-      }
-      for (const l of group) {
-        appendNoteGroupToMeasure(measure, leaderGroups.get(l) ?? [l], voice);
-        leaderVoice.set(l, voice);
-        cursor += noteDurationValue(l);
-      }
-      voiceCursor.set(voice, cursor);
-      continue;
-    }
-
-    const chains = leadersToBeamChains(group);
-    chains.sort((a, b) => chainTotalDuration(b) - chainTotalDuration(a));
-
-    const primaryChain = chains[0]!;
-    const primaryDur = chainTotalDuration(primaryChain);
-
-    let v1 = voiceCursor.get(PRIMARY) ?? 0;
-    if (onset > v1) {
-      appendTimelineForward(measure, onset - v1);
-      v1 = onset;
-    }
-    for (const l of primaryChain) {
-      appendNoteGroupToMeasure(measure, leaderGroups.get(l) ?? [l], PRIMARY);
-      leaderVoice.set(l, PRIMARY);
-    }
-    voiceCursor.set(PRIMARY, onset + primaryDur);
-
-    for (let ci = 1; ci < chains.length; ci += 1) {
-      const chain = chains[ci]!;
-      const sv = String(nextVoice++);
-      appendTimelineBackup(measure, primaryDur);
-      let cursor = onset;
-      for (const l of chain) {
-        appendNoteGroupToMeasure(measure, leaderGroups.get(l) ?? [l], sv);
-        leaderVoice.set(l, sv);
-        cursor += noteDurationValue(l);
-      }
-      voiceCursor.set(sv, cursor);
-    }
-  }
-}
-
-/** 마디 공통 grid — 순번·박자 → default-x + voice timeline 재구성. */
+/** 마디 공통 grid — 순번·박자 → default-x만 (voice·timeline 불변). 표시는 OSMD render 후 SVG translate. */
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   const staves = new Set<number>();
   for (const child of [...measure.children]) {
@@ -474,13 +287,51 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   for (const leader of allLeaders) {
     setLayoutAttrsOnGroup(measure, leader, layout.get(leader) ?? 0, layoutLen, readPlayOrder(leader));
   }
+}
 
-  for (const staffN of staves) {
-    rebuildStaffTimelineFromPlayOrderLayout(measure, staffN, layout);
+export type PreviewNoteLayoutTarget = {
+  partId: string;
+  measureNumber: number;
+  staff: number;
+  pitch: string;
+  defaultXTenths: number;
+};
+
+/** OSMD SVG 정렬용 — part·마디·staff·pitch별 default-x (문서 순). */
+export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNoteLayoutTarget[] {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return [];
+    const out: PreviewNoteLayoutTarget[] = [];
+    for (const part of findXmlParts(doc)) {
+      const partId = part.getAttribute('id')?.trim() ?? '';
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        const measureNumber = parseInt(measure.getAttribute('number') ?? '0', 10);
+        if (!Number.isFinite(measureNumber) || measureNumber <= 0) continue;
+        for (const leader of allLeadersInMeasure(measure)) {
+          if (isRestNote(leader) || isGraceNote(leader)) continue;
+          const rawX = leader.getAttribute('default-x')?.trim();
+          if (!rawX) continue;
+          const defaultXTenths = parseFloat(rawX);
+          if (!Number.isFinite(defaultXTenths)) continue;
+          out.push({
+            partId,
+            measureNumber,
+            staff: noteStaffNumber(leader),
+            pitch: xmlPitchLabel(leader),
+            defaultXTenths,
+          });
+        }
+      }
+    }
+    return out;
+  } catch {
+    return [];
   }
 }
 
-/** @deprecated voice timeline 재구성(rebuildStaffTimelineFromPlayOrderLayout)으로 대체. */
+/** @deprecated voice·timeline 변경 없음 — no-op. */
 export function unifyVoiceForSamePlayOrderPreview(_measure: Element): boolean {
   return false;
 }

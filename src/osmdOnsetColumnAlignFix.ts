@@ -3,7 +3,6 @@ import type { LinkedParallelOnsetHint } from '../shared/musicXmlTimelineCleanup'
 import {
   collectPlayOrderAlignGroupsFromXml,
   type PlayOrderAlignGroup,
-  type PlayOrderAlignMember,
 } from '../shared/musicXmlPlayOrder';
 import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
 
@@ -58,38 +57,21 @@ function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
 }
 
 function noteheadCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
-  const svg = stavenote.ownerSVGElement;
   const xs: number[] = [];
-
-  if (svg && typeof svg.getBoundingClientRect === 'function') {
-    const svgRect = svg.getBoundingClientRect();
-    if (svgRect.width > 0 || svgRect.height > 0) {
-      for (const nh of stavenote.querySelectorAll('.vf-notehead')) {
-        const r = nh.getBoundingClientRect();
-        if (r.width > 0 || r.height > 0) {
-          xs.push(r.left + r.width / 2 - svgRect.left);
-        }
-      }
+  for (const path of stavenote.querySelectorAll('.vf-notehead path')) {
+    const d = path.getAttribute('d');
+    if (!d) continue;
+    const m = /^M\s*([-\d.]+)/.exec(d.trim());
+    if (!m) continue;
+    const localX = parseFloat(m[1]!);
+    const pathEl = path as SVGGraphicsElement;
+    const ctm = pathEl.getCTM?.() ?? stavenote.getCTM?.();
+    if (ctm) {
+      xs.push(ctm.a * localX + ctm.e);
+      continue;
     }
+    xs.push(parseAccumulatedTranslateX(pathEl) + localX);
   }
-
-  if (!xs.length) {
-    for (const path of stavenote.querySelectorAll('.vf-notehead path')) {
-      const d = path.getAttribute('d');
-      if (!d) continue;
-      const m = /^M\s*([-\d.]+)/.exec(d.trim());
-      if (!m) continue;
-      const localX = parseFloat(m[1]!);
-      const pathEl = path as SVGGraphicsElement;
-      const ctm = pathEl.getCTM?.() ?? stavenote.getCTM?.();
-      if (ctm) {
-        xs.push(ctm.a * localX + ctm.e);
-        continue;
-      }
-      xs.push(parseAccumulatedTranslateX(pathEl) + localX);
-    }
-  }
-
   if (!xs.length) return null;
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
@@ -137,9 +119,34 @@ function alignPlayOrderGroup(items: StaveGraphic[]): void {
   }
 }
 
+function graphicNoteStavenote(
+  osmd: OpenSheetMusicDisplay,
+  gn: Record<string, unknown>,
+): SVGGraphicsElement | null {
+  const rules = (osmd as unknown as { EngravingRules?: { GNote?: (n: unknown) => unknown } }).EngravingRules;
+  const src = gn.sourceNote ?? gn.SourceNote;
+  const candidates: unknown[] = [];
+  if (rules?.GNote && src) {
+    try {
+      candidates.push(rules.GNote(src));
+    } catch {
+      /* OSMD internal note lookup can fail on partial loads */
+    }
+  }
+  candidates.push(gn);
+  for (const cand of candidates) {
+    const rec = asRecord(cand);
+    if (!rec) continue;
+    const svgEl = (rec as { getSVGGElement?: () => SVGGraphicsElement | null }).getSVGGElement?.();
+    const stavenote = stavenoteFromGraphicEl(svgEl ?? null);
+    if (stavenote) return stavenote;
+  }
+  return null;
+}
+
 function collectGraphicsForGroup(osmd: OpenSheetMusicDisplay, group: PlayOrderAlignGroup): StaveGraphic[] {
   const targetPitches = new Set(group.members.map((m) => m.pitch));
-  const out: StaveGraphic[] = [];
+  const bestByPitch = new Map<string, StaveGraphic>();
   forEachGraphicalMeasure(osmd, (gmRaw) => {
     const partId = partIdFromGraphic(gmRaw);
     if (!partId) return;
@@ -159,21 +166,21 @@ function collectGraphicsForGroup(osmd: OpenSheetMusicDisplay, group: PlayOrderAl
           const gn = asRecord(gnRaw);
           if (!gn) continue;
           const pitch = pitchFromGraphicNote(gn);
-          if (!targetPitches.has(pitch ?? '')) continue;
-          const svgEl = (gn as { getSVGGElement?: () => SVGGraphicsElement | null }).getSVGGElement?.();
-          const stavenote = stavenoteFromGraphicEl(svgEl);
+          if (!pitch || !targetPitches.has(pitch)) continue;
+          const stavenote = graphicNoteStavenote(osmd, gn);
           if (!stavenote) continue;
           const centerX = noteheadCenterXInSvgRoot(stavenote);
           if (centerX == null || !Number.isFinite(centerX)) continue;
-          out.push({ svg: stavenote, centerX });
+          const prev = bestByPitch.get(pitch);
+          if (!prev || centerX < prev.centerX) bestByPitch.set(pitch, { svg: stavenote, centerX });
         }
       }
     }
   });
-  return out;
+  return [...bestByPitch.values()];
 }
 
-function alignStaffEntryColumnFallback(se: Record<string, unknown>): void {
+function alignStaffEntryColumnFallback(se: Record<string, unknown>, osmd: OpenSheetMusicDisplay): void {
   const items: StaveGraphic[] = [];
   for (const gveRaw of (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[]) {
     const gve = asRecord(gveRaw);
@@ -181,8 +188,7 @@ function alignStaffEntryColumnFallback(se: Record<string, unknown>): void {
     for (const gnRaw of (gve.notes ?? gve.Notes ?? []) as unknown[]) {
       const gn = asRecord(gnRaw);
       if (!gn) continue;
-      const svgEl = (gn as { getSVGGElement?: () => SVGGraphicsElement | null }).getSVGGElement?.();
-      const stavenote = stavenoteFromGraphicEl(svgEl);
+      const stavenote = graphicNoteStavenote(osmd, gn);
       if (!stavenote) continue;
       const centerX = noteheadCenterXInSvgRoot(stavenote);
       if (centerX == null || !Number.isFinite(centerX)) continue;
@@ -210,7 +216,7 @@ export function alignOsmdPreviewNotesByOnsetColumn(
     for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
       const se = asRecord(seRaw);
       if (!se) continue;
-      alignStaffEntryColumnFallback(se);
+      alignStaffEntryColumnFallback(se, osmd);
     }
   });
 }

@@ -66,7 +66,10 @@ const raw = execSync('python _smoke/_export_m17_parallel_fix.py', { encoding: 'u
 const preview = buildM17Pr(raw);
 const groups = collectPlayOrderAlignGroupsFromXml(preview);
 const g = groups.find((x) => x.measureNumber === 17 && x.playOrder === 2);
-if (!g || g.members.length < 3) throw new Error(`expected play-order group 2 with 3 members got ${JSON.stringify(groups)}`);
+if (!g || g.members.length < 2) throw new Error(`expected play-order group 2 with F4+E5 got ${JSON.stringify(groups)}`);
+if (!g.members.some((m) => m.pitch === 'F4') || !g.members.some((m) => m.pitch === 'E5')) {
+  throw new Error(`expected F4 and E5 in group got ${JSON.stringify(g)}`);
+}
 
 const doc = new DOMParser().parseFromString(preview, 'text/xml');
 const xs = new Set<string>();

@@ -130,8 +130,39 @@ export function collectStaffNoteOnsets(measure: Element, staffN?: number): Map<E
   return out;
 }
 
-function defaultXFromOnset(onset: number, measureLen: number): string {
-  return (PREVIEW_LAYOUT_BASE_X + (onset / measureLen) * PREVIEW_LAYOUT_SPAN).toFixed(2);
+export function measureTimelineEndUnits(measure: Element, staffN?: number): number {
+  const voiceCursor = new Map<string, number>();
+  let lastNoteVoice = '1';
+  let maxEnd = 0;
+  for (const el of [...measure.children]) {
+    const tag = xmlLocalName(el);
+    if (tag === 'backup') {
+      const v = timelineVoiceEl(el, lastNoteVoice);
+      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - timelineDurationEl(el)));
+      for (const end of voiceCursor.values()) maxEnd = Math.max(maxEnd, end);
+    } else if (tag === 'forward') {
+      const v = timelineVoiceEl(el, lastNoteVoice);
+      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + timelineDurationEl(el));
+      for (const end of voiceCursor.values()) maxEnd = Math.max(maxEnd, end);
+    } else if (tag === 'note') {
+      if (isChordMember(el)) continue;
+      if (staffN != null && noteStaffNumber(el) !== staffN) continue;
+      const voice = noteVoiceNumber(el);
+      lastNoteVoice = voice;
+      const start = voiceCursor.get(voice) ?? 0;
+      const end = start + noteDurationValue(el);
+      voiceCursor.set(voice, end);
+      maxEnd = Math.max(maxEnd, end);
+    }
+  }
+  return Math.max(1, maxEnd);
+}
+
+/** 미리보기 default-x — onset ÷ layoutLen × span (tenths). */
+export function defaultXFromOnset(onset: number, measureLen: number): string {
+  const len = Math.max(1, measureLen);
+  const clamped = Math.max(0, Math.min(onset, len));
+  return (PREVIEW_LAYOUT_BASE_X + (clamped / len) * PREVIEW_LAYOUT_SPAN).toFixed(2);
 }
 
 function setPreviewAttrsOnGroup(

@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { unifyVoiceForSamePlayOrderPreview } from '../shared/musicXmlPlayOrder';
+import { dedupeSamePlayOrderPitchLayersForOsmdPreview } from '../shared/musicXmlPlayOrder';
 import {
   realignMeasureDefaultXFromTimelineForOsmd,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
@@ -579,7 +579,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
-  unifyVoiceForSamePlayOrderPreview(measure);
+  dedupeSamePlayOrderPitchLayersForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -607,7 +607,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   snapshotNoteDefaultXForOsmdPreview(measure);
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
-  unifyVoiceForSamePlayOrderPreview(measure);
+  dedupeSamePlayOrderPitchLayersForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -1857,7 +1857,7 @@ export function OsmdBlock({
 
   const syncOnsetColumnAlign = useCallback((_host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => {
     try {
-      alignOsmdPreviewNotesByOnsetColumn(osmd);
+      alignOsmdPreviewNotesByOnsetColumn(osmd, xmlRef.current);
     } catch (e) {
       console.warn('[osmd] play-order align skipped:', e);
     }
@@ -1930,7 +1930,7 @@ export function OsmdBlock({
       verbatimPreview === true,
       printedMeasureMarkersRef.current,
     );
-    registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
+    registerOsmdPreviewXmlForAlign(osmd, xml);
     void osmd
       .load(xmlForOsmd)
       .then(() => {
@@ -2012,11 +2012,10 @@ export function OsmdBlock({
       roRef,
       onAfterRender: afterOsmdRender,
       afterOsmdRenderSync: (h, o) => {
-        syncOnsetColumnAlign(h, o);
         finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
       },
     });
-  }, [zoom, afterOsmdRender, syncOnsetColumnAlign]);
+  }, [zoom, afterOsmdRender]);
 
   useEffect(() => {
     const host = hostRef.current;

@@ -12,7 +12,6 @@ const previewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
 /** 미리보기 grid — 순번1(32 tenths) ↔ 마디 끝(432 tenths). */
 const LAYOUT_BASE_X = 32;
 const LAYOUT_SPAN = 400;
-const MAX_LAYOUT_SHIFT_PX = 160;
 
 export function registerOsmdPreviewXmlForAlign(osmd: OpenSheetMusicDisplay, xml: string): void {
   previewXmlByOsmd.set(osmd, xml);
@@ -86,10 +85,6 @@ function applySvgTranslateX(svg: SVGGraphicsElement, dxRoot: number): void {
   svg.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
 }
 
-function layoutTargetKey(partId: string, measureNumber: number, staff: number, pitch: string): string {
-  return `${partId}|${measureNumber}|${staff}|${pitch}`;
-}
-
 function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
   const base = targetPartId.replace(/__PR$|__PL$/, '');
   return (
@@ -142,7 +137,9 @@ function graphicNoteStavenote(
 
 type StaveGraphic = { svg: SVGGraphicsElement; centerX: number };
 
-function alignPlayOrderGroup(items: StaveGraphic[]): void {
+type LayoutTarget = { defaultXTenths: number; playOrder: number | null };
+
+function alignPlayOrderGroupForce(items: StaveGraphic[]): void {
   const bySvg = new Map<SVGGraphicsElement, StaveGraphic>();
   for (const item of items) {
     const prev = bySvg.get(item.svg);
@@ -151,16 +148,16 @@ function alignPlayOrderGroup(items: StaveGraphic[]): void {
   const unique = [...bySvg.values()];
   if (unique.length < 2) return;
   const anchorX = Math.min(...unique.map((u) => u.centerX));
-  const maxShift = Math.max(...unique.map((u) => Math.abs(anchorX - u.centerX)));
-  if (maxShift > MAX_LAYOUT_SHIFT_PX) return;
   for (const u of unique) {
     applySvgTranslateX(u.svg, anchorX - u.centerX);
   }
 }
 
+
 function collectGraphicsForGroup(osmd: OpenSheetMusicDisplay, group: PlayOrderAlignGroup): StaveGraphic[] {
   const targetPitches = new Set(group.members.map((m) => m.pitch));
-  const bestByPitch = new Map<string, StaveGraphic>();
+  const seenSvg = new Set<SVGGraphicsElement>();
+  const items: StaveGraphic[] = [];
   forEachGraphicalMeasure(osmd, (gmRaw) => {
     const partId = partIdFromGraphic(gmRaw);
     if (!partId) return;
@@ -179,24 +176,39 @@ function collectGraphicsForGroup(osmd: OpenSheetMusicDisplay, group: PlayOrderAl
           const pitch = pitchFromGraphicNote(gn);
           if (!pitch || !targetPitches.has(pitch)) continue;
           const stavenote = graphicNoteStavenote(osmd, gn);
-          if (!stavenote) continue;
+          if (!stavenote || seenSvg.has(stavenote)) continue;
           const centerX = noteheadCenterXInSvgRoot(stavenote);
           if (centerX == null || !Number.isFinite(centerX)) continue;
-          const prev = bestByPitch.get(pitch);
-          if (!prev || centerX < prev.centerX) bestByPitch.set(pitch, { svg: stavenote, centerX });
+          seenSvg.add(stavenote);
+          items.push({ svg: stavenote, centerX });
         }
       }
     }
   });
-  return [...bestByPitch.values()];
+  return items;
 }
 
-/** part·마디·staff·pitch — default-x grid로 SVG notehead 위치 (voice 불변). */
+function measureStaffKey(partId: string, measureNumber: number, staff: number): string {
+  return `${partId}|${measureNumber}|${staff}`;
+}
+
+type MatchedHit = {
+  partId: string;
+  measureNumber: number;
+  stavenote: SVGGraphicsElement;
+  centerX: number;
+  defaultXTenths: number;
+  playOrder: number | null;
+};
+
+/** part·마디·staff — default-x grid로 SVG notehead 위치 (voice 불변). */
 function alignMeasureNotesByLayoutGrid(
   osmd: OpenSheetMusicDisplay,
   gmRaw: unknown,
   staffIndex: number,
-  targetQueues: Map<string, { defaultXTenths: number }[]>,
+  orderedTargets: Map<string, LayoutTarget[]>,
+  targetCursor: Map<string, number>,
+  matchedHits: MatchedHit[],
 ): void {
   const partId = partIdFromGraphic(gmRaw);
   const measureNumber = measureMxlFromGraphic(gmRaw);
@@ -206,8 +218,9 @@ function alignMeasureNotesByLayoutGrid(
   const gm = asRecord(gmRaw);
   if (!gm) return;
 
-  type NoteHit = { stavenote: SVGGraphicsElement; pitch: string; centerX: number };
+  type NoteHit = { stavenote: SVGGraphicsElement; centerX: number };
   const hits: NoteHit[] = [];
+  const seenStavenote = new Set<SVGGraphicsElement>();
 
   for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
     const se = asRecord(seRaw);
@@ -221,10 +234,11 @@ function alignMeasureNotesByLayoutGrid(
         const pitch = pitchFromGraphicNote(gn);
         if (!pitch) continue;
         const stavenote = graphicNoteStavenote(osmd, gn);
-        if (!stavenote) continue;
+        if (!stavenote || seenStavenote.has(stavenote)) continue;
+        seenStavenote.add(stavenote);
         const centerX = noteheadCenterXInSvgRoot(stavenote);
         if (centerX == null || !Number.isFinite(centerX)) continue;
-        hits.push({ stavenote, pitch, centerX });
+        hits.push({ stavenote, centerX });
       }
     }
   }
@@ -233,15 +247,56 @@ function alignMeasureNotesByLayoutGrid(
   const span = staveSpanInSvgRoot(hits[0]!.stavenote);
   if (!span || span.spanPx <= 0) return;
 
+  const msKey = measureStaffKey(partId, measureNumber, staff);
+  const targets = orderedTargets.get(msKey) ?? [];
+  let cursor = targetCursor.get(msKey) ?? 0;
+
   for (const hit of hits) {
-    const key = layoutTargetKey(partId, measureNumber, staff, hit.pitch);
-    const queue = targetQueues.get(key);
-    const target = queue?.shift();
-    if (!target) continue;
+    const target = targets[cursor];
+    if (!target) break;
+    cursor += 1;
     const wantX = targetXFromDefaultTenths(span.originX, span.spanPx, target.defaultXTenths);
     const dx = wantX - hit.centerX;
-    if (Math.abs(dx) > MAX_LAYOUT_SHIFT_PX) continue;
     applySvgTranslateX(hit.stavenote, dx);
+    const newCenterX = hit.centerX + dx;
+    matchedHits.push({
+      partId,
+      measureNumber,
+      stavenote: hit.stavenote,
+      centerX: newCenterX,
+      defaultXTenths: target.defaultXTenths,
+      playOrder: target.playOrder,
+    });
+  }
+  targetCursor.set(msKey, cursor);
+}
+
+function snapMatchedHitsToColumns(hits: MatchedHit[]): void {
+  const byPlayOrder = new Map<string, StaveGraphic[]>();
+  const byDefaultX = new Map<string, StaveGraphic[]>();
+
+  for (const hit of hits) {
+    const centerX = noteheadCenterXInSvgRoot(hit.stavenote);
+    if (centerX == null || !Number.isFinite(centerX)) continue;
+    const item = { svg: hit.stavenote, centerX };
+    if (hit.playOrder != null) {
+      const key = `${hit.partId}|${hit.measureNumber}|po:${hit.playOrder}`;
+      const list = byPlayOrder.get(key) ?? [];
+      list.push(item);
+      byPlayOrder.set(key, list);
+    } else {
+      const key = `${hit.partId}|${hit.measureNumber}|x:${hit.defaultXTenths.toFixed(2)}`;
+      const list = byDefaultX.get(key) ?? [];
+      list.push(item);
+      byDefaultX.set(key, list);
+    }
+  }
+
+  for (const group of byPlayOrder.values()) {
+    if (group.length >= 2) alignPlayOrderGroupForce(group);
+  }
+  for (const group of byDefaultX.values()) {
+    if (group.length >= 2) alignPlayOrderGroupForce(group);
   }
 }
 
@@ -251,22 +306,27 @@ export function alignOsmdPreviewNotesByOnsetColumn(
 ): void {
   const xml = resolvePreviewXml(osmd, previewXml);
   const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
-  const targetQueues = new Map<string, { defaultXTenths: number }[]>();
+  const orderedTargets = new Map<string, LayoutTarget[]>();
   for (const t of targets) {
-    const key = layoutTargetKey(t.partId, t.measureNumber, t.staff, t.pitch);
-    const q = targetQueues.get(key) ?? [];
-    q.push({ defaultXTenths: t.defaultXTenths });
-    targetQueues.set(key, q);
+    const key = measureStaffKey(t.partId, t.measureNumber, t.staff);
+    const list = orderedTargets.get(key) ?? [];
+    list.push({ defaultXTenths: t.defaultXTenths, playOrder: t.playOrder });
+    orderedTargets.set(key, list);
   }
 
+  const targetCursor = new Map<string, number>();
+  const matchedHits: MatchedHit[] = [];
+
   forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
-    alignMeasureNotesByLayoutGrid(osmd, gmRaw, staffIndex, targetQueues);
+    alignMeasureNotesByLayoutGrid(osmd, gmRaw, staffIndex, orderedTargets, targetCursor, matchedHits);
   });
+
+  snapMatchedHitsToColumns(matchedHits);
 
   const groups = xml ? collectPlayOrderAlignGroupsFromXml(xml) : [];
   for (const group of groups) {
     const items = collectGraphicsForGroup(osmd, group);
-    if (items.length >= 2) alignPlayOrderGroup(items);
+    if (items.length >= 2) alignPlayOrderGroupForce(items);
   }
 }
 

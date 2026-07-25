@@ -232,6 +232,17 @@ function snapExplicitPlayOrderColumns(layout: Map<Element, number>, leaders: Ele
   }
 }
 
+/** 명시 연주순번 — layout 재적용 후 default-x도 동일 column. */
+function resyncDefaultXAfterPlayOrderSnap(
+  measure: Element,
+  layout: Map<Element, number>,
+  layoutLen: number,
+): void {
+  for (const leader of allLeadersInMeasure(measure)) {
+    setLayoutAttrsOnGroup(measure, leader, layout.get(leader) ?? 0, layoutLen, readPlayOrder(leader));
+  }
+}
+
 function noteLeadersOnStaff(measure: Element, staffN: number): Element[] {
   const out: Element[] = [];
   for (const child of [...measure.children]) {
@@ -284,9 +295,7 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     }
   }
 
-  for (const leader of allLeaders) {
-    setLayoutAttrsOnGroup(measure, leader, layout.get(leader) ?? 0, layoutLen, readPlayOrder(leader));
-  }
+  resyncDefaultXAfterPlayOrderSnap(measure, layout, layoutLen);
 }
 
 export type PreviewNoteLayoutTarget = {
@@ -295,9 +304,10 @@ export type PreviewNoteLayoutTarget = {
   staff: number;
   pitch: string;
   defaultXTenths: number;
+  playOrder: number | null;
 };
 
-/** OSMD SVG 정렬용 — part·마디·staff·pitch별 default-x (문서 순). */
+/** OSMD SVG 정렬용 — leader·화음 member 포함, 문서 순. */
 export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNoteLayoutTarget[] {
   try {
     const doc = parseMusicXmlDocument(xml);
@@ -315,13 +325,18 @@ export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNote
           if (!rawX) continue;
           const defaultXTenths = parseFloat(rawX);
           if (!Number.isFinite(defaultXTenths)) continue;
-          out.push({
-            partId,
-            measureNumber,
-            staff: noteStaffNumber(leader),
-            pitch: xmlPitchLabel(leader),
-            defaultXTenths,
-          });
+          const playOrder = readPlayOrder(leader);
+          for (const note of noteGroupWithChords(measure, leader)) {
+            if (isRestNote(note) || isGraceNote(note)) continue;
+            out.push({
+              partId,
+              measureNumber,
+              staff: noteStaffNumber(note),
+              pitch: xmlPitchLabel(note),
+              defaultXTenths,
+              playOrder,
+            });
+          }
         }
       }
     }

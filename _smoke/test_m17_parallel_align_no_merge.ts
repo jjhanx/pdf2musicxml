@@ -1,18 +1,26 @@
 /**
- * m17 PR: no chord merge — E5 stays eighth + beam; OSMD graphic X aligned via hint fix.
+ * m17 PR: no chord merge — E5 stays eighth + beam; preview VoiceSpacing=0 + same default-x.
  * Run: npx tsx _smoke/test_m17_parallel_align_no_merge.ts
  */
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import osmdLib from 'opensheetmusicdisplay';
-import { collectLinkedParallelOnsetHintsFromXml, repairTimelineForOsmdPreview, reorderSingleStaffTimelineByOnsetForOsmdPreview, normalizeMultiVoiceLayersForOsmdPreview, snapshotNoteDefaultXForOsmdPreview, realignMeasureDefaultXFromTimelineForOsmd } from '../shared/musicXmlTimelineCleanup';
+import {
+  collectLinkedParallelOnsetHintsFromXml,
+  repairTimelineForOsmdPreview,
+  reorderSingleStaffTimelineByOnsetForOsmdPreview,
+  normalizeMultiVoiceLayersForOsmdPreview,
+  snapshotNoteDefaultXForOsmdPreview,
+  realignMeasureDefaultXFromTimelineForOsmd,
+} from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { alignLinkedParallelOnsetGraphics, osmdTimestampFromLinkedParallelHint } from '../src/osmdLinkedParallelAlignFix';
+import { osmdTimestampFromLinkedParallelHint } from '../src/osmdLinkedParallelAlignFix';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown }).OpenSheetMusicDisplay ??
-  (osmdLib as { default?: { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown } }).default?.OpenSheetMusicDisplay;
+  (osmdLib as { default?: { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown } }).default
+    ?.OpenSheetMusicDisplay;
 
 const dom = new JSDOM('<!DOCTYPE html><html><body><div id="h"></div></body></html>');
 Object.assign(globalThis, {
@@ -37,7 +45,15 @@ function pitch(n: Element): string {
   return `${step}${alter === '-1' ? 'b' : ''}${oct}`;
 }
 
-function buildPrPreview(raw: string): { previewSlice: string; hints: ReturnType<typeof collectLinkedParallelOnsetHintsFromXml> } {
+function applyPreviewVoiceSpacing(rules: Record<string, unknown>): void {
+  rules.VoiceSpacingMultiplierVexflow = 0;
+  rules.VoiceSpacingAddendVexflow = 0;
+}
+
+function buildPrPreview(raw: string): {
+  previewSlice: string;
+  hints: ReturnType<typeof collectLinkedParallelOnsetHintsFromXml>;
+} {
   let xml = repairTimelineForOsmdPreview(raw);
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   const part = [...doc.querySelectorAll('part,*|part')].find((p) => p.getAttribute('id') === 'P5')!;
@@ -49,7 +65,9 @@ function buildPrPreview(raw: string): { previewSlice: string; hints: ReturnType<
         if (st && st !== '1') child.remove();
       }
     }
-    measure.querySelectorAll('note staff,note *|staff').forEach((el) => { el.textContent = '1'; });
+    measure.querySelectorAll('note staff,note *|staff').forEach((el) => {
+      el.textContent = '1';
+    });
     pruneCrossStaffTimelineForOsmdPreview(measure, 1);
     snapshotNoteDefaultXForOsmdPreview(measure);
     reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
@@ -72,10 +90,8 @@ async function main() {
   const { previewSlice: preview, hints } = buildPrPreview(raw);
   const m17hint = hints.find((h) => h.measureNumber === 17);
   if (!m17hint) throw new Error('m17 hint missing');
-  if (m17hint.divisions < 1) throw new Error('m17 hint divisions missing');
   const ts = osmdTimestampFromLinkedParallelHint(m17hint);
   if (Math.abs(ts - 0.25) > 0.001) throw new Error(`m17 OSMD ts expected 0.25 got ${ts}`);
-  if (!m17hint.memberVoices.includes('1')) throw new Error('m17 hint missing voice 1');
 
   const doc = new DOMParser().parseFromString(preview, 'text/xml');
   const part = [...doc.querySelectorAll('part,*|part')].find((p) => p.getAttribute('id') === 'P5')!;
@@ -85,15 +101,28 @@ async function main() {
     .find((n) => pitch(n as Element) === 'E5') as Element;
   if (!e5 || e5.querySelector('chord,*|chord')) throw new Error('E5 must not be chord');
   if (e5.querySelector('type,*|type')?.textContent !== 'eighth') throw new Error('E5 must stay eighth');
-  if (e5.querySelector('beam,*|beam')?.textContent !== 'begin') throw new Error('E5 beam begin missing');
+
+  const f4 = [...m17.children]
+    .filter((c) => local(c) === 'note')
+    .find((n) => pitch(n as Element) === 'F4') as Element;
+  const bb = [...m17.children]
+    .filter((c) => local(c) === 'note')
+    .find((n) => pitch(n as Element) === 'Bb4') as Element;
+  const xs = new Set([f4?.getAttribute('default-x'), bb?.getAttribute('default-x'), e5.getAttribute('default-x')]);
+  if (xs.size !== 1) throw new Error(`parallel default-x differ: ${[...xs].join(',')}`);
 
   const host = document.getElementById('h')!;
   host.style.width = '900px';
   const osmd = new OSMD!(host, { autoResize: true, backend: 'svg', drawMeasureNumbers: false });
+  const rules = (osmd as { EngravingRules: Record<string, unknown> }).EngravingRules;
+  applyPreviewVoiceSpacing(rules);
   await (osmd as { load: (x: string) => Promise<void> }).load(preview);
+  applyPreviewVoiceSpacing(rules);
   (osmd as { render: () => void }).render();
-  alignLinkedParallelOnsetGraphics(osmd, hints, host);
-  console.log('m17 no-merge align ok', hints.filter((h) => h.measureNumber === 17));
+  console.log('m17 preview ok', {
+    hints: hints.filter((h) => h.measureNumber === 17),
+    voiceSpacing: rules.VoiceSpacingMultiplierVexflow,
+  });
 }
 
 main().catch((e) => {

@@ -15,7 +15,6 @@ import {
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
   snapshotNoteDefaultXForOsmdPreview,
-  collectLinkedParallelOnsetHintsFromXml,
 } from '../shared/musicXmlTimelineCleanup';
 import {
   drawOsmdMeasureHighlight,
@@ -29,7 +28,6 @@ import {
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
-import { alignLinkedParallelOnsetGraphics } from './osmdLinkedParallelAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
@@ -69,6 +67,9 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
   rules.UseXMLMeasureNumbers = false;
+  /** 각 오선 = 한 성부 — voice column 없이 onset·default-x 기준 왼→오 배치(미리보기 전용, MXL voice·빔 유지) */
+  rules.VoiceSpacingMultiplierVexflow = 0;
+  rules.VoiceSpacingAddendVexflow = 0;
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */
@@ -1697,6 +1698,7 @@ function scheduleOsmdRender(opts: {
     if (isStale()) return;
     try {
       osmd.zoom = zoom;
+      applyOsmdPreviewEngravingRules(osmd.EngravingRules);
       enforceOsmdPreviewMeasureNumberRules(osmd);
       osmd.render();
       afterOsmdRenderSync?.(host, osmd);
@@ -1792,11 +1794,6 @@ export function OsmdBlock({
   const scrollToMeasureTriggerRef = useRef(scrollToMeasureTrigger);
   const lastHandledScrollTriggerRef = useRef(0);
   const printedMeasureMarkersRef = useRef(printedMeasureMarkers);
-  const linkedParallelHintsRef = useRef<ReturnType<typeof collectLinkedParallelOnsetHintsFromXml>>([]);
-
-  useEffect(() => {
-    linkedParallelHintsRef.current = collectLinkedParallelOnsetHintsFromXml(xml);
-  }, [xml]);
 
   useEffect(() => {
     printedMeasureMarkersRef.current = printedMeasureMarkers;
@@ -1856,14 +1853,6 @@ export function OsmdBlock({
       highlightMeasureStaffIndexRef.current ?? null,
     );
   }, [syncPartLabelOverlay]);
-
-  const applyLinkedParallelGraphicAlign = useCallback((host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => {
-    try {
-      alignLinkedParallelOnsetGraphics(osmd, linkedParallelHintsRef.current, host);
-    } catch (e) {
-      console.warn('[osmd] linked parallel graphic align skipped:', e);
-    }
-  }, []);
 
   const afterOsmdRender = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1953,7 +1942,6 @@ export function OsmdBlock({
           roRef,
           onAfterRender: afterOsmdRender,
           afterOsmdRenderSync: (h, o) => {
-            applyLinkedParallelGraphicAlign(h, o);
             finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
           },
         });
@@ -2013,11 +2001,10 @@ export function OsmdBlock({
       roRef,
       onAfterRender: afterOsmdRender,
       afterOsmdRenderSync: (h, o) => {
-        applyLinkedParallelGraphicAlign(h, o);
         finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
       },
     });
-  }, [zoom, afterOsmdRender, applyLinkedParallelGraphicAlign]);
+  }, [zoom, afterOsmdRender]);
 
   useEffect(() => {
     const host = hostRef.current;

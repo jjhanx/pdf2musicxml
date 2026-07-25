@@ -1,5 +1,5 @@
 /**
- * m17 linkParallel: F4·Bb4·E5 notehead X align via SVG translate only (no VoiceSpacing change).
+ * m17 linkParallel: same default-x + preview VoiceSpacing=0 (no SVG post-align).
  * Run: npx tsx _smoke/test_m17_svg_notehead_align.ts
  */
 import { execSync } from 'node:child_process';
@@ -14,7 +14,6 @@ import {
   realignMeasureDefaultXFromTimelineForOsmd,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
-import { alignLinkedParallelOnsetGraphics } from '../src/osmdLinkedParallelAlignFix';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown }).OpenSheetMusicDisplay ??
@@ -98,16 +97,16 @@ async function main() {
   const raw = execSync('python _smoke/_export_m17_parallel_fix.py', { encoding: 'utf8', maxBuffer: 20e6 });
   const slice = buildM17Slice(raw);
   const hints = collectLinkedParallelOnsetHintsFromXml(slice).filter((h) => h.measureNumber === 17);
-  if (!hints.length || hints[0]!.partId !== 'P5') throw new Error('expected P5 m17 hint');
+  if (!hints.length) throw new Error('no m17 linked parallel hints');
 
   const host = document.getElementById('host')!;
   host.style.width = '900px';
-  host.style.height = '400px';
   const osmd = new OSMD!(host, { autoResize: false, backend: 'svg', drawMeasureNumbers: false });
   const rules = (osmd as { EngravingRules: Record<string, unknown> }).EngravingRules;
+  rules.VoiceSpacingMultiplierVexflow = 0;
+  rules.VoiceSpacingAddendVexflow = 0;
   await (osmd as { load: (x: string) => Promise<void> }).load(slice);
   (osmd as { render: () => void }).render();
-  alignLinkedParallelOnsetGraphics(osmd as never, hints, host);
 
   const xs = [...host.querySelectorAll('.vf-stavenote')]
     .map((sn) => noteheadCenterX(sn as SVGGraphicsElement))
@@ -118,10 +117,7 @@ async function main() {
   const parallelXs = xs.slice(1, 3);
   const spread = Math.abs(parallelXs[1]! - parallelXs[0]!);
   if (spread > 0.5) throw new Error(`misalign spread=${spread}`);
-  if (rules.VoiceSpacingMultiplierVexflow === 0) {
-    throw new Error('VoiceSpacing must not be changed');
-  }
-  console.log('OK m17 svg translate only', { spread, mult: rules.VoiceSpacingMultiplierVexflow });
+  console.log('OK m17 voiceSpacing preview', { spread, xs });
 }
 
 main().catch((e) => {

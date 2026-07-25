@@ -168,6 +168,19 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
 }
 
 export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
+  if (next.kind === 'setPlayOrder' && next.noteIndex != null) {
+    const mxl = String(next.measureMxl);
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          f.kind === 'setPlayOrder' &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl &&
+          f.noteIndex === next.noteIndex
+        ),
+    );
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
   const key = fixDedupeKey(next);
   if (fixes.some((f) => fixDedupeKey(f) === key)) return fixes;
   return [...fixes, { ...next, id: next.id || newFixId() }];

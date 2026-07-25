@@ -783,6 +783,7 @@ type Props = {
   /** part `<staves>` — 동시 시작 voice 복원 staff 선택용 */
   partStaveCount?: number;
   onAddFix: (fix: OmrHitlFix) => void;
+  pendingFixes?: OmrHitlFix[];
   previewRevision?: number;
   lastPreviewMsg?: string;
   pendingFixCount?: number;
@@ -928,6 +929,7 @@ export function OmrMeasureEditor({
   editStaffWithinPart = null,
   partStaveCount = 1,
   onAddFix,
+  pendingFixes = [],
   previewRevision = 0,
   lastPreviewMsg = '',
   pendingFixCount = 0,
@@ -942,6 +944,39 @@ export function OmrMeasureEditor({
   const [fixMsg, setFixMsg] = useState('');
   const [pendingInsertLeader, setPendingInsertLeader] = useState<PendingInsertLeader | null>(null);
   const [repairStaff, setRepairStaff] = useState(editStaffWithinPart ?? 1);
+  const [playOrderDraft, setPlayOrderDraft] = useState<Record<number, string>>({});
+
+  const measureMxlStr = String(measureMxl);
+
+  const pendingPlayOrderForNote = useCallback(
+    (noteIndex: number): number | null | undefined => {
+      for (let i = pendingFixes.length - 1; i >= 0; i -= 1) {
+        const f = pendingFixes[i]!;
+        if (f.kind !== 'setPlayOrder') continue;
+        if (f.partId !== partId) continue;
+        if (String(f.measureMxl) !== measureMxlStr) continue;
+        if (f.noteIndex !== noteIndex) continue;
+        if (f.playOrder == null || f.playOrder < 1) return null;
+        return f.playOrder;
+      }
+      return undefined;
+    },
+    [pendingFixes, partId, measureMxlStr],
+  );
+
+  const playOrderInputValue = useCallback(
+    (el: MeasureNoteEl): string => {
+      if (Object.prototype.hasOwnProperty.call(playOrderDraft, el.index)) {
+        return playOrderDraft[el.index]!;
+      }
+      const pending = pendingPlayOrderForNote(el.index);
+      if (pending !== undefined) return pending == null ? '' : String(pending);
+      if (el.playOrder != null) return String(el.playOrder);
+      if (el.displayPlayOrder != null) return String(el.displayPlayOrder);
+      return '';
+    },
+    [playOrderDraft, pendingPlayOrderForNote],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1005,6 +1040,10 @@ export function OmrMeasureEditor({
     [measureDirections],
   );
 
+  useEffect(() => {
+    setPlayOrderDraft({});
+  }, [previewRevision, partId, measureMxl]);
+
   const pushFix = (partial: FixPartial) => {
     const { measureMxl: overrideMxl, ...rest } = partial;
     const directionKinds = new Set(['setMeasureDirectionText', 'removeDirection']);
@@ -1020,6 +1059,28 @@ export function OmrMeasureEditor({
       ...rest,
     });
     setFixMsg('대기 목록에 추가됨 → 아래 「MXL에 반영·미리보기」로 오른쪽 악보를 확인하세요.');
+  };
+
+  const commitPlayOrder = (el: MeasureNoteEl, raw: string) => {
+    const trimmed = raw.trim();
+    const order = trimmed === '' || trimmed === '0' ? 0 : parseInt(trimmed, 10);
+    if (trimmed !== '' && trimmed !== '0' && !Number.isFinite(order)) return;
+    pushFix({
+      kind: 'setPlayOrder',
+      noteIndex: el.index,
+      playOrder: order,
+      staff: el.staff ?? repairStaff,
+    });
+    setFixMsg(
+      order > 0
+        ? `#${el.index} 연주순번 ${order} (반영 대기)`
+        : `#${el.index} 연주순번 자동 (반영 대기)`,
+    );
+    setPlayOrderDraft((prev) => {
+      const next = { ...prev };
+      delete next[el.index];
+      return next;
+    });
   };
 
   return (
@@ -1115,32 +1176,21 @@ export function OmrMeasureEditor({
                   <label style={{ marginRight: 10, fontWeight: 400, fontSize: '0.86rem' }}>
                     순번{' '}
                     <input
-                      type="number"
-                      min={0}
-                      step={1}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       style={{ width: 48, marginLeft: 2 }}
-                      value={
-                        el.playOrder != null
-                          ? String(el.playOrder)
-                          : el.displayPlayOrder != null
-                            ? String(el.displayPlayOrder)
-                            : ''
-                      }
+                      value={playOrderInputValue(el)}
                       onChange={(e) => {
-                        const raw = e.target.value.trim();
-                        const order = raw === '' || raw === '0' ? 0 : parseInt(raw, 10);
-                        if (!Number.isFinite(order)) return;
-                        pushFix({
-                          kind: 'setPlayOrder',
-                          noteIndex: el.index,
-                          playOrder: order,
-                          staff: el.staff ?? repairStaff,
-                        });
-                        setFixMsg(
-                          order > 0
-                            ? `#${el.index} 연주순번 ${order} (반영 대기)`
-                            : `#${el.index} 연주순번 자동 (반영 대기)`,
-                        );
+                        setPlayOrderDraft((prev) => ({ ...prev, [el.index]: e.target.value }));
+                      }}
+                      onBlur={(e) => commitPlayOrder(el, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitPlayOrder(el, (e.target as HTMLInputElement).value);
+                          (e.target as HTMLInputElement).blur();
+                        }
                       }}
                     />
                   </label>

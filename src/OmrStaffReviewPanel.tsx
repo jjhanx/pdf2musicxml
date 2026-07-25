@@ -853,6 +853,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               previewRevision={previewRevision}
               lastPreviewMsg={lastPreviewMsg}
               pendingFixCount={pendingFixes.length}
+              pendingFixes={pendingFixes}
               previewBusy={applyBusy}
               onPreview={() => void applyFixesToMxl()}
               onAddFix={addFix}

@@ -26,6 +26,8 @@ Object.assign(globalThis, {
   window: dom.window,
   DOMParser: dom.window.DOMParser,
   XMLSerializer: dom.window.XMLSerializer,
+  Node: dom.window.Node,
+  Element: dom.window.Element,
   requestAnimationFrame: (cb: FrameRequestCallback) => {
     setTimeout(() => cb(0), 0);
     return 0;

@@ -82,14 +82,19 @@ function main() {
   if (!f4 || !e5 || !f5) throw new Error('F4/E5/F5 missing');
   if (dx(f4) !== dx(e5)) throw new Error(`parallel po=2 must share x F4=${dx(f4)} E5=${dx(e5)}`);
 
-  const layoutOnsetF5 = parseInt(f5.getAttribute('data-osmd-onset-units') ?? '-1', 10);
+  const e5Rhythmic = parseInt(e5.getAttribute('data-osmd-onset-units') ?? '-1', 10);
+  const f4Rhythmic = parseInt(f4.getAttribute('data-osmd-onset-units') ?? '-1', 10);
+  const f5Rhythmic = parseInt(f5.getAttribute('data-osmd-onset-units') ?? '-1', 10);
   const e5Raw = onsets.get(e5) ?? 0;
   const f5Raw = onsets.get(f5) ?? 0;
-  if (layoutOnsetF5 !== e5Raw - e5Raw + (f5Raw - e5Raw)) {
-    // layout = group anchor 0 + delta from E5
-    if (layoutOnsetF5 !== f5Raw - e5Raw) {
-      throw new Error(`F5 layout onset should be voice delta from E5 got ${layoutOnsetF5} expected ${f5Raw - e5Raw}`);
-    }
+  if (e5Rhythmic !== e5Raw) {
+    throw new Error(`E5 rhythmic onset must stay raw ${e5Raw} got ${e5Rhythmic}`);
+  }
+  if (f5Rhythmic !== f5Raw) {
+    throw new Error(`F5 rhythmic onset must stay raw ${f5Raw} got ${f5Rhythmic}`);
+  }
+  if (e5Rhythmic <= f4Rhythmic) {
+    throw new Error(`E5 must stay after F4 chord rhythmically got E5=${e5Rhythmic} F4=${f4Rhythmic}`);
   }
 
   const eighthSpan = dx(f5) - dx(f4);
@@ -105,7 +110,8 @@ function main() {
     f4x: dx(f4),
     e5x: dx(e5),
     f5x: dx(f5),
-    layoutOnsetF5,
+    e5Rhythmic,
+    f5Rhythmic,
     eighthSpan,
     quarterSpan,
   });

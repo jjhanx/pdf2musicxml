@@ -111,13 +111,15 @@ function setLayoutAttrsOnGroup(
   measure: Element,
   leader: Element,
   layoutOnset: number,
+  rhythmicOnset: number,
   layoutLen: number,
   playOrder: number | null,
 ): void {
   const x = defaultXFromOnset(layoutOnset, layoutLen);
   for (const note of noteGroupWithChords(measure, leader)) {
     if (playOrder != null) note.setAttribute(HITL_PLAY_ORDER_ATTR, String(playOrder));
-    note.setAttribute(OSMD_ONSET_UNITS_ATTR, String(layoutOnset));
+    // rhythmic onset — OSMD voice timeline; layoutOnset는 default-x(연주순번 column)만
+    note.setAttribute(OSMD_ONSET_UNITS_ATTR, String(rhythmicOnset));
     note.setAttribute('default-x', x);
   }
 }
@@ -196,7 +198,8 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     for (const leader of leaders) {
       const po = readPlayOrder(leader);
       const layoutPos = layoutOnset.get(leader) ?? onsets.get(leader) ?? 0;
-      setLayoutAttrsOnGroup(measure, leader, layoutPos, layoutLen, po);
+      const rhythmicPos = onsets.get(leader) ?? layoutPos;
+      setLayoutAttrsOnGroup(measure, leader, layoutPos, rhythmicPos, layoutLen, po);
     }
   }
 }
@@ -235,32 +238,8 @@ function dedupePlayOrderPitchDuplicates(measure: Element, staffN: number, leader
   return changed;
 }
 
-/** coalesce 후 명시 연주순번 없는 동일 pitch 잔여층 제거(OMR duplicate). */
-function removeOrphanDuplicatePitchLayers(measure: Element, staffN: number): void {
-  const primaryPitch = new Set<string>();
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) !== 'note') continue;
-    if (noteStaffNumber(child) !== staffN) continue;
-    if (isChordMember(child)) continue;
-    if (readPlayOrder(child) != null) primaryPitch.add(xmlPitchLabel(child));
-  }
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) !== 'note') continue;
-    if (noteStaffNumber(child) !== staffN) continue;
-    if (readPlayOrder(child) != null) continue;
-    if (!primaryPitch.has(xmlPitchLabel(child))) continue;
-    if (isChordMember(child)) {
-      child.remove();
-      continue;
-    }
-    for (const n of noteGroupWithChords(measure, child)) {
-      if (n.parentNode === measure) measure.removeChild(n);
-    }
-  }
-}
-
 /**
- * OSMD 미리보기 — 같은 명시 연주순번의 **동일 pitch** OMR duplicate만 제거.
+ * OSMD 미리보기 — 같은 명시 연주순번의 **동일 pitch leader** OMR duplicate만 제거.
  * 박자·pitch가 다른 음(F4 4분 + E5 8분 등)은 chord/onset 병합하지 않음 → render 후 SVG column 정렬.
  */
 export function dedupeSamePlayOrderPitchLayersForOsmdPreview(measure: Element): boolean {
@@ -279,11 +258,10 @@ export function dedupeSamePlayOrderPitchLayersForOsmdPreview(measure: Element): 
       byOrder.set(po, list);
     }
     let staffChanged = false;
-    for (const group of byOrder.values()) {
-      if (group.length < 2) continue;
-      staffChanged = dedupePlayOrderPitchDuplicates(measure, staffN, group) || staffChanged;
+    const leadersWithPo = noteLeadersOnStaff(measure, staffN).filter((l) => readPlayOrder(l) != null);
+    if (leadersWithPo.length >= 2) {
+      staffChanged = dedupePlayOrderPitchDuplicates(measure, staffN, leadersWithPo) || staffChanged;
     }
-    if (staffChanged) removeOrphanDuplicatePitchLayers(measure, staffN);
     changed = staffChanged || changed;
   }
   return changed;

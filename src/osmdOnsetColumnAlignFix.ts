@@ -6,15 +6,6 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
 }
 
-function coordNum(v: unknown): number | null {
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  const r = asRecord(v);
-  if (!r) return null;
-  if (typeof r.realValue === 'number' && Number.isFinite(r.realValue)) return r.realValue;
-  if (typeof r.RealValue === 'number' && Number.isFinite(r.RealValue)) return r.RealValue;
-  return null;
-}
-
 function parseAccumulatedTranslateX(el: Element | null): number {
   let x = 0;
   let cur: Element | null = el;
@@ -90,40 +81,8 @@ type StaveGraphic = {
   centerX: number;
 };
 
-function absoluteXFromPositionShape(posRaw: unknown): number | null {
-  const pos = asRecord(posRaw);
-  if (!pos) return null;
-  if (typeof pos.calculateAbsolutePosition === 'function') {
-    (pos.calculateAbsolutePosition as () => void)();
-  }
-  const abs = asRecord(pos.AbsolutePosition ?? pos.absolutePosition);
-  return coordNum(abs?.x ?? abs?.X);
-}
-
-/** OSMD staffEntry column x — voice column offset 전 onset column 위치. */
-function staffEntryAnchorX(se: Record<string, unknown>, gm: Record<string, unknown>): number | null {
-  const seX = absoluteXFromPositionShape(se.PositionAndShape ?? se.positionAndShape);
-  if (seX != null && Number.isFinite(seX)) return seX;
-
-  const tsRaw = (() => {
-    for (const gveRaw of (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[]) {
-      const gve = asRecord(gveRaw);
-      if (!gve) continue;
-      const pve = asRecord(gve.parentVoiceEntry ?? gve.ParentVoiceEntry);
-      const ts = coordNum(pve?.Timestamp ?? pve?.timestamp);
-      if (ts != null && Number.isFinite(ts)) return ts;
-    }
-    return null;
-  })();
-  if (tsRaw == null) return null;
-
-  const gmX = absoluteXFromPositionShape(gm.PositionAndShape ?? gm.positionAndShape);
-  const gmPos = asRecord(gm.PositionAndShape ?? gm.positionAndShape);
-  const size = asRecord(gmPos?.Size ?? gmPos?.size);
-  const width = coordNum(size?.width ?? size?.Width);
-  if (gmX == null || width == null || width <= 0) return null;
-  return gmX + tsRaw * width;
-}
+/** voice column 간격보다 큰 이동은 좌표계 오류 신호 — staffEntry 정렬 생략. */
+const MAX_ONSET_ALIGN_SHIFT_PX = 120;
 
 function collectStaveGraphicsFromStaffEntry(se: Record<string, unknown>): StaveGraphic[] {
   const out: StaveGraphic[] = [];
@@ -144,7 +103,8 @@ function collectStaveGraphicsFromStaffEntry(se: Record<string, unknown>): StaveG
   return out;
 }
 
-function alignStaffEntryColumn(se: Record<string, unknown>, gm: Record<string, unknown>): void {
+/** 동일 staffEntry 내 notehead x 정렬 — SVG 픽셀 공간만 사용(OSMD AbsolutePosition과 혼용 금지). */
+function alignStaffEntryColumn(se: Record<string, unknown>): void {
   const items = collectStaveGraphicsFromStaffEntry(se);
   const bySvg = new Map<SVGGraphicsElement, StaveGraphic>();
   for (const item of items) {
@@ -154,10 +114,9 @@ function alignStaffEntryColumn(se: Record<string, unknown>, gm: Record<string, u
   const unique = [...bySvg.values()];
   if (unique.length < 2) return;
 
-  let anchorX = staffEntryAnchorX(se, gm);
-  if (anchorX == null || !Number.isFinite(anchorX)) {
-    anchorX = Math.min(...unique.map((u) => u.centerX));
-  }
+  const anchorX = Math.min(...unique.map((u) => u.centerX));
+  const maxShift = Math.max(...unique.map((u) => Math.abs(anchorX - u.centerX)));
+  if (maxShift > MAX_ONSET_ALIGN_SHIFT_PX) return;
 
   for (const u of unique) {
     applySvgTranslateX(u.svg, anchorX - u.centerX);
@@ -175,7 +134,7 @@ export function alignOsmdPreviewNotesByOnsetColumn(osmd: OpenSheetMusicDisplay):
     for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
       const se = asRecord(seRaw);
       if (!se) continue;
-      alignStaffEntryColumn(se, gm);
+      alignStaffEntryColumn(se);
     }
   });
 }

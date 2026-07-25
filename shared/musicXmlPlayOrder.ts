@@ -13,7 +13,6 @@ const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
 
 export const HITL_PLAY_ORDER_ATTR = 'data-hitl-play-order';
-const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
 
 const PREVIEW_LAYOUT_BASE_X = 32;
 const PREVIEW_LAYOUT_SPAN = 400;
@@ -121,42 +120,72 @@ function setLayoutAttrsOnGroup(
   }
 }
 
-function origDefaultX(note: Element): number | null {
-  const raw =
-    note.getAttribute(OSMD_ORIG_DEFAULT_X_ATTR)?.trim() ?? note.getAttribute('default-x')?.trim();
-  if (!raw) return null;
-  const n = parseFloat(raw);
-  return Number.isFinite(n) ? n : null;
+function hasBeam(note: Element): boolean {
+  return note.querySelector(':scope > beam, :scope > *|beam') !== null;
 }
 
-function noteDurationValue(note: Element): number {
-  const durEl = note.querySelector(':scope > duration, :scope > *|duration');
-  const n = parseInt(durEl?.textContent?.trim() ?? '0', 10);
-  return Number.isFinite(n) ? n : 0;
+function isBeamBegin(note: Element): boolean {
+  for (const b of [...note.querySelectorAll(':scope > beam, :scope > *|beam')]) {
+    if (b.textContent?.trim() === 'begin') return true;
+  }
+  return false;
 }
 
-/** OMR orig default-x → 0..layoutLen 비례 onset. voice cursor 대신 Audiveris 박자 폭 유지. */
-function layoutOnsetsFromOrigDefaultX(
+/** 빔 continue/end → 같은 voice에서 beam begin leader. */
+function findBeamStartLeader(leaders: Element[], leader: Element): Element | null {
+  if (!hasBeam(leader)) return null;
+  if (isBeamBegin(leader)) return leader;
+  const idx = leaders.indexOf(leader);
+  if (idx <= 0) return null;
+  for (let i = idx - 1; i >= 0; i -= 1) {
+    const prev = leaders[i]!;
+    if (noteVoiceNumber(prev) !== noteVoiceNumber(leader)) break;
+    if (!hasBeam(prev)) break;
+    if (isBeamBegin(prev)) return prev;
+  }
+  return null;
+}
+
+function layoutOnsetFromBeamStart(
+  leaders: Element[],
+  leader: Element,
+  beamStart: Element,
+  layout: Map<Element, number>,
+): number {
+  const bsIdx = leaders.indexOf(beamStart);
+  const myIdx = leaders.indexOf(leader);
+  let pos = layout.get(beamStart) ?? 0;
+  for (let i = bsIdx + 1; i <= myIdx; i += 1) {
+    pos += noteDurationValue(leaders[i]!);
+  }
+  return pos;
+}
+
+/**
+ * 연주순번 → column, 박자 → 간격. 빔 후속음은 beam begin 음 박자만 누적(같은 순번 4분 등 참조 안 함).
+ */
+function layoutOnsetsFromPlayOrderAndDuration(
   leaders: Element[],
   layoutLen: number,
   onsets: Map<Element, number>,
 ): Map<Element, number> {
-  const xs = leaders.map((l) => origDefaultX(l)).filter((x): x is number => x != null);
-  const minX = xs.length ? Math.min(...xs) : 0;
-  const maxX = xs.length ? Math.max(...xs) : minX;
-  const span = maxX - minX;
+  const layout = new Map<Element, number>();
+  const voiceEnd = new Map<string, number>();
 
-  const unsnapped = new Map<Element, number>();
   for (const leader of leaders) {
-    const x = origDefaultX(leader);
-    if (x != null && span > 0.01) {
-      unsnapped.set(leader, ((x - minX) / span) * layoutLen);
-    } else {
-      unsnapped.set(leader, onsets.get(leader) ?? 0);
-    }
-  }
+    const voice = noteVoiceNumber(leader);
+    const dur = noteDurationValue(leader);
+    const beamStart = findBeamStartLeader(leaders, leader);
 
-  const layoutOnset = new Map(unsnapped);
+    let onset: number;
+    if (beamStart && beamStart !== leader) {
+      onset = layoutOnsetFromBeamStart(leaders, leader, beamStart, layout);
+    } else {
+      onset = voiceEnd.get(voice) ?? onsets.get(leader) ?? 0;
+    }
+    layout.set(leader, onset);
+    voiceEnd.set(voice, Math.max(voiceEnd.get(voice) ?? 0, onset + dur));
+  }
 
   const byPo = new Map<number, Element[]>();
   for (const leader of leaders) {
@@ -168,28 +197,26 @@ function layoutOnsetsFromOrigDefaultX(
   }
   for (const group of byPo.values()) {
     if (group.length < 2) continue;
-    const minLayout = Math.min(...group.map((l) => layoutOnset.get(l) ?? 0));
-    for (const leader of group) layoutOnset.set(leader, minLayout);
+    const minLayout = Math.min(...group.map((l) => layout.get(l) ?? 0));
+    for (const leader of group) layout.set(leader, minLayout);
   }
 
-  const voices = [...new Set(leaders.map((l) => noteVoiceNumber(l)))].sort(
-    (a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99),
-  );
-  for (const voice of voices) {
-    let prev: Element | null = null;
-    for (const leader of leaders) {
-      if (noteVoiceNumber(leader) !== voice) continue;
-      if (prev != null && readPlayOrder(leader) == null && noteDurationValue(prev) <= 1) {
-        const delta = (unsnapped.get(leader) ?? 0) - (unsnapped.get(prev) ?? 0);
-        layoutOnset.set(leader, (layoutOnset.get(prev) ?? 0) + delta);
-      }
-      prev = leader;
-    }
+  for (const leader of leaders) {
+    const beamStart = findBeamStartLeader(leaders, leader);
+    if (!beamStart || beamStart === leader) continue;
+    layout.set(leader, layoutOnsetFromBeamStart(leaders, leader, beamStart, layout));
   }
-  return layoutOnset;
+
+  return layout;
 }
 
-/** staff별 default-x — OMR orig-x 박자 비례 + 명시 연주순번 min column. layoutLen=박자표 길이. */
+function noteDurationValue(note: Element): number {
+  const durEl = note.querySelector(':scope > duration, :scope > *|duration');
+  const n = parseInt(durEl?.textContent?.trim() ?? '0', 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** staff별 default-x — 연주순번 column + 박자 비례 + 빔 begin 기준 후속 spacing. */
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   const staves = new Set<number>();
   for (const child of [...measure.children]) {
@@ -200,7 +227,7 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   for (const staffN of staves) {
     const onsets = collectStaffNoteOnsets(measure, staffN);
     const leaders = noteLeadersOnStaff(measure, staffN);
-    const layoutOnset = layoutOnsetsFromOrigDefaultX(leaders, layoutLen, onsets);
+    const layoutOnset = layoutOnsetsFromPlayOrderAndDuration(leaders, layoutLen, onsets);
 
     for (const leader of leaders) {
       const po = readPlayOrder(leader);

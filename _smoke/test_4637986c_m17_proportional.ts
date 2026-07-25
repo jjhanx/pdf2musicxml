@@ -65,20 +65,20 @@ function main() {
   ) as Element;
   if (!e5 || !f5 || !g4) throw new Error('E5/F5/G4 missing');
 
-  const quarterSpan = parseFloat(defaultXFromOnset(2, 4)) - parseFloat(defaultXFromOnset(0, 4));
+  const eighthUnit = parseFloat(defaultXFromOnset(1, 4)) - parseFloat(defaultXFromOnset(0, 4));
   const beamEighth = dx(f5) - dx(e5);
-  if (beamEighth >= quarterSpan) {
-    throw new Error(`F5 must be within quarter beat of E5 got beam8th=${beamEighth} quarter=${quarterSpan}`);
+  if (Math.abs(beamEighth - eighthUnit) > 1) {
+    throw new Error(`F5 must be one duration unit after E5 got ${beamEighth} expected ${eighthUnit}`);
   }
-  const endX = parseFloat(defaultXFromOnset(4, 4));
-  if (Math.abs(dx(g4) - endX) > 1) {
-    throw new Error(`G4 should span to measure end got ${dx(g4)} expected ${endX}`);
+  if (dx(g4) >= dx(f5)) {
+    throw new Error(`G4 (onset 2) should be left of F5 (onset 3) got G4=${dx(g4)} F5=${dx(f5)}`);
   }
-  if (dx(f5) >= dx(g4)) {
-    throw new Error(`F5 must precede trailing quarter G4 got F5=${dx(f5)} G4=${dx(g4)}`);
+  const quarterUnit = parseFloat(defaultXFromOnset(2, 4)) - parseFloat(defaultXFromOnset(0, 4));
+  if (dx(f5) - dx(g4) >= quarterUnit) {
+    throw new Error(`F5 should be less than a quarter after G4 column got delta=${dx(f5) - dx(g4)}`);
   }
 
-  console.log('OK 4637986c m17 proportional', { e5x: dx(e5), f5x: dx(f5), g4x: dx(g4), beamEighth, endX });
+  console.log('OK 4637986c m17 proportional', { e5x: dx(e5), f5x: dx(f5), g4x: dx(g4), beamEighth, eighthUnit });
 }
 
 main();

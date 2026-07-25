@@ -82,21 +82,17 @@ function main() {
   if (!f4 || !e5 || !f5) throw new Error('F4/E5/F5 missing');
   if (dx(f4) !== dx(e5)) throw new Error(`parallel po=2 must share x F4=${dx(f4)} E5=${dx(e5)}`);
 
+  const eighthUnit = parseFloat(defaultXFromOnset(1, 4)) - parseFloat(defaultXFromOnset(0, 4));
   const eighthSpanFromBeam = dx(f5) - dx(e5);
-  const eighthSpanFromColumn = dx(f5) - dx(f4);
-  const quarterSpan = parseFloat(defaultXFromOnset(2, 4)) - parseFloat(defaultXFromOnset(0, 4));
-  if (eighthSpanFromBeam >= quarterSpan) {
-    throw new Error(`beamed 8th step should be < quarter step got 8th=${eighthSpanFromBeam} quarter=${quarterSpan}`);
-  }
-  if (eighthSpanFromColumn >= quarterSpan) {
-    throw new Error(`F5 should stay within one quarter column of F4 got span=${eighthSpanFromColumn}`);
+  if (Math.abs(eighthSpanFromBeam - eighthUnit) > 1) {
+    throw new Error(`beamed 8th step must equal one duration unit got ${eighthSpanFromBeam} expected ${eighthUnit}`);
   }
 
   const g4 = [...m17.children].find(
     (c) => local(c) === 'note' && pitch(c as Element) === 'G4' && !(c as Element).querySelector('chord,*|chord'),
   ) as Element | undefined;
-  if (g4 && dx(g4) < parseFloat(defaultXFromOnset(3, 4)) - 20) {
-    throw new Error(`trailing quarter should use measure width got G4 x=${dx(g4)}`);
+  if (g4 && dx(g4) <= dx(f4)) {
+    throw new Error(`trailing quarter G4 should follow opening column got G4=${dx(g4)} F4=${dx(f4)}`);
   }
 
   console.log('OK m17 proportional layout', {
@@ -105,8 +101,7 @@ function main() {
     f5x: dx(f5),
     g4x: g4 ? dx(g4) : null,
     eighthSpanFromBeam,
-    eighthSpanFromColumn,
-    quarterSpan,
+    eighthUnit,
   });
 }
 

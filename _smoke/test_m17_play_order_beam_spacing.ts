@@ -1,7 +1,8 @@
 /**
- * omr-work-4637986c m17 PR: orig-x proportional spacing — F5 within quarter, G4 at measure end.
- * Run: npx tsx _smoke/test_4637986c_m17_proportional.ts
+ * m17 PR: po1(quarter) → po2(E5) → po3(F5 beamed) — E5–F5 span ≈ half of po1–po2 span.
+ * Run: npx tsx _smoke/test_m17_play_order_beam_spacing.ts
  */
+import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import {
@@ -13,7 +14,6 @@ import {
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 import { unifyVoiceForSamePlayOrderPreview } from '../shared/musicXmlPlayOrder';
-import { defaultXFromOnset } from '../shared/musicXmlPreviewOnsetLayout';
 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 Object.assign(globalThis, { document: dom.window.document, DOMParser: dom.window.DOMParser });
@@ -22,7 +22,8 @@ const local = (el: Element) => el.localName?.toLowerCase() ?? el.tagName.toLower
 const pitch = (n: Element) => {
   const step = n.querySelector('step,*|step')?.textContent ?? '';
   const oct = n.querySelector('octave,*|octave')?.textContent ?? '';
-  return `${step}${oct}`;
+  const alter = n.querySelector('alter,*|alter')?.textContent ?? '';
+  return `${step}${alter === '-1' ? 'b' : ''}${oct}`;
 };
 
 function buildM17(raw: string): Element {
@@ -51,36 +52,45 @@ function dx(note: Element): number {
 }
 
 function main() {
-  const raw = execSync('python _smoke/_export_4637986c_review.py', { encoding: 'utf8', maxBuffer: 30e6 });
+  if (!fs.existsSync('omr-work-0ea5ea52.zip')) {
+    console.log('skip');
+    return;
+  }
+  const raw = execSync('python _smoke/_export_m17_play_order123.py', { encoding: 'utf8', maxBuffer: 20e6 });
   const m17 = buildM17(raw);
 
+  const f4 = [...m17.children].find(
+    (c) => local(c) === 'note' && pitch(c as Element) === 'F4' && !(c as Element).querySelector('chord,*|chord'),
+  ) as Element;
   const e5 = [...m17.children].find(
     (c) => local(c) === 'note' && pitch(c as Element) === 'E5' && !(c as Element).querySelector('chord,*|chord'),
   ) as Element;
   const f5 = [...m17.children].find(
     (c) => local(c) === 'note' && pitch(c as Element) === 'F5' && !(c as Element).querySelector('chord,*|chord'),
   ) as Element;
-  const g4 = [...m17.children].find(
-    (c) => local(c) === 'note' && pitch(c as Element) === 'G4' && !(c as Element).querySelector('chord,*|chord'),
-  ) as Element;
-  if (!e5 || !f5 || !g4) throw new Error('E5/F5/G4 missing');
+  if (!f4 || !e5 || !f5) throw new Error('F4/E5/F5 missing');
 
-  const eighthUnit = parseFloat(defaultXFromOnset(1, 4)) - parseFloat(defaultXFromOnset(0, 4));
-  const beamEighth = dx(f5) - dx(e5);
-  if (Math.abs(beamEighth - eighthUnit) > 1) {
-    throw new Error(`F5 must be one duration unit after E5 got ${beamEighth} expected ${eighthUnit}`);
+  const po1ToPo2 = dx(e5) - dx(f4);
+  const po2ToPo3 = dx(f5) - dx(e5);
+  if (po1ToPo2 <= 0) {
+    throw new Error(`po1 F4 should be left of po2 E5 got F4=${dx(f4)} E5=${dx(e5)}`);
   }
-  const f4 = [...m17.children].find(
-    (c) => local(c) === 'note' && pitch(c as Element) === 'F4' && !(c as Element).querySelector('chord,*|chord'),
-  ) as Element | undefined;
-  if (f4 && dx(f4) <= dx(f5)) {
-    throw new Error(`F4 (po4) should follow beamed E5–F5 got F4=${dx(f4)} F5=${dx(f5)}`);
-  }
-  if (g4 && f4 && dx(g4) <= dx(f4)) {
-    throw new Error(`G4 (po5) should follow F4 column got G4=${dx(g4)} F4=${dx(f4)}`);
+  const ratio = po2ToPo3 / po1ToPo2;
+  if (Math.abs(ratio - 0.5) > 0.08) {
+    throw new Error(
+      `E5–F5 should be ~half of F4–E5 spacing got ratio=${ratio.toFixed(3)} ` +
+        `(po1→po2=${po1ToPo2} po2→po3=${po2ToPo3})`,
+    );
   }
 
-  console.log('OK 4637986c m17 proportional', { e5x: dx(e5), f5x: dx(f5), g4x: dx(g4), beamEighth, eighthUnit });
+  console.log('OK m17 play-order beam spacing', {
+    f4x: dx(f4),
+    e5x: dx(e5),
+    f5x: dx(f5),
+    po1ToPo2,
+    po2ToPo3,
+    ratio,
+  });
 }
 
 main();

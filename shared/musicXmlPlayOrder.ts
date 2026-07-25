@@ -4,7 +4,6 @@
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import {
-  collectStaffNoteOnsets,
   measureLengthUnits,
   defaultXFromOnset,
 } from './musicXmlPreviewOnsetLayout';
@@ -161,32 +160,25 @@ function layoutOnsetFromBeamStart(
   return pos;
 }
 
-/**
- * 연주순번 → column, 박자 → 간격. 빔 후속음은 beam begin 음 박자만 누적(같은 순번 4분 등 참조 안 함).
- */
-function layoutOnsetsFromPlayOrderAndDuration(
+function playOrderStepDuration(
   leaders: Element[],
-  layoutLen: number,
-  onsets: Map<Element, number>,
-): Map<Element, number> {
-  const layout = new Map<Element, number>();
-  const voiceEnd = new Map<string, number>();
-
-  for (const leader of leaders) {
-    const voice = noteVoiceNumber(leader);
-    const dur = noteDurationValue(leader);
-    const beamStart = findBeamStartLeader(leaders, leader);
-
-    let onset: number;
-    if (beamStart && beamStart !== leader) {
-      onset = layoutOnsetFromBeamStart(leaders, leader, beamStart, layout);
-    } else {
-      onset = voiceEnd.get(voice) ?? onsets.get(leader) ?? 0;
+  prevPo: number,
+  nextPo: number,
+  defaults: Map<Element, number>,
+): number {
+  const nextLeader = leaders.find((l) => effectivePlayOrder(l, defaults) === nextPo);
+  if (nextLeader) {
+    const beamStart = findBeamStartLeader(leaders, nextLeader);
+    if (beamStart && beamStart !== nextLeader && effectivePlayOrder(beamStart, defaults) === prevPo) {
+      return noteDurationValue(beamStart);
     }
-    layout.set(leader, onset);
-    voiceEnd.set(voice, Math.max(voiceEnd.get(voice) ?? 0, onset + dur));
   }
+  const prevLeaders = leaders.filter((l) => effectivePlayOrder(l, defaults) === prevPo);
+  if (!prevLeaders.length) return 1;
+  return Math.max(...prevLeaders.map(noteDurationValue));
+}
 
+function snapExplicitPlayOrderColumns(layout: Map<Element, number>, leaders: Element[]): void {
   const byPo = new Map<number, Element[]>();
   for (const leader of leaders) {
     const po = readPlayOrder(leader);
@@ -200,13 +192,53 @@ function layoutOnsetsFromPlayOrderAndDuration(
     const minLayout = Math.min(...group.map((l) => layout.get(l) ?? 0));
     for (const leader of group) layout.set(leader, minLayout);
   }
+}
 
+function reapplyBeamFollowerLayouts(leaders: Element[], layout: Map<Element, number>): void {
   for (const leader of leaders) {
     const beamStart = findBeamStartLeader(leaders, leader);
     if (!beamStart || beamStart === leader) continue;
     layout.set(leader, layoutOnsetFromBeamStart(leaders, leader, beamStart, layout));
   }
+}
 
+/**
+ * 연주순번 column(1→2→3…) + 박자 step. PO(n)→PO(n+1) step은 PO(n) anchor duration;
+ * 다음 PO 첫 음이 이전 PO beam begin이면 beam begin 박자(8분)만 step — 4분 PO anchor 무시.
+ */
+function layoutOnsetsFromPlayOrderAndDuration(
+  measure: Element,
+  staffN: number,
+  leaders: Element[],
+): Map<Element, number> {
+  const defaults = defaultPlayOrdersFromDocumentOrder(measure, staffN);
+  const sortedPos = [...new Set(leaders.map((l) => effectivePlayOrder(l, defaults)))].sort((a, b) => a - b);
+
+  const poColumn = new Map<number, number>();
+  for (let i = 0; i < sortedPos.length; i += 1) {
+    const po = sortedPos[i]!;
+    if (i === 0) {
+      poColumn.set(po, 0);
+      continue;
+    }
+    const prevPo = sortedPos[i - 1]!;
+    const step = playOrderStepDuration(leaders, prevPo, po, defaults);
+    poColumn.set(po, (poColumn.get(prevPo) ?? 0) + step);
+  }
+
+  const layout = new Map<Element, number>();
+  for (const leader of leaders) {
+    const po = effectivePlayOrder(leader, defaults);
+    const beamStart = findBeamStartLeader(leaders, leader);
+    if (beamStart && beamStart !== leader) {
+      layout.set(leader, layoutOnsetFromBeamStart(leaders, leader, beamStart, layout));
+    } else {
+      layout.set(leader, poColumn.get(po) ?? 0);
+    }
+  }
+
+  snapExplicitPlayOrderColumns(layout, leaders);
+  reapplyBeamFollowerLayouts(leaders, layout);
   return layout;
 }
 
@@ -225,13 +257,12 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   const layoutLen = measureLengthUnits(measure);
 
   for (const staffN of staves) {
-    const onsets = collectStaffNoteOnsets(measure, staffN);
     const leaders = noteLeadersOnStaff(measure, staffN);
-    const layoutOnset = layoutOnsetsFromPlayOrderAndDuration(leaders, layoutLen, onsets);
+    const layoutOnset = layoutOnsetsFromPlayOrderAndDuration(measure, staffN, leaders);
 
     for (const leader of leaders) {
       const po = readPlayOrder(leader);
-      const layoutPos = layoutOnset.get(leader) ?? onsets.get(leader) ?? 0;
+      const layoutPos = layoutOnset.get(leader) ?? 0;
       setLayoutAttrsOnGroup(measure, leader, layoutPos, layoutLen, po);
     }
   }

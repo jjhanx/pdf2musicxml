@@ -1,6 +1,9 @@
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import { applyPreviewOnsetSlotLayoutToMeasure, applyPreviewOnsetSlotLayoutToXml } from './musicXmlPreviewOnsetLayout';
-import { applyPlayOrderLayoutToMeasure, applyPlayOrderLayoutToXml } from './musicXmlPlayOrder';
+import {
+  applyPlayOrderLayoutToMeasure,
+  applyPlayOrderLayoutToXml,
+} from './musicXmlPlayOrder';
 
 const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
 

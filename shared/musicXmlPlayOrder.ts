@@ -136,14 +136,14 @@ function isBeamBegin(note: Element): boolean {
   return false;
 }
 
-function findBeamStartLeader(leaders: Element[], leader: Element): Element | null {
+function findBeamStartLeader(leaders: Element[], leader: Element, ignoreVoice = false): Element | null {
   if (!hasBeam(leader)) return null;
   if (isBeamBegin(leader)) return leader;
   const idx = leaders.indexOf(leader);
   if (idx <= 0) return null;
   for (let i = idx - 1; i >= 0; i -= 1) {
     const prev = leaders[i]!;
-    if (noteVoiceNumber(prev) !== noteVoiceNumber(leader)) break;
+    if (!ignoreVoice && noteVoiceNumber(prev) !== noteVoiceNumber(leader)) break;
     if (!hasBeam(prev)) break;
     if (isBeamBegin(prev)) return prev;
   }
@@ -254,7 +254,193 @@ function allLeadersInMeasure(measure: Element): Element[] {
   return out;
 }
 
-/** 마디 공통 grid — 순번·박자 → default-x (성부별 동일 onset = 동일 x). */
+function appendTimelineForward(measure: Element, duration: number): void {
+  if (duration <= 0) return;
+  const doc = measure.ownerDocument!;
+  if (!doc) return;
+  const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+  const fwd = ns ? doc.createElementNS(ns, 'forward') : doc.createElement('forward');
+  const dur = ns ? doc.createElementNS(ns, 'duration') : doc.createElement('duration');
+  dur.textContent = String(duration);
+  fwd.appendChild(dur);
+  measure.appendChild(fwd);
+}
+
+function appendTimelineBackup(measure: Element, duration: number): void {
+  if (duration <= 0) return;
+  const doc = measure.ownerDocument!;
+  if (!doc) return;
+  const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+  const backup = ns ? doc.createElementNS(ns, 'backup') : doc.createElement('backup');
+  const dur = ns ? doc.createElementNS(ns, 'duration') : doc.createElement('duration');
+  dur.textContent = String(duration);
+  backup.appendChild(dur);
+  measure.appendChild(backup);
+}
+
+function setNoteVoice(note: Element, voice: string): void {
+  let vEl = note.querySelector(':scope > voice, :scope > *|voice');
+  if (!vEl) {
+    const doc = note.ownerDocument!;
+    const ns = note.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+    vEl = ns ? doc.createElementNS(ns, 'voice') : doc.createElement('voice');
+    const dur = note.querySelector('duration, *|duration');
+    if (dur?.nextSibling) note.insertBefore(vEl, dur.nextSibling);
+    else note.appendChild(vEl);
+  }
+  vEl.textContent = voice;
+}
+
+function appendNoteGroupToMeasure(measure: Element, group: Element[], voice: string): void {
+  for (const note of group) {
+    setNoteVoice(note, voice);
+    measure.appendChild(note);
+  }
+}
+
+function chainTotalDuration(chain: Element[]): number {
+  return chain.reduce((sum, l) => sum + noteDurationValue(l), 0);
+}
+
+/** 같은 onset의 leader들을 beam chain 단위로 분리. */
+function leadersToBeamChains(leaders: Element[]): Element[][] {
+  const chains: Element[][] = [];
+  const used = new Set<Element>();
+  for (const l of leaders) {
+    if (used.has(l)) continue;
+    const beamStart = findBeamStartLeader(leaders, l);
+    if (beamStart && beamStart !== l) continue;
+    const chain = [l];
+    used.add(l);
+    const startIdx = leaders.indexOf(l);
+    for (let j = startIdx + 1; j < leaders.length; j += 1) {
+      const next = leaders[j]!;
+      const bs = findBeamStartLeader(leaders, next);
+      if (bs && chain.includes(bs)) {
+        chain.push(next);
+        used.add(next);
+      } else break;
+    }
+    chains.push(chain);
+  }
+  for (const l of leaders) {
+    if (!used.has(l)) chains.push([l]);
+  }
+  return chains;
+}
+
+/**
+ * OSMD는 voice timeline으로 spacing — default-x만으론 부족.
+ * layout onset 기준으로 voice·backup·forward 재구성(미리보기 전용).
+ */
+function rebuildStaffTimelineFromPlayOrderLayout(
+  measure: Element,
+  staffN: number,
+  layout: Map<Element, number>,
+): void {
+  const staffLeaders = noteLeadersOnStaff(measure, staffN);
+  if (!staffLeaders.length) return;
+
+  const leaderGroups = new Map<Element, Element[]>();
+  for (const l of staffLeaders) {
+    leaderGroups.set(l, [...noteGroupWithChords(measure, l)]);
+  }
+
+  const sortedLeaders = [...staffLeaders].sort((a, b) => {
+    const oa = layout.get(a) ?? 0;
+    const ob = layout.get(b) ?? 0;
+    if (oa !== ob) return oa - ob;
+    return staffLeaders.indexOf(a) - staffLeaders.indexOf(b);
+  });
+
+  const onsetGroups: Element[][] = [];
+  for (const l of sortedLeaders) {
+    const o = layout.get(l) ?? 0;
+    const last = onsetGroups[onsetGroups.length - 1];
+    if (last && (layout.get(last[0]!) ?? 0) === o) last.push(l);
+    else onsetGroups.push([l]);
+  }
+
+  /** 같은 onset·같은 pitch 중복 leader는 1개만 (OMR 잔여). */
+  for (let gi = 0; gi < onsetGroups.length; gi += 1) {
+    const group = onsetGroups[gi]!;
+    const seen = new Set<string>();
+    onsetGroups[gi] = group.filter((l) => {
+      const p = xmlPitchLabel(l);
+      if (seen.has(p)) return false;
+      seen.add(p);
+      return true;
+    });
+  }
+
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'backup' || tag === 'forward') {
+      child.remove();
+      continue;
+    }
+    if (tag === 'note' && noteStaffNumber(child) === staffN) child.remove();
+  }
+
+  const PRIMARY = '1';
+  const voiceCursor = new Map<string, number>();
+  const leaderVoice = new Map<Element, string>();
+  let nextVoice = 2;
+
+  for (const group of onsetGroups) {
+    const onset = layout.get(group[0]!) ?? 0;
+    const first = group[0]!;
+    const beamStart = findBeamStartLeader(staffLeaders, first, true);
+
+    if (beamStart && beamStart !== first && leaderVoice.has(beamStart)) {
+      const voice = leaderVoice.get(beamStart)!;
+      let cursor = voiceCursor.get(voice) ?? 0;
+      if (onset > cursor) {
+        appendTimelineForward(measure, onset - cursor);
+        cursor = onset;
+      }
+      for (const l of group) {
+        appendNoteGroupToMeasure(measure, leaderGroups.get(l) ?? [l], voice);
+        leaderVoice.set(l, voice);
+        cursor += noteDurationValue(l);
+      }
+      voiceCursor.set(voice, cursor);
+      continue;
+    }
+
+    const chains = leadersToBeamChains(group);
+    chains.sort((a, b) => chainTotalDuration(b) - chainTotalDuration(a));
+
+    const primaryChain = chains[0]!;
+    const primaryDur = chainTotalDuration(primaryChain);
+
+    let v1 = voiceCursor.get(PRIMARY) ?? 0;
+    if (onset > v1) {
+      appendTimelineForward(measure, onset - v1);
+      v1 = onset;
+    }
+    for (const l of primaryChain) {
+      appendNoteGroupToMeasure(measure, leaderGroups.get(l) ?? [l], PRIMARY);
+      leaderVoice.set(l, PRIMARY);
+    }
+    voiceCursor.set(PRIMARY, onset + primaryDur);
+
+    for (let ci = 1; ci < chains.length; ci += 1) {
+      const chain = chains[ci]!;
+      const sv = String(nextVoice++);
+      appendTimelineBackup(measure, primaryDur);
+      let cursor = onset;
+      for (const l of chain) {
+        appendNoteGroupToMeasure(measure, leaderGroups.get(l) ?? [l], sv);
+        leaderVoice.set(l, sv);
+        cursor += noteDurationValue(l);
+      }
+      voiceCursor.set(sv, cursor);
+    }
+  }
+}
+
+/** 마디 공통 grid — 순번·박자 → default-x + voice timeline 재구성. */
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   const staves = new Set<number>();
   for (const child of [...measure.children]) {
@@ -288,41 +474,15 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   for (const leader of allLeaders) {
     setLayoutAttrsOnGroup(measure, leader, layout.get(leader) ?? 0, layoutLen, readPlayOrder(leader));
   }
+
+  for (const staffN of staves) {
+    rebuildStaffTimelineFromPlayOrderLayout(measure, staffN, layout);
+  }
 }
 
-/** OSMD 미리보기 — 같은 명시 연주순번 leader를 동일 voice로(OSMD column 분리 완화). */
-export function unifyVoiceForSamePlayOrderPreview(measure: Element): boolean {
-  const staves = new Set<number>();
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
-  }
-  let changed = false;
-  for (const staffN of staves) {
-    const byOrder = new Map<number, Element[]>();
-    for (const leader of noteLeadersOnStaff(measure, staffN)) {
-      const po = readPlayOrder(leader);
-      if (po == null) continue;
-      const list = byOrder.get(po) ?? [];
-      list.push(leader);
-      byOrder.set(po, list);
-    }
-    for (const group of byOrder.values()) {
-      if (group.length < 2) continue;
-      const targetVoice = [...group.map((l) => noteVoiceNumber(l))].sort(
-        (a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99),
-      )[0]!;
-      for (const leader of group) {
-        for (const note of noteGroupWithChords(measure, leader)) {
-          const vEl = note.querySelector(':scope > voice, :scope > *|voice');
-          if (vEl && vEl.textContent?.trim() !== targetVoice) {
-            vEl.textContent = targetVoice;
-            changed = true;
-          }
-        }
-      }
-    }
-  }
-  return changed;
+/** @deprecated voice timeline 재구성(rebuildStaffTimelineFromPlayOrderLayout)으로 대체. */
+export function unifyVoiceForSamePlayOrderPreview(_measure: Element): boolean {
+  return false;
 }
 
 export function applyPlayOrderLayoutToXml(xml: string): string {

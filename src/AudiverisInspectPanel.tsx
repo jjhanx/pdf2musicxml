@@ -1854,7 +1854,8 @@ export function OsmdBlock({
 
   const syncOnsetColumnAlign = useCallback((_host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => {
     try {
-      alignOsmdPreviewNotesByOnsetColumn(osmd, xmlRef.current);
+      // WeakMap(register) 우선 — sanitize 후 XML. prop xml은 sanitize 전이라 column이 어긋날 수 있음.
+      alignOsmdPreviewNotesByOnsetColumn(osmd);
     } catch (e) {
       console.warn('[osmd] play-order align skipped:', e);
     }
@@ -1927,7 +1928,8 @@ export function OsmdBlock({
       verbatimPreview === true,
       printedMeasureMarkersRef.current,
     );
-    registerOsmdPreviewXmlForAlign(osmd, xml);
+    /** align 타깃은 OSMD가 실제로 load한 XML과 같아야 함(sanitize 전 XML이면 column 불일치). */
+    registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
     void osmd
       .load(xmlForOsmd)
       .then(() => {

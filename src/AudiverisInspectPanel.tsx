@@ -36,6 +36,7 @@ import {
   removeDanglingTimelineElementsForOsmdPreview,
   repairTimelineForOsmdPreview,
   stripPageBreakPrintForOsmdPreview,
+  stripDefaultXyKeepLayoutAttrsForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 import {
   enforceOsmdPreviewMeasureNumberRules,
@@ -1544,12 +1545,13 @@ export type OsmdPreviewOptions = {
 
 export { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
 export { repairRestDisplayForOsmdPreview, repairMissingNoteTypesForOsmdPreview, repairNotesForOsmdPreview } from '../shared/musicXmlRestDisplay';
-export {
+  export {
   removeDanglingTimelineElementsForOsmdPreview,
   repairTimelineForOsmdPreview,
   stripPrintElementsForOsmdPreview,
   stripMeasureWidthAttributesForOsmdPreview,
   stripDefaultXyForOsmdPreview,
+  stripDefaultXyKeepLayoutAttrsForOsmdPreview,
   stripNewSystemPrintForOsmdPreview,
   stripPageBreakPrintForOsmdPreview,
   inferFirstMxlMeasureForPdfPage,
@@ -1632,7 +1634,8 @@ function sanitizeMusicXmlForOsmd(
       if (!hasDirectionType) el.remove();
     });
 
-    return serializeMusicXmlDocument(doc);
+    // layout default-x는 OSMD engraver에 넘기지 않음 — data-osmd-layout-x만 SVG align용으로 유지
+    return stripDefaultXyKeepLayoutAttrsForOsmdPreview(serializeMusicXmlDocument(doc));
   } catch {
     return xml;
   }

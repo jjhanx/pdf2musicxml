@@ -22,6 +22,8 @@ function findXmlParts(doc: Document): Element[] {
 export const OSMD_ONSET_UNITS_ATTR = 'data-osmd-onset-units';
 export const OSMD_ONSET_SLOT_ATTR = 'data-osmd-onset-slot';
 export const OSMD_LYRIC_SLOT_ATTR = 'data-osmd-lyric-slot';
+/** SVG align 전용 column x — OSMD load XML에는 default-x를 두지 않음(0폭·skip 방지). */
+export const OSMD_LAYOUT_X_ATTR = 'data-osmd-layout-x';
 
 const PREVIEW_LAYOUT_BASE_X = 32;
 const PREVIEW_LAYOUT_SPAN = 400;
@@ -180,6 +182,7 @@ function setPreviewAttrsOnGroup(
   for (const note of noteGroupWithChords(measure, leader)) {
     note.setAttribute(OSMD_ONSET_UNITS_ATTR, String(onset));
     note.setAttribute(OSMD_ONSET_SLOT_ATTR, String(onsetSlot));
+    note.setAttribute(OSMD_LAYOUT_X_ATTR, x);
     note.setAttribute('default-x', x);
   }
 }

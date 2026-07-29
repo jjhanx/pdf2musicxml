@@ -6,7 +6,7 @@
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import { collectStaffNoteOnsets } from './musicXmlTimelineCleanup';
-import { defaultXFromOnset, previewLayoutLengthUnits } from './musicXmlPreviewOnsetLayout';
+import { defaultXFromOnset, previewLayoutLengthUnits, OSMD_LAYOUT_X_ATTR } from './musicXmlPreviewOnsetLayout';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -118,6 +118,7 @@ function setLayoutAttrsOnGroup(
   const x = defaultXFromOnset(layoutOnset, layoutLen);
   for (const note of noteGroupWithChords(measure, leader)) {
     if (playOrder != null) note.setAttribute(HITL_PLAY_ORDER_ATTR, String(playOrder));
+    note.setAttribute(OSMD_LAYOUT_X_ATTR, x);
     note.setAttribute('default-x', x);
   }
 }
@@ -349,7 +350,9 @@ export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNote
         if (!Number.isFinite(measureNumber) || measureNumber <= 0) continue;
         for (const leader of allLeadersInMeasure(measure)) {
           if (isRestNote(leader) || isGraceNote(leader)) continue;
-          const rawX = leader.getAttribute('default-x')?.trim();
+          const rawX =
+            leader.getAttribute(OSMD_LAYOUT_X_ATTR)?.trim() ||
+            leader.getAttribute('default-x')?.trim();
           if (!rawX) continue;
           const defaultXTenths = parseFloat(rawX);
           if (!Number.isFinite(defaultXTenths)) continue;
@@ -421,7 +424,9 @@ export function collectExplicitPlayOrderColumnsFromXml(xml: string): ExplicitPla
           if (isRestNote(leader) || isGraceNote(leader)) continue;
           const playOrder = readPlayOrder(leader);
           if (playOrder == null) continue;
-          const rawX = leader.getAttribute('default-x')?.trim();
+          const rawX =
+            leader.getAttribute(OSMD_LAYOUT_X_ATTR)?.trim() ||
+            leader.getAttribute('default-x')?.trim();
           if (!rawX) continue;
           const defaultXTenths = parseFloat(rawX);
           if (!Number.isFinite(defaultXTenths)) continue;

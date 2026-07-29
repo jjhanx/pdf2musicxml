@@ -1,5 +1,9 @@
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
-import { applyPreviewOnsetSlotLayoutToMeasure, applyPreviewOnsetSlotLayoutToXml } from './musicXmlPreviewOnsetLayout';
+import {
+  applyPreviewOnsetSlotLayoutToMeasure,
+  applyPreviewOnsetSlotLayoutToXml,
+  OSMD_LAYOUT_X_ATTR,
+} from './musicXmlPreviewOnsetLayout';
 import {
   applyPlayOrderLayoutToMeasure,
   applyPlayOrderLayoutToXml,
@@ -111,6 +115,34 @@ export function stripDefaultXyForOsmdPreview(xml: string): string {
       if (x && !el.getAttribute(OSMD_ORIG_DEFAULT_X_ATTR)) {
         el.setAttribute(OSMD_ORIG_DEFAULT_X_ATTR, x);
       }
+      el.removeAttribute('default-x');
+      el.removeAttribute('default-y');
+    });
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/**
+ * OSMD load 직전 — 미리보기 layout이 다시 넣은 `default-x`를 제거하되
+ * SVG align용 `data-osmd-layout-x`·연주순번·onset attr은 유지.
+ * (default-x를 OSMD에 넘기면 0폭·음표 소실이 재발할 수 있음)
+ */
+export function stripDefaultXyKeepLayoutAttrsForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    doc.querySelectorAll('note, *|note').forEach((el) => {
+      const layout =
+        el.getAttribute(OSMD_LAYOUT_X_ATTR)?.trim() ||
+        el.getAttribute('default-x')?.trim() ||
+        '';
+      if (layout) el.setAttribute(OSMD_LAYOUT_X_ATTR, layout);
+      el.removeAttribute('default-x');
+      el.removeAttribute('default-y');
+    });
+    doc.querySelectorAll('direction, *|direction').forEach((el) => {
       el.removeAttribute('default-x');
       el.removeAttribute('default-y');
     });

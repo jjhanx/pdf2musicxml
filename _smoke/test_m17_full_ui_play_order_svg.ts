@@ -13,6 +13,7 @@ import {
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
   realignMeasureDefaultXFromTimelineForOsmd,
+  stripDefaultXyKeepLayoutAttrsForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 import { applyPlayOrderLayoutToMeasure } from '../shared/musicXmlPlayOrder';
@@ -88,7 +89,7 @@ function sanitizeVerbatimLikePanel(xml: string): string {
   out = repairMissingNoteTypesForOsmdPreview(out);
   out = repairTimelineForOsmdPreview(out);
   out = repairUnderfullMeasuresForOsmdPreview(out);
-  return out;
+  return stripDefaultXyKeepLayoutAttrsForOsmdPreview(out);
 }
 
 /** buildOsmdPreviewXml PR filter (verbatim) — P5 staff1 only, keep all measures. */

@@ -710,24 +710,20 @@ export function collectLinkedParallelOnsetHintsFromXml(xml: string): LinkedParal
   }
 }
 
-function collectStaffNoteOnsets(measure: Element): Map<Element, number> {
+/** leader → part timeline onset(divisions). MusicXML backup/forward = 단일 cursor. */
+export function collectStaffNoteOnsets(measure: Element): Map<Element, number> {
   const out = new Map<Element, number>();
-  const voiceCursor = new Map<string, number>();
-  let lastNoteVoice = '1';
+  let cursor = 0;
   for (const el of [...measure.children]) {
     const tag = xmlLocalName(el);
     if (tag === 'backup') {
-      const v = timelineVoiceEl(el, lastNoteVoice);
-      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - timelineDurationEl(el)));
+      cursor = Math.max(0, cursor - timelineDurationEl(el));
     } else if (tag === 'forward') {
-      const v = timelineVoiceEl(el, lastNoteVoice);
-      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + timelineDurationEl(el));
+      cursor += timelineDurationEl(el);
     } else if (tag === 'note') {
       if (el.querySelector('chord, *|chord') !== null) continue;
-      const voice = noteVoiceNumber(el);
-      lastNoteVoice = voice;
-      out.set(el, voiceCursor.get(voice) ?? 0);
-      voiceCursor.set(voice, (voiceCursor.get(voice) ?? 0) + noteDurationValue(el));
+      out.set(el, cursor);
+      cursor += noteDurationValue(el);
     }
   }
   return out;

@@ -5,6 +5,7 @@
  * 미리보기 x: 마디 공통 grid(순번1=32 ~ 끝=432). voice·timeline은 건드리지 않음 — 표시는 SVG translate.
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
+import { collectStaffNoteOnsets } from './musicXmlTimelineCleanup';
 import {
   measureLengthUnits,
   defaultXFromOnset,
@@ -216,7 +217,41 @@ function buildPlayOrderOnsetMap(
   return poOnset;
 }
 
-function snapExplicitPlayOrderColumns(layout: Map<Element, number>, leaders: Element[]): void {
+/** true — 서로 다른 음높이·2 voice 이상 (m17 po=2 F4/E5). same-pitch-only(v2 F4 duplicate)는 false. */
+function shouldSnapExplicitPlayOrderGroup(
+  group: Element[],
+  musicalOnsets: Map<Element, number>,
+): boolean {
+  const voices = new Set(group.map((l) => noteVoiceNumber(l)));
+  if (voices.size < 2) return false;
+  const pitches = new Set(group.map((l) => xmlPitchLabel(l)));
+  return pitches.size > 1;
+}
+
+/**
+ * 명시 연주순번 column — cross-voice·다른 pitch일 때 voice별 min onset 중 max.
+ * same-pitch-only(OMR v2 duplicate)는 snap 안 함 → musical onset 유지.
+ */
+function explicitPlayOrderMusicalColumnOnset(
+  group: Element[],
+  musicalOnsets: Map<Element, number>,
+): number {
+  const minByVoice = new Map<string, number>();
+  for (const leader of group) {
+    const v = noteVoiceNumber(leader);
+    const t = musicalOnsets.get(leader) ?? 0;
+    const cur = minByVoice.get(v);
+    if (cur == null || t < cur) minByVoice.set(v, t);
+  }
+  if (minByVoice.size === 0) return 0;
+  return Math.max(...minByVoice.values());
+}
+
+function snapExplicitPlayOrderColumns(
+  layout: Map<Element, number>,
+  leaders: Element[],
+  musicalOnsets: Map<Element, number>,
+): void {
   const byPo = new Map<number, Element[]>();
   for (const leader of leaders) {
     const po = readPlayOrder(leader);
@@ -227,8 +262,9 @@ function snapExplicitPlayOrderColumns(layout: Map<Element, number>, leaders: Ele
   }
   for (const group of byPo.values()) {
     if (group.length < 2) continue;
-    const minLayout = Math.min(...group.map((l) => layout.get(l) ?? 0));
-    for (const leader of group) layout.set(leader, minLayout);
+    if (!shouldSnapExplicitPlayOrderGroup(group, musicalOnsets)) continue;
+    const columnOnset = explicitPlayOrderMusicalColumnOnset(group, musicalOnsets);
+    for (const leader of group) layout.set(leader, columnOnset);
   }
 }
 
@@ -264,27 +300,25 @@ function allLeadersInMeasure(measure: Element): Element[] {
   return out;
 }
 
-/** 마디 공통 grid — 순번·박자 → default-x만 (voice·timeline 불변). 표시는 OSMD render 후 SVG translate. */
+/** 마디 공통 grid — musical onset + 명시 연주순번 column snap + beam (voice·timeline 불변). */
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   const staves = new Set<number>();
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
   }
   const layoutLen = measureLengthUnits(measure);
-  const defaults = buildMeasureDefaultPlayOrders(measure, staves);
+  const musicalOnsets = collectStaffNoteOnsets(measure);
   const allLeaders = allLeadersInMeasure(measure);
-  const poOnset = buildPlayOrderOnsetMap(allLeaders, defaults);
 
   const layout = new Map<Element, number>();
   for (const leader of allLeaders) {
     const staffLeaders = noteLeadersOnStaff(measure, noteStaffNumber(leader));
     const beamStart = findBeamStartLeader(staffLeaders, leader);
     if (beamStart && beamStart !== leader) continue;
-    const po = effectivePlayOrder(leader, defaults);
-    layout.set(leader, poOnset.get(po) ?? 0);
+    layout.set(leader, musicalOnsets.get(leader) ?? 0);
   }
 
-  snapExplicitPlayOrderColumns(layout, allLeaders);
+  snapExplicitPlayOrderColumns(layout, allLeaders, musicalOnsets);
 
   for (const staffN of staves) {
     const staffLeaders = noteLeadersOnStaff(measure, staffN);
@@ -302,6 +336,7 @@ export type PreviewNoteLayoutTarget = {
   partId: string;
   measureNumber: number;
   staff: number;
+  voice: string;
   pitch: string;
   defaultXTenths: number;
   playOrder: number | null;
@@ -326,12 +361,14 @@ export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNote
           const defaultXTenths = parseFloat(rawX);
           if (!Number.isFinite(defaultXTenths)) continue;
           const playOrder = readPlayOrder(leader);
+          const voice = noteVoiceNumber(leader);
           for (const note of noteGroupWithChords(measure, leader)) {
             if (isRestNote(note) || isGraceNote(note)) continue;
             out.push({
               partId,
               measureNumber,
               staff: noteStaffNumber(note),
+              voice,
               pitch: xmlPitchLabel(note),
               defaultXTenths,
               playOrder,

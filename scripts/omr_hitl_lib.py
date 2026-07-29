@@ -391,13 +391,27 @@ def _set_play_order_on_leader(notes: list[ET.Element], ns: str, leader_i: int, o
 
 
 def _set_play_order_same_pitch_staff_leaders(
-    notes: list[ET.Element], ns: str, leader_i: int, order: int,
+    notes: list[ET.Element],
+    ns: str,
+    leader_i: int,
+    order: int,
+    measure: ET.Element | None = None,
 ) -> bool:
-    """같은 staff·음높이의 다른 voice 중복 leader에도 연주순번을 맞춤 (OMR 다중 voice 잔여)."""
+    """같은 staff·음높이·**동일 musical onset**의 다른 voice 중복 leader에만 연주순번을 맞춤.
+
+    OMR이 같은 박에 여러 voice로 같은 pitch를 남긴 경우만 전파한다.
+    서로 다른 시점의 동일 pitch(예: m17 F4 화음 여러 개)까지 전파하면
+    나중에 설정한 순번이 앞 화음을 덮어쓰거나 미리보기 column이 뒤바뀐다.
+    """
     target_pitch = _note_pitch_label(notes[leader_i], ns)
     if not target_pitch:
         return _set_play_order_on_leader(notes, ns, leader_i, order)
     _, target_staff = _note_voice_staff(notes[leader_i], ns)
+    target_onset: int | None = None
+    if measure is not None:
+        target_onset = _parallel_onset_time_for_note_index(
+            measure, ns, target_staff, notes, leader_i
+        )
     changed = False
     for i, note in enumerate(notes):
         if note.find(_q(ns, "chord")) is not None:
@@ -405,6 +419,13 @@ def _set_play_order_same_pitch_staff_leaders(
         if _note_pitch_label(note, ns) != target_pitch:
             continue
         if _note_voice_staff(note, ns)[1] != target_staff:
+            continue
+        if target_onset is not None:
+            onset = _parallel_onset_time_for_note_index(measure, ns, target_staff, notes, i)
+            if onset != target_onset:
+                continue
+        elif i != leader_i:
+            # measure 없으면 지정 leader(+화음)만 — 전 staff 전파 금지
             continue
         if _set_play_order_on_leader(notes, ns, i, order):
             changed = True
@@ -3633,7 +3654,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if idx < 0 or idx >= len(notes):
             return False
         leader_i = _chord_leader_index(notes, ns, idx)
-        return _set_play_order_same_pitch_staff_leaders(notes, ns, leader_i, order)
+        return _set_play_order_same_pitch_staff_leaders(
+            notes, ns, leader_i, order, measure=measure
+        )
 
     if kind == "addArticulation":
         try:
@@ -4837,7 +4860,9 @@ def _link_parallel_onsets_by_indices(
     )
     for i in selected:
         leader_i = _chord_leader_index(notes, ns, i)
-        if _set_play_order_same_pitch_staff_leaders(notes, ns, leader_i, parallel_order):
+        if _set_play_order_same_pitch_staff_leaders(
+            notes, ns, leader_i, parallel_order, measure=measure
+        ):
             changed = True
     return changed
 

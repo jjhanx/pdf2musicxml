@@ -180,6 +180,31 @@ function layoutTargetKey(
   return `${partId}|${measureNumber}|${staff}|${voice}|${pitch}`;
 }
 
+type NoteHit = {
+  stavenote: SVGGraphicsElement;
+  pitch: string;
+  voice: string;
+  centerX: number;
+};
+
+/**
+ * 같은 voice·pitch가 여러 column(예: F4 po2 vs po4)일 때 OSMD 순회 ≠ XML 문서 순.
+ * natural centerX와 layout default-x를 각각 좌→우 정렬해 1:1 매칭.
+ */
+function pairHitsWithLayoutTargetsByHorizontalOrder<T extends { defaultXTenths: number }>(
+  hits: readonly NoteHit[],
+  targets: readonly T[],
+): Array<{ hit: NoteHit; target: T }> {
+  const sortedHits = [...hits].sort((a, b) => a.centerX - b.centerX);
+  const sortedTargets = [...targets].sort((a, b) => a.defaultXTenths - b.defaultXTenths);
+  const n = Math.min(sortedHits.length, sortedTargets.length);
+  const out: Array<{ hit: NoteHit; target: T }> = [];
+  for (let i = 0; i < n; i += 1) {
+    out.push({ hit: sortedHits[i]!, target: sortedTargets[i]! });
+  }
+  return out;
+}
+
 function targetXFromDefaultTenths(originX: number, spanPx: number, defaultXTenths: number): number {
   const frac = Math.max(0, Math.min(1, (defaultXTenths - LAYOUT_BASE_X) / LAYOUT_SPAN));
   return originX + frac * spanPx;
@@ -300,12 +325,6 @@ function alignMeasureNotesByLayoutGrid(
   const gm = asRecord(gmRaw);
   if (!gm) return;
 
-  type NoteHit = {
-    stavenote: SVGGraphicsElement;
-    pitch: string;
-    voice: string;
-    centerX: number;
-  };
   const hits: NoteHit[] = [];
   const seenStavenote = new Set<SVGGraphicsElement>();
 
@@ -332,23 +351,33 @@ function alignMeasureNotesByLayoutGrid(
   }
   if (!hits.length) return;
 
-  // calibration·이동 모두 문서 순 queue와 1:1 (같은 voice·pitch 중복 F4 등)
-  const calQueues = new Map<string, LayoutTarget[]>();
+  const queueByKey = new Map<string, LayoutTarget[]>();
   for (const [key, list] of pitchQueues) {
-    calQueues.set(key, [...list]);
+    queueByKey.set(key, [...list]);
   }
-  const calibrationHits: Array<{ centerX: number; defaultXTenths: number }> = [];
+
+  const hitsByKey = new Map<string, NoteHit[]>();
   for (const hit of hits) {
     const key = layoutTargetKey(partId, measureNumber, staff, hit.voice, hit.pitch);
-    const peek = calQueues.get(key)?.shift();
-    if (peek) calibrationHits.push({ centerX: hit.centerX, defaultXTenths: peek.defaultXTenths });
+    const list = hitsByKey.get(key) ?? [];
+    list.push(hit);
+    hitsByKey.set(key, list);
   }
+
+  const pairs: Array<{ hit: NoteHit; target: LayoutTarget }> = [];
+  for (const [key, keyHits] of hitsByKey) {
+    const targets = queueByKey.get(key) ?? [];
+    if (!targets.length) continue;
+    pairs.push(...pairHitsWithLayoutTargetsByHorizontalOrder(keyHits, targets));
+  }
+
+  const calibrationHits = pairs.map((p) => ({
+    centerX: p.hit.centerX,
+    defaultXTenths: p.target.defaultXTenths,
+  }));
   const calibration = buildMeasureSpanCalibration(calibrationHits);
 
-  for (const hit of hits) {
-    const key = layoutTargetKey(partId, measureNumber, staff, hit.voice, hit.pitch);
-    const target = pitchQueues.get(key)?.shift();
-    if (!target) continue;
+  for (const { hit, target } of pairs) {
     alignStavenoteToTarget(hit.stavenote, target.defaultXTenths, hit.centerX, calibration);
   }
 }
@@ -463,20 +492,29 @@ function alignExplicitPlayOrderColumnsRelative(
 
   for (const queue of columnQueues.values()) {
     if (queue.length < 2) continue;
-    const remaining = new Map<string, PreviewNoteLayoutTarget[]>();
+    const byVoicePitch = new Map<string, PreviewNoteLayoutTarget[]>();
     for (const t of queue) {
-      const key = `${t.voice}|${t.pitch}`;
-      const list = remaining.get(key) ?? [];
+      const vp = `${t.voice}|${t.pitch}`;
+      const list = byVoicePitch.get(vp) ?? [];
       list.push(t);
-      remaining.set(key, list);
+      byVoicePitch.set(vp, list);
     }
     const cluster: StaveGraphic[] = [];
-    for (const hit of hits) {
-      const key = `${hit.voice}|${hit.pitch}`;
-      const list = remaining.get(key);
-      if (!list?.length) continue;
-      list.shift();
-      cluster.push({ svg: hit.stavenote, centerX: hit.centerX });
+    const usedSvg = new Set<SVGGraphicsElement>();
+    for (const [vp, tlist] of byVoicePitch) {
+      const candidates = hits.filter(
+        (h) => `${h.voice}|${h.pitch}` === vp && !usedSvg.has(h.stavenote),
+      );
+      if (!candidates.length) continue;
+      const vpPairs = pairHitsWithLayoutTargetsByHorizontalOrder(
+        candidates,
+        tlist.map((t) => ({ defaultXTenths: t.defaultXTenths, playOrder: t.playOrder })),
+      );
+      for (const { hit } of vpPairs) {
+        if (usedSvg.has(hit.stavenote)) continue;
+        usedSvg.add(hit.stavenote);
+        cluster.push({ svg: hit.stavenote, centerX: hit.centerX });
+      }
     }
     if (cluster.length >= 2) alignPlayOrderGroupForce(cluster);
   }

@@ -207,6 +207,9 @@ async function main() {
   if (po2Gap > 14) {
     throw new Error(`[F4,Bb4] must sit with E5 (po2) gap=${po2Gap} f4=${f4Po2.x} e5=${e5.x}`);
   }
+  if (f4Po2.x >= f5.x - 5) {
+    throw new Error(`[F4,Bb4] po2 must be left of po3 F5: f4Po2=${f4Po2.x} f5=${f5.x}`);
+  }
   if (f5.x <= e5.x + 5) {
     throw new Error(`po3 F5 must be right of po2 got f5=${f5.x} e5=${e5.x}`);
   }

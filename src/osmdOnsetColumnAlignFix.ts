@@ -185,24 +185,82 @@ type NoteHit = {
   pitch: string;
   voice: string;
   centerX: number;
+  /** OSMD voice-entry timestamp — duplicate voice·pitch 매칭에 x보다 신뢰 */
+  timestamp: number | null;
 };
 
+function permutations<T>(items: readonly T[]): T[][] {
+  if (items.length <= 1) return [items as T[]];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += 1) {
+    const head = items[i]!;
+    const rest = [...items.slice(0, i), ...items.slice(i + 1)];
+    for (const p of permutations(rest)) out.push([head, ...p]);
+  }
+  return out;
+}
+
+function estimateWantXFromHitsAndTargets(
+  hits: readonly NoteHit[],
+  targets: readonly { defaultXTenths: number }[],
+  defaultXTenths: number,
+): number {
+  const minT = Math.min(...targets.map((t) => t.defaultXTenths));
+  const maxT = Math.max(...targets.map((t) => t.defaultXTenths));
+  const minX = Math.min(...hits.map((h) => h.centerX));
+  const maxX = Math.max(...hits.map((h) => h.centerX));
+  if (maxT <= minT || maxX <= minX) return minX;
+  const frac = (defaultXTenths - minT) / (maxT - minT);
+  return minX + frac * (maxX - minX);
+}
+
 /**
- * 같은 voice·pitch가 여러 column(예: F4 po2 vs po4)일 때 OSMD 순회 ≠ XML 문서 순.
- * natural centerX와 layout default-x를 각각 좌→우 정렬해 1:1 매칭.
+ * 같은 voice·pitch가 여러 column(예: F4 po2 vs po4)일 때 OSMD 순회·natural x 순서가
+ * layout column과 다를 수 있음(po4가 po2보다 왼쪽에 그려지는 경우 등).
+ * 1) OSMD timestamp ↔ layout default-x 순으로 매칭
+ * 2) 없으면 최소 SVG 이동량(bipartite)으로 매칭 — x-only 좌→우 정렬은 역매칭 유발
  */
-function pairHitsWithLayoutTargetsByHorizontalOrder<T extends { defaultXTenths: number }>(
+export function pairHitsWithLayoutTargetsByBestMatch<T extends { defaultXTenths: number }>(
   hits: readonly NoteHit[],
   targets: readonly T[],
 ): Array<{ hit: NoteHit; target: T }> {
-  const sortedHits = [...hits].sort((a, b) => a.centerX - b.centerX);
+  const n = Math.min(hits.length, targets.length);
+  if (n === 0) return [];
+  if (n === 1) return [{ hit: hits[0]!, target: targets[0]! }];
+
   const sortedTargets = [...targets].sort((a, b) => a.defaultXTenths - b.defaultXTenths);
-  const n = Math.min(sortedHits.length, sortedTargets.length);
-  const out: Array<{ hit: NoteHit; target: T }> = [];
-  for (let i = 0; i < n; i += 1) {
-    out.push({ hit: sortedHits[i]!, target: sortedTargets[i]! });
+  const targetPick = sortedTargets.slice(0, n);
+  const hitList = [...hits];
+
+  const allTs = hitList.every((h) => h.timestamp != null && Number.isFinite(h.timestamp));
+  if (allTs) {
+    const sortedHits = [...hitList].sort(
+      (a, b) => a.timestamp! - b.timestamp! || a.centerX - b.centerX,
+    );
+    return sortedHits.map((hit, i) => ({ hit, target: targetPick[i]! }));
   }
-  return out;
+
+  let bestPairs: Array<{ hit: NoteHit; target: T }> = [];
+  let bestCost = Infinity;
+  for (const hitPerm of permutations(hitList)) {
+    for (const targPerm of permutations(targetPick)) {
+      let cost = 0;
+      const pairs: Array<{ hit: NoteHit; target: T }> = [];
+      for (let i = 0; i < n; i += 1) {
+        const hit = hitPerm[i]!;
+        const target = targPerm[i]!;
+        pairs.push({ hit, target });
+        cost += Math.abs(
+          hit.centerX - estimateWantXFromHitsAndTargets(hitList, targetPick, target.defaultXTenths),
+        );
+      }
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestPairs = pairs;
+      }
+    }
+  }
+  return bestPairs;
 }
 
 function targetXFromDefaultTenths(originX: number, spanPx: number, defaultXTenths: number): number {
@@ -345,7 +403,13 @@ function alignMeasureNotesByLayoutGrid(
         seenStavenote.add(stavenote);
         const centerX = noteheadCenterXInSvgRoot(stavenote);
         if (centerX == null || !Number.isFinite(centerX)) continue;
-        hits.push({ stavenote, pitch, voice, centerX });
+        hits.push({
+          stavenote,
+          pitch,
+          voice,
+          centerX,
+          timestamp: osmdTimestampFromGraphicVoiceEntry(gve),
+        });
       }
     }
   }
@@ -368,7 +432,7 @@ function alignMeasureNotesByLayoutGrid(
   for (const [key, keyHits] of hitsByKey) {
     const targets = queueByKey.get(key) ?? [];
     if (!targets.length) continue;
-    pairs.push(...pairHitsWithLayoutTargetsByHorizontalOrder(keyHits, targets));
+    pairs.push(...pairHitsWithLayoutTargetsByBestMatch(keyHits, targets));
   }
 
   const calibrationHits = pairs.map((p) => ({
@@ -428,10 +492,12 @@ function alignPlayOrderGroupForce(items: StaveGraphic[]): void {
   const unique = [...bySvg.values()];
   if (unique.length < 2) return;
   const anchorX = Math.min(...unique.map((u) => u.centerX));
-  const maxShift = Math.max(...unique.map((u) => Math.abs(anchorX - u.centerX)));
-  if (maxShift > MAX_ONSET_ALIGN_SHIFT_PX) return;
+  const maxShift = Math.max(
+    MAX_ONSET_ALIGN_SHIFT_PX,
+    ...unique.map((u) => Math.abs(anchorX - u.centerX)),
+  );
   for (const u of unique) {
-    applySvgTranslateX(u.svg, anchorX - u.centerX);
+    applySvgTranslateX(u.svg, anchorX - u.centerX, maxShift);
   }
 }
 
@@ -453,7 +519,6 @@ function alignExplicitPlayOrderColumnsRelative(
   const gm = asRecord(gmRaw);
   if (!gm) return;
 
-  type NoteHit = { stavenote: SVGGraphicsElement; pitch: string; voice: string; centerX: number };
   const hits: NoteHit[] = [];
   const seenStavenote = new Set<SVGGraphicsElement>();
 
@@ -474,7 +539,13 @@ function alignExplicitPlayOrderColumnsRelative(
         seenStavenote.add(stavenote);
         const centerX = noteheadCenterXInSvgRoot(stavenote);
         if (centerX == null || !Number.isFinite(centerX)) continue;
-        hits.push({ stavenote, pitch, voice, centerX });
+        hits.push({
+          stavenote,
+          pitch,
+          voice,
+          centerX,
+          timestamp: osmdTimestampFromGraphicVoiceEntry(gve),
+        });
       }
     }
   }
@@ -506,7 +577,7 @@ function alignExplicitPlayOrderColumnsRelative(
         (h) => `${h.voice}|${h.pitch}` === vp && !usedSvg.has(h.stavenote),
       );
       if (!candidates.length) continue;
-      const vpPairs = pairHitsWithLayoutTargetsByHorizontalOrder(
+      const vpPairs = pairHitsWithLayoutTargetsByBestMatch(
         candidates,
         tlist.map((t) => ({ defaultXTenths: t.defaultXTenths, playOrder: t.playOrder })),
       );

@@ -242,6 +242,42 @@ function explicitPlayOrderMusicalColumnOnset(
   return Math.max(0, ...group.map((l) => musicalOnsets.get(l) ?? 0));
 }
 
+/**
+ * 동일 연주순번 snap 후보.
+ * 같은 voice에 서로 다른 musical onset의 leader가 같은 PO를 가지면(옛 전파 버그·오입력)
+ * 단일 voice max-onset snap이 앞 화음을 뒤 column으로 끌어 소실시킨다.
+ * → voice당 onset이 둘 이상이면 그 voice는 snap에서 제외(musical onset 유지).
+ * 서로 다른 voice끼리만 column join.
+ */
+function playOrderSnapMembers(
+  group: Element[],
+  musicalOnsets: Map<Element, number>,
+): Element[] {
+  const byVoice = new Map<string, Element[]>();
+  for (const leader of group) {
+    const v = noteVoiceNumber(leader);
+    const list = byVoice.get(v) ?? [];
+    list.push(leader);
+    byVoice.set(v, list);
+  }
+  const members: Element[] = [];
+  for (const voiceLeaders of byVoice.values()) {
+    if (voiceLeaders.length === 1) {
+      members.push(voiceLeaders[0]!);
+      continue;
+    }
+    const onsets = new Set(
+      voiceLeaders.map((l) => musicalOnsets.get(l) ?? 0),
+    );
+    if (onsets.size <= 1) {
+      members.push(...voiceLeaders);
+      continue;
+    }
+    // 같은 voice·같은 PO·다른 onset — snap 금지(layout은 musical onset 유지)
+  }
+  return members;
+}
+
 function snapExplicitPlayOrderColumns(
   layout: Map<Element, number>,
   leaders: Element[],
@@ -257,8 +293,10 @@ function snapExplicitPlayOrderColumns(
   }
   for (const group of byPo.values()) {
     if (!shouldSnapExplicitPlayOrderGroup(group)) continue;
-    const columnOnset = explicitPlayOrderMusicalColumnOnset(group, musicalOnsets);
-    for (const leader of group) layout.set(leader, columnOnset);
+    const members = playOrderSnapMembers(group, musicalOnsets);
+    if (members.length < 2) continue;
+    const columnOnset = explicitPlayOrderMusicalColumnOnset(members, musicalOnsets);
+    for (const leader of members) layout.set(leader, columnOnset);
   }
 }
 

@@ -6,10 +6,7 @@
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import { collectStaffNoteOnsets } from './musicXmlTimelineCleanup';
-import {
-  measureLengthUnits,
-  defaultXFromOnset,
-} from './musicXmlPreviewOnsetLayout';
+import { defaultXFromOnset, previewLayoutLengthUnits } from './musicXmlPreviewOnsetLayout';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -302,7 +299,7 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
   }
-  const layoutLen = measureLengthUnits(measure);
+  const layoutLen = previewLayoutLengthUnits(measure);
   const musicalOnsets = collectStaffNoteOnsets(measure);
   const allLeaders = allLeadersInMeasure(measure);
 
@@ -518,5 +515,5 @@ export function collectPlayOrderAlignGroupsFromXml(xml: string): PlayOrderAlignG
 }
 
 export function measureLengthUnitsExport(measure: Element): number {
-  return measureLengthUnits(measure);
+  return previewLayoutLengthUnits(measure);
 }

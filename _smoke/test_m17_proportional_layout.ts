@@ -23,6 +23,7 @@ import {
   measureTimelineEndUnits,
   measureLengthUnits,
 } from '../shared/musicXmlPreviewOnsetLayout';
+import { measureLengthUnitsExport } from '../shared/musicXmlPlayOrder';
 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 Object.assign(globalThis, { document: dom.window.document, DOMParser: dom.window.DOMParser });
@@ -82,10 +83,11 @@ function main() {
   if (!f4 || !e5 || !f5) throw new Error('F4/E5/F5 missing');
   if (dx(f4) !== dx(e5)) throw new Error(`parallel po=2 must share x F4=${dx(f4)} E5=${dx(e5)}`);
 
-  const eighthUnit = parseFloat(defaultXFromOnset(1, 4)) - parseFloat(defaultXFromOnset(0, 4));
+  const layoutLen = measureLengthUnitsExport(m17);
+  const eighthUnit = parseFloat(defaultXFromOnset(1, layoutLen)) - parseFloat(defaultXFromOnset(0, layoutLen));
   const eighthSpanFromBeam = dx(f5) - dx(e5);
   if (Math.abs(eighthSpanFromBeam - eighthUnit) > 1) {
-    throw new Error(`beamed 8th step must equal one duration unit got ${eighthSpanFromBeam} expected ${eighthUnit}`);
+    throw new Error(`beamed 8th step must equal one duration unit got ${eighthSpanFromBeam} expected ${eighthUnit} (len=${layoutLen})`);
   }
 
   const g4 = [...m17.children].find(

@@ -67,7 +67,7 @@ function isChordMember(note: Element): boolean {
 }
 
 export function measureLengthUnits(measure: Element): number {
-  let divisions = 1;
+  let divisions = 0;
   let beats = 4;
   let beatType = 4;
   for (const attr of [...measure.children]) {
@@ -88,7 +88,16 @@ export function measureLengthUnits(measure: Element): number {
       }
     }
   }
-  return Math.max(1, Math.round((divisions * beats * 4) / beatType));
+  const timelineEnd = measureTimelineEndUnits(measure);
+  // mid-score 마디·PR/PL prune 후 <divisions> 없음 → 기본 1이면 뒤 음이 432에 뭉쳐 소실·간격 왜곡
+  if (divisions <= 0) return Math.max(1, timelineEnd);
+  const fromTime = Math.max(1, Math.round((divisions * beats * 4) / beatType));
+  return Math.max(fromTime, timelineEnd);
+}
+
+/** 미리보기 default-x 분모 — 박자표 길이와 실제 timeline 끝 중 큰 값. */
+export function previewLayoutLengthUnits(measure: Element): number {
+  return measureLengthUnits(measure);
 }
 
 function noteGroupWithChords(measure: Element, leader: Element): Element[] {

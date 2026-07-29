@@ -217,20 +217,15 @@ function buildPlayOrderOnsetMap(
   return poOnset;
 }
 
-/** true — 서로 다른 음높이·2 voice 이상 (m17 po=2 F4/E5). same-pitch-only(v2 F4 duplicate)는 false. */
-function shouldSnapExplicitPlayOrderGroup(
-  group: Element[],
-  musicalOnsets: Map<Element, number>,
-): boolean {
-  const voices = new Set(group.map((l) => noteVoiceNumber(l)));
-  if (voices.size < 2) return false;
-  const pitches = new Set(group.map((l) => xmlPitchLabel(l)));
-  return pitches.size > 1;
+/** true — 명시 순번이 2개 이상이면 같은 column으로 snap (같은 번호 = 동시 시작). */
+function shouldSnapExplicitPlayOrderGroup(group: Element[]): boolean {
+  return group.length >= 2;
 }
 
 /**
- * 명시 연주순번 column — cross-voice·다른 pitch일 때 voice별 min onset 중 max.
- * same-pitch-only(OMR v2 duplicate)는 snap 안 함 → musical onset 유지.
+ * 명시 연주순번 column onset.
+ * 다중 voice: voice별 min onset 중 max (병렬 join).
+ * 단일 voice: 그룹 내 max onset (앞 음을 뒤 동시 column으로).
  */
 function explicitPlayOrderMusicalColumnOnset(
   group: Element[],
@@ -243,8 +238,10 @@ function explicitPlayOrderMusicalColumnOnset(
     const cur = minByVoice.get(v);
     if (cur == null || t < cur) minByVoice.set(v, t);
   }
-  if (minByVoice.size === 0) return 0;
-  return Math.max(...minByVoice.values());
+  if (minByVoice.size >= 2) {
+    return Math.max(...minByVoice.values());
+  }
+  return Math.max(0, ...group.map((l) => musicalOnsets.get(l) ?? 0));
 }
 
 function snapExplicitPlayOrderColumns(
@@ -261,8 +258,7 @@ function snapExplicitPlayOrderColumns(
     byPo.set(po, list);
   }
   for (const group of byPo.values()) {
-    if (group.length < 2) continue;
-    if (!shouldSnapExplicitPlayOrderGroup(group, musicalOnsets)) continue;
+    if (!shouldSnapExplicitPlayOrderGroup(group)) continue;
     const columnOnset = explicitPlayOrderMusicalColumnOnset(group, musicalOnsets);
     for (const leader of group) layout.set(leader, columnOnset);
   }

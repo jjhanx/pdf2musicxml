@@ -15,7 +15,7 @@
     "start": "node --import tsx server/index.ts",
     "start:server": "node --import tsx server/index.ts",
     "start:prod": "npm run build && npm run start",
-    "postinstall": "node scripts/patch_osmd_to_coda_label.mjs"
+    "postinstall": "node scripts/patch_osmd_navigation_labels.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",

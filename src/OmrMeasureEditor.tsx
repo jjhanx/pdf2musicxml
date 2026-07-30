@@ -398,7 +398,7 @@ const NAVIGATION_INSERT_OPTIONS = [
   { directionType: 'coda' as const, directionValue: '', label: 'Coda (𝄌)' },
   { directionType: 'fine' as const, directionValue: '', label: 'Fine' },
   { directionType: 'dacapo' as const, directionValue: '', label: 'D.C. (Da Capo)' },
-  { directionType: 'dalsegno' as const, directionValue: '', label: 'D.S. (Dal Segno)' },
+  { directionType: 'dalsegno' as const, directionValue: '', label: 'D.S. + Segno' },
   { directionType: 'tocoda' as const, directionValue: '', label: 'To Coda' },
   { directionType: 'words' as const, directionValue: 'D.S. al Fine', label: 'D.S. al Fine' },
   { directionType: 'words' as const, directionValue: 'D.C. al Fine', label: 'D.C. al Fine' },

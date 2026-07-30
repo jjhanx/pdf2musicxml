@@ -116,4 +116,45 @@ assert d4.find(".//{*}tocoda") is None
 snap4 = measure_snapshot(root4, "", "P1", "36")
 assert any(d.get("directionType") == "tocoda" for d in snap4["measureDirections"])
 
+# D.S. at measure end → before barline; words + segno
+root5 = ET.fromstring(
+    """<score-partwise version="3.1">
+<part id="P1"><measure number="60">
+<attributes><divisions>2</divisions></attributes>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type><staff>1</staff></note>
+<backup><duration>2</duration></backup>
+<note><pitch><step>C</step><octave>3</octave></pitch><duration>2</duration><type>quarter</type><staff>2</staff></note>
+<barline location="right"><bar-style>light-heavy</bar-style></barline>
+</measure>
+<measure number="61">
+<note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type></note>
+</measure></part></score-partwise>"""
+)
+assert apply_fix(
+    root5,
+    "",
+    {
+        "kind": "insertDirection",
+        "partId": "P1",
+        "measureMxl": "60",
+        "measureAnchor": "end",
+        "directionType": "dalsegno",
+        "staff": 1,
+        "placement": "above",
+    },
+)
+m60 = root5.find(".//{*}measure")
+assert m60.get("number") == "60"
+kids = [_local(c.tag) for c in m60]
+assert "direction" in kids
+assert kids.index("direction") > kids.index("backup")
+assert kids.index("direction") < kids.index("barline")
+d5 = m60.find("{*}direction")
+assert d5.find(".//{*}words").text == "D.S."
+assert d5.find(".//{*}segno") is not None
+assert d5.find("{*}sound").get("dalsegno") == "segno"
+# must not leak into next measure
+m61 = root5.findall(".//{*}measure")[1]
+assert m61.find("{*}direction") is None
+
 print("navigation direction hitl ok")

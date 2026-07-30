@@ -73,9 +73,14 @@ export function applyOsmdPreviewEngravingRules(
   const r = rules as OpenSheetMusicDisplay['EngravingRules'] & {
     DisplacedNoteMargin?: number;
     VoiceSpacingAddendVexflow?: number;
+    RepetitionEndInstructionXShiftAsPercentOfStaveWidth?: number;
   };
   if (typeof r.DisplacedNoteMargin === 'number') r.DisplacedNoteMargin = 0.05;
   if (typeof r.VoiceSpacingAddendVexflow === 'number') r.VoiceSpacingAddendVexflow = 2.0;
+  // OSMD 기본 0.4는 줄 끝 마디의 D.S./Fine를 오른쪽으로 밀어 다음 마디 앞으로 보이게 함
+  if (typeof r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth === 'number') {
+    r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth = 0;
+  }
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */

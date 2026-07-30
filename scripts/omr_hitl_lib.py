@@ -1513,6 +1513,19 @@ def _insert_direction_at_staff_measure_start(
     _insert_note_element(measure, ns, new_dir, -1, staff_n=staff_n)
 
 
+def _insert_direction_at_measure_end(measure: ET.Element, ns: str, new_dir: ET.Element) -> None:
+    """마디 끝 — 오른쪽 ⟨barline⟩ 직전(없으면 append). backup 뒤 음표보다 뒤라 OSMD가 다음 마디로 밀지 않음."""
+    children = list(measure)
+    for i, child in enumerate(children):
+        if _local(child) != "barline":
+            continue
+        loc = (child.get("location") or "right").strip().lower()
+        if loc in ("right", ""):
+            measure.insert(i, new_dir)
+            return
+    measure.append(new_dir)
+
+
 def _insert_before_note_element(
     measure: ET.Element,
     ns: str,
@@ -3194,8 +3207,10 @@ def _direction_text(direction: ET.Element) -> str:
                 parts.append(el.text.strip())
         elif loc in _NAVIGATION_DIRECTION_TAGS:
             label = _NAVIGATION_DIRECTION_LABELS.get(loc, loc)
-            # To Coda words + <coda/> 기호 — 텍스트는 "To Coda"만 (기호는 OSMD가 그림)
+            # To Coda / D.S. + 기호 — 텍스트 라벨만 (기호는 OSMD·MusicXML 기호 태그)
             if loc == "coda" and any("To Coda" in p for p in parts):
+                continue
+            if loc == "segno" and any(p.startswith("D.S") for p in parts):
                 continue
             if label not in parts:
                 parts.append(label)
@@ -3328,9 +3343,12 @@ def _build_direction_element(
         sound = ET.SubElement(direction, _q(ns, "sound"))
         sound.set("dacapo", "yes")
     elif kind == "dalsegno":
+        # MusicXML: words + segno 기호 + sound@dalsegno (To Coda의 words+coda와 대칭)
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         words = ET.SubElement(dtype, _q(ns, "words"))
         words.text = "D.S."
+        dtype2 = ET.SubElement(direction, _q(ns, "direction-type"))
+        ET.SubElement(dtype2, _q(ns, "segno"))
         sound = ET.SubElement(direction, _q(ns, "sound"))
         sound.set("dalsegno", "segno")
     elif kind in _NAVIGATION_DIRECTION_TAGS:
@@ -3718,7 +3736,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 staff_n=staff_n,
                 placement=placement,
             )
-            if after_idx < 0:
+            # 마디 끝은 barline 직전 — 마지막 음 직후(backup 앞)에 넣으면 다음 마디 앞으로 보임
+            if measure_anchor == "end":
+                _insert_direction_at_measure_end(measure, ns, new_dir)
+            elif after_idx < 0 or measure_anchor == "start":
                 _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
             elif fix.get("afterRest") and 0 <= after_idx < len(notes):
                 _insert_before_note_element(measure, ns, new_dir, after_idx, staff_n=staff_n)

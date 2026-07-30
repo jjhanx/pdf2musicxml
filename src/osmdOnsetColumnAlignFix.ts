@@ -108,14 +108,10 @@ function noteheadCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null 
     const m = /^M\s*([-\d.]+)/.exec(d.trim());
     if (!m) continue;
     const localX = parseFloat(m[1]!);
-    const pathEl = path as SVGGraphicsElement;
-    const ctm = pathEl.getCTM?.() ?? stavenote.getCTM?.();
-    if (ctm) {
-      xs.push(ctm.a * localX + ctm.e);
-      continue;
-    }
+    // CTM 스케일·translate를 쓰면 applySvgTranslateX와 좌표계가 어긋나 이동량이 배가됨.
+    // path M + 조상 translate만 합산(SVG user unit) — viewBox 배율과 무관하게 일관.
     let tx = 0;
-    let cur: Element | null = pathEl;
+    let cur: Element | null = path as Element;
     while (cur) {
       const tr = cur.getAttribute?.('transform') ?? '';
       const tm = /translate\(\s*([-\d.]+)/.exec(tr);
@@ -124,22 +120,20 @@ function noteheadCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null 
     }
     xs.push(tx + localX);
   }
-  if (!xs.length) {
-    const bb = stavenote.getBBox?.();
-    if (bb && bb.width > 0) {
-      let tx = 0;
-      let cur: Element | null = stavenote;
-      while (cur) {
-        const tr = cur.getAttribute?.('transform') ?? '';
-        const tm = /translate\(\s*([-\d.]+)/.exec(tr);
-        if (tm) tx += parseFloat(tm[1]!);
-        cur = cur.parentElement;
-      }
-      return tx + bb.x + bb.width / 2;
+  if (xs.length) return xs.reduce((a, b) => a + b, 0) / xs.length;
+  const bb = stavenote.getBBox?.();
+  if (bb && bb.width > 0) {
+    let tx = 0;
+    let cur: Element | null = stavenote;
+    while (cur) {
+      const tr = cur.getAttribute?.('transform') ?? '';
+      const tm = /translate\(\s*([-\d.]+)/.exec(tr);
+      if (tm) tx += parseFloat(tm[1]!);
+      cur = cur.parentElement;
     }
-    return null;
+    return tx + bb.x + bb.width / 2;
   }
-  return xs.reduce((a, b) => a + b, 0) / xs.length;
+  return null;
 }
 
 function stavenoteFromGraphicEl(svg: SVGGraphicsElement | null): SVGGraphicsElement | null {
@@ -157,18 +151,16 @@ function applySvgTranslateX(
   maxShiftPx: number = MAX_ONSET_ALIGN_SHIFT_PX,
 ): void {
   if (Math.abs(dxRoot) < 0.01) return;
-  // 한 번에 상한까지라도 당김 — 예전엔 over-cap이면 아예 스킵해 voice2가 멀리 남음
+  // noteheadCenterXInSvgRoot와 동일하게 SVG user unit 기준 — CTM.a로 나누지 않음
+  // (나누면 a≈0.5일 때 이동량이 배가되어 po5가 과하게 밀리거나 다음 pass에서 붕괴)
   const capped = Math.sign(dxRoot) * Math.min(Math.abs(dxRoot), maxShiftPx);
   if (Math.abs(capped) < 0.01) return;
-  const ctm = svg.getCTM?.();
-  const scale = ctm && Math.abs(ctm.a) > 1e-6 ? ctm.a : 1;
-  const dx = capped / scale;
   const tr = svg.getAttribute('transform') ?? '';
   const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)/.exec(tr);
   const ox = m ? parseFloat(m[1]!) : 0;
   const oy = m ? parseFloat(m[2] ?? '0') : 0;
   const rest = tr.replace(/translate\(\s*[-\d.]+\s*(?:,\s*[-\d.]+)?\s*\)/, '').trim();
-  const prefix = `translate(${ox + dx}, ${oy})`;
+  const prefix = `translate(${ox + capped}, ${oy})`;
   svg.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
 }
 
@@ -195,8 +187,16 @@ type NoteHit = {
   heads: number;
 };
 
+function pitchClassesEqual(a: string, b: string): boolean {
+  if (a === b) return true;
+  // OSMD vfpitch often emits Bn for MusicXML B♭ (alter=-1)
+  const softB = (p: string) => p.replace(/^Bb(\d+)$/i, 'B$1');
+  return softB(a) === softB(b);
+}
+
 function hitHasPitch(hit: NoteHit, pitch: string): boolean {
-  return hit.pitch === pitch || hit.pitches.includes(pitch);
+  if (hit.pitch === pitch || hit.pitches.includes(pitch)) return true;
+  return pitchClassesEqual(hit.pitch, pitch) || hit.pitches.some((p) => pitchClassesEqual(p, pitch));
 }
 
 function collectMeasureNoteHits(osmd: OpenSheetMusicDisplay, gmRaw: unknown): NoteHit[] {
@@ -342,77 +342,47 @@ function measureSpanFromHits(hits: readonly { centerX: number }[]): { originX: n
 }
 
 /**
- * 같은 layout tenths에 여러 natural x가 있을 때(E5·F4 po2) 왼쪽에 가까운 쪽을 앵커로.
- * 오른쪽 voice2가 minCenterX를 덮어쓰던 calibration 회귀 방지.
+ * 연주순번 layout tenths(32..432) → SVG X.
+ * voice1 관측 tenths(예: 32..182)로 보간·외삽하면 po5(332)가 po2 자리 근처로 접힌다.
+ * 항상 전체 PREVIEW_LAYOUT span에 비례 배치.
  */
-function buildSafeMeasureCalibration(
-  pairs: Array<{ centerX: number; defaultXTenths: number; voice: string }>,
-): { originX: number; spanPx: number; tenthsMin: number; tenthsMax: number } | null {
-  if (pairs.length < 2) return null;
-
-  // voice1 우선 앵커 — OSMD가 보통 올바르게 배치
-  const v1 = pairs.filter((p) => p.voice === '1');
-  const anchorPool = v1.length >= 2 ? v1 : pairs;
-
-  const byTenths = new Map<number, number[]>();
-  for (const p of anchorPool) {
-    const t = Math.round(p.defaultXTenths * 100) / 100;
-    const list = byTenths.get(t) ?? [];
-    list.push(p.centerX);
-    byTenths.set(t, list);
-  }
-  if (byTenths.size < 2) {
-    // tenths가 하나뿐이면 마디 natural span만 (비율 매핑 불가)
-    return null;
-  }
-
-  const anchors: Array<{ tenths: number; x: number }> = [];
-  for (const [tenths, xs] of byTenths) {
-    anchors.push({ tenths, x: Math.min(...xs) }); // 같은 column은 왼쪽 우선
-  }
-  anchors.sort((a, b) => a.tenths - b.tenths);
-  const first = anchors[0]!;
-  const last = anchors[anchors.length - 1]!;
-  if (last.tenths <= first.tenths || last.x <= first.x) return null;
-
-  return {
-    originX: first.x,
-    spanPx: last.x - first.x,
-    tenthsMin: first.tenths,
-    tenthsMax: last.tenths,
-  };
-}
-
-function wantXFromSafeCalibration(
-  cal: { originX: number; spanPx: number; tenthsMin: number; tenthsMax: number },
+function wantXFromLayoutGrid(
+  span: { originX: number; spanPx: number },
   defaultXTenths: number,
 ): number {
-  const frac = (defaultXTenths - cal.tenthsMin) / (cal.tenthsMax - cal.tenthsMin);
-  return cal.originX + frac * cal.spanPx;
+  return targetXFromDefaultTenths(span.originX, span.spanPx, defaultXTenths);
 }
 
-/** 명시 연주순번만 절대 이동 — voice1이 잡은 마디 span에 layout-x 비율로 배치. */
+/** 순번 column 최소 간격(px) — OSMD가 마디를 과압축해도 po2·po5가 겹쳐 보이지 않게. */
+const MIN_PLAY_ORDER_COLUMN_PX = 36;
+
+/**
+ * 모든 notehead span을 쓰되, 서로 다른 연주순번 수에 맞춰 최소 폭으로 **오른쪽** 확장.
+ * (왼쪽 origin은 po1 근처 유지 — 이전 마디로 날아가지 않음)
+ */
+function playOrderPlacementSpan(
+  hits: readonly NoteHit[],
+  distinctPlayOrders: number,
+): { originX: number; spanPx: number } | null {
+  const natural = measureSpanFromHits(hits);
+  if (!natural) return null;
+  const cols = Math.max(1, distinctPlayOrders);
+  const minSpan = Math.max(natural.spanPx, (cols - 1) * MIN_PLAY_ORDER_COLUMN_PX);
+  if (minSpan <= natural.spanPx + 0.5) return natural;
+  return { originX: natural.originX, spanPx: minSpan };
+}
+
+/** 명시 연주순번만 절대 이동 — 전체 layout-x 그리드(32..432)를 마디 span에 비율 배치. */
 function alignStavenoteToTarget(
   stavenote: SVGGraphicsElement,
   defaultXTenths: number,
   centerX: number,
-  cal: { originX: number; spanPx: number; tenthsMin: number; tenthsMax: number } | null,
   measureSpan: { originX: number; spanPx: number } | null,
 ): void {
-  let wantX: number;
-  if (cal) {
-    wantX = wantXFromSafeCalibration(cal, defaultXTenths);
-  } else if (measureSpan) {
-    wantX = targetXFromDefaultTenths(measureSpan.originX, measureSpan.spanPx, defaultXTenths);
-  } else {
-    return;
-  }
+  if (!measureSpan) return;
+  const wantX = wantXFromLayoutGrid(measureSpan, defaultXTenths);
   const dx = wantX - centerX;
-  // 그리드 배치: 마디 폭만큼은 반드시 이동(포기하지 않음)
-  const cap = Math.max(
-    MAX_ONSET_ALIGN_SHIFT_PX,
-    (measureSpan?.spanPx ?? cal?.spanPx ?? 240) * 2,
-  );
+  const cap = Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2);
   applySvgTranslateX(stavenote, dx, cap);
 }
 
@@ -430,16 +400,18 @@ function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
   );
 }
 
-/** voice1(또는 전체) notehead로 마디 SVG span — layout tenths를 이 폭에 비례 배치. */
-function measureSpanFromVoice1Hits(hits: readonly NoteHit[]): { originX: number; spanPx: number } | null {
-  const v1 = hits.filter((h) => h.voice === '1');
-  const pool = v1.length >= 2 ? v1 : hits;
-  return measureSpanFromHits(pool);
+function clearStavenoteTranslateX(svg: SVGGraphicsElement): void {
+  const tr = svg.getAttribute('transform') ?? '';
+  if (!/translate\s*\(/.test(tr)) return;
+  const rest = tr.replace(/translate\(\s*[-\d.]+\s*(?:,\s*[-\d.]+)?\s*\)/, '').trim();
+  if (rest) svg.setAttribute('transform', rest);
+  else svg.removeAttribute('transform');
 }
 
 /**
  * 연주순번 layout-x 그리드 → SVG 절대 배치.
  * 순번 column 단위로만 매칭·이동. 화음은 pitches[] 전부로 매칭.
+ * layout tenths는 항상 32..432 전체에 비례(voice1 관측 구간 외삽 금지 — po5가 po2에 붙는 회귀).
  */
 function alignMeasureNotesByPlayOrderGrid(
   osmd: OpenSheetMusicDisplay,
@@ -452,6 +424,8 @@ function alignMeasureNotesByPlayOrderGrid(
   if (!partId || measureNumber == null) return;
 
   const staff = staffIndex + 1;
+  // 이전 pass translate를 지우고 natural x로 span·배치(반복 호출 시 origin이 왼쪽으로 붕괴하지 않음)
+  for (const h of collectMeasureNoteHits(osmd, gmRaw)) clearStavenoteTranslateX(h.stavenote);
   const hits = collectMeasureNoteHits(osmd, gmRaw);
   if (!hits.length) return;
 
@@ -463,40 +437,6 @@ function alignMeasureNotesByPlayOrderGrid(
   });
   if (!explicitTargets.length) return;
 
-  const measureSpan = measureSpanFromVoice1Hits(hits);
-
-  const v1Hits = hits.filter((h) => h.voice === '1');
-  const v1Targets = explicitTargets.filter((t) => t.voice === '1');
-  const calInput: Array<{ centerX: number; defaultXTenths: number; voice: string }> = [];
-  const usedV1 = new Set<SVGGraphicsElement>();
-  const v1ByPitch = new Map<string, PreviewNoteLayoutTarget[]>();
-  for (const t of v1Targets) {
-    const list = v1ByPitch.get(t.pitch) ?? [];
-    list.push(t);
-    v1ByPitch.set(t.pitch, list);
-  }
-  for (const [pitch, tlist] of v1ByPitch) {
-    const sortedT = [...tlist].sort((a, b) => a.defaultXTenths - b.defaultXTenths);
-    const candidates = v1Hits
-      .filter((h) => hitHasPitch(h, pitch) && !usedV1.has(h.stavenote))
-      .sort((a, b) => {
-        const ta = a.timestamp;
-        const tb = b.timestamp;
-        if (ta != null && tb != null && Math.abs(ta - tb) > 1e-4) return ta - tb;
-        return a.centerX - b.centerX;
-      });
-    const n = Math.min(sortedT.length, candidates.length);
-    for (let i = 0; i < n; i += 1) {
-      usedV1.add(candidates[i]!.stavenote);
-      calInput.push({
-        centerX: candidates[i]!.centerX,
-        defaultXTenths: sortedT[i]!.defaultXTenths,
-        voice: '1',
-      });
-    }
-  }
-  const cal = buildSafeMeasureCalibration(calInput);
-
   const byPo = new Map<number, PreviewNoteLayoutTarget[]>();
   for (const t of explicitTargets) {
     const po = t.playOrder!;
@@ -505,29 +445,35 @@ function alignMeasureNotesByPlayOrderGrid(
     byPo.set(po, list);
   }
 
+  const measureSpan = playOrderPlacementSpan(hits, byPo.size);
+  if (!measureSpan) return;
+
   const usedHits = new Set<SVGGraphicsElement>();
   for (const po of [...byPo.keys()].sort((a, b) => a - b)) {
     const group = byPo.get(po)!;
     const layoutX = group[0]!.defaultXTenths;
-    const expectHeadsByVoice = new Map<string, number>();
+    // voice별 한 stavenote만 이동 — pitch마다 매칭하면 po2 Bb4가 tetra(B4)까지 끌어 po4가 po2 열에 붙음
+    const byVoice = new Map<string, PreviewNoteLayoutTarget[]>();
     for (const t of group) {
-      const set = new Set(group.filter((g) => g.voice === t.voice).map((g) => g.pitch));
-      expectHeadsByVoice.set(t.voice, set.size);
+      const list = byVoice.get(t.voice) ?? [];
+      list.push(t);
+      byVoice.set(t.voice, list);
     }
-    const needed = new Map<string, PreviewNoteLayoutTarget>();
-    for (const t of group) {
-      const key = `${t.voice}|${t.pitch}`;
-      if (!needed.has(key)) needed.set(key, t);
-    }
-    const movedSvg = new Set<SVGGraphicsElement>();
-    for (const [, t] of needed) {
-      const expectHeads = expectHeadsByVoice.get(t.voice) ?? 1;
+    for (const [voice, voiceTargets] of byVoice) {
+      const pitchSet = [...new Set(voiceTargets.map((t) => t.pitch))];
+      const expectHeads = pitchSet.length;
       const candidates = hits
-        .filter((h) => h.voice === t.voice && hitHasPitch(h, t.pitch) && !usedHits.has(h.stavenote))
+        .filter((h) => h.voice === voice && !usedHits.has(h.stavenote))
+        .filter((h) => pitchSet.some((p) => hitHasPitch(h, p)))
         .sort((a, b) => {
-          const da = expectHeads > 1 ? Math.abs(a.heads - expectHeads) : 0;
-          const db = expectHeads > 1 ? Math.abs(b.heads - expectHeads) : 0;
+          // 화음 머리 수 일치 우선 — [F4,Bb4](2) vs tetra(4)
+          const da = Math.abs(a.heads - expectHeads);
+          const db = Math.abs(b.heads - expectHeads);
           if (da !== db) return da - db;
+          // 목표 pitch를 더 많이 포함한 쪽
+          const ca = pitchSet.filter((p) => hitHasPitch(a, p)).length;
+          const cb = pitchSet.filter((p) => hitHasPitch(b, p)).length;
+          if (cb !== ca) return cb - ca;
           const ta = a.timestamp;
           const tb = b.timestamp;
           if (ta != null && tb != null && Math.abs(ta - tb) > 1e-4) return ta - tb;
@@ -535,10 +481,10 @@ function alignMeasureNotesByPlayOrderGrid(
         });
       if (!candidates.length) continue;
       const hit = candidates[0]!;
-      if (movedSvg.has(hit.stavenote)) continue;
+      // 화음인데 머리 수가 전혀 다르면(예: 2 vs 4) 스킵 — 다른 순번 화음 오매칭 방지
+      if (expectHeads > 1 && Math.abs(hit.heads - expectHeads) > 0) continue;
       usedHits.add(hit.stavenote);
-      movedSvg.add(hit.stavenote);
-      alignStavenoteToTarget(hit.stavenote, layoutX, hit.centerX, cal, measureSpan);
+      alignStavenoteToTarget(hit.stavenote, layoutX, hit.centerX, measureSpan);
     }
   }
 }

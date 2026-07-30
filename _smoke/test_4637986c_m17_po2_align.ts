@@ -58,14 +58,8 @@ function noteheadX(sn: SVGGraphicsElement): number | null {
     if (!d) continue;
     const m = /^M\s*([-\d.]+)/.exec(d.trim());
     if (!m) continue;
-    const pathEl = path as SVGGraphicsElement;
-    const ctm = pathEl.getCTM?.() ?? sn.getCTM?.();
-    if (ctm) {
-      xs.push(ctm.a * parseFloat(m[1]!) + ctm.e);
-      continue;
-    }
     let tx = 0;
-    let cur: Element | null = pathEl;
+    let cur: Element | null = path;
     while (cur) {
       const tr = cur.getAttribute?.('transform') ?? '';
       const tm = /translate\(\s*([-\d.]+)/.exec(tr);
@@ -124,11 +118,10 @@ function sanitize(xml: string): string {
   return stripDefaultXyKeepLayoutAttrsForOsmdPreview(out);
 }
 
-type Hit = { pitch: string; x: number; heads: number };
+type Hit = { pitches: string[]; x: number; heads: number };
 
 function collectM17Hits(osmd: unknown): Hit[] {
-  const hits: Hit[] = [];
-  const seen = new Set<SVGGraphicsElement>();
+  const bySvg = new Map<SVGGraphicsElement, Hit>();
   forEachGraphicalMeasure(osmd as never, (gmRaw) => {
     if (measureMxlFromGraphic(gmRaw) !== 17) return;
     const gm = asRecord(gmRaw);
@@ -158,16 +151,24 @@ function collectM17Hits(osmd: unknown): Hit[] {
           } catch {
             /* ignore */
           }
-          if (!stavenote || seen.has(stavenote)) continue;
-          seen.add(stavenote);
+          if (!stavenote) continue;
+          const existing = bySvg.get(stavenote);
+          if (existing) {
+            if (!existing.pitches.includes(pitch)) existing.pitches.push(pitch);
+            continue;
+          }
           const x = noteheadX(stavenote);
           if (x == null) continue;
-          hits.push({ pitch, x, heads: stavenote.querySelectorAll('.vf-notehead').length });
+          bySvg.set(stavenote, {
+            pitches: [pitch],
+            x,
+            heads: stavenote.querySelectorAll('.vf-notehead').length,
+          });
         }
       }
     }
   });
-  return hits;
+  return [...bySvg.values()];
 }
 
 async function main() {
@@ -190,11 +191,11 @@ async function main() {
   alignOsmdPreviewNotesByOnsetColumn(osmd as never, forOsmd);
 
   const hits = collectM17Hits(osmd);
-  const e5 = hits.find((h) => h.pitch === 'E5');
-  const f5 = hits.find((h) => h.pitch === 'F5' && h.heads <= 2);
-  const f4Po2 = hits.filter((h) => h.pitch === 'F4' && h.heads === 2).sort((a, b) => a.x - b.x)[0];
-  const f4Po4 = hits.filter((h) => h.pitch === 'F4' && h.heads >= 4).sort((a, b) => a.x - b.x)[0];
-  const g5 = hits.find((h) => h.pitch === 'G5' && h.heads >= 3);
+  const e5 = hits.find((h) => h.pitches.includes('E5') && h.heads === 1);
+  const f5 = hits.find((h) => h.pitches.includes('F5') && h.heads <= 2);
+  const f4Po2 = hits.filter((h) => h.pitches.includes('F4') && h.heads === 2).sort((a, b) => a.x - b.x)[0];
+  const f4Po4 = hits.filter((h) => h.pitches.includes('F4') && h.heads >= 4).sort((a, b) => a.x - b.x)[0];
+  const gChord = hits.find((h) => h.pitches.includes('G5') && h.heads >= 3);
   if (!e5 || !f5 || !f4Po2 || !f4Po4) {
     throw new Error(`missing ${JSON.stringify({ e5, f5, f4Po2, f4Po4, hits })}`);
   }
@@ -205,19 +206,24 @@ async function main() {
   if (f4Po2.x >= f5.x - 5) {
     throw new Error(`[F4,Bb4] must be left of F5: f4=${f4Po2.x} f5=${f5.x}`);
   }
-  if (g5 && Math.abs(g5.x - e5.x) < 14) {
-    throw new Error(`G5 chord must not sit on po2: g5=${g5.x} e5=${e5.x}`);
+  if (!gChord) throw new Error(`G5 chord missing: ${JSON.stringify(hits)}`);
+  if (Math.abs(gChord.x - e5.x) < 28) {
+    throw new Error(`G5 chord must not sit on po2: g5=${gChord.x} e5=${e5.x}`);
   }
-  if (g5 && g5.x <= f5.x + 5) {
-    throw new Error(`G5 chord must be right of F5: g5=${g5.x} f5=${f5.x}`);
+  if (gChord.x <= f5.x + 12) {
+    throw new Error(`G5 chord must be right of F5: g5=${gChord.x} f5=${f5.x}`);
+  }
+  if (gChord.x - f4Po2.x < 40) {
+    throw new Error(`G5(po5) must clear po2 column: g5=${gChord.x} po2=${f4Po2.x}`);
   }
   console.log('OK 4637986c m17 po2 align', {
     e5: e5.x,
     f4Po2: f4Po2.x,
     f5: f5.x,
     f4Po4: f4Po4.x,
-    g5: g5?.x,
+    g5: gChord.x,
     po2Gap,
+    po25Gap: gChord.x - f4Po2.x,
   });
 }
 

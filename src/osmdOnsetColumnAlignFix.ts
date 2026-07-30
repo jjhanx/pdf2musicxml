@@ -157,10 +157,12 @@ function applySvgTranslateX(
   maxShiftPx: number = MAX_ONSET_ALIGN_SHIFT_PX,
 ): void {
   if (Math.abs(dxRoot) < 0.01) return;
-  if (Math.abs(dxRoot) > maxShiftPx) return;
+  // 한 번에 상한까지라도 당김 — 예전엔 over-cap이면 아예 스킵해 voice2가 멀리 남음
+  const capped = Math.sign(dxRoot) * Math.min(Math.abs(dxRoot), maxShiftPx);
+  if (Math.abs(capped) < 0.01) return;
   const ctm = svg.getCTM?.();
   const scale = ctm && Math.abs(ctm.a) > 1e-6 ? ctm.a : 1;
-  const dx = dxRoot / scale;
+  const dx = capped / scale;
   const tr = svg.getAttribute('transform') ?? '';
   const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)/.exec(tr);
   const ox = m ? parseFloat(m[1]!) : 0;
@@ -187,6 +189,8 @@ type NoteHit = {
   centerX: number;
   /** OSMD voice-entry timestamp — duplicate voice·pitch 매칭에 x보다 신뢰 */
   timestamp: number | null;
+  /** 화음 notehead 수 — [F4,Bb4](2) vs [F4,Bb4,D5,F5](4) 구분 */
+  heads: number;
 };
 
 function permutations<T>(items: readonly T[]): T[][] {
@@ -415,6 +419,7 @@ function alignMeasureNotesByLayoutGrid(
           voice,
           centerX,
           timestamp: osmdTimestampFromGraphicVoiceEntry(gve),
+          heads: stavenote.querySelectorAll('.vf-notehead').length,
         });
       }
     }
@@ -516,17 +521,17 @@ function alignPlayOrderGroupForce(
   const anchorX = Math.min(...unique.map((u) => u.centerX));
   const maxNeeded = Math.max(...unique.map((u) => Math.abs(anchorX - u.centerX)));
   if (maxNeeded < 0.5) return;
-  // 160 하드캡은 voice2가 멀리 있을 때 정렬 포기 → 마디 폭(최대 480)까지 허용
-  const cap = Math.min(480, Math.max(MAX_ONSET_ALIGN_SHIFT_PX, (measureSpanPx ?? 240) * 1.15));
-  if (maxNeeded > cap) return;
+  // voice2가 멀리 있어도 상한까지 당김(포기하지 않음). 상한≈마디 폭*1.5 (여러 pass로 수렴).
+  const cap = Math.max(MAX_ONSET_ALIGN_SHIFT_PX, (measureSpanPx ?? 240) * 1.5);
   for (const u of unique) {
     applySvgTranslateX(u.svg, anchorX - u.centerX, cap);
   }
 }
 
 /**
- * 명시 연주순번 — **같은 playOrder·같은 default-x column**끼리만 상대 snap.
- * (절대 default-x 이동은 alignMeasureNotesByLayoutGrid가 담당 — 다른 po 강제 합침 금지)
+ * 명시 연주순번 — 같은 playOrder끼리 상대 snap(다성부 column).
+ * layout-x가 아직 안 맞아도 같은 순번이면 당긴다.
+ * 같은 voice에 서로 다른 layout-x가 같은 po로 남아 있으면(옛 전파) 그 voice는 제외.
  */
 function alignExplicitPlayOrderColumnsRelative(
   osmd: OpenSheetMusicDisplay,
@@ -568,6 +573,7 @@ function alignExplicitPlayOrderColumnsRelative(
           voice,
           centerX,
           timestamp: osmdTimestampFromGraphicVoiceEntry(gve),
+          heads: stavenote.querySelectorAll('.vf-notehead').length,
         });
       }
     }
@@ -576,26 +582,39 @@ function alignExplicitPlayOrderColumnsRelative(
 
   const measureSpanPx = measureSpanFromHits(hits)?.spanPx ?? null;
 
-  const columnQueues = new Map<string, PreviewNoteLayoutTarget[]>();
+  const byPo = new Map<number, PreviewNoteLayoutTarget[]>();
   for (const t of targets) {
     if (t.measureNumber !== measureNumber) continue;
     if (!partIdsMatch(partId, t.partId)) continue;
     if (t.staff !== 1 && t.staff !== staff) continue;
     if (t.playOrder == null) continue;
-    const colKey = `${t.playOrder}|${t.defaultXTenths.toFixed(1)}`;
-    const list = columnQueues.get(colKey) ?? [];
+    const list = byPo.get(t.playOrder) ?? [];
     list.push(t);
-    columnQueues.set(colKey, list);
+    byPo.set(t.playOrder, list);
   }
 
-  // column을 왼→오른쪽(default-x) 순으로 처리 — 중복 F4는 “남은 것 중 가장 왼쪽”을 먼저 씀
-  const sortedColumns = [...columnQueues.values()].sort(
-    (a, b) => (a[0]?.defaultXTenths ?? 0) - (b[0]?.defaultXTenths ?? 0),
-  );
+  // 순번 오름차순 — 왼쪽 column부터 소비(중복 pitch 매칭)
+  const sortedPos = [...byPo.keys()].sort((a, b) => a - b);
   const usedAcrossColumns = new Set<SVGGraphicsElement>();
 
-  for (const queue of sortedColumns) {
-    if (queue.length < 2) continue;
+  for (const po of sortedPos) {
+    const allForPo = byPo.get(po) ?? [];
+    // voice별 layout-x가 둘 이상이면 그 voice는 snap 제외(같은 po·다른 onset 잔여)
+    const byVoice = new Map<string, PreviewNoteLayoutTarget[]>();
+    for (const t of allForPo) {
+      const list = byVoice.get(t.voice) ?? [];
+      list.push(t);
+      byVoice.set(t.voice, list);
+    }
+    const queue: PreviewNoteLayoutTarget[] = [];
+    let snapVoiceCount = 0;
+    for (const [, list] of byVoice) {
+      const xs = new Set(list.map((t) => t.defaultXTenths.toFixed(1)));
+      if (xs.size > 1) continue;
+      queue.push(...list);
+      snapVoiceCount += 1;
+    }
+    if (snapVoiceCount < 2 || queue.length < 2) continue;
 
     const byVoicePitch = new Map<string, PreviewNoteLayoutTarget[]>();
     for (const t of queue) {
@@ -613,14 +632,29 @@ function alignExplicitPlayOrderColumnsRelative(
     });
 
     let anchorX: number | null = null;
+    let anchorTs: number | null = null;
     for (const [vp] of vpEntries) {
+      const voice = vp.split('|')[0]!;
+      const expectedHeads = new Set(queue.filter((t) => t.voice === voice).map((t) => t.pitch)).size;
       const candidates = hits
         .filter((h) => `${h.voice}|${h.pitch}` === vp && !usedAcrossColumns.has(h.stavenote))
         .sort((a, b) => {
-          // musical time 우선 — natural x가 뒤집혀도 po2가 po4보다 먼저 소비됨
+          // 1) 화음 머리 수 — po2 [F4,Bb4](2) vs po4 4화음 오매칭 방지
+          if (expectedHeads > 1) {
+            const da = Math.abs(a.heads - expectedHeads);
+            const db = Math.abs(b.heads - expectedHeads);
+            if (da !== db) return da - db;
+          }
+          // 2) anchor(보통 voice1)와 같은 musical time
+          if (anchorTs != null && a.timestamp != null && b.timestamp != null) {
+            const da = Math.abs(a.timestamp - anchorTs);
+            const db = Math.abs(b.timestamp - anchorTs);
+            if (Math.abs(da - db) > 1e-4) return da - db;
+          }
           const ta = a.timestamp;
           const tb = b.timestamp;
           if (ta != null && tb != null && Math.abs(ta - tb) > 1e-4) return ta - tb;
+          // 3) anchor x에 가까운 쪽보다 — 멀어도 “아직 안 쓴” 것 중 timestamp/문서순
           return a.centerX - b.centerX;
         });
       if (!candidates.length) continue;
@@ -628,6 +662,7 @@ function alignExplicitPlayOrderColumnsRelative(
       usedAcrossColumns.add(chosen.stavenote);
       cluster.push({ svg: chosen.stavenote, centerX: chosen.centerX });
       if (anchorX == null) anchorX = chosen.centerX;
+      if (anchorTs == null && chosen.timestamp != null) anchorTs = chosen.timestamp;
     }
     if (cluster.length >= 2) alignPlayOrderGroupForce(cluster, measureSpanPx);
   }
@@ -765,8 +800,8 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
 
   // 절대 layout-x→px 매핑(alignMeasureNotesByLayoutGrid)은 쓰지 않음.
-  // 오선/마디 비율 강제 이동이 notehead 소실·뒤 화음 떡짐을 반복해서 일으킴.
-  // 명시 연주순번 column만 상대 snap (E5↔[F4,Bb4] po2 등). 다른 순번·무순번 음표는 OSMD 그대로.
+  // 명시 연주순번끼리 상대 snap (E5↔[F4,Bb4] po2 등). 화음 머리 수로 중복 pitch 구분.
+  // 다른 순번·무순번 음표는 OSMD 그대로.
 
   forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
     alignExplicitPlayOrderColumnsRelative(osmd, gmRaw, staffIndex, targets);

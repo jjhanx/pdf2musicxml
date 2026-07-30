@@ -762,6 +762,34 @@ export function collectStaffNoteOnsets(measure: Element): Map<Element, number> {
 }
 
 /**
+ * leader → voice-parallel onset(divisions). HITL 연주순번 sanitize·default PO용.
+ * 같은 musical 동시성(E5·F4)을 단일 part cursor 손상 시에도 맞춘다.
+ */
+export function collectVoiceParallelNoteOnsets(measure: Element): Map<Element, number> {
+  const out = new Map<Element, number>();
+  const voiceCursor = new Map<string, number>();
+  let lastNoteVoice = '1';
+  for (const el of [...measure.children]) {
+    const tag = xmlLocalName(el);
+    if (tag === 'backup') {
+      const v = timelineVoiceEl(el, lastNoteVoice);
+      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - timelineDurationEl(el)));
+    } else if (tag === 'forward') {
+      const v = timelineVoiceEl(el, lastNoteVoice);
+      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + timelineDurationEl(el));
+    } else if (tag === 'note') {
+      if (el.querySelector('chord, *|chord') !== null) continue;
+      const voice = noteVoiceNumber(el);
+      lastNoteVoice = voice;
+      const start = voiceCursor.get(voice) ?? 0;
+      out.set(el, start);
+      voiceCursor.set(voice, start + noteDurationValue(el));
+    }
+  }
+  return out;
+}
+
+/**
  * OSMD split-staff 미리보기 — `<forward>` 뒤에 더 이른 onset 음이 있으면
  * 해당 음(화음 그룹)만 forward 앞으로 이동(빔·저장 MXL 불변).
  */

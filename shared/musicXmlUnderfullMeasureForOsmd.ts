@@ -106,20 +106,42 @@ function appendForwardAtMeasureEnd(measure: Element, duration: number): void {
   measure.appendChild(forward);
 }
 
+function measureHasBackup(measure: Element): boolean {
+  return [...measure.children].some((c) => xmlLocalName(c) === 'backup');
+}
+
 function voiceDurationSums(measure: Element): Map<string, number> {
   const byVoice = new Map<string, number>();
+  let lastVoice = '1';
   for (const child of [...measure.children]) {
-    if (xmlLocalName(child) !== 'note') continue;
+    const tag = xmlLocalName(child);
+    if (tag === 'forward') {
+      const vEl = child.querySelector(':scope > voice, :scope > *|voice');
+      const voice = (vEl?.textContent ?? lastVoice).trim() || lastVoice;
+      byVoice.set(voice, (byVoice.get(voice) ?? 0) + readDuration(child));
+      continue;
+    }
+    if (tag !== 'note') continue;
     if (child.querySelector(':scope > chord, :scope > *|chord')) continue;
     if (child.querySelector(':scope > grace, :scope > *|grace')) continue;
     const vEl = child.querySelector(':scope > voice, :scope > *|voice');
     const voice = (vEl?.textContent ?? '1').trim() || '1';
+    lastVoice = voice;
     byVoice.set(voice, (byVoice.get(voice) ?? 0) + readDuration(child));
   }
   return byVoice;
 }
 
+/**
+ * 단일 레이어(backup 없음)에서만 voice duration 합이 박자보다 짧으면 해당 voice 마지막 note 뒤에
+ * invisible `<forward>`를 넣는다.
+ *
+ * backup이 있는 다성부(Audiveris: voice1 일부 → backup → voice2…)에서는 voice1 note 합이
+ * 박자보다 짧아 보여도 **정상**이다. 여기에 forward를 끼우면 part cursor가 어긋나
+ * `sanitizeConflictingPlayOrders`가 같은 연주순번을 지우고 OSMD 열이 틀어진다.
+ */
 function repairUnderfullVoicesInMeasure(measure: Element, expected: number): void {
+  if (measureHasBackup(measure)) return;
   const byVoice = voiceDurationSums(measure);
   if (!byVoice.size) return;
   for (const [voice, total] of byVoice) {
@@ -129,9 +151,11 @@ function repairUnderfullVoicesInMeasure(measure: Element, expected: number): voi
 }
 
 /**
- * OSMD/HITL 미리보기 전용 — 마디·성부(voice) 타임라인이 박자보다 짧을 때 끝에 invisible `<forward>`만 추가.
- * 앞머리 쉼·음표는 건드리지 않고 있는 그대로 그리되, OSMD가 0·음수 폭으로 마디를 통째로
- * 건너뛰거나 다음 마디가 한 칸 밀리지 않게 한다. 저장 MXL에는 적용하지 않음.
+ * OSMD/HITL 미리보기 전용 — 마디 타임라인이 박자보다 짧을 때 invisible `<forward>`로 맞춤.
+ * 앞머리 쉼·음표는 건드리지 않고, OSMD가 0·음수 폭으로 마디를 skip하지 않게 한다(저장 MXL 불변).
+ *
+ * - backup 없는 단일 레이어: voice별 부족분 → 해당 voice note 직후 forward
+ * - backup 있는 다성부: voice별 pad **금지**(타임라인 역전). part cursor 끝만 부족하면 마디 끝 forward
  */
 export function repairUnderfullMeasuresForOsmdPreview(xml: string): string {
   try {

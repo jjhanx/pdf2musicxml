@@ -5,7 +5,7 @@
  * 미리보기 x: 마디 공통 grid(순번1=32 ~ 끝=432). voice·timeline은 건드리지 않음 — 표시는 SVG translate.
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
-import { collectStaffNoteOnsets } from './musicXmlTimelineCleanup';
+import { collectVoiceParallelNoteOnsets } from './musicXmlTimelineCleanup';
 import { defaultXFromOnset, previewLayoutLengthUnits, OSMD_LAYOUT_X_ATTR } from './musicXmlPreviewOnsetLayout';
 
 const xmlLocalName = (el: Element) =>
@@ -94,7 +94,7 @@ export function defaultPlayOrdersFromDocumentOrder(measure: Element, staffN?: nu
  * 같은 onset = 같은 순번(동시 column). 마디 편집 빈 칸·미리보기 기본값에 사용.
  */
 export function defaultPlayOrdersFromTimeline(measure: Element, staffN?: number): Map<Element, number> {
-  const onsets = collectStaffNoteOnsets(measure);
+  const onsets = collectVoiceParallelNoteOnsets(measure);
   const leaders: { el: Element; onset: number; x: number }[] = [];
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'note') continue;
@@ -124,7 +124,9 @@ export function defaultPlayOrdersFromTimeline(measure: Element, staffN?: number)
 
 /** 같은 staff·같은 명시 po가 서로 다른 musical onset에 있으면 속성 제거(옛 전파 잔여). */
 export function sanitizeConflictingPlayOrders(measure: Element): boolean {
-  const onsets = collectStaffNoteOnsets(measure);
+  // voice-parallel onset — 단일 part cursor가 underfull forward 등으로 어긋나도
+  // 같은 musical 동시성(같은 연주순번)을 다른 onset으로 오인하지 않음.
+  const onsets = collectVoiceParallelNoteOnsets(measure);
   type Entry = { leader: Element; onset: number };
   const byStaffPo = new Map<string, Map<number, Entry[]>>();
   for (const child of [...measure.children]) {

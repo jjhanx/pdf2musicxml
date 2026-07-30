@@ -75,7 +75,7 @@ export function readPlayOrder(note: Element): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** staff 문서 순서 → 기본 연주순번(1-based). */
+/** staff 문서 순서 → 기본 연주순번(1-based). voice 블록 순이라 미리보기 column과 어긋날 수 있음. */
 export function defaultPlayOrdersFromDocumentOrder(measure: Element, staffN?: number): Map<Element, number> {
   const out = new Map<Element, number>();
   let order = 0;
@@ -89,15 +89,78 @@ export function defaultPlayOrdersFromDocumentOrder(measure: Element, staffN?: nu
   return out;
 }
 
-/** @deprecated HITL UI·미리보기는 document order 사용. */
+/**
+ * staff musical onset(타임라인) → 기본 연주순번.
+ * 같은 onset = 같은 순번(동시 column). 마디 편집 빈 칸·미리보기 기본값에 사용.
+ */
 export function defaultPlayOrdersFromTimeline(measure: Element, staffN?: number): Map<Element, number> {
-  return defaultPlayOrdersFromDocumentOrder(measure, staffN);
+  const onsets = collectStaffNoteOnsets(measure);
+  const leaders: { el: Element; onset: number; x: number }[] = [];
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (isChordMember(child)) continue;
+    if (staffN != null && noteStaffNumber(child) !== staffN) continue;
+    const rawX = child.getAttribute('default-x');
+    const parsed = rawX ? parseFloat(rawX) : NaN;
+    leaders.push({
+      el: child,
+      onset: onsets.get(child) ?? 0,
+      x: Number.isFinite(parsed) ? parsed : 0,
+    });
+  }
+  leaders.sort((a, b) => a.onset - b.onset || a.x - b.x);
+  const out = new Map<Element, number>();
+  let order = 0;
+  let prevOnset: number | null = null;
+  for (const row of leaders) {
+    if (prevOnset === null || row.onset !== prevOnset) {
+      order += 1;
+      prevOnset = row.onset;
+    }
+    out.set(row.el, order);
+  }
+  return out;
+}
+
+/** 같은 staff·같은 명시 po가 서로 다른 musical onset에 있으면 속성 제거(옛 전파 잔여). */
+export function sanitizeConflictingPlayOrders(measure: Element): boolean {
+  const onsets = collectStaffNoteOnsets(measure);
+  type Entry = { leader: Element; onset: number };
+  const byStaffPo = new Map<string, Map<number, Entry[]>>();
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (isChordMember(child)) continue;
+    const po = readPlayOrder(child);
+    if (po == null) continue;
+    const staff = noteStaffNumber(child);
+    const staffMap = byStaffPo.get(String(staff)) ?? new Map<number, Entry[]>();
+    const list = staffMap.get(po) ?? [];
+    list.push({ leader: child, onset: onsets.get(child) ?? 0 });
+    staffMap.set(po, list);
+    byStaffPo.set(String(staff), staffMap);
+  }
+  let changed = false;
+  for (const staffMap of byStaffPo.values()) {
+    for (const entries of staffMap.values()) {
+      const distinct = new Set(entries.map((e) => e.onset));
+      if (distinct.size <= 1) continue;
+      for (const { leader } of entries) {
+        for (const note of noteGroupWithChords(measure, leader)) {
+          if (note.hasAttribute(HITL_PLAY_ORDER_ATTR)) {
+            note.removeAttribute(HITL_PLAY_ORDER_ATTR);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+  return changed;
 }
 
 function buildMeasureDefaultPlayOrders(measure: Element, staves: Set<number>): Map<Element, number> {
   const out = new Map<Element, number>();
   for (const staffN of staves) {
-    for (const [leader, po] of defaultPlayOrdersFromDocumentOrder(measure, staffN)) {
+    for (const [leader, po] of defaultPlayOrdersFromTimeline(measure, staffN)) {
       out.set(leader, po);
     }
   }
@@ -334,6 +397,7 @@ function allLeadersInMeasure(measure: Element): Element[] {
 
 /** 마디 공통 grid — musical onset + 명시 연주순번 column snap + beam (voice·timeline 불변). */
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
+  sanitizeConflictingPlayOrders(measure);
   const staves = new Set<number>();
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));

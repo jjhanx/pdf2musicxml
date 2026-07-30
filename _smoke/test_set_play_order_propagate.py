@@ -71,7 +71,30 @@ if po(5) != "2":
 if po(7) != "4":
     raise SystemExit(f"[F4,Bb4,D5,F5] #7 must be playOrder 4, got {po(7)}")
 
+# Claim column: pre-corrupt #0/#5/#7 as 4, then set #7→4 clears other onsets
+for i in (0, 5, 7):
+    notes[i].set("data-hitl-play-order", "4")
+lib.apply_fixes_to_root(
+    root,
+    [
+        {
+            "kind": "setPlayOrder",
+            "partId": "P5",
+            "measureMxl": "17",
+            "noteIndex": 7,
+            "playOrder": 4,
+            "staff": 1,
+        }
+    ],
+)
+if po(7) != "4":
+    raise SystemExit(f"after claim #7 must be 4, got {po(7)}")
+if po(0) is not None:
+    raise SystemExit(f"after claim #0 must clear conflicting 4, got {po(0)}")
+if po(5) is not None:
+    raise SystemExit(f"after claim #5 must clear conflicting 4, got {po(5)}")
+
 print(
-    "OK setPlayOrder same-onset only",
+    "OK setPlayOrder same-onset only + claim column",
     {"po5": po(5), "po3": po(3), "po4": po(4), "po7": po(7), "po0": po(0)},
 )

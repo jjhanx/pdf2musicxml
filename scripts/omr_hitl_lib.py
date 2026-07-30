@@ -432,21 +432,90 @@ def _set_play_order_same_pitch_staff_leaders(
     return changed
 
 
-def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> dict[int, int]:
-    """staff 문서 순서 기본 연주순번 — voice timeline과 무관(마디 편집 #index 순)."""
-    out: dict[int, int] = {}
-    note_i = 0
-    order = 0
-    for child in measure:
-        if _local(child) != "note":
+def _sanitize_conflicting_play_orders(measure: ET.Element, ns: str) -> bool:
+    """같은 staff·같은 명시 연주순번이 서로 다른 musical onset에 있으면 속성 제거.
+
+    같은 순번 = 동시 column. 옛 same-pitch 전 staff 전파로 F4 화음 여러 개가
+    모두 같은 po를 갖게 된 MXL은 미리보기·SVG 매칭을 망가뜨리므로 비운다.
+    """
+    notes = list_note_elements(measure, ns)
+    by_staff: dict[str, dict[str, list[tuple[int, int]]]] = {}
+    for i, note in enumerate(notes):
+        if note.find(_q(ns, "chord")) is not None:
             continue
-        note = child
-        is_chord = note.find(_q(ns, "chord")) is not None
+        po = note.get(PLAY_ORDER_ATTR)
+        if not po:
+            continue
         _, st = _note_voice_staff(note, ns)
-        if not is_chord and st == staff:
+        onset = _parallel_onset_time_for_note_index(measure, ns, st, notes, i)
+        by_staff.setdefault(st, {}).setdefault(po, []).append((i, onset))
+    changed = False
+    for po_map in by_staff.values():
+        for entries in po_map.values():
+            onsets = {o for _, o in entries}
+            if len(onsets) <= 1:
+                continue
+            for leader_i, _ in entries:
+                if _set_play_order_on_leader(notes, ns, leader_i, 0):
+                    changed = True
+    return changed
+
+
+def _clear_play_order_on_other_onsets(
+    measure: ET.Element,
+    ns: str,
+    notes: list[ET.Element],
+    staff: str,
+    keep_leader_i: int,
+    order: int,
+) -> bool:
+    """연주순번 N을 이 onset column에만 남기고, 같은 staff의 다른 onset에서 N 제거."""
+    if order < 1:
+        return False
+    keep_onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, keep_leader_i)
+    order_s = str(int(order))
+    changed = False
+    for i, note in enumerate(notes):
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        if _note_voice_staff(note, ns)[1] != staff:
+            continue
+        if note.get(PLAY_ORDER_ATTR) != order_s:
+            continue
+        onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, i)
+        if onset == keep_onset:
+            continue
+        if _set_play_order_on_leader(notes, ns, i, 0):
+            changed = True
+    return changed
+
+
+def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> dict[int, int]:
+    """staff musical onset(타임라인) 기본 연주순번 — 같은 onset = 같은 순번.
+
+    문서 순서(voice1 블록 → backup → voice2)는 미리보기 왼쪽→오른쪽과 어긋나
+    [F4,Bb4]가 기본 4로 보이는 등 UI 혼란을 만든다.
+    """
+    notes = list_note_elements(measure, ns)
+    leaders: list[tuple[int, float, int]] = []
+    for i, note in enumerate(notes):
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        _, st = _note_voice_staff(note, ns)
+        if st != staff:
+            continue
+        onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, i)
+        dx = _parse_default_x(note)
+        leaders.append((onset, dx if dx is not None else 0.0, i))
+    leaders.sort()
+    out: dict[int, int] = {}
+    order = 0
+    prev_onset: int | None = None
+    for onset, _dx, i in leaders:
+        if prev_onset is None or onset != prev_onset:
             order += 1
-            out[note_i] = order
-        note_i += 1
+            prev_onset = onset
+        out[i] = order
     return out
 
 
@@ -941,6 +1010,8 @@ def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> lis
 
 
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
+    # 옛 전파로 같은 po가 여러 onset에 남은 MXL을 편집 UI·미리보기 전에 정리
+    _sanitize_conflicting_play_orders(measure, ns)
     elements: list[dict[str, Any]] = []
     note_index = 0
     for child in measure:
@@ -3654,9 +3725,16 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if idx < 0 or idx >= len(notes):
             return False
         leader_i = _chord_leader_index(notes, ns, idx)
-        return _set_play_order_same_pitch_staff_leaders(
+        changed = _set_play_order_same_pitch_staff_leaders(
             notes, ns, leader_i, order, measure=measure
         )
+        if order >= 1:
+            _, staff = _note_voice_staff(notes[leader_i], ns)
+            if _clear_play_order_on_other_onsets(
+                measure, ns, notes, staff, leader_i, order
+            ):
+                changed = True
+        return changed
 
     if kind == "addArticulation":
         try:

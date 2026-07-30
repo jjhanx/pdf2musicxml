@@ -26,6 +26,15 @@ def test_osmd_min_navigation_labels():
     assert 'type.DS:this.drawSymbolText(t,e,"D.S.",!0)' in src
     assert 'type.DS:this.drawSymbolText(t,e,"D.S.",!1)' not in src
     assert 'this.symbol_type===pt.type.DS?"v8c":"v4d"' in src
+    # Coda must stay visible even when To Coda already found / no open repetition
+    assert (
+        "if(0===this.openRepetitions.length){this.currentMeasure.FirstRepetitionInstructions.push"
+        in src
+    )
+    assert (
+        "case s.RepetitionInstructionEnum.Coda:i>0&&this.findInstructionInPreviousMeasure"
+        not in src
+    )
 
 
 if __name__ == "__main__":

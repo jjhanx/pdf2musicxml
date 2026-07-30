@@ -3208,7 +3208,7 @@ def _direction_text(direction: ET.Element) -> str:
         elif loc in _NAVIGATION_DIRECTION_TAGS:
             label = _NAVIGATION_DIRECTION_LABELS.get(loc, loc)
             # To Coda / D.S. + 기호 — 텍스트 라벨만 (기호는 OSMD·MusicXML 기호 태그)
-            if loc == "coda" and any("To Coda" in p for p in parts):
+            if loc == "coda" and any("To Coda" in p or p == "Coda" for p in parts):
                 continue
             if loc == "segno" and any(p.startswith("D.S") for p in parts):
                 continue
@@ -3318,9 +3318,16 @@ def _build_direction_element(
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         el = ET.SubElement(dtype, _q(ns, "rehearsal"))
         el.text = val or "A"
-    elif kind in ("segno", "coda"):
+    elif kind == "segno":
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
-        ET.SubElement(dtype, _q(ns, kind))
+        ET.SubElement(dtype, _q(ns, "segno"))
+    elif kind == "coda":
+        # words + coda — OSMD는 첫 direction-type만 보므로 words "Coda"로 인식
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        words = ET.SubElement(dtype, _q(ns, "words"))
+        words.text = "Coda"
+        dtype2 = ET.SubElement(direction, _q(ns, "direction-type"))
+        ET.SubElement(dtype2, _q(ns, "coda"))
     elif kind == "tocoda":
         # MusicXML: words + coda 기호 + sound@tocoda (빈 <tocoda/> 아님)
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))

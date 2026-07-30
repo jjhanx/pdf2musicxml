@@ -2,6 +2,7 @@
  * OSMD(VexFlow) 진행 제어 라벨·기호 패치 (특정 곡 아님).
  * - TO_CODA: "To"+코다 → "To Coda"+코다
  * - DS: "D.S."만 → "D.S."+Segno 기호(v8c)
+ * - Coda: To Coda가 있어도 / openRepetition 없어도 마디 처음에 Coda 기호 표시
  * npm install 후 postinstall에서 실행.
  */
 import fs from 'node:fs';
@@ -16,6 +17,12 @@ const target = path.join(
   'build',
   'opensheetmusicdisplay.min.js',
 );
+
+const CODA_CALC_FROM =
+  'case n.RepetitionInstructionEnum.Coda:if(0===this.openRepetitions.length)break;e=this.getOrCreateCurrentRepetition2(!0),t.parentRepetition=e.RepetitonUnderConstruction,e.WaitingForCoda?(e.CodaFound=!0,e.RepetitonUnderConstruction.setEndingStartIndex(2,this.currentMeasureIndex),this.currentMeasure.LastRepetitionInstructions.push(t),this.finalizeRepetition(e),this.currentMeasureIndex>0&&(this.musicSheet.SourceMeasures[this.currentMeasureIndex-1].printNewSystemXml=!0)):e.ToCodaFound||(0===e.RepetitonUnderConstruction.BackwardJumpInstructions.length?(e.ToCodaFound=!0,e.RepetitonUnderConstruction.forwardJumpInstruction=new n.RepetitionInstruction(this.currentMeasureIndex,n.RepetitionInstructionEnum.ToCoda,n.AlignmentType.End,e.RepetitonUnderConstruction),this.currentMeasure.LastRepetitionInstructions.push(e.RepetitonUnderConstruction.forwardJumpInstruction)):this.currentMeasure.LastRepetitionInstructions.push(new n.RepetitionInstruction(this.currentMeasureIndex,n.RepetitionInstructionEnum.Coda,n.AlignmentType.Begin,void 0)));break;';
+
+const CODA_CALC_TO =
+  'case n.RepetitionInstructionEnum.Coda:if(0===this.openRepetitions.length){this.currentMeasure.FirstRepetitionInstructions.push(new n.RepetitionInstruction(this.currentMeasureIndex,n.RepetitionInstructionEnum.Coda,n.AlignmentType.Begin,void 0));break}e=this.getOrCreateCurrentRepetition2(!0),t.parentRepetition=e.RepetitonUnderConstruction,e.WaitingForCoda?(e.CodaFound=!0,e.RepetitonUnderConstruction.setEndingStartIndex(2,this.currentMeasureIndex),this.currentMeasure.FirstRepetitionInstructions.push(new n.RepetitionInstruction(this.currentMeasureIndex,n.RepetitionInstructionEnum.Coda,n.AlignmentType.Begin,void 0)),this.finalizeRepetition(e),this.currentMeasureIndex>0&&(this.musicSheet.SourceMeasures[this.currentMeasureIndex-1].printNewSystemXml=!0)):(this.currentMeasure.FirstRepetitionInstructions.push(new n.RepetitionInstruction(this.currentMeasureIndex,n.RepetitionInstructionEnum.Coda,n.AlignmentType.Begin,void 0)),e.ToCodaFound||(0===e.RepetitonUnderConstruction.BackwardJumpInstructions.length&&(e.ToCodaFound=!0,e.RepetitonUnderConstruction.forwardJumpInstruction=new n.RepetitionInstruction(this.currentMeasureIndex,n.RepetitionInstructionEnum.ToCoda,n.AlignmentType.End,e.RepetitonUnderConstruction),this.currentMeasure.LastRepetitionInstructions.push(e.RepetitonUnderConstruction.forwardJumpInstruction))));break;';
 
 /** @type {{ name: string, from: string, to: string }[]} */
 const PATCHES = [
@@ -34,6 +41,16 @@ const PATCHES = [
     from: 's&&f.renderGlyph(n,o,a,40,"v4d",!0)',
     to: 's&&f.renderGlyph(n,o,a,40,this.symbol_type===pt.type.DS?"v8c":"v4d",!0)',
   },
+  {
+    name: 'Coda always visible (calculator)',
+    from: CODA_CALC_FROM,
+    to: CODA_CALC_TO,
+  },
+  {
+    name: 'Coda not stripped after ToCoda',
+    from: 'case s.RepetitionInstructionEnum.Coda:i>0&&this.findInstructionInPreviousMeasure(n,o.measureIndex,s.RepetitionInstructionEnum.ToCoda)&&(o.type=s.RepetitionInstructionEnum.None);break;',
+    to: 'case s.RepetitionInstructionEnum.Coda:break;',
+  },
 ];
 
 if (!fs.existsSync(target)) {
@@ -44,7 +61,7 @@ if (!fs.existsSync(target)) {
 let src = fs.readFileSync(target, 'utf8');
 let changed = 0;
 for (const p of PATCHES) {
-  if (src.includes(p.to)) {
+  if (src.includes(p.to) && !src.includes(p.from)) {
     console.log(`[patch_osmd_navigation_labels] ${p.name}: already patched`);
     continue;
   }

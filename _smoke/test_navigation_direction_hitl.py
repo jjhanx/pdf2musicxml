@@ -116,6 +116,34 @@ assert d4.find(".//{*}tocoda") is None
 snap4 = measure_snapshot(root4, "", "P1", "36")
 assert any(d.get("directionType") == "tocoda" for d in snap4["measureDirections"])
 
+# Coda at measure start — words + coda symbol
+root6 = ET.fromstring(
+    """<score-partwise version="3.1">
+<part id="P1"><measure number="61">
+<attributes><divisions>2</divisions></attributes>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type></note>
+</measure></part></score-partwise>"""
+)
+assert apply_fix(
+    root6,
+    "",
+    {
+        "kind": "insertDirection",
+        "partId": "P1",
+        "measureMxl": "61",
+        "measureAnchor": "start",
+        "directionType": "coda",
+        "staff": 1,
+        "placement": "above",
+    },
+)
+m61 = root6.find(".//{*}measure")
+kids6 = [_local(c.tag) for c in m61]
+assert kids6.index("direction") < kids6.index("note")
+d6 = m61.find("{*}direction")
+assert d6.find(".//{*}words").text == "Coda"
+assert d6.find(".//{*}coda") is not None
+
 # D.S. at measure end → before barline; words + segno
 root5 = ET.fromstring(
     """<score-partwise version="3.1">

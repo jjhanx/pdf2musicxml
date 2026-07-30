@@ -1956,6 +1956,8 @@ export function OsmdBlock({
           onAfterRender: afterOsmdRender,
           afterOsmdRenderSync: (h, o) => {
             finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
+            // render 직후 동기 align — rAF만 기다리면 autoResize/후속 paint가 transform을 덮어쓸 수 있음
+            syncOnsetColumnAlign(h, o);
           },
         });
       })
@@ -2015,6 +2017,7 @@ export function OsmdBlock({
       onAfterRender: afterOsmdRender,
       afterOsmdRenderSync: (h, o) => {
         finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
+        syncOnsetColumnAlign(h, o);
       },
     });
   }, [zoom, afterOsmdRender]);

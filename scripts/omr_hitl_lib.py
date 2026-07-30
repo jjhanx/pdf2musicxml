@@ -672,7 +672,63 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
             if pl in ("above", "below"):
                 out["placement"] = pl
             return out
-    for tag in _NAVIGATION_DIRECTION_TAGS:
+    # sound 속성 — MusicXML 표준 To Coda / Fine / D.C. / D.S.
+    for sound in direction.findall(_q(ns, "sound")):
+        if sound.get("tocoda"):
+            pl = (direction.get("placement") or "").strip()
+            out = {"directionType": "tocoda", "directionValue": "tocoda"}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+        if (sound.get("fine") or "").strip().lower() in ("yes", "true", "1"):
+            pl = (direction.get("placement") or "").strip()
+            out = {"directionType": "fine", "directionValue": "fine"}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+        if (sound.get("dacapo") or "").strip().lower() in ("yes", "true", "1"):
+            pl = (direction.get("placement") or "").strip()
+            out = {"directionType": "dacapo", "directionValue": "dacapo"}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+        if sound.get("dalsegno"):
+            pl = (direction.get("placement") or "").strip()
+            out = {"directionType": "dalsegno", "directionValue": "dalsegno"}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+    # 빈 <segno/> / <coda/> (To Coda의 뒤따르는 <coda/>는 sound/words로 이미 처리)
+    for tag in ("segno", "coda"):
+        if dtype.find(_q(ns, tag)) is not None:
+            # To Coda: words + coda 기호 — coda만 보면 안 됨
+            words_el = dtype.find(_q(ns, "words"))
+            words_txt = (words_el.text or "").strip() if words_el is not None else ""
+            if tag == "coda" and re.search(r"to\s*coda", words_txt, re.I):
+                pl = (direction.get("placement") or "").strip()
+                out = {"directionType": "tocoda", "directionValue": "tocoda"}
+                if pl in ("above", "below"):
+                    out["placement"] = pl
+                return out
+            # 다른 direction-type에 To Coda words가 있으면 tocoda
+            has_tocoda_words = False
+            for dt in direction.findall(_q(ns, "direction-type")):
+                w = dt.find(_q(ns, "words"))
+                if w is not None and w.text and re.search(r"to\s*coda", w.text, re.I):
+                    has_tocoda_words = True
+                    break
+            if tag == "coda" and has_tocoda_words:
+                pl = (direction.get("placement") or "").strip()
+                out = {"directionType": "tocoda", "directionValue": "tocoda"}
+                if pl in ("above", "below"):
+                    out["placement"] = pl
+                return out
+            pl = (direction.get("placement") or "").strip()
+            out = {"directionType": tag, "directionValue": tag}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+    for tag in ("fine", "dacapo", "dalsegno", "tocoda"):
         if dtype.find(_q(ns, tag)) is not None:
             pl = (direction.get("placement") or "").strip()
             out = {"directionType": tag, "directionValue": tag}
@@ -681,7 +737,30 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
             return out
     words = dtype.find(_q(ns, "words"))
     if words is not None and words.text and words.text.strip():
-        return {"directionType": "words", "directionValue": words.text.strip()}
+        txt = words.text.strip()
+        pl = (direction.get("placement") or "").strip()
+        low = txt.lower()
+        if re.search(r"to\s*coda", low):
+            out = {"directionType": "tocoda", "directionValue": "tocoda"}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+        if re.fullmatch(r"fine", low):
+            out = {"directionType": "fine", "directionValue": "fine"}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+        if re.fullmatch(r"d\.?\s*c\.?", low) or low.startswith("d.c"):
+            out = {"directionType": "dacapo", "directionValue": "dacapo"}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+        if re.fullmatch(r"d\.?\s*s\.?", low) or low.startswith("d.s"):
+            out = {"directionType": "dalsegno", "directionValue": "dalsegno"}
+            if pl in ("above", "below"):
+                out["placement"] = pl
+            return out
+        return {"directionType": "words", "directionValue": txt}
     reh = dtype.find(_q(ns, "rehearsal"))
     if reh is not None:
         return {"directionType": "rehearsal", "directionValue": (reh.text or "A").strip()}
@@ -3105,7 +3184,12 @@ def _direction_text(direction: ET.Element) -> str:
             if el.text and el.text.strip():
                 parts.append(el.text.strip())
         elif loc in _NAVIGATION_DIRECTION_TAGS:
-            parts.append(_NAVIGATION_DIRECTION_LABELS.get(loc, loc))
+            label = _NAVIGATION_DIRECTION_LABELS.get(loc, loc)
+            # To Coda words + <coda/> 기호 — 텍스트는 "To Coda"만 (기호는 OSMD가 그림)
+            if loc == "coda" and any("To Coda" in p for p in parts):
+                continue
+            if label not in parts:
+                parts.append(label)
         elif loc == "wedge" and el.get("type"):
             parts.append(f"wedge({el.get('type')})")
         elif loc == "pedal" and el.get("type"):
@@ -3197,23 +3281,56 @@ def _build_direction_element(
     direction = ET.Element(_q(ns, "direction"))
     if placement in ("above", "below"):
         direction.set("placement", placement)
-    dtype = ET.SubElement(direction, _q(ns, "direction-type"))
     kind = (direction_type or "words").strip().lower()
     val = str(value or "").strip()
     if kind == "dynamics":
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         tag = val.lower() or "p"
         if tag not in _DYNAMICS_TAGS:
             tag = "p"
         dyn = ET.SubElement(dtype, _q(ns, "dynamics"))
         ET.SubElement(dyn, _q(ns, tag))
     elif kind == "rehearsal":
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         el = ET.SubElement(dtype, _q(ns, "rehearsal"))
         el.text = val or "A"
-    elif kind in _NAVIGATION_DIRECTION_TAGS:
+    elif kind in ("segno", "coda"):
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         ET.SubElement(dtype, _q(ns, kind))
-        if placement is None:
-            placement = "above"
+    elif kind == "tocoda":
+        # MusicXML: words + coda 기호 + sound@tocoda (빈 <tocoda/> 아님)
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        words = ET.SubElement(dtype, _q(ns, "words"))
+        words.text = "To Coda"
+        dtype2 = ET.SubElement(direction, _q(ns, "direction-type"))
+        ET.SubElement(dtype2, _q(ns, "coda"))
+        sound = ET.SubElement(direction, _q(ns, "sound"))
+        sound.set("tocoda", "coda")
+    elif kind == "fine":
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        words = ET.SubElement(dtype, _q(ns, "words"))
+        words.text = "Fine"
+        sound = ET.SubElement(direction, _q(ns, "sound"))
+        sound.set("fine", "yes")
+    elif kind == "dacapo":
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        words = ET.SubElement(dtype, _q(ns, "words"))
+        words.text = "D.C."
+        sound = ET.SubElement(direction, _q(ns, "sound"))
+        sound.set("dacapo", "yes")
+    elif kind == "dalsegno":
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        words = ET.SubElement(dtype, _q(ns, "words"))
+        words.text = "D.S."
+        sound = ET.SubElement(direction, _q(ns, "sound"))
+        sound.set("dalsegno", "segno")
+    elif kind in _NAVIGATION_DIRECTION_TAGS:
+        # 하위 호환 — 알 수 없는 nav 태그는 words로
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        words = ET.SubElement(dtype, _q(ns, "words"))
+        words.text = _NAVIGATION_DIRECTION_LABELS.get(kind, val or kind)
     else:
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         el = ET.SubElement(dtype, _q(ns, "words"))
         el.text = val or " "
     if voice_n is not None:
@@ -3567,6 +3684,18 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             after_idx = int(fix.get("afterNoteIndex", -1))
         except (TypeError, ValueError):
             return False
+        measure_anchor = str(fix.get("measureAnchor") or "").strip().lower()
+        if measure_anchor == "start":
+            after_idx = -1
+        elif measure_anchor == "end":
+            last_i = -1
+            for i, note in enumerate(notes):
+                if note.find(_q(ns, "chord")) is not None:
+                    continue
+                if (_note_staff_number(note, ns) or 1) != staff_n:
+                    continue
+                last_i = i
+            after_idx = last_i if last_i >= 0 else -1
         placement = str(fix.get("placement") or "").strip().lower() or None
         if placement not in ("above", "below", ""):
             placement = None
@@ -4529,7 +4658,9 @@ def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
 
 
 _SAME_X_TOLERANCE = 2.0
-_PARALLEL_STEM_X_TOLERANCE = 72.0
+# 반대 줄기 동시 onset — Audiveris는 보통 거의 같은 default-x.
+# 72는 빔 끝 8분→다음 4분(Δ≈30)까지 동시로 오인해 voice 분리·순번 붕괴를 일으킴.
+_PARALLEL_STEM_X_TOLERANCE = 16.0
 
 
 def _note_stem_direction(note: ET.Element, ns: str) -> str:
@@ -4545,6 +4676,26 @@ def _parallel_cluster_x_tolerance(grps: list[list[ET.Element]], ns: str) -> floa
     if len(stems) > 1:
         return _PARALLEL_STEM_X_TOLERANCE
     return _SAME_X_TOLERANCE
+
+
+def _parallel_groups_may_cluster(
+    prev_grp: list[ET.Element], next_grp: list[ET.Element], ns: str, cluster_x: float, next_x: float
+) -> bool:
+    """default-x·줄기 허용폭 + 빔 연속(순차)이면 동시 cluster 금지."""
+    if not prev_grp or not next_grp:
+        return False
+    merged = [prev_grp, next_grp]
+    tol = _parallel_cluster_x_tolerance(merged, ns)
+    if abs(next_x - cluster_x) > tol:
+        return False
+    prev_beams = _note_beams(prev_grp[0], ns)
+    next_beams = _note_beams(next_grp[0], ns)
+    # 빔 끝 다음 음·빔 연속은 순차 — SAME_X일 때만 동시로 봄
+    if "end" in prev_beams and not next_beams:
+        return abs(next_x - cluster_x) <= _SAME_X_TOLERANCE
+    if prev_beams and next_beams and any(b in ("continue", "end") for b in next_beams):
+        return abs(next_x - cluster_x) <= _SAME_X_TOLERANCE
+    return True
 
 
 def _staff_timed_leader_starts(
@@ -5031,14 +5182,13 @@ def _staff_parallel_onset_needs_repair(measure: ET.Element, ns: str, staff: str)
     if len(voices) > 1:
         return False
     leaders = _chord_groups_in_order(notes, ns)
-    clusters: list[list[list[ET.Element]]] = []
+    clusters: list[tuple[float, list[list[ET.Element]]]] = []
     for grp in leaders:
         x = _parse_default_x(grp[0])
         x_val = x if x is not None else 1_000_000.0
         if clusters:
-            merged = clusters[-1][1] + [grp]
-            tol = _parallel_cluster_x_tolerance(merged, ns)
-            if abs(x_val - clusters[-1][0]) <= tol:
+            prev_grp = clusters[-1][1][-1]
+            if _parallel_groups_may_cluster(prev_grp, grp, ns, clusters[-1][0], x_val):
                 clusters[-1][1].append(grp)
                 continue
         clusters.append((x_val, [grp]))
@@ -5196,9 +5346,8 @@ def _repair_parallel_onsets_on_staff(measure: ET.Element, ns: str, staff: str) -
         x = _parse_default_x(grp[0])
         x_val = x if x is not None else 1_000_000.0
         if clusters:
-            merged = clusters[-1][1] + [grp]
-            tol = _parallel_cluster_x_tolerance(merged, ns)
-            if abs(x_val - clusters[-1][0]) <= tol:
+            prev_grp = clusters[-1][1][-1]
+            if _parallel_groups_may_cluster(prev_grp, grp, ns, clusters[-1][0], x_val):
                 clusters[-1][1].append(grp)
                 continue
         clusters.append((x_val, [grp]))

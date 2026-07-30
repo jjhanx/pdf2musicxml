@@ -47,6 +47,8 @@ export type OmrHitlFix = {
   directionType?: 'dynamics' | 'words' | 'rehearsal' | 'segno' | 'coda' | 'fine' | 'dacapo' | 'dalsegno' | 'tocoda';
   directionValue?: string;
   placement?: 'above' | 'below';
+  /** 진행 제어 — 마디 처음(start) / 마디 끝(end). above/below보다 우선. */
+  measureAnchor?: 'start' | 'end';
   tempoBpm?: number;
   beatUnit?: string;
   articulation?: string;
@@ -193,6 +195,8 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   if (fix.directionIndex != null) parts.push(`dir#${fix.directionIndex}`);
   if (fix.kind === 'setNoteDirection' || fix.kind === 'insertDirection' || fix.kind === 'addNoteDirection' || fix.kind === 'removeNoteDirection') {
     if (fix.noteIndex != null) parts.push(`#${fix.noteIndex}`);
+    else if (fix.measureAnchor === 'start') parts.push('마디 처음');
+    else if (fix.measureAnchor === 'end') parts.push('마디 끝');
     else if (fix.afterNoteIndex != null && fix.afterNoteIndex < 0) parts.push('마디 앞');
     else if (fix.afterNoteIndex != null) parts.push(`#${fix.afterNoteIndex}`);
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);

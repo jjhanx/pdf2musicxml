@@ -414,21 +414,17 @@ function MeasureNavigationEditor({
   directions,
   partStaveCount,
   editStaffWithinPart,
-  insertAfter,
   insertStaff,
-  noteEls,
   onFix,
 }: {
   directions: MeasureDirectionEl[];
   partStaveCount: number;
   editStaffWithinPart?: number | null;
-  insertAfter: number;
   insertStaff: number;
-  noteEls: MeasureNoteEl[];
   onFix: (partial: FixPartial) => void;
 }) {
   const [navKind, setNavKind] = useState(0);
-  const [placement, setPlacement] = useState<'above' | 'below'>('above');
+  const [measureAnchor, setMeasureAnchor] = useState<'start' | 'end'>('end');
   const [staff, setStaff] = useState(editStaffWithinPart ?? insertStaff ?? 1);
 
   useEffect(() => {
@@ -436,10 +432,13 @@ function MeasureNavigationEditor({
   }, [editStaffWithinPart, insertStaff]);
 
   const selected = NAVIGATION_INSERT_OPTIONS[navKind] ?? NAVIGATION_INSERT_OPTIONS[0];
-  const positionLabel =
-    insertAfter < 0
-      ? '마디 앞'
-      : `#${insertAfter} ${noteEls.find((n) => n.index === insertAfter) ? '뒤' : ''}`.trim();
+
+  useEffect(() => {
+    const t = selected.directionType;
+    // Segno·Coda 기호는 보통 마디 처음, To Coda·Fine·D.C./D.S.는 마디 끝
+    if (t === 'segno' || t === 'coda') setMeasureAnchor('start');
+    else setMeasureAnchor('end');
+  }, [navKind, selected.directionType]);
 
   return (
     <div
@@ -455,8 +454,8 @@ function MeasureNavigationEditor({
       <div style={{ fontWeight: 700, marginBottom: 6 }}>진행 제어 (Segno·Coda·Fine 등)</div>
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
         OMR이 Segno(𝄋)를 <code>$5-f</code> 같은 OCR 찌끼로 오인한 경우, 위 「마디 텍스트」에서 삭제한 뒤 여기서{' '}
-        <strong>올바른 기호를 추가</strong>하세요. 위치는 아래 요소 목록의 「여기 뒤」로 정하거나, 기본은{' '}
-        <strong>마디 앞</strong>입니다.
+        <strong>올바른 기호를 추가</strong>하세요. 위치는 <strong>마디 처음</strong> 또는 <strong>마디 끝</strong>
+        (대부분 위쪽에 표시).
       </p>
       {directions.length > 0 ? (
         <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -509,13 +508,13 @@ function MeasureNavigationEditor({
         </label>
         <label className="omr-measure-inline-field">
           위치
-          <span style={{ marginLeft: 4, fontSize: '0.88rem' }}>{positionLabel}</span>
-        </label>
-        <label className="omr-measure-inline-field">
-          배치
-          <select value={placement} onChange={(e) => setPlacement(e.target.value as 'above' | 'below')} style={{ marginLeft: 4 }}>
-            <option value="above">위</option>
-            <option value="below">아래</option>
+          <select
+            value={measureAnchor}
+            onChange={(e) => setMeasureAnchor(e.target.value as 'start' | 'end')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="start">마디 처음</option>
+            <option value="end">마디 끝</option>
           </select>
         </label>
         {partStaveCount >= 2 && editStaffWithinPart == null ? (
@@ -535,9 +534,10 @@ function MeasureNavigationEditor({
               kind: 'insertDirection',
               directionType: selected.directionType,
               directionValue: selected.directionValue || undefined,
-              afterNoteIndex: insertAfter,
+              measureAnchor,
+              afterNoteIndex: measureAnchor === 'start' ? -1 : undefined,
               staff: editStaffWithinPart ?? staff,
-              placement,
+              placement: 'above',
             })
           }
         >
@@ -1148,9 +1148,7 @@ export function OmrMeasureEditor({
             directions={navigationDirections}
             partStaveCount={partStaveCount}
             editStaffWithinPart={editStaffWithinPart}
-            insertAfter={insertAfter}
             insertStaff={insertStaff}
-            noteEls={noteEls}
             onFix={pushFix}
           />
           <MeasureDirectionsEditor

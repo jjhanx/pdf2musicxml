@@ -195,25 +195,22 @@ function noteDurationValue(note: Element): number {
 }
 
 /**
- * 연주순번 → 마디 slot onset (사용자 알고리즘).
+ * 연주순번 → 미리보기 layout onset (duration slot).
  *
- * 1) 마디 길이는 duration 단위 slot (4/4·div=2 → 8; 32분 해상도면 32)
- * 2) 문서 순 **첫 등장** 순서로 새 순번 column을 만들고,
- *    column step = 그 순번에 속한 모든 음 duration의 **min**
- *    (같은 순번 8분+4분이면 다음 새 순번은 8분만 전진)
- * 3) 같은 순번 음표는 모두 그 column slot에 배치
+ * column 순서 = **연주순번 숫자 오름차순**(문서 첫 등장 순이 아님 — po3가 po2보다 먼저 나와도 2번 column은 po2).
+ * column 전진폭 = 그 순번 음 duration **min**(같은 순번 8분+4분이면 다음 순번까지 8분만 전진).
+ * 같은 순번 음표는 모두 그 column onset에 배치.
  */
 export function buildPlayOrderSlotOnsets(
   leaders: Element[],
   defaults: Map<Element, number>,
+  _measure: Element,
 ): Map<number, number> {
-  const firstSeenOrder: number[] = [];
   const poStep = new Map<number, number>();
   for (const leader of leaders) {
     const po = effectivePlayOrder(leader, defaults);
     const dur = Math.max(1, noteDurationValue(leader));
     if (!poStep.has(po)) {
-      firstSeenOrder.push(po);
       poStep.set(po, dur);
     } else {
       poStep.set(po, Math.min(poStep.get(po)!, dur));
@@ -221,7 +218,7 @@ export function buildPlayOrderSlotOnsets(
   }
   const poOnset = new Map<number, number>();
   let cursor = 0;
-  for (const po of firstSeenOrder) {
+  for (const po of [...poStep.keys()].sort((a, b) => a - b)) {
     poOnset.set(po, cursor);
     cursor += poStep.get(po) ?? 1;
   }
@@ -267,7 +264,7 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   for (const staffN of staves) {
     const leaders = noteLeadersOnStaff(measure, staffN);
     if (!leaders.length) continue;
-    const poOnset = buildPlayOrderSlotOnsets(leaders, defaults);
+    const poOnset = buildPlayOrderSlotOnsets(leaders, defaults, measure);
     for (const leader of leaders) {
       const po = effectivePlayOrder(leader, defaults);
       layout.set(leader, poOnset.get(po) ?? 0);

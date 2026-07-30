@@ -1,5 +1,5 @@
 /**
- * Play-order slot grid: first-seen PO + min duration step (user algorithm).
+ * Play-order layout: PO number order + min duration step per column.
  * Run: npx tsx _smoke/test_play_order_slot_grid.ts
  */
 import { JSDOM } from 'jsdom';
@@ -55,8 +55,8 @@ leaders[3]!.setAttribute(HITL_PLAY_ORDER_ATTR, '2');
 leaders[4]!.setAttribute(HITL_PLAY_ORDER_ATTR, '4');
 
 const defaults = defaultPlayOrdersFromTimeline(measure, 1);
-const slots = buildPlayOrderSlotOnsets(leaders, defaults);
-// po1 dur2 → 0; po2 min(1,2)=1 → onset 2; po3 dur1 → onset 3; po4 dur2 → onset 4
+const slots = buildPlayOrderSlotOnsets(leaders, defaults, measure);
+// po1 onset 0; po2 min(E5@2,F4@2)=2; po3 F5@3; po4 tetra@4
 if (slots.get(1) !== 0) throw new Error(`po1 onset ${slots.get(1)}`);
 if (slots.get(2) !== 2) throw new Error(`po2 onset ${slots.get(2)} want 2`);
 if (slots.get(3) !== 3) throw new Error(`po3 onset ${slots.get(3)} want 3`);

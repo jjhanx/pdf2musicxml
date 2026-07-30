@@ -493,28 +493,29 @@ function alignMeasureNotesByPlayOrderGrid(
   const hits = collectMeasureNoteHits(osmd, gmRaw);
   if (!hits.length) return;
 
-  const layoutTargets = targets.filter((t) => {
+  const explicitTargets = targets.filter((t) => {
     if (t.measureNumber !== measureNumber) return false;
     if (!partIdsMatch(partId, t.partId)) return false;
     if (t.staff !== 1 && t.staff !== staff) return false;
-    return Number.isFinite(t.defaultXTenths);
+    return t.playOrder != null;
   });
-  if (!layoutTargets.length) return;
+  if (!explicitTargets.length) return;
 
-  const byLayoutX = new Map<number, PreviewNoteLayoutTarget[]>();
-  for (const t of layoutTargets) {
-    const lx = t.defaultXTenths;
-    const list = byLayoutX.get(lx) ?? [];
+  const byPo = new Map<number, PreviewNoteLayoutTarget[]>();
+  for (const t of explicitTargets) {
+    const po = t.playOrder!;
+    const list = byPo.get(po) ?? [];
     list.push(t);
-    byLayoutX.set(lx, list);
+    byPo.set(po, list);
   }
 
-  const measureSpan = playOrderPlacementSpan(hits, byLayoutX.size);
+  const measureSpan = playOrderPlacementSpan(hits, byPo.size);
   if (!measureSpan) return;
 
   const usedHits = new Set<SVGGraphicsElement>();
-  for (const layoutX of [...byLayoutX.keys()].sort((a, b) => a - b)) {
-    const group = byLayoutX.get(layoutX)!;
+  for (const po of [...byPo.keys()].sort((a, b) => a - b)) {
+    const group = byPo.get(po)!;
+    const layoutX = group[0]!.defaultXTenths;
     // voice별 한 stavenote만 이동 — pitch마다 매칭하면 po2 Bb4가 tetra(B4)까지 끌어 po4가 po2 열에 붙음
     const byVoice = new Map<string, PreviewNoteLayoutTarget[]>();
     for (const t of group) {

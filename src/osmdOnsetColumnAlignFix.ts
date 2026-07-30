@@ -100,38 +100,86 @@ function osmdTimestampFromGraphicVoiceEntry(gve: Record<string, unknown>): numbe
   return coordNum(asRecord(ts)?.realValue ?? asRecord(ts)?.RealValue);
 }
 
-function noteheadCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
+/** path/line 로컬 x + 조상 translate (SVG user unit). */
+function svgUserXFromElement(el: Element, localX: number): number {
+  let tx = 0;
+  let cur: Element | null = el;
+  while (cur) {
+    const tr = cur.getAttribute?.('transform') ?? '';
+    const tm = /translate\(\s*([-\d.]+)/.exec(tr);
+    if (tm) tx += parseFloat(tm[1]!);
+    cur = cur.parentElement;
+  }
+  return tx + localX;
+}
+
+function noteheadXsInSvgRoot(stavenote: SVGGraphicsElement): number[] {
   const xs: number[] = [];
   for (const path of stavenote.querySelectorAll('.vf-notehead path')) {
     const d = path.getAttribute('d');
     if (!d) continue;
     const m = /^M\s*([-\d.]+)/.exec(d.trim());
     if (!m) continue;
-    const localX = parseFloat(m[1]!);
-    // CTM 스케일·translate를 쓰면 applySvgTranslateX와 좌표계가 어긋나 이동량이 배가됨.
-    // path M + 조상 translate만 합산(SVG user unit) — viewBox 배율과 무관하게 일관.
-    let tx = 0;
-    let cur: Element | null = path as Element;
-    while (cur) {
-      const tr = cur.getAttribute?.('transform') ?? '';
-      const tm = /translate\(\s*([-\d.]+)/.exec(tr);
-      if (tm) tx += parseFloat(tm[1]!);
-      cur = cur.parentElement;
-    }
-    xs.push(tx + localX);
+    xs.push(svgUserXFromElement(path, parseFloat(m[1]!)));
   }
-  if (xs.length) return xs.reduce((a, b) => a + b, 0) / xs.length;
+  return xs;
+}
+
+/** 줄기 x — 리듬 column의 일반적 기준(반대편 머리와 무관). */
+function stemXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
+  const stemRoot =
+    (stavenote.querySelector('.vf-stem') as Element | null) ??
+    (stavenote.querySelector('[class*="stem"]') as Element | null);
+  const scope: ParentNode = stemRoot ?? stavenote;
+
+  for (const path of scope.querySelectorAll('path')) {
+    if (!stemRoot && !path.classList.contains('vf-stem')) continue;
+    const d = path.getAttribute('d');
+    if (!d) continue;
+    const m = /^M\s*([-\d.]+)/.exec(d.trim());
+    if (!m) continue;
+    return svgUserXFromElement(path, parseFloat(m[1]!));
+  }
+  for (const line of scope.querySelectorAll('line')) {
+    const x1 = parseFloat(line.getAttribute('x1') ?? '');
+    const y1 = parseFloat(line.getAttribute('y1') ?? '0');
+    const y2 = parseFloat(line.getAttribute('y2') ?? '0');
+    if (!Number.isFinite(x1)) continue;
+    if (Math.abs(y2 - y1) < 4) continue; // 가로선 제외
+    return svgUserXFromElement(line, x1);
+  }
+  return null;
+}
+
+/**
+ * 연주순번 column 앵커 X.
+ * 음정 차이로 머리가 줄기 좌·우에 달린 화음은 notehead 평균이 한쪽으로 치우쳐
+ * 앞·뒤 4분 간격이 달라 보이므로 **줄기**를 우선한다(판각 관례).
+ * 줄기 없으면 주열(머리 다수 쪽) 중앙, 단일이면 그 머리.
+ */
+function noteheadCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
+  const stem = stemXInSvgRoot(stavenote);
+  if (stem != null && Number.isFinite(stem)) return stem;
+
+  const xs = noteheadXsInSvgRoot(stavenote);
+  if (xs.length === 1) return xs[0]!;
+  if (xs.length > 1) {
+    const sorted = [...xs].sort((a, b) => a - b);
+    const spread = sorted[sorted.length - 1]! - sorted[0]!;
+    if (spread < 5) {
+      return xs.reduce((a, b) => a + b, 0) / xs.length;
+    }
+    // 반대편 머리: 더 많은 쪽이 주열(줄기 쪽)
+    const mid = (sorted[0]! + sorted[sorted.length - 1]!) / 2;
+    const left = xs.filter((x) => x < mid);
+    const right = xs.filter((x) => x >= mid);
+    const primary = left.length >= right.length ? left : right;
+    return primary.reduce((a, b) => a + b, 0) / primary.length;
+  }
+
   const bb = stavenote.getBBox?.();
   if (bb && bb.width > 0) {
-    let tx = 0;
-    let cur: Element | null = stavenote;
-    while (cur) {
-      const tr = cur.getAttribute?.('transform') ?? '';
-      const tm = /translate\(\s*([-\d.]+)/.exec(tr);
-      if (tm) tx += parseFloat(tm[1]!);
-      cur = cur.parentElement;
-    }
-    return tx + bb.x + bb.width / 2;
+    return svgUserXFromElement(stavenote, bb.x + bb.width / 2);
   }
   return null;
 }

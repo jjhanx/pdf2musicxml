@@ -194,6 +194,7 @@ async function main() {
   const f5 = hits.find((h) => h.pitch === 'F5' && h.heads <= 2);
   const f4Po2 = hits.filter((h) => h.pitch === 'F4' && h.heads === 2).sort((a, b) => a.x - b.x)[0];
   const f4Po4 = hits.filter((h) => h.pitch === 'F4' && h.heads >= 4).sort((a, b) => a.x - b.x)[0];
+  const g5 = hits.find((h) => h.pitch === 'G5' && h.heads >= 3);
   if (!e5 || !f5 || !f4Po2 || !f4Po4) {
     throw new Error(`missing ${JSON.stringify({ e5, f5, f4Po2, f4Po4, hits })}`);
   }
@@ -204,11 +205,18 @@ async function main() {
   if (f4Po2.x >= f5.x - 5) {
     throw new Error(`[F4,Bb4] must be left of F5: f4=${f4Po2.x} f5=${f5.x}`);
   }
+  if (g5 && Math.abs(g5.x - e5.x) < 14) {
+    throw new Error(`G5 chord must not sit on po2: g5=${g5.x} e5=${e5.x}`);
+  }
+  if (g5 && g5.x <= f5.x + 5) {
+    throw new Error(`G5 chord must be right of F5: g5=${g5.x} f5=${f5.x}`);
+  }
   console.log('OK 4637986c m17 po2 align', {
     e5: e5.x,
     f4Po2: f4Po2.x,
     f5: f5.x,
     f4Po4: f4Po4.x,
+    g5: g5?.x,
     po2Gap,
   });
 }

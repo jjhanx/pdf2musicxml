@@ -184,6 +184,8 @@ function layoutTargetKey(
 
 type NoteHit = {
   stavenote: SVGGraphicsElement;
+  /** 화음이면 구성 pitch 전부 — 첫 pitch만 남기면 [F4,Bb4]↔G화음 오매칭 */
+  pitches: string[];
   pitch: string;
   voice: string;
   centerX: number;
@@ -192,6 +194,58 @@ type NoteHit = {
   /** 화음 notehead 수 — [F4,Bb4](2) vs [F4,Bb4,D5,F5](4) 구분 */
   heads: number;
 };
+
+function hitHasPitch(hit: NoteHit, pitch: string): boolean {
+  return hit.pitch === pitch || hit.pitches.includes(pitch);
+}
+
+function collectMeasureNoteHits(osmd: OpenSheetMusicDisplay, gmRaw: unknown): NoteHit[] {
+  const gm = asRecord(gmRaw);
+  if (!gm) return [];
+  const hits: NoteHit[] = [];
+  const bySvg = new Map<SVGGraphicsElement, NoteHit>();
+
+  for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
+    const se = asRecord(seRaw);
+    if (!se) continue;
+    for (const gveRaw of (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[]) {
+      const gve = asRecord(gveRaw);
+      if (!gve) continue;
+      const timestamp = osmdTimestampFromGraphicVoiceEntry(gve);
+      for (const gnRaw of (gve.notes ?? gve.Notes ?? []) as unknown[]) {
+        const gn = asRecord(gnRaw);
+        if (!gn) continue;
+        const pitch = pitchFromGraphicNote(gn);
+        if (!pitch) continue;
+        const voice = voiceFromGraphicNote(gn) ?? '1';
+        const stavenote = graphicNoteStavenote(osmd, gn);
+        if (!stavenote) continue;
+        const existing = bySvg.get(stavenote);
+        if (existing) {
+          if (!existing.pitches.includes(pitch)) existing.pitches.push(pitch);
+          if (existing.heads < 1) {
+            existing.heads = stavenote.querySelectorAll('.vf-notehead').length;
+          }
+          continue;
+        }
+        const centerX = noteheadCenterXInSvgRoot(stavenote);
+        if (centerX == null || !Number.isFinite(centerX)) continue;
+        const hit: NoteHit = {
+          stavenote,
+          pitches: [pitch],
+          pitch,
+          voice,
+          centerX,
+          timestamp,
+          heads: stavenote.querySelectorAll('.vf-notehead').length,
+        };
+        bySvg.set(stavenote, hit);
+        hits.push(hit);
+      }
+    }
+  }
+  return hits;
+}
 
 function permutations<T>(items: readonly T[]): T[][] {
   if (items.length <= 1) return [items as T[]];
@@ -385,7 +439,7 @@ function measureSpanFromVoice1Hits(hits: readonly NoteHit[]): { originX: number;
 
 /**
  * 연주순번 layout-x 그리드 → SVG 절대 배치.
- * voice1이 잡은 마디 폭에 tenths를 매핑해 [F4,Bb4]도 E5 column으로 이동.
+ * 순번 column 단위로만 매칭·이동. 화음은 pitches[] 전부로 매칭.
  */
 function alignMeasureNotesByPlayOrderGrid(
   osmd: OpenSheetMusicDisplay,
@@ -398,87 +452,33 @@ function alignMeasureNotesByPlayOrderGrid(
   if (!partId || measureNumber == null) return;
 
   const staff = staffIndex + 1;
-  const gm = asRecord(gmRaw);
-  if (!gm) return;
-
-  const hits: NoteHit[] = [];
-  const seenStavenote = new Set<SVGGraphicsElement>();
-
-  for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
-    const se = asRecord(seRaw);
-    if (!se) continue;
-    for (const gveRaw of (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[]) {
-      const gve = asRecord(gveRaw);
-      if (!gve) continue;
-      for (const gnRaw of (gve.notes ?? gve.Notes ?? []) as unknown[]) {
-        const gn = asRecord(gnRaw);
-        if (!gn) continue;
-        const pitch = pitchFromGraphicNote(gn);
-        if (!pitch) continue;
-        const voice = voiceFromGraphicNote(gn) ?? '1';
-        const stavenote = graphicNoteStavenote(osmd, gn);
-        if (!stavenote || seenStavenote.has(stavenote)) continue;
-        seenStavenote.add(stavenote);
-        const centerX = noteheadCenterXInSvgRoot(stavenote);
-        if (centerX == null || !Number.isFinite(centerX)) continue;
-        hits.push({
-          stavenote,
-          pitch,
-          voice,
-          centerX,
-          timestamp: osmdTimestampFromGraphicVoiceEntry(gve),
-          heads: stavenote.querySelectorAll('.vf-notehead').length,
-        });
-      }
-    }
-  }
+  const hits = collectMeasureNoteHits(osmd, gmRaw);
   if (!hits.length) return;
 
-  const staffTargets = targets.filter((t) => {
+  const explicitTargets = targets.filter((t) => {
     if (t.measureNumber !== measureNumber) return false;
     if (!partIdsMatch(partId, t.partId)) return false;
     if (t.staff !== 1 && t.staff !== staff) return false;
-    return true;
+    return t.playOrder != null;
   });
-  if (!staffTargets.length) return;
-
-  // 연주순번이 있는 음만 그리드 배치(사용자 지정 column). 없으면 OSMD 유지.
-  const explicitTargets = staffTargets.filter((t) => t.playOrder != null);
   if (!explicitTargets.length) return;
-
-  const pitchQueues = new Map<string, LayoutTarget[]>();
-  for (const t of explicitTargets) {
-    const key = `${t.voice}|${t.pitch}`;
-    const list = pitchQueues.get(key) ?? [];
-    list.push({
-      defaultXTenths: t.defaultXTenths,
-      playOrder: t.playOrder,
-      pitch: t.pitch,
-      voice: t.voice,
-    });
-    pitchQueues.set(key, list);
-  }
-  for (const list of pitchQueues.values()) {
-    list.sort((a, b) => a.defaultXTenths - b.defaultXTenths);
-  }
 
   const measureSpan = measureSpanFromVoice1Hits(hits);
 
-  // voice1 hit × voice1 target 로 calibration (tenths 비율 → SVG px)
   const v1Hits = hits.filter((h) => h.voice === '1');
   const v1Targets = explicitTargets.filter((t) => t.voice === '1');
   const calInput: Array<{ centerX: number; defaultXTenths: number; voice: string }> = [];
   const usedV1 = new Set<SVGGraphicsElement>();
-  const byPitch = new Map<string, PreviewNoteLayoutTarget[]>();
+  const v1ByPitch = new Map<string, PreviewNoteLayoutTarget[]>();
   for (const t of v1Targets) {
-    const list = byPitch.get(t.pitch) ?? [];
+    const list = v1ByPitch.get(t.pitch) ?? [];
     list.push(t);
-    byPitch.set(t.pitch, list);
+    v1ByPitch.set(t.pitch, list);
   }
-  for (const [pitch, tlist] of byPitch) {
+  for (const [pitch, tlist] of v1ByPitch) {
     const sortedT = [...tlist].sort((a, b) => a.defaultXTenths - b.defaultXTenths);
     const candidates = v1Hits
-      .filter((h) => h.pitch === pitch && !usedV1.has(h.stavenote))
+      .filter((h) => hitHasPitch(h, pitch) && !usedV1.has(h.stavenote))
       .sort((a, b) => {
         const ta = a.timestamp;
         const tb = b.timestamp;
@@ -497,50 +497,49 @@ function alignMeasureNotesByPlayOrderGrid(
   }
   const cal = buildSafeMeasureCalibration(calInput);
 
-  const pairs: Array<{ hit: NoteHit; target: LayoutTarget }> = [];
-  const usedHits = new Set<SVGGraphicsElement>();
-  for (const [key, queue] of pitchQueues) {
-    const [voice, pitch] = key.split('|') as [string, string];
-    const expectedByPo = new Map<number, number>();
-    for (const t of queue) {
-      if (t.playOrder == null) continue;
-      const pitches = new Set(
-        explicitTargets.filter((x) => x.playOrder === t.playOrder && x.voice === voice).map((x) => x.pitch),
-      );
-      expectedByPo.set(t.playOrder, pitches.size);
-    }
-    const candidates = hits
-      .filter((h) => h.voice === voice && h.pitch === pitch && !usedHits.has(h.stavenote))
-      .sort((a, b) => {
-        const ta = a.timestamp;
-        const tb = b.timestamp;
-        if (ta != null && tb != null && Math.abs(ta - tb) > 1e-4) return ta - tb;
-        return a.centerX - b.centerX;
-      });
-    // column 왼→오: 각 target에 heads 맞는 hit 배정
-    for (const target of queue) {
-      const expectHeads = target.playOrder != null ? expectedByPo.get(target.playOrder) ?? 1 : 1;
-      let bestIdx = -1;
-      let bestScore = Infinity;
-      for (let i = 0; i < candidates.length; i += 1) {
-        const h = candidates[i]!;
-        if (usedHits.has(h.stavenote)) continue;
-        const headPenalty = expectHeads > 1 ? Math.abs(h.heads - expectHeads) * 1000 : 0;
-        const score = headPenalty + i;
-        if (score < bestScore) {
-          bestScore = score;
-          bestIdx = i;
-        }
-      }
-      if (bestIdx < 0) continue;
-      const hit = candidates[bestIdx]!;
-      usedHits.add(hit.stavenote);
-      pairs.push({ hit, target });
-    }
+  const byPo = new Map<number, PreviewNoteLayoutTarget[]>();
+  for (const t of explicitTargets) {
+    const po = t.playOrder!;
+    const list = byPo.get(po) ?? [];
+    list.push(t);
+    byPo.set(po, list);
   }
 
-  for (const { hit, target } of pairs) {
-    alignStavenoteToTarget(hit.stavenote, target.defaultXTenths, hit.centerX, cal, measureSpan);
+  const usedHits = new Set<SVGGraphicsElement>();
+  for (const po of [...byPo.keys()].sort((a, b) => a - b)) {
+    const group = byPo.get(po)!;
+    const layoutX = group[0]!.defaultXTenths;
+    const expectHeadsByVoice = new Map<string, number>();
+    for (const t of group) {
+      const set = new Set(group.filter((g) => g.voice === t.voice).map((g) => g.pitch));
+      expectHeadsByVoice.set(t.voice, set.size);
+    }
+    const needed = new Map<string, PreviewNoteLayoutTarget>();
+    for (const t of group) {
+      const key = `${t.voice}|${t.pitch}`;
+      if (!needed.has(key)) needed.set(key, t);
+    }
+    const movedSvg = new Set<SVGGraphicsElement>();
+    for (const [, t] of needed) {
+      const expectHeads = expectHeadsByVoice.get(t.voice) ?? 1;
+      const candidates = hits
+        .filter((h) => h.voice === t.voice && hitHasPitch(h, t.pitch) && !usedHits.has(h.stavenote))
+        .sort((a, b) => {
+          const da = expectHeads > 1 ? Math.abs(a.heads - expectHeads) : 0;
+          const db = expectHeads > 1 ? Math.abs(b.heads - expectHeads) : 0;
+          if (da !== db) return da - db;
+          const ta = a.timestamp;
+          const tb = b.timestamp;
+          if (ta != null && tb != null && Math.abs(ta - tb) > 1e-4) return ta - tb;
+          return a.centerX - b.centerX;
+        });
+      if (!candidates.length) continue;
+      const hit = candidates[0]!;
+      if (movedSvg.has(hit.stavenote)) continue;
+      usedHits.add(hit.stavenote);
+      movedSvg.add(hit.stavenote);
+      alignStavenoteToTarget(hit.stavenote, layoutX, hit.centerX, cal, measureSpan);
+    }
   }
 }
 
@@ -608,40 +607,7 @@ function alignExplicitPlayOrderColumnsRelative(
   if (!partId || measureNumber == null) return;
 
   const staff = staffIndex + 1;
-  const gm = asRecord(gmRaw);
-  if (!gm) return;
-
-  const hits: NoteHit[] = [];
-  const seenStavenote = new Set<SVGGraphicsElement>();
-
-  for (const seRaw of (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[]) {
-    const se = asRecord(seRaw);
-    if (!se) continue;
-    for (const gveRaw of (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[]) {
-      const gve = asRecord(gveRaw);
-      if (!gve) continue;
-      for (const gnRaw of (gve.notes ?? gve.Notes ?? []) as unknown[]) {
-        const gn = asRecord(gnRaw);
-        if (!gn) continue;
-        const pitch = pitchFromGraphicNote(gn);
-        if (!pitch) continue;
-        const voice = voiceFromGraphicNote(gn) ?? '1';
-        const stavenote = graphicNoteStavenote(osmd, gn);
-        if (!stavenote || seenStavenote.has(stavenote)) continue;
-        seenStavenote.add(stavenote);
-        const centerX = noteheadCenterXInSvgRoot(stavenote);
-        if (centerX == null || !Number.isFinite(centerX)) continue;
-        hits.push({
-          stavenote,
-          pitch,
-          voice,
-          centerX,
-          timestamp: osmdTimestampFromGraphicVoiceEntry(gve),
-          heads: stavenote.querySelectorAll('.vf-notehead').length,
-        });
-      }
-    }
-  }
+  const hits = collectMeasureNoteHits(osmd, gmRaw);
   if (!hits.length) return;
 
   const measureSpanPx = measureSpanFromHits(hits)?.spanPx ?? null;
@@ -701,7 +667,7 @@ function alignExplicitPlayOrderColumnsRelative(
       const voice = vp.split('|')[0]!;
       const expectedHeads = new Set(queue.filter((t) => t.voice === voice).map((t) => t.pitch)).size;
       const candidates = hits
-        .filter((h) => `${h.voice}|${h.pitch}` === vp && !usedAcrossColumns.has(h.stavenote))
+        .filter((h) => h.voice === vp.split('|')[0] && hitHasPitch(h, vp.split('|')[1]!) && !usedAcrossColumns.has(h.stavenote))
         .sort((a, b) => {
           // 1) 화음 머리 수 — po2 [F4,Bb4](2) vs po4 4화음 오매칭 방지
           if (expectedHeads > 1) {
@@ -863,11 +829,9 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
 
-  // 1) 연주순번 slot 그리드(layout-x) → SVG 절대 배치 (voice1 마디 비율)
-  // 2) 같은 순번끼리 상대 snap으로 잔여 오차 제거
+  // 설정된 연주순번 layout-x만 SVG로 배치. 상대 snap은 다른 순번 화음을 끌어오지 않음.
   forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
     alignMeasureNotesByPlayOrderGrid(osmd, gmRaw, staffIndex, targets);
-    alignExplicitPlayOrderColumnsRelative(osmd, gmRaw, staffIndex, targets);
   });
 
   alignLinkedParallelHintGroups(osmd, hints);

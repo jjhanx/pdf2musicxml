@@ -353,11 +353,14 @@ function wantXFromLayoutGrid(
   return targetXFromDefaultTenths(span.originX, span.spanPx, defaultXTenths);
 }
 
-/** 순번 column 최소 간격(px) — OSMD가 마디를 과압축해도 po2·po5가 겹쳐 보이지 않게. */
+/** 순번 column 최소 간격(px) — 같은 박이어도 화음끼리 겹치지 않게. */
 const MIN_PLAY_ORDER_COLUMN_PX = 36;
+/** 4분음(박) 하나에 해당하는 최소 가로 폭 — po4(4분)→po5 간격이 8분 간격의 ~2배가 되게. */
+const MIN_PX_PER_QUARTER = 52;
 
 /**
- * 모든 notehead span을 쓰되, 서로 다른 연주순번 수에 맞춰 최소 폭으로 **오른쪽** 확장.
+ * 모든 notehead span을 쓰되, 박자·순번 수에 맞춰 최소 폭으로 **오른쪽** 확장.
+ * layout tenths 32..432를 이 폭에 비례 배치하므로 4분(onset+2) 간격이 8분(+1)의 약 2배.
  * (왼쪽 origin은 po1 근처 유지 — 이전 마디로 날아가지 않음)
  */
 function playOrderPlacementSpan(
@@ -367,7 +370,10 @@ function playOrderPlacementSpan(
   const natural = measureSpanFromHits(hits);
   if (!natural) return null;
   const cols = Math.max(1, distinctPlayOrders);
-  const minSpan = Math.max(natural.spanPx, (cols - 1) * MIN_PLAY_ORDER_COLUMN_PX);
+  // 4/4 한 마디 ≈ 4박 — 박당 MIN_PX_PER_QUARTER 확보 시 4분 간격이 시각적으로 분리됨
+  const minByBeat = 4 * MIN_PX_PER_QUARTER;
+  const minByCols = (cols - 1) * MIN_PLAY_ORDER_COLUMN_PX;
+  const minSpan = Math.max(natural.spanPx, minByBeat, minByCols);
   if (minSpan <= natural.spanPx + 0.5) return natural;
   return { originX: natural.originX, spanPx: minSpan };
 }

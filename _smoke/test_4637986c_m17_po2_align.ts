@@ -216,6 +216,14 @@ async function main() {
   if (gChord.x - f4Po2.x < 40) {
     throw new Error(`G5(po5) must clear po2 column: g5=${gChord.x} po2=${f4Po2.x}`);
   }
+  // po4(4분)→po5 간격 ≥ po3(8분)→po4 간격의 ~1.6배 (박자 비례)
+  const gap34 = f4Po4.x - f5.x;
+  const gap45 = gChord.x - f4Po4.x;
+  if (gap45 < gap34 * 1.5 - 1) {
+    throw new Error(
+      `po5 must sit a quarter away from po4: gap45=${gap45.toFixed(1)} gap34=${gap34.toFixed(1)}`,
+    );
+  }
   console.log('OK 4637986c m17 po2 align', {
     e5: e5.x,
     f4Po2: f4Po2.x,
@@ -224,6 +232,8 @@ async function main() {
     g5: gChord.x,
     po2Gap,
     po25Gap: gChord.x - f4Po2.x,
+    gap34,
+    gap45,
   });
 }
 

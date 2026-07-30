@@ -1,14 +1,11 @@
 /**
- * Play-order slot grid: first-seen PO + min duration step (user algorithm).
+ * Play-order layout: same po shares column; positions follow musical onset.
  * Run: npx tsx _smoke/test_play_order_slot_grid.ts
  */
 import { JSDOM } from 'jsdom';
 import {
-  buildPlayOrderSlotOnsets,
-  defaultPlayOrdersFromTimeline,
-  effectivePlayOrder,
-  HITL_PLAY_ORDER_ATTR,
   applyPlayOrderLayoutToMeasure,
+  HITL_PLAY_ORDER_ATTR,
 } from '../shared/musicXmlPlayOrder';
 
 const dom = new JSDOM('<!DOCTYPE html><html></html>');
@@ -47,20 +44,11 @@ const leaders = [...measure.children].filter(
   (c) => c.localName === 'note' && !c.querySelector('chord'),
 ) as Element[];
 
-// #0 opening=1, #1 E5=2, #2 F5=3, #3 [F4,Bb4]=2, #4 tetra=4
 leaders[0]!.setAttribute(HITL_PLAY_ORDER_ATTR, '1');
 leaders[1]!.setAttribute(HITL_PLAY_ORDER_ATTR, '2');
 leaders[2]!.setAttribute(HITL_PLAY_ORDER_ATTR, '3');
 leaders[3]!.setAttribute(HITL_PLAY_ORDER_ATTR, '2');
 leaders[4]!.setAttribute(HITL_PLAY_ORDER_ATTR, '4');
-
-const defaults = defaultPlayOrdersFromTimeline(measure, 1);
-const slots = buildPlayOrderSlotOnsets(leaders, defaults);
-// po1 dur2 → 0; po2 min(1,2)=1 → onset 2; po3 dur1 → onset 3; po4 dur2 → onset 4
-if (slots.get(1) !== 0) throw new Error(`po1 onset ${slots.get(1)}`);
-if (slots.get(2) !== 2) throw new Error(`po2 onset ${slots.get(2)} want 2`);
-if (slots.get(3) !== 3) throw new Error(`po3 onset ${slots.get(3)} want 3`);
-if (slots.get(4) !== 4) throw new Error(`po4 onset ${slots.get(4)} want 4`);
 
 applyPlayOrderLayoutToMeasure(measure);
 const lx = (n: Element) => n.getAttribute('data-osmd-layout-x');
@@ -71,8 +59,7 @@ if (parseFloat(lx(leaders[3]!)!) >= parseFloat(lx(leaders[2]!)!)) {
   throw new Error(`po2 must be left of po3: ${lx(leaders[3]!)} vs ${lx(leaders[2]!)}`);
 }
 
-console.log('OK play-order slot grid', {
-  slots: Object.fromEntries(slots),
+console.log('OK play-order onset layout', {
   e5: lx(leaders[1]!),
   f4po2: lx(leaders[3]!),
   f5: lx(leaders[2]!),

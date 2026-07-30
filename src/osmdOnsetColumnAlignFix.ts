@@ -839,7 +839,7 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
 
-  // 설정된 연주순번 layout-x만 SVG로 배치. 상대 snap은 다른 순번 화음을 끌어오지 않음.
+  // 명시 연주순번 column만 SVG 보정(동시 column snap). 일반 박자 배치는 default-x로 OSMD에 전달.
   forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
     alignMeasureNotesByPlayOrderGrid(osmd, gmRaw, staffIndex, targets);
   });

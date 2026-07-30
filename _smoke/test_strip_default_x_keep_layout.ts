@@ -1,5 +1,5 @@
 /**
- * OSMD load XML must not carry note default-x (0폭·소실), but keep data-osmd-layout-x for SVG align.
+ * OSMD load: onset 비율 default-x 유지 + data-osmd-layout-x (Audiveris 잔여만 제거).
  * Run: npx tsx _smoke/test_strip_default_x_keep_layout.ts
  */
 import { JSDOM } from 'jsdom';
@@ -30,8 +30,8 @@ applyPlayOrderLayoutToMeasure(measure);
 const withLayout = new XMLSerializer().serializeToString(doc);
 const forOsmd = stripDefaultXyKeepLayoutAttrsForOsmdPreview(withLayout);
 
-if (/<note[^>]*\sdefault-x=/.test(forOsmd)) {
-  throw new Error('OSMD XML must not retain note default-x');
+if (!forOsmd.includes('default-x="32.00"') && !forOsmd.includes("default-x='32.00'")) {
+  throw new Error('OSMD XML must carry onset-proportional default-x');
 }
 if (!forOsmd.includes(OSMD_LAYOUT_X_ATTR)) {
   throw new Error('must keep data-osmd-layout-x for SVG align');
@@ -41,7 +41,7 @@ if (targets.length < 2) throw new Error(`expected layout targets got ${targets.l
 if (targets[0]!.defaultXTenths === targets[1]!.defaultXTenths) {
   throw new Error('po1 and po2 must differ in layout x');
 }
-console.log('OK strip default-x keep layout', {
+console.log('OK strip keeps proportional default-x', {
   n: targets.length,
   x0: targets[0]!.defaultXTenths,
   x1: targets[1]!.defaultXTenths,

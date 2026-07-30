@@ -195,37 +195,33 @@ function noteDurationValue(note: Element): number {
 }
 
 /**
- * 연주순번 → 마디 slot onset (사용자 알고리즘).
- *
- * 1) 마디 길이는 duration 단위 slot (4/4·div=2 → 8; 32분 해상도면 32)
- * 2) 문서 순 **첫 등장** 순서로 새 순번 column을 만들고,
- *    column step = 그 순번에 속한 모든 음 duration의 **min**
- *    (같은 순번 8분+4분이면 다음 새 순번은 8분만 전진)
- * 3) 같은 순번 음표는 모두 그 column slot에 배치
+ * 미리보기 layout onset — **musical onset ÷ 마디 길이** (앞 음표 박자만큼 누적한 위치).
+ * 명시 연주순번이 같으면 같은 column(그 그룹 onset 최솟값). 저장 MXL timeline 불변.
  */
-export function buildPlayOrderSlotOnsets(
-  leaders: Element[],
-  defaults: Map<Element, number>,
-): Map<number, number> {
-  const firstSeenOrder: number[] = [];
-  const poStep = new Map<number, number>();
-  for (const leader of leaders) {
-    const po = effectivePlayOrder(leader, defaults);
-    const dur = Math.max(1, noteDurationValue(leader));
-    if (!poStep.has(po)) {
-      firstSeenOrder.push(po);
-      poStep.set(po, dur);
-    } else {
-      poStep.set(po, Math.min(poStep.get(po)!, dur));
+export function applyPlayOrderLayoutToMeasure(measure: Element): void {
+  sanitizeConflictingPlayOrders(measure);
+  const layoutLen = Math.max(1, previewLayoutLengthUnits(measure));
+  const onsets = collectVoiceParallelNoteOnsets(measure);
+
+  const poColumnOnset = new Map<string, number>();
+  for (const leader of allLeadersInMeasure(measure)) {
+    const po = readPlayOrder(leader);
+    if (po == null) continue;
+    const key = `${noteStaffNumber(leader)}:${po}`;
+    const onset = onsets.get(leader) ?? 0;
+    const prev = poColumnOnset.get(key);
+    poColumnOnset.set(key, prev == null ? onset : Math.min(prev, onset));
+  }
+
+  for (const leader of allLeadersInMeasure(measure)) {
+    const musicalOnset = onsets.get(leader) ?? 0;
+    const po = readPlayOrder(leader);
+    let layoutOnset = musicalOnset;
+    if (po != null) {
+      layoutOnset = poColumnOnset.get(`${noteStaffNumber(leader)}:${po}`) ?? musicalOnset;
     }
+    setLayoutAttrsOnGroup(measure, leader, layoutOnset, layoutLen, po);
   }
-  const poOnset = new Map<number, number>();
-  let cursor = 0;
-  for (const po of firstSeenOrder) {
-    poOnset.set(po, cursor);
-    cursor += poStep.get(po) ?? 1;
-  }
-  return poOnset;
 }
 
 function noteLeadersOnStaff(measure: Element, staffN: number): Element[] {
@@ -247,38 +243,6 @@ function allLeadersInMeasure(measure: Element): Element[] {
     out.push(child);
   }
   return out;
-}
-
-/**
- * 마디 공통 연주순번 그리드 → data-osmd-layout-x / default-x.
- * OSMD는 default-x spacing을 무시하므로 SVG align이 이 layout-x로 화면 배치.
- * 저장 MXL voice·duration·빔 불변.
- */
-export function applyPlayOrderLayoutToMeasure(measure: Element): void {
-  sanitizeConflictingPlayOrders(measure);
-  const staves = new Set<number>();
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
-  }
-  const layoutLen = Math.max(1, previewLayoutLengthUnits(measure));
-  const defaults = buildMeasureDefaultPlayOrders(measure, staves);
-  const layout = new Map<Element, number>();
-
-  for (const staffN of staves) {
-    const leaders = noteLeadersOnStaff(measure, staffN);
-    if (!leaders.length) continue;
-    const poOnset = buildPlayOrderSlotOnsets(leaders, defaults);
-    for (const leader of leaders) {
-      const po = effectivePlayOrder(leader, defaults);
-      layout.set(leader, poOnset.get(po) ?? 0);
-    }
-  }
-
-  for (const leader of allLeadersInMeasure(measure)) {
-    const onset = layout.get(leader) ?? 0;
-    const po = readPlayOrder(leader);
-    setLayoutAttrsOnGroup(measure, leader, onset, layoutLen, po);
-  }
 }
 
 export type PreviewNoteLayoutTarget = {

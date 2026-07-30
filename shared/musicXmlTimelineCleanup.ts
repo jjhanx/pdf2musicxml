@@ -138,8 +138,13 @@ export function stripDefaultXyKeepLayoutAttrsForOsmdPreview(xml: string): string
         el.getAttribute(OSMD_LAYOUT_X_ATTR)?.trim() ||
         el.getAttribute('default-x')?.trim() ||
         '';
-      if (layout) el.setAttribute(OSMD_LAYOUT_X_ATTR, layout);
-      el.removeAttribute('default-x');
+      if (layout) {
+        el.setAttribute(OSMD_LAYOUT_X_ATTR, layout);
+        // onset 비율(32..432) — OSMD spacing. Audiveris 원본 default-x는 repair 단계에서 제거됨.
+        el.setAttribute('default-x', layout);
+      } else {
+        el.removeAttribute('default-x');
+      }
       el.removeAttribute('default-y');
     });
     doc.querySelectorAll('direction, *|direction').forEach((el) => {

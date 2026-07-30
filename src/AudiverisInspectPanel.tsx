@@ -32,6 +32,7 @@ import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } fr
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
+import { normalizeTiePlacementsForOsmdPreview } from '../shared/musicXmlTiePlacement';
 import {
   removeDanglingTimelineElementsForOsmdPreview,
   repairTimelineForOsmdPreview,
@@ -1637,6 +1638,7 @@ export function buildOsmdPreviewXml(
   }
   /** 셈여림 승격은 PR/PL·staff 분리 **후** — 분리 전이면 direction이 양쪽 줄에 복제되어 다음 마디 PR에 mf가 붙음 */
   xml = promoteNoteDynamicsForOsmdPreview(xml);
+  xml = normalizeTiePlacementsForOsmdPreview(xml);
   xml = repairTimelineForOsmdPreview(xml);
   xml = repairUnderfullMeasuresForOsmdPreview(xml);
   return xml;
@@ -1663,6 +1665,7 @@ function sanitizeMusicXmlForOsmd(
     out = repairMissingNoteTypesForOsmdPreview(out);
     out = repairTimelineForOsmdPreview(out);
     out = repairUnderfullMeasuresForOsmdPreview(out);
+    out = normalizeTiePlacementsForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
     if (printedMeasureMarkers?.size) {

@@ -4193,9 +4193,12 @@ def _note_has_tie(note: ET.Element, ns: str, tie_type: str) -> bool:
     return any(t.get("type") == tie_type for t in note.findall(qname(ns, "tie")))
 
 
-def _add_tie(note: ET.Element, ns: str, tie_type: str) -> None:
+def _add_tie(note: ET.Element, ns: str, tie_type: str, *, placement: str | None = None) -> None:
     if not _note_has_tie(note, ns, tie_type):
-        tie = ET.Element(qname(ns, "tie"), attrib={"type": tie_type})
+        attrib = {"type": tie_type}
+        if placement in ("above", "below"):
+            attrib["placement"] = placement
+        tie = ET.Element(qname(ns, "tie"), attrib=attrib)
         dur_idx = None
         for idx, child in enumerate(note):
             if local_tag(child) == "duration":
@@ -4204,8 +4207,92 @@ def _add_tie(note: ET.Element, ns: str, tie_type: str) -> None:
     notations = note.find(qname(ns, "notations"))
     if notations is None:
         notations = ET.SubElement(note, qname(ns, "notations"))
-    if not any(t.get("type") == tie_type for t in notations.findall(qname(ns, "tied"))):
-        ET.SubElement(notations, qname(ns, "tied"), attrib={"type": tie_type})
+    tied_el = None
+    for t in notations.findall(qname(ns, "tied")):
+        if t.get("type") == tie_type:
+            tied_el = t
+            break
+    if tied_el is None:
+        attrib = {"type": tie_type}
+        if placement in ("above", "below"):
+            attrib["placement"] = placement
+        ET.SubElement(notations, qname(ns, "tied"), attrib=attrib)
+    elif placement in ("above", "below"):
+        tied_el.set("placement", placement)
+
+
+def _pitch_diatonic_for_tie(note: ET.Element, ns: str) -> int | None:
+    pitch = note.find(qname(ns, "pitch"))
+    if pitch is None:
+        return None
+    step_el = pitch.find(qname(ns, "step"))
+    oct_el = pitch.find(qname(ns, "octave"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return None
+    step_map = {"C": 0, "D": 1, "E": 2, "F": 3, "G": 4, "A": 5, "B": 6}
+    step = step_el.text.strip()
+    if step not in step_map:
+        return None
+    try:
+        octave = int(oct_el.text.strip())
+    except ValueError:
+        return None
+    return octave * 7 + step_map[step]
+
+
+def _middle_line_diatonic_for_tie(clef_sign: str, clef_line: int = 2) -> int:
+    sign = (clef_sign or "G").strip().upper()
+    if sign == "F":
+        return 3 * 7 + 1
+    if sign == "C":
+        return 3 * 7 + 5 if clef_line == 4 else 4 * 7 + 0
+    return 4 * 7 + 6
+
+
+def _tie_placement_for_note_fix(note: ET.Element, ns: str, clef_sign: str, clef_line: int) -> str:
+    dia = _pitch_diatonic_for_tie(note, ns)
+    mid = _middle_line_diatonic_for_tie(clef_sign, clef_line)
+    if dia is not None and dia >= mid:
+        return "above"
+    stem = note.find(qname(ns, "stem"))
+    if stem is not None and (stem.text or "").strip().lower() == "down":
+        return "above"
+    return "below"
+
+
+def _normalize_tie_placements(part: ET.Element, ns: str) -> int:
+    """붙임줄: 오선 중선 이상·stem down → above (T/B 상단 F3·A3 등)."""
+    fixed = 0
+    clef_sign, clef_line = "G", 2
+    for measure in part.findall(qname(ns, "measure")):
+        for attrs in measure.findall(qname(ns, "attributes")):
+            for clef in attrs.findall(qname(ns, "clef")):
+                num = clef.get("number")
+                if num and num != "1":
+                    continue
+                sign_el = clef.find(qname(ns, "sign"))
+                line_el = clef.find(qname(ns, "line"))
+                if sign_el is not None and sign_el.text:
+                    clef_sign = sign_el.text.strip()
+                if line_el is not None and line_el.text and line_el.text.strip().isdigit():
+                    clef_line = int(line_el.text.strip())
+        for note in measure.findall(qname(ns, "note")):
+            notations = note.find(qname(ns, "notations"))
+            if notations is None:
+                continue
+            tieds = list(notations.findall(qname(ns, "tied")))
+            if not tieds:
+                continue
+            plc = _tie_placement_for_note_fix(note, ns, clef_sign, clef_line)
+            for tied in tieds:
+                if tied.get("placement") != plc:
+                    tied.set("placement", plc)
+                    fixed += 1
+            for tie in note.findall(qname(ns, "tie")):
+                if tie.get("placement") != plc:
+                    tie.set("placement", plc)
+                    fixed += 1
+    return fixed
 
 
 def _measure_starts_new_system(measure: ET.Element, ns: str) -> bool:
@@ -4902,6 +4989,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "repeated_chord_slurs_added": 0,
         "chord_slurs_completed": 0,
         "slur_placements_fixed": 0,
+        "tie_placements_fixed": 0,
         "piano_stems_fixed": 0,
         "spurious_natural_removed": 0,
         "line_header_key_removed": 0,
@@ -5113,6 +5201,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         stats["repeated_chord_slurs_added"] += _repair_repeated_chord_slurs(part, ns)
         stats["chord_slurs_completed"] += _complete_chord_member_slurs(part, ns)
         stats["slur_placements_fixed"] += _normalize_slur_placements(part, ns)
+        stats["tie_placements_fixed"] += _normalize_tie_placements(part, ns)
 
         for measure in part.findall(qname(ns, "measure")):
             stats["tuplet_brackets_adjusted"] += _fix_tuplet_brackets_in_measure(

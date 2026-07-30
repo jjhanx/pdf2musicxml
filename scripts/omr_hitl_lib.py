@@ -1186,9 +1186,97 @@ def _from_diatonic_index(idx: int) -> tuple[str, int]:
 
 def _note_staff_number(note: ET.Element, ns: str) -> int | None:
     staff_el = note.find(_q(ns, "staff"))
-    if staff_el is None or not staff_el.text or not staff_el.text.strip().isdigit():
+    if staff_el is None or staff_el.text is None or not staff_el.text.strip().isdigit():
         return None
     return int(staff_el.text.strip())
+
+
+_STEP_DIATONIC = {"C": 0, "D": 1, "E": 2, "F": 3, "G": 4, "A": 5, "B": 6}
+
+
+def _pitch_diatonic(note: ET.Element, ns: str) -> int | None:
+    pitch = note.find(_q(ns, "pitch"))
+    if pitch is None:
+        return None
+    step_el = pitch.find(_q(ns, "step"))
+    oct_el = pitch.find(_q(ns, "octave"))
+    if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+        return None
+    step = step_el.text.strip()
+    if step not in _STEP_DIATONIC:
+        return None
+    try:
+        octave = int(oct_el.text.strip())
+    except ValueError:
+        return None
+    return octave * 7 + _STEP_DIATONIC[step]
+
+
+def _middle_line_diatonic(clef_sign: str, clef_line: int = 2) -> int:
+    sign = (clef_sign or "G").strip().upper()
+    if sign == "F":
+        return 3 * 7 + 1  # D3
+    if sign == "C":
+        if clef_line == 4:
+            return 3 * 7 + 5  # A3 tenor
+        return 4 * 7 + 0  # C4 alto
+    return 4 * 7 + 6  # B4 treble
+
+
+def _clef_for_note_in_part(
+    part: ET.Element | None, measure: ET.Element | None, note: ET.Element, ns: str
+) -> tuple[str, int]:
+    """직전 attributes clef — staff number에 맞추고 없으면 G/2."""
+    staff_n = _note_staff_number(note, ns) or 1
+    clef_sign, clef_line = "G", 2
+    measures: list[ET.Element] = []
+    if part is not None:
+        for m in part.findall(_q(ns, "measure")):
+            measures.append(m)
+            if measure is not None and m is measure:
+                break
+    elif measure is not None:
+        measures = [measure]
+    for m in measures:
+        for attrs in m.findall(_q(ns, "attributes")):
+            for clef in attrs.findall(_q(ns, "clef")):
+                num = clef.get("number")
+                if num and num.isdigit() and int(num) != staff_n:
+                    continue
+                if num is None and staff_n != 1:
+                    continue
+                sign_el = clef.find(_q(ns, "sign"))
+                line_el = clef.find(_q(ns, "line"))
+                if sign_el is not None and sign_el.text:
+                    clef_sign = sign_el.text.strip()
+                if line_el is not None and line_el.text and line_el.text.strip().isdigit():
+                    clef_line = int(line_el.text.strip())
+    return clef_sign, clef_line
+
+
+def _tie_placement_for_note(
+    note: ET.Element,
+    ns: str,
+    *,
+    part: ET.Element | None = None,
+    measure: ET.Element | None = None,
+    clef_sign: str | None = None,
+    clef_line: int | None = None,
+) -> str:
+    """오선 중선 이상·줄기 down → above, 그 외 below (OSMD tied@placement)."""
+    if clef_sign is None or clef_line is None:
+        cs, cl = _clef_for_note_in_part(part, measure, note, ns)
+        clef_sign = clef_sign or cs
+        clef_line = clef_line if clef_line is not None else cl
+    dia = _pitch_diatonic(note, ns)
+    mid = _middle_line_diatonic(clef_sign, clef_line)
+    if dia is not None and dia >= mid:
+        return "above"
+    stem_el = note.find(_q(ns, "stem"))
+    stem = (stem_el.text or "").strip().lower() if stem_el is not None else ""
+    if stem == "down":
+        return "above"
+    return "below"
 
 
 def _infer_voice_stem_from_neighbors(
@@ -4126,9 +4214,27 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if not has_start:
             start = ET.SubElement(from_not, _q(ns, "tied"))
             start.set("type", "start")
+            plc = _tie_placement_for_note(from_note, ns, part=part, measure=from_measure)
+            if plc:
+                start.set("placement", plc)
+        else:
+            for tied in from_not.findall(_q(ns, "tied")):
+                if (tied.get("type") or "") == "start":
+                    plc = _tie_placement_for_note(from_note, ns, part=part, measure=from_measure)
+                    if plc:
+                        tied.set("placement", plc)
         if not has_stop:
             stop = ET.SubElement(to_not, _q(ns, "tied"))
             stop.set("type", "stop")
+            plc = _tie_placement_for_note(to_note, ns, part=to_part, measure=to_measure)
+            if plc:
+                stop.set("placement", plc)
+        else:
+            for tied in to_not.findall(_q(ns, "tied")):
+                if (tied.get("type") or "") == "stop":
+                    plc = _tie_placement_for_note(to_note, ns, part=to_part, measure=to_measure)
+                    if plc:
+                        tied.set("placement", plc)
         return True
 
     if kind == "removeSlur":

@@ -368,6 +368,51 @@ function forceStaffTagOnDirectionToOne(dir: Element): void {
   staffEl.textContent = '1';
 }
 
+/**
+ * OSMD는 ritard./accel. 등을 ContinuousTempo로 보고 **시스템 최상단 줄에만** 그림.
+ * PL·PR 등 하위 줄 텍스트가 안 보이거나 S로 붙는 것을 막기 위해 ZWSP로 키워드 매칭을 깨뜨림(미리보기 전용).
+ */
+function defeatOsmdTempoKeywordMatchingOnDirectionWords(dir: Element): void {
+  const words = dir.querySelectorAll(
+    ':scope > direction-type > words, :scope > *|direction-type > *|words',
+  );
+  words.forEach((w) => {
+    if (!w.textContent) return;
+    w.textContent = w.textContent.replace(/([a-zA-Z]+)/g, (m) => m[0] + '\u200B' + m.slice(1));
+  });
+}
+
+/**
+ * PR/PL·staff 분리 후 direction 유지.
+ * **음표 staff를 1로 바꾸기 전에** 호출해야 함 — 바꾸면 staffN=2 대조가 실패해 PL words(ritard. 등)가 삭제됨.
+ */
+function reattachDirectionsForSingleStaffOsmdPreview(measure: Element, staffN: number): void {
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'direction') continue;
+    if (isNavigationDirectionElement(child)) {
+      // 진행 제어는 마디 처음/끝 위치 유지 — 음표에 끌어붙이거나 삭제하지 않음
+      const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
+      const dStaff = staffEl?.textContent?.trim() ? parseInt(staffEl.textContent.trim(), 10) : staffN;
+      if (dStaff !== staffN) {
+        child.remove();
+        continue;
+      }
+      continue;
+    }
+    const anchor = anchorNoteForDirection(measure, child);
+    if (!anchor || noteStaffN(anchor) !== staffN) {
+      child.remove();
+      continue;
+    }
+    ensureDirectionBeforeAnchor(measure, child, anchor);
+  }
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'direction') continue;
+    defeatOsmdTempoKeywordMatchingOnDirectionWords(child);
+    forceStaffTagOnDirectionToOne(child);
+  }
+}
+
 function findXmlParts(doc: Document): Element[] {
   const out: Element[] = [];
   const root = doc.documentElement;
@@ -582,9 +627,6 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
       child.remove();
     }
   }
-  measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
-    el.textContent = '1';
-  });
   pruneCrossStaffTimeline(measure, staffN);
   /** verbatim HITL도 OSMD split part는 voice 타임라인 평탄화 — PL 박자 부족·음수 폭 skip 방지 */
   flattenNonOverlappingStaffVoicesForOsmd(measure);
@@ -592,27 +634,11 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) !== 'direction') continue;
-    if (isNavigationDirectionElement(child)) {
-      // 진행 제어는 마디 처음/끝 위치 유지 — 음표에 끌어붙이거나 삭제하지 않음
-      const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
-      const dStaff = staffEl?.textContent?.trim() ? parseInt(staffEl.textContent.trim(), 10) : staffN;
-      if (dStaff !== staffN) {
-        child.remove();
-        continue;
-      }
-      forceStaffTagOnDirectionToOne(child);
-      continue;
-    }
-    const anchor = anchorNoteForDirection(measure, child);
-    if (!anchor || noteStaffN(anchor) !== staffN) {
-      child.remove();
-      continue;
-    }
-    ensureDirectionBeforeAnchor(measure, child, anchor);
-    forceStaffTagOnDirectionToOne(child);
-  }
+  /** staff→1 변환 전에 direction 재부착 — 순서 바뀌면 PL ritard. 등이 삭제됨 */
+  reattachDirectionsForSingleStaffOsmdPreview(measure, staffN);
+  measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
+    el.textContent = '1';
+  });
 }
 
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
@@ -630,41 +656,10 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
   normalizeMultiVoiceLayersForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) !== 'direction') continue;
-    if (isNavigationDirectionElement(child)) {
-      const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
-      const dStaff = staffEl?.textContent?.trim() ? parseInt(staffEl.textContent.trim(), 10) : staffN;
-      if (dStaff !== staffN) {
-        child.remove();
-        continue;
-      }
-      continue;
-    }
-    const anchor = anchorNoteForDirection(measure, child);
-    if (!anchor || noteStaffN(anchor) !== staffN) {
-      child.remove();
-      continue;
-    }
-    ensureDirectionBeforeAnchor(measure, child, anchor);
-  }
+  reattachDirectionsForSingleStaffOsmdPreview(measure, staffN);
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
   });
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) === 'direction') {
-      const words = child.querySelectorAll(':scope > direction-type > words, :scope > *|direction-type > *|words');
-      words.forEach(w => {
-        if (w.textContent) {
-          // Prevent OSMD from parsing this text as a system-level tempo mark (which forces it to the top staff)
-          // by injecting a zero-width space after the first letter of every word.
-          // This defeats OSMD's substring matching for any tempo keyword (e.g. 'poco', 'piu', 'mosso').
-          w.textContent = w.textContent.replace(/([a-zA-Z]+)/g, (m) => m[0] + '\u200B' + m.slice(1));
-        }
-      });
-      forceStaffTagOnDirectionToOne(child);
-    }
-  }
 }
 
 function transformPartToSingleStaff(part: Element, staffN: number, verbatim = false): void {
@@ -790,14 +785,17 @@ function firstNoteOnStaff(measure: Element, staffN: number): Element | null {
   return null;
 }
 
+/** flatten 후 note voice가 1로 바뀌면 direction voice도 맞춤(기존 voice 덮어씀). */
 function attachVoiceFromNote(dir: Element, note: Element): void {
-  if (dir.querySelector(':scope > voice, :scope > *|voice')) return;
-  const voiceEl = note.querySelector(':scope > voice, :scope > *|voice');
-  const voiceText = voiceEl?.textContent?.trim();
+  const noteVoice = note.querySelector(':scope > voice, :scope > *|voice');
+  const voiceText = noteVoice?.textContent?.trim();
   if (!voiceText) return;
-  const v = dir.ownerDocument!.createElementNS(dir.namespaceURI, voiceEl!.tagName);
-  v.textContent = voiceText;
-  dir.appendChild(v);
+  let dirVoice = dir.querySelector(':scope > voice, :scope > *|voice');
+  if (!dirVoice) {
+    dirVoice = dir.ownerDocument!.createElementNS(dir.namespaceURI, noteVoice!.tagName);
+    dir.appendChild(dirVoice);
+  }
+  dirVoice.textContent = voiceText;
 }
 
 function directionVoiceText(direction: Element): string | null {

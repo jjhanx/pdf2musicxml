@@ -1,0 +1,23 @@
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>S</part-name></score-part>
+    <score-part id="P5"><part-name>P</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="62">
+      <attributes><divisions>2</divisions><clef><sign>G</sign><line>2</line></clef></attributes>
+      <direction placement="above"><direction-type><words>ritard.</words></direction-type><voice>1</voice></direction><note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type><voice>1</voice></note>
+    </measure>
+  </part>
+  <part id="P5">
+    <measure number="62">
+      <attributes><divisions>2</divisions><staves>2</staves>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+        <clef number="2"><sign>F</sign><line>4</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type><staff>1</staff><voice>1</voice></note>
+      <backup><duration>2</duration></backup>
+      <direction placement="above"><direction-type><words>ritard.</words></direction-type><staff>2</staff><voice>5</voice></direction><note><pitch><step>C</step><octave>3</octave></pitch><duration>2</duration><type>quarter</type><staff>2</staff><voice>5</voice></note>
+    </measure>
+  </part>
+</score-partwise>

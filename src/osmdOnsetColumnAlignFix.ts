@@ -269,52 +269,92 @@ function targetXFromDefaultTenths(originX: number, spanPx: number, defaultXTenth
 }
 
 /**
- * 오선(stave) bbox → SVG root X span.
- * 음표 natural centerX로 span을 잡으면 voice2가 이미 오른쪽으로 밀린 상태라
- * layout tenths→px 매핑이 그 잘못된 위치에 고정된다(회귀 원인).
+ * 마디 안 notehead들의 SVG X 범위 — 오선(시스템) 전체가 아님.
+ * layout tenths(마디 상대)를 시스템 폭에 매핑하면 음표가 마디 밖으로 날아가 소실됨.
  */
-function staveSpanInSvgRoot(stavenote: SVGGraphicsElement): { originX: number; spanPx: number } | null {
-  const stave = stavenote.closest('.vf-stave') as SVGGraphicsElement | null;
-  const tryBBox = (el: SVGGraphicsElement | null): { originX: number; spanPx: number } | null => {
-    if (!el?.getBBox) return null;
-    try {
-      const bb = el.getBBox();
-      if (!(bb.width > 0)) return null;
-      const ctm = el.getCTM?.();
-      if (ctm) return { originX: ctm.e + ctm.a * bb.x, spanPx: Math.abs(ctm.a) * bb.width };
-      let tx = 0;
-      let cur: Element | null = el;
-      while (cur) {
-        const tr = cur.getAttribute?.('transform') ?? '';
-        const tm = /translate\(\s*([-\d.]+)/.exec(tr);
-        if (tm) tx += parseFloat(tm[1]!);
-        cur = cur.parentElement;
-      }
-      return { originX: tx + bb.x, spanPx: bb.width };
-    } catch {
-      return null;
-    }
-  };
-  const fromStave = tryBBox(stave);
-  if (fromStave) return fromStave;
-  const svg = stavenote.ownerSVGElement as SVGGraphicsElement | null;
-  return tryBBox(svg);
+function measureSpanFromHits(hits: readonly { centerX: number }[]): { originX: number; spanPx: number } | null {
+  if (hits.length < 2) return null;
+  const xs = hits.map((h) => h.centerX).filter((x) => Number.isFinite(x));
+  if (xs.length < 2) return null;
+  const min = Math.min(...xs);
+  const max = Math.max(...xs);
+  if (max - min < 8) return null;
+  const pad = (max - min) * 0.08;
+  return { originX: min - pad, spanPx: max - min + pad * 2 };
 }
 
 /**
- * 각 notehead를 data-osmd-layout-x(default-x tenths) column으로 이동.
- * OSMD natural 위치와 무관한 **오선 절대 비율**만 사용 — natural calibration 금지.
+ * 같은 layout tenths에 여러 natural x가 있을 때(E5·F4 po2) 왼쪽에 가까운 쪽을 앵커로.
+ * 오른쪽 voice2가 minCenterX를 덮어쓰던 calibration 회귀 방지.
  */
+function buildSafeMeasureCalibration(
+  pairs: Array<{ centerX: number; defaultXTenths: number; voice: string }>,
+): { originX: number; spanPx: number; tenthsMin: number; tenthsMax: number } | null {
+  if (pairs.length < 2) return null;
+
+  // voice1 우선 앵커 — OSMD가 보통 올바르게 배치
+  const v1 = pairs.filter((p) => p.voice === '1');
+  const anchorPool = v1.length >= 2 ? v1 : pairs;
+
+  const byTenths = new Map<number, number[]>();
+  for (const p of anchorPool) {
+    const t = Math.round(p.defaultXTenths * 100) / 100;
+    const list = byTenths.get(t) ?? [];
+    list.push(p.centerX);
+    byTenths.set(t, list);
+  }
+  if (byTenths.size < 2) {
+    // tenths가 하나뿐이면 마디 natural span만 (비율 매핑 불가)
+    return null;
+  }
+
+  const anchors: Array<{ tenths: number; x: number }> = [];
+  for (const [tenths, xs] of byTenths) {
+    anchors.push({ tenths, x: Math.min(...xs) }); // 같은 column은 왼쪽 우선
+  }
+  anchors.sort((a, b) => a.tenths - b.tenths);
+  const first = anchors[0]!;
+  const last = anchors[anchors.length - 1]!;
+  if (last.tenths <= first.tenths || last.x <= first.x) return null;
+
+  return {
+    originX: first.x,
+    spanPx: last.x - first.x,
+    tenthsMin: first.tenths,
+    tenthsMax: last.tenths,
+  };
+}
+
+function wantXFromSafeCalibration(
+  cal: { originX: number; spanPx: number; tenthsMin: number; tenthsMax: number },
+  defaultXTenths: number,
+): number {
+  const frac = (defaultXTenths - cal.tenthsMin) / (cal.tenthsMax - cal.tenthsMin);
+  return cal.originX + frac * cal.spanPx;
+}
+
+/** 명시 연주순번만 절대 이동 — 이동량은 마디 폭·120px로 제한(소실 방지). */
 function alignStavenoteToTarget(
   stavenote: SVGGraphicsElement,
   defaultXTenths: number,
   centerX: number,
+  cal: { originX: number; spanPx: number; tenthsMin: number; tenthsMax: number } | null,
+  measureSpan: { originX: number; spanPx: number } | null,
 ): void {
-  const span = staveSpanInSvgRoot(stavenote);
-  if (!span || span.spanPx <= 0) return;
-  const wantX = targetXFromDefaultTenths(span.originX, span.spanPx, defaultXTenths);
-  const maxShift = Math.max(MAX_ONSET_ALIGN_SHIFT_PX, span.spanPx);
-  applySvgTranslateX(stavenote, wantX - centerX, maxShift);
+  let wantX: number;
+  if (cal) {
+    wantX = wantXFromSafeCalibration(cal, defaultXTenths);
+  } else if (measureSpan) {
+    wantX = targetXFromDefaultTenths(measureSpan.originX, measureSpan.spanPx, defaultXTenths);
+  } else {
+    return;
+  }
+  const dx = wantX - centerX;
+  const cap = Math.min(
+    Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan?.spanPx ?? MAX_ONSET_ALIGN_SHIFT_PX),
+    160,
+  );
+  applySvgTranslateX(stavenote, dx, cap);
 }
 
 type LayoutTarget = { defaultXTenths: number; playOrder: number | null };
@@ -332,8 +372,8 @@ function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
 }
 
 /**
- * voice·pitch queue로 각 음표를 자기 default-x에 맞춤.
- * 서로 다른 연주순번을 한 column으로 강제 snap하지 않음(이전 회귀).
+ * 명시 연주순번이 있는 음표만 layout-x column으로 이동.
+ * 전체 음표·오선 절대 매핑은 마디 밖 이동→notehead 소실을 일으켜 쓰지 않음.
  */
 function alignMeasureNotesByLayoutGrid(
   osmd: OpenSheetMusicDisplay,
@@ -381,14 +421,7 @@ function alignMeasureNotesByLayoutGrid(
   }
   if (!hits.length) return;
 
-  /**
-   * PR/PL flatten 후 XML staff는 항상 1.
-   * forEachGraphicalMeasure의 staffIndex는 **시스템 안 줄 순번**(전체 악보면 0..N)이라
-   * staffIndex+1 을 MusicXML staff로 쓰면 타깃 키와 불일치 → align 전체 스킵.
-   * partId(+PR/PL)로 이미 줄이 갈리므로 layout 타깃 staff는 1을 우선하고, 없으면 staffIndex+1.
-   */
   const staffCandidates = [1, staff];
-
   const hitsByKey = new Map<string, NoteHit[]>();
   for (const hit of hits) {
     let matchedKey: string | null = null;
@@ -398,10 +431,8 @@ function alignMeasureNotesByLayoutGrid(
         matchedKey = key;
         break;
       }
-      // P5 vs P5__PR: try base part id keys already in pitchQueues via partIdsMatch below
     }
     if (!matchedKey) {
-      // partId may be P5 while targets use P5__PR or vice versa — resolve by scanning queues
       for (const [key, list] of pitchQueues) {
         if (!list.length) continue;
         const [pid, mn, , voice, pitch] = key.split('|');
@@ -426,8 +457,21 @@ function alignMeasureNotesByLayoutGrid(
     pairs.push(...pairHitsWithLayoutTargetsByBestMatch(keyHits, targets));
   }
 
-  for (const { hit, target } of pairs) {
-    alignStavenoteToTarget(hit.stavenote, target.defaultXTenths, hit.centerX);
+  // 명시 연주순번만 — 나머지 음표는 OSMD 위치 유지(소실·전역 왜곡 방지)
+  const explicitPairs = pairs.filter((p) => p.target.playOrder != null);
+  if (!explicitPairs.length) return;
+
+  const cal = buildSafeMeasureCalibration(
+    explicitPairs.map((p) => ({
+      centerX: p.hit.centerX,
+      defaultXTenths: p.target.defaultXTenths,
+      voice: p.hit.voice,
+    })),
+  );
+  const measureSpan = measureSpanFromHits(hits);
+
+  for (const { hit, target } of explicitPairs) {
+    alignStavenoteToTarget(hit.stavenote, target.defaultXTenths, hit.centerX, cal, measureSpan);
   }
 }
 
@@ -467,12 +511,11 @@ function alignPlayOrderGroupForce(items: StaveGraphic[]): void {
   const unique = [...bySvg.values()];
   if (unique.length < 2) return;
   const anchorX = Math.min(...unique.map((u) => u.centerX));
-  const maxShift = Math.max(
-    MAX_ONSET_ALIGN_SHIFT_PX,
-    ...unique.map((u) => Math.abs(anchorX - u.centerX)),
-  );
+  // 같은 column 상대 snap — 160px 초과면 스킵(과대 이동·소실 방지)
+  const maxNeeded = Math.max(...unique.map((u) => Math.abs(anchorX - u.centerX)));
+  if (maxNeeded > 160) return;
   for (const u of unique) {
-    applySvgTranslateX(u.svg, anchorX - u.centerX, maxShift);
+    applySvgTranslateX(u.svg, anchorX - u.centerX, 160);
   }
 }
 

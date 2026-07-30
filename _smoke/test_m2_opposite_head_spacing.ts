@@ -1,5 +1,5 @@
 /**
- * m2 opposite-notehead chord: stem-based column so gaps to neighbors are balanced.
+ * m2 opposite-notehead chord: head-center by default; stem only when heads split L/R.
  * Run: npx tsx _smoke/test_m2_opposite_head_spacing.ts
  */
 import fs from 'node:fs';
@@ -66,18 +66,6 @@ function svgUserX(el: Element, localX: number): number {
   return tx + localX;
 }
 function columnX(sn: SVGGraphicsElement): number | null {
-  const stemRoot = sn.querySelector('.vf-stem');
-  if (stemRoot) {
-    for (const path of stemRoot.querySelectorAll('path')) {
-      const d = path.getAttribute('d');
-      const m = d && /^M\s*([-\d.]+)/.exec(d.trim());
-      if (m) return svgUserX(path, parseFloat(m[1]!));
-    }
-    for (const line of stemRoot.querySelectorAll('line')) {
-      const x1 = parseFloat(line.getAttribute('x1') ?? '');
-      if (Number.isFinite(x1)) return svgUserX(line, x1);
-    }
-  }
   const xs: number[] = [];
   for (const path of sn.querySelectorAll('.vf-notehead path')) {
     const d = path.getAttribute('d');
@@ -85,7 +73,39 @@ function columnX(sn: SVGGraphicsElement): number | null {
     if (m) xs.push(svgUserX(path, parseFloat(m[1]!)));
   }
   if (!xs.length) return null;
-  return xs.reduce((a, b) => a + b, 0) / xs.length;
+  if (xs.length === 1) return xs[0]!;
+  const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  if (maxX - minX < 8) return avg;
+
+  let stem: number | null = null;
+  const stemRoot = sn.querySelector('.vf-stem');
+  if (stemRoot) {
+    for (const path of stemRoot.querySelectorAll('path')) {
+      const d = path.getAttribute('d');
+      const m = d && /^M\s*([-\d.]+)/.exec(d.trim());
+      if (m) {
+        stem = svgUserX(path, parseFloat(m[1]!));
+        break;
+      }
+    }
+    if (stem == null) {
+      for (const line of stemRoot.querySelectorAll('line')) {
+        const x1 = parseFloat(line.getAttribute('x1') ?? '');
+        if (Number.isFinite(x1)) {
+          stem = svgUserX(line, x1);
+          break;
+        }
+      }
+    }
+  }
+  if (stem != null && stem >= minX - 2 && stem <= maxX + 2) {
+    const left = xs.some((x) => x < stem! - 3);
+    const right = xs.some((x) => x > stem! + 3);
+    if (left || right) return stem;
+  }
+  return avg;
 }
 
 function buildPr(raw: string): string {

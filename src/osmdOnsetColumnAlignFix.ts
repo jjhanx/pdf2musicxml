@@ -153,28 +153,38 @@ function stemXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
 
 /**
  * 연주순번 column 앵커 X.
- * 음정 차이로 머리가 줄기 좌·우에 달린 화음은 notehead 평균이 한쪽으로 치우쳐
- * 앞·뒤 4분 간격이 달라 보이므로 **줄기**를 우선한다(판각 관례).
- * 줄기 없으면 주열(머리 다수 쪽) 중앙, 단일이면 그 머리.
+ * 기본: notehead 중심(평균) — 일반 악보와 동일.
+ * 예외: 머리가 줄기 **좌·우**로 갈라진 경우(2도 등)만 줄기 x
+ *        (양쪽 머리 가운데)를 써서 앞·뒤 박자 간격이 한쪽으로 치우치지 않게 함.
  */
 function noteheadCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
-  const stem = stemXInSvgRoot(stavenote);
-  if (stem != null && Number.isFinite(stem)) return stem;
-
   const xs = noteheadXsInSvgRoot(stavenote);
   if (xs.length === 1) return xs[0]!;
   if (xs.length > 1) {
-    const sorted = [...xs].sort((a, b) => a - b);
-    const spread = sorted[sorted.length - 1]! - sorted[0]!;
-    if (spread < 5) {
-      return xs.reduce((a, b) => a + b, 0) / xs.length;
+    const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const spread = maxX - minX;
+    // 반대편 머리: 가로로 충분히 갈라지고, 그 사이에 줄기가 있음
+    const OPPOSITE_SPREAD_PX = 8;
+    const STEM_SIDE_MARGIN = 3;
+    if (spread >= OPPOSITE_SPREAD_PX) {
+      const stem = stemXInSvgRoot(stavenote);
+      if (
+        stem != null &&
+        Number.isFinite(stem) &&
+        stem >= minX - 2 &&
+        stem <= maxX + 2
+      ) {
+        const leftOfStem = xs.some((x) => x < stem - STEM_SIDE_MARGIN);
+        const rightOfStem = xs.some((x) => x > stem + STEM_SIDE_MARGIN);
+        // 한쪽은 줄기에서 떨어지고, 다른 쪽은 줄기 쪽이거나 반대편
+        if (leftOfStem && rightOfStem) return stem;
+        // 한쪽만 명확히 반대편(다른 쪽은 줄기에 거의 붙음) — 예: xs=231.8,243.1 stem=243.8
+        if (leftOfStem || rightOfStem) return stem;
+      }
     }
-    // 반대편 머리: 더 많은 쪽이 주열(줄기 쪽)
-    const mid = (sorted[0]! + sorted[sorted.length - 1]!) / 2;
-    const left = xs.filter((x) => x < mid);
-    const right = xs.filter((x) => x >= mid);
-    const primary = left.length >= right.length ? left : right;
-    return primary.reduce((a, b) => a + b, 0) / primary.length;
+    return avg;
   }
 
   const bb = stavenote.getBBox?.();

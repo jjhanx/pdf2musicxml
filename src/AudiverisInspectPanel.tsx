@@ -69,6 +69,13 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
   rules.UseXMLMeasureNumbers = false;
+  // 다성부 동시음 가로 어긋남·과밀 완화 (연주순번 column 미리보기)
+  const r = rules as OpenSheetMusicDisplay['EngravingRules'] & {
+    DisplacedNoteMargin?: number;
+    VoiceSpacingAddendVexflow?: number;
+  };
+  if (typeof r.DisplacedNoteMargin === 'number') r.DisplacedNoteMargin = 0.05;
+  if (typeof r.VoiceSpacingAddendVexflow === 'number') r.VoiceSpacingAddendVexflow = 2.0;
 }
 
 /** OSMD·레이아웃 예외가 나도 모달 전체가 검은 빈 화면으로 보이지 않게 함 */

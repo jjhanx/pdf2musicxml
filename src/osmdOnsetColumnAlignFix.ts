@@ -502,7 +502,10 @@ function graphicNoteStavenote(
 
 type StaveGraphic = { svg: SVGGraphicsElement; centerX: number };
 
-function alignPlayOrderGroupForce(items: StaveGraphic[]): void {
+function alignPlayOrderGroupForce(
+  items: StaveGraphic[],
+  measureSpanPx: number | null = null,
+): void {
   const bySvg = new Map<SVGGraphicsElement, StaveGraphic>();
   for (const item of items) {
     const prev = bySvg.get(item.svg);
@@ -511,11 +514,13 @@ function alignPlayOrderGroupForce(items: StaveGraphic[]): void {
   const unique = [...bySvg.values()];
   if (unique.length < 2) return;
   const anchorX = Math.min(...unique.map((u) => u.centerX));
-  // 같은 column 상대 snap — 160px 초과면 스킵(과대 이동·소실 방지)
   const maxNeeded = Math.max(...unique.map((u) => Math.abs(anchorX - u.centerX)));
-  if (maxNeeded > 160) return;
+  if (maxNeeded < 0.5) return;
+  // 160 하드캡은 voice2가 멀리 있을 때 정렬 포기 → 마디 폭(최대 480)까지 허용
+  const cap = Math.min(480, Math.max(MAX_ONSET_ALIGN_SHIFT_PX, (measureSpanPx ?? 240) * 1.15));
+  if (maxNeeded > cap) return;
   for (const u of unique) {
-    applySvgTranslateX(u.svg, anchorX - u.centerX, 160);
+    applySvgTranslateX(u.svg, anchorX - u.centerX, cap);
   }
 }
 
@@ -569,21 +574,29 @@ function alignExplicitPlayOrderColumnsRelative(
   }
   if (!hits.length) return;
 
+  const measureSpanPx = measureSpanFromHits(hits)?.spanPx ?? null;
+
   const columnQueues = new Map<string, PreviewNoteLayoutTarget[]>();
   for (const t of targets) {
     if (t.measureNumber !== measureNumber) continue;
     if (!partIdsMatch(partId, t.partId)) continue;
-    // XML staff after PR/PL flatten is 1; staffIndex is OSMD row index (전체 악보에서 ≠ staff)
     if (t.staff !== 1 && t.staff !== staff) continue;
     if (t.playOrder == null) continue;
-    const colKey = `${t.playOrder}|${t.defaultXTenths.toFixed(2)}`;
+    const colKey = `${t.playOrder}|${t.defaultXTenths.toFixed(1)}`;
     const list = columnQueues.get(colKey) ?? [];
     list.push(t);
     columnQueues.set(colKey, list);
   }
 
-  for (const queue of columnQueues.values()) {
+  // column을 왼→오른쪽(default-x) 순으로 처리 — 중복 F4는 “남은 것 중 가장 왼쪽”을 먼저 씀
+  const sortedColumns = [...columnQueues.values()].sort(
+    (a, b) => (a[0]?.defaultXTenths ?? 0) - (b[0]?.defaultXTenths ?? 0),
+  );
+  const usedAcrossColumns = new Set<SVGGraphicsElement>();
+
+  for (const queue of sortedColumns) {
     if (queue.length < 2) continue;
+
     const byVoicePitch = new Map<string, PreviewNoteLayoutTarget[]>();
     for (const t of queue) {
       const vp = `${t.voice}|${t.pitch}`;
@@ -591,24 +604,32 @@ function alignExplicitPlayOrderColumnsRelative(
       list.push(t);
       byVoicePitch.set(vp, list);
     }
+
     const cluster: StaveGraphic[] = [];
-    const usedSvg = new Set<SVGGraphicsElement>();
-    for (const [vp, tlist] of byVoicePitch) {
-      const candidates = hits.filter(
-        (h) => `${h.voice}|${h.pitch}` === vp && !usedSvg.has(h.stavenote),
-      );
+    const vpEntries = [...byVoicePitch.entries()].sort((a, b) => {
+      const va = parseInt(a[0]!.split('|')[0]!, 10) || 99;
+      const vb = parseInt(b[0]!.split('|')[0]!, 10) || 99;
+      return va - vb;
+    });
+
+    let anchorX: number | null = null;
+    for (const [vp] of vpEntries) {
+      const candidates = hits
+        .filter((h) => `${h.voice}|${h.pitch}` === vp && !usedAcrossColumns.has(h.stavenote))
+        .sort((a, b) => {
+          // musical time 우선 — natural x가 뒤집혀도 po2가 po4보다 먼저 소비됨
+          const ta = a.timestamp;
+          const tb = b.timestamp;
+          if (ta != null && tb != null && Math.abs(ta - tb) > 1e-4) return ta - tb;
+          return a.centerX - b.centerX;
+        });
       if (!candidates.length) continue;
-      const vpPairs = pairHitsWithLayoutTargetsByBestMatch(
-        candidates,
-        tlist.map((t) => ({ defaultXTenths: t.defaultXTenths, playOrder: t.playOrder })),
-      );
-      for (const { hit } of vpPairs) {
-        if (usedSvg.has(hit.stavenote)) continue;
-        usedSvg.add(hit.stavenote);
-        cluster.push({ svg: hit.stavenote, centerX: hit.centerX });
-      }
+      const chosen = candidates[0]!;
+      usedAcrossColumns.add(chosen.stavenote);
+      cluster.push({ svg: chosen.stavenote, centerX: chosen.centerX });
+      if (anchorX == null) anchorX = chosen.centerX;
     }
-    if (cluster.length >= 2) alignPlayOrderGroupForce(cluster);
+    if (cluster.length >= 2) alignPlayOrderGroupForce(cluster, measureSpanPx);
   }
 }
 
@@ -743,28 +764,15 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
 
-  // 1) 각 음표 → 자기 default-x column (오선 절대 비율; natural calibration 금지)
-  const pitchQueues = new Map<string, LayoutTarget[]>();
-  for (const t of targets) {
-    const key = layoutTargetKey(t.partId, t.measureNumber, t.staff, t.voice, t.pitch);
-    const list = pitchQueues.get(key) ?? [];
-    list.push({ defaultXTenths: t.defaultXTenths, playOrder: t.playOrder });
-    pitchQueues.set(key, list);
-  }
-  forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
-    alignMeasureNotesByLayoutGrid(osmd, gmRaw, staffIndex, pitchQueues);
-  });
+  // 절대 layout-x→px 매핑(alignMeasureNotesByLayoutGrid)은 쓰지 않음.
+  // 오선/마디 비율 강제 이동이 notehead 소실·뒤 화음 떡짐을 반복해서 일으킴.
+  // 명시 연주순번 column만 상대 snap (E5↔[F4,Bb4] po2 등). 다른 순번·무순번 음표는 OSMD 그대로.
 
-  // 2) 명시 연주순번 — 같은 po·같은 default-x column만 상대 snap (다른 순번 강제 합침 금지)
-  //    step1 이후 centerX를 다시 읽어 E5↔[F4,Bb4] 등 잔여 오차를 맞춤
   forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
     alignExplicitPlayOrderColumnsRelative(osmd, gmRaw, staffIndex, targets);
   });
 
-  // 3) linkParallel — anchor timestamp 기준 상대 snap
   alignLinkedParallelHintGroups(osmd, hints);
-  // 같은 pitch·다른 po(F4@po2 vs F4@po4)를 pitch만으로 묶는 전역 group snap은
-  // 뒤 column을 앞 column으로 끌어당기므로 쓰지 않음 — step 2가 column-safe.
 }
 
 export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHint): number {

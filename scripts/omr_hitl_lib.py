@@ -2059,9 +2059,18 @@ def _apply_note_direction(
 
 
 def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
-    """measure-level `<direction>` 을 anchor 음표 속성(notations·앞 direction)으로 통일."""
+    """measure-level `<direction>` 을 anchor 음표 속성(notations·앞 direction)으로 통일.
+    진행 제어(Segno·Coda·To Coda·Fine·D.C./D.S.)는 마디 처음/끝 위치를 유지 — 음표에 붙이지 않음."""
     changed = False
     for direction in list(measure.findall(_q(ns, "direction"))):
+        info = _direction_element_info(direction, ns)
+        dtype_kind = str(info.get("directionType") or "")
+        if dtype_kind in _NAVIGATION_DIRECTION_TAGS or _is_navigation_direction_type(dtype_kind):
+            continue
+        if dtype_kind == "words":
+            val = str(info.get("directionValue") or "")
+            if re.search(r"^(D\.(C|S)\.|To Coda|Fine\b)", val, re.I):
+                continue
         anchor = _anchor_note_for_direction(measure, direction, ns)
         if anchor is None:
             continue
@@ -5884,7 +5893,21 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "applyTriplet",
         "removeTriplet",
     }
-    skip_rebuild_kinds = {"linkParallelOnsets", "setPlayOrder"}
+    # direction·템포만 추가·삭제·수정 — 음표 timeline·default-x·voice를 건드리지 않음
+    skip_rebuild_kinds = {
+        "linkParallelOnsets",
+        "setPlayOrder",
+        "insertDirection",
+        "removeDirection",
+        "removeSpuriousDirection",
+        "setMeasureDirectionText",
+        "addNoteDirection",
+        "removeNoteDirection",
+        "setNoteDirection",
+        "clearNoteDirection",
+        "setMeasureTempo",
+        "removeMeasureTempo",
+    }
     measure_structure_kinds = {"insertEmptyMeasureBefore", "insertEmptyMeasureAfter"}
     pending = list(fixes)
     structure_fixes = [f for f in pending if f.get("kind") in measure_structure_kinds]

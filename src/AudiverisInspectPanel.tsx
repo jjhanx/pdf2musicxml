@@ -589,6 +589,17 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
+    if (isNavigationDirectionElement(child)) {
+      // 진행 제어는 마디 처음/끝 위치 유지 — 음표에 끌어붙이거나 삭제하지 않음
+      const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
+      const dStaff = staffEl?.textContent?.trim() ? parseInt(staffEl.textContent.trim(), 10) : staffN;
+      if (dStaff !== staffN) {
+        child.remove();
+        continue;
+      }
+      forceStaffTagOnDirectionToOne(child);
+      continue;
+    }
     const anchor = anchorNoteForDirection(measure, child);
     if (!anchor || noteStaffN(anchor) !== staffN) {
       child.remove();
@@ -616,6 +627,15 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
+    if (isNavigationDirectionElement(child)) {
+      const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
+      const dStaff = staffEl?.textContent?.trim() ? parseInt(staffEl.textContent.trim(), 10) : staffN;
+      if (dStaff !== staffN) {
+        child.remove();
+        continue;
+      }
+      continue;
+    }
     const anchor = anchorNoteForDirection(measure, child);
     if (!anchor || noteStaffN(anchor) !== staffN) {
       child.remove();
@@ -923,7 +943,8 @@ export function promoteNoteDynamicsForOsmdPreview(xml: string): string {
   }
 }
 
-/** measure-level `<direction>` → anchor 음표 속성(notations·앞 direction). */
+/** measure-level `<direction>` → anchor 음표 속성(notations·앞 direction).
+ * Segno·Coda·To Coda·Fine·D.C./D.S. 등 진행 제어는 음표에 붙이지 않음(마디 처음/끝 위치 유지). */
 export function migrateDirectionsToNotes(xml: string): string {
   try {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -932,6 +953,7 @@ export function migrateDirectionsToNotes(xml: string): string {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         for (const direction of [...measure.children].filter((c) => xmlLocalName(c) === 'direction')) {
+          if (isNavigationDirectionElement(direction)) continue;
           const anchor = anchorNoteForDirection(measure, direction);
           if (!anchor) continue;
 
@@ -969,6 +991,29 @@ export function migrateDirectionsToNotes(xml: string): string {
   } catch {
     return xml;
   }
+}
+
+function isNavigationDirectionElement(direction: Element): boolean {
+  for (const sound of [...direction.children].filter((c) => xmlLocalName(c) === 'sound')) {
+    if (sound.getAttribute('tocoda') || sound.getAttribute('dalsegno')) return true;
+    const fine = (sound.getAttribute('fine') || '').toLowerCase();
+    if (fine === 'yes' || fine === 'true' || fine === '1') return true;
+    const dacapo = (sound.getAttribute('dacapo') || '').toLowerCase();
+    if (dacapo === 'yes' || dacapo === 'true' || dacapo === '1') return true;
+  }
+  for (const dt of [...direction.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    for (const child of [...dt.children]) {
+      const tag = xmlLocalName(child);
+      if (tag === 'segno' || tag === 'coda' || tag === 'fine' || tag === 'dacapo' || tag === 'dalsegno' || tag === 'tocoda') {
+        return true;
+      }
+      if (tag === 'words') {
+        const t = (child.textContent || '').trim();
+        if (/^(D\.(C|S)\.|To Coda|Fine\b)/i.test(t)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** @deprecated migrateDirectionsToNotes */

@@ -186,192 +186,44 @@ function setLayoutAttrsOnGroup(
   }
 }
 
-function hasBeam(note: Element): boolean {
-  return note.querySelector(':scope > beam, :scope > *|beam') !== null;
-}
-
-function isBeamBegin(note: Element): boolean {
-  for (const b of [...note.querySelectorAll(':scope > beam, :scope > *|beam')]) {
-    if (b.textContent?.trim() === 'begin') return true;
-  }
-  return false;
-}
-
-function findBeamStartLeader(leaders: Element[], leader: Element, ignoreVoice = false): Element | null {
-  if (!hasBeam(leader)) return null;
-  if (isBeamBegin(leader)) return leader;
-  const idx = leaders.indexOf(leader);
-  if (idx <= 0) return null;
-  for (let i = idx - 1; i >= 0; i -= 1) {
-    const prev = leaders[i]!;
-    if (!ignoreVoice && noteVoiceNumber(prev) !== noteVoiceNumber(leader)) break;
-    if (!hasBeam(prev)) break;
-    if (isBeamBegin(prev)) return prev;
-  }
-  return null;
-}
-
 function noteDurationValue(note: Element): number {
   const durEl = note.querySelector(':scope > duration, :scope > *|duration');
   const n = parseInt(durEl?.textContent?.trim() ?? '0', 10);
   return Number.isFinite(n) ? n : 0;
 }
 
-function layoutOnsetFromBeamStart(
-  leaders: Element[],
-  leader: Element,
-  beamStart: Element,
-  layout: Map<Element, number>,
-): number {
-  const bsIdx = leaders.indexOf(beamStart);
-  const myIdx = leaders.indexOf(leader);
-  let pos = layout.get(beamStart) ?? 0;
-  for (let i = bsIdx + 1; i <= myIdx; i += 1) {
-    pos += noteDurationValue(leaders[i]!);
-  }
-  return pos;
-}
-
-/** PO(prev)→PO(next) step: prev PO anchor 박자. next가 prev PO beam begin에서 이어지면 beam begin 박자만. */
-function playOrderStepDuration(
-  leaders: Element[],
-  prevPo: number,
-  nextPo: number,
-  defaults: Map<Element, number>,
-): number {
-  const nextLeader = leaders.find((l) => effectivePlayOrder(l, defaults) === nextPo);
-  if (nextLeader) {
-    const staffLeaders = leaders.filter((l) => noteStaffNumber(l) === noteStaffNumber(nextLeader));
-    const beamStart = findBeamStartLeader(staffLeaders, nextLeader);
-    if (
-      beamStart &&
-      beamStart !== nextLeader &&
-      effectivePlayOrder(beamStart, defaults) === prevPo
-    ) {
-      return noteDurationValue(beamStart);
-    }
-  }
-  const prevLeaders = leaders.filter((l) => effectivePlayOrder(l, defaults) === prevPo);
-  if (!prevLeaders.length) return 1;
-  return Math.max(...prevLeaders.map(noteDurationValue));
-}
-
-/** 마디 전체 순번 → rhythmic onset(0..layoutLen). 순번 1 = 0, 이후 순번은 이전 anchor 박자만큼 누적. */
-function buildPlayOrderOnsetMap(
+/**
+ * 연주순번 → 마디 slot onset (사용자 알고리즘).
+ *
+ * 1) 마디 길이는 duration 단위 slot (4/4·div=2 → 8; 32분 해상도면 32)
+ * 2) 문서 순 **첫 등장** 순서로 새 순번 column을 만들고,
+ *    column step = 그 순번에 속한 모든 음 duration의 **min**
+ *    (같은 순번 8분+4분이면 다음 새 순번은 8분만 전진)
+ * 3) 같은 순번 음표는 모두 그 column slot에 배치
+ */
+export function buildPlayOrderSlotOnsets(
   leaders: Element[],
   defaults: Map<Element, number>,
 ): Map<number, number> {
-  const sortedPos = [...new Set(leaders.map((l) => effectivePlayOrder(l, defaults)))].sort((a, b) => a - b);
+  const firstSeenOrder: number[] = [];
+  const poStep = new Map<number, number>();
+  for (const leader of leaders) {
+    const po = effectivePlayOrder(leader, defaults);
+    const dur = Math.max(1, noteDurationValue(leader));
+    if (!poStep.has(po)) {
+      firstSeenOrder.push(po);
+      poStep.set(po, dur);
+    } else {
+      poStep.set(po, Math.min(poStep.get(po)!, dur));
+    }
+  }
   const poOnset = new Map<number, number>();
-  if (!sortedPos.length) return poOnset;
-
-  const anchor = sortedPos.includes(1) ? 1 : sortedPos[0]!;
-  poOnset.set(anchor, 0);
-
-  for (let i = 0; i < sortedPos.length; i += 1) {
-    const po = sortedPos[i]!;
-    if (poOnset.has(po)) continue;
-    const prevPo = sortedPos[i - 1]!;
-    const step = playOrderStepDuration(leaders, prevPo, po, defaults);
-    poOnset.set(po, (poOnset.get(prevPo) ?? 0) + step);
+  let cursor = 0;
+  for (const po of firstSeenOrder) {
+    poOnset.set(po, cursor);
+    cursor += poStep.get(po) ?? 1;
   }
   return poOnset;
-}
-
-/** true — 명시 순번이 2개 이상이면 같은 column으로 snap (같은 번호 = 동시 시작). */
-function shouldSnapExplicitPlayOrderGroup(group: Element[]): boolean {
-  return group.length >= 2;
-}
-
-/**
- * 명시 연주순번 column onset.
- * 다중 voice: voice별 min onset 중 max (병렬 join).
- * 단일 voice: 그룹 내 max onset (앞 음을 뒤 동시 column으로).
- */
-function explicitPlayOrderMusicalColumnOnset(
-  group: Element[],
-  musicalOnsets: Map<Element, number>,
-): number {
-  const minByVoice = new Map<string, number>();
-  for (const leader of group) {
-    const v = noteVoiceNumber(leader);
-    const t = musicalOnsets.get(leader) ?? 0;
-    const cur = minByVoice.get(v);
-    if (cur == null || t < cur) minByVoice.set(v, t);
-  }
-  if (minByVoice.size >= 2) {
-    return Math.max(...minByVoice.values());
-  }
-  return Math.max(0, ...group.map((l) => musicalOnsets.get(l) ?? 0));
-}
-
-/**
- * 동일 연주순번 snap 후보.
- * 같은 voice에 서로 다른 musical onset의 leader가 같은 PO를 가지면(옛 전파 버그·오입력)
- * 단일 voice max-onset snap이 앞 화음을 뒤 column으로 끌어 소실시킨다.
- * → voice당 onset이 둘 이상이면 그 voice는 snap에서 제외(musical onset 유지).
- * 서로 다른 voice끼리만 column join.
- */
-function playOrderSnapMembers(
-  group: Element[],
-  musicalOnsets: Map<Element, number>,
-): Element[] {
-  const byVoice = new Map<string, Element[]>();
-  for (const leader of group) {
-    const v = noteVoiceNumber(leader);
-    const list = byVoice.get(v) ?? [];
-    list.push(leader);
-    byVoice.set(v, list);
-  }
-  const members: Element[] = [];
-  for (const voiceLeaders of byVoice.values()) {
-    if (voiceLeaders.length === 1) {
-      members.push(voiceLeaders[0]!);
-      continue;
-    }
-    const onsets = new Set(
-      voiceLeaders.map((l) => musicalOnsets.get(l) ?? 0),
-    );
-    if (onsets.size <= 1) {
-      members.push(...voiceLeaders);
-      continue;
-    }
-    // 같은 voice·같은 PO·다른 onset — snap 금지(layout은 musical onset 유지)
-  }
-  return members;
-}
-
-function snapExplicitPlayOrderColumns(
-  layout: Map<Element, number>,
-  leaders: Element[],
-  musicalOnsets: Map<Element, number>,
-): void {
-  const byPo = new Map<number, Element[]>();
-  for (const leader of leaders) {
-    const po = readPlayOrder(leader);
-    if (po == null) continue;
-    const list = byPo.get(po) ?? [];
-    list.push(leader);
-    byPo.set(po, list);
-  }
-  for (const group of byPo.values()) {
-    if (!shouldSnapExplicitPlayOrderGroup(group)) continue;
-    const members = playOrderSnapMembers(group, musicalOnsets);
-    if (members.length < 2) continue;
-    const columnOnset = explicitPlayOrderMusicalColumnOnset(members, musicalOnsets);
-    for (const leader of members) layout.set(leader, columnOnset);
-  }
-}
-
-/** 명시 연주순번 — layout 재적용 후 default-x도 동일 column. */
-function resyncDefaultXAfterPlayOrderSnap(
-  measure: Element,
-  layout: Map<Element, number>,
-  layoutLen: number,
-): void {
-  for (const leader of allLeadersInMeasure(measure)) {
-    setLayoutAttrsOnGroup(measure, leader, layout.get(leader) ?? 0, layoutLen, readPlayOrder(leader));
-  }
 }
 
 function noteLeadersOnStaff(measure: Element, staffN: number): Element[] {
@@ -395,37 +247,36 @@ function allLeadersInMeasure(measure: Element): Element[] {
   return out;
 }
 
-/** 마디 공통 grid — musical onset + 명시 연주순번 column snap + beam (voice·timeline 불변). */
+/**
+ * 마디 공통 연주순번 그리드 → data-osmd-layout-x / default-x.
+ * OSMD는 default-x spacing을 무시하므로 SVG align이 이 layout-x로 화면 배치.
+ * 저장 MXL voice·duration·빔 불변.
+ */
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   sanitizeConflictingPlayOrders(measure);
   const staves = new Set<number>();
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note') staves.add(noteStaffNumber(child));
   }
-  const layoutLen = previewLayoutLengthUnits(measure);
-  const musicalOnsets = collectStaffNoteOnsets(measure);
-  const allLeaders = allLeadersInMeasure(measure);
-
+  const layoutLen = Math.max(1, previewLayoutLengthUnits(measure));
+  const defaults = buildMeasureDefaultPlayOrders(measure, staves);
   const layout = new Map<Element, number>();
-  for (const leader of allLeaders) {
-    const staffLeaders = noteLeadersOnStaff(measure, noteStaffNumber(leader));
-    const beamStart = findBeamStartLeader(staffLeaders, leader);
-    if (beamStart && beamStart !== leader) continue;
-    layout.set(leader, musicalOnsets.get(leader) ?? 0);
-  }
-
-  snapExplicitPlayOrderColumns(layout, allLeaders, musicalOnsets);
 
   for (const staffN of staves) {
-    const staffLeaders = noteLeadersOnStaff(measure, staffN);
-    for (const leader of staffLeaders) {
-      const beamStart = findBeamStartLeader(staffLeaders, leader);
-      if (!beamStart || beamStart === leader) continue;
-      layout.set(leader, layoutOnsetFromBeamStart(staffLeaders, leader, beamStart, layout));
+    const leaders = noteLeadersOnStaff(measure, staffN);
+    if (!leaders.length) continue;
+    const poOnset = buildPlayOrderSlotOnsets(leaders, defaults);
+    for (const leader of leaders) {
+      const po = effectivePlayOrder(leader, defaults);
+      layout.set(leader, poOnset.get(po) ?? 0);
     }
   }
 
-  resyncDefaultXAfterPlayOrderSnap(measure, layout, layoutLen);
+  for (const leader of allLeadersInMeasure(measure)) {
+    const onset = layout.get(leader) ?? 0;
+    const po = readPlayOrder(leader);
+    setLayoutAttrsOnGroup(measure, leader, onset, layoutLen, po);
+  }
 }
 
 export type PreviewNoteLayoutTarget = {

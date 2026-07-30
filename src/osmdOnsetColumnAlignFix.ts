@@ -337,7 +337,7 @@ function wantXFromSafeCalibration(
   return cal.originX + frac * cal.spanPx;
 }
 
-/** 명시 연주순번만 절대 이동 — 이동량은 마디 폭·120px로 제한(소실 방지). */
+/** 명시 연주순번만 절대 이동 — voice1이 잡은 마디 span에 layout-x 비율로 배치. */
 function alignStavenoteToTarget(
   stavenote: SVGGraphicsElement,
   defaultXTenths: number,
@@ -354,14 +354,15 @@ function alignStavenoteToTarget(
     return;
   }
   const dx = wantX - centerX;
-  const cap = Math.min(
-    Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan?.spanPx ?? MAX_ONSET_ALIGN_SHIFT_PX),
-    160,
+  // 그리드 배치: 마디 폭만큼은 반드시 이동(포기하지 않음)
+  const cap = Math.max(
+    MAX_ONSET_ALIGN_SHIFT_PX,
+    (measureSpan?.spanPx ?? cal?.spanPx ?? 240) * 2,
   );
   applySvgTranslateX(stavenote, dx, cap);
 }
 
-type LayoutTarget = { defaultXTenths: number; playOrder: number | null };
+type LayoutTarget = { defaultXTenths: number; playOrder: number | null; pitch: string; voice: string };
 
 function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
   const base = targetPartId.replace(/__PR$|__PL$/, '');
@@ -375,15 +376,22 @@ function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
   );
 }
 
+/** voice1(또는 전체) notehead로 마디 SVG span — layout tenths를 이 폭에 비례 배치. */
+function measureSpanFromVoice1Hits(hits: readonly NoteHit[]): { originX: number; spanPx: number } | null {
+  const v1 = hits.filter((h) => h.voice === '1');
+  const pool = v1.length >= 2 ? v1 : hits;
+  return measureSpanFromHits(pool);
+}
+
 /**
- * 명시 연주순번이 있는 음표만 layout-x column으로 이동.
- * 전체 음표·오선 절대 매핑은 마디 밖 이동→notehead 소실을 일으켜 쓰지 않음.
+ * 연주순번 layout-x 그리드 → SVG 절대 배치.
+ * voice1이 잡은 마디 폭에 tenths를 매핑해 [F4,Bb4]도 E5 column으로 이동.
  */
-function alignMeasureNotesByLayoutGrid(
+function alignMeasureNotesByPlayOrderGrid(
   osmd: OpenSheetMusicDisplay,
   gmRaw: unknown,
   staffIndex: number,
-  pitchQueues: Map<string, LayoutTarget[]>,
+  targets: readonly PreviewNoteLayoutTarget[],
 ): void {
   const partId = partIdFromGraphic(gmRaw);
   const measureNumber = measureMxlFromGraphic(gmRaw);
@@ -426,56 +434,112 @@ function alignMeasureNotesByLayoutGrid(
   }
   if (!hits.length) return;
 
-  const staffCandidates = [1, staff];
-  const hitsByKey = new Map<string, NoteHit[]>();
-  for (const hit of hits) {
-    let matchedKey: string | null = null;
-    for (const st of staffCandidates) {
-      const key = layoutTargetKey(partId, measureNumber, st, hit.voice, hit.pitch);
-      if (pitchQueues.has(key)) {
-        matchedKey = key;
-        break;
-      }
-    }
-    if (!matchedKey) {
-      for (const [key, list] of pitchQueues) {
-        if (!list.length) continue;
-        const [pid, mn, , voice, pitch] = key.split('|');
-        if (mn !== String(measureNumber) || voice !== hit.voice || pitch !== hit.pitch) continue;
-        if (!partIdsMatch(partId, pid!)) continue;
-        matchedKey = key;
-        break;
-      }
-    }
-    if (!matchedKey) {
-      matchedKey = layoutTargetKey(partId, measureNumber, 1, hit.voice, hit.pitch);
-    }
-    const list = hitsByKey.get(matchedKey) ?? [];
-    list.push(hit);
-    hitsByKey.set(matchedKey, list);
+  const staffTargets = targets.filter((t) => {
+    if (t.measureNumber !== measureNumber) return false;
+    if (!partIdsMatch(partId, t.partId)) return false;
+    if (t.staff !== 1 && t.staff !== staff) return false;
+    return true;
+  });
+  if (!staffTargets.length) return;
+
+  // 연주순번이 있는 음만 그리드 배치(사용자 지정 column). 없으면 OSMD 유지.
+  const explicitTargets = staffTargets.filter((t) => t.playOrder != null);
+  if (!explicitTargets.length) return;
+
+  const pitchQueues = new Map<string, LayoutTarget[]>();
+  for (const t of explicitTargets) {
+    const key = `${t.voice}|${t.pitch}`;
+    const list = pitchQueues.get(key) ?? [];
+    list.push({
+      defaultXTenths: t.defaultXTenths,
+      playOrder: t.playOrder,
+      pitch: t.pitch,
+      voice: t.voice,
+    });
+    pitchQueues.set(key, list);
   }
+  for (const list of pitchQueues.values()) {
+    list.sort((a, b) => a.defaultXTenths - b.defaultXTenths);
+  }
+
+  const measureSpan = measureSpanFromVoice1Hits(hits);
+
+  // voice1 hit × voice1 target 로 calibration (tenths 비율 → SVG px)
+  const v1Hits = hits.filter((h) => h.voice === '1');
+  const v1Targets = explicitTargets.filter((t) => t.voice === '1');
+  const calInput: Array<{ centerX: number; defaultXTenths: number; voice: string }> = [];
+  const usedV1 = new Set<SVGGraphicsElement>();
+  const byPitch = new Map<string, PreviewNoteLayoutTarget[]>();
+  for (const t of v1Targets) {
+    const list = byPitch.get(t.pitch) ?? [];
+    list.push(t);
+    byPitch.set(t.pitch, list);
+  }
+  for (const [pitch, tlist] of byPitch) {
+    const sortedT = [...tlist].sort((a, b) => a.defaultXTenths - b.defaultXTenths);
+    const candidates = v1Hits
+      .filter((h) => h.pitch === pitch && !usedV1.has(h.stavenote))
+      .sort((a, b) => {
+        const ta = a.timestamp;
+        const tb = b.timestamp;
+        if (ta != null && tb != null && Math.abs(ta - tb) > 1e-4) return ta - tb;
+        return a.centerX - b.centerX;
+      });
+    const n = Math.min(sortedT.length, candidates.length);
+    for (let i = 0; i < n; i += 1) {
+      usedV1.add(candidates[i]!.stavenote);
+      calInput.push({
+        centerX: candidates[i]!.centerX,
+        defaultXTenths: sortedT[i]!.defaultXTenths,
+        voice: '1',
+      });
+    }
+  }
+  const cal = buildSafeMeasureCalibration(calInput);
 
   const pairs: Array<{ hit: NoteHit; target: LayoutTarget }> = [];
-  for (const [key, keyHits] of hitsByKey) {
-    const targets = pitchQueues.get(key) ?? [];
-    if (!targets.length) continue;
-    pairs.push(...pairHitsWithLayoutTargetsByBestMatch(keyHits, targets));
+  const usedHits = new Set<SVGGraphicsElement>();
+  for (const [key, queue] of pitchQueues) {
+    const [voice, pitch] = key.split('|') as [string, string];
+    const expectedByPo = new Map<number, number>();
+    for (const t of queue) {
+      if (t.playOrder == null) continue;
+      const pitches = new Set(
+        explicitTargets.filter((x) => x.playOrder === t.playOrder && x.voice === voice).map((x) => x.pitch),
+      );
+      expectedByPo.set(t.playOrder, pitches.size);
+    }
+    const candidates = hits
+      .filter((h) => h.voice === voice && h.pitch === pitch && !usedHits.has(h.stavenote))
+      .sort((a, b) => {
+        const ta = a.timestamp;
+        const tb = b.timestamp;
+        if (ta != null && tb != null && Math.abs(ta - tb) > 1e-4) return ta - tb;
+        return a.centerX - b.centerX;
+      });
+    // column 왼→오: 각 target에 heads 맞는 hit 배정
+    for (const target of queue) {
+      const expectHeads = target.playOrder != null ? expectedByPo.get(target.playOrder) ?? 1 : 1;
+      let bestIdx = -1;
+      let bestScore = Infinity;
+      for (let i = 0; i < candidates.length; i += 1) {
+        const h = candidates[i]!;
+        if (usedHits.has(h.stavenote)) continue;
+        const headPenalty = expectHeads > 1 ? Math.abs(h.heads - expectHeads) * 1000 : 0;
+        const score = headPenalty + i;
+        if (score < bestScore) {
+          bestScore = score;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx < 0) continue;
+      const hit = candidates[bestIdx]!;
+      usedHits.add(hit.stavenote);
+      pairs.push({ hit, target });
+    }
   }
 
-  // 명시 연주순번만 — 나머지 음표는 OSMD 위치 유지(소실·전역 왜곡 방지)
-  const explicitPairs = pairs.filter((p) => p.target.playOrder != null);
-  if (!explicitPairs.length) return;
-
-  const cal = buildSafeMeasureCalibration(
-    explicitPairs.map((p) => ({
-      centerX: p.hit.centerX,
-      defaultXTenths: p.target.defaultXTenths,
-      voice: p.hit.voice,
-    })),
-  );
-  const measureSpan = measureSpanFromHits(hits);
-
-  for (const { hit, target } of explicitPairs) {
+  for (const { hit, target } of pairs) {
     alignStavenoteToTarget(hit.stavenote, target.defaultXTenths, hit.centerX, cal, measureSpan);
   }
 }
@@ -799,11 +863,10 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
 
-  // 절대 layout-x→px 매핑(alignMeasureNotesByLayoutGrid)은 쓰지 않음.
-  // 명시 연주순번끼리 상대 snap (E5↔[F4,Bb4] po2 등). 화음 머리 수로 중복 pitch 구분.
-  // 다른 순번·무순번 음표는 OSMD 그대로.
-
+  // 1) 연주순번 slot 그리드(layout-x) → SVG 절대 배치 (voice1 마디 비율)
+  // 2) 같은 순번끼리 상대 snap으로 잔여 오차 제거
   forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
+    alignMeasureNotesByPlayOrderGrid(osmd, gmRaw, staffIndex, targets);
     alignExplicitPlayOrderColumnsRelative(osmd, gmRaw, staffIndex, targets);
   });
 

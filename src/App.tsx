@@ -1805,10 +1805,7 @@ export default function App() {
                 <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
                   <strong>[1단계] 원본 PDF → clean_score → OMR → 가사 검증 → 최종 MXL</strong>
                   <br />
-                  원본 PDF에서 가사를 분리·제거한 뒤 OMR·HITL·가사 검증을 거쳐 완성합니다. 병합 직후{' '}
-                  <code>lyric_manifest.json</code> 저장 모달이 뜨며, 2단계 이후에 쓸{' '}
-                  <code>clean_score_only.pdf</code>도 함께 내려받을 수 있습니다. 아래에서{' '}
-                  <code>omr-work.zip</code>을 함께 올리면 Audiveris만 생략하고 기존 MXL로 HITL을 이어갈 수 있습니다.
+                  원본 PDF에서 가사를 분리·제거한 뒤 OMR·HITL·가사 검증을 거쳐 완성합니다.
                 </p>
                 <div
                   className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
@@ -1860,33 +1857,12 @@ export default function App() {
                       />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeOmrWorkFile ? '#fff' : '#aaa' }}>
-                      {resumeOmrWorkFile ? resumeOmrWorkFile.name : '선택된 파일 없음'}
+                      {resumeOmrWorkFile ? resumeOmrWorkFile.name : '선택하지 않음'}
                     </span>
                     {resumeOmrWorkFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeOmrWorkFile(null)}>✖ 취소</button>
                     )}
                   </div>
-                  <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
-                    이전 OMR·HITL에서 저장한 ZIP을 올리면 <strong>Audiveris 재인식을 건너뛰고</strong> 저장된 MXL·보정으로 HITL을 이어갑니다.
-                    가사는 위 1단계 흐름(폰트 분리·병합·검증) 그대로 진행합니다. ZIP의 <code>clean_score_only.pdf</code>와 동일한 폰트 제거 설정이어야 MXL·PDF가 맞습니다.
-                  </small>
-                </div>
-                
-                <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    <input type="checkbox" checked={pauseAfterAudiveris} onChange={(e) => setPauseAfterAudiveris(e.target.checked)} disabled={busy} />
-                    OMR 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)
-                  </label>
-                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    <input type="checkbox" checked={enableOmrStaffReview} onChange={(e) => setEnableOmrStaffReview(e.target.checked)} disabled={busy} />
-                    OMR 직후 품질 검토 (페이지×성부 lint, 기본 켜짐)
-                  </label>
-                  {pipelineMode === 'font_separator' && (
-                    <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                      <input type="checkbox" checked={enablePymupdfReview} onChange={(e) => setEnablePymupdfReview(e.target.checked)} disabled={busy} />
-                      OMR·HITL 후 PyMuPDF 가사 검증·편집 (기본 켜짐)
-                    </label>
-                  )}
                 </div>
               </div>
             )}
@@ -1897,7 +1873,6 @@ export default function App() {
                   <strong>[2단계] clean_score_only.pdf + 분리된 가사로 OMR</strong>
                   <br />
                   1단계에서 만든 <strong>가사 없는 악보 PDF</strong>와 <strong>분리·검증된 가사 JSON</strong>을 함께 올립니다.
-                  Audiveris OMR → HITL → (선택) 가사 재검증 → 최종 주입까지 진행합니다.
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>clean_score_only.pdf (필수)</span>
@@ -1907,7 +1882,7 @@ export default function App() {
                       <input type="file" accept=".pdf,application/pdf" hidden onChange={(e) => setResumeCleanScoreFile(e.target.files?.[0] ?? null)} disabled={busy} />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeCleanScoreFile ? '#fff' : '#aaa' }}>
-                      {resumeCleanScoreFile ? resumeCleanScoreFile.name : '선택된 파일 없음'}
+                      {resumeCleanScoreFile ? resumeCleanScoreFile.name : '선택하지 않음'}
                     </span>
                     {resumeCleanScoreFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeCleanScoreFile(null)}>✖ 취소</button>
@@ -1922,32 +1897,12 @@ export default function App() {
                       <input type="file" accept=".json,application/json" hidden onChange={(e) => setResumeLyricManifestFile(e.target.files?.[0] ?? null)} disabled={busy} />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeLyricManifestFile ? '#fff' : '#aaa' }}>
-                      {resumeLyricManifestFile ? resumeLyricManifestFile.name : '선택된 파일 없음'}
+                      {resumeLyricManifestFile ? resumeLyricManifestFile.name : '선택하지 않음'}
                     </span>
                     {resumeLyricManifestFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeLyricManifestFile(null)}>✖ 취소</button>
                     )}
                   </div>
-                  <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
-                    1단계에서 저장한 가사 manifest 또는 동일 형식 JSON. 없으면 최종 MXL에 가사를 넣을 수 없습니다.
-                  </small>
-                </div>
-
-                <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    <input type="checkbox" checked={pauseAfterAudiveris} onChange={(e) => setPauseAfterAudiveris(e.target.checked)} disabled={busy} />
-                    OMR 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)
-                  </label>
-                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    <input type="checkbox" checked={enableOmrStaffReview} onChange={(e) => setEnableOmrStaffReview(e.target.checked)} disabled={busy} />
-                    OMR 직후 품질 검토 (페이지×성부 lint, 기본 켜짐)
-                  </label>
-                  {pipelineMode === 'font_separator' && (
-                    <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                      <input type="checkbox" checked={enablePymupdfReview} onChange={(e) => setEnablePymupdfReview(e.target.checked)} disabled={busy} />
-                      OMR·HITL 후 PyMuPDF 가사 검증·편집 (기본 켜짐)
-                    </label>
-                  )}
                 </div>
               </div>
             )}
@@ -1957,8 +1912,7 @@ export default function App() {
                 <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
                   <strong>[3단계] omr-work.zip으로 OMR·HITL 이어하기</strong>
                   <br />
-                  OMR 검토 중 저장한 ZIP(교정 전 MXL + <code>lyric_manifest.json</code> 포함)으로 Audiveris 없이 검토를 이어갑니다.
-                  HITL 완료 후 가사 검증·주입까지 진행합니다.
+                  OMR 검토 중 저장한 ZIP으로 Audiveris 없이 검토를 이어갑니다.
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip (필수)</span>
@@ -1968,15 +1922,12 @@ export default function App() {
                       <input type="file" accept=".zip,application/zip" hidden onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)} disabled={busy} />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeOmrWorkFile ? '#fff' : '#aaa' }}>
-                      {resumeOmrWorkFile ? resumeOmrWorkFile.name : '선택된 파일 없음'}
+                      {resumeOmrWorkFile ? resumeOmrWorkFile.name : '선택하지 않음'}
                     </span>
                     {resumeOmrWorkFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeOmrWorkFile(null)}>✖ 취소</button>
                     )}
                   </div>
-                  <small style={{ color: '#aaa', fontSize: '0.78rem' }}>
-                    ZIP에 <code>lyric_manifest.json</code>이 없으면 아래에서 가사 JSON을 따로 올리세요.
-                  </small>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>lyric_manifest.json (ZIP에 없을 때 · 선택)</span>
@@ -1986,7 +1937,7 @@ export default function App() {
                       <input type="file" accept=".json,application/json" hidden onChange={(e) => setResumeLyricManifestFile(e.target.files?.[0] ?? null)} disabled={busy} />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeLyricManifestFile ? '#fff' : '#aaa' }}>
-                      {resumeLyricManifestFile ? resumeLyricManifestFile.name : '선택된 파일 없음'}
+                      {resumeLyricManifestFile ? resumeLyricManifestFile.name : '선택하지 않음'}
                     </span>
                     {resumeLyricManifestFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeLyricManifestFile(null)}>✖ 취소</button>
@@ -2001,25 +1952,12 @@ export default function App() {
                       <input type="file" accept=".pdf,application/pdf" hidden onChange={(e) => setResumeCleanScoreFile(e.target.files?.[0] ?? null)} disabled={busy} />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeCleanScoreFile ? '#fff' : '#aaa' }}>
-                      {resumeCleanScoreFile ? resumeCleanScoreFile.name : '선택된 파일 없음'}
+                      {resumeCleanScoreFile ? resumeCleanScoreFile.name : '선택하지 않음'}
                     </span>
                     {resumeCleanScoreFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeCleanScoreFile(null)}>✖ 취소</button>
                     )}
                   </div>
-                </div>
-
-                <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    <input type="checkbox" checked={enableOmrStaffReview} onChange={(e) => setEnableOmrStaffReview(e.target.checked)} disabled={busy} />
-                    OMR 직후 품질 검토 (페이지×성부 lint, 기본 켜짐)
-                  </label>
-                  {pipelineMode === 'font_separator' && (
-                    <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                      <input type="checkbox" checked={enablePymupdfReview} onChange={(e) => setEnablePymupdfReview(e.target.checked)} disabled={busy} />
-                      OMR·HITL 후 PyMuPDF 가사 검증·편집 (기본 켜짐)
-                    </label>
-                  )}
                 </div>
               </div>
             )}
@@ -2029,8 +1967,7 @@ export default function App() {
                 <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
                   <strong>[4단계] 교정 완료 MXL + 가사 편집 → 최종 주입</strong>
                   <br />
-                  OMR·HITL을 끝낸 <code>omr-work.zip</code>(교정된 <code>review.mxl</code> 포함)과 편집 중인 가사 JSON으로
-                  가사 검증 UI만 열고 최종 MXL을 만듭니다.
+                  OMR·HITL을 끝낸 <code>omr-work.zip</code>과 편집 중인 가사 JSON으로 최종 MXL을 만듭니다.
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip — 교정 완료 MXL 포함 (필수)</span>
@@ -2040,7 +1977,7 @@ export default function App() {
                       <input type="file" accept=".zip,application/zip" hidden onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)} disabled={busy} />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeOmrWorkFile ? '#fff' : '#aaa' }}>
-                      {resumeOmrWorkFile ? resumeOmrWorkFile.name : '선택된 파일 없음'}
+                      {resumeOmrWorkFile ? resumeOmrWorkFile.name : '선택하지 않음'}
                     </span>
                     {resumeOmrWorkFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeOmrWorkFile(null)}>✖ 취소</button>
@@ -2055,7 +1992,7 @@ export default function App() {
                       <input type="file" accept=".json,application/json" hidden onChange={(e) => setResumeLyricManifestFile(e.target.files?.[0] ?? null)} disabled={busy} />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeLyricManifestFile ? '#fff' : '#aaa' }}>
-                      {resumeLyricManifestFile ? resumeLyricManifestFile.name : '선택된 파일 없음'}
+                      {resumeLyricManifestFile ? resumeLyricManifestFile.name : '선택하지 않음'}
                     </span>
                     {resumeLyricManifestFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeLyricManifestFile(null)}>✖ 취소</button>
@@ -2064,10 +2001,31 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #444', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#fff', marginBottom: '0.25rem' }}>고급 설정</span>
+              {(startStage === 'full' || startStage === 'clean_score') && (
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
+                  <input type="checkbox" checked={pauseAfterAudiveris} onChange={(e) => setPauseAfterAudiveris(e.target.checked)} disabled={busy} />
+                  OMR 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)
+                </label>
+              )}
+              {(startStage !== 'lyric_inject') && (
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
+                  <input type="checkbox" checked={enableOmrStaffReview} onChange={(e) => setEnableOmrStaffReview(e.target.checked)} disabled={busy} />
+                  OMR 직후 품질 검토 (페이지×성부 lint, 기본 켜짐)
+                </label>
+              )}
+              {pipelineMode === 'font_separator' && (startStage !== 'lyric_inject') && (
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
+                  <input type="checkbox" checked={enablePymupdfReview} onChange={(e) => setEnablePymupdfReview(e.target.checked)} disabled={busy} />
+                  OMR·HITL 후 PyMuPDF 가사 검증·편집 (기본 켜짐)
+                </label>
+              )}
+            </div>
           </div>
         </div>
-
-        <div className="row dropzone-actions" style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', flexWrap: 'wrap', alignItems: 'center' }}>
+<div className="row dropzone-actions" style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', flexWrap: 'wrap', alignItems: 'center' }}>
           <button
             type="button"
             className="btn-primary"

@@ -1,0 +1,317 @@
+﻿wrote
+timed leaders [
+  { pitch: 'C5', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'C5', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'C5', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'C6', v: '2', t: 6, end: 7, po: null },
+  { pitch: 'B5', v: '2', t: 7, end: 8, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'C5', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'C5', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'C5', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'C6', v: '2', t: 6, end: 7, po: null },
+  { pitch: 'B5', v: '2', t: 7, end: 8, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'F4', v: '1', t: 0, end: 2, po: null },
+  { pitch: 'F4', v: '1', t: 2, end: 3, po: null },
+  { pitch: 'C6', v: '1', t: 3, end: 4, po: null },
+  { pitch: 'C5', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'C5', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'C6', v: '2', t: 4, end: 5, po: null },
+  { pitch: 'B5', v: '2', t: 5, end: 6, po: null },
+  { pitch: 'A5', v: '2', t: 6, end: 7, po: null },
+  { pitch: 'F5', v: '2', t: 7, end: 8, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'F4', v: '1', t: 0, end: 2, po: null },
+  { pitch: 'E5', v: '1', t: 2, end: 3, po: null },
+  { pitch: 'F5', v: '1', t: 3, end: 4, po: null },
+  { pitch: 'G4', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'E5', v: '1', t: 6, end: 7, po: null },
+  { pitch: 'F5', v: '1', t: 7, end: 8, po: null },
+  { pitch: 'F4', v: '2', t: 2, end: 4, po: null },
+  { pitch: 'E4', v: '2', t: 6, end: 8, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'F4', v: '1', t: 0, end: 2, po: '1' },
+  { pitch: 'E5', v: '1', t: 2, end: 3, po: '2' },
+  { pitch: 'F5', v: '1', t: 3, end: 4, po: '3' },
+  { pitch: 'F4', v: '2', t: 2, end: 4, po: '2' },
+  { pitch: 'F4', v: '2', t: 4, end: 6, po: '4' },
+  { pitch: 'G4', v: '2', t: 6, end: 8, po: '5' }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'C5', v: '1', t: 0, end: 2, po: null },
+  { pitch: 'F4', v: '1', t: 2, end: 3, po: null },
+  { pitch: 'A4', v: '1', t: 3, end: 4, po: null },
+  { pitch: 'G4', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'G4', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'G5', v: '2', t: 6, end: 7, po: null },
+  { pitch: 'E5', v: '2', t: 7, end: 8, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'A4', v: '1', t: 0, end: 2, po: null },
+  { pitch: 'A4', v: '1', t: 2, end: 4, po: null },
+  { pitch: 'G5', v: '3', t: 2, end: 3, po: null },
+  { pitch: 'A5', v: '3', t: 3, end: 4, po: null },
+  { pitch: 'B4', v: '2', t: 0, end: 2, po: null },
+  { pitch: 'B4', v: '2', t: 2, end: 4, po: null },
+  { pitch: 'A5', v: '3', t: 10, end: 11, po: null },
+  { pitch: 'G5', v: '3', t: 11, end: 12, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'C4', v: '1', t: 0, end: 2, po: null },
+  { pitch: 'B5', v: '1', t: 2, end: 3, po: null },
+  { pitch: 'A5', v: '1', t: 3, end: 4, po: null },
+  { pitch: 'F4', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'E4', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'G4', v: '2', t: 4, end: 8, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'D4', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'B4', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'A4', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'C4', v: '1', t: 8, end: 12, po: null },
+  { pitch: 'E4', v: '1', t: 12, end: 16, po: null },
+  { pitch: 'D4', v: '2', t: 4, end: 8, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'F4', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'F4', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'C6', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'C5', v: '1', t: 8, end: 12, po: null },
+  { pitch: 'C5', v: '1', t: 12, end: 16, po: null },
+  { pitch: 'C6', v: '2', t: 8, end: 10, po: null },
+  { pitch: 'B5', v: '2', t: 10, end: 12, po: null },
+  { pitch: 'A5', v: '2', t: 12, end: 14, po: null },
+  { pitch: 'F5', v: '2', t: 14, end: 16, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'F4', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'E5', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'F5', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'G4', v: '1', t: 8, end: 12, po: null },
+  { pitch: 'E5', v: '1', t: 12, end: 14, po: null },
+  { pitch: 'F5', v: '1', t: 14, end: 16, po: null },
+  { pitch: 'F4', v: '2', t: 4, end: 8, po: null },
+  { pitch: 'G4', v: '3', t: 12, end: 16, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'F4', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'E5', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'F5', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'F4', v: '2', t: 4, end: 8, po: null },
+  { pitch: 'F4', v: '2', t: 8, end: 12, po: null },
+  { pitch: 'G4', v: '2', t: 12, end: 16, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'C5', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'F4', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'A4', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'G4', v: '1', t: 8, end: 12, po: null },
+  { pitch: 'G4', v: '1', t: 12, end: 16, po: null },
+  { pitch: 'G5', v: '2', t: 12, end: 14, po: null },
+  { pitch: 'E5', v: '2', t: 14, end: 16, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'A4', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'A4', v: '1', t: 4, end: 8, po: null },
+  { pitch: 'G5', v: '2', t: 4, end: 6, po: null },
+  { pitch: 'A5', v: '2', t: 6, end: 8, po: null },
+  { pitch: 'B4', v: '2', t: 8, end: 12, po: null },
+  { pitch: 'B4', v: '2', t: 12, end: 16, po: null },
+  { pitch: 'A5', v: '3', t: 12, end: 14, po: null },
+  { pitch: 'G5', v: '3', t: 14, end: 16, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'C4', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'B5', v: '1', t: 4, end: 6, po: null },
+  { pitch: 'A5', v: '1', t: 6, end: 8, po: null },
+  { pitch: 'F4', v: '1', t: 8, end: 12, po: null },
+  { pitch: 'E4', v: '1', t: 12, end: 16, po: null },
+  { pitch: 'G4', v: '2', t: 8, end: 16, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'F5', v: '1', t: 0, end: 4, po: null },
+  { pitch: 'E5', v: '2', t: 3, end: 7, po: null },
+  { pitch: 'D5', v: '2', t: 7, end: 11, po: null },
+  { pitch: 'E5', v: '2', t: 11, end: 15, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'A4', v: '1', t: 0, end: 6, po: null },
+  { pitch: 'B4', v: '1', t: 6, end: 10, po: null },
+  { pitch: 'G4', v: '2', t: 8, end: 12, po: null },
+  { pitch: 'F4', v: '2', t: 12, end: 16, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'C5', v: '1', t: 0, end: 12, po: null },
+  { pitch: 'C4', v: '1', t: 12, end: 24, po: null },
+  { pitch: 'A4', v: '2', t: 12, end: 18, po: null },
+  { pitch: 'B4', v: '2', t: 18, end: 24, po: null },
+  { pitch: 'C4', v: '2', t: 24, end: 36, po: null },
+  { pitch: 'G4', v: '2', t: 36, end: 48, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'F4', v: '1', t: 0, end: 12, po: null },
+  { pitch: 'F4', v: '1', t: 12, end: 24, po: null },
+  { pitch: 'C5', v: '1', t: 24, end: 36, po: null },
+  { pitch: 'C5', v: '1', t: 36, end: 48, po: null },
+  { pitch: 'F5', v: '2', t: 12, end: 18, po: null },
+  { pitch: 'C6', v: '2', t: 18, end: 24, po: null },
+  { pitch: 'B5', v: '2', t: 24, end: 30, po: null },
+  { pitch: 'A5', v: '2', t: 30, end: 36, po: null },
+  { pitch: 'G5', v: '2', t: 36, end: 42, po: null },
+  { pitch: 'F5', v: '2', t: 42, end: 48, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'G4', v: '1', t: 0, end: 12, po: null },
+  { pitch: 'F4', v: '1', t: 12, end: 24, po: null },
+  { pitch: 'F4', v: '1', t: 24, end: 36, po: null },
+  { pitch: 'G4', v: '1', t: 36, end: 48, po: null },
+  { pitch: 'D5', v: '2', t: 12, end: 18, po: null },
+  { pitch: 'F5', v: '2', t: 18, end: 24, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'B5', v: '1', t: 0, end: 6, po: null },
+  { pitch: 'A5', v: '1', t: 6, end: 12, po: null },
+  { pitch: 'G5', v: '1', t: 12, end: 18, po: null },
+  { pitch: 'F5', v: '1', t: 18, end: 24, po: null },
+  { pitch: 'C5', v: '1', t: 24, end: 30, po: null },
+  { pitch: 'B4', v: '1', t: 30, end: 36, po: null },
+  { pitch: 'A4', v: '1', t: 36, end: 42, po: null },
+  { pitch: 'G4', v: '1', t: 42, end: 48, po: null },
+  { pitch: 'C5', v: '2', t: 0, end: 12, po: null },
+  { pitch: 'C5', v: '2', t: 12, end: 24, po: null },
+  { pitch: 'F4', v: '2', t: 24, end: 36, po: null },
+  { pitch: 'C4', v: '2', t: 36, end: 48, po: null }
+]
+flatten SKIPPED (overlap)
+timed leaders [
+  { pitch: 'D4', v: '1', t: 0, end: 12, po: null },
+  { pitch: 'F4', v: '1', t: 12, end: 18, po: null },
+  { pitch: 'G4', v: '1', t: 18, end: 24, po: null },
+  { pitch: 'C4', v: '1', t: 24, end: 36, po: null },
+  { pitch: 'C4', v: '1', t: 36, end: 48, po: null },
+  { pitch: 'D4', v: '2', t: 12, end: 24, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'F4', v: '1', t: 0, end: 24, po: null },
+  { pitch: 'B4', v: '1', t: 24, end: 48, po: null },
+  { pitch: 'F4', v: '2', t: 24, end: 36, po: null },
+  { pitch: 'G4', v: '2', t: 36, end: 48, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+timed leaders [
+  { pitch: 'C5', v: '1', t: 0, end: 18, po: null },
+  { pitch: 'C5', v: '1', t: 18, end: 30, po: null },
+  { pitch: 'C5', v: '2', t: 24, end: 30, po: null },
+  { pitch: 'E5', v: '2', t: 30, end: 36, po: null },
+  { pitch: 'D5', v: '2', t: 36, end: 42, po: null },
+  { pitch: 'C5', v: '2', t: 42, end: 51, po: null },
+  { pitch: 'B4', v: '2', t: 51, end: 54, po: null }
+]
+flatten SKIPPED (overlap)
+flatten: single voice, skip
+=== XML m17 after REAL path ===
+  F4 v=1 po=1 lx=32.00
+  E5 v=1 po=null lx=132.00
+  F5 v=1 po=3 lx=182.00
+  <forward> dur=4 v=1
+  <forward> dur=4 v=1
+  <backup> dur=4 v=undefined
+  <forward> dur=2 v=2
+  F4 v=2 po=null lx=232.00
+  F4 v=2 po=4 lx=232.00
+  G4 v=2 po=5 lx=332.00
+  <forward> dur=2 v=2
+=== targets ===
+  F4 v=1 po=1 x=32
+  Bb4 v=1 po=1 x=32
+  D5 v=1 po=1 x=32
+  F5 v=1 po=3 x=182
+  F4 v=2 po=4 x=232
+  Bb4 v=2 po=4 x=232
+  D5 v=2 po=4 x=232
+  F5 v=2 po=4 x=232
+  G4 v=2 po=5 x=332
+  C5 v=2 po=5 x=332
+  E5 v=2 po=5 x=332
+  G5 v=2 po=5 x=332
+=== BEFORE ===
+  [F4,B4,D5] v=1 h=3 x=177.0 tr=null
+  [E5] v=1 h=1 x=195.0 tr=null
+  [F5] v=1 h=1 x=213.0 tr=null
+  [F4,B4] v=2 h=2 x=243.1 tr=null
+  [F4,B4,D5,F5] v=2 h=4 x=261.1 tr=null
+  [G4,C5,E5,G5] v=2 h=4 x=279.1 tr=null
+=== AFTER ===
+  [F4,B4,D5] v=1 h=3 x=177.0 tr=null
+  [E5] v=1 h=1 x=195.0 tr=null
+  [F5] v=1 h=1 x=213.0 tr=null
+  [F4,B4] v=2 h=2 x=243.1 tr=null
+  [F4,B4,D5,F5] v=2 h=4 x=261.1 tr=translate(-36.02431999999999, 0)
+  [G4,C5,E5,G5] v=2 h=4 x=279.1 tr=translate(-30.018239999999963, 0)

@@ -144,6 +144,10 @@ def extract_image(pdf_path, output_json_path):
 
             if not text.strip():
                 continue
+                
+            from merge_lyric_sources import is_meaningless_noise
+            if is_meaningless_noise(text):
+                continue
 
             xs = [p[0] for p in bbox]
             ys = [p[1] for p in bbox]

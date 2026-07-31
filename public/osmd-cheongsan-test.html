@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>OSMD cheongsan preview test</title>
+    <script src="https://unpkg.com/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
+    <style>
+      #host { width: 1200px; min-height: 4000px; border: 1px solid #ccc; }
+    </style>
+  </head>
+  <body>
+    <h1>Cheongsan HITL preview XML</h1>
+    <pre id="log"></pre>
+    <div id="host"></div>
+    <script>
+      const log = (m) => { document.getElementById('log').textContent += m + '\n'; };
+      async function main() {
+        const xml = await fetch('/cheongsan-preview.xml').then((r) => r.text());
+        log('xml bytes ' + xml.length);
+        log('has print ' + /<print/i.test(xml));
+        log('has measure width ' + /measure[^>]* width=/i.test(xml));
+        log('has default-x ' + /default-x=/i.test(xml));
+        const host = document.getElementById('host');
+        const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(host, {
+          autoResize: true,
+          backend: 'svg',
+          drawMeasureNumbers: true,
+          useXMLMeasureNumbers: true,
+        });
+        await osmd.load(xml);
+        osmd.zoom = 0.42;
+        osmd.render();
+        const sheet = osmd.graphic || osmd.GraphicSheet;
+        const pages = sheet?.MusicPages || [];
+        let m26 = 0, m27 = 0;
+        for (const page of pages) {
+          for (const sys of page.MusicSystems || []) {
+            for (const line of sys.StaffLines || []) {
+              for (const gm of line.Measures || []) {
+                const n = gm?.parentSourceMeasure?.MeasureNumberXML ?? gm?.MeasureNumber;
+                if (n === 26) m26++;
+                if (n === 27) m27++;
+              }
+            }
+          }
+        }
+        log('graphic m26 cells ' + m26 + ' m27 ' + m27);
+      }
+      main().catch((e) => log('ERR ' + e));
+    </script>
+  </body>
+</html>

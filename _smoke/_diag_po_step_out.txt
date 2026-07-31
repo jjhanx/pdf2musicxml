@@ -1,0 +1,141 @@
+﻿wrote
+--- after first repairTimeline (both staves)
+  F4 v1 po=1
+  E5 v1 po=2
+  F5 v1 po=3
+  backup dur 4 v undefined
+  forward dur 2 v 2
+  F4 v2 po=2
+  F4 v2 po=4
+  G4 v2 po=5
+  backup dur 8 v undefined
+  Bb2 v5 po=null
+  F3 v5 po=null
+  D4 v5 po=null
+  C3 v5 po=null
+  G3 v5 po=null
+  E4 v5 po=null
+  single-cursor po onsets {
+  '1': [ { pitch: 'F', onset: 0, v: '1' } ],
+  '2': [
+    { pitch: 'E', onset: 2, v: '1' },
+    { pitch: 'F', onset: 2, v: '2' }
+  ],
+  '3': [ { pitch: 'F', onset: 3, v: '1' } ],
+  '4': [ { pitch: 'F', onset: 4, v: '2' } ],
+  '5': [ { pitch: 'G', onset: 6, v: '2' } ]
+}
+--- after staff1 prune
+  F4 v1 po=1
+  E5 v1 po=2
+  F5 v1 po=3
+  backup dur 4 v undefined
+  forward dur 2 v 2
+  F4 v2 po=2
+  F4 v2 po=4
+  G4 v2 po=5
+  single-cursor po onsets {
+  '1': [ { pitch: 'F', onset: 0, v: '1' } ],
+  '2': [
+    { pitch: 'E', onset: 2, v: '1' },
+    { pitch: 'F', onset: 2, v: '2' }
+  ],
+  '3': [ { pitch: 'F', onset: 3, v: '1' } ],
+  '4': [ { pitch: 'F', onset: 4, v: '2' } ],
+  '5': [ { pitch: 'G', onset: 6, v: '2' } ]
+}
+reorder changed false
+--- after reorder
+  F4 v1 po=1
+  E5 v1 po=2
+  F5 v1 po=3
+  backup dur 4 v undefined
+  forward dur 2 v 2
+  F4 v2 po=2
+  F4 v2 po=4
+  G4 v2 po=5
+  single-cursor po onsets {
+  '1': [ { pitch: 'F', onset: 0, v: '1' } ],
+  '2': [
+    { pitch: 'E', onset: 2, v: '1' },
+    { pitch: 'F', onset: 2, v: '2' }
+  ],
+  '3': [ { pitch: 'F', onset: 3, v: '1' } ],
+  '4': [ { pitch: 'F', onset: 4, v: '2' } ],
+  '5': [ { pitch: 'G', onset: 6, v: '2' } ]
+}
+normalize changed false
+--- after normalize
+  F4 v1 po=1
+  E5 v1 po=2
+  F5 v1 po=3
+  backup dur 4 v undefined
+  forward dur 2 v 2
+  F4 v2 po=2
+  F4 v2 po=4
+  G4 v2 po=5
+  single-cursor po onsets {
+  '1': [ { pitch: 'F', onset: 0, v: '1' } ],
+  '2': [
+    { pitch: 'E', onset: 2, v: '1' },
+    { pitch: 'F', onset: 2, v: '2' }
+  ],
+  '3': [ { pitch: 'F', onset: 3, v: '1' } ],
+  '4': [ { pitch: 'F', onset: 4, v: '2' } ],
+  '5': [ { pitch: 'G', onset: 6, v: '2' } ]
+}
+sanitize changed false
+--- after sanitize only
+  F4 v1 po=1
+  E5 v1 po=2
+  F5 v1 po=3
+  backup dur 4 v undefined
+  forward dur 2 v 2
+  F4 v2 po=2
+  F4 v2 po=4
+  G4 v2 po=5
+  single-cursor po onsets {
+  '1': [ { pitch: 'F', onset: 0, v: '1' } ],
+  '2': [
+    { pitch: 'E', onset: 2, v: '1' },
+    { pitch: 'F', onset: 2, v: '2' }
+  ],
+  '3': [ { pitch: 'F', onset: 3, v: '1' } ],
+  '4': [ { pitch: 'F', onset: 4, v: '2' } ],
+  '5': [ { pitch: 'G', onset: 6, v: '2' } ]
+}
+--- after realign
+  F4 v1 po=1
+  E5 v1 po=2
+  F5 v1 po=3
+  backup dur 4 v undefined
+  forward dur 2 v 2
+  F4 v2 po=2
+  F4 v2 po=4
+  G4 v2 po=5
+  single-cursor po onsets {
+  '1': [ { pitch: 'F', onset: 0, v: '1' } ],
+  '2': [
+    { pitch: 'E', onset: 2, v: '1' },
+    { pitch: 'F', onset: 2, v: '2' }
+  ],
+  '3': [ { pitch: 'F', onset: 3, v: '1' } ],
+  '4': [ { pitch: 'F', onset: 4, v: '2' } ],
+  '5': [ { pitch: 'G', onset: 6, v: '2' } ]
+}
+--- after second repair+underfull pass
+  F4 v1 po=1
+  E5 v1 po=null
+  F5 v1 po=3
+  forward dur 4 v 1
+  backup dur 4 v undefined
+  forward dur 2 v 2
+  F4 v2 po=null
+  F4 v2 po=4
+  G4 v2 po=5
+  single-cursor po onsets {
+  '1': [ { pitch: 'F', onset: 0, v: '1' } ],
+  '3': [ { pitch: 'F', onset: 3, v: '1' } ],
+  '4': [ { pitch: 'F', onset: 8, v: '2' } ],
+  '5': [ { pitch: 'G', onset: 10, v: '2' } ]
+}

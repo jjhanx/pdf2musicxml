@@ -1,0 +1,18 @@
+P1 ref measure syllable counts:
+  m8: syllables=1 notes=1
+  m9: syllables=6 notes=6
+  m10: syllables=2 notes=2
+  m11: syllables=4 notes=4
+  m12: syllables=5 notes=5
+  m13: syllables=5 notes=5
+  m14: syllables=3 notes=3
+  m15: syllables=5 notes=5
+  m16: syllables=1 notes=1
+  m17: syllables=4 notes=4
+  m18: syllables=5 notes=5
+  m19: syllables=6 notes=6
+  m20: syllables=5 notes=5
+P1: 400 total syllables, blocks=42
+P2: 24 total syllables, blocks=3
+P3: 20 total syllables, blocks=3
+P4: 19 total syllables, blocks=3

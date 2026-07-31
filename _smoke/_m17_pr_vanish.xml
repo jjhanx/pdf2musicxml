@@ -1,0 +1,148 @@
+<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P5"><part-name/></score-part></part-list><part id="P5"><measure number="17" width="277">
+      <print new-system="yes">
+        <system-layout>
+          <system-margins>
+            <left-margin>183</left-margin>
+            <right-margin>158</right-margin>
+          </system-margins>
+          <system-distance>90</system-distance>
+        </system-layout>
+        <staff-layout number="1">
+          <staff-distance>120</staff-distance>
+        </staff-layout>
+        <staff-layout number="2">
+          <staff-distance>59</staff-distance>
+        </staff-layout>
+      </print>
+      <attributes>
+        <staff-details print-object="yes"/>
+      </attributes>
+      <note default-x="32.00" data-hitl-play-order="2" data-osmd-orig-default-x="68" data-osmd-onset-units="0">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+        <stem default-y="23">up</stem>
+        <staff>1</staff>
+      </note>
+      <note default-x="32.00" data-hitl-play-order="2" data-osmd-orig-default-x="68" data-osmd-onset-units="0">
+        <chord/>
+        <pitch>
+          <step>B</step>
+          <alter>-1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+        <stem default-y="23">up</stem>
+        <staff>1</staff>
+      </note>
+      <note default-x="32.00" data-hitl-play-order="2" data-osmd-orig-default-x="68" data-osmd-onset-units="0">
+        <chord/>
+        <pitch>
+          <step>D</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+        <stem default-y="23">up</stem>
+        <staff>1</staff>
+      </note>
+      <note default-x="32.00" data-hitl-play-order="2" data-osmd-orig-default-x="118" data-osmd-onset-units="2">
+        <pitch>
+          <step>E</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>1</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <stem default-y="31">up</stem>
+        <staff>1</staff>
+        <beam number="1">begin</beam>
+      </note>
+      <note default-x="132.00" data-osmd-orig-default-x="143" data-osmd-onset-units="3">
+        <pitch>
+          <step>F</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>1</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <stem default-y="31">up</stem>
+        <staff>1</staff>
+        <beam number="1">end</beam>
+      </note>
+      <backup>
+        <duration>4</duration>
+      </backup>
+      <forward>
+        <duration>2</duration>
+        <voice>2</voice>
+        <staff>1</staff>
+      </forward>
+      
+      
+      
+      
+      
+      
+      <note default-x="232.00" data-osmd-orig-default-x="216" data-osmd-onset-units="2">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-63">down</stem>
+        <staff>1</staff>
+      </note>
+      <note default-x="232.00" data-osmd-orig-default-x="215" data-osmd-onset-units="2">
+        <chord/>
+        <pitch>
+          <step>C</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-63">down</stem>
+        <staff>1</staff>
+      </note>
+      <note default-x="232.00" data-osmd-orig-default-x="216" data-osmd-onset-units="2">
+        <chord/>
+        <pitch>
+          <step>E</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-63">down</stem>
+        <staff>1</staff>
+      </note>
+      <note default-x="232.00" data-osmd-orig-default-x="216" data-osmd-onset-units="2">
+        <chord/>
+        <pitch>
+          <step>G</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-63">down</stem>
+        <staff>1</staff>
+      </note>
+      
+      
+      
+      
+      
+      
+      
+    </measure></part></score-partwise>

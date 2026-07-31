@@ -1,0 +1,9 @@
+﻿wrote
+=== BEFORE align (m2) ===
+  [F5] heads=1 avg=177.0 stem=null xs=177
+  [C5] heads=1 avg=195.0 stem=null xs=195
+  [A4,C5,F5] heads=3 avg=213.0 stem=213.8 xs=213,213,213
+  [B4,C5] heads=2 avg=237.4 stem=243.8 xs=231.8,243.1
+  [B4,D5,A5] heads=3 avg=261.1 stem=261.8 xs=261.1,261.1,261.1
+=== AFTER (avg still) ??check class names ===
+sample innerHTML classes [ 'vf-note', 'vf-notehead', 'vf-modifiers' ]

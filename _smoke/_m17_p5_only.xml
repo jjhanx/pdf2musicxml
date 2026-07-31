@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1"><part-list><score-part id="P5"><part-name>Piano</part-name></score-part></part-list><part id="P5"><measure number="17">
+      
+      <print xmlns="http://www.musicxml.org/ns/partwise" new-system="yes"/><attributes>
+        <staff-details print-object="yes"/>
+      </attributes>
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+    <note data-osmd-orig-default-x="32.00" default-x="32.00">
+        <pitch>
+          <step>D</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+        <stem default-y="23">up</stem>
+        
+      </note><note data-osmd-orig-default-x="232.00" default-x="232.00">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+        <stem default-y="23">up</stem>
+        
+      </note><note data-osmd-orig-default-x="232.00" default-x="232.00">
+        <chord xmlns="http://www.musicxml.org/ns/partwise"/><pitch>
+          <step>E</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>1</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <stem default-y="31">up</stem>
+        
+        
+      </note><note data-osmd-orig-default-x="232.00" default-x="232.00">
+        <chord/>
+        <pitch>
+          <step>B</step>
+          <alter>-1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+        <stem default-y="23">up</stem>
+        
+      </note><note data-osmd-orig-default-x="432.00" default-x="432.00">
+        <pitch>
+          <step>F</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>1</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <stem default-y="31">up</stem>
+        
+        <beam number="1">end</beam>
+      </note><backup xmlns="http://www.musicxml.org/ns/partwise"><duration>4</duration></backup><forward><duration>2</duration><voice>2</voice></forward><forward>
+        <duration>2</duration>
+        <voice>2</voice>
+        
+      </forward><note data-osmd-orig-default-x="432.00" default-x="432.00">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-67">down</stem>
+        
+      </note><note data-osmd-orig-default-x="432.00" default-x="432.00">
+        <chord/>
+        <pitch>
+          <step>B</step>
+          <alter>-1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-67">down</stem>
+        
+      </note><note data-osmd-orig-default-x="632.00" default-x="632.00">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-67">down</stem>
+        
+      </note><note data-osmd-orig-default-x="632.00" default-x="632.00">
+        <chord/>
+        <pitch>
+          <step>B</step>
+          <alter>-1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-67">down</stem>
+        
+      </note><note data-osmd-orig-default-x="632.00" default-x="632.00">
+        <chord/>
+        <pitch>
+          <step>D</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-67">down</stem>
+        
+      </note><note data-osmd-orig-default-x="632.00" default-x="632.00">
+        <chord/>
+        <pitch>
+          <step>F</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-67">down</stem>
+        
+      </note><note data-osmd-orig-default-x="832.00" default-x="832.00">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-63">down</stem>
+        
+      </note><note data-osmd-orig-default-x="832.00" default-x="832.00">
+        <chord/>
+        <pitch>
+          <step>C</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-63">down</stem>
+        
+      </note><note data-osmd-orig-default-x="832.00" default-x="832.00">
+        <chord/>
+        <pitch>
+          <step>E</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-63">down</stem>
+        
+      </note><note data-osmd-orig-default-x="832.00" default-x="832.00">
+        <chord/>
+        <pitch>
+          <step>G</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
+        <voice>2</voice>
+        <type>quarter</type>
+        <stem default-y="-63">down</stem>
+        
+      </note></measure></part></score-partwise>

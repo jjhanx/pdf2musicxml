@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OSMD Preview</title>
+    <script src="https://unpkg.com/opensheetmusicdisplay@1.8.8/build/opensheetmusicdisplay.min.js"></script>
+</head>
+<body>
+    <div id="osmd-container"></div>
+    <script>
+        const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmd-container");
+        fetch('_cheongsan_preview_dump.xml')
+            .then(res => res.text())
+            .then(xml => osmd.load(xml))
+            .then(() => osmd.render())
+            .catch(err => console.error(err));
+    </script>
+</body>
+</html>

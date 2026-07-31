@@ -1,0 +1,33 @@
+﻿=== manifest.json ===
+{
+  "version": 1,
+  "exportedAt": "2026-07-01T07:02:12.258Z",
+  "originalName": "?댟좉??④렐혻4遺혻10履?pdf"
+}
+=== omr_hitl_fixes.json ===
+{
+  "version": 1,
+  "fixes": [],
+  "savedAt": "2026-07-01T06:57:34.404Z"
+}
+=== omr_hitl_checkpoint.json ===
+{
+  "version": 2,
+  "rebuiltAt": "2026-07-01T06:57:34.484Z",
+  "syncMode": "incremental",
+  "hitlApplied": 1,
+  "hitlSkipped": 0,
+  "pendingCleared": 1
+}
+=== part_labels.json ===
+{
+  "version": 1,
+  "labelsByIndex": [
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "P"
+  ],
+  "savedAt": "2026-07-01T05:33:27.204Z"
+}

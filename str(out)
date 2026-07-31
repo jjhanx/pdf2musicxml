@@ -1,0 +1,45 @@
+{
+  "v": 3,
+  "pipeline": "font_separator",
+  "sources": {
+    "pdfplumber": true,
+    "pymupdfReview": true
+  },
+  "matchStats": {
+    "pdfplumberLines": 0,
+    "pymupdfItems": 1,
+    "mergedFromBoth": 0,
+    "pdfplumberOnly": 0,
+    "pymupdfOnly": 1
+  },
+  "items": [
+    {
+      "id": "t1",
+      "page": 1,
+      "text": "가",
+      "type": "lyrics",
+      "bbox": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "provenance": "pymupdf_only"
+    }
+  ],
+  "pymupdfReviewItems": [
+    {
+      "id": "t1",
+      "page": 1,
+      "text": "가",
+      "type": "lyrics",
+      "bbox": [
+        1,
+        2,
+        3,
+        4
+      ]
+    }
+  ],
+  "manualLyricRects": []
+}

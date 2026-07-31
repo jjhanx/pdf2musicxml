@@ -1,0 +1,8 @@
+﻿wrote
+m17 graphic { x: 11.5556640625, y: 319, w: -16.5556640625, h: 10.5 }
+  staffEntry x= 18.300768062499998 pitches [ 'fn/4', 'bn/4', 'dn/5' ]
+  staffEntry x= 20.1025920625 pitches [ 'en/5', 'fn/4', 'bn/4' ]
+  staffEntry x= 21.904416062499998 pitches [ 'fn/5' ]
+  staffEntry x= 23.706240062499997 pitches [ 'fn/4', 'bn/4', 'dn/5', 'fn/5' ]
+  staffEntry x= 25.508064062499997 pitches [ 'gn/4', 'cn/5', 'en/5', 'gn/5' ]
+m17 graphic { x: 11.5556640625, y: 327, w: -16.5556640625, h: 4 }

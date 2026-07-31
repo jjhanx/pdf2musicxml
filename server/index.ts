@@ -2974,6 +2974,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       );
       outputs = [mxlPath];
       mxlForInject = [mxlPath];
+      importedMxlFromZip = true;
       skipAudiverisEngine = true;
       if (job.resumeLyricManifestPath && fsSync.existsSync(job.resumeLyricManifestPath)) {
         await fs.copyFile(job.resumeLyricManifestPath, lyricManifestPath);
@@ -3042,6 +3043,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       );
       outputs = [mxlPath];
       mxlForInject = [mxlPath];
+      importedMxlFromZip = true;
       skipAudiverisEngine = true;
       pauseForAudiverisReview = false;
 

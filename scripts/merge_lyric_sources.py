@@ -59,10 +59,13 @@ def is_meaningless_noise(text: str) -> bool:
             
     extended_noise_pool = noise_seed | {'i', 'm', 'n', 'fk', 't', 'd', 's'}
     
+    # 추가 조건: tempo mark 형태 (=82, = 82, q=82 등) 포함 시
+    if re.search(r'(=|≈)\s*\d+', text) or re.search(r'[A-Za-z]\s*=\s*\d+', text):
+        return True
+        
     # 조건 C: 노이즈 문자와 유효한 음악 기호, 숫자만이 섞여 있는 경우
-    if len(words) > 1 and all((w in extended_noise_pool or w in _VALID_MUSIC_TERMS or w.isdigit()) for w in lower_words):
-        if any(w in noise_seed for w in lower_words):
-            return True
+    if len(words) >= 1 and all((w in extended_noise_pool or w in _VALID_MUSIC_TERMS or w.isdigit()) for w in lower_words):
+        return True
             
     # 조건 D: 단일 단어인데 노이즈 풀에 있는 소문자 노이즈 단어인 경우 (대문자 연습기호 J 등은 보존)
     if len(words) == 1 and words[0] in noise_seed:

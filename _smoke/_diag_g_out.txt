@@ -1,0 +1,48 @@
+﻿wrote
+=== m17 linked hints ===
+=== targets ===
+  F4 v=1 po=1 x=32
+  Bb4 v=1 po=1 x=32
+  D5 v=1 po=1 x=32
+  E5 v=1 po=2 x=132
+  F5 v=1 po=3 x=182
+  F4 v=2 po=2 x=132
+  Bb4 v=2 po=2 x=132
+  F4 v=2 po=4 x=232
+  Bb4 v=2 po=4 x=232
+  D5 v=2 po=4 x=232
+  F5 v=2 po=4 x=232
+  G4 v=2 po=5 x=332
+  C5 v=2 po=5 x=332
+  E5 v=2 po=5 x=332
+  G5 v=2 po=5 x=332
+=== m17 notes with attrs ===
+  F4 leader v=1 po=1 dx=null lx=32.00
+  B4 chord v=1 po=1 dx=null lx=32.00
+  D5 chord v=1 po=1 dx=null lx=32.00
+  E5 leader v=1 po=2 dx=null lx=132.00
+  F5 leader v=1 po=3 dx=null lx=182.00
+  F4 leader v=2 po=2 dx=null lx=132.00
+  B4 chord v=2 po=2 dx=null lx=132.00
+  F4 leader v=2 po=4 dx=null lx=232.00
+  B4 chord v=2 po=4 dx=null lx=232.00
+  D5 chord v=2 po=4 dx=null lx=232.00
+  F5 chord v=2 po=4 dx=null lx=232.00
+  G4 leader v=2 po=5 dx=null lx=332.00
+  C5 chord v=2 po=5 dx=null lx=332.00
+  E5 chord v=2 po=5 dx=null lx=332.00
+  G5 chord v=2 po=5 dx=null lx=332.00
+=== BEFORE ===
+  [F4,B4,D5] v=1 h=3 x=177.0 ts=0 tr=null
+  [E5] v=1 h=1 x=195.0 ts=0.25 tr=null
+  [F4,B4] v=2 h=2 x=195.0 ts=0.25 tr=null
+  [F5] v=1 h=1 x=213.0 ts=0.375 tr=null
+  [F4,B4,D5,F5] v=2 h=4 x=231.1 ts=0.5 tr=null
+  [G4,C5,E5,G5] v=2 h=4 x=249.1 ts=0.75 tr=null
+=== AFTER ===
+  [F4,B4,D5] v=1 h=3 x=177.0 ts=0 tr=null
+  [E5] v=1 h=1 x=195.0 ts=0.25 tr=translate(6.006080000000026, 0)
+  [F4,B4] v=2 h=2 x=195.0 ts=0.25 tr=translate(6.006080000000026, 0)
+  [F5] v=1 h=1 x=213.0 ts=0.375 tr=null
+  [F4,B4,D5,F5] v=2 h=4 x=231.1 ts=0.5 tr=translate(-6.006079999999997, 0)
+  [G4,C5,E5,G5] v=2 h=4 x=249.1 ts=0.75 tr=null

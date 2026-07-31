@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "exportedAt": "2026-07-15T02:27:37.601Z",
+  "originalName": "upload_clean_score.pdf",
+  "pdfIncluded": {
+    "cleanScore": true,
+    "input": true
+  }
+}

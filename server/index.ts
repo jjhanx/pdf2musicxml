@@ -1872,7 +1872,7 @@ async function importOmrWorkFromExtractDir(
   } else {
     throw new Error('ZIP에 review.mxl 또는 audiveris_raw.mxl이 없습니다');
   }
-  /** ZIP의 review.mxl이 예전 score patch 등으로 baseline/raw와 다를 수 있음 — sync 후 canonical review.mxl 갱신 */
+  /** ZIP의 review.mxl이 외부에서 수동으로 변경되었을 경우, 이를 새로운 baseline으로 삼아 수동 편집 내용을 보존합니다. */
   if (baselineSrc && reviewSrc) {
     try {
       const [baseBuf, reviewBuf] = await Promise.all([
@@ -1881,8 +1881,22 @@ async function importOmrWorkFromExtractDir(
       ]);
       if (!baseBuf.equals(reviewBuf)) {
         console.warn(
-          '[omr-work import] review.mxl ≠ omr_hitl_baseline.mxl — baseline(raw+HITL) 기준으로 동기화합니다',
+          '[omr-work import] review.mxl ≠ omr_hitl_baseline.mxl — 외부 수동 편집본을 우선하여 baseline을 갱신합니다',
         );
+        // 외부 프로그램 등으로 수작업 편집된 review.mxl이 존재하므로, 이를 scorePath와 baseline으로 덮어씌웁니다.
+        await fs.copyFile(reviewSrc, scorePath);
+        await fs.copyFile(reviewSrc, sessionHitlBaselineMxlPath(sessionRoot));
+
+        // syncOmrReviewMxl 단계에서 수동 편집본이 raw_audiveris 파일로 롤백되는 것을 방지하기 위해 checkpoint 조작
+        const checkpointPath = sessionOmrHitlCheckpointPath(sessionRoot);
+        let cp: { totalHitlApplied?: number } = { totalHitlApplied: 1 };
+        try {
+          if (fsSync.existsSync(checkpointPath)) {
+            cp = JSON.parse(await fs.readFile(checkpointPath, 'utf8')) as { totalHitlApplied?: number };
+          }
+          cp.totalHitlApplied = Math.max(cp.totalHitlApplied ?? 0, 1);
+        } catch {}
+        await fs.writeFile(checkpointPath, JSON.stringify(cp));
       }
     } catch {
       /* optional compare */

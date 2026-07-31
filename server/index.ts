@@ -2020,8 +2020,10 @@ async function enterOmrStaffHitlPhase(
       }
     }
   }
-  for (const p of mxlForInject) {
-    await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
+  if (!job.resumeOmrWorkZipPath) {
+    for (const p of mxlForInject) {
+      await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
+    }
   }
   job.preInjectMxlPaths = [...mxlForInject];
   console.log(`[job ${jobId}] Pausing for part label setup (성부 S/A/T/B…)…`);

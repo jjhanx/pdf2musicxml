@@ -75,6 +75,10 @@ def extract_vector(pdf_path, output_json_path, doc):
             if not merged_text:
                 continue
                 
+            from merge_lyric_sources import is_meaningless_noise
+            if is_meaningless_noise(merged_text):
+                continue
+                
             x_center = (min_x0 + max_x1) / 2
             y_center = (min_y0 + max_y1) / 2
             

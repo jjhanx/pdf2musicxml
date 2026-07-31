@@ -2949,6 +2949,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     let mxlForInject: string[] = [];
     let pauseForAudiverisReview = Boolean(job.pauseAfterAudiveris);
     let skipAudiverisEngine = false;
+    let importedMxlFromZip = false;
 
     if (startStage === 'omr_hitl') {
       if (!job.resumeOmrWorkZipPath || !fsSync.existsSync(job.resumeOmrWorkZipPath)) {
@@ -3340,7 +3341,6 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       }
     }
 
-    let importedMxlFromZip = false;
     if (
       startStage === 'full' &&
       job.resumeOmrWorkZipPath &&

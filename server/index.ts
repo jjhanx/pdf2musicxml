@@ -1872,35 +1872,45 @@ async function importOmrWorkFromExtractDir(
   } else {
     throw new Error('ZIP에 review.mxl 또는 audiveris_raw.mxl이 없습니다');
   }
-  /** ZIP의 review.mxl이 외부에서 수동으로 변경되었을 경우, 이를 새로운 baseline으로 삼아 수동 편집 내용을 보존합니다. */
-  if (baselineSrc && reviewSrc) {
-    try {
-      const [baseBuf, reviewBuf] = await Promise.all([
-        fs.readFile(baselineSrc),
-        fs.readFile(reviewSrc),
-      ]);
-      if (!baseBuf.equals(reviewBuf)) {
-        console.warn(
-          '[omr-work import] review.mxl ≠ omr_hitl_baseline.mxl — 외부 수동 편집본을 우선하여 baseline을 갱신합니다',
-        );
-        // 외부 프로그램 등으로 수작업 편집된 review.mxl이 존재하므로, 이를 scorePath와 baseline으로 덮어씌웁니다.
-        await fs.copyFile(reviewSrc, scorePath);
-        await fs.copyFile(reviewSrc, sessionHitlBaselineMxlPath(sessionRoot));
-
-        // syncOmrReviewMxl 단계에서 수동 편집본이 raw_audiveris 파일로 롤백되는 것을 방지하기 위해 checkpoint 조작
-        const checkpointPath = sessionOmrHitlCheckpointPath(sessionRoot);
-        let cp: { totalHitlApplied?: number } = { totalHitlApplied: 1 };
-        try {
-          if (fsSync.existsSync(checkpointPath)) {
-            cp = JSON.parse(await fs.readFile(checkpointPath, 'utf8')) as { totalHitlApplied?: number };
-          }
-          cp.totalHitlApplied = Math.max(cp.totalHitlApplied ?? 0, 1);
-        } catch {}
-        await fs.writeFile(checkpointPath, JSON.stringify(cp));
-      }
-    } catch {
-      /* optional compare */
+  let manualEditDetected = false;
+  if (reviewSrc) {
+    if (!baselineSrc) {
+      manualEditDetected = true;
+    } else {
+      try {
+        const [baseBuf, reviewBuf] = await Promise.all([
+          fs.readFile(baselineSrc),
+          fs.readFile(reviewSrc),
+        ]);
+        if (!baseBuf.equals(reviewBuf)) {
+          manualEditDetected = true;
+        }
+      } catch {}
     }
+  }
+
+  /** ZIP의 review.mxl이 외부에서 수동으로 변경되었을 경우(또는 baseline이 없을 경우), 이를 새로운 baseline으로 삼아 수동 편집 내용을 보존합니다. */
+  if (manualEditDetected && reviewSrc) {
+    console.warn(
+      '[omr-work import] review.mxl 수동 편집 감지 (또는 baseline 누락) — 외부 수동 편집본을 우선하여 baseline을 갱신합니다',
+    );
+    // 외부 프로그램 등으로 수작업 편집된 review.mxl이 존재하므로, 이를 scorePath와 baseline으로 덮어씌웁니다.
+    await fs.copyFile(reviewSrc, scorePath);
+    await fs.copyFile(reviewSrc, sessionHitlBaselineMxlPath(sessionRoot));
+
+    // syncOmrReviewMxl 단계에서 수동 편집본이 raw_audiveris 파일로 롤백되는 것을 방지하기 위해 checkpoint 조작
+    const checkpointPath = sessionOmrHitlCheckpointPath(sessionRoot);
+    let cp: { totalHitlApplied?: number } = { totalHitlApplied: 1 };
+    try {
+      if (fsSync.existsSync(checkpointPath)) {
+        cp = JSON.parse(await fs.readFile(checkpointPath, 'utf8')) as { totalHitlApplied?: number };
+      }
+      cp.totalHitlApplied = Math.max(cp.totalHitlApplied ?? 0, 1);
+    } catch {}
+    await fs.writeFile(checkpointPath, JSON.stringify(cp));
+
+    // 수동 편집된 review.mxl을 baseline으로 삼았으므로, 기존 fixes가 중복 적용되지 않도록 초기화합니다.
+    await writeOmrHitlFixes(sessionRoot, []);
   }
   const fixesAfterImport = await readOmrHitlFixes(sessionRoot);
   let stats: Awaited<ReturnType<typeof syncOmrReviewMxl>>;

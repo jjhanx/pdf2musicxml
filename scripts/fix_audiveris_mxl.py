@@ -2830,9 +2830,14 @@ def _repair_three_eighths_as_triplet(
     if triplet_saving <= 0:
         return 0
     fixed = 0
+    voice_end_times = _calculate_voice_end_times_robust(measure, ns)
     for (_, _voice), groups in _voice_groups(measure, ns).items():
         total = sum(_note_duration(g[0], ns) or 0 for g in groups)
-        if total != expected + triplet_saving:
+        staff = _note_voice_staff(groups[0][0], ns)[1] if groups else "1"
+        voice_end = voice_end_times.get((_voice, staff), 0)
+        
+        # If the voice itself overflows the measure perfectly by exactly triplet_saving
+        if voice_end != expected + triplet_saving and total != expected + triplet_saving:
             continue
         for i in range(len(groups) - 2):
             trio = groups[i : i + 3]
@@ -2845,8 +2850,10 @@ def _repair_three_eighths_as_triplet(
                 continue
             if not all(_note_duration(g[0], ns) == eighth for g in trio):
                 continue
-            if not any(_note_has_staccato(n, ns) for g in trio for n in g[1]):
-                continue
+            # Require staccato ONLY if the voice doesn't perfectly overflow by triplet_saving
+            if voice_end != expected + triplet_saving:
+                if not any(_note_has_staccato(n, ns) for g in trio for n in g[1]):
+                    continue
             for j, grp in enumerate(trio):
                 for n in grp[1]:
                     _clear_note_staccato(n, ns)
@@ -4879,9 +4886,9 @@ def _rebuild_piano_grand_staff_measures(part: ET.Element, ns: str) -> int:
     return rebuilt
 
 
-def _calculate_staff1_duration_robust(measure: ET.Element, ns: str) -> int:
+def _calculate_voice_end_times_robust(measure: ET.Element, ns: str) -> dict[tuple[str, str], int]:
     time_cursors = {}
-    max_staff1_time = 0
+    max_time_per_voice = {}
     for el in measure:
         tag = local_tag(el)
         if tag == "note":
@@ -4893,8 +4900,7 @@ def _calculate_staff1_duration_robust(measure: ET.Element, ns: str) -> int:
             if not is_chord and not is_grace:
                 new_time = current_time + dur
                 time_cursors[(voice, staff)] = new_time
-                if staff == "1":
-                    max_staff1_time = max(max_staff1_time, new_time)
+                max_time_per_voice[(voice, staff)] = max(max_time_per_voice.get((voice, staff), 0), new_time)
         elif tag == "backup":
             dur = 0
             dur_el = el.find(qname(ns, "duration"))
@@ -4916,9 +4922,12 @@ def _calculate_staff1_duration_robust(measure: ET.Element, ns: str) -> int:
             if s_el is not None and s_el.text:
                 staff = s_el.text.strip()
             time_cursors[(voice, staff)] = time_cursors.get((voice, staff), 0) + dur
-            if staff == "1":
-                max_staff1_time = max(max_staff1_time, time_cursors[(voice, staff)])
-    return max_staff1_time
+            max_time_per_voice[(voice, staff)] = max(max_time_per_voice.get((voice, staff), 0), time_cursors[(voice, staff)])
+    return max_time_per_voice
+
+def _calculate_staff1_duration_robust(measure: ET.Element, ns: str) -> int:
+    time_cursors = _calculate_voice_end_times_robust(measure, ns)
+    return max([v for k, v in time_cursors.items() if k[1] == "1"], default=0)
 
 
 def _align_staves_timeline(measure: ET.Element, ns: str) -> None:
@@ -5077,6 +5086,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 stats["quarter_pair_eighth_fixed"] += _repair_quarter_before_eighth_rest_overfull(
                     measure, ns, divisions or 0, expected or 0
                 )
+            stats["three_eighth_triplet_fixed"] += _repair_three_eighths_as_triplet(
+                measure, ns, max_staff, divisions or 0, expected or 0
+            )
             if rhythm_mode in ("legacy", "beams") and _measure_rhythm_repairable(
                 measure, ns, expected or 0, divisions or 0
             ):
@@ -5122,9 +5134,6 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     )
                     stats["two_quarter_voice_eighth_fixed"] += _repair_two_quarter_voice_as_eighths(
                         measure, ns, divisions or 0, expected or 0
-                    )
-                    stats["three_eighth_triplet_fixed"] += _repair_three_eighths_as_triplet(
-                        measure, ns, max_staff, divisions or 0, expected or 0
                     )
                     stats["rest_eighth_triplet_fixed"] += _repair_eighth_rest_plus_two_eighths_triplet(
                         measure, ns, max_staff, divisions or 0, expected or 0

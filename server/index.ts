@@ -3384,8 +3384,6 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         await ensureAudiverisRawBackup(p, job.sessionRoot);
         if (job.enableOmrStaffReview === false) {
           await postprocessAudiverisMxlInScoreFile(p, pythonBin, job.sessionRoot);
-        } else {
-          await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
         }
       }
     }
@@ -3468,16 +3466,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     }
     }
 
-    // Audiveris가 점을 <dot> 없이 duration에만 반영해 내보내는 경우(미리보기에 "없던 점")를
-    // 검토 전에 자동 정규화 — 마디 길이 초과분만 보수적으로 줄인다.
-    if (skipAudiverisEngine) {
-      for (const p of mxlForInject) {
-        await ensureAudiverisRawBackup(p, job.sessionRoot);
-        if (job.enableOmrStaffReview !== false) {
-          await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
-        }
-      }
-    }
+
 
     if (startStage !== 'lyric_inject') {
       await enterOmrStaffHitlPhase(

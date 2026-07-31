@@ -67,6 +67,11 @@ def is_meaningless_noise(text: str) -> bool:
     # 조건 D: 단일 단어인데 노이즈 풀에 있는 소문자 노이즈 단어인 경우 (대문자 연습기호 J 등은 보존)
     if len(words) == 1 and words[0] in noise_seed:
         return True
+        
+    # 조건 E: 모든 단어가 1글자이고 2개 이상일 때, a/i/o 같은 정상적인 영어 1글자 단어가 없다면 노이즈 (예: f D)
+    if len(words) >= 2 and all(len(w) == 1 for w in words):
+        if not any(w in ('a', 'i', 'o') for w in lower_words):
+            return True
             
     return False
 

@@ -16,6 +16,37 @@ Y_TOLERANCE_PT = 4.0
 IOU_MATCH_THRESHOLD = 0.25
 _MEASURE_NUM_RE = re.compile(r"^\d{1,3}$")
 
+_VALID_MUSIC_TERMS = {
+    "p", "mp", "mf", "f", "ff", "fff", "sfz", 
+    "cresc.", "dim.", "rit.", "accel.", "a tempo",
+    "cresc", "dim", "rit", "accel", 
+    "soprano", "alto", "tenor", "bass", 
+    "solo", "tutti", "divisi", "unis", "div", "unis."
+}
+
+def is_meaningless_noise(text: str) -> bool:
+    """PDF 추출 텍스트 중 악보 기호 폰트로 인해 발생한 잡다한(무의미한) 텍스트인지 판별합니다."""
+    text = text.strip()
+    if not text:
+        return True
+    
+    # 1. PUA (Private Use Area) / SMuFL 문자는 정상적인 가사나 텍스트가 아님
+    if any(0xE000 <= ord(c) <= 0xF8FF or ord(c) >= 0xF0000 for c in text):
+        return True
+        
+    # 2. 라틴 알파벳과 공백/기호로만 이루어진 노이즈 (예: "k k k", "l l l", "bf D")
+    if re.fullmatch(r'[A-Za-z\s.,]+', text):
+        words = text.lower().replace('.', '').split()
+        if all(w not in _VALID_MUSIC_TERMS for w in words):
+            # 의미 있는 음악 용어가 없는데, 모두 1~2글자짜리라면 노이즈로 간주
+            if all(len(w) <= 2 for w in words):
+                return True
+            # 특수한 단일 악보 기호 패턴 (PyMuPDF가 주로 뱉는 k, l, jz 등)
+            if any(w in ('jz', 'k', 'l', 'bf', 'af', 'j', 't', 'd', 's', 'm', 'n') for w in words):
+                return True
+                
+    return False
+
 
 def is_measure_number_item(item: dict[str, Any]) -> bool:
     """악보 좌측 마디 번호(14, 17 등) — 가사 주입 대상이 아님."""
@@ -404,6 +435,10 @@ def build_initial_review_items(
             item["type"] = "measure_number"
         else:
             item["type"] = "unknown"
+            
+        if is_meaningless_noise(str(item.get("text") or "")):
+            continue
+            
         base.append(item)
 
     if not extracted_pages:
@@ -440,7 +475,9 @@ def build_initial_review_items(
                 extra["type"] = "measure_number"
             else:
                 extra["type"] = "unknown"
-            base.append(extra)
+                
+            if not is_meaningless_noise(str(extra.get("text") or "")):
+                base.append(extra)
 
     base.sort(key=lyric_reading_sort_key)
     return base
@@ -474,8 +511,11 @@ def merge_sources(
             continue
         extra = dict(it)
         extra["provenance"] = "pymupdf_only"
-        merged_items.append(extra)
+        if not is_meaningless_noise(str(extra.get("text") or "")):
+            merged_items.append(extra)
 
+    # 마지막으로 한 번 더 merged_items 전체를 필터링
+    merged_items = [x for x in merged_items if not is_meaningless_noise(str(x.get("text") or ""))]
     merged_items.sort(key=lyric_reading_sort_key)
 
     match_stats = {

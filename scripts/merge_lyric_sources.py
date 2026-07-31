@@ -45,27 +45,28 @@ def is_meaningless_noise(text: str) -> bool:
         return True # 기호만 있던 문자열은 노이즈
         
     lower_words = [w.lower() for w in words]
-    noise_pool = {'j', 'k', 'l', 'bf', 'af', 'jz', 'kz'}
+    noise_seed = {'j', 'k', 'l', 'bf', 'af', 'jz', 'kz'}
     
     # 조건 A: 명백한 반복 문자 노이즈 (kk, kkk, jjj 등)가 하나라도 포함되어 있는지
     for w in lower_words:
         if len(w) >= 2 and len(set(w)) == 1 and w not in _VALID_MUSIC_TERMS:
             return True
             
-    # 조건 B: 모두 단일 문자로 이루어져 있고 그 중 노이즈 문자가 포함된 연속된 문자열인지
-    if len(words) > 1:
-        if all(len(w) == 1 for w in words):
-            if any(w.lower() in noise_pool for w in words):
-                return True
-    else:
-        # 단일 단어인데 노이즈 풀에 있는 소문자 노이즈 단어인 경우 (대문자 연습기호 J 등은 보존)
-        if words[0] in noise_pool:
+    # 조건 B: 문자열이 모두 1~2글자의 짧은 단어들로만 이루어져 있고, 그 중 확실한 노이즈 시드가 하나라도 있는 경우
+    if len(words) > 1 and all(len(w) <= 2 for w in words):
+        if any(w in noise_seed for w in lower_words):
             return True
             
+    extended_noise_pool = noise_seed | {'i', 'm', 'n', 'fk', 't', 'd', 's'}
+    
     # 조건 C: 노이즈 문자와 유효한 음악 기호, 숫자만이 섞여 있는 경우
-    if len(words) > 1 and all((w in noise_pool or w in _VALID_MUSIC_TERMS or w.isdigit()) for w in lower_words):
-        if any(w in noise_pool for w in lower_words):
+    if len(words) > 1 and all((w in extended_noise_pool or w in _VALID_MUSIC_TERMS or w.isdigit()) for w in lower_words):
+        if any(w in noise_seed for w in lower_words):
             return True
+            
+    # 조건 D: 단일 단어인데 노이즈 풀에 있는 소문자 노이즈 단어인 경우 (대문자 연습기호 J 등은 보존)
+    if len(words) == 1 and words[0] in noise_seed:
+        return True
             
     return False
 

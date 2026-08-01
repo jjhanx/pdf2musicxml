@@ -239,8 +239,15 @@ const NAVIGATION_TAG_LABELS: Record<string, string> = {
 
 export function navigationDirectionLabel(type?: string, value?: string): string {
   const t = (type || '').trim();
-  if (NAVIGATION_TAG_LABELS[t]) return NAVIGATION_TAG_LABELS[t];
-  return (value || t || '').trim();
+  const v = (value || '').trim();
+  if (NAVIGATION_TAG_LABELS[t]) {
+    // If value is provided and has extra info (not just the type name), append it
+    if (v && v !== t && v !== NAVIGATION_TAG_LABELS[t]) {
+      return `${NAVIGATION_TAG_LABELS[t]} (${v})`;
+    }
+    return NAVIGATION_TAG_LABELS[t];
+  }
+  return (v || t || '').trim();
 }
 
 export function isNavigationDirectionType(type?: string, value?: string): boolean {

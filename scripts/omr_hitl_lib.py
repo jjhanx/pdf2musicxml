@@ -672,11 +672,15 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
             if pl in ("above", "below"):
                 out["placement"] = pl
             return out
+    has_segno_tag = any(dt.find(_q(ns, "segno")) is not None for dt in direction.findall(_q(ns, "direction-type")))
+    has_coda_tag = any(dt.find(_q(ns, "coda")) is not None for dt in direction.findall(_q(ns, "direction-type")))
+
     # sound 속성 — MusicXML 표준 To Coda / Fine / D.C. / D.S.
     for sound in direction.findall(_q(ns, "sound")):
         if sound.get("tocoda"):
             pl = (direction.get("placement") or "").strip()
-            out = {"directionType": "tocoda", "directionValue": "tocoda"}
+            val = "비표준 기호 혼합(Coda)" if has_coda_tag else "tocoda"
+            out = {"directionType": "tocoda", "directionValue": val}
             if pl in ("above", "below"):
                 out["placement"] = pl
             return out
@@ -694,37 +698,38 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
             return out
         if sound.get("dalsegno"):
             pl = (direction.get("placement") or "").strip()
-            out = {"directionType": "dalsegno", "directionValue": "dalsegno"}
+            val = "비표준 기호 혼합(Segno)" if has_segno_tag else "dalsegno"
+            out = {"directionType": "dalsegno", "directionValue": val}
             if pl in ("above", "below"):
                 out["placement"] = pl
             return out
     # 빈 <segno/> / <coda/> (To Coda의 뒤따르는 <coda/>는 sound/words로 이미 처리)
     for tag in ("segno", "coda"):
         if dtype.find(_q(ns, tag)) is not None:
-            # To Coda: words + coda 기호 — coda만 보면 안 됨
-            words_el = dtype.find(_q(ns, "words"))
-            words_txt = (words_el.text or "").strip() if words_el is not None else ""
-            if tag == "coda" and re.search(r"to\s*coda", words_txt, re.I):
-                pl = (direction.get("placement") or "").strip()
-                out = {"directionType": "tocoda", "directionValue": "tocoda"}
-                if pl in ("above", "below"):
-                    out["placement"] = pl
-                return out
-            # 다른 direction-type에 To Coda words가 있으면 tocoda
-            has_tocoda_words = False
+            words_txt = ""
             for dt in direction.findall(_q(ns, "direction-type")):
                 w = dt.find(_q(ns, "words"))
-                if w is not None and w.text and re.search(r"to\s*coda", w.text, re.I):
-                    has_tocoda_words = True
-                    break
-            if tag == "coda" and has_tocoda_words:
+                if w is not None and w.text:
+                    words_txt += " " + w.text.strip()
+            words_txt = words_txt.strip()
+            
+            if tag == "coda" and re.search(r"to\s*coda", words_txt, re.I):
                 pl = (direction.get("placement") or "").strip()
-                out = {"directionType": "tocoda", "directionValue": "tocoda"}
+                out = {"directionType": "tocoda", "directionValue": "비표준 기호 혼합(To Coda+기호)"}
                 if pl in ("above", "below"):
                     out["placement"] = pl
                 return out
+                
+            val = tag
+            if words_txt:
+                if re.search(r"d\.s\.", words_txt, re.I) and tag == "segno":
+                    val = "비표준 기호 혼합(D.S.+기호)"
+                    tag = "dalsegno"
+                else:
+                    val = f"{tag} + '{words_txt}'"
+                    
             pl = (direction.get("placement") or "").strip()
-            out = {"directionType": tag, "directionValue": tag}
+            out = {"directionType": tag, "directionValue": val}
             if pl in ("above", "below"):
                 out["placement"] = pl
             return out
@@ -3410,19 +3415,14 @@ def _build_direction_element(
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         ET.SubElement(dtype, _q(ns, "segno"))
     elif kind == "coda":
-        # words + coda — OSMD는 첫 direction-type만 보므로 words "Coda"로 인식
+        # MusicXML 표준: 마커는 <coda/> 만
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
-        words = ET.SubElement(dtype, _q(ns, "words"))
-        words.text = "Coda"
-        dtype2 = ET.SubElement(direction, _q(ns, "direction-type"))
-        ET.SubElement(dtype2, _q(ns, "coda"))
+        ET.SubElement(dtype, _q(ns, "coda"))
     elif kind == "tocoda":
-        # MusicXML: words + coda 기호 + sound@tocoda (빈 <tocoda/> 아님)
+        # MusicXML 표준: 점프는 words + sound@tocoda (Coda 기호를 함께 넣으면 루프 오류 발생)
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         words = ET.SubElement(dtype, _q(ns, "words"))
         words.text = "To Coda"
-        dtype2 = ET.SubElement(direction, _q(ns, "direction-type"))
-        ET.SubElement(dtype2, _q(ns, "coda"))
         sound = ET.SubElement(direction, _q(ns, "sound"))
         sound.set("tocoda", "coda")
     elif kind == "fine":

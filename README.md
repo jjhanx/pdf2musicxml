@@ -302,6 +302,7 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 - **HTTP(평문) 접속**: `crypto.randomUUID()`는 보안 컨텍스트에서만 안전하게 쓰이므로, 평문 HTTP에서는 대체 ID 생성으로 처리합니다.
 - **변환 버튼이 반응 없음(그 외)**: 브라우저별로 드롭 직후 `FileList`가 비는 경우가 있어 `DataTransfer.items` 경로를 추가했습니다. 서버는 정적 파일이 `/api`를 덮지 않도록 정리되어 있습니다.
 - **OMR HITL 「이어하기」 후 가사 검증 모달이 안 뜸**: (1) **「OMR·HITL 후 PyMuPDF 가사 검증·편집」** 체크. (2) OMR 패널에서 **「이어하기」** 필수. (3) 세션에 **원본 PDF**(`input.pdf`) — omr-work ZIP 포함 또는 1단계 업로드. `clean_score_only`만 있으면 서버가 단계 생략(작업 표 `가사 검증 생략…`). (4) Audiveris 보정 대기가 먼저일 수 있음. `npm run build` + `pm2 restart pdf2mxl`. 상세: [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)
+- **omr-work.zip을 고쳤는데 최종 병합에 반영되지 않음**: OMR 검토 화면의 편집은 세션의 `review.mxl`에 쌓이고, 예전에는 가사 주입·최종 출력이 별도 MXL을 써서 **가져온 시점의 악보**로 병합될 수 있었습니다. 최신 서버는 검토를 끝낼 때 교정본을 주입 대상 MXL에 반영하고, `자동 정리`·HITL 보정이 담긴 baseline을 `audiveris_raw.mxl`로 되돌리지 않습니다. `npm run build` + `pm2 restart pdf2mxl` 후 다시 시도하세요. 상세: [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)
 - **다운로드된 ZIP 파일 이름이 `ë__Â...` 또는 `_@…`처럼 깨지는 현상**: 멀티파트 `filename*` / `filename` 조합과 **Latin-1 오해석**이 겹칠 때 발생할 수 있습니다. 최신 서버는 UTF-8·NFC·한글·대체 문자를 고려해 디코딩합니다. 여전히 깨지면 **브라우저·역프록시가 `Content-Disposition`을 어떻게 전달하는지**(인코딩 헤더 절단 여부)를 확인하세요.
 
 ## 프로젝트 구조

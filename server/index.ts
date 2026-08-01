@@ -62,6 +62,10 @@ import {
   parsePrintedMeasureMarkersFromManifest,
   type PrintedMeasureMarker,
 } from '../shared/printedMeasureNumbers.js';
+import {
+  planHitlResultPropagation,
+  shouldRestoreOmrScoreFromRaw,
+} from '../shared/omrHitlScoreSync.js';
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -666,7 +670,9 @@ function sessionReviewMxlPath(sessionRoot: string): string {
 
 async function mirrorSessionReviewMxl(sessionRoot: string, scorePath: string): Promise<void> {
   if (!fsSync.existsSync(scorePath)) return;
-  await fs.copyFile(scorePath, sessionReviewMxlPath(sessionRoot));
+  const reviewPath = sessionReviewMxlPath(sessionRoot);
+  if (path.resolve(scorePath) === path.resolve(reviewPath)) return;
+  await fs.copyFile(scorePath, reviewPath);
 }
 
 async function readOmrHitlFixes(sessionRoot: string): Promise<unknown[]> {
@@ -691,6 +697,47 @@ async function writeOmrHitlFixes(sessionRoot: string, fixes: unknown[]): Promise
 async function saveHitlBaseline(sessionRoot: string, scorePath: string): Promise<void> {
   if (!fsSync.existsSync(scorePath)) return;
   await fs.copyFile(scorePath, sessionHitlBaselineMxlPath(sessionRoot));
+}
+
+type OmrHitlCheckpoint = {
+  version?: number;
+  rebuiltAt?: string;
+  syncMode?: string;
+  hitlApplied?: number;
+  hitlSkipped?: number;
+  pendingCleared?: number;
+  totalHitlApplied?: number;
+  /** baseline에 사용자 교정(HITL 보정·자동 정리·수동 편집본)이 담겨 있음 — raw 롤백 금지 */
+  baselineOwnsEdits?: boolean;
+};
+
+async function readOmrHitlCheckpoint(sessionRoot: string): Promise<OmrHitlCheckpoint> {
+  try {
+    return JSON.parse(
+      await fs.readFile(sessionOmrHitlCheckpointPath(sessionRoot), 'utf8'),
+    ) as OmrHitlCheckpoint;
+  } catch {
+    return {};
+  }
+}
+
+async function writeOmrHitlCheckpoint(
+  sessionRoot: string,
+  patch: OmrHitlCheckpoint,
+): Promise<void> {
+  const prior = await readOmrHitlCheckpoint(sessionRoot);
+  const next: OmrHitlCheckpoint = {
+    ...prior,
+    ...patch,
+    version: 2,
+    rebuiltAt: new Date().toISOString(),
+    baselineOwnsEdits: Boolean(prior.baselineOwnsEdits || patch.baselineOwnsEdits),
+  };
+  await fs.writeFile(
+    sessionOmrHitlCheckpointPath(sessionRoot),
+    JSON.stringify(next, null, 2),
+    'utf8',
+  );
 }
 
 async function runOmrHitlAutoNormalize(
@@ -733,6 +780,17 @@ async function runOmrHitlAutoNormalize(
     await writeOmrHitlFixes(sessionRoot, []);
   }
   await saveHitlBaseline(sessionRoot, scorePath);
+  // 자동 정리 결과·소진한 보정은 baseline에만 남는다 — 다음 동기화가 raw로 되돌리지 않도록 기록
+  const prior = await readOmrHitlCheckpoint(sessionRoot);
+  await writeOmrHitlCheckpoint(sessionRoot, {
+    syncMode: 'auto-normalize',
+    hitlApplied,
+    hitlSkipped,
+    pendingCleared,
+    totalHitlApplied: (prior.totalHitlApplied ?? 0) + hitlApplied,
+    baselineOwnsEdits: true,
+  });
+  await mirrorSessionReviewMxl(sessionRoot, scorePath);
   return {
     ...postStats,
     hitlApplied,
@@ -809,15 +867,9 @@ async function syncOmrReviewMxl(
   let hitlSkipped = 0;
   let pendingCleared = 0;
 
-  let priorCheckpoint: { totalHitlApplied?: number } = {};
-  try {
-    priorCheckpoint = JSON.parse(
-      await fs.readFile(sessionOmrHitlCheckpointPath(sessionRoot), 'utf8'),
-    ) as { totalHitlApplied?: number };
-  } catch {
-    /* first sync */
-  }
+  const priorCheckpoint = await readOmrHitlCheckpoint(sessionRoot);
   const totalHitlApplied = priorCheckpoint.totalHitlApplied ?? 0;
+  const baselineOwnsEdits = priorCheckpoint.baselineOwnsEdits === true;
 
   if (!hasBaseline && fixes.length > 0) {
     syncMode = 'full';
@@ -845,7 +897,14 @@ async function syncOmrReviewMxl(
     await writeOmrHitlFixes(sessionRoot, []);
   } else if (hasBaseline) {
     syncMode = 'restore';
-    if (totalHitlApplied === 0 && fixes.length === 0 && fsSync.existsSync(rawPath)) {
+    if (
+      shouldRestoreOmrScoreFromRaw({
+        totalHitlApplied,
+        baselineOwnsEdits,
+        pendingFixCount: fixes.length,
+        hasRawBackup: fsSync.existsSync(rawPath),
+      })
+    ) {
       await fs.copyFile(rawPath, scorePath);
       await saveHitlBaseline(sessionRoot, scorePath);
       syncMode = 'restore-from-raw';
@@ -865,27 +924,15 @@ async function syncOmrReviewMxl(
 
   await mirrorSessionReviewMxl(sessionRoot, scorePath);
 
-  const checkpoint = {
-    version: 2,
-    rebuiltAt: new Date().toISOString(),
+  await writeOmrHitlCheckpoint(sessionRoot, {
     syncMode,
     hitlApplied,
     hitlSkipped,
     pendingCleared,
-    totalHitlApplied: (() => {
-      let prior = 0;
-      try {
-        const prev = JSON.parse(
-          fsSync.readFileSync(sessionOmrHitlCheckpointPath(sessionRoot), 'utf8'),
-        ) as { totalHitlApplied?: number };
-        prior = prev.totalHitlApplied ?? 0;
-      } catch {
-        /* none */
-      }
-      return prior + hitlApplied;
-    })(),
-  };
-  await fs.writeFile(sessionOmrHitlCheckpointPath(sessionRoot), JSON.stringify(checkpoint, null, 2), 'utf8');
+    totalHitlApplied:
+      syncMode === 'restore-from-raw' ? 0 : totalHitlApplied + hitlApplied,
+    baselineOwnsEdits: baselineOwnsEdits || hitlApplied > 0,
+  });
   return {
     ...postStats,
     hitlApplied,
@@ -1393,10 +1440,30 @@ async function normalizeOmrRestsInScoreFile(
   }
 }
 
+/**
+ * HITL 편집·ZIP 불러오기는 세션 canonical 파일(`review.mxl`)에만 누적된다.
+ * 검토를 끝낼 때 대기 중 보정을 canonical에 소진한 뒤 그 결과를 주입·출력 대상 MXL로 되돌려 써서,
+ * 가사 병합·최종 다운로드가 항상 마지막 교정본을 쓰도록 맞춘다.
+ */
 async function applyOmrHitlFixesForJob(job: JobRecord, pythonBin: string): Promise<void> {
   const paths = job.preInjectMxlPaths?.filter((p) => p && fsSync.existsSync(p)) ?? [];
-  for (const p of paths) {
-    await applyOmrHitlFixesToScoreFile(job.sessionRoot, p, pythonBin);
+  const reviewPath = sessionReviewMxlPath(job.sessionRoot);
+  const canonical = fsSync.existsSync(reviewPath) ? reviewPath : null;
+  if (canonical) {
+    await syncOmrReviewMxl(job.sessionRoot, canonical, pythonBin);
+  }
+  const steps = planHitlResultPropagation({
+    injectTargets: paths,
+    canonicalReviewPath: canonical,
+    samePath: (a, b) => path.resolve(a) === path.resolve(b),
+  });
+  for (const step of steps) {
+    if (step.kind === 'copy-canonical') {
+      await fs.copyFile(step.from, step.to);
+      console.log(`[omr-hitl] 최종 교정본(review.mxl) → 주입 대상 반영: ${step.to}`);
+      continue;
+    }
+    await applyOmrHitlFixesToScoreFile(job.sessionRoot, step.target, pythonBin);
   }
   const lintCache = sessionMxlLintPath(job.sessionRoot);
   if (fsSync.existsSync(lintCache)) {
@@ -1863,6 +1930,17 @@ async function importOmrWorkFromExtractDir(
   } else if (fsSync.existsSync(sessionHitlBaselineMxlPath(sessionRoot))) {
     await fs.unlink(sessionHitlBaselineMxlPath(sessionRoot)).catch(() => {});
   }
+  // ZIP의 baseline이 raw와 다르면 사용자 교정이 담긴 것 — raw 롤백 금지(구버전 ZIP은 플래그가 없다)
+  if (baselineSrc && rawSrc) {
+    try {
+      const [baseBuf, rawBuf] = await Promise.all([fs.readFile(baselineSrc), fs.readFile(rawSrc)]);
+      if (!baseBuf.equals(rawBuf)) {
+        await writeOmrHitlCheckpoint(sessionRoot, { baselineOwnsEdits: true });
+      }
+    } catch {
+      /* 비교 실패 시 기존 checkpoint 유지 */
+    }
+  }
   if (baselineSrc) {
     await fs.copyFile(baselineSrc, scorePath);
   } else if (reviewSrc) {
@@ -1899,15 +1977,12 @@ async function importOmrWorkFromExtractDir(
     await fs.copyFile(reviewSrc, sessionHitlBaselineMxlPath(sessionRoot));
 
     // syncOmrReviewMxl 단계에서 수동 편집본이 raw_audiveris 파일로 롤백되는 것을 방지하기 위해 checkpoint 조작
-    const checkpointPath = sessionOmrHitlCheckpointPath(sessionRoot);
-    let cp: { totalHitlApplied?: number } = { totalHitlApplied: 1 };
-    try {
-      if (fsSync.existsSync(checkpointPath)) {
-        cp = JSON.parse(await fs.readFile(checkpointPath, 'utf8')) as { totalHitlApplied?: number };
-      }
-      cp.totalHitlApplied = Math.max(cp.totalHitlApplied ?? 0, 1);
-    } catch {}
-    await fs.writeFile(checkpointPath, JSON.stringify(cp));
+    const cp = await readOmrHitlCheckpoint(sessionRoot);
+    await writeOmrHitlCheckpoint(sessionRoot, {
+      syncMode: 'manual-edit-import',
+      totalHitlApplied: Math.max(cp.totalHitlApplied ?? 0, 1),
+      baselineOwnsEdits: true,
+    });
 
     // 수동 편집된 review.mxl을 baseline으로 삼았으므로, 기존 fixes가 중복 적용되지 않도록 초기화합니다.
     await writeOmrHitlFixes(sessionRoot, []);
@@ -2064,6 +2139,8 @@ async function enterOmrStaffHitlPhase(
   });
   delete job.omrStaffReviewDeferred;
   job.status = 'processing';
+  // 검토 종료 경로가 무엇이든 canonical(review.mxl) 교정본을 주입 대상에 확실히 반영
+  await applyOmrHitlFixesForJob(job, pythonBin);
   console.log(`[job ${jobId}] OMR staff review done, continuing pipeline…`);
 }
 

@@ -3438,12 +3438,10 @@ def _build_direction_element(
         sound = ET.SubElement(direction, _q(ns, "sound"))
         sound.set("dacapo", "yes")
     elif kind == "dalsegno":
-        # MusicXML: words + segno 기호 + sound@dalsegno (To Coda의 words+coda와 대칭)
+        # MusicXML: words + sound@dalsegno (Segno 기호를 함께 넣으면 Musescore 4 재생 시 루프 오류 발생)
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         words = ET.SubElement(dtype, _q(ns, "words"))
         words.text = "D.S."
-        dtype2 = ET.SubElement(direction, _q(ns, "direction-type"))
-        ET.SubElement(dtype2, _q(ns, "segno"))
         sound = ET.SubElement(direction, _q(ns, "sound"))
         sound.set("dalsegno", "segno")
     elif kind in _NAVIGATION_DIRECTION_TAGS:

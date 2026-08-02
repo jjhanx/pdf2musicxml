@@ -404,7 +404,7 @@ type JobStatus =
 
 type JobProgressPhase = 'upload' | 'separator' | 'audiveris' | 'hitl';
 
-type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator';
+type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator' | 'image_pdf';
 
 /** 같은 PDF 반복 작업 시 중간 단계부터 시작 */
 type StartStage = 'full' | 'clean_score' | 'omr_hitl' | 'lyric_inject';
@@ -3393,6 +3393,84 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         console.log(`[job ${jobId}] Existing lyric_manifest.json found. Skipping initial auto-merge to preserve previous lyric edits.`);
       }
       }
+    } else if (pipelineMode === 'image_pdf') {
+      if (startStage !== 'full') {
+        await fail({
+          status: 400,
+          error: 'Image PDF 모드는 1단계(원본 PDF)만 지원합니다',
+          detail: '2단계 이후는 지원되지 않습니다.',
+        });
+        return;
+      }
+      
+      const scriptImageProcessor = path.join(__dirname, '..', 'scripts', 'image_pdf_processor.py');
+      
+      setJobProgress(job, {
+        phase: 'separator',
+        current: 0,
+        total: 2,
+        detail: 'PaddleOCR로 이미지 PDF 텍스트 추출 중…',
+      });
+      console.log(`[job ${jobId}] Running image_pdf_processor.py extract`);
+      
+      try {
+        await exec(
+          `"${pythonBin}" "${scriptImageProcessor}" extract "${inputPdfPath}" "${extractedJsonPath}"`,
+          { maxBuffer: 16 * 1024 * 1024 }
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await fail({ status: 500, error: 'OCR 추출 실패', detail: msg });
+        return;
+      }
+      
+      setJobProgress(job, {
+        phase: 'separator',
+        current: 1,
+        total: 2,
+        detail: '추출된 텍스트 영역 마스킹 중…',
+      });
+      console.log(`[job ${jobId}] Running image_pdf_processor.py mask`);
+      
+      try {
+        await exec(
+          `"${pythonBin}" "${scriptImageProcessor}" mask "${inputPdfPath}" "${extractedJsonPath}" "${cleanScorePath}"`
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await fail({ status: 500, error: '마스킹 실패', detail: msg });
+        return;
+      }
+      
+      setJobProgress(job, {
+        phase: 'separator',
+        current: 1,
+        total: 1,
+        detail: '가사 매니페스트 병합 중…',
+      });
+      const mergeArgs = [
+        `"${pythonBin}"`,
+        `"${scriptMergeLyrics}"`,
+        `"${extractedJsonPath}"`,
+        `"${lyricManifestPath}"`,
+        `--output-flat "${ocrJsonPath}"`,
+      ];
+      console.log(`[job ${jobId}] Running merge_lyric_sources.py`);
+      const { stdout: mOut, stderr: mErr } = await exec(mergeArgs.join(' '));
+      if (mOut) console.log(`[job ${jobId}] merge_lyric_sources.py Output:\n${mOut}`);
+      if (mErr?.trim()) console.warn(`[job ${jobId}] merge_lyric_sources.py stderr:\n${mErr}`);
+      
+      await attachPartLabelsToManifest(sessionRoot, lyricManifestPath, job);
+
+      console.log(`[job ${jobId}] Pausing for lyric_manifest.json save…`);
+      job.status = 'lyric_manifest_save_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.lyricManifestSaveDeferred = { resolve, reject };
+      });
+      delete job.lyricManifestSaveDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] lyric_manifest save step completed`);
+
     } else {
       // pymupdf_review — 기존 마스킹 파이프라인 (1단계 full만)
       if (startStage !== 'full') {
@@ -3918,8 +3996,8 @@ app.post('/api/convert', async (req, res) => {
     }
     if (name === 'pipelineMode') {
       const v = String(val).trim();
-      if (v === 'audiveris_only' || v === 'pymupdf_review' || v === 'font_separator') {
-        pipelineModeField = v;
+      if (v === 'audiveris_only' || v === 'pymupdf_review' || v === 'font_separator' || v === 'image_pdf') {
+        pipelineModeField = v as PipelineMode;
       }
     }
     if (name === 'enablePymupdfReview') {

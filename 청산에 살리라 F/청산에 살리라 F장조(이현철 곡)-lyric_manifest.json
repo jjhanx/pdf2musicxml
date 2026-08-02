@@ -3299,14 +3299,15 @@
         508.88,
         315.9
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "fontSize": 11.75,
       "fontname": "INPILL+MalgunGothic",
       "provenance": "pdfplumber",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "p5_5",
@@ -3939,14 +3940,15 @@
         504.81,
         712.19
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "fontSize": 11.75,
       "fontname": "INPILL+MalgunGothic",
       "provenance": "pdfplumber",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "sep_p6_4",
@@ -5181,12 +5183,13 @@
           ]
         }
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "provenance": "pymupdf_only",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "p7_5",
@@ -6321,12 +6324,13 @@
           ]
         }
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "provenance": "pymupdf_only",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "p8_11",
@@ -7891,12 +7895,13 @@
           ]
         }
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "provenance": "pymupdf_only",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "sep_p9_8",
@@ -8957,7 +8962,7 @@
         231.2622528076172,
         122.48213958740234
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "fontSize": 11.15,
       "fontname": "INPILL+TimesNewRomanPS-BoldItalicMT",
       "provenance": "merged",
@@ -8976,7 +8981,8 @@
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "sep_p11_3",
@@ -9487,12 +9493,13 @@
           ]
         }
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "provenance": "pymupdf_only",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "sep_p11_4",

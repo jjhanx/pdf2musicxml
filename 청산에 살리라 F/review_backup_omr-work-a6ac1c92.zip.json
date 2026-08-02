@@ -5183,12 +5183,13 @@
           ]
         }
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "provenance": "pymupdf_only",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "p7_5",
@@ -6323,12 +6324,13 @@
           ]
         }
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "provenance": "pymupdf_only",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "p8_11",
@@ -7893,12 +7895,13 @@
           ]
         }
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "provenance": "pymupdf_only",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "sep_p9_8",
@@ -8376,14 +8379,15 @@
         443.16,
         315.9
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "fontSize": 11.75,
       "fontname": "INPILL+MalgunGothic",
       "provenance": "pdfplumber",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "sep_p10_3",
@@ -8398,14 +8402,15 @@
         443.16,
         370.56
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "fontSize": 11.75,
       "fontname": "INPILL+MalgunGothic",
       "provenance": "pdfplumber",
       "lyricPartIndex": 2,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "p10_8",
@@ -8517,7 +8522,7 @@
     {
       "id": "p10_11",
       "page": 10,
-      "text": "산 에 살 으 리 라 이 라",
+      "text": "산 - 에 살 으 리 라 이 라",
       "confidence": 1,
       "x": 1160.8708381652832,
       "y": 1991.6734059651694,
@@ -8594,7 +8599,7 @@
       ],
       "type": "lyrics",
       "provenance": "pymupdf_only",
-      "lyricPartIndex": 3,
+      "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
       "lyricSkipNotes": 0
@@ -8602,7 +8607,7 @@
     {
       "id": "p10_12",
       "page": 10,
-      "text": "산 에 살으리 라 I 이 라",
+      "text": "산 - 에 살 으 리 라 이 라",
       "confidence": 1,
       "x": 1160.8708381652832,
       "y": 2219.424565633138,
@@ -8679,7 +8684,7 @@
       ],
       "type": "lyrics",
       "provenance": "pymupdf_only",
-      "lyricPartIndex": 1,
+      "lyricPartIndex": 2,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
       "lyricSkipNotes": 0
@@ -8959,7 +8964,7 @@
         231.2622528076172,
         122.48213958740234
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "fontSize": 11.15,
       "fontname": "INPILL+TimesNewRomanPS-BoldItalicMT",
       "provenance": "merged",
@@ -8978,7 +8983,8 @@
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "sep_p11_3",
@@ -9489,17 +9495,18 @@
           ]
         }
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "provenance": "pymupdf_only",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "sep_p11_4",
       "page": 11,
-      "text": "산 에 청 산 에 - 살 으 리 라",
+      "text": "산 - 에 청 산 - 에 살 으 리 라",
       "confidence": 1,
       "x": 1111.3958333333335,
       "y": 2487.479166666667,
@@ -9851,14 +9858,15 @@
         419.41,
         712.19
       ],
-      "type": "lyrics",
+      "type": "unknown",
       "fontSize": 11.75,
       "fontname": "INPILL+MalgunGothic",
       "provenance": "pdfplumber",
       "lyricPartIndex": 1,
       "lyricVerseIndex": 1,
       "lyricVoice": "1",
-      "lyricSkipNotes": 0
+      "lyricSkipNotes": 0,
+      "reviewTypeUserSet": true
     },
     {
       "id": "p11_16",

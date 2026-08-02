@@ -57,7 +57,7 @@ type ConvertTask = {
   progress?: TaskProgress;
 };
 
-type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator';
+type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator' | 'image_pdf';
 
 /** 같은 PDF 반복 작업 시 중간 단계부터 시작 */
 type StartStage = 'full' | 'clean_score' | 'omr_hitl' | 'lyric_inject';
@@ -1807,6 +1807,31 @@ export default function App() {
                   <br />
                   원본 PDF에서 가사를 분리·제거한 뒤 OMR·HITL·가사 검증을 거쳐 완성합니다.
                 </p>
+                <div style={{ marginTop: '0.5rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff', marginBottom: '0.5rem' }}>PDF 타입 선택</div>
+                  <div style={{ display: 'flex', gap: '1rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+                      <input 
+                        type="radio" 
+                        name="pipelineMode" 
+                        value="font_separator" 
+                        checked={pipelineMode === 'font_separator'} 
+                        onChange={() => setPipelineMode('font_separator')} 
+                      />
+                      일반 벡터 PDF (Vector)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+                      <input 
+                        type="radio" 
+                        name="pipelineMode" 
+                        value="image_pdf" 
+                        checked={pipelineMode === 'image_pdf'} 
+                        onChange={() => setPipelineMode('image_pdf')} 
+                      />
+                      이미지 스캔 PDF (Raster/Image)
+                    </label>
+                  </div>
+                </div>
                 <div
                   className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
                   onDragEnter={onDragEnter}
@@ -2513,6 +2538,11 @@ bash scripts/install-font-separator-deps.sh`}
                   (앞 단계에서 선택한 폰트 크기로 <code>clean_score_only.pdf</code>가 만들어지고
                   <strong> 원본과 나란히 확인</strong>한 뒤) pdfplumber·검토
                   결과가 <code>lyric_manifest.json</code>(v3)으로 병합되고 MusicXML에 주입됩니다.
+                </>
+              ) : pipelineMode === 'image_pdf' ? (
+                <>
+                  {' '}
+                  OCR 기술(RapidOCR)로 추출된 텍스트 위치를 바탕으로 영역이 마스킹되어 <code>clean_score_only.pdf</code>가 생성되며, 추출된 가사 결과가 <code>lyric_manifest.json</code>으로 병합됩니다.
                 </>
               ) : (
                 <>

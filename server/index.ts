@@ -404,7 +404,7 @@ type JobStatus =
 
 type JobProgressPhase = 'upload' | 'separator' | 'audiveris' | 'hitl';
 
-type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator' | 'image_pdf';
+type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator' | 'image_pdf' | 'auto';
 
 /** 같은 PDF 반복 작업 시 중간 단계부터 시작 */
 type StartStage = 'full' | 'clean_score' | 'omr_hitl' | 'lyric_inject';
@@ -2978,7 +2978,27 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     }
   }
 
-  const pipelineMode: PipelineMode = job.pipelineMode ?? 'font_separator';
+  let pipelineMode: PipelineMode = job.pipelineMode ?? 'font_separator';
+  if (pipelineMode === 'auto' && job.inputPdfPath && fsSync.existsSync(job.inputPdfPath)) {
+    try {
+      const scriptDetect = path.join(__dirname, '..', 'scripts', 'detect_pdf_type.py');
+      const { stdout } = await exec(`"${resolvePythonBin()}" "${scriptDetect}" "${job.inputPdfPath}"`);
+      const detected = stdout.trim();
+      if (detected === 'image_pdf' || detected === 'font_separator') {
+        pipelineMode = detected as PipelineMode;
+        job.pipelineMode = pipelineMode;
+        console.log(`[job ${jobId}] Auto-detected PDF type: ${pipelineMode}`);
+      } else {
+        pipelineMode = 'font_separator';
+      }
+    } catch (e) {
+      console.warn(`[job ${jobId}] Failed to detect PDF type, defaulting to font_separator. Error:`, e);
+      pipelineMode = 'font_separator';
+    }
+  } else if (pipelineMode === 'auto') {
+    pipelineMode = 'font_separator';
+  }
+  
   const startStageEarly: StartStage = job.startStage ?? 'full';
   const enablePymupdfReview =
     pipelineMode === 'font_separator'
@@ -3996,7 +4016,7 @@ app.post('/api/convert', async (req, res) => {
     }
     if (name === 'pipelineMode') {
       const v = String(val).trim();
-      if (v === 'audiveris_only' || v === 'pymupdf_review' || v === 'font_separator' || v === 'image_pdf') {
+      if (v === 'audiveris_only' || v === 'pymupdf_review' || v === 'font_separator' || v === 'image_pdf' || v === 'auto') {
         pipelineModeField = v as PipelineMode;
       }
     }

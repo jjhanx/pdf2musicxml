@@ -641,7 +641,7 @@ export default function App() {
     manualLyricRects: ManualLyricBBox[];
   } | null>(null);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
-  const [pipelineMode, setPipelineMode] = useState<PipelineMode>('font_separator');
+  const [pipelineMode, setPipelineMode] = useState<PipelineMode>('auto');
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
   const [enableOmrStaffReview, setEnableOmrStaffReview] = useState(true);
   const [startStage, setStartStage] = useState<StartStage>(() => {
@@ -1696,7 +1696,7 @@ export default function App() {
               }}
               onClick={() => {
                 setStartStage('full');
-                setPipelineMode('font_separator');
+                setPipelineMode('auto');
                 setEnablePymupdfReview(true);
                 setResumeCleanScoreFile(null);
                 setResumeLyricManifestFile(null);
@@ -1810,6 +1810,16 @@ export default function App() {
                 <div style={{ marginTop: '0.5rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                   <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff', marginBottom: '0.5rem' }}>PDF 타입 선택</div>
                   <div style={{ display: 'flex', gap: '1rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+                      <input 
+                        type="radio" 
+                        name="pipelineMode" 
+                        value="auto" 
+                        checked={pipelineMode === 'auto'} 
+                        onChange={() => setPipelineMode('auto')} 
+                      />
+                      자동 판별 (Auto)
+                    </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.85rem' }}>
                       <input 
                         type="radio" 
@@ -2538,6 +2548,11 @@ bash scripts/install-font-separator-deps.sh`}
                   (앞 단계에서 선택한 폰트 크기로 <code>clean_score_only.pdf</code>가 만들어지고
                   <strong> 원본과 나란히 확인</strong>한 뒤) pdfplumber·검토
                   결과가 <code>lyric_manifest.json</code>(v3)으로 병합되고 MusicXML에 주입됩니다.
+                </>
+              ) : pipelineMode === 'auto' ? (
+                <>
+                  {' '}
+                  원본 PDF의 텍스트 포함 여부를 자동으로 판별하여 적절한 처리 방식을 선택하고 가사를 추출합니다.
                 </>
               ) : pipelineMode === 'image_pdf' ? (
                 <>

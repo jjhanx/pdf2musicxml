@@ -525,7 +525,7 @@ function purgeExpiredJobs(): void {
     const finishedAt = job.finishedAt;
     if (finishedAt === undefined || now - finishedAt < JOB_RETENTION_MS) continue;
     jobs.delete(jobId);
-    if (job.status === 'completed') {
+    if (job.status === 'completed' || job.status === 'failed') {
       void fs.rm(job.sessionRoot, { recursive: true, force: true }).catch(() => {});
     }
   }
@@ -3011,7 +3011,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   const wipeSession = () => fs.rm(sessionRoot, { recursive: true, force: true }).catch(() => {});
 
   const fail = async (payload: JobErrorPayload) => {
-    await wipeSession();
+    // 24시간 후 purgeExpiredJobs에서 삭제되도록 wipeSession을 주석 처리하여 디버그 ZIP 다운로드가 가능하게 함
+    // await wipeSession();
     job.status = 'failed';
     job.error = payload;
     job.finishedAt = Date.now();
@@ -4537,6 +4538,26 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
   }
 });
 
+app.get('/api/diagnostic/:jobId/debug-zip', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
+    return;
+  }
+  if (!fsSync.existsSync(job.sessionRoot)) {
+    res.status(404).json({ error: '세션 폴더가 이미 삭제되었습니다' });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/zip');
+  setAttachmentFilenameHeader(res, `debug-${req.params.jobId}.zip`);
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (err) => {
+    if (!res.headersSent) res.status(500).json({ error: String(err) });
+  });
+  archive.pipe(res);
+  archive.directory(job.sessionRoot, false);
+  archive.finalize();
+});
 app.get('/api/diagnostic/:jobId/masked-pdf', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {

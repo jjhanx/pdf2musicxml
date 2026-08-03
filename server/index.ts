@@ -3625,9 +3625,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             current: parsed.current,
             total: parsed.total,
             detail:
-              omrEngine === 'pdftomusic'
+              activeOmrEngine === 'pdftomusic'
                 ? 'PDFtoMusic Pro 처리'
-                : omrEngine === 'ai'
+                : activeOmrEngine === 'ai'
                   ? 'AI OMR 처리'
                   : 'Audiveris 처리',
           });
@@ -3641,7 +3641,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     mxlForInject = outputs.filter((p) => p.toLowerCase().endsWith('.mxl'));
 
     const autoPauseFromAudiverisLog =
-      omrEngine === 'audiveris' &&
+      activeOmrEngine === 'audiveris' &&
       audiverisLogSuggestsHumanReview(result.stdout, result.stderr);
     if (autoPauseFromAudiverisLog) {
       console.log(

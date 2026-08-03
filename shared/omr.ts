@@ -26,6 +26,7 @@ const AI_OMR_SCRIPT = path.join(__omrDir, '..', 'scripts', 'run_ai_omr.py');
 export type OmrEngineId = 'pdftomusic' | 'audiveris' | 'ai';
 
 export interface OmrRunOptions {
+  engineOverride?: OmrEngineId;
   outputBaseDir: string;
   inputPdfPath: string;
   audiverisBin?: string;
@@ -64,15 +65,11 @@ export function omrEngineConfigured(): { engine: OmrEngineId; ready: boolean; de
     return { engine, ready: true, detail: `AI OMR backend=${process.env.AI_OMR_BACKEND || 'homr'}` };
   }
   const bin = resolveAudiverisBin();
-  return {
-    engine,
-    ready: Boolean(bin),
-    detail: bin ? undefined : 'Set AUDIVERIS_BIN (OMR_ENGINE=audiveris)',
-  };
+  return { engine, ready: Boolean(bin), detail: bin ? undefined : 'Audiveris.exe not found in PATH or standard locations.' };
 }
 
 export async function runOmrEngine(opts: OmrRunOptions): Promise<OmrRunResult> {
-  const engine = resolveOmrEngine();
+  const engine = opts.engineOverride ?? resolveOmrEngine();
   if (engine === 'pdftomusic') {
     return runPdfToMusicEngine(opts);
   }

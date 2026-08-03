@@ -1,0 +1,584 @@
+2026-08-03 19:19:21,586 INFO [input]                 Book.java:560  | 7 sheets in D:\pdf2musicxml\debug-2596\input.pdf
+2026-08-03 19:19:21,778 INFO []                 Book.java:2565 | Stored /book.xml
+2026-08-03 19:19:21,779 INFO []                 Book.java:2525 | Book stored as debug-2596\test_raw\input.omr
+2026-08-03 19:19:21,785 INFO []                 Book.java:1929 | Book reaching PAGE on sheets:[#1#2#3#4#5#6#7]
+2026-08-03 19:19:21,787 INFO [input#1]       StepMonitoring.java:98   | LOAD
+2026-08-03 19:19:22,421 INFO [input#1]            SheetStub.java:1278 | Loaded image #1 2483x3508 from D:\pdf2musicxml\debug-2596\input.pdf
+2026-08-03 19:19:22,424 INFO [input#1]       StepMonitoring.java:98   | BINARY
+2026-08-03 19:19:23,344 INFO [input#1]       StepMonitoring.java:98   | SCALE
+2026-08-03 19:19:23,375 INFO [input#1]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 19:19:23,376 INFO [input#1]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 248% of needed quorum
+2026-08-03 19:19:23,376 INFO [input#1]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 19:19:23,377 INFO [input#1]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 19:19:23,377 INFO [input#1]       StepMonitoring.java:98   | GRID
+2026-08-03 19:19:24,663 INFO [input#1]       LinesRetriever.java:1500 | Global slope: 0.01488
+2026-08-03 19:19:24,738 INFO [input#1]    ClustersRetriever.java:326  | Retrieved raw line clusters: 10 of sizes [5] with interline(14,15,16)
+2026-08-03 19:19:25,227 INFO [input#1]            PeakGraph.java:310  | Systems: #1[1, 2] #2[3, 4] #3[5, 6, 7] #4[8, 9, 10]
+2026-08-03 19:19:25,338 INFO [input#1]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{206-234 F#7910 T#5 [BRACE]}
+2026-08-03 19:19:25,339 INFO [input#1]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{178-205 F#7913 T#8 [BRACE]}
+2026-08-03 19:19:26,086 INFO [input#1]        SystemManager.java:134  | Indentation detected for system #1
+2026-08-03 19:19:26,088 INFO [input#1]        SystemManager.java:779  | 2 parts along 4 systems
+2026-08-03 19:19:26,088 INFO [input#1]                 Book.java:543  | Created scores: [{Score 1}]
+2026-08-03 19:19:26,089 INFO [input#1]       StepMonitoring.java:98   | HEADERS
+2026-08-03 19:19:27,492 INFO [input#1]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 19:19:27,587 INFO [input#1]        StemSeedsStep.java:86   | stem(4 max:6)
+2026-08-03 19:19:27,678 INFO [input#1]       StepMonitoring.java:98   | BEAMS
+2026-08-03 19:19:30,578 INFO [input#1]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 19:19:31,147 INFO [input#1]       StepMonitoring.java:98   | HEADS
+2026-08-03 19:19:35,783 INFO [input#1]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.5,R:-0.0] NOTEHEAD_BLACK[L:0.1,R:0.6]}
+2026-08-03 19:19:35,784 INFO [input#1]       StepMonitoring.java:98   | STEMS
+2026-08-03 19:19:36,588 INFO [input#1]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#1954{(0.472/0.847) BEAM_HOOK}
+2026-08-03 19:19:36,589 INFO [input#1]           BeamLinker.java:1729 | Not linking shorter BeamInter#1955{(0.427/0.822) BEAM}
+2026-08-03 19:19:36,591 INFO [input#1]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#1951{(0.550/0.851) BEAM_HOOK}
+2026-08-03 19:19:36,592 INFO [input#1]           BeamLinker.java:1729 | Not linking shorter BeamInter#1952{(0.504/0.826) BEAM}
+2026-08-03 19:19:36,852 INFO [input#1]           BeamLinker.java:1729 | Not linking shorter BeamInter#2068{(0.575/0.782) BEAM}
+2026-08-03 19:19:37,016 INFO [input#1]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 19:19:37,181 INFO [input#1]        ReductionStep.java:105  | Stems free length median value: 50 pixels, 3.3 interlines
+2026-08-03 19:19:37,189 INFO [input#1]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 19:19:37,190 INFO [input#1]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 19:19:37,190 INFO [input#1]       StepMonitoring.java:98   | TEXTS
+2026-08-03 19:19:39,897 INFO [input#1]       StepMonitoring.java:98   | MEASURES
+2026-08-03 19:19:39,908 INFO [input#1]                 Page.java:307  | 15 raw measures: [3 in system#1, 4 in system#2, 4 in system#3, 4 in system#4]
+2026-08-03 19:19:39,908 INFO [input#1]       StepMonitoring.java:98   | CHORDS
+2026-08-03 19:19:39,937 INFO [input#1]       StepMonitoring.java:98   | CURVES
+2026-08-03 19:19:41,376 INFO [input#1]         SlursBuilder.java:240  | Slurs: 43
+2026-08-03 19:19:41,458 INFO [input#1]      SegmentsBuilder.java:155  | Segments: 43
+2026-08-03 19:19:41,651 INFO [input#1]    RehearsalsBuilder.java:229  | RehearsalInter#8447{(0.498) staff:5 mFont:BIMS-84 Rehearsal enclosure:java.awt.Rectangle[x=1706,y=1696,width=69,height=74]}
+2026-08-03 19:19:41,654 INFO [input#1]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 19:19:42,894 INFO [input#1]       StepMonitoring.java:98   | LINKS
+2026-08-03 19:19:42,897 INFO [input#1]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#9677{(0.147) staff:1 QUINDICESIMA} at java.awt.Point[x=363,y=634]
+2026-08-03 19:19:42,899 INFO [input#1]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#9683{(0.171) staff:1 QUINDICESIMA ALTA} at java.awt.Point[x=395,y=634]
+2026-08-03 19:19:42,922 INFO [input#1]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#9761{(0.413) staff:4 OTTAVA} at java.awt.Point[x=288,y=1786]
+2026-08-03 19:19:42,924 INFO [input#1]             KeyInter.java:1189 | No effective key before AlterInter#9854{(0.477) staff:3 NATURAL pitch:2.0}
+2026-08-03 19:19:42,925 INFO [input#1]             KeyInter.java:1189 | No effective key before AlterInter#9849{(0.785) staff:4 NATURAL pitch:4.0}
+2026-08-03 19:19:42,925 INFO [input#1]             KeyInter.java:1189 | No effective key before AlterInter#9852{(0.662) staff:4 NATURAL pitch:-3.0}
+2026-08-03 19:19:42,941 INFO [input#1]        SentenceInter.java:463  | No chord near SentenceInter#7769{(0.643) staff:5 mFont:IS-36 Direction} 8 _
+2026-08-03 19:19:42,942 INFO [input#1]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#9924{(0.413) staff:5 OTTAVA ALTA} at java.awt.Point[x=288,y=1786]
+2026-08-03 19:19:42,943 INFO [input#1]             KeyInter.java:1189 | No effective key before AlterInter#9967{(0.261) staff:6 NATURAL pitch:2.0}
+2026-08-03 19:19:42,967 INFO [input#1]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 19:19:43,017 INFO [input#1]                Voice.java:257  | Measure{#5} Voice{#1 excess:1/8} too long
+2026-08-03 19:19:43,019 INFO [input#1]                Voice.java:257  | Measure{#5} Voice{#3 excess:1/8} too long
+2026-08-03 19:19:43,019 INFO [input#1]                Voice.java:257  | Measure{#5} Voice{#9 excess:1/8} too long
+2026-08-03 19:19:43,020 INFO [input#1]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-08-03 19:19:43,031 INFO [input#1]                Voice.java:257  | Measure{#7} Voice{#1 excess:1/8} too long
+2026-08-03 19:19:43,032 INFO [input#1]          StackRhythm.java:224  | S2 MeasureStack#7 no correct rhythm
+2026-08-03 19:19:43,044 INFO [input#1]                Voice.java:257  | Measure{#10P1} Voice{#1 excess:3/16} too long
+2026-08-03 19:19:43,047 INFO [input#1]                Voice.java:257  | Measure{#10P2} Voice{#7 excess:1/4} too long
+2026-08-03 19:19:43,048 INFO [input#1]          StackRhythm.java:224  | S3 MeasureStack#10 no correct rhythm
+2026-08-03 19:19:43,051 INFO [input#1]        MeasureRhythm.java:1044 | Measure{#11P2} No timeOffset for HeadChordInter#7992{(0.920/0.920) staff:6 slot#3 dur:1/2}
+2026-08-03 19:19:43,053 INFO [input#1]        MeasureRhythm.java:1044 | Measure{#11P2} No timeOffset for HeadChordInter#8012{(0.831/0.831) staff:7 slot#3 dur:1/2}
+2026-08-03 19:19:43,053 INFO [input#1]          StackRhythm.java:224  | S3 MeasureStack#11 no correct rhythm
+2026-08-03 19:19:43,061 INFO [input#1]        MeasureRhythm.java:1044 | Measure{#15P2} No timeOffset for HeadChordInter#8061{(0.790/0.790) staff:10 slot#5 dur:1/8}
+2026-08-03 19:19:43,062 INFO [input#1]   AbstractChordInter.java:627  | Measure{#15P2} No timeOffset for HeadChordInter#8061{(0.790/0.790) staff:10 slot#5 dur:1/8}
+2026-08-03 19:19:43,062 INFO [input#1]                Voice.java:257  | Measure{#15P2} Voice{#2 excess:3/8} too long
+2026-08-03 19:19:43,063 INFO [input#1]                Voice.java:257  | Measure{#15P2} Voice{#6 excess:3/8} too long
+2026-08-03 19:19:43,063 INFO [input#1]          StackRhythm.java:224  | S4 MeasureStack#15 no correct rhythm
+2026-08-03 19:19:43,063 INFO [input#1]       StepMonitoring.java:98   | PAGE
+2026-08-03 19:19:43,070 INFO [input#1]                Voice.java:257  | Measure{#5} Voice{#1 excess:1/8} too long
+2026-08-03 19:19:43,071 INFO [input#1]                Voice.java:257  | Measure{#5} Voice{#3 excess:1/8} too long
+2026-08-03 19:19:43,071 INFO [input#1]                Voice.java:257  | Measure{#5} Voice{#9 excess:1/8} too long
+2026-08-03 19:19:43,071 INFO [input#1]                Voice.java:257  | Measure{#7} Voice{#1 excess:1/8} too long
+2026-08-03 19:19:43,072 INFO [input#1]                Voice.java:257  | Measure{#10P2} Voice{#1 excess:3/16} too long
+2026-08-03 19:19:43,072 INFO [input#1]                Voice.java:257  | Measure{#10P3} Voice{#7 excess:1/4} too long
+2026-08-03 19:19:43,072 INFO [input#1]                Voice.java:257  | Measure{#15P3} Voice{#2 excess:3/8} too long
+2026-08-03 19:19:43,072 INFO [input#1]                Voice.java:257  | Measure{#15P3} Voice{#7 excess:3/8} too long
+2026-08-03 19:19:43,073 INFO [input#1]                 Book.java:2584 | Book{input} storing
+2026-08-03 19:19:43,146 INFO [input#1]                 Book.java:2565 | Stored /book.xml
+2026-08-03 19:19:43,289 INFO [input#1]           DataHolder.java:348  | Stored /sheet#1/BINARY.png
+2026-08-03 19:19:44,337 INFO [input#1]                Sheet.java:1583 | Stored /sheet#1/sheet#1.xml
+2026-08-03 19:19:44,337 INFO [input#1]                 Book.java:2525 | Book stored as debug-2596\test_raw\input.omr
+2026-08-03 19:19:44,344 INFO [input#1]            SheetStub.java:1655 | Sheet#1 disposed
+2026-08-03 19:19:44,383 INFO [input#1]                 Book.java:2050 | End of Stub#1
+2026-08-03 19:19:44,384 INFO [input#2]       StepMonitoring.java:98   | LOAD
+2026-08-03 19:19:44,745 INFO [input#2]            SheetStub.java:1278 | Loaded image #2 2483x3508 from D:\pdf2musicxml\debug-2596\input.pdf
+2026-08-03 19:19:44,745 INFO [input#2]       StepMonitoring.java:98   | BINARY
+2026-08-03 19:19:45,672 INFO [input#2]       StepMonitoring.java:98   | SCALE
+2026-08-03 19:19:45,737 INFO [input#2]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 19:19:45,738 INFO [input#2]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 343% of needed quorum
+2026-08-03 19:19:45,738 INFO [input#2]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 19:19:45,738 INFO [input#2]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 19:19:45,739 INFO [input#2]       StepMonitoring.java:98   | GRID
+2026-08-03 19:19:47,423 INFO [input#2]       LinesRetriever.java:1500 | Global slope: 0.01261
+2026-08-03 19:19:47,497 INFO [input#2]    ClustersRetriever.java:326  | Retrieved raw line clusters: 13 of sizes [5] with interline(14,15,16)
+2026-08-03 19:19:47,919 INFO [input#2]            PeakGraph.java:310  | Systems: #1[1, 2, 3] #2[4, 5, 6] #3[7, 8, 9] #4[10, 11, 12, 13]
+2026-08-03 19:19:47,974 INFO [input#2]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{257-284 F#9505 T#1 [BRACE]}
+2026-08-03 19:19:47,975 INFO [input#2]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{235-259 F#9508 T#4 [BRACE]}
+2026-08-03 19:19:47,975 INFO [input#2]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{211-247 F#9511 T#7 [BRACE]}
+2026-08-03 19:19:47,975 INFO [input#2]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{190-217 F#9514 T#10 [BRACE]}
+2026-08-03 19:19:47,975 INFO [input#2]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{186-208 F#9515 T#11 [BRACE]}
+2026-08-03 19:19:47,975 INFO [input#2]        BarsRetriever.java:1305 | System#4
+2026-08-03 19:19:47,976 INFO [input#2]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:10-11}
+2026-08-03 19:19:48,691 INFO [input#2]        SystemManager.java:779  | 3 parts along 4 systems
+2026-08-03 19:19:48,691 INFO [input#2]       StepMonitoring.java:98   | HEADERS
+2026-08-03 19:19:48,805 WARN [input#2]          ClefBuilder.java:658  | Staff#6 no recognized header clef.
+2026-08-03 19:19:48,899 WARN [input#2]          ClefBuilder.java:658  | Staff#9 no recognized header clef.
+2026-08-03 19:19:48,978 INFO [input#2]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 19:19:49,028 INFO [input#2]        StemSeedsStep.java:86   | stem(4 max:6)
+2026-08-03 19:19:49,049 INFO [input#2]       StepMonitoring.java:98   | BEAMS
+2026-08-03 19:19:51,315 INFO [input#2]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 19:19:51,801 INFO [input#2]       StepMonitoring.java:98   | HEADS
+2026-08-03 19:19:57,221 INFO [input#2]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.1,R:-0.5] NOTEHEAD_BLACK[L:0.2,R:0.1]}
+2026-08-03 19:19:57,222 INFO [input#2]       StepMonitoring.java:98   | STEMS
+2026-08-03 19:19:58,788 INFO [input#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2712{(0.622) BEAM}
+2026-08-03 19:19:58,788 INFO [input#2]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#2723{(0.718/0.944) BEAM_HOOK}
+2026-08-03 19:19:58,789 INFO [input#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2725{(0.631/0.918) BEAM}
+2026-08-03 19:19:58,789 INFO [input#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2731{(0.595) BEAM}
+2026-08-03 19:19:58,789 INFO [input#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2737{(0.427) BEAM}
+2026-08-03 19:19:58,802 INFO [input#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2712{(0.622) BEAM}
+2026-08-03 19:19:58,803 INFO [input#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2731{(0.595) BEAM}
+2026-08-03 19:19:58,804 INFO [input#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2737{(0.427) BEAM}
+2026-08-03 19:19:58,814 INFO [input#2]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 19:19:59,006 INFO [input#2]        ReductionStep.java:105  | Stems free length median value: 52 pixels, 3.5 interlines
+2026-08-03 19:19:59,010 INFO [input#2]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 19:19:59,010 INFO [input#2]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 19:19:59,011 INFO [input#2]       StepMonitoring.java:98   | TEXTS
+2026-08-03 19:20:00,704 INFO [input#2]       StepMonitoring.java:98   | MEASURES
+2026-08-03 19:20:00,706 INFO [input#2]                 Page.java:307  | 14 raw measures: [4 in system#1, 3 in system#2, 4 in system#3, 3 in system#4]
+2026-08-03 19:20:00,706 INFO [input#2]       StepMonitoring.java:98   | CHORDS
+2026-08-03 19:20:00,717 INFO [input#2]       StepMonitoring.java:98   | CURVES
+2026-08-03 19:20:01,731 INFO [input#2]         SlursBuilder.java:240  | Slurs: 86
+2026-08-03 19:20:01,750 INFO [input#2]      SegmentsBuilder.java:155  | Segments: 39
+2026-08-03 19:20:01,957 INFO [input#2]    RehearsalsBuilder.java:229  | RehearsalInter#11910{(0.483) staff:10 mFont:S-106 Rehearsal enclosure:java.awt.Rectangle[x=947,y=2409,width=67,height=74]}
+2026-08-03 19:20:01,958 INFO [input#2]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 19:20:03,963 INFO [input#2]       StepMonitoring.java:98   | LINKS
+2026-08-03 19:20:03,967 INFO [input#2]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#13411{(0.229) staff:3 VENTIDUESIMA BASSA} at java.awt.Point[x=324,y=1150]
+2026-08-03 19:20:03,988 INFO [input#2]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#13609{(0.229) staff:4 VENTIDUESIMA ALTA} at java.awt.Point[x=324,y=1150]
+2026-08-03 19:20:03,989 INFO [input#2]             KeyInter.java:1189 | No effective key before AlterInter#13755{(0.573) staff:5 NATURAL pitch:2.0}
+2026-08-03 19:20:03,989 WARN [input#2]             KeyInter.java:1174 | No effective clef before AlterInter#13712{(0.798) staff:6 SHARP pitch:5.0}
+2026-08-03 19:20:03,989 WARN [input#2]             KeyInter.java:1174 | No effective clef before AlterInter#13725{(0.799) staff:6 SHARP pitch:4.0}
+2026-08-03 19:20:03,990 WARN [input#2]             KeyInter.java:1174 | No effective clef before AlterInter#13745{(0.511) staff:6 NATURAL pitch:4.0}
+2026-08-03 19:20:04,051 INFO [input#2]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 19:20:04,052 INFO [input#2]           PageRhythm.java:199  | {Page#2.1} Time value reused from sheet#1
+2026-08-03 19:20:04,057 INFO [input#2]        MeasureRhythm.java:1044 | Measure{#1P1} No timeOffset for HeadChordInter#10972{(0.912/0.912) staff:1 slot#7 dur:1/8}
+2026-08-03 19:20:04,060 INFO [input#2]                Voice.java:257  | Measure{#1P2} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,061 INFO [input#2]                Voice.java:257  | Measure{#1P2} Voice{#2 excess:1/8} too long
+2026-08-03 19:20:04,061 INFO [input#2]          StackRhythm.java:224  | S1 MeasureStack#1 no correct rhythm
+2026-08-03 19:20:04,062 INFO [input#2]        MeasureRhythm.java:1044 | Measure{#2P1} No timeOffset for HeadChordInter#10979{(0.888/0.888) staff:1 slot#7 dur:1/8}
+2026-08-03 19:20:04,063 INFO [input#2]                Voice.java:257  | Measure{#2P1} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,066 INFO [input#2]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-08-03 19:20:04,077 INFO [input#2]                Voice.java:257  | Measure{#3P2} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,077 INFO [input#2]                Voice.java:257  | Measure{#3P2} Voice{#8 excess:1/8} too long
+2026-08-03 19:20:04,078 INFO [input#2]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-08-03 19:20:04,084 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#4P2} Time inconsistency in {1/4=[HeadChordInter#11035{(0.902/0.902) staff:3 slot#5 off:1/4 dur:1/16}], 5/16=[HeadChordInter#11008{(0.948/0.948) staff:2 slot#5 off:5/16 dur:1/8}]}
+2026-08-03 19:20:04,084 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#4P2} Time inconsistency in {7/16=[HeadChordInter#11037{(0.860/0.860) staff:3 slot#8 off:7/16 dur:1/2}], 9/16=[HeadChordInter#11010{(0.953/0.953) staff:2 slot#8 off:9/16 dur:1/4}]}
+2026-08-03 19:20:04,085 INFO [input#2]                Voice.java:257  | Measure{#4P2} Voice{#1 excess:5/16} too long
+2026-08-03 19:20:04,085 INFO [input#2]                Voice.java:257  | Measure{#4P2} Voice{#5 excess:3/16} too long
+2026-08-03 19:20:04,085 INFO [input#2]                Voice.java:257  | Measure{#4P2} Voice{#2 excess:3/16} too long
+2026-08-03 19:20:04,085 INFO [input#2]          StackRhythm.java:224  | S1 MeasureStack#4 no correct rhythm
+2026-08-03 19:20:04,096 INFO [input#2]                Voice.java:257  | Measure{#6P2} Voice{#5 excess:7/32} too long
+2026-08-03 19:20:04,097 INFO [input#2]                Voice.java:257  | Measure{#6P2} Voice{#2 excess:7/32} too long
+2026-08-03 19:20:04,097 INFO [input#2]                Voice.java:257  | Measure{#6P2} Voice{#3 excess:7/32} too long
+2026-08-03 19:20:04,098 INFO [input#2]          StackRhythm.java:224  | S2 MeasureStack#6 no correct rhythm
+2026-08-03 19:20:04,105 INFO [input#2]        MeasureRhythm.java:1044 | Measure{#7P2} No timeOffset for HeadChordInter#11078{(0.923/0.923) staff:5 slot#7 dur:3/16}
+2026-08-03 19:20:04,106 INFO [input#2]        MeasureRhythm.java:1044 | Measure{#7P2} No timeOffset for HeadChordInter#11100{(0.927/0.927) staff:6 slot#7 dur:1/16}
+2026-08-03 19:20:04,106 INFO [input#2]        MeasureRhythm.java:1044 | Measure{#7P2} No timeOffset for HeadChordInter#11101{(0.735/0.735) staff:6 slot#7 dur:1/2}
+2026-08-03 19:20:04,106 INFO [input#2]          StackRhythm.java:224  | S2 MeasureStack#7 no correct rhythm
+2026-08-03 19:20:04,110 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#8P2} Time inconsistency in {1/4=[HeadChordInter#11130{(0.904/0.904) staff:8 slot#4 off:1/4 dur:1/8}], 5/16=[HeadChordInter#11164{(0.915/0.915) staff:9 slot#4 off:5/16 dur:1/16}]}
+2026-08-03 19:20:04,111 INFO [input#2]                Voice.java:257  | Measure{#8P2} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,111 INFO [input#2]                Voice.java:257  | Measure{#8P2} Voice{#6 excess:1/8} too long
+2026-08-03 19:20:04,111 INFO [input#2]                Voice.java:257  | Measure{#8P2} Voice{#7 excess:1/8} too long
+2026-08-03 19:20:04,111 INFO [input#2]          StackRhythm.java:224  | S3 MeasureStack#8 no correct rhythm
+2026-08-03 19:20:04,118 INFO [input#2]                Voice.java:257  | Measure{#10P1} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,125 INFO [input#2]                Voice.java:257  | Measure{#10P2} Voice{#1 excess:1/16} too long
+2026-08-03 19:20:04,125 INFO [input#2]                Voice.java:257  | Measure{#10P2} Voice{#6 excess:3/8} too long
+2026-08-03 19:20:04,125 INFO [input#2]          StackRhythm.java:224  | S3 MeasureStack#10 no correct rhythm
+2026-08-03 19:20:04,130 INFO [input#2]        MeasureRhythm.java:1044 | Measure{#11P2} No timeOffset for HeadChordInter#11191{(0.873/0.873) staff:9 slot#9 dur:1/8}
+2026-08-03 19:20:04,130 INFO [input#2]   AbstractChordInter.java:627  | Measure{#11P2} No timeOffset for HeadChordInter#11191{(0.873/0.873) staff:9 slot#9 dur:1/8}
+2026-08-03 19:20:04,130 INFO [input#2]        MeasureRhythm.java:1044 | Measure{#11P2} No timeOffset for HeadChordInter#11161{(0.867/0.867) staff:8 slot#10 dur:1/4}
+2026-08-03 19:20:04,130 INFO [input#2]                Voice.java:257  | Measure{#11P2} Voice{#3 excess:1/8} too long
+2026-08-03 19:20:04,131 INFO [input#2]                Voice.java:257  | Measure{#11P2} Voice{#4 excess:3/8} too long
+2026-08-03 19:20:04,131 INFO [input#2]                Voice.java:257  | Measure{#11P2} Voice{#6 excess:3/8} too long
+2026-08-03 19:20:04,131 INFO [input#2]          StackRhythm.java:224  | S3 MeasureStack#11 no correct rhythm
+2026-08-03 19:20:04,139 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#12P3} Time inconsistency in {3/8=[HeadChordInter#11260{(0.834/0.834) staff:13 slot#7 off:3/8 dur:1/8}], 1/2=[HeadChordInter#11227{(0.925/0.925) staff:12 slot#7 off:1/2 dur:1/8}]}
+2026-08-03 19:20:04,140 INFO [input#2]        MeasureRhythm.java:1044 | Measure{#12P3} No timeOffset for HeadChordInter#11262{(0.585/0.585) staff:13 slot#10 dur:1/2}
+2026-08-03 19:20:04,140 INFO [input#2]                Voice.java:257  | Measure{#12P3} Voice{#1 excess:5/16} too long
+2026-08-03 19:20:04,140 INFO [input#2]          StackRhythm.java:224  | S4 MeasureStack#12 no correct rhythm
+2026-08-03 19:20:04,142 INFO [input#2]                Voice.java:257  | Measure{#13P2} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,147 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#13P3} Time inconsistency in {1/16=[HeadChordInter#11266{(0.927/0.927) staff:13 slot#2 off:1/16 dur:1/16}], 1/8=[HeadChordInter#11235{(0.917/0.917) staff:12 slot#2 off:1/8 dur:1/8}]}
+2026-08-03 19:20:04,147 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#13P3} Time inconsistency in {1/8=[HeadChordInter#11267{(0.848/0.848) staff:13 slot#3 off:1/8 dur:1/8}], 1/4=[HeadChordInter#11236{(0.954/0.954) staff:12 slot#3 off:1/4 dur:1/16}]}
+2026-08-03 19:20:04,147 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#13P3} Time inconsistency in {1/4=[HeadChordInter#11268{(0.744/0.744) staff:13 slot#5 off:1/4 dur:1/4}], 3/8=[HeadChordInter#11238{(0.837/0.837) staff:12 slot#5 off:3/8 dur:1/4}]}
+2026-08-03 19:20:04,148 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#13P3} Time inconsistency in {3/4=[HeadChordInter#11272{(0.860/0.860) staff:13 slot#10 off:3/4 dur:1/4}], 15/16=[HeadChordInter#11243{(0.872/0.872) staff:12 slot#10 off:15/16 dur:1/16}]}
+2026-08-03 19:20:04,149 INFO [input#2]                Voice.java:257  | Measure{#13P3} Voice{#1 excess:3/16} too long
+2026-08-03 19:20:04,149 INFO [input#2]          StackRhythm.java:224  | S4 MeasureStack#13 no correct rhythm
+2026-08-03 19:20:04,158 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#14P3} Time inconsistency in {1/16=[HeadChordInter#11275{(0.894/0.894) staff:13 slot#2 off:1/16 dur:1/16}], 1/8=[HeadChordInter#11246{(0.909/0.909) staff:12 slot#2 off:1/8 dur:1/16}]}
+2026-08-03 19:20:04,159 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#14P3} Time inconsistency in {1/8=[HeadChordInter#11276{(0.844/0.844) staff:13 slot#3 off:1/8 dur:1/8}], 3/16=[HeadChordInter#11247{(0.913/0.913) staff:12 slot#3 off:3/16 dur:1/16}]}
+2026-08-03 19:20:04,159 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#14P3} Time inconsistency in {1/4=[HeadChordInter#11277{(0.818/0.818) staff:13 slot#5 off:1/4 dur:1/8}], 5/16=[HeadChordInter#11249{(0.939/0.939) staff:12 slot#5 off:5/16 dur:1/16}]}
+2026-08-03 19:20:04,159 INFO [input#2]        MeasureRhythm.java:1276 | Measure{#14P3} Time inconsistency in {3/4=[HeadChordInter#11254{(0.940/0.940) staff:12 slot#12 off:3/4 dur:1/8}], 7/8=[HeadChordInter#11285{(0.876/0.876) staff:13 slot#12 off:7/8 dur:1/4}]}
+2026-08-03 19:20:04,160 INFO [input#2]                Voice.java:257  | Measure{#14P3} Voice{#7 excess:1/8} too long
+2026-08-03 19:20:04,160 INFO [input#2]          StackRhythm.java:224  | S4 MeasureStack#14 no correct rhythm
+2026-08-03 19:20:04,160 INFO [input#2]       StepMonitoring.java:98   | PAGE
+2026-08-03 19:20:04,163 INFO [input#2]                Voice.java:257  | Measure{#1P6} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,163 INFO [input#2]                Voice.java:257  | Measure{#1P6} Voice{#2 excess:1/8} too long
+2026-08-03 19:20:04,163 INFO [input#2]                Voice.java:257  | Measure{#2P4} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,163 INFO [input#2]                Voice.java:257  | Measure{#3P6} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,163 INFO [input#2]                Voice.java:257  | Measure{#3P6} Voice{#8 excess:1/8} too long
+2026-08-03 19:20:04,164 INFO [input#2]                Voice.java:257  | Measure{#4P6} Voice{#1 excess:5/16} too long
+2026-08-03 19:20:04,164 INFO [input#2]                Voice.java:257  | Measure{#4P6} Voice{#2 excess:3/16} too long
+2026-08-03 19:20:04,164 INFO [input#2]                Voice.java:257  | Measure{#4P6} Voice{#5 excess:3/16} too long
+2026-08-03 19:20:04,164 INFO [input#2]                Voice.java:257  | Measure{#6P6} Voice{#2 excess:7/32} too long
+2026-08-03 19:20:04,164 INFO [input#2]                Voice.java:257  | Measure{#6P6} Voice{#3 excess:7/32} too long
+2026-08-03 19:20:04,164 INFO [input#2]                Voice.java:257  | Measure{#6P6} Voice{#5 excess:7/32} too long
+2026-08-03 19:20:04,165 INFO [input#2]                Voice.java:257  | Measure{#8P6} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,165 INFO [input#2]                Voice.java:257  | Measure{#8P6} Voice{#6 excess:1/8} too long
+2026-08-03 19:20:04,165 INFO [input#2]                Voice.java:257  | Measure{#8P6} Voice{#7 excess:1/8} too long
+2026-08-03 19:20:04,165 INFO [input#2]                Voice.java:257  | Measure{#10P2} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,165 INFO [input#2]                Voice.java:257  | Measure{#10P6} Voice{#1 excess:1/16} too long
+2026-08-03 19:20:04,165 INFO [input#2]                Voice.java:257  | Measure{#10P6} Voice{#6 excess:3/8} too long
+2026-08-03 19:20:04,165 INFO [input#2]                Voice.java:257  | Measure{#11P6} Voice{#4 excess:1/8} too long
+2026-08-03 19:20:04,166 INFO [input#2]                Voice.java:257  | Measure{#11P6} Voice{#5 excess:3/8} too long
+2026-08-03 19:20:04,166 INFO [input#2]                Voice.java:257  | Measure{#11P6} Voice{#7 excess:3/8} too long
+2026-08-03 19:20:04,166 INFO [input#2]                Voice.java:257  | Measure{#12P6} Voice{#1 excess:5/16} too long
+2026-08-03 19:20:04,166 INFO [input#2]                Voice.java:257  | Measure{#13P2} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:04,166 INFO [input#2]                Voice.java:257  | Measure{#13P6} Voice{#1 excess:3/16} too long
+2026-08-03 19:20:04,166 INFO [input#2]                Voice.java:257  | Measure{#14P6} Voice{#7 excess:1/8} too long
+2026-08-03 19:20:04,167 INFO [input#2]                 Book.java:2584 | Book{input} storing
+2026-08-03 19:20:04,246 INFO [input#2]                 Book.java:2565 | Stored /book.xml
+2026-08-03 19:20:04,365 INFO [input#2]           DataHolder.java:348  | Stored /sheet#2/BINARY.png
+2026-08-03 19:20:05,348 INFO [input#2]                Sheet.java:1583 | Stored /sheet#2/sheet#2.xml
+2026-08-03 19:20:05,348 INFO [input#2]                 Book.java:2525 | Book stored as debug-2596\test_raw\input.omr
+2026-08-03 19:20:05,355 INFO [input#2]            SheetStub.java:1655 | Sheet#2 disposed
+2026-08-03 19:20:05,385 INFO [input#2]                 Book.java:2050 | End of Stub#2
+2026-08-03 19:20:05,387 INFO [input#3]       StepMonitoring.java:98   | LOAD
+2026-08-03 19:20:05,628 INFO [input#3]            SheetStub.java:1278 | Loaded image #3 2483x3508 from D:\pdf2musicxml\debug-2596\input.pdf
+2026-08-03 19:20:05,629 INFO [input#3]       StepMonitoring.java:98   | BINARY
+2026-08-03 19:20:06,307 INFO [input#3]       StepMonitoring.java:98   | SCALE
+2026-08-03 19:20:06,309 INFO [input#3]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 19:20:06,309 INFO [input#3]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 376% of needed quorum
+2026-08-03 19:20:06,309 INFO [input#3]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 19:20:06,309 INFO [input#3]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 19:20:06,309 INFO [input#3]       StepMonitoring.java:98   | GRID
+2026-08-03 19:20:07,236 INFO [input#3]       LinesRetriever.java:1500 | Global slope: 0.01322
+2026-08-03 19:20:07,284 INFO [input#3]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(14,15,16)
+2026-08-03 19:20:07,575 INFO [input#3]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6, 7, 8] #3[9, 10, 11, 12]
+2026-08-03 19:20:07,577 WARN [input#3]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#2
+2026-08-03 19:20:07,608 INFO [input#3]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{254-279 F#9615 T#1 [BRACE]}
+2026-08-03 19:20:07,608 INFO [input#3]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{247-278 F#9616 T#2 [BRACE]}
+2026-08-03 19:20:07,609 INFO [input#3]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{193-214 F#9619 T#9 [BRACE]}
+2026-08-03 19:20:07,609 INFO [input#3]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{178-202 F#9620 T#10 [BRACE]}
+2026-08-03 19:20:07,609 INFO [input#3]        BarsRetriever.java:1305 | System#1
+2026-08-03 19:20:07,609 INFO [input#3]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:1-2}
+2026-08-03 19:20:07,609 INFO [input#3]        BarsRetriever.java:1305 | System#3
+2026-08-03 19:20:07,609 INFO [input#3]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:9-10}
+2026-08-03 19:20:08,324 INFO [input#3]        SystemManager.java:779  | 4 parts along 3 systems
+2026-08-03 19:20:08,325 INFO [input#3]       StepMonitoring.java:98   | HEADERS
+2026-08-03 19:20:08,345 WARN [input#3]          ClefBuilder.java:658  | Staff#2 no recognized header clef.
+2026-08-03 19:20:08,578 WARN [input#3]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-03 19:20:08,587 INFO [input#3]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 19:20:08,642 INFO [input#3]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 19:20:08,666 INFO [input#3]       StepMonitoring.java:98   | BEAMS
+2026-08-03 19:20:11,028 INFO [input#3]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 19:20:11,542 INFO [input#3]       StepMonitoring.java:98   | HEADS
+2026-08-03 19:20:17,918 INFO [input#3]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.1,R:-0.7] NOTEHEAD_BLACK[L:-0.0,R:0.1]}
+2026-08-03 19:20:17,919 INFO [input#3]       StepMonitoring.java:98   | STEMS
+2026-08-03 19:20:20,298 INFO [input#3]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 19:20:20,547 INFO [input#3]        ReductionStep.java:105  | Stems free length median value: 53 pixels, 3.5 interlines
+2026-08-03 19:20:20,553 INFO [input#3]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 19:20:20,553 INFO [input#3]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 19:20:20,553 INFO [input#3]       StepMonitoring.java:98   | TEXTS
+2026-08-03 19:20:22,033 INFO [input#3]       StepMonitoring.java:98   | MEASURES
+2026-08-03 19:20:22,033 INFO [input#3]                 Page.java:307  | 10 raw measures: [3 in system#1, 3 in system#2, 4 in system#3]
+2026-08-03 19:20:22,034 INFO [input#3]       StepMonitoring.java:98   | CHORDS
+2026-08-03 19:20:22,048 INFO [input#3]       StepMonitoring.java:98   | CURVES
+2026-08-03 19:20:23,616 INFO [input#3]         SlursBuilder.java:240  | Slurs: 87
+2026-08-03 19:20:23,647 INFO [input#3]      SegmentsBuilder.java:155  | Segments: 60
+2026-08-03 19:20:23,649 INFO [input#3]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 19:20:25,224 INFO [input#3]       StepMonitoring.java:98   | LINKS
+2026-08-03 19:20:25,257 INFO [input#3]             KeyInter.java:1189 | No effective key before AlterInter#15183{(0.142) staff:7 NATURAL pitch:-4.0}
+2026-08-03 19:20:25,279 WARN [input#3]             KeyInter.java:1174 | No effective clef before AlterInter#15451{(0.145) staff:12 FLAT pitch:-2.0}
+2026-08-03 19:20:25,300 INFO [input#3]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 19:20:25,301 INFO [input#3]           PageRhythm.java:199  | {Page#3.1} Time value reused from sheet#1
+2026-08-03 19:20:25,324 INFO [input#3]                Voice.java:257  | Measure{#2P3} Voice{#2 excess:1/8} too long
+2026-08-03 19:20:25,324 INFO [input#3]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-08-03 19:20:25,339 INFO [input#3]        MeasureRhythm.java:1044 | Measure{#3P3} No timeOffset for RestChordInter#14836{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 19:20:25,339 INFO [input#3]   AbstractChordInter.java:627  | Measure{#3P3} No timeOffset for RestChordInter#14836{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 19:20:25,340 INFO [input#3]   AbstractChordInter.java:627  | Measure{#3P3} No timeOffset for RestChordInter#14836{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 19:20:25,340 INFO [input#3]   AbstractChordInter.java:627  | Measure{#3P3} No timeOffset for RestChordInter#14836{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 19:20:25,340 INFO [input#3]   AbstractChordInter.java:627  | Measure{#3P3} No timeOffset for RestChordInter#14836{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 19:20:25,340 INFO [input#3]                Voice.java:257  | Measure{#3P3} Voice{#6 excess:1/32} too long
+2026-08-03 19:20:25,340 INFO [input#3]                Voice.java:257  | Measure{#3P3} Voice{#2 excess:1/32} too long
+2026-08-03 19:20:25,341 INFO [input#3]                Voice.java:257  | Measure{#3P3} Voice{#8 excess:3/32} too long
+2026-08-03 19:20:25,341 INFO [input#3]                Voice.java:257  | Measure{#3P3} Voice{#9 excess:3/32} too long
+2026-08-03 19:20:25,341 INFO [input#3]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-08-03 19:20:25,346 INFO [input#3]        MeasureRhythm.java:1044 | Measure{#4P3} No timeOffset for HeadChordInter#12124{(0.956/0.956) staff:7 slot#9 dur:1/8}
+2026-08-03 19:20:25,349 INFO [input#3]          StackRhythm.java:224  | S2 MeasureStack#4 no correct rhythm
+2026-08-03 19:20:25,354 INFO [input#3]        MeasureRhythm.java:1044 | Measure{#5P3} No timeOffset for RestChordInter#15247{(0.778/0.778) staff:7 slot#3 dur:1/2}
+2026-08-03 19:20:25,354 INFO [input#3]   AbstractChordInter.java:627  | Measure{#5P3} No timeOffset for RestChordInter#15247{(0.778/0.778) staff:7 slot#3 dur:1/2}
+2026-08-03 19:20:25,355 INFO [input#3]   AbstractChordInter.java:627  | Measure{#5P3} No timeOffset for HeadChordInter#12133{(0.953/0.953) staff:7 slot#7 dur:1/16}
+2026-08-03 19:20:25,358 INFO [input#3]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-08-03 19:20:25,364 INFO [input#3]        MeasureRhythm.java:1044 | Measure{#6P4} No timeOffset for HeadChordInter#12180{(0.954/0.954) staff:8 slot#6 dur:1/4}
+2026-08-03 19:20:25,365 INFO [input#3]          StackRhythm.java:224  | S2 MeasureStack#6 no correct rhythm
+2026-08-03 19:20:25,371 INFO [input#3]        MeasureRhythm.java:1044 | Measure{#7P3} No timeOffset for HeadChordInter#12263{(0.828/0.828) staff:12 slot#9 dur:1/4}
+2026-08-03 19:20:25,371 INFO [input#3]   AbstractChordInter.java:627  | Measure{#7P3} No timeOffset for HeadChordInter#12263{(0.828/0.828) staff:12 slot#9 dur:1/4}
+2026-08-03 19:20:25,372 INFO [input#3]   AbstractChordInter.java:627  | Measure{#7P3} No timeOffset for HeadChordInter#12263{(0.828/0.828) staff:12 slot#9 dur:1/4}
+2026-08-03 19:20:25,372 INFO [input#3]   AbstractChordInter.java:627  | Measure{#7P3} No timeOffset for HeadChordInter#12263{(0.828/0.828) staff:12 slot#9 dur:1/4}
+2026-08-03 19:20:25,372 INFO [input#3]                Voice.java:257  | Measure{#7P3} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:25,372 INFO [input#3]                Voice.java:257  | Measure{#7P3} Voice{#8 excess:1/8} too long
+2026-08-03 19:20:25,372 INFO [input#3]                Voice.java:257  | Measure{#7P3} Voice{#10 excess:1/4} too long
+2026-08-03 19:20:25,373 INFO [input#3]          StackRhythm.java:224  | S3 MeasureStack#7 no correct rhythm
+2026-08-03 19:20:25,378 INFO [input#3]                Voice.java:257  | Measure{#8P3} Voice{#6 excess:1/32} too long
+2026-08-03 19:20:25,379 INFO [input#3]                Voice.java:257  | Measure{#8P3} Voice{#3 excess:1/32} too long
+2026-08-03 19:20:25,379 INFO [input#3]                Voice.java:257  | Measure{#8P3} Voice{#7 excess:5/32} too long
+2026-08-03 19:20:25,379 INFO [input#3]          StackRhythm.java:224  | S3 MeasureStack#8 no correct rhythm
+2026-08-03 19:20:25,380 INFO [input#3]        MeasureRhythm.java:1044 | Measure{#9P1} No timeOffset for HeadChordInter#12195{(0.925/0.925) staff:9 slot#4 dur:1/8}
+2026-08-03 19:20:25,381 INFO [input#3]                Voice.java:257  | Measure{#9P2} Voice{#1 excess:1/16} too long
+2026-08-03 19:20:25,386 INFO [input#3]        MeasureRhythm.java:1044 | Measure{#9P3} No timeOffset for RestChordInter#15516{(0.746/0.746) staff:11 slot#11 dur:1/2}
+2026-08-03 19:20:25,388 INFO [input#3]          StackRhythm.java:224  | S3 MeasureStack#9 no correct rhythm
+2026-08-03 19:20:25,393 INFO [input#3]       StepMonitoring.java:98   | PAGE
+2026-08-03 19:20:25,395 INFO [input#3]                Voice.java:257  | Measure{#2P8} Voice{#2 excess:1/8} too long
+2026-08-03 19:20:25,395 INFO [input#3]                Voice.java:257  | Measure{#3P8} Voice{#2 excess:1/32} too long
+2026-08-03 19:20:25,395 INFO [input#3]                Voice.java:257  | Measure{#3P8} Voice{#6 excess:1/32} too long
+2026-08-03 19:20:25,395 INFO [input#3]                Voice.java:257  | Measure{#3P8} Voice{#8 excess:3/32} too long
+2026-08-03 19:20:25,395 INFO [input#3]                Voice.java:257  | Measure{#3P8} Voice{#9 excess:3/32} too long
+2026-08-03 19:20:25,396 INFO [input#3]                Voice.java:257  | Measure{#7P8} Voice{#1 excess:1/8} too long
+2026-08-03 19:20:25,396 INFO [input#3]                Voice.java:257  | Measure{#7P8} Voice{#8 excess:1/8} too long
+2026-08-03 19:20:25,396 INFO [input#3]                Voice.java:257  | Measure{#7P8} Voice{#10 excess:1/4} too long
+2026-08-03 19:20:25,396 INFO [input#3]                Voice.java:257  | Measure{#8P8} Voice{#3 excess:1/32} too long
+2026-08-03 19:20:25,396 INFO [input#3]                Voice.java:257  | Measure{#8P8} Voice{#6 excess:1/32} too long
+2026-08-03 19:20:25,396 INFO [input#3]                Voice.java:257  | Measure{#8P8} Voice{#7 excess:5/32} too long
+2026-08-03 19:20:25,397 INFO [input#3]                Voice.java:257  | Measure{#9P4} Voice{#1 excess:1/16} too long
+2026-08-03 19:20:25,397 INFO [input#3]                 Book.java:2584 | Book{input} storing
+2026-08-03 19:20:25,482 INFO [input#3]                 Book.java:2565 | Stored /book.xml
+2026-08-03 19:20:25,575 INFO [input#3]           DataHolder.java:348  | Stored /sheet#3/BINARY.png
+2026-08-03 19:20:26,501 INFO [input#3]                Sheet.java:1583 | Stored /sheet#3/sheet#3.xml
+2026-08-03 19:20:26,501 INFO [input#3]                 Book.java:2525 | Book stored as debug-2596\test_raw\input.omr
+2026-08-03 19:20:26,511 INFO [input#3]            SheetStub.java:1655 | Sheet#3 disposed
+2026-08-03 19:20:26,542 INFO [input#3]                 Book.java:2050 | End of Stub#3
+2026-08-03 19:20:26,543 INFO [input#4]       StepMonitoring.java:98   | LOAD
+2026-08-03 19:20:26,801 INFO [input#4]            SheetStub.java:1278 | Loaded image #4 2483x3508 from D:\pdf2musicxml\debug-2596\input.pdf
+2026-08-03 19:20:26,801 INFO [input#4]       StepMonitoring.java:98   | BINARY
+2026-08-03 19:20:27,562 INFO [input#4]       StepMonitoring.java:98   | SCALE
+2026-08-03 19:20:27,566 INFO [input#4]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 19:20:27,566 INFO [input#4]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 326% of needed quorum
+2026-08-03 19:20:27,566 INFO [input#4]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 19:20:27,566 INFO [input#4]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 19:20:27,567 INFO [input#4]       StepMonitoring.java:98   | GRID
+2026-08-03 19:20:28,658 INFO [input#4]       LinesRetriever.java:1500 | Global slope: 0.01618
+2026-08-03 19:20:28,712 INFO [input#4]    ClustersRetriever.java:326  | Retrieved raw line clusters: 14 of sizes [5] with interline(14,15,16)
+2026-08-03 19:20:29,015 INFO [input#4]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6] #3[7, 8, 9, 10] #4[11, 12, 13, 14]
+2026-08-03 19:20:29,016 WARN [input#4]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#1
+2026-08-03 19:20:29,050 INFO [input#4]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{220-259 F#10812 T#7 [BRACE]}
+2026-08-03 19:20:29,051 INFO [input#4]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{214-250 F#10813 T#8 [BRACE]}
+2026-08-03 19:20:29,051 INFO [input#4]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{194-220 F#10816 T#11 [BRACE]}
+2026-08-03 19:20:29,051 INFO [input#4]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{186-221 F#10817 T#12 [BRACE]}
+2026-08-03 19:20:29,051 INFO [input#4]        BarsRetriever.java:1305 | System#3
+2026-08-03 19:20:29,051 INFO [input#4]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:7-8}
+2026-08-03 19:20:29,051 INFO [input#4]        BarsRetriever.java:1305 | System#4
+2026-08-03 19:20:29,052 INFO [input#4]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:11-12}
+2026-08-03 19:20:29,821 INFO [input#4]        SystemManager.java:779  | 4 parts along 4 systems
+2026-08-03 19:20:29,821 INFO [input#4]       StepMonitoring.java:98   | HEADERS
+2026-08-03 19:20:29,841 WARN [input#4]          ClefBuilder.java:658  | Staff#2 no recognized header clef.
+2026-08-03 19:20:30,111 WARN [input#4]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-03 19:20:30,177 INFO [input#4]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 19:20:30,218 INFO [input#4]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 19:20:30,241 INFO [input#4]       StepMonitoring.java:98   | BEAMS
+2026-08-03 19:20:32,827 INFO [input#4]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 19:20:33,574 INFO [input#4]       StepMonitoring.java:98   | HEADS
+2026-08-03 19:20:39,425 INFO [input#4]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.6] NOTEHEAD_BLACK[L:0.0,R:0.1]}
+2026-08-03 19:20:39,425 INFO [input#4]       StepMonitoring.java:98   | STEMS
+2026-08-03 19:20:40,883 INFO [input#4]           BeamLinker.java:1729 | Not linking shorter BeamInter#3278{(0.260) BEAM}
+2026-08-03 19:20:40,883 INFO [input#4]           BeamLinker.java:1729 | Not linking shorter BeamInter#3308{(0.469/0.836) BEAM}
+2026-08-03 19:20:41,218 INFO [input#4]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 19:20:41,359 INFO [input#4]       BeamGroupInter.java:1123 | Separating beams BeamInter#3278{(0.260/0.746) BEAM} and BeamInter#3280{(0.601/0.943) BEAM}
+2026-08-03 19:20:41,363 INFO [input#4]        ReductionStep.java:105  | Stems free length median value: 52 pixels, 3.5 interlines
+2026-08-03 19:20:41,367 INFO [input#4]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 19:20:41,369 INFO [input#4]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 19:20:41,369 INFO [input#4]       StepMonitoring.java:98   | TEXTS
+2026-08-03 19:20:43,336 INFO [input#4]       StepMonitoring.java:98   | MEASURES
+2026-08-03 19:20:43,338 INFO [input#4]                 Page.java:307  | 16 raw measures: [4 in system#1, 4 in system#2, 4 in system#3, 4 in system#4]
+2026-08-03 19:20:43,339 INFO [input#4]       StepMonitoring.java:98   | CHORDS
+2026-08-03 19:20:43,351 INFO [input#4]       StepMonitoring.java:98   | CURVES
+2026-08-03 19:20:44,284 INFO [input#4]         SlursBuilder.java:240  | Slurs: 80
+2026-08-03 19:20:44,307 INFO [input#4]      SegmentsBuilder.java:155  | Segments: 69
+2026-08-03 19:20:44,310 WARN [input#4]                 Book.java:2044 | Error processing stub
+2026-08-03 19:20:44,310 INFO [input#4]                 Book.java:2584 | Book{input} storing
+2026-08-03 19:20:44,387 INFO [input#4]                 Book.java:2565 | Stored /book.xml
+2026-08-03 19:20:44,467 INFO [input#4]           DataHolder.java:348  | Stored /sheet#4/BINARY.png
+2026-08-03 19:20:45,162 INFO [input#4]                Sheet.java:1583 | Stored /sheet#4/sheet#4.xml
+2026-08-03 19:20:45,162 INFO [input#4]                 Book.java:2525 | Book stored as debug-2596\test_raw\input.omr
+2026-08-03 19:20:45,174 INFO [input#4]            SheetStub.java:1655 | Sheet#4 disposed
+2026-08-03 19:20:45,203 INFO [input#4]                 Book.java:2050 | End of Stub#4
+2026-08-03 19:20:45,204 INFO [input#5]       StepMonitoring.java:98   | LOAD
+2026-08-03 19:20:45,449 INFO [input#5]            SheetStub.java:1278 | Loaded image #5 2483x3508 from D:\pdf2musicxml\debug-2596\input.pdf
+2026-08-03 19:20:45,450 INFO [input#5]       StepMonitoring.java:98   | BINARY
+2026-08-03 19:20:46,195 INFO [input#5]       StepMonitoring.java:98   | SCALE
+2026-08-03 19:20:46,199 INFO [input#5]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 19:20:46,199 INFO [input#5]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 335% of needed quorum
+2026-08-03 19:20:46,199 INFO [input#5]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 19:20:46,199 INFO [input#5]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 19:20:46,199 INFO [input#5]       StepMonitoring.java:98   | GRID
+2026-08-03 19:20:47,180 INFO [input#5]       LinesRetriever.java:1500 | Global slope: 0.02242
+2026-08-03 19:20:47,206 INFO [input#5]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(14,15,16)
+2026-08-03 19:20:47,434 INFO [input#5]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6, 7, 8] #3[9, 10, 11, 12]
+2026-08-03 19:20:47,435 WARN [input#5]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#1
+2026-08-03 19:20:47,435 WARN [input#5]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#2
+2026-08-03 19:20:47,460 INFO [input#5]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{190-216 F#9701 T#9 [BRACE]}
+2026-08-03 19:20:47,460 INFO [input#5]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{180-201 F#9702 T#10 [BRACE]}
+2026-08-03 19:20:47,460 INFO [input#5]        BarsRetriever.java:1305 | System#3
+2026-08-03 19:20:47,460 INFO [input#5]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:9-10}
+2026-08-03 19:20:48,102 INFO [input#5]        SystemManager.java:779  | 4 parts along 3 systems
+2026-08-03 19:20:48,102 INFO [input#5]       StepMonitoring.java:98   | HEADERS
+2026-08-03 19:20:48,200 WARN [input#5]          ClefBuilder.java:658  | Staff#3 no recognized header clef.
+2026-08-03 19:20:48,446 WARN [input#5]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-03 19:20:48,452 INFO [input#5]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 19:20:48,489 INFO [input#5]        StemSeedsStep.java:86   | stem(4 max:6)
+2026-08-03 19:20:48,505 INFO [input#5]       StepMonitoring.java:98   | BEAMS
+2026-08-03 19:20:51,242 INFO [input#5]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 19:20:51,658 INFO [input#5]       StepMonitoring.java:98   | HEADS
+2026-08-03 19:20:56,839 INFO [input#5]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.0,R:-0.6] NOTEHEAD_BLACK[L:0.2,R:0.3]}
+2026-08-03 19:20:56,839 INFO [input#5]       StepMonitoring.java:98   | STEMS
+2026-08-03 19:20:57,327 INFO [input#5]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#2353{(0.555/0.855) BEAM_HOOK}
+2026-08-03 19:20:57,328 INFO [input#5]           BeamLinker.java:1729 | Not linking shorter BeamInter#2355{(0.501/0.826) BEAM}
+2026-08-03 19:20:59,006 INFO [input#5]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 19:20:59,193 INFO [input#5]        ReductionStep.java:105  | Stems free length median value: 53 pixels, 3.5 interlines
+2026-08-03 19:20:59,197 INFO [input#5]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 19:20:59,198 INFO [input#5]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 19:20:59,198 INFO [input#5]       StepMonitoring.java:98   | TEXTS
+2026-08-03 19:21:00,076 INFO [input#5]       StepMonitoring.java:98   | MEASURES
+2026-08-03 19:21:00,077 INFO [input#5]                 Page.java:307  | 10 raw measures: [3 in system#1, 3 in system#2, 4 in system#3]
+2026-08-03 19:21:00,077 INFO [input#5]       StepMonitoring.java:98   | CHORDS
+2026-08-03 19:21:00,088 INFO [input#5]       StepMonitoring.java:98   | CURVES
+2026-08-03 19:21:00,923 INFO [input#5]         SlursBuilder.java:240  | Slurs: 59
+2026-08-03 19:21:00,967 INFO [input#5]      SegmentsBuilder.java:155  | Segments: 68
+2026-08-03 19:21:00,982 INFO [input#5]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 19:21:02,240 INFO [input#5]       StepMonitoring.java:98   | LINKS
+2026-08-03 19:21:02,287 WARN [input#5]             KeyInter.java:1174 | No effective clef before AlterInter#15027{(0.312) staff:12 FLAT pitch:-2.0}
+2026-08-03 19:21:02,288 WARN [input#5]             KeyInter.java:1174 | No effective clef before AlterInter#15088{(0.573) staff:12 FLAT pitch:-2.0}
+2026-08-03 19:21:02,322 INFO [input#5]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 19:21:02,323 INFO [input#5]           PageRhythm.java:205  | {Page#5.1} Time value not yet available in sheet#4
+2026-08-03 19:21:02,339 WARN [input#5]   AbstractChordInter.java:1221 | HeadChordInter#12040{(0.939/0.939) staff:4 dur:3/32} Computing beam group times with first chord not set
+2026-08-03 19:21:02,340 WARN [input#5]   AbstractChordInter.java:1221 | HeadChordInter#12041{(0.887/0.887) staff:4 dur:1/16} Computing beam group times with first chord not set
+2026-08-03 19:21:02,383 INFO [input#5]        MeasureRhythm.java:1276 | Measure{#8P3} Time inconsistency in {21/32=[HeadChordInter#12228{(0.961/0.961) staff:11 slot#10 off:21/32 dur:1/16}], 11/16=[HeadChordInter#12262{(0.937/0.937) staff:12 slot#10 off:11/16 dur:1/16}]}
+2026-08-03 19:21:02,392 INFO [input#5]        MeasureRhythm.java:1276 | Measure{#9P3} Time inconsistency in {3/4=[HeadChordInter#12242{(0.925/0.925) staff:11 slot#11 off:3/4 dur:1/8}], 7/8=[HeadChordInter#12270{(0.927/0.927) staff:12 slot#11 off:7/8 dur:1/4}]}
+2026-08-03 19:21:02,399 INFO [input#5]       StepMonitoring.java:98   | PAGE
+2026-08-03 19:21:02,401 WARN [input#5]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+2026-08-03 19:21:02,401 WARN [input#5]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [4, 5, 6], please check time signatures
+2026-08-03 19:21:02,401 WARN [input#5]         MeasureFixer.java:343  | System#3 No target duration for measures local IDs [7, 8, 9, 10], please check time signatures
+2026-08-03 19:21:02,402 INFO [input#5]                 Book.java:2584 | Book{input} storing
+2026-08-03 19:21:02,488 INFO [input#5]                 Book.java:2565 | Stored /book.xml
+2026-08-03 19:21:02,570 INFO [input#5]           DataHolder.java:348  | Stored /sheet#5/BINARY.png
+2026-08-03 19:21:03,496 INFO [input#5]                Sheet.java:1583 | Stored /sheet#5/sheet#5.xml
+2026-08-03 19:21:03,497 INFO [input#5]                 Book.java:2525 | Book stored as debug-2596\test_raw\input.omr
+2026-08-03 19:21:03,512 INFO [input#5]            SheetStub.java:1655 | Sheet#5 disposed
+2026-08-03 19:21:03,547 INFO [input#5]                 Book.java:2050 | End of Stub#5
+2026-08-03 19:21:03,548 INFO [input#6]       StepMonitoring.java:98   | LOAD
+2026-08-03 19:21:03,918 INFO [input#6]            SheetStub.java:1278 | Loaded image #6 2483x3508 from D:\pdf2musicxml\debug-2596\input.pdf
+2026-08-03 19:21:03,919 INFO [input#6]       StepMonitoring.java:98   | BINARY
+2026-08-03 19:21:04,656 INFO [input#6]       StepMonitoring.java:98   | SCALE
+2026-08-03 19:21:04,661 INFO [input#6]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 19:21:04,661 INFO [input#6]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 254% of needed quorum
+2026-08-03 19:21:04,661 INFO [input#6]         ScaleBuilder.java:401  | Normalized black jitter: 26.67 %
+2026-08-03 19:21:04,662 INFO [input#6]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(2,4,6) beam(8)}
+2026-08-03 19:21:04,662 INFO [input#6]       StepMonitoring.java:98   | GRID
+2026-08-03 19:21:05,466 INFO [input#6]       LinesRetriever.java:1500 | Global slope: 0.01762
+2026-08-03 19:21:05,486 INFO [input#6]    ClustersRetriever.java:326  | Retrieved raw line clusters: 10 of sizes [5] with interline(14,15,16)
+2026-08-03 19:21:05,659 INFO [input#6]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6, 7, 8, 9, 10]
+2026-08-03 19:21:05,682 INFO [input#6]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{271-299 F#8032 T#1 [BRACE]}
+2026-08-03 19:21:05,682 INFO [input#6]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{261-286 F#8033 T#2 [BRACE]}
+2026-08-03 19:21:05,682 INFO [input#6]        BarsRetriever.java:1305 | System#2
+2026-08-03 19:21:05,682 INFO [input#6]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:5-8}
+2026-08-03 19:21:06,220 INFO [input#6]        SystemManager.java:134  | Indentation detected for system #1
+2026-08-03 19:21:06,220 INFO [input#6]        SystemManager.java:779  | 5 parts along 2 systems
+2026-08-03 19:21:06,221 INFO [input#6]       StepMonitoring.java:98   | HEADERS
+2026-08-03 19:21:06,416 WARN [input#6]          ClefBuilder.java:658  | Staff#8 no recognized header clef.
+2026-08-03 19:21:06,444 INFO [input#6]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 19:21:06,478 INFO [input#6]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 19:21:06,492 INFO [input#6]       StepMonitoring.java:98   | BEAMS
+2026-08-03 19:21:08,536 INFO [input#6]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 19:21:08,859 INFO [input#6]       StepMonitoring.java:98   | HEADS
+2026-08-03 19:21:13,419 INFO [input#6]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.7] NOTEHEAD_BLACK[L:0.1,R:-0.1]}
+2026-08-03 19:21:13,420 INFO [input#6]       StepMonitoring.java:98   | STEMS
+2026-08-03 19:21:15,431 INFO [input#6]           BeamLinker.java:1729 | Not linking shorter BeamInter#2248{(0.595) BEAM}
+2026-08-03 19:21:15,448 INFO [input#6]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 19:21:15,602 INFO [input#6]        ReductionStep.java:105  | Stems free length median value: 53 pixels, 3.5 interlines
+2026-08-03 19:21:15,605 INFO [input#6]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 19:21:15,605 INFO [input#6]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 19:21:15,605 INFO [input#6]       StepMonitoring.java:98   | TEXTS
+2026-08-03 19:21:17,590 INFO [input#6]       StepMonitoring.java:98   | MEASURES
+2026-08-03 19:21:17,592 INFO [input#6]                 Page.java:307  | 7 raw measures: [3 in system#1, 4 in system#2]
+2026-08-03 19:21:17,592 INFO [input#6]       StepMonitoring.java:98   | CHORDS
+2026-08-03 19:21:17,600 INFO [input#6]       StepMonitoring.java:98   | CURVES
+2026-08-03 19:21:18,566 INFO [input#6]         SlursBuilder.java:240  | Slurs: 34
+2026-08-03 19:21:18,610 INFO [input#6]      SegmentsBuilder.java:155  | Segments: 46
+2026-08-03 19:21:18,775 INFO [input#6]    RehearsalsBuilder.java:229  | RehearsalInter#10676{(0.615) staff:5 mFont:BMS-75 Rehearsal enclosure:java.awt.Rectangle[x=780,y=1733,width=61,height=72]}
+2026-08-03 19:21:18,776 INFO [input#6]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 19:21:20,482 INFO [input#6]       StepMonitoring.java:98   | LINKS
+2026-08-03 19:21:20,520 INFO [input#6]             KeyInter.java:1189 | No effective key before AlterInter#12552{(0.757) staff:9 NATURAL pitch:-1.0}
+2026-08-03 19:21:20,520 INFO [input#6]             KeyInter.java:1189 | No effective key before AlterInter#12669{(0.129) staff:9 NATURAL pitch:-6.0}
+2026-08-03 19:21:20,585 INFO [input#6]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 19:21:20,600 INFO [input#6]        MeasureRhythm.java:1276 | Measure{#2P3} Time inconsistency in {11/8=[HeadChordInter#9982{(0.928/0.928) staff:4 slot#16 off:11/8 dur:1/8}], 3/2=[HeadChordInter#9954{(0.905/0.905) staff:3 slot#16 off:3/2 dur:1/8}]}
+2026-08-03 19:21:20,633 INFO [input#6]        MeasureRhythm.java:1276 | Measure{#6P5} Time inconsistency in {1/4=[HeadChordInter#10067{(0.928/0.928) staff:9 slot#3 off:1/4 dur:1/4}], 5/16=[HeadChordInter#10111{(0.949/0.949) staff:10 slot#3 off:5/16 dur:1/8}]}
+2026-08-03 19:21:20,647 INFO [input#6]       StepMonitoring.java:98   | PAGE
+2026-08-03 19:21:20,648 WARN [input#6]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+2026-08-03 19:21:20,649 WARN [input#6]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [4, 5, 6, 7], please check time signatures
+2026-08-03 19:21:20,650 INFO [input#6]                 Book.java:2584 | Book{input} storing
+2026-08-03 19:21:20,735 INFO [input#6]                 Book.java:2565 | Stored /book.xml
+2026-08-03 19:21:20,827 INFO [input#6]           DataHolder.java:348  | Stored /sheet#6/BINARY.png
+2026-08-03 19:21:21,527 INFO [input#6]                Sheet.java:1583 | Stored /sheet#6/sheet#6.xml
+2026-08-03 19:21:21,527 INFO [input#6]                 Book.java:2525 | Book stored as debug-2596\test_raw\input.omr
+2026-08-03 19:21:21,543 INFO [input#6]            SheetStub.java:1655 | Sheet#6 disposed
+2026-08-03 19:21:21,575 INFO [input#6]                 Book.java:2050 | End of Stub#6
+2026-08-03 19:21:21,575 INFO [input#7]       StepMonitoring.java:98   | LOAD
+2026-08-03 19:21:21,819 INFO [input#7]            SheetStub.java:1278 | Loaded image #7 2483x3508 from D:\pdf2musicxml\debug-2596\input.pdf
+2026-08-03 19:21:21,819 INFO [input#7]       StepMonitoring.java:98   | BINARY
+2026-08-03 19:21:22,463 INFO [input#7]       StepMonitoring.java:98   | SCALE
+2026-08-03 19:21:22,465 INFO [input#7]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 19:21:22,466 INFO [input#7]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 294% of needed quorum
+2026-08-03 19:21:22,466 INFO [input#7]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 19:21:22,466 INFO [input#7]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 19:21:22,466 INFO [input#7]       StepMonitoring.java:98   | GRID
+2026-08-03 19:21:23,049 INFO [input#7]       LinesRetriever.java:1500 | Global slope: 0.01284
+2026-08-03 19:21:23,075 INFO [input#7]    ClustersRetriever.java:326  | Retrieved raw line clusters: 10 of sizes [5] with interline(14,15,16)
+2026-08-03 19:21:23,200 INFO [input#7]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10]
+2026-08-03 19:21:23,201 WARN [input#7]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#1
+2026-08-03 19:21:23,217 INFO [input#7]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{199-229 F#7922 T#7 [BRACE]}
+2026-08-03 19:21:23,218 INFO [input#7]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{191-229 F#7923 T#8 [BRACE]}
+2026-08-03 19:21:23,218 INFO [input#7]        BarsRetriever.java:1305 | System#2
+2026-08-03 19:21:23,218 INFO [input#7]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:7-8}
+2026-08-03 19:21:23,650 INFO [input#7]        SystemManager.java:779  | 6 parts along 2 systems
+2026-08-03 19:21:23,650 INFO [input#7]       StepMonitoring.java:98   | HEADERS
+2026-08-03 19:21:23,864 INFO [input#7]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 19:21:23,898 INFO [input#7]        StemSeedsStep.java:86   | stem(4 max:6)
+2026-08-03 19:21:23,912 INFO [input#7]       StepMonitoring.java:98   | BEAMS
+2026-08-03 19:21:26,027 INFO [input#7]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 19:21:26,496 INFO [input#7]       StepMonitoring.java:98   | HEADS
+2026-08-03 19:21:30,417 INFO [input#7]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.1,R:-0.3] NOTEHEAD_BLACK[L:0.2,R:0.5]}
+2026-08-03 19:21:30,417 INFO [input#7]       StepMonitoring.java:98   | STEMS
+2026-08-03 19:21:32,601 INFO [input#7]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#1948{(0.335/0.701) BEAM_HOOK}
+2026-08-03 19:21:32,614 INFO [input#7]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 19:21:32,699 INFO [input#7]        ReductionStep.java:105  | Stems free length median value: 54 pixels, 3.6 interlines
+2026-08-03 19:21:32,703 INFO [input#7]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 19:21:32,703 INFO [input#7]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 19:21:32,703 INFO [input#7]       StepMonitoring.java:98   | TEXTS
+2026-08-03 19:21:34,419 INFO [input#7]       StepMonitoring.java:98   | MEASURES
+2026-08-03 19:21:34,420 INFO [input#7]                 Page.java:307  | 7 raw measures: [4 in system#1, 3 in system#2]
+2026-08-03 19:21:34,420 INFO [input#7]       StepMonitoring.java:98   | CHORDS
+2026-08-03 19:21:34,426 INFO [input#7]       StepMonitoring.java:98   | CURVES
+2026-08-03 19:21:35,138 INFO [input#7]         SlursBuilder.java:240  | Slurs: 47
+2026-08-03 19:21:35,155 INFO [input#7]      SegmentsBuilder.java:155  | Segments: 53
+2026-08-03 19:21:35,156 INFO [input#7]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 19:21:36,497 INFO [input#7]       StepMonitoring.java:98   | LINKS
+2026-08-03 19:21:36,498 INFO [input#7]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#9433{(0.375) staff:1 QUINDICESIMA ALTA} at java.awt.Point[x=355,y=426]
+2026-08-03 19:21:36,499 INFO [input#7]             KeyInter.java:1189 | No effective key before AlterInter#9561{(0.152) staff:4 NATURAL pitch:-3.0}
+2026-08-03 19:21:36,529 INFO [input#7]        SentenceInter.java:463  | No chord near SentenceInter#7344{(0.708) staff:7 mFont:BS-49 Direction} a tempo
+2026-08-03 19:21:36,546 INFO [input#7]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 19:21:36,580 INFO [input#7]       StepMonitoring.java:98   | PAGE
+2026-08-03 19:21:36,581 WARN [input#7]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2, 3, 4], please check time signatures
+2026-08-03 19:21:36,582 WARN [input#7]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [5, 6, 7], please check time signatures
+2026-08-03 19:21:36,582 INFO [input#7]                 Book.java:2584 | Book{input} storing
+2026-08-03 19:21:36,648 INFO [input#7]                 Book.java:2565 | Stored /book.xml
+2026-08-03 19:21:36,722 INFO [input#7]           DataHolder.java:348  | Stored /sheet#7/BINARY.png
+2026-08-03 19:21:37,303 INFO [input#7]                Sheet.java:1583 | Stored /sheet#7/sheet#7.xml
+2026-08-03 19:21:37,303 INFO [input#7]                 Book.java:2525 | Book stored as debug-2596\test_raw\input.omr
+2026-08-03 19:21:37,320 INFO [input#7]            SheetStub.java:1655 | Sheet#7 disposed
+2026-08-03 19:21:37,351 INFO [input#7]                 Book.java:2050 | End of Stub#7
+2026-08-03 19:21:37,351 INFO [input]                 Book.java:2057 | End of Book{input}
+2026-08-03 19:21:37,351 INFO [input]                 Book.java:596  | Could not export since transcription did not complete successfully
+2026-08-03 19:21:37,352 WARN [input]                  CLI.java:956  | Exception occurred java.lang.Exception: Error in export
+java.lang.Exception: Error in export
+	at org.audiveris.omr.CLI$ProcessingTask.processBook(CLI.java:930)
+	at org.audiveris.omr.CLI$CliTask.call(CLI.java:513)
+	at org.audiveris.omr.Main.runBatchTasks(Main.java:361)
+	at org.audiveris.omr.Main.main(Main.java:263)
+	at Audiveris.main(Audiveris.java:50)
+2026-08-03 19:21:37,389 INFO [input]                Score.java:181  | Closing {Score 1}
+2026-08-03 19:21:37,389 INFO [input]                Score.java:181  | Closing {Score 2}

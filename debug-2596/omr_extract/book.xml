@@ -1,0 +1,363 @@
+<?xml version="1.0" ?>
+<book software-version="5.10.2" software-build="1b7cf44088c68f4168801822a613751d1bb1b584" path="/tmp/pdf2mxl-up-dSZBHQ/clean_score_only.pdf" dirty="true">
+  <sheet number="1">
+    <input>
+      <path>/tmp/pdf2mxl-up-dSZBHQ/clean_score_only.pdf</path>
+      <number>1</number>
+    </input>
+    <steps>LOAD BINARY SCALE GRID HEADERS STEM_SEEDS BEAMS LEDGERS HEADS STEMS REDUCTION CUE_BEAMS TEXTS MEASURES CHORDS CURVES SYMBOLS LINKS RHYTHMS PAGE</steps>
+    <page id="1" movement-start="true" delta-measure-id="15">
+      <last-time-rational num="4" den="4"/>
+      <system>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part name="S." logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+    </page>
+  </sheet>
+  <sheet number="2">
+    <input>
+      <path>/tmp/pdf2mxl-up-dSZBHQ/clean_score_only.pdf</path>
+      <number>2</number>
+    </input>
+    <steps>LOAD BINARY SCALE GRID HEADERS STEM_SEEDS BEAMS LEDGERS HEADS STEMS REDUCTION CUE_BEAMS TEXTS MEASURES CHORDS CURVES SYMBOLS LINKS RHYTHMS PAGE</steps>
+    <page id="1" delta-measure-id="14">
+      <system>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+    </page>
+  </sheet>
+  <sheet number="3">
+    <input>
+      <path>/tmp/pdf2mxl-up-dSZBHQ/clean_score_only.pdf</path>
+      <number>3</number>
+    </input>
+    <steps>LOAD BINARY SCALE GRID HEADERS STEM_SEEDS BEAMS LEDGERS HEADS STEMS REDUCTION CUE_BEAMS TEXTS MEASURES CHORDS CURVES SYMBOLS LINKS RHYTHMS PAGE</steps>
+    <page id="1" delta-measure-id="10">
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+    </page>
+  </sheet>
+  <sheet number="4">
+    <input>
+      <path>/tmp/pdf2mxl-up-dSZBHQ/clean_score_only.pdf</path>
+      <number>4</number>
+    </input>
+    <steps>LOAD BINARY SCALE GRID HEADERS STEM_SEEDS BEAMS LEDGERS HEADS STEMS REDUCTION CUE_BEAMS TEXTS MEASURES CHORDS</steps>
+    <page id="1" delta-measure-id="16">
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+    </page>
+  </sheet>
+  <sheet number="5">
+    <input>
+      <path>/tmp/pdf2mxl-up-dSZBHQ/clean_score_only.pdf</path>
+      <number>5</number>
+    </input>
+    <steps>LOAD BINARY SCALE GRID HEADERS STEM_SEEDS BEAMS LEDGERS HEADS STEMS REDUCTION CUE_BEAMS TEXTS MEASURES CHORDS CURVES SYMBOLS LINKS RHYTHMS PAGE</steps>
+    <page id="1" delta-measure-id="9">
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+    </page>
+  </sheet>
+  <sheet number="6">
+    <input>
+      <path>/tmp/pdf2mxl-up-dSZBHQ/clean_score_only.pdf</path>
+      <number>6</number>
+    </input>
+    <steps>LOAD BINARY SCALE GRID HEADERS STEM_SEEDS BEAMS LEDGERS HEADS STEMS REDUCTION CUE_BEAMS TEXTS MEASURES CHORDS CURVES SYMBOLS LINKS RHYTHMS PAGE</steps>
+    <page id="1" movement-start="true" delta-measure-id="7">
+      <system>
+        <part logical-id="6">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="7">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="8">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="9">
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="1">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="2">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="4">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="5">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+    </page>
+  </sheet>
+  <sheet number="7">
+    <input>
+      <path>/tmp/pdf2mxl-up-dSZBHQ/clean_score_only.pdf</path>
+      <number>7</number>
+    </input>
+    <steps>LOAD BINARY SCALE GRID HEADERS STEM_SEEDS BEAMS LEDGERS HEADS STEMS REDUCTION CUE_BEAMS TEXTS MEASURES CHORDS CURVES SYMBOLS LINKS RHYTHMS PAGE</steps>
+    <page id="1" delta-measure-id="7">
+      <system>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="4">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="6">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="7">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="8">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="9">
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+      <system>
+        <part logical-id="3">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="4">
+          <staff-configuration line-count="5"/>
+        </part>
+        <part logical-id="5">
+          <staff-configuration line-count="5"/>
+          <staff-configuration line-count="5"/>
+        </part>
+      </system>
+    </page>
+  </sheet>
+  <score>
+    <logical-part id="1" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="2" staff-count="1" name="S.">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="3" staff-count="2">
+      <staff-configuration line-count="5"/>
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <page sheet-number="1" sheet-page-id="1"/>
+    <page sheet-number="2" sheet-page-id="1"/>
+    <page sheet-number="3" sheet-page-id="1"/>
+    <page sheet-number="4" sheet-page-id="1"/>
+    <page sheet-number="5" sheet-page-id="1"/>
+  </score>
+  <score>
+    <logical-part id="1" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="2" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="3" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="4" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="5" staff-count="2">
+      <staff-configuration line-count="5"/>
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="6" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="7" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="8" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <logical-part id="9" staff-count="1">
+      <staff-configuration line-count="5"/>
+    </logical-part>
+    <page sheet-number="6" sheet-page-id="1"/>
+    <page sheet-number="7" sheet-page-id="1"/>
+  </score>
+</book>

@@ -3034,8 +3034,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   job.status = 'processing';
 
   const pythonBin = resolvePythonBin();
-  const omrEngineAtStart = resolveOmrEngine();
-  if (omrEngineAtStart === 'ai') {
+  const activeOmrEngine = pipelineMode === 'image_pdf' ? 'ai' : resolveOmrEngine();
+  if (activeOmrEngine === 'ai') {
     const aiDeps = await probeAiOmrDeps(pythonBin);
     if (!aiDeps.ok) {
       await fail({
@@ -3045,7 +3045,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       });
       return;
     }
-  } else if (omrEngineAtStart === 'pdftomusic') {
+  } else if (activeOmrEngine === 'pdftomusic') {
     const p2mDeps = await probePdfToMusicDeps();
     if (!p2mDeps.ok) {
       await fail({
@@ -3539,7 +3539,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'audiveris',
         current: 0,
         total: pageHint,
-        detail: resolveOmrEngine() === 'ai' ? 'PDF 마스킹 및 OMR 준비 중…' : 'PDF 마스킹 및 Audiveris 준비 중…',
+        detail: activeOmrEngine === 'ai' ? 'PDF 마스킹 및 OMR 준비 중…' : 'PDF 마스킹 및 Audiveris 준비 중…',
       });
 
       if (fsSync.existsSync(ocrJsonPath)) {
@@ -3592,11 +3592,11 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       current: 0,
       total: pageHint,
       detail:
-        resolveOmrEngine() === 'pdftomusic'
+        activeOmrEngine === 'pdftomusic'
           ? audiverisInput?.kind === 'clean_score'
             ? 'clean_score_only.pdf → PDFtoMusic Pro 인식 중…'
             : 'PDFtoMusic Pro 악보 인식 중…'
-          : resolveOmrEngine() === 'ai'
+          : activeOmrEngine === 'ai'
             ? audiverisInput?.kind === 'clean_score'
               ? 'clean_score_only.pdf → AI OMR 인식 중…'
               : 'AI OMR 인식 중…'
@@ -3605,13 +3605,13 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
               : 'Audiveris 악보 인식 중…',
     });
 
-    const omrEngine = resolveOmrEngine();
     const p2mpBin = resolveP2mpBin();
     console.log(
-      `[job ${jobId}] Running ${omrEngine} OMR on ${pdfToProcess} (pipeline=${pipelineMode})…`,
+      `[job ${jobId}] Running ${activeOmrEngine} OMR on ${pdfToProcess} (pipeline=${pipelineMode})…`,
     );
 
     const result = await runOmrEngine({
+      engineOverride: activeOmrEngine,
       audiverisBin,
       p2mpBin,
       pythonBin,
@@ -3865,23 +3865,22 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     }
 
     if (outputs.length === 0) {
-      const omrEngineFinal = resolveOmrEngine();
       await fail({
         status: 422,
         error:
           startStage === 'omr_hitl'
             ? 'OMR 검토 ZIP에서 MXL을 불러오지 못했습니다'
-            : omrEngineFinal === 'pdftomusic'
+            : activeOmrEngine === 'pdftomusic'
             ? 'PDFtoMusic Pro가 MusicXML/MXL을 만들지 못했습니다'
-            : omrEngineFinal === 'ai'
+            : activeOmrEngine === 'ai'
               ? 'AI OMR이 MusicXML/MXL을 만들지 못했습니다'
               : 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
         detail:
           startStage === 'omr_hitl'
             ? 'ZIP에 review.mxl 또는 audiveris_raw.mxl이 있는지 확인하세요.'
-            : omrEngineFinal === 'pdftomusic'
+            : activeOmrEngine === 'pdftomusic'
             ? pdftomusicFailureDetail()
-            : omrEngineFinal === 'ai'
+            : activeOmrEngine === 'ai'
               ? aiOmrFailureDetail()
               : 'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.',
       });

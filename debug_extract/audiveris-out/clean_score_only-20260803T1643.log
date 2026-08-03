@@ -1,0 +1,576 @@
+2026-08-03 16:43:07,804 INFO [clean_score_only]                 Book.java:560  | 7 sheets in /tmp/pdf2mxl-up-vnDsWF/clean_score_only.pdf
+2026-08-03 16:43:07,925 INFO []                 Book.java:2565 | Stored /book.xml
+2026-08-03 16:43:07,926 INFO []                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-vnDsWF/audiveris-out/clean_score_only.omr
+2026-08-03 16:43:07,927 INFO []                 Book.java:1929 | Book reaching PAGE on sheets:[#1#2#3#4#5#6#7]
+2026-08-03 16:43:07,928 INFO [clean_score_only#1]       StepMonitoring.java:98   | LOAD
+2026-08-03 16:43:08,382 INFO [clean_score_only#1]            SheetStub.java:1278 | Loaded image #1 2483x3508 from /tmp/pdf2mxl-up-vnDsWF/clean_score_only.pdf
+2026-08-03 16:43:08,385 INFO [clean_score_only#1]       StepMonitoring.java:98   | BINARY
+2026-08-03 16:43:08,984 INFO [clean_score_only#1]       StepMonitoring.java:98   | SCALE
+2026-08-03 16:43:09,008 INFO [clean_score_only#1]         ScaleBuilder.java:255  | Beam  guessed height:  9 -- mid of [5..14]
+2026-08-03 16:43:09,009 INFO [clean_score_only#1]         ScaleBuilder.java:271  | Beam measured height:  9 -- 0.44 of [5..14] range at 234% of needed quorum
+2026-08-03 16:43:09,010 INFO [clean_score_only#1]         ScaleBuilder.java:401  | Normalized black jitter: 13.33 %
+2026-08-03 16:43:09,010 INFO [clean_score_only#1]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,5) beam(9)}
+2026-08-03 16:43:09,010 INFO [clean_score_only#1]       StepMonitoring.java:98   | GRID
+2026-08-03 16:43:09,797 INFO [clean_score_only#1]       LinesRetriever.java:1500 | Global slope: 0.01282
+2026-08-03 16:43:09,868 INFO [clean_score_only#1]    ClustersRetriever.java:326  | Retrieved raw line clusters: 10 of sizes [5] with interline(14,15,16)
+2026-08-03 16:43:10,108 INFO [clean_score_only#1]            PeakGraph.java:310  | Systems: #1[1, 2] #2[3, 4] #3[5, 6, 7] #4[8, 9, 10]
+2026-08-03 16:43:10,168 INFO [clean_score_only#1]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{206-234 F#7270 T#5 [BRACE]}
+2026-08-03 16:43:10,685 INFO [clean_score_only#1]        SystemManager.java:134  | Indentation detected for system #1
+2026-08-03 16:43:10,685 INFO [clean_score_only#1]        SystemManager.java:779  | 2 parts along 4 systems
+2026-08-03 16:43:10,686 INFO [clean_score_only#1]                 Book.java:543  | Created scores: [{Score 1}]
+2026-08-03 16:43:10,686 INFO [clean_score_only#1]       StepMonitoring.java:98   | HEADERS
+2026-08-03 16:43:11,558 INFO [clean_score_only#1]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 16:43:11,622 INFO [clean_score_only#1]        StemSeedsStep.java:86   | stem(4 max:6)
+2026-08-03 16:43:11,689 INFO [clean_score_only#1]       StepMonitoring.java:98   | BEAMS
+2026-08-03 16:43:14,491 INFO [clean_score_only#1]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 16:43:14,783 INFO [clean_score_only#1]       StepMonitoring.java:98   | HEADS
+2026-08-03 16:43:18,553 INFO [clean_score_only#1]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.6,R:-0.0] NOTEHEAD_BLACK[L:0.2,R:0.5]}
+2026-08-03 16:43:18,554 INFO [clean_score_only#1]       StepMonitoring.java:98   | STEMS
+2026-08-03 16:43:19,376 INFO [clean_score_only#1]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 16:43:19,510 INFO [clean_score_only#1]        ReductionStep.java:105  | Stems free length median value: 50 pixels, 3.3 interlines
+2026-08-03 16:43:19,515 INFO [clean_score_only#1]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 16:43:19,515 INFO [clean_score_only#1]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 16:43:19,515 INFO [clean_score_only#1]       StepMonitoring.java:98   | TEXTS
+2026-08-03 16:43:20,198 INFO [clean_score_only#1]       StepMonitoring.java:98   | MEASURES
+2026-08-03 16:43:20,205 INFO [clean_score_only#1]                 Page.java:307  | 15 raw measures: [3 in system#1, 4 in system#2, 4 in system#3, 4 in system#4]
+2026-08-03 16:43:20,205 INFO [clean_score_only#1]       StepMonitoring.java:98   | CHORDS
+2026-08-03 16:43:20,221 INFO [clean_score_only#1]       StepMonitoring.java:98   | CURVES
+2026-08-03 16:43:21,053 INFO [clean_score_only#1]         SlursBuilder.java:240  | Slurs: 40
+2026-08-03 16:43:21,102 INFO [clean_score_only#1]      SegmentsBuilder.java:155  | Segments: 36
+2026-08-03 16:43:21,109 INFO [clean_score_only#1]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 16:43:21,800 INFO [clean_score_only#1]       StepMonitoring.java:98   | LINKS
+2026-08-03 16:43:21,804 WARN [clean_score_only#1]             KeyInter.java:1174 | No effective clef before AlterInter#8274{(0.236) staff:1 SHARP pitch:-3.0}
+2026-08-03 16:43:21,832 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#8420{(0.791) staff:3 NATURAL pitch:2.0}
+2026-08-03 16:43:21,833 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#8414{(0.784) staff:4 NATURAL pitch:4.0}
+2026-08-03 16:43:21,833 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#8418{(0.423) staff:4 NATURAL pitch:-3.0}
+2026-08-03 16:43:21,863 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#8507{(0.261) staff:6 NATURAL pitch:2.0}
+2026-08-03 16:43:21,877 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#8614{(0.140) staff:10 NATURAL pitch:-2.0}
+2026-08-03 16:43:21,887 INFO [clean_score_only#1]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 16:43:21,914 INFO [clean_score_only#1]                Voice.java:257  | Measure{#3} Voice{#5 excess:1/8} too long
+2026-08-03 16:43:21,915 INFO [clean_score_only#1]                Voice.java:257  | Measure{#3} Voice{#2 excess:1/8} too long
+2026-08-03 16:43:21,915 INFO [clean_score_only#1]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-08-03 16:43:21,936 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#7} No timeOffset for HeadChordInter#6758{(0.930/0.930) staff:4 slot#3 dur:1/8}
+2026-08-03 16:43:21,937 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7} No timeOffset for HeadChordInter#6759{(0.955/0.955) staff:4 slot#4 dur:1/8}
+2026-08-03 16:43:21,937 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7} No timeOffset for HeadChordInter#6725{(0.836/0.836) staff:3 slot#6 dur:1/8}
+2026-08-03 16:43:21,937 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7} No timeOffset for HeadChordInter#6729{(0.952/0.952) staff:3 slot#10 dur:1/32}
+2026-08-03 16:43:21,938 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7} No timeOffset for HeadChordInter#6730{(0.640/0.640) staff:3 slot#11 dur:1/2}
+2026-08-03 16:43:21,938 INFO [clean_score_only#1]                Voice.java:257  | Measure{#7} Voice{#1 excess:1/2} too long
+2026-08-03 16:43:21,938 INFO [clean_score_only#1]          StackRhythm.java:224  | S2 MeasureStack#7 no correct rhythm
+2026-08-03 16:43:21,946 INFO [clean_score_only#1]                Voice.java:257  | Measure{#10P1} Voice{#1 excess:3/16} too long
+2026-08-03 16:43:21,948 INFO [clean_score_only#1]          StackRhythm.java:224  | S3 MeasureStack#10 no correct rhythm
+2026-08-03 16:43:21,951 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#11P2} No timeOffset for HeadChordInter#6788{(0.914/0.914) staff:6 slot#3 dur:1/2}
+2026-08-03 16:43:21,951 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#11P2} No timeOffset for HeadChordInter#6808{(0.831/0.831) staff:7 slot#3 dur:1/2}
+2026-08-03 16:43:21,951 INFO [clean_score_only#1]          StackRhythm.java:224  | S3 MeasureStack#11 no correct rhythm
+2026-08-03 16:43:21,959 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#15P2} No timeOffset for HeadChordInter#6857{(0.794/0.794) staff:10 slot#5 dur:1/8}
+2026-08-03 16:43:21,960 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#15P2} No timeOffset for HeadChordInter#6857{(0.794/0.794) staff:10 slot#5 dur:1/8}
+2026-08-03 16:43:21,960 INFO [clean_score_only#1]                Voice.java:257  | Measure{#15P2} Voice{#2 excess:3/8} too long
+2026-08-03 16:43:21,960 INFO [clean_score_only#1]                Voice.java:257  | Measure{#15P2} Voice{#6 excess:3/8} too long
+2026-08-03 16:43:21,961 INFO [clean_score_only#1]          StackRhythm.java:224  | S4 MeasureStack#15 no correct rhythm
+2026-08-03 16:43:21,961 INFO [clean_score_only#1]       StepMonitoring.java:98   | PAGE
+2026-08-03 16:43:21,965 INFO [clean_score_only#1]                Voice.java:257  | Measure{#3} Voice{#2 excess:1/8} too long
+2026-08-03 16:43:21,965 INFO [clean_score_only#1]                Voice.java:257  | Measure{#3} Voice{#5 excess:1/8} too long
+2026-08-03 16:43:21,965 INFO [clean_score_only#1]                Voice.java:257  | Measure{#7} Voice{#1 excess:1/2} too long
+2026-08-03 16:43:21,966 INFO [clean_score_only#1]                Voice.java:257  | Measure{#10P1} Voice{#1 excess:3/16} too long
+2026-08-03 16:43:21,966 INFO [clean_score_only#1]                Voice.java:257  | Measure{#15P2} Voice{#2 excess:3/8} too long
+2026-08-03 16:43:21,966 INFO [clean_score_only#1]                Voice.java:257  | Measure{#15P2} Voice{#7 excess:3/8} too long
+2026-08-03 16:43:21,967 INFO [clean_score_only#1]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-03 16:43:22,031 INFO [clean_score_only#1]                 Book.java:2565 | Stored /book.xml
+2026-08-03 16:43:22,150 INFO [clean_score_only#1]           DataHolder.java:348  | Stored /sheet#1/BINARY.png
+2026-08-03 16:43:22,828 INFO [clean_score_only#1]                Sheet.java:1583 | Stored /sheet#1/sheet#1.xml
+2026-08-03 16:43:22,828 INFO [clean_score_only#1]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-vnDsWF/audiveris-out/clean_score_only.omr
+2026-08-03 16:43:22,842 INFO [clean_score_only#1]            SheetStub.java:1655 | Sheet#1 disposed
+2026-08-03 16:43:22,873 INFO [clean_score_only#1]                 Book.java:2050 | End of Stub#1
+2026-08-03 16:43:22,874 INFO [clean_score_only#2]       StepMonitoring.java:98   | LOAD
+2026-08-03 16:43:23,160 INFO [clean_score_only#2]            SheetStub.java:1278 | Loaded image #2 2483x3508 from /tmp/pdf2mxl-up-vnDsWF/clean_score_only.pdf
+2026-08-03 16:43:23,161 INFO [clean_score_only#2]       StepMonitoring.java:98   | BINARY
+2026-08-03 16:43:23,700 INFO [clean_score_only#2]       StepMonitoring.java:98   | SCALE
+2026-08-03 16:43:23,721 INFO [clean_score_only#2]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 16:43:23,722 INFO [clean_score_only#2]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 343% of needed quorum
+2026-08-03 16:43:23,722 INFO [clean_score_only#2]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 16:43:23,722 INFO [clean_score_only#2]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 16:43:23,722 INFO [clean_score_only#2]       StepMonitoring.java:98   | GRID
+2026-08-03 16:43:24,592 INFO [clean_score_only#2]       LinesRetriever.java:1500 | Global slope: 0.01154
+2026-08-03 16:43:24,631 INFO [clean_score_only#2]    ClustersRetriever.java:326  | Retrieved raw line clusters: 13 of sizes [5] with interline(14,15,16)
+2026-08-03 16:43:25,024 INFO [clean_score_only#2]            PeakGraph.java:310  | Systems: #1[1, 2, 3] #2[4, 5, 6] #3[7, 8, 9] #4[10, 11, 12, 13]
+2026-08-03 16:43:25,065 INFO [clean_score_only#2]        BarsRetriever.java:1305 | System#4
+2026-08-03 16:43:25,065 INFO [clean_score_only#2]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:10-11}
+2026-08-03 16:43:25,714 INFO [clean_score_only#2]        SystemManager.java:779  | 3 parts along 4 systems
+2026-08-03 16:43:25,715 INFO [clean_score_only#2]       StepMonitoring.java:98   | HEADERS
+2026-08-03 16:43:25,826 WARN [clean_score_only#2]          ClefBuilder.java:658  | Staff#6 no recognized header clef.
+2026-08-03 16:43:25,882 WARN [clean_score_only#2]          ClefBuilder.java:658  | Staff#9 no recognized header clef.
+2026-08-03 16:43:25,943 INFO [clean_score_only#2]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 16:43:25,981 INFO [clean_score_only#2]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 16:43:26,007 INFO [clean_score_only#2]       StepMonitoring.java:98   | BEAMS
+2026-08-03 16:43:28,015 INFO [clean_score_only#2]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 16:43:28,422 INFO [clean_score_only#2]       StepMonitoring.java:98   | HEADS
+2026-08-03 16:43:32,859 INFO [clean_score_only#2]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.5] NOTEHEAD_BLACK[L:0.0,R:-0.0]}
+2026-08-03 16:43:32,860 INFO [clean_score_only#2]       StepMonitoring.java:98   | STEMS
+2026-08-03 16:43:33,919 INFO [clean_score_only#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2783{(0.622) BEAM}
+2026-08-03 16:43:33,919 INFO [clean_score_only#2]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#2794{(0.664/0.929) BEAM_HOOK}
+2026-08-03 16:43:33,919 INFO [clean_score_only#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2796{(0.583/0.902) BEAM}
+2026-08-03 16:43:33,920 INFO [clean_score_only#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2802{(0.595) BEAM}
+2026-08-03 16:43:33,920 INFO [clean_score_only#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2808{(0.427) BEAM}
+2026-08-03 16:43:33,922 INFO [clean_score_only#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2783{(0.622) BEAM}
+2026-08-03 16:43:33,923 INFO [clean_score_only#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2802{(0.595) BEAM}
+2026-08-03 16:43:33,923 INFO [clean_score_only#2]           BeamLinker.java:1729 | Not linking shorter BeamInter#2808{(0.427) BEAM}
+2026-08-03 16:43:33,931 INFO [clean_score_only#2]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 16:43:34,071 INFO [clean_score_only#2]        ReductionStep.java:105  | Stems free length median value: 52 pixels, 3.5 interlines
+2026-08-03 16:43:34,074 INFO [clean_score_only#2]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 16:43:34,074 INFO [clean_score_only#2]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 16:43:34,074 INFO [clean_score_only#2]       StepMonitoring.java:98   | TEXTS
+2026-08-03 16:43:34,869 INFO [clean_score_only#2]       StepMonitoring.java:98   | MEASURES
+2026-08-03 16:43:34,870 INFO [clean_score_only#2]                 Page.java:307  | 14 raw measures: [4 in system#1, 3 in system#2, 4 in system#3, 3 in system#4]
+2026-08-03 16:43:34,870 INFO [clean_score_only#2]       StepMonitoring.java:98   | CHORDS
+2026-08-03 16:43:34,880 INFO [clean_score_only#2]       StepMonitoring.java:98   | CURVES
+2026-08-03 16:43:35,674 INFO [clean_score_only#2]         SlursBuilder.java:240  | Slurs: 86
+2026-08-03 16:43:35,684 INFO [clean_score_only#2]      SegmentsBuilder.java:155  | Segments: 29
+2026-08-03 16:43:35,686 INFO [clean_score_only#2]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 16:43:36,568 INFO [clean_score_only#2]       StepMonitoring.java:98   | LINKS
+2026-08-03 16:43:36,587 INFO [clean_score_only#2]             KeyInter.java:1189 | No effective key before AlterInter#12624{(0.573) staff:5 NATURAL pitch:2.0}
+2026-08-03 16:43:36,588 WARN [clean_score_only#2]             KeyInter.java:1174 | No effective clef before AlterInter#12595{(0.532) staff:6 SHARP pitch:5.0}
+2026-08-03 16:43:36,588 WARN [clean_score_only#2]             KeyInter.java:1174 | No effective clef before AlterInter#12600{(0.799) staff:6 SHARP pitch:4.0}
+2026-08-03 16:43:36,588 WARN [clean_score_only#2]             KeyInter.java:1174 | No effective clef before AlterInter#12616{(0.511) staff:6 NATURAL pitch:4.0}
+2026-08-03 16:43:36,644 INFO [clean_score_only#2]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 16:43:36,644 INFO [clean_score_only#2]           PageRhythm.java:199  | {Page#2.1} Time value reused from sheet#1
+2026-08-03 16:43:36,648 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#1P1} No timeOffset for HeadChordInter#10153{(0.910/0.910) staff:1 slot#7 dur:1/8}
+2026-08-03 16:43:36,650 INFO [clean_score_only#2]                Voice.java:257  | Measure{#1P2} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,650 INFO [clean_score_only#2]                Voice.java:257  | Measure{#1P2} Voice{#2 excess:1/8} too long
+2026-08-03 16:43:36,651 INFO [clean_score_only#2]          StackRhythm.java:224  | S1 MeasureStack#1 no correct rhythm
+2026-08-03 16:43:36,651 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#2P1} No timeOffset for HeadChordInter#10160{(0.886/0.886) staff:1 slot#7 dur:1/8}
+2026-08-03 16:43:36,652 INFO [clean_score_only#2]                Voice.java:257  | Measure{#2P1} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,653 INFO [clean_score_only#2]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-08-03 16:43:36,658 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#3P2} Time inconsistency in {5/8=[HeadChordInter#10182{(0.940/0.940) staff:2 slot#8 off:5/8 dur:1/4}], 3/4=[HeadChordInter#10208{(0.921/0.921) staff:3 slot#8 off:3/4 dur:1/8}]}
+2026-08-03 16:43:36,659 INFO [clean_score_only#2]                Voice.java:257  | Measure{#3P2} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,659 INFO [clean_score_only#2]                Voice.java:257  | Measure{#3P2} Voice{#8 excess:1/8} too long
+2026-08-03 16:43:36,659 INFO [clean_score_only#2]                Voice.java:257  | Measure{#3P2} Voice{#9 excess:1/8} too long
+2026-08-03 16:43:36,659 INFO [clean_score_only#2]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-08-03 16:43:36,663 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#4P2} Time inconsistency in {1/4=[HeadChordInter#10215{(0.902/0.902) staff:3 slot#5 off:1/4 dur:1/16}], 5/16=[HeadChordInter#10189{(0.947/0.947) staff:2 slot#5 off:5/16 dur:1/8}]}
+2026-08-03 16:43:36,663 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#4P2} Time inconsistency in {7/16=[HeadChordInter#10217{(0.856/0.856) staff:3 slot#8 off:7/16 dur:1/2}], 9/16=[HeadChordInter#10191{(0.953/0.953) staff:2 slot#8 off:9/16 dur:1/4}]}
+2026-08-03 16:43:36,664 INFO [clean_score_only#2]                Voice.java:257  | Measure{#4P2} Voice{#1 excess:5/16} too long
+2026-08-03 16:43:36,664 INFO [clean_score_only#2]                Voice.java:257  | Measure{#4P2} Voice{#5 excess:3/16} too long
+2026-08-03 16:43:36,664 INFO [clean_score_only#2]                Voice.java:257  | Measure{#4P2} Voice{#2 excess:3/16} too long
+2026-08-03 16:43:36,664 INFO [clean_score_only#2]          StackRhythm.java:224  | S1 MeasureStack#4 no correct rhythm
+2026-08-03 16:43:36,669 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#6P2} No timeOffset for HeadChordInter#10267{(0.949/0.949) staff:6 slot#3 dur:1/8}
+2026-08-03 16:43:36,669 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#6P2} No timeOffset for HeadChordInter#10267{(0.949/0.949) staff:6 slot#3 dur:1/8}
+2026-08-03 16:43:36,670 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#6P2} No timeOffset for HeadChordInter#10252{(0.911/0.911) staff:5 slot#10 dur:1/4}
+2026-08-03 16:43:36,670 INFO [clean_score_only#2]                Voice.java:257  | Measure{#6P2} Voice{#6 excess:1/8} too long
+2026-08-03 16:43:36,670 INFO [clean_score_only#2]          StackRhythm.java:224  | S2 MeasureStack#6 no correct rhythm
+2026-08-03 16:43:36,675 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#7P2} No timeOffset for HeadChordInter#10255{(0.922/0.922) staff:5 slot#7 dur:3/16}
+2026-08-03 16:43:36,675 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#7P2} No timeOffset for HeadChordInter#10277{(0.920/0.920) staff:6 slot#7 dur:1/4}
+2026-08-03 16:43:36,675 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#7P2} No timeOffset for HeadChordInter#10278{(0.726/0.726) staff:6 slot#7 dur:1/2}
+2026-08-03 16:43:36,675 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#10260{(0.892/0.892) staff:5 slot#14 dur:1/16}
+2026-08-03 16:43:36,675 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#10277{(0.920/0.920) staff:6 slot#7 dur:1/4}
+2026-08-03 16:43:36,676 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#10278{(0.726/0.726) staff:6 slot#7 dur:1/2}
+2026-08-03 16:43:36,676 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#10260{(0.892/0.892) staff:5 slot#14 dur:1/16}
+2026-08-03 16:43:36,676 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#10279{(0.945/0.945) staff:6 slot#8 dur:1/4}
+2026-08-03 16:43:36,676 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#10278{(0.726/0.726) staff:6 slot#7 dur:1/2}
+2026-08-03 16:43:36,676 INFO [clean_score_only#2]          StackRhythm.java:224  | S2 MeasureStack#7 no correct rhythm
+2026-08-03 16:43:36,679 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#8P2} Time inconsistency in {1/4=[HeadChordInter#10307{(0.903/0.903) staff:8 slot#4 off:1/4 dur:1/8}], 5/16=[HeadChordInter#10341{(0.919/0.919) staff:9 slot#4 off:5/16 dur:1/16}]}
+2026-08-03 16:43:36,680 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#8P2} Time inconsistency in {5/8=[HeadChordInter#10310{(0.871/0.871) staff:8 slot#9 off:5/8 dur:1/2}], 3/4=[HeadChordInter#10346{(0.855/0.855) staff:9 slot#9 off:3/4 dur:1/2}]}
+2026-08-03 16:43:36,680 INFO [clean_score_only#2]                Voice.java:257  | Measure{#8P2} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,680 INFO [clean_score_only#2]                Voice.java:257  | Measure{#8P2} Voice{#6 excess:1/8} too long
+2026-08-03 16:43:36,680 INFO [clean_score_only#2]                Voice.java:257  | Measure{#8P2} Voice{#8 excess:1/4} too long
+2026-08-03 16:43:36,680 INFO [clean_score_only#2]          StackRhythm.java:224  | S3 MeasureStack#8 no correct rhythm
+2026-08-03 16:43:36,686 INFO [clean_score_only#2]                Voice.java:257  | Measure{#10P1} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,690 INFO [clean_score_only#2]                Voice.java:257  | Measure{#10P2} Voice{#6 excess:3/8} too long
+2026-08-03 16:43:36,691 INFO [clean_score_only#2]          StackRhythm.java:224  | S3 MeasureStack#10 no correct rhythm
+2026-08-03 16:43:36,694 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#11P2} No timeOffset for HeadChordInter#10368{(0.874/0.874) staff:9 slot#9 dur:1/8}
+2026-08-03 16:43:36,694 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#11P2} No timeOffset for HeadChordInter#10368{(0.874/0.874) staff:9 slot#9 dur:1/8}
+2026-08-03 16:43:36,695 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#11P2} No timeOffset for HeadChordInter#10338{(0.868/0.868) staff:8 slot#10 dur:1/4}
+2026-08-03 16:43:36,695 INFO [clean_score_only#2]                Voice.java:257  | Measure{#11P2} Voice{#3 excess:1/8} too long
+2026-08-03 16:43:36,695 INFO [clean_score_only#2]                Voice.java:257  | Measure{#11P2} Voice{#4 excess:3/8} too long
+2026-08-03 16:43:36,695 INFO [clean_score_only#2]                Voice.java:257  | Measure{#11P2} Voice{#6 excess:3/8} too long
+2026-08-03 16:43:36,695 INFO [clean_score_only#2]          StackRhythm.java:224  | S3 MeasureStack#11 no correct rhythm
+2026-08-03 16:43:36,700 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#12P3} Time inconsistency in {3/8=[HeadChordInter#10437{(0.832/0.832) staff:13 slot#7 off:3/8 dur:1/8}], 1/2=[HeadChordInter#10404{(0.927/0.927) staff:12 slot#7 off:1/2 dur:1/8}]}
+2026-08-03 16:43:36,700 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#12P3} No timeOffset for HeadChordInter#10439{(0.647/0.647) staff:13 slot#10 dur:1/2}
+2026-08-03 16:43:36,700 INFO [clean_score_only#2]                Voice.java:257  | Measure{#12P3} Voice{#1 excess:5/16} too long
+2026-08-03 16:43:36,701 INFO [clean_score_only#2]          StackRhythm.java:224  | S4 MeasureStack#12 no correct rhythm
+2026-08-03 16:43:36,702 INFO [clean_score_only#2]                Voice.java:257  | Measure{#13P2} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,706 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#13P3} Time inconsistency in {1/16=[HeadChordInter#10443{(0.926/0.926) staff:13 slot#2 off:1/16 dur:1/16}], 1/8=[HeadChordInter#10412{(0.916/0.916) staff:12 slot#2 off:1/8 dur:1/8}]}
+2026-08-03 16:43:36,706 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#13P3} Time inconsistency in {1/8=[HeadChordInter#10444{(0.847/0.847) staff:13 slot#3 off:1/8 dur:1/8}], 1/4=[HeadChordInter#10413{(0.953/0.953) staff:12 slot#3 off:1/4 dur:1/16}]}
+2026-08-03 16:43:36,706 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#13P3} Time inconsistency in {1/4=[HeadChordInter#10445{(0.741/0.741) staff:13 slot#5 off:1/4 dur:1/4}], 3/8=[HeadChordInter#10415{(0.856/0.856) staff:12 slot#5 off:3/8 dur:1/4}]}
+2026-08-03 16:43:36,707 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#13P3} Time inconsistency in {3/4=[HeadChordInter#10449{(0.861/0.861) staff:13 slot#10 off:3/4 dur:1/4}], 15/16=[HeadChordInter#10420{(0.870/0.870) staff:12 slot#10 off:15/16 dur:1/16}]}
+2026-08-03 16:43:36,707 INFO [clean_score_only#2]                Voice.java:257  | Measure{#13P3} Voice{#1 excess:3/16} too long
+2026-08-03 16:43:36,708 INFO [clean_score_only#2]          StackRhythm.java:224  | S4 MeasureStack#13 no correct rhythm
+2026-08-03 16:43:36,708 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#14P1} No timeOffset for HeadChordInter#10381{(0.831/0.831) staff:10 slot#3 dur:1/4}
+2026-08-03 16:43:36,714 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#14P3} Time inconsistency in {1/16=[HeadChordInter#10452{(0.895/0.895) staff:13 slot#2 off:1/16 dur:1/16}], 1/8=[HeadChordInter#10423{(0.908/0.908) staff:12 slot#2 off:1/8 dur:1/16}]}
+2026-08-03 16:43:36,714 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#14P3} Time inconsistency in {1/8=[HeadChordInter#10453{(0.845/0.845) staff:13 slot#3 off:1/8 dur:1/8}], 3/16=[HeadChordInter#10424{(0.921/0.921) staff:12 slot#3 off:3/16 dur:1/16}]}
+2026-08-03 16:43:36,714 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#14P3} Time inconsistency in {1/4=[HeadChordInter#10454{(0.819/0.819) staff:13 slot#5 off:1/4 dur:1/8}], 5/16=[HeadChordInter#10426{(0.939/0.939) staff:12 slot#5 off:5/16 dur:1/16}]}
+2026-08-03 16:43:36,714 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#14P3} Time inconsistency in {3/4=[HeadChordInter#10431{(0.940/0.940) staff:12 slot#12 off:3/4 dur:1/8}], 7/8=[HeadChordInter#10462{(0.877/0.877) staff:13 slot#12 off:7/8 dur:1/4}]}
+2026-08-03 16:43:36,715 INFO [clean_score_only#2]                Voice.java:257  | Measure{#14P3} Voice{#7 excess:1/8} too long
+2026-08-03 16:43:36,715 INFO [clean_score_only#2]          StackRhythm.java:224  | S4 MeasureStack#14 no correct rhythm
+2026-08-03 16:43:36,715 INFO [clean_score_only#2]       StepMonitoring.java:98   | PAGE
+2026-08-03 16:43:36,717 INFO [clean_score_only#2]                Voice.java:257  | Measure{#1P3} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,717 INFO [clean_score_only#2]                Voice.java:257  | Measure{#1P3} Voice{#2 excess:1/8} too long
+2026-08-03 16:43:36,717 INFO [clean_score_only#2]                Voice.java:257  | Measure{#2P2} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,717 INFO [clean_score_only#2]                Voice.java:257  | Measure{#3P3} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,717 INFO [clean_score_only#2]                Voice.java:257  | Measure{#3P3} Voice{#8 excess:1/8} too long
+2026-08-03 16:43:36,717 INFO [clean_score_only#2]                Voice.java:257  | Measure{#3P3} Voice{#9 excess:1/8} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#4P3} Voice{#1 excess:5/16} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#4P3} Voice{#2 excess:3/16} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#4P3} Voice{#5 excess:3/16} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#6P3} Voice{#6 excess:1/8} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#8P3} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#8P3} Voice{#6 excess:1/8} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#8P3} Voice{#8 excess:1/4} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#10P2} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#10P3} Voice{#6 excess:3/8} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#11P3} Voice{#4 excess:1/8} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#11P3} Voice{#5 excess:3/8} too long
+2026-08-03 16:43:36,718 INFO [clean_score_only#2]                Voice.java:257  | Measure{#11P3} Voice{#7 excess:3/8} too long
+2026-08-03 16:43:36,719 INFO [clean_score_only#2]                Voice.java:257  | Measure{#12P3} Voice{#1 excess:5/16} too long
+2026-08-03 16:43:36,719 INFO [clean_score_only#2]                Voice.java:257  | Measure{#13P2} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:36,719 INFO [clean_score_only#2]                Voice.java:257  | Measure{#13P3} Voice{#1 excess:3/16} too long
+2026-08-03 16:43:36,719 INFO [clean_score_only#2]                Voice.java:257  | Measure{#14P3} Voice{#7 excess:1/8} too long
+2026-08-03 16:43:36,720 INFO [clean_score_only#2]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-03 16:43:36,798 INFO [clean_score_only#2]                 Book.java:2565 | Stored /book.xml
+2026-08-03 16:43:36,873 INFO [clean_score_only#2]           DataHolder.java:348  | Stored /sheet#2/BINARY.png
+2026-08-03 16:43:37,538 INFO [clean_score_only#2]                Sheet.java:1583 | Stored /sheet#2/sheet#2.xml
+2026-08-03 16:43:37,538 INFO [clean_score_only#2]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-vnDsWF/audiveris-out/clean_score_only.omr
+2026-08-03 16:43:37,540 INFO [clean_score_only#2]            SheetStub.java:1655 | Sheet#2 disposed
+2026-08-03 16:43:37,565 INFO [clean_score_only#2]                 Book.java:2050 | End of Stub#2
+2026-08-03 16:43:37,565 INFO [clean_score_only#3]       StepMonitoring.java:98   | LOAD
+2026-08-03 16:43:37,805 INFO [clean_score_only#3]            SheetStub.java:1278 | Loaded image #3 2483x3508 from /tmp/pdf2mxl-up-vnDsWF/clean_score_only.pdf
+2026-08-03 16:43:37,805 INFO [clean_score_only#3]       StepMonitoring.java:98   | BINARY
+2026-08-03 16:43:38,345 INFO [clean_score_only#3]       StepMonitoring.java:98   | SCALE
+2026-08-03 16:43:38,348 INFO [clean_score_only#3]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 16:43:38,348 INFO [clean_score_only#3]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 372% of needed quorum
+2026-08-03 16:43:38,348 INFO [clean_score_only#3]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 16:43:38,348 INFO [clean_score_only#3]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 16:43:38,349 INFO [clean_score_only#3]       StepMonitoring.java:98   | GRID
+2026-08-03 16:43:39,105 INFO [clean_score_only#3]       LinesRetriever.java:1500 | Global slope: 0.01267
+2026-08-03 16:43:39,131 INFO [clean_score_only#3]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(14,15,16)
+2026-08-03 16:43:39,500 INFO [clean_score_only#3]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6, 7, 8] #3[9, 10, 11, 12]
+2026-08-03 16:43:39,531 INFO [clean_score_only#3]        BarsRetriever.java:1305 | System#3
+2026-08-03 16:43:39,531 INFO [clean_score_only#3]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:9-10}
+2026-08-03 16:43:40,089 INFO [clean_score_only#3]        SystemManager.java:779  | 3 parts along 3 systems
+2026-08-03 16:43:40,089 INFO [clean_score_only#3]       StepMonitoring.java:98   | HEADERS
+2026-08-03 16:43:40,108 WARN [clean_score_only#3]          ClefBuilder.java:658  | Staff#2 no recognized header clef.
+2026-08-03 16:43:40,246 WARN [clean_score_only#3]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-03 16:43:40,254 INFO [clean_score_only#3]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 16:43:40,289 INFO [clean_score_only#3]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 16:43:40,302 INFO [clean_score_only#3]       StepMonitoring.java:98   | BEAMS
+2026-08-03 16:43:42,306 INFO [clean_score_only#3]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 16:43:42,725 INFO [clean_score_only#3]       StepMonitoring.java:98   | HEADS
+2026-08-03 16:43:47,116 INFO [clean_score_only#3]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.1,R:-0.7] NOTEHEAD_BLACK[L:-0.0,R:0.1]}
+2026-08-03 16:43:47,117 INFO [clean_score_only#3]       StepMonitoring.java:98   | STEMS
+2026-08-03 16:43:48,793 INFO [clean_score_only#3]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 16:43:48,956 INFO [clean_score_only#3]        ReductionStep.java:105  | Stems free length median value: 53 pixels, 3.5 interlines
+2026-08-03 16:43:48,961 INFO [clean_score_only#3]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 16:43:48,961 INFO [clean_score_only#3]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 16:43:48,961 INFO [clean_score_only#3]       StepMonitoring.java:98   | TEXTS
+2026-08-03 16:43:49,414 INFO [clean_score_only#3]       StepMonitoring.java:98   | MEASURES
+2026-08-03 16:43:49,415 INFO [clean_score_only#3]                 Page.java:307  | 10 raw measures: [3 in system#1, 3 in system#2, 4 in system#3]
+2026-08-03 16:43:49,415 INFO [clean_score_only#3]       StepMonitoring.java:98   | CHORDS
+2026-08-03 16:43:49,426 INFO [clean_score_only#3]       StepMonitoring.java:98   | CURVES
+2026-08-03 16:43:50,108 INFO [clean_score_only#3]         SlursBuilder.java:240  | Slurs: 84
+2026-08-03 16:43:50,122 INFO [clean_score_only#3]      SegmentsBuilder.java:155  | Segments: 40
+2026-08-03 16:43:50,123 INFO [clean_score_only#3]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 16:43:50,909 INFO [clean_score_only#3]       StepMonitoring.java:98   | LINKS
+2026-08-03 16:43:50,937 INFO [clean_score_only#3]             KeyInter.java:1189 | No effective key before AlterInter#14310{(0.142) staff:7 NATURAL pitch:-4.0}
+2026-08-03 16:43:50,961 WARN [clean_score_only#3]             KeyInter.java:1174 | No effective clef before AlterInter#14540{(0.145) staff:12 FLAT pitch:-2.0}
+2026-08-03 16:43:50,978 INFO [clean_score_only#3]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 16:43:50,979 INFO [clean_score_only#3]           PageRhythm.java:199  | {Page#3.1} Time value reused from sheet#1
+2026-08-03 16:43:50,995 INFO [clean_score_only#3]        MeasureRhythm.java:1044 | Measure{#2P3} No timeOffset for HeadChordInter#11514{(0.888/0.888) staff:3 slot#13 dur:1/16}
+2026-08-03 16:43:50,995 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#2P3} No timeOffset for HeadChordInter#11517{(0.884/0.884) staff:3 slot#16 dur:1/16}
+2026-08-03 16:43:50,995 INFO [clean_score_only#3]        MeasureRhythm.java:1044 | Measure{#2P3} No timeOffset for HeadChordInter#11554{(0.852/0.852) staff:4 slot#15 dur:1/8}
+2026-08-03 16:43:50,995 INFO [clean_score_only#3]                Voice.java:257  | Measure{#2P3} Voice{#2 excess:1/8} too long
+2026-08-03 16:43:50,996 INFO [clean_score_only#3]          StackRhythm.java:224  | S1 MeasureStack#2 no correct rhythm
+2026-08-03 16:43:51,005 INFO [clean_score_only#3]        MeasureRhythm.java:1044 | Measure{#3P3} No timeOffset for RestChordInter#14036{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 16:43:51,005 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#3P3} No timeOffset for RestChordInter#14036{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 16:43:51,005 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#3P3} No timeOffset for RestChordInter#14036{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 16:43:51,006 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#3P3} No timeOffset for RestChordInter#14036{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 16:43:51,006 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#3P3} No timeOffset for RestChordInter#14036{(0.691/0.691) staff:4 slot#14 dur:1/2}
+2026-08-03 16:43:51,006 INFO [clean_score_only#3]                Voice.java:257  | Measure{#3P3} Voice{#6 excess:1/32} too long
+2026-08-03 16:43:51,006 INFO [clean_score_only#3]                Voice.java:257  | Measure{#3P3} Voice{#2 excess:1/32} too long
+2026-08-03 16:43:51,006 INFO [clean_score_only#3]                Voice.java:257  | Measure{#3P3} Voice{#8 excess:3/32} too long
+2026-08-03 16:43:51,006 INFO [clean_score_only#3]                Voice.java:257  | Measure{#3P3} Voice{#9 excess:3/32} too long
+2026-08-03 16:43:51,007 INFO [clean_score_only#3]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-08-03 16:43:51,024 INFO [clean_score_only#3]        MeasureRhythm.java:1044 | Measure{#5P3} No timeOffset for RestChordInter#14359{(0.778/0.778) staff:7 slot#5 dur:1/2}
+2026-08-03 16:43:51,025 INFO [clean_score_only#3]        MeasureRhythm.java:1276 | Measure{#5P3} Time inconsistency in {1/4=[HeadChordInter#11677{(0.867/0.867) staff:8 slot#6 off:1/4 dur:1/4}], 5/16=[HeadChordInter#11638{(0.958/0.958) staff:7 slot#6 off:5/16 dur:1/8}]}
+2026-08-03 16:43:51,025 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#5P3} No timeOffset for RestChordInter#14359{(0.778/0.778) staff:7 slot#5 dur:1/2}
+2026-08-03 16:43:51,025 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#5P3} No timeOffset for HeadChordInter#11641{(0.953/0.953) staff:7 slot#11 dur:1/16}
+2026-08-03 16:43:51,025 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#5P3} No timeOffset for HeadChordInter#11641{(0.953/0.953) staff:7 slot#11 dur:1/16}
+2026-08-03 16:43:51,026 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#5P3} No timeOffset for HeadChordInter#11641{(0.953/0.953) staff:7 slot#11 dur:1/16}
+2026-08-03 16:43:51,026 INFO [clean_score_only#3]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-08-03 16:43:51,036 INFO [clean_score_only#3]        MeasureRhythm.java:1044 | Measure{#7P3} No timeOffset for HeadChordInter#11770{(0.827/0.827) staff:12 slot#9 dur:1/4}
+2026-08-03 16:43:51,037 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#7P3} No timeOffset for HeadChordInter#11770{(0.827/0.827) staff:12 slot#9 dur:1/4}
+2026-08-03 16:43:51,037 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#7P3} No timeOffset for HeadChordInter#11770{(0.827/0.827) staff:12 slot#9 dur:1/4}
+2026-08-03 16:43:51,037 INFO [clean_score_only#3]   AbstractChordInter.java:627  | Measure{#7P3} No timeOffset for HeadChordInter#11770{(0.827/0.827) staff:12 slot#9 dur:1/4}
+2026-08-03 16:43:51,037 INFO [clean_score_only#3]                Voice.java:257  | Measure{#7P3} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:51,037 INFO [clean_score_only#3]                Voice.java:257  | Measure{#7P3} Voice{#8 excess:1/8} too long
+2026-08-03 16:43:51,038 INFO [clean_score_only#3]                Voice.java:257  | Measure{#7P3} Voice{#10 excess:1/4} too long
+2026-08-03 16:43:51,038 INFO [clean_score_only#3]          StackRhythm.java:224  | S3 MeasureStack#7 no correct rhythm
+2026-08-03 16:43:51,042 INFO [clean_score_only#3]                Voice.java:257  | Measure{#8P3} Voice{#6 excess:1/32} too long
+2026-08-03 16:43:51,042 INFO [clean_score_only#3]                Voice.java:257  | Measure{#8P3} Voice{#3 excess:1/32} too long
+2026-08-03 16:43:51,042 INFO [clean_score_only#3]                Voice.java:257  | Measure{#8P3} Voice{#7 excess:5/32} too long
+2026-08-03 16:43:51,043 INFO [clean_score_only#3]          StackRhythm.java:224  | S3 MeasureStack#8 no correct rhythm
+2026-08-03 16:43:51,043 INFO [clean_score_only#3]        MeasureRhythm.java:1044 | Measure{#9P1} No timeOffset for HeadChordInter#11703{(0.925/0.925) staff:9 slot#4 dur:1/8}
+2026-08-03 16:43:51,044 INFO [clean_score_only#3]                Voice.java:257  | Measure{#9P2} Voice{#1 excess:1/16} too long
+2026-08-03 16:43:51,048 INFO [clean_score_only#3]        MeasureRhythm.java:1044 | Measure{#9P3} No timeOffset for RestChordInter#14590{(0.746/0.746) staff:11 slot#11 dur:1/2}
+2026-08-03 16:43:51,048 INFO [clean_score_only#3]          StackRhythm.java:224  | S3 MeasureStack#9 no correct rhythm
+2026-08-03 16:43:51,051 INFO [clean_score_only#3]       StepMonitoring.java:98   | PAGE
+2026-08-03 16:43:51,053 INFO [clean_score_only#3]                Voice.java:257  | Measure{#2P3} Voice{#2 excess:1/8} too long
+2026-08-03 16:43:51,053 INFO [clean_score_only#3]                Voice.java:257  | Measure{#3P3} Voice{#2 excess:1/32} too long
+2026-08-03 16:43:51,053 INFO [clean_score_only#3]                Voice.java:257  | Measure{#3P3} Voice{#6 excess:1/32} too long
+2026-08-03 16:43:51,053 INFO [clean_score_only#3]                Voice.java:257  | Measure{#3P3} Voice{#8 excess:3/32} too long
+2026-08-03 16:43:51,053 INFO [clean_score_only#3]                Voice.java:257  | Measure{#3P3} Voice{#9 excess:3/32} too long
+2026-08-03 16:43:51,053 INFO [clean_score_only#3]                Voice.java:257  | Measure{#7P3} Voice{#1 excess:1/8} too long
+2026-08-03 16:43:51,053 INFO [clean_score_only#3]                Voice.java:257  | Measure{#7P3} Voice{#8 excess:1/8} too long
+2026-08-03 16:43:51,053 INFO [clean_score_only#3]                Voice.java:257  | Measure{#7P3} Voice{#10 excess:1/4} too long
+2026-08-03 16:43:51,054 INFO [clean_score_only#3]                Voice.java:257  | Measure{#8P3} Voice{#3 excess:1/32} too long
+2026-08-03 16:43:51,054 INFO [clean_score_only#3]                Voice.java:257  | Measure{#8P3} Voice{#6 excess:1/32} too long
+2026-08-03 16:43:51,054 INFO [clean_score_only#3]                Voice.java:257  | Measure{#8P3} Voice{#7 excess:5/32} too long
+2026-08-03 16:43:51,054 INFO [clean_score_only#3]                Voice.java:257  | Measure{#9P2} Voice{#1 excess:1/16} too long
+2026-08-03 16:43:51,055 INFO [clean_score_only#3]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-03 16:43:51,136 INFO [clean_score_only#3]                 Book.java:2565 | Stored /book.xml
+2026-08-03 16:43:51,205 INFO [clean_score_only#3]           DataHolder.java:348  | Stored /sheet#3/BINARY.png
+2026-08-03 16:43:51,935 INFO [clean_score_only#3]                Sheet.java:1583 | Stored /sheet#3/sheet#3.xml
+2026-08-03 16:43:51,935 INFO [clean_score_only#3]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-vnDsWF/audiveris-out/clean_score_only.omr
+2026-08-03 16:43:51,937 INFO [clean_score_only#3]            SheetStub.java:1655 | Sheet#3 disposed
+2026-08-03 16:43:51,962 INFO [clean_score_only#3]                 Book.java:2050 | End of Stub#3
+2026-08-03 16:43:51,962 INFO [clean_score_only#4]       StepMonitoring.java:98   | LOAD
+2026-08-03 16:43:52,182 INFO [clean_score_only#4]            SheetStub.java:1278 | Loaded image #4 2483x3508 from /tmp/pdf2mxl-up-vnDsWF/clean_score_only.pdf
+2026-08-03 16:43:52,182 INFO [clean_score_only#4]       StepMonitoring.java:98   | BINARY
+2026-08-03 16:43:52,725 INFO [clean_score_only#4]       StepMonitoring.java:98   | SCALE
+2026-08-03 16:43:52,727 INFO [clean_score_only#4]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 16:43:52,727 INFO [clean_score_only#4]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 322% of needed quorum
+2026-08-03 16:43:52,727 INFO [clean_score_only#4]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 16:43:52,727 INFO [clean_score_only#4]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 16:43:52,727 INFO [clean_score_only#4]       StepMonitoring.java:98   | GRID
+2026-08-03 16:43:53,612 INFO [clean_score_only#4]       LinesRetriever.java:1500 | Global slope: 0.01578
+2026-08-03 16:43:53,640 INFO [clean_score_only#4]    ClustersRetriever.java:326  | Retrieved raw line clusters: 14 of sizes [5] with interline(14,15,16)
+2026-08-03 16:43:53,876 INFO [clean_score_only#4]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6] #3[7, 8, 9, 10] #4[11, 12, 13, 14]
+2026-08-03 16:43:53,902 INFO [clean_score_only#4]        BarsRetriever.java:1305 | System#4
+2026-08-03 16:43:53,902 INFO [clean_score_only#4]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:11-12}
+2026-08-03 16:43:54,503 INFO [clean_score_only#4]        SystemManager.java:779  | 3 parts along 4 systems
+2026-08-03 16:43:54,503 INFO [clean_score_only#4]       StepMonitoring.java:98   | HEADERS
+2026-08-03 16:43:54,672 WARN [clean_score_only#4]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-03 16:43:54,707 INFO [clean_score_only#4]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 16:43:54,744 INFO [clean_score_only#4]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 16:43:54,759 INFO [clean_score_only#4]       StepMonitoring.java:98   | BEAMS
+2026-08-03 16:43:56,761 INFO [clean_score_only#4]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 16:43:57,169 INFO [clean_score_only#4]       StepMonitoring.java:98   | HEADS
+2026-08-03 16:44:01,982 INFO [clean_score_only#4]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.6] NOTEHEAD_BLACK[L:0.0,R:0.1]}
+2026-08-03 16:44:01,982 INFO [clean_score_only#4]       StepMonitoring.java:98   | STEMS
+2026-08-03 16:44:03,271 INFO [clean_score_only#4]           BeamLinker.java:1729 | Not linking shorter BeamInter#3090{(0.260) BEAM}
+2026-08-03 16:44:03,271 INFO [clean_score_only#4]           BeamLinker.java:1729 | Not linking shorter BeamInter#3120{(0.469/0.836) BEAM}
+2026-08-03 16:44:03,582 INFO [clean_score_only#4]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 16:44:03,695 INFO [clean_score_only#4]       BeamGroupInter.java:1123 | Separating beams BeamInter#3090{(0.260/0.746) BEAM} and BeamInter#3092{(0.601/0.943) BEAM}
+2026-08-03 16:44:03,699 INFO [clean_score_only#4]        ReductionStep.java:105  | Stems free length median value: 52 pixels, 3.5 interlines
+2026-08-03 16:44:03,704 INFO [clean_score_only#4]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 16:44:03,704 INFO [clean_score_only#4]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 16:44:03,704 INFO [clean_score_only#4]       StepMonitoring.java:98   | TEXTS
+2026-08-03 16:44:04,365 INFO [clean_score_only#4]       StepMonitoring.java:98   | MEASURES
+2026-08-03 16:44:04,365 INFO [clean_score_only#4]      MeasuresBuilder.java:416  | S1 partial barline column: s1:G(x:2274,y:560)[18] s2:G(x:2266,y:827)[28] s3:G(x:2260,y:1016)[38]
+2026-08-03 16:44:04,365 INFO [clean_score_only#4]      MeasuresBuilder.java:424  | S1 expanding major column: s1:G(x:2274,y:560)[18] s2:G(x:2266,y:827)[28] s3:G(x:2260,y:1016)[38]
+2026-08-03 16:44:04,366 INFO [clean_score_only#4]      MeasuresBuilder.java:416  | S4 partial barline column: s11:G(x:584,y:2606)[122] s12:G(x:584,y:2876)[132] s13:G(x:579,y:3063)[140]
+2026-08-03 16:44:04,366 INFO [clean_score_only#4]      MeasuresBuilder.java:424  | S4 expanding major column: s11:G(x:584,y:2606)[122] s12:G(x:584,y:2876)[132] s13:G(x:579,y:3063)[140]
+2026-08-03 16:44:04,367 INFO [clean_score_only#4]                 Page.java:307  | 15 raw measures: [4 in system#1, 4 in system#2, 4 in system#3, 3 in system#4]
+2026-08-03 16:44:04,367 INFO [clean_score_only#4]       StepMonitoring.java:98   | CHORDS
+2026-08-03 16:44:04,376 INFO [clean_score_only#4]       StepMonitoring.java:98   | CURVES
+2026-08-03 16:44:05,048 INFO [clean_score_only#4]         SlursBuilder.java:240  | Slurs: 82
+2026-08-03 16:44:05,066 INFO [clean_score_only#4]      SegmentsBuilder.java:155  | Segments: 49
+2026-08-03 16:44:05,072 WARN [clean_score_only#4]                 Book.java:2044 | Error processing stub
+2026-08-03 16:44:05,072 INFO [clean_score_only#4]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-03 16:44:05,154 INFO [clean_score_only#4]                 Book.java:2565 | Stored /book.xml
+2026-08-03 16:44:05,226 INFO [clean_score_only#4]           DataHolder.java:348  | Stored /sheet#4/BINARY.png
+2026-08-03 16:44:05,818 INFO [clean_score_only#4]                Sheet.java:1583 | Stored /sheet#4/sheet#4.xml
+2026-08-03 16:44:05,818 INFO [clean_score_only#4]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-vnDsWF/audiveris-out/clean_score_only.omr
+2026-08-03 16:44:05,820 INFO [clean_score_only#4]            SheetStub.java:1655 | Sheet#4 disposed
+2026-08-03 16:44:05,843 INFO [clean_score_only#4]                 Book.java:2050 | End of Stub#4
+2026-08-03 16:44:05,844 INFO [clean_score_only#5]       StepMonitoring.java:98   | LOAD
+2026-08-03 16:44:06,068 INFO [clean_score_only#5]            SheetStub.java:1278 | Loaded image #5 2483x3508 from /tmp/pdf2mxl-up-vnDsWF/clean_score_only.pdf
+2026-08-03 16:44:06,069 INFO [clean_score_only#5]       StepMonitoring.java:98   | BINARY
+2026-08-03 16:44:06,608 INFO [clean_score_only#5]       StepMonitoring.java:98   | SCALE
+2026-08-03 16:44:06,610 INFO [clean_score_only#5]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 16:44:06,610 INFO [clean_score_only#5]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 332% of needed quorum
+2026-08-03 16:44:06,610 INFO [clean_score_only#5]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 16:44:06,610 INFO [clean_score_only#5]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 16:44:06,610 INFO [clean_score_only#5]       StepMonitoring.java:98   | GRID
+2026-08-03 16:44:07,437 INFO [clean_score_only#5]       LinesRetriever.java:1500 | Global slope: 0.02188
+2026-08-03 16:44:07,464 INFO [clean_score_only#5]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(14,15,16)
+2026-08-03 16:44:07,753 INFO [clean_score_only#5]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6, 7, 8] #3[9, 10, 11, 12]
+2026-08-03 16:44:07,781 INFO [clean_score_only#5]        BarsRetriever.java:1305 | System#3
+2026-08-03 16:44:07,781 INFO [clean_score_only#5]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:9-10}
+2026-08-03 16:44:08,330 INFO [clean_score_only#5]        SystemManager.java:779  | 3 parts along 3 systems
+2026-08-03 16:44:08,331 INFO [clean_score_only#5]       StepMonitoring.java:98   | HEADERS
+2026-08-03 16:44:08,542 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-03 16:44:08,551 INFO [clean_score_only#5]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 16:44:08,584 INFO [clean_score_only#5]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 16:44:08,597 INFO [clean_score_only#5]       StepMonitoring.java:98   | BEAMS
+2026-08-03 16:44:10,588 INFO [clean_score_only#5]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 16:44:10,929 INFO [clean_score_only#5]       StepMonitoring.java:98   | HEADS
+2026-08-03 16:44:15,434 INFO [clean_score_only#5]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.4,R:-0.6] NOTEHEAD_BLACK[L:-0.0,R:0.0]}
+2026-08-03 16:44:15,434 INFO [clean_score_only#5]       StepMonitoring.java:98   | STEMS
+2026-08-03 16:44:15,863 INFO [clean_score_only#5]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#2523{(0.555/0.855) BEAM_HOOK}
+2026-08-03 16:44:15,863 INFO [clean_score_only#5]           BeamLinker.java:1729 | Not linking shorter BeamInter#2525{(0.501/0.826) BEAM}
+2026-08-03 16:44:16,468 INFO [clean_score_only#5]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#2792{(0.687/0.908) BEAM_HOOK}
+2026-08-03 16:44:17,136 INFO [clean_score_only#5]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 16:44:17,254 INFO [clean_score_only#5]        ReductionStep.java:105  | Stems free length median value: 53 pixels, 3.5 interlines
+2026-08-03 16:44:17,258 INFO [clean_score_only#5]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 16:44:17,258 INFO [clean_score_only#5]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 16:44:17,258 INFO [clean_score_only#5]       StepMonitoring.java:98   | TEXTS
+2026-08-03 16:44:18,005 INFO [clean_score_only#5]       StepMonitoring.java:98   | MEASURES
+2026-08-03 16:44:18,005 INFO [clean_score_only#5]      MeasuresBuilder.java:416  | S2 partial barline column: s7:G(x:884,y:1946)[58] s8:G(x:877,y:2165)[66]
+2026-08-03 16:44:18,006 INFO [clean_score_only#5]      MeasuresBuilder.java:428  | S2 deleting   half column: s7:G(x:884,y:1946)[58] s8:G(x:877,y:2165)[66]
+2026-08-03 16:44:18,006 INFO [clean_score_only#5]                 Page.java:307  | 9 raw measures: [3 in system#1, 2 in system#2, 4 in system#3]
+2026-08-03 16:44:18,006 INFO [clean_score_only#5]       StepMonitoring.java:98   | CHORDS
+2026-08-03 16:44:18,014 INFO [clean_score_only#5]       StepMonitoring.java:98   | CURVES
+2026-08-03 16:44:18,682 INFO [clean_score_only#5]         SlursBuilder.java:240  | Slurs: 57
+2026-08-03 16:44:18,712 INFO [clean_score_only#5]      SegmentsBuilder.java:155  | Segments: 59
+2026-08-03 16:44:18,720 INFO [clean_score_only#5]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 16:44:19,570 INFO [clean_score_only#5]       StepMonitoring.java:98   | LINKS
+2026-08-03 16:44:19,606 WARN [clean_score_only#5]             KeyInter.java:1174 | No effective clef before AlterInter#14753{(0.312) staff:12 FLAT pitch:-2.0}
+2026-08-03 16:44:19,607 WARN [clean_score_only#5]             KeyInter.java:1174 | No effective clef before AlterInter#14814{(0.573) staff:12 FLAT pitch:-2.0}
+2026-08-03 16:44:19,627 INFO [clean_score_only#5]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 16:44:19,627 INFO [clean_score_only#5]           PageRhythm.java:205  | {Page#5.1} Time value not yet available in sheet#4
+2026-08-03 16:44:19,634 INFO [clean_score_only#5]        MeasureRhythm.java:1276 | Measure{#1P3} Time inconsistency in {1/16=[HeadChordInter#11835{(0.933/0.933) staff:3 slot#2 off:1/16 dur:1/16}], 3/32=[HeadChordInter#11865{(0.887/0.887) staff:4 slot#2 off:3/32 dur:1/16}]}
+2026-08-03 16:44:19,634 INFO [clean_score_only#5]        MeasureRhythm.java:1276 | Measure{#1P3} Time inconsistency in {1/8=[HeadChordInter#11837{(0.927/0.927) staff:3 slot#3 off:1/8 dur:1/16}], 5/32=[HeadChordInter#11836{(0.943/0.943) staff:3 slot#3 off:5/32 dur:1/8}]}
+2026-08-03 16:44:19,634 INFO [clean_score_only#5]        MeasureRhythm.java:1276 | Measure{#1P3} Time inconsistency in {1/4=[HeadChordInter#11840{(0.941/0.941) staff:3 slot#5 off:1/4 dur:1/16}], 9/32=[HeadChordInter#11839{(0.877/0.877) staff:3 slot#5 off:9/32 dur:3/4}]}
+2026-08-03 16:44:19,634 INFO [clean_score_only#5]        MeasureRhythm.java:1276 | Measure{#1P3} Time inconsistency in {7/8=[HeadChordInter#11867{(0.883/0.883) staff:4 slot#14 off:7/8 dur:1/8}], 15/16=[HeadChordInter#11849{(0.949/0.949) staff:3 slot#14 off:15/16 dur:1/16}]}
+2026-08-03 16:44:19,673 INFO [clean_score_only#5]        MeasureRhythm.java:1276 | Measure{#7P3} Time inconsistency in {21/32=[HeadChordInter#12053{(0.961/0.961) staff:11 slot#10 off:21/32 dur:1/16}], 11/16=[HeadChordInter#12087{(0.932/0.932) staff:12 slot#10 off:11/16 dur:1/16}]}
+2026-08-03 16:44:19,678 INFO [clean_score_only#5]        MeasureRhythm.java:1276 | Measure{#8P3} Time inconsistency in {3/4=[HeadChordInter#12067{(0.923/0.923) staff:11 slot#11 off:3/4 dur:1/8}], 7/8=[HeadChordInter#12095{(0.928/0.928) staff:12 slot#11 off:7/8 dur:1/4}]}
+2026-08-03 16:44:19,682 INFO [clean_score_only#5]       StepMonitoring.java:98   | PAGE
+2026-08-03 16:44:19,683 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+2026-08-03 16:44:19,684 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [4, 5], please check time signatures
+2026-08-03 16:44:19,684 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#3 No target duration for measures local IDs [6, 7, 8, 9], please check time signatures
+2026-08-03 16:44:19,684 INFO [clean_score_only#5]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-03 16:44:19,778 INFO [clean_score_only#5]                 Book.java:2565 | Stored /book.xml
+2026-08-03 16:44:19,851 INFO [clean_score_only#5]           DataHolder.java:348  | Stored /sheet#5/BINARY.png
+2026-08-03 16:44:20,604 INFO [clean_score_only#5]                Sheet.java:1583 | Stored /sheet#5/sheet#5.xml
+2026-08-03 16:44:20,605 INFO [clean_score_only#5]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-vnDsWF/audiveris-out/clean_score_only.omr
+2026-08-03 16:44:20,622 INFO [clean_score_only#5]            SheetStub.java:1655 | Sheet#5 disposed
+2026-08-03 16:44:20,645 INFO [clean_score_only#5]                 Book.java:2050 | End of Stub#5
+2026-08-03 16:44:20,646 INFO [clean_score_only#6]       StepMonitoring.java:98   | LOAD
+2026-08-03 16:44:20,858 INFO [clean_score_only#6]            SheetStub.java:1278 | Loaded image #6 2483x3508 from /tmp/pdf2mxl-up-vnDsWF/clean_score_only.pdf
+2026-08-03 16:44:20,859 INFO [clean_score_only#6]       StepMonitoring.java:98   | BINARY
+2026-08-03 16:44:21,395 INFO [clean_score_only#6]       StepMonitoring.java:98   | SCALE
+2026-08-03 16:44:21,396 INFO [clean_score_only#6]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 16:44:21,396 INFO [clean_score_only#6]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 235% of needed quorum
+2026-08-03 16:44:21,396 INFO [clean_score_only#6]         ScaleBuilder.java:401  | Normalized black jitter: 26.67 %
+2026-08-03 16:44:21,396 INFO [clean_score_only#6]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(2,4,6) beam(8)}
+2026-08-03 16:44:21,396 INFO [clean_score_only#6]       StepMonitoring.java:98   | GRID
+2026-08-03 16:44:21,958 INFO [clean_score_only#6]       LinesRetriever.java:1500 | Global slope: 0.01650
+2026-08-03 16:44:21,974 INFO [clean_score_only#6]    ClustersRetriever.java:326  | Retrieved raw line clusters: 10 of sizes [5] with interline(14,15,16)
+2026-08-03 16:44:22,152 INFO [clean_score_only#6]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6, 7, 8, 9, 10]
+2026-08-03 16:44:22,153 WARN [clean_score_only#6]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#1
+2026-08-03 16:44:22,169 INFO [clean_score_only#6]        BarsRetriever.java:1305 | System#2
+2026-08-03 16:44:22,170 INFO [clean_score_only#6]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:5-8}
+2026-08-03 16:44:22,653 INFO [clean_score_only#6]        SystemManager.java:134  | Indentation detected for system #1
+2026-08-03 16:44:22,653 INFO [clean_score_only#6]        SystemManager.java:779  | 5 parts along 2 systems
+2026-08-03 16:44:22,653 INFO [clean_score_only#6]       StepMonitoring.java:98   | HEADERS
+2026-08-03 16:44:22,802 WARN [clean_score_only#6]          ClefBuilder.java:658  | Staff#7 no recognized header clef.
+2026-08-03 16:44:22,811 WARN [clean_score_only#6]          ClefBuilder.java:658  | Staff#8 no recognized header clef.
+2026-08-03 16:44:22,842 INFO [clean_score_only#6]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 16:44:22,875 INFO [clean_score_only#6]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 16:44:22,887 INFO [clean_score_only#6]       StepMonitoring.java:98   | BEAMS
+2026-08-03 16:44:24,671 INFO [clean_score_only#6]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 16:44:24,982 INFO [clean_score_only#6]       StepMonitoring.java:98   | HEADS
+2026-08-03 16:44:28,468 INFO [clean_score_only#6]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.7] NOTEHEAD_BLACK[L:0.0,R:-0.1]}
+2026-08-03 16:44:28,468 INFO [clean_score_only#6]       StepMonitoring.java:98   | STEMS
+2026-08-03 16:44:28,892 INFO [clean_score_only#6]           BeamLinker.java:1729 | Not linking shorter BeamInter#1938{(0.647) BEAM}
+2026-08-03 16:44:28,894 INFO [clean_score_only#6]           BeamLinker.java:1729 | Not linking shorter BeamInter#1938{(0.647) BEAM}
+2026-08-03 16:44:28,894 INFO [clean_score_only#6]           BeamLinker.java:1729 | Not linking shorter BeamInter#1938{(0.647) BEAM}
+2026-08-03 16:44:30,071 INFO [clean_score_only#6]           BeamLinker.java:1729 | Not linking shorter BeamInter#2083{(0.614) BEAM}
+2026-08-03 16:44:30,071 INFO [clean_score_only#6]           BeamLinker.java:1729 | Not linking shorter BeamInter#2089{(0.617) BEAM}
+2026-08-03 16:44:30,071 INFO [clean_score_only#6]           BeamLinker.java:1729 | Not linking shorter BeamInter#2058{(0.595) BEAM}
+2026-08-03 16:44:30,071 INFO [clean_score_only#6]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#2132{(0.556/0.768) BEAM_HOOK}
+2026-08-03 16:44:30,085 INFO [clean_score_only#6]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 16:44:30,194 INFO [clean_score_only#6]        ReductionStep.java:105  | Stems free length median value: 53 pixels, 3.5 interlines
+2026-08-03 16:44:30,196 INFO [clean_score_only#6]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 16:44:30,197 INFO [clean_score_only#6]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 16:44:30,197 INFO [clean_score_only#6]       StepMonitoring.java:98   | TEXTS
+2026-08-03 16:44:31,309 INFO [clean_score_only#6]       StepMonitoring.java:98   | MEASURES
+2026-08-03 16:44:31,310 INFO [clean_score_only#6]      MeasuresBuilder.java:416  | S2 partial barline column: s10:G(x:246,y:3215)[86]
+2026-08-03 16:44:31,310 INFO [clean_score_only#6]      MeasuresBuilder.java:420  | S2 deleting  minor column: s10:G(x:246,y:3215)[86]
+2026-08-03 16:44:31,311 INFO [clean_score_only#6]      MeasuresBuilder.java:416  | S2 partial barline column: s5:G(x:294,y:1880)[30] s6:G(x:284,y:2155)[42] s7:G(x:274,y:2426)[54] s8:G(x:265,y:2700)[66] s9:G(x:254,y:2999)[76]
+2026-08-03 16:44:31,311 INFO [clean_score_only#6]      MeasuresBuilder.java:424  | S2 expanding major column: s5:G(x:294,y:1880)[30] s6:G(x:284,y:2155)[42] s7:G(x:274,y:2426)[54] s8:G(x:265,y:2700)[66] s9:G(x:254,y:2999)[76]
+2026-08-03 16:44:31,311 INFO [clean_score_only#6]                 Page.java:307  | 7 raw measures: [3 in system#1, 4 in system#2]
+2026-08-03 16:44:31,311 INFO [clean_score_only#6]       StepMonitoring.java:98   | CHORDS
+2026-08-03 16:44:31,318 INFO [clean_score_only#6]       StepMonitoring.java:98   | CURVES
+2026-08-03 16:44:31,922 INFO [clean_score_only#6]         SlursBuilder.java:240  | Slurs: 34
+2026-08-03 16:44:31,951 INFO [clean_score_only#6]      SegmentsBuilder.java:155  | Segments: 35
+2026-08-03 16:44:31,952 INFO [clean_score_only#6]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 16:44:32,709 INFO [clean_score_only#6]       StepMonitoring.java:98   | LINKS
+2026-08-03 16:44:32,724 INFO [clean_score_only#6]             KeyInter.java:1189 | No effective key before AlterInter#11713{(0.129) staff:9 NATURAL pitch:-6.0}
+2026-08-03 16:44:32,750 INFO [clean_score_only#6]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 16:44:32,772 INFO [clean_score_only#6]        MeasureRhythm.java:1276 | Measure{#5P5} Time inconsistency in {3/16=[HeadChordInter#9401{(0.889/0.889) staff:10 slot#3 off:3/16 dur:1/16}], 1/4=[HeadChordInter#9357{(0.930/0.930) staff:9 slot#3 off:1/4 dur:1/8}]}
+2026-08-03 16:44:32,773 INFO [clean_score_only#6]        MeasureRhythm.java:1276 | Measure{#5P5} Time inconsistency in {1/4=[HeadChordInter#9402{(0.905/0.905) staff:10 slot#4 off:1/4 dur:1/16}], 3/8=[HeadChordInter#9358{(0.932/0.932) staff:9 slot#4 off:3/8 dur:1/8}]}
+2026-08-03 16:44:32,774 INFO [clean_score_only#6]        MeasureRhythm.java:1276 | Measure{#5P5} Time inconsistency in {3/4=[HeadChordInter#9363{(0.897/0.897) staff:9 slot#9 off:3/4 dur:1/16}], 13/16=[HeadChordInter#9407{(0.865/0.865) staff:10 slot#9 off:13/16 dur:1/8}]}
+2026-08-03 16:44:32,774 INFO [clean_score_only#6]        MeasureRhythm.java:1276 | Measure{#5P5} Time inconsistency in {13/16=[HeadChordInter#9364{(0.906/0.906) staff:9 slot#10 off:13/16 dur:1/16}], 15/16=[HeadChordInter#9408{(0.855/0.855) staff:10 slot#10 off:15/16 dur:1/8}]}
+2026-08-03 16:44:32,779 INFO [clean_score_only#6]        MeasureRhythm.java:1276 | Measure{#6P5} Time inconsistency in {1/4=[HeadChordInter#9369{(0.928/0.928) staff:9 slot#3 off:1/4 dur:1/4}], 5/16=[HeadChordInter#9413{(0.948/0.948) staff:10 slot#3 off:5/16 dur:1/8}]}
+2026-08-03 16:44:32,787 INFO [clean_score_only#6]        MeasureRhythm.java:1276 | Measure{#7P5} Time inconsistency in {3/16=[HeadChordInter#9420{(0.873/0.873) staff:10 slot#3 off:3/16 dur:1/8}], 1/4=[HeadChordInter#9383{(0.893/0.893) staff:9 slot#3 off:1/4 dur:1/8}]}
+2026-08-03 16:44:32,787 INFO [clean_score_only#6]        MeasureRhythm.java:1276 | Measure{#7P5} Time inconsistency in {5/16=[HeadChordInter#9421{(0.898/0.898) staff:10 slot#4 off:5/16 dur:1/8}], 3/8=[HeadChordInter#9384{(0.912/0.912) staff:9 slot#4 off:3/8 dur:1/8}]}
+2026-08-03 16:44:32,789 INFO [clean_score_only#6]       StepMonitoring.java:98   | PAGE
+2026-08-03 16:44:32,789 WARN [clean_score_only#6]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+2026-08-03 16:44:32,790 WARN [clean_score_only#6]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [4, 5, 6, 7], please check time signatures
+2026-08-03 16:44:32,790 INFO [clean_score_only#6]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-03 16:44:32,865 INFO [clean_score_only#6]                 Book.java:2565 | Stored /book.xml
+2026-08-03 16:44:32,926 INFO [clean_score_only#6]           DataHolder.java:348  | Stored /sheet#6/BINARY.png
+2026-08-03 16:44:33,479 INFO [clean_score_only#6]                Sheet.java:1583 | Stored /sheet#6/sheet#6.xml
+2026-08-03 16:44:33,480 INFO [clean_score_only#6]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-vnDsWF/audiveris-out/clean_score_only.omr
+2026-08-03 16:44:33,484 INFO [clean_score_only#6]            SheetStub.java:1655 | Sheet#6 disposed
+2026-08-03 16:44:33,506 INFO [clean_score_only#6]                 Book.java:2050 | End of Stub#6
+2026-08-03 16:44:33,507 INFO [clean_score_only#7]       StepMonitoring.java:98   | LOAD
+2026-08-03 16:44:33,733 INFO [clean_score_only#7]            SheetStub.java:1278 | Loaded image #7 2483x3508 from /tmp/pdf2mxl-up-vnDsWF/clean_score_only.pdf
+2026-08-03 16:44:33,734 INFO [clean_score_only#7]       StepMonitoring.java:98   | BINARY
+2026-08-03 16:44:34,266 INFO [clean_score_only#7]       StepMonitoring.java:98   | SCALE
+2026-08-03 16:44:34,267 INFO [clean_score_only#7]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-03 16:44:34,268 INFO [clean_score_only#7]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 292% of needed quorum
+2026-08-03 16:44:34,268 INFO [clean_score_only#7]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-03 16:44:34,268 INFO [clean_score_only#7]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-03 16:44:34,268 INFO [clean_score_only#7]       StepMonitoring.java:98   | GRID
+2026-08-03 16:44:34,828 INFO [clean_score_only#7]       LinesRetriever.java:1500 | Global slope: 0.01275
+2026-08-03 16:44:34,843 INFO [clean_score_only#7]    ClustersRetriever.java:326  | Retrieved raw line clusters: 10 of sizes [5] with interline(14,15,16)
+2026-08-03 16:44:34,964 INFO [clean_score_only#7]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10]
+2026-08-03 16:44:34,964 WARN [clean_score_only#7]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#1
+2026-08-03 16:44:34,980 INFO [clean_score_only#7]        BarsRetriever.java:769  | No brace partner at level:2 for Peak{199-229 F#7768 T#7 [BRACE]}
+2026-08-03 16:44:34,981 INFO [clean_score_only#7]        BarsRetriever.java:1305 | System#2
+2026-08-03 16:44:34,981 INFO [clean_score_only#7]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:7-8}
+2026-08-03 16:44:35,426 INFO [clean_score_only#7]        SystemManager.java:779  | 6 parts along 2 systems
+2026-08-03 16:44:35,426 INFO [clean_score_only#7]       StepMonitoring.java:98   | HEADERS
+2026-08-03 16:44:35,568 INFO [clean_score_only#7]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-03 16:44:35,599 INFO [clean_score_only#7]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-03 16:44:35,608 INFO [clean_score_only#7]       StepMonitoring.java:98   | BEAMS
+2026-08-03 16:44:37,304 INFO [clean_score_only#7]       StepMonitoring.java:98   | LEDGERS
+2026-08-03 16:44:37,631 INFO [clean_score_only#7]       StepMonitoring.java:98   | HEADS
+2026-08-03 16:44:40,736 INFO [clean_score_only#7]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.2,R:-0.3] NOTEHEAD_BLACK[L:0.0,R:0.2]}
+2026-08-03 16:44:40,736 INFO [clean_score_only#7]       StepMonitoring.java:98   | STEMS
+2026-08-03 16:44:41,959 INFO [clean_score_only#7]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#2043{(0.326/0.684) BEAM_HOOK}
+2026-08-03 16:44:41,965 INFO [clean_score_only#7]       StepMonitoring.java:98   | REDUCTION
+2026-08-03 16:44:42,021 INFO [clean_score_only#7]        ReductionStep.java:105  | Stems free length median value: 53 pixels, 3.5 interlines
+2026-08-03 16:44:42,023 INFO [clean_score_only#7]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-03 16:44:42,023 INFO [clean_score_only#7]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-03 16:44:42,024 INFO [clean_score_only#7]       StepMonitoring.java:98   | TEXTS
+2026-08-03 16:44:43,039 INFO [clean_score_only#7]       StepMonitoring.java:98   | MEASURES
+2026-08-03 16:44:43,039 INFO [clean_score_only#7]                 Page.java:307  | 7 raw measures: [4 in system#1, 3 in system#2]
+2026-08-03 16:44:43,051 INFO [clean_score_only#7]       StepMonitoring.java:98   | CHORDS
+2026-08-03 16:44:43,056 INFO [clean_score_only#7]       StepMonitoring.java:98   | CURVES
+2026-08-03 16:44:43,604 INFO [clean_score_only#7]         SlursBuilder.java:240  | Slurs: 46
+2026-08-03 16:44:43,617 INFO [clean_score_only#7]      SegmentsBuilder.java:155  | Segments: 49
+2026-08-03 16:44:43,618 INFO [clean_score_only#7]       StepMonitoring.java:98   | SYMBOLS
+2026-08-03 16:44:44,500 INFO [clean_score_only#7]       StepMonitoring.java:98   | LINKS
+2026-08-03 16:44:44,502 INFO [clean_score_only#7]             KeyInter.java:1189 | No effective key before AlterInter#9190{(0.152) staff:4 NATURAL pitch:-3.0}
+2026-08-03 16:44:44,537 INFO [clean_score_only#7]       StepMonitoring.java:98   | RHYTHMS
+2026-08-03 16:44:44,565 INFO [clean_score_only#7]       StepMonitoring.java:98   | PAGE
+2026-08-03 16:44:44,566 WARN [clean_score_only#7]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2, 3, 4], please check time signatures
+2026-08-03 16:44:44,567 WARN [clean_score_only#7]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [5, 6, 7], please check time signatures
+2026-08-03 16:44:44,567 INFO [clean_score_only#7]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-03 16:44:44,630 INFO [clean_score_only#7]                 Book.java:2565 | Stored /book.xml
+2026-08-03 16:44:44,692 INFO [clean_score_only#7]           DataHolder.java:348  | Stored /sheet#7/BINARY.png
+2026-08-03 16:44:45,182 INFO [clean_score_only#7]                Sheet.java:1583 | Stored /sheet#7/sheet#7.xml
+2026-08-03 16:44:45,182 INFO [clean_score_only#7]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-vnDsWF/audiveris-out/clean_score_only.omr
+2026-08-03 16:44:45,185 INFO [clean_score_only#7]            SheetStub.java:1655 | Sheet#7 disposed
+2026-08-03 16:44:45,208 INFO [clean_score_only#7]                 Book.java:2050 | End of Stub#7
+2026-08-03 16:44:45,208 INFO [clean_score_only]                 Book.java:2057 | End of Book{clean_score_only}
+2026-08-03 16:44:45,208 INFO [clean_score_only]                 Book.java:596  | Could not export since transcription did not complete successfully
+2026-08-03 16:44:45,209 WARN [clean_score_only]                  CLI.java:956  | Exception occurred java.lang.Exception: Error in export
+java.lang.Exception: Error in export
+	at org.audiveris.omr.CLI$ProcessingTask.processBook(CLI.java:930)
+	at org.audiveris.omr.CLI$CliTask.call(CLI.java:513)
+	at org.audiveris.omr.Main.runBatchTasks(Main.java:361)
+	at org.audiveris.omr.Main.main(Main.java:263)
+	at Audiveris.main(Audiveris.java:50)
+2026-08-03 16:44:45,232 INFO [clean_score_only]                Score.java:181  | Closing {Score 1}
+2026-08-03 16:44:45,232 INFO [clean_score_only]                Score.java:181  | Closing {Score 2}

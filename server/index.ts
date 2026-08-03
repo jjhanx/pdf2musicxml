@@ -1909,6 +1909,9 @@ async function importOmrWorkFromExtractDir(
     ? { hasCleanScore: false, hasInput: false }
     : await restoreOmrWorkPdfsFromExtractDir(sessionRoot, extractDir, job);
   const reviewSrc = pick('review.mxl');
+  if (reviewSrc) {
+    await fs.copyFile(reviewSrc, sessionReviewMxlPath(sessionRoot));
+  }
   const rawSrc = pick('audiveris_raw.mxl');
   const fixesSrc = pick('omr_hitl_fixes.json');
   const labelsSrc = pick('part_labels.json');
@@ -3168,6 +3171,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       );
       outputs = [mxlPath];
       mxlForInject = [mxlPath];
+      job.preInjectMxlPaths = [...mxlForInject];
       importedMxlFromZip = true;
       skipAudiverisEngine = true;
       pauseForAudiverisReview = false;
@@ -3175,6 +3179,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       await fs.copyFile(job.resumeLyricManifestPath, lyricManifestPath);
       await preparePymupdfReviewFromManifest(lyricManifestPath, pymupdfReviewPath);
       await restorePartLabelsFromManifest(job.sessionRoot, lyricManifestPath);
+
+      // omr-work.zip에 포함된 omr_hitl_fixes.json을 MXL에 최종 반영합니다
+      await applyOmrHitlFixesForJob(job, pythonBin);
     }
 
     if (!skipAudiverisEngine) {

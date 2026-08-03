@@ -417,7 +417,7 @@ def analyze_font_sizes(extracted_pages: list[dict[str, Any]]) -> dict[str, Any]:
             }
         )
 
-    default_ranges = [{"minPt": DEFAULT_MIN_LYRICS_SIZE, "maxPt": DEFAULT_MAX_LYRICS_SIZE, "label": "가사(기본 7–17pt)"}]
+    default_ranges = [{"minPt": DEFAULT_MIN_LYRICS_SIZE, "maxPt": DEFAULT_MAX_LYRICS_SIZE, "label": "가사 기본 7~17pt"}]
     suggested_ranges: list[dict[str, Any]] = []
     suggested_sizes: list[float] = []
 
@@ -446,15 +446,15 @@ def analyze_font_sizes(extracted_pages: list[dict[str, Any]]) -> dict[str, Any]:
                         {
                             "minPt": round(lo, 2),
                             "maxPt": round(hi, 2),
-                            "label": f"메타 묶음 {lo:g}–{hi:g}pt",
+                            "label": f"메타 묶음 {lo:g}~{hi:g}pt",
                         }
                     )
 
     presets = [
-        {"id": "lyrics", "label": "가사 (7–17pt)", "ranges": [{"minPt": 7, "maxPt": 17}]},
-        {"id": "meta_small", "label": "작곡·저작 12–20pt", "ranges": [{"minPt": 12, "maxPt": 20}]},
-        {"id": "title", "label": "큰 제목 18–36pt", "ranges": [{"minPt": 18, "maxPt": 36}]},
-        {"id": "all_meta", "label": "가사+메타 (7–36pt)", "ranges": [{"minPt": 7, "maxPt": 36}]},
+        {"id": "lyrics", "label": "가사(7~17pt)", "ranges": [{"minPt": 7, "maxPt": 17}]},
+        {"id": "meta_small", "label": "작곡·작사 12~20pt", "ranges": [{"minPt": 12, "maxPt": 20}]},
+        {"id": "title", "label": "큰제목 18~36pt", "ranges": [{"minPt": 18, "maxPt": 36}]},
+        {"id": "all_meta", "label": "가사·메타 (7~36pt)", "ranges": [{"minPt": 7, "maxPt": 36}]},
     ]
 
     return {
@@ -463,10 +463,10 @@ def analyze_font_sizes(extracted_pages: list[dict[str, Any]]) -> dict[str, Any]:
         "suggestedRanges": suggested_ranges,
         "presets": presets,
         "note": (
-            "UI에서 고른 pt 범위의 텍스트만 제거합니다(CTM 반영 표시 pt). "
-            "22.8pt NWC·SMuFL **악보 글꼴**은 범위에 7–36pt를 넣어도 **자동 보호**합니다. "
-            "그래도 **가사(7–17pt)** 만 고르는 것을 권장합니다. "
-            "가사·제목·작곡 등 inject_ocr로 넣을 텍스트만 고르세요."
+            "UI에서 고른 pt 범위의 텍스트만 제거합니다 (CTM 반영 실제 pt). "
+            "22.8pt NWC·SMuFL **악보 글꼴**은 범위가 7~36pt에 들어와도 **자동 보호**됩니다. "
+            "그래도 **가사(7~17pt)** 만 고르는 것을 권장합니다. "
+            "가사·큰제목·작곡자 등 inject_ocr에 담을 텍스트만 고르세요."
         ),
     }
 

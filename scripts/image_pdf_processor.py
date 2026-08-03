@@ -101,7 +101,23 @@ def mask(input_pdf: str, extracted_json: str, output_pdf: str):
             
         page = doc[page_idx]
         
+        import re
+        def should_skip_mask(text: str) -> bool:
+            text = text.strip()
+            if not text:
+                return True
+            if re.match(r'^[\d\s/Cc]+$', text):
+                return True
+            lower = text.lower()
+            dynamics = {"p", "mp", "mf", "f", "ff", "fff", "sfz", "cresc", "cresc.", "dim", "dim.", "rit", "rit.", "a tempo"}
+            if lower in dynamics:
+                return True
+            return False
+
         for elem in page_data.get("text_elements", []):
+            if should_skip_mask(elem.get("raw_text", "")):
+                continue
+                
             pad = 2.0
             rect = fitz.Rect(elem["x0"] - pad, elem["y0"] - pad, elem["x1"] + pad, elem["y1"] + pad)
             

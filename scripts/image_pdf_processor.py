@@ -105,7 +105,84 @@ if __name__ == '__main__':
     finally:
         os.remove(script_path)
 
+
+def _merge_tesseract_bboxes(input_pdf: str, output_json: str):
+    try:
+        import pytesseract
+        import fitz
+        from PIL import Image
+        import json
+        
+        with open(output_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        doc = fitz.open(input_pdf)
+        zoom = 2.0
+        mat = fitz.Matrix(zoom, zoom)
+        
+        print("[image_pdf_processor] Running Tesseract for additional Korean bboxes...", file=sys.stderr)
+        
+        for page_data in data:
+            page_idx = page_data["page_number"] - 1
+            if page_idx >= len(doc) or page_idx < 0: continue
+            
+            page = doc[page_idx]
+            pix = page.get_pixmap(matrix=mat)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            
+            try:
+                # Use Tesseract with Korean and English
+                ocr_data = pytesseract.image_to_data(img, lang='kor+eng', output_type=pytesseract.Output.DICT)
+            except Exception as e:
+                print(f"[image_pdf_processor] Tesseract failed on page {page_idx+1}: {e}", file=sys.stderr)
+                continue
+                
+            n_boxes = len(ocr_data['text'])
+            added = 0
+            for i in range(n_boxes):
+                text = str(ocr_data['text'][i]).strip()
+                if not text: continue
+                try:
+                    conf = int(ocr_data['conf'][i])
+                except:
+                    conf = 0
+                if conf < 30: continue
+                
+                x0 = float(ocr_data['left'][i]) / zoom
+                y0 = float(ocr_data['top'][i]) / zoom
+                w = float(ocr_data['width'][i]) / zoom
+                h = float(ocr_data['height'][i]) / zoom
+                x1 = x0 + w
+                y1 = y0 + h
+                
+                if h > (page.rect.height * 0.2): continue
+                
+                char_info = {
+                    "raw_text": text,
+                    "x0": round(x0, 2),
+                    "y0": round(y0, 2),
+                    "x1": round(x1, 2),
+                    "y1": round(y1, 2),
+                    "fontname": "Tesseract",
+                    "size": round(h, 2)
+                }
+                
+                if "text_elements" not in page_data:
+                    page_data["text_elements"] = []
+                page_data["text_elements"].append(char_info)
+                added += 1
+                
+            print(f"[image_pdf_processor] Tesseract found {added} additional boxes on page {page_idx+1}.", file=sys.stderr)
+            
+        doc.close()
+        
+        with open(output_json, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[image_pdf_processor] Skipping Tesseract (not installed or failed): {e}", file=sys.stderr)
+
 def extract(input_pdf: str, output_json: str):
+
     print(f"[image_pdf_processor] Extracting text from {input_pdf}...", file=sys.stderr)
     
     korean_configs = []
@@ -141,6 +218,7 @@ def extract(input_pdf: str, output_json: str):
             print(f"[image_pdf_processor] Success with Korean model config: version={ver}, model={mod}", file=sys.stderr)
             break
             
+
     if not success:
         print(f"[image_pdf_processor] All Korean model configs failed (segfault/error). Falling back to default English model...", file=sys.stderr)
         success = _run_ocr_subprocess(input_pdf, output_json, lang="None")
@@ -148,7 +226,9 @@ def extract(input_pdf: str, output_json: str):
             print(f"[image_pdf_processor] Default model also failed. Exiting.", file=sys.stderr)
             sys.exit(1)
             
+    _merge_tesseract_bboxes(input_pdf, output_json)
     print(f" -> {output_json}", file=sys.stderr)
+
 
 def mask(input_pdf: str, extracted_json: str, output_pdf: str):
     print(f"[image_pdf_processor] Masking PDF {input_pdf} based on {extracted_json}...", file=sys.stderr)

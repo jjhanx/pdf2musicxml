@@ -2585,11 +2585,6 @@ bash scripts/install-font-separator-deps.sh`}
                   <strong> 원본과 나란히 확인</strong>한 뒤) pdfplumber·검토
                   결과가 <code>lyric_manifest.json</code>(v3)으로 병합되고 MusicXML에 주입됩니다.
                 </>
-              ) : pipelineMode === 'auto' ? (
-                <>
-                  {' '}
-                  원본 PDF의 텍스트 포함 여부를 자동으로 판별하여 적절한 처리 방식을 선택하고 가사를 추출합니다.
-                </>
               ) : pipelineMode === 'image_pdf' ? (
                 <>
                   {' '}

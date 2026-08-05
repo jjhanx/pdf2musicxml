@@ -1,0 +1,75 @@
+2026-08-05 14:28:46,348 INFO [clean_score_only]                 Book.java:560  | 10 sheets in d:\pdf2musicxml\clean_score_only.pdf
+2026-08-05 14:28:46,535 INFO []                 Book.java:2565 | Stored /book.xml
+2026-08-05 14:28:46,536 INFO []                 Book.java:2525 | Book stored as d:\pdf2musicxml\test-out\clean_score_only.omr
+2026-08-05 14:28:46,540 INFO []                 Book.java:1929 | Book reaching PAGE on sheets:[#1#2#3#4#5#6#7#8#9#10]
+2026-08-05 14:28:46,542 INFO [clean_score_only#1]       StepMonitoring.java:98   | LOAD
+2026-08-05 14:28:46,852 WARN [clean_score_only#1]           GlyphCache.java:64   | No glyph for code 8224 (CID 2020) in font CIDFont+F3
+2026-08-05 14:28:46,854 WARN [clean_score_only#1]           GlyphCache.java:64   | No glyph for code 8192 (CID 2000) in font CIDFont+F3
+2026-08-05 14:28:46,898 WARN [clean_score_only#1]           GlyphCache.java:64   | No glyph for code 8224 (CID 2020) in font CIDFont+F5
+2026-08-05 14:28:46,899 WARN [clean_score_only#1]           GlyphCache.java:64   | No glyph for code 8192 (CID 2000) in font CIDFont+F5
+2026-08-05 14:28:46,951 INFO [clean_score_only#1]            SheetStub.java:1278 | Loaded image #1 2480x3508 from d:\pdf2musicxml\clean_score_only.pdf
+2026-08-05 14:28:46,954 INFO [clean_score_only#1]       StepMonitoring.java:98   | BINARY
+2026-08-05 14:28:47,783 INFO [clean_score_only#1]       StepMonitoring.java:98   | SCALE
+2026-08-05 14:28:47,808 INFO [clean_score_only#1]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-08-05 14:28:47,809 INFO [clean_score_only#1]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 106% of needed quorum
+2026-08-05 14:28:47,809 INFO [clean_score_only#1]         ScaleBuilder.java:401  | Normalized black jitter: 5.26 %
+2026-08-05 14:28:47,809 INFO [clean_score_only#1]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(1,2,2) beam(11)}
+2026-08-05 14:28:47,810 INFO [clean_score_only#1]       StepMonitoring.java:98   | GRID
+2026-08-05 14:28:48,152 INFO [clean_score_only#1]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-08-05 14:28:48,182 INFO [clean_score_only#1]    ClustersRetriever.java:326  | Retrieved raw line clusters: 6 of sizes [5] with interline(19,19,19)
+2026-08-05 14:28:48,288 INFO [clean_score_only#1]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6]
+2026-08-05 14:28:48,492 INFO [clean_score_only#1]        SystemManager.java:779  | 5 parts along 1 system
+2026-08-05 14:28:48,493 INFO [clean_score_only#1]                 Book.java:543  | Created scores: [{Score 1}]
+2026-08-05 14:28:48,494 INFO [clean_score_only#1]       StepMonitoring.java:98   | HEADERS
+2026-08-05 14:28:49,649 INFO [clean_score_only#1]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-05 14:28:49,715 INFO [clean_score_only#1]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-08-05 14:28:49,755 INFO [clean_score_only#1]       StepMonitoring.java:98   | BEAMS
+2026-08-05 14:28:53,113 INFO [clean_score_only#1]       StepMonitoring.java:98   | LEDGERS
+2026-08-05 14:28:53,326 INFO [clean_score_only#1]       StepMonitoring.java:98   | HEADS
+2026-08-05 14:28:55,846 INFO [clean_score_only#1]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_BLACK[L:-0.4,R:-0.5]}
+2026-08-05 14:28:55,847 INFO [clean_score_only#1]       StepMonitoring.java:98   | STEMS
+2026-08-05 14:28:56,515 INFO [clean_score_only#1]       StepMonitoring.java:98   | REDUCTION
+2026-08-05 14:28:56,718 INFO [clean_score_only#1]        ReductionStep.java:105  | Stems free length median value: 66 pixels, 3.5 interlines
+2026-08-05 14:28:56,721 INFO [clean_score_only#1]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-05 14:28:56,721 INFO [clean_score_only#1]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-05 14:28:56,722 INFO [clean_score_only#1]       StepMonitoring.java:98   | TEXTS
+2026-08-05 14:28:57,776 INFO [clean_score_only#1]       StepMonitoring.java:98   | MEASURES
+2026-08-05 14:28:57,786 INFO [clean_score_only#1]                 Page.java:307  | 5 raw measures: [5 in system#1]
+2026-08-05 14:28:57,786 INFO [clean_score_only#1]       StepMonitoring.java:98   | CHORDS
+2026-08-05 14:28:57,799 INFO [clean_score_only#1]       StepMonitoring.java:98   | CURVES
+2026-08-05 14:28:58,527 INFO [clean_score_only#1]         SlursBuilder.java:240  | Slurs: 2
+2026-08-05 14:28:58,534 INFO [clean_score_only#1]      SegmentsBuilder.java:155  | Segments: 4
+2026-08-05 14:28:58,540 INFO [clean_score_only#1]       StepMonitoring.java:98   | SYMBOLS
+2026-08-05 14:28:58,904 INFO [clean_score_only#1]       StepMonitoring.java:98   | LINKS
+2026-08-05 14:28:58,938 INFO [clean_score_only#1]       StepMonitoring.java:98   | RHYTHMS
+2026-08-05 14:28:58,972 INFO [clean_score_only#1]                Voice.java:257  | Measure{#3P5} Voice{#1 excess:1/8} too long
+2026-08-05 14:28:58,973 INFO [clean_score_only#1]          StackRhythm.java:224  | S1 MeasureStack#3 no correct rhythm
+2026-08-05 14:28:58,984 INFO [clean_score_only#1]       StepMonitoring.java:98   | PAGE
+2026-08-05 14:28:58,990 INFO [clean_score_only#1]                Voice.java:257  | Measure{#3P5} Voice{#1 excess:1/8} too long
+2026-08-05 14:28:58,991 INFO [clean_score_only#1]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-05 14:28:59,034 INFO [clean_score_only#1]                 Book.java:2565 | Stored /book.xml
+2026-08-05 14:28:59,137 INFO [clean_score_only#1]           DataHolder.java:348  | Stored /sheet#1/BINARY.png
+2026-08-05 14:28:59,510 INFO [clean_score_only#1]                Sheet.java:1583 | Stored /sheet#1/sheet#1.xml
+2026-08-05 14:28:59,511 INFO [clean_score_only#1]                 Book.java:2525 | Book stored as d:\pdf2musicxml\test-out\clean_score_only.omr
+2026-08-05 14:28:59,516 INFO [clean_score_only#1]            SheetStub.java:1655 | Sheet#1 disposed
+2026-08-05 14:28:59,558 INFO [clean_score_only#1]                 Book.java:2050 | End of Stub#1
+2026-08-05 14:28:59,559 INFO [clean_score_only#2]       StepMonitoring.java:98   | LOAD
+2026-08-05 14:28:59,581 WARN [clean_score_only#2]           GlyphCache.java:64   | No glyph for code 8224 (CID 2020) in font CIDFont+F5
+2026-08-05 14:28:59,599 WARN [clean_score_only#2]           GlyphCache.java:64   | No glyph for code 8224 (CID 2020) in font CIDFont+F3
+2026-08-05 14:28:59,600 WARN [clean_score_only#2]           GlyphCache.java:64   | No glyph for code 8192 (CID 2000) in font CIDFont+F3
+2026-08-05 14:28:59,675 INFO [clean_score_only#2]            SheetStub.java:1278 | Loaded image #2 2480x3508 from d:\pdf2musicxml\clean_score_only.pdf
+2026-08-05 14:28:59,676 INFO [clean_score_only#2]       StepMonitoring.java:98   | BINARY
+2026-08-05 14:29:00,315 INFO [clean_score_only#2]       StepMonitoring.java:98   | SCALE
+2026-08-05 14:29:00,327 INFO [clean_score_only#2]         ScaleBuilder.java:255  | Beam  guessed height: 11 -- mid of [5..18]
+2026-08-05 14:29:00,327 INFO [clean_score_only#2]         ScaleBuilder.java:271  | Beam measured height: 11 -- 0.46 of [5..18] range at 143% of needed quorum
+2026-08-05 14:29:00,327 INFO [clean_score_only#2]         ScaleBuilder.java:401  | Normalized black jitter: 0.00 %
+2026-08-05 14:29:00,327 INFO [clean_score_only#2]            ScaleStep.java:65   | Scale{ interline(19,19,19) line(2,2,2) beam(11)}
+2026-08-05 14:29:00,327 INFO [clean_score_only#2]       StepMonitoring.java:98   | GRID
+2026-08-05 14:29:00,510 INFO [clean_score_only#2]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-08-05 14:29:00,535 INFO [clean_score_only#2]    ClustersRetriever.java:326  | Retrieved raw line clusters: 12 of sizes [5] with interline(19,19,19)
+2026-08-05 14:29:00,610 INFO [clean_score_only#2]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4, 5, 6] #2[7, 8, 9, 10, 11, 12]
+2026-08-05 14:29:00,866 INFO [clean_score_only#2]        SystemManager.java:779  | 5 parts along 2 systems
+2026-08-05 14:29:00,866 INFO [clean_score_only#2]       StepMonitoring.java:98   | HEADERS
+2026-08-05 14:29:01,184 INFO [clean_score_only#2]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-05 14:29:01,221 INFO [clean_score_only#2]        StemSeedsStep.java:86   | stem(2 max:2)
+2026-08-05 14:29:01,235 INFO [clean_score_only#2]       StepMonitoring.java:98   | BEAMS

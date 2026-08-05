@@ -11,18 +11,8 @@ except ImportError:
 
 def _init_ocr():
     try:
-        from rapidocr import EngineType, LangRec, ModelType, RapidOCR
-        from rapidocr.utils.typings import OCRVersion
-        return RapidOCR(
-            params={
-                "Rec.lang_type": LangRec.KOREAN,
-                "Rec.engine_type": EngineType.ONNXRUNTIME,
-                "Rec.ocr_version": OCRVersion.PPOCRV5,
-                "Rec.model_type": ModelType.MOBILE,
-                "Global.use_cls": False,
-                "Det.limit_side_len": 2560,
-            }
-        )
+        from rapidocr import RapidOCR
+        return RapidOCR()
     except ImportError:
         print("RapidOCR is not installed.", file=sys.stderr)
         sys.exit(1)

@@ -87,7 +87,7 @@ python _smoke/test_printed_measure_numbers_circled.py  # 원문자·줄머리 OC
    - **「OMR 자동 정리 (전체 성부)」** — 쉼표·피아노 m6 이음줄·세잇단 `show-number="actual"`·빔 없으면 bracket·가짜 staccato·P direction 일괄 정리.
    - **작업 저장(ZIP) / 작업 불러오기** — 검토 중단·재개용(`review.mxl`, `audiveris_raw.mxl`, `omr_hitl_fixes.json`, **`clean_score_only.pdf`·`input.pdf`·`lyric_manifest.json`** 등). **같은 job** 안에서는 「작업 불러오기」. **새 변환**에서는 **3단계 omr-work.zip**(+ 예전 ZIP이면 **비교용 PDF**) 또는 **4단계 omr-work.zip + 가사 JSON**으로 이어갑니다.
    - **변환 시작 단계 (같은 PDF 반복)** — ① **원본 PDF**(선택: **omr-work.zip**으로 Audiveris 생략·기존 MXL로 HITL), ② **clean_score_only.pdf + 분리된 가사 JSON**(필수), ③ **omr-work.zip**(가사 포함), ④ **omr-work.zip**(교정 완료 MXL) + **가사 JSON**. 작업 표에 **OMR·HITL·가사 검증** 대기 진행 문구가 표시됩니다.
-   - **디버그 ZIP 다운로드 (General Solution)** — 검토 대기(HITL) 단계에서도 사용자가 내부 OMR 실행 결과 로그 및 중간 산출물을 직접 확인하고 이슈를 리포팅할 수 있도록, 작업 목록 표의 완료 상태나 에러 상태 외에 **검토 대기 중인 항목에도 `디버그 ZIP 다운로드` 버튼이 항상 노출**됩니다. 모달을 닫은 상태라도 언제든 문제 상황을 디버깅할 수 있습니다.
+   - **디버그 ZIP 다운로드 (General Solution)** — 작업이 완료(done), 검토 대기(HITL), 오류(error) 상태일 때 등 사용자가 내부 OMR 실행 결과 로그 및 중간 산출물을 직접 확인하고 이슈를 리포팅할 수 있도록, **모든 작업 종료/일시정지 상태에서 `디버그 ZIP 다운로드` 버튼이 항상 노출**됩니다. 모달을 닫은 상태라도 언제든 문제 상황을 디버깅할 수 있습니다.
    - **이어하기** — 대기 보정을 MXL에 적용한 뒤, (가사 검증 켜짐 시) **`review_needed` 가사 검증·편집** → `merge_lyric_sources.py` → `inject_ocr`·최종 MXL로 진행.
    - 예전 **mxl-lint 자동 힌트 UI**는 제거됨. PDF·MXL 직접 대조와 마디 편집이 기준.
 7. 성부 라벨·OMR 검토를 건너뛰거나 배포 중 `pm2 restart`를 하면 MXL에 Audiveris 기본 **Voice**가 남을 수 있습니다. **한 번에 한 job**만 끝까지 진행하세요. OMR 검토 중 **`pm2 restart` 전에는 「작업 저장(ZIP)」** 으로 진행을 백업하세요.

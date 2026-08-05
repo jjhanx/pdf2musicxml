@@ -101,3 +101,7 @@ Audiveris MusicXML을 대체하는 중간 표현. `*.symbol_graph.json`으로 �
 ### UI 내 활성 OMR 엔진 표시
 - **문제**: OMR 품질 검토(HITL) 단계에 진입했을 때, 현재 페이지가 어떤 OMR 엔진으로 변환된 결과인지 식별하기 어렵습니다.
 - **일반적 해결책**: API 렌더링 시 `activeOmrEngine` 상태를 `summary` 엔드포인트 응답에 추가하고, `OmrStaffReviewPanel` 컴포넌트 헤더에 뱃지(예: `AI OMR`, `PDFtoMusic Pro`, `Audiveris`)를 띄워 변환 출처를 명확히 안내합니다.
+
+### OpenCV resize 시 크기 0에 의한 크래시 방지
+- **문제**: `homr` 파이프라인에서 여백(margin)이나 스태프 영역이 아주 작게 인식될 경우, 캔버스 크기를 리사이징하는 계산 결과가 0 차원(`width`나 `height`가 0)으로 떨어질 수 있습니다. 이 상태로 `cv2.resize`를 호출하면 `error: (-215:Assertion failed) inv_scale_x > 0` 등의 에러가 발생하며 파이프라인이 즉시 중단됩니다.
+- **일반적 해결책**: `scripts/run_homr.py`에서 `homr` 패키지를 로드하기 전에 전역적으로 `cv2.resize`를 몽키패치하여 전달받는 목표 크기(`dsize`)가 항상 최소 `(1, 1)` 이상이 되도록 보장합니다.

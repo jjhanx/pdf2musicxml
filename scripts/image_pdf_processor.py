@@ -17,69 +17,93 @@ def _init_ocr():
         print("RapidOCR is not installed.", file=sys.stderr)
         sys.exit(1)
 
-def extract(input_pdf: str, output_json: str):
-    print(f"[image_pdf_processor] Extracting text from {input_pdf} using PaddleOCR...", file=sys.stderr)
+def _run_ocr_subprocess(input_pdf: str, output_json: str, use_korean: bool) -> bool:
+    import subprocess
+    import tempfile
     
-    ocr = _init_ocr()
+    script_code = f"""
+import sys
+import json
+import numpy as np
+import fitz
+from PIL import Image
+
+def _init_ocr(use_korean):
+    try:
+        from rapidocr import RapidOCR
+        if use_korean:
+            # Attempt to use Korean model, may segfault in some environments
+            return RapidOCR(params={{"Rec.lang_type": "korean"}})
+        return RapidOCR()
+    except Exception as e:
+        print(f"Failed to initialize RapidOCR: {{e}}", file=sys.stderr)
+        sys.exit(1)
+
+def extract():
+    ocr = _init_ocr({use_korean})
     extracted_data = []
-    
-    doc = fitz.open(input_pdf)
-    zoom = 2.0  # 144 DPI for better OCR
+    doc = fitz.open("{input_pdf}")
+    zoom = 2.0
     mat = fitz.Matrix(zoom, zoom)
-    
-    import numpy as np
-    from PIL import Image
     
     for page_idx in range(len(doc)):
         page = doc[page_idx]
-        
-        page_info = {
-            "page_number": page_idx + 1,
-            "width": float(page.rect.width),
-            "height": float(page.rect.height),
-            "text_elements": [],
-        }
-        
+        page_info = {{"page_number": page_idx + 1, "width": float(page.rect.width), "height": float(page.rect.height), "text_elements": []}}
         pix = page.get_pixmap(matrix=mat)
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         img_np = np.array(img)
         
-        # Run OCR
         res = ocr(img_np)
-        
         if res and hasattr(res, 'boxes') and res.boxes is not None:
             for i, box in enumerate(res.boxes):
                 text = res.txts[i] if hasattr(res, 'txts') and res.txts else ""
-                
-                # Convert back to PDF points
                 x_coords = [p[0] / zoom for p in box]
                 y_coords = [p[1] / zoom for p in box]
-                
-                x0, x1 = min(x_coords), max(x_coords)
                 y0, y1 = min(y_coords), max(y_coords)
+                if (y1 - y0) > (page.rect.height * 0.2): continue
                 
-                # Filter out extremely large boxes that might be staves incorrectly detected
-                if (y1 - y0) > (page.rect.height * 0.2):
-                    continue
-                
-                char_info = {
-                    "raw_text": text,
-                    "x0": round(float(x0), 2),
-                    "y0": round(float(y0), 2),
-                    "x1": round(float(x1), 2),
-                    "y1": round(float(y1), 2),
-                    "fontname": "RapidOCR",
-                    "size": round(float(y1 - y0), 2),
-                }
+                char_info = {{"raw_text": text, "x0": round(float(min(x_coords)), 2), "y0": round(float(y0), 2), "x1": round(float(max(x_coords)), 2), "y1": round(float(y1), 2), "fontname": "RapidOCR", "size": round(float(y1 - y0), 2)}}
                 page_info["text_elements"].append(char_info)
-                
         extracted_data.append(page_info)
-        print(f"  - Page {page_idx + 1} extracted.", file=sys.stderr)
         
     doc.close()
-    
-    with open(output_json, "w", encoding="utf-8") as f:
+    with open("{output_json}", "w", encoding="utf-8") as f:
         json.dump(extracted_data, f, ensure_ascii=False, indent=2)
+
+if __name__ == '__main__':
+    extract()
+"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+        f.write(script_code)
+        script_path = f.name
+        
+    try:
+        print(f"  - Running subprocess (use_korean={use_korean})...", file=sys.stderr)
+        # Run the script in a subprocess
+        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  - Subprocess failed (exit code {result.returncode})", file=sys.stderr)
+            if result.stderr:
+                print(f"  - Stderr: {result.stderr.strip()}", file=sys.stderr)
+            return False
+        return True
+    finally:
+        os.remove(script_path)
+
+def extract(input_pdf: str, output_json: str):
+    print(f"[image_pdf_processor] Extracting text from {input_pdf}...", file=sys.stderr)
+    
+    # First attempt: Korean model
+    success = _run_ocr_subprocess(input_pdf, output_json, use_korean=True)
+    
+    if not success:
+        print(f"[image_pdf_processor] Korean model failed (possible segfault). Falling back to default model...", file=sys.stderr)
+        # Second attempt: Default model
+        success = _run_ocr_subprocess(input_pdf, output_json, use_korean=False)
+        if not success:
+            print(f"[image_pdf_processor] Default model also failed. Exiting.", file=sys.stderr)
+            sys.exit(1)
+            
     print(f" -> {output_json}", file=sys.stderr)
 
 def mask(input_pdf: str, extracted_json: str, output_pdf: str):

@@ -473,6 +473,7 @@ type JobRecord = {
   injectMxlPathsOverride?: string[];
   /** 변환 파이프라인: 폰트 분리(권장) · PyMuPDF 마스킹 · Audiveris만 */
   pipelineMode?: PipelineMode;
+    imagePdfOmrEngine?: string;
   /** font_separator 모드에서 PyMuPDF 가사 검증 UI 사용 */
   enablePymupdfReview?: boolean;
   /** Audiveris 직후 페이지×staff MXL lint HITL (기본 켜짐) */
@@ -3034,7 +3035,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   job.status = 'processing';
 
   const pythonBin = resolvePythonBin();
-  const activeOmrEngine = pipelineMode === 'image_pdf' ? (imagePdfOmrEngineField || 'ai') : resolveOmrEngine();
+  const activeOmrEngine = (pipelineMode === 'image_pdf' ? (job.imagePdfOmrEngine || 'ai') : resolveOmrEngine()) as any;
   if (activeOmrEngine === 'ai') {
     const aiDeps = await probeAiOmrDeps(pythonBin);
     if (!aiDeps.ok) {

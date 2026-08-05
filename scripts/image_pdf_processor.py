@@ -18,6 +18,9 @@ def _init_ocr():
                 "Rec.lang_type": LangRec.KOREAN,
                 "Rec.engine_type": EngineType.ONNXRUNTIME,
                 "Rec.ocr_version": OCRVersion.PPOCRV5,
+                "Rec.model_type": ModelType.MOBILE,
+                "Global.use_cls": False,
+                "Det.limit_side_len": 2560,
             }
         )
     except ImportError:

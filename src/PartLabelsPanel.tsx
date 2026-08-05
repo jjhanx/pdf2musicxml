@@ -18,6 +18,7 @@ type Props = {
 export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
   const [parts, setParts] = useState<ScorePart[]>([]);
   const [labels, setLabels] = useState<string[]>([]);
+  const [customInputIndices, setCustomInputIndices] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -70,6 +71,7 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
         initial[i] = (saved || preset || inferred || initial[i] || `P${i + 1}`).trim();
       }
       setLabels(initial);
+      setCustomInputIndices(new Set());
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -82,6 +84,7 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
   }, [load]);
 
   const applyPreset = (preset: string[]) => {
+    setCustomInputIndices(new Set());
     setLabels((prev) => {
       const n = Math.max(prev.length, preset.length, parts.length);
       const next = defaultPartLabels(n);
@@ -148,23 +151,23 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
             <button
               type="button"
               className="btn-muted"
-              onClick={() => applyPreset(['M', 'W', 'U'])}
+              onClick={() => applyPreset(['M', 'W'])}
             >
-              M W U (남·녀·합창)
+              M W (남성·여성)
             </button>
             <button
               type="button"
               className="btn-muted"
-              onClick={() => applyPreset(['M', 'W', 'U', 'P'])}
+              onClick={() => applyPreset(['M', 'W', 'P'])}
             >
-              M W U + P
+              M W + P
             </button>
             <button
               type="button"
               className="btn-muted"
-              onClick={() => applyPreset(['M', 'W', 'U', 'PR', 'PL'])}
+              onClick={() => applyPreset(['M', 'W', 'PR', 'PL'])}
             >
-              M W U + PR PL
+              M W + PR PL
             </button>
             <button
               type="button"
@@ -259,22 +262,26 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
                   <td style={{ padding: '0.45rem 0.5rem' }}>
                     <select
                       value={
-                        (PART_LABEL_PICKLIST as readonly string[]).includes(labels[i] ?? '')
+                        !customInputIndices.has(i) && (PART_LABEL_PICKLIST as readonly string[]).includes(labels[i] ?? '')
                           ? labels[i]
                           : '__custom__'
                       }
                       onChange={(e) => {
                         const v = e.target.value;
-                        setLabels((prev) => {
-                          const next = [...prev];
-                          if (v !== '__custom__') next[i] = v;
-                          else if (!(PART_LABEL_PICKLIST as readonly string[]).includes(next[i] ?? '')) {
-                            next[i] = next[i] ?? '';
-                          } else {
-                            next[i] = '';
-                          }
-                          return next;
-                        });
+                        if (v === '__custom__') {
+                          setCustomInputIndices((prev) => new Set(prev).add(i));
+                        } else {
+                          setCustomInputIndices((prev) => {
+                            const next = new Set(prev);
+                            next.delete(i);
+                            return next;
+                          });
+                          setLabels((prev) => {
+                            const next = [...prev];
+                            next[i] = v;
+                            return next;
+                          });
+                        }
                       }}
                       style={{ padding: '0.35rem', minWidth: '5rem' }}
                     >
@@ -285,14 +292,14 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
                       ))}
                       <option value="__custom__">직접 입력</option>
                     </select>
-                    {!(PART_LABEL_PICKLIST as readonly string[]).includes(labels[i] ?? '') && (
+                    {(customInputIndices.has(i) || !(PART_LABEL_PICKLIST as readonly string[]).includes(labels[i] ?? '')) && (
                       <input
                         type="text"
                         value={labels[i] ?? ''}
                         onChange={(e) =>
                           setLabels((prev) => {
                             const next = [...prev];
-                            next[i] = e.target.value.trim();
+                            next[i] = e.target.value;
                             return next;
                           })
                         }

@@ -106,7 +106,9 @@ def mask(input_pdf: str, extracted_json: str, output_pdf: str):
             text = text.strip()
             if not text:
                 return True
-            if re.match(r'^[\d\s/Cc]+$', text):
+            if text == "C":
+                return True
+            if re.match(r'^[\d\s/]+$', text):
                 return True
             lower = text.lower()
             dynamics = {"p", "mp", "mf", "f", "ff", "fff", "sfz", "cresc", "cresc.", "dim", "dim.", "rit", "rit.", "a tempo"}

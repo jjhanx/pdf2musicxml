@@ -3034,7 +3034,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   job.status = 'processing';
 
   const pythonBin = resolvePythonBin();
-  const activeOmrEngine = pipelineMode === 'image_pdf' ? 'ai' : resolveOmrEngine();
+  const activeOmrEngine = pipelineMode === 'image_pdf' ? (imagePdfOmrEngineField || 'ai') : resolveOmrEngine();
   if (activeOmrEngine === 'ai') {
     const aiDeps = await probeAiOmrDeps(pythonBin);
     if (!aiDeps.ok) {
@@ -4003,6 +4003,7 @@ app.post('/api/convert', async (req, res) => {
   let debugField = false;
   let pauseAfterAudiverisField = false;
   let pipelineModeField: PipelineMode = 'font_separator';
+  let imagePdfOmrEngineField = 'ai';
   let enablePymupdfReviewField = true;
   let enableOmrStaffReviewField = true;
   let startStageField: StartStage = 'full';

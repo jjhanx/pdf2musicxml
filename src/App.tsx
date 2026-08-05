@@ -642,6 +642,7 @@ export default function App() {
   } | null>(null);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>('auto');
+  const [imagePdfOmrEngine, setImagePdfOmrEngine] = useState<'ai' | 'audiveris'>('ai');
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
   const [enableOmrStaffReview, setEnableOmrStaffReview] = useState(true);
   const [startStage, setStartStage] = useState<StartStage>(() => {
@@ -863,6 +864,7 @@ export default function App() {
       opts?: {
         pauseAfterAudiveris?: boolean;
         pipelineMode?: PipelineMode;
+        imagePdfOmrEngine?: 'ai' | 'audiveris';
         enablePymupdfReview?: boolean;
         enableOmrStaffReview?: boolean;
         startStage?: StartStage;
@@ -878,6 +880,9 @@ export default function App() {
     fd.append('debug', 'false');
     fd.append('startStage', opts?.startStage ?? 'full');
     fd.append('pipelineMode', opts?.pipelineMode ?? 'font_separator');
+    if (opts?.pipelineMode === 'image_pdf') {
+      fd.append('imagePdfOmrEngine', opts?.imagePdfOmrEngine ?? 'ai');
+    }
     if (opts?.pipelineMode === 'font_separator') {
       fd.append('enablePymupdfReview', opts?.enablePymupdfReview !== false ? 'true' : 'false');
     }
@@ -1167,6 +1172,7 @@ export default function App() {
               {
                 pauseAfterAudiveris,
                 pipelineMode,
+                imagePdfOmrEngine,
                 enablePymupdfReview,
                 enableOmrStaffReview,
                 startStage,
@@ -1228,7 +1234,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [convertOne, pauseAfterAudiveris, pipelineMode, enablePymupdfReview, enableOmrStaffReview, startStage, resumeCleanScoreFile, resumeLyricManifestFile, resumeOmrWorkFile],
+    [convertOne, pauseAfterAudiveris, pipelineMode, imagePdfOmrEngine, enablePymupdfReview, enableOmrStaffReview, startStage, resumeCleanScoreFile, resumeLyricManifestFile, resumeOmrWorkFile],
   );
 
   const onDragEnter = (e: React.DragEvent) => {

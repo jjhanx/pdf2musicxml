@@ -99,7 +99,7 @@ def run_ai_omr_pipeline(    pdf_path: Path,
         }
     )
     assign_voices(graph, cfg)
-    correct_rhythm(graph, mode="off")
+    correct_rhythm(graph, mode="on")
 
     sg_path: Path | None = None
     if cfg.save_symbol_graph:

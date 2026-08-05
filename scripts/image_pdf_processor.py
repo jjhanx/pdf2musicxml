@@ -17,7 +17,7 @@ def _init_ocr():
         print("RapidOCR is not installed.", file=sys.stderr)
         sys.exit(1)
 
-def _run_ocr_subprocess(input_pdf: str, output_json: str, use_korean: bool) -> bool:
+def _run_ocr_subprocess(input_pdf: str, output_json: str, lang: str, ocr_version: str = None, model_type: str = None) -> bool:
     import subprocess
     import tempfile
     
@@ -28,19 +28,35 @@ import numpy as np
 import fitz
 from PIL import Image
 
-def _init_ocr(use_korean):
+def _init_ocr():
     try:
         from rapidocr import RapidOCR
-        if use_korean:
-            # Attempt to use Korean model, may segfault in some environments
-            return RapidOCR(params={{"Rec.lang_type": "korean"}})
-        return RapidOCR()
+        
+        lang = "{lang}"
+        ocr_version_str = "{ocr_version}" if "{ocr_version}" != "None" else None
+        model_type_str = "{model_type}" if "{model_type}" != "None" else None
+        
+        params = {{}}
+        if lang != "None": params["Rec.lang_type"] = lang
+        
+        if ocr_version_str or model_type_str:
+            import importlib
+            rapidocr_module = importlib.import_module("rapidocr")
+            OCRVersion = getattr(rapidocr_module, "OCRVersion", None)
+            ModelType = getattr(rapidocr_module, "ModelType", None)
+            
+            if ocr_version_str and OCRVersion and hasattr(OCRVersion, ocr_version_str):
+                params["Rec.ocr_version"] = getattr(OCRVersion, ocr_version_str)
+            if model_type_str and ModelType and hasattr(ModelType, model_type_str):
+                params["Rec.model_type"] = getattr(ModelType, model_type_str)
+                
+        return RapidOCR(params=params)
     except Exception as e:
         print(f"Failed to initialize RapidOCR: {{e}}", file=sys.stderr)
         sys.exit(1)
 
 def extract():
-    ocr = _init_ocr({use_korean})
+    ocr = _init_ocr()
     extracted_data = []
     doc = fitz.open("{input_pdf}")
     zoom = 2.0
@@ -78,8 +94,7 @@ if __name__ == '__main__':
         script_path = f.name
         
     try:
-        print(f"  - Running subprocess (use_korean={use_korean})...", file=sys.stderr)
-        # Run the script in a subprocess
+        print(f"  - Probing OCR subprocess (lang={lang}, ver={ocr_version}, model={model_type})...", file=sys.stderr)
         result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
         if result.returncode != 0:
             print(f"  - Subprocess failed (exit code {result.returncode})", file=sys.stderr)
@@ -93,13 +108,42 @@ if __name__ == '__main__':
 def extract(input_pdf: str, output_json: str):
     print(f"[image_pdf_processor] Extracting text from {input_pdf}...", file=sys.stderr)
     
-    # First attempt: Korean model
-    success = _run_ocr_subprocess(input_pdf, output_json, use_korean=True)
-    
+    korean_configs = []
+    try:
+        import importlib
+        rapidocr_module = importlib.import_module("rapidocr")
+        OCRVersion = getattr(rapidocr_module, "OCRVersion", None)
+        ModelType = getattr(rapidocr_module, "ModelType", None)
+        
+        versions = [v.name for v in OCRVersion] if OCRVersion else [None]
+        model_types = [m.name for m in ModelType] if ModelType else [None]
+        
+        # Sort versions so v4, v3 are tried before v2, v1. (v6 usually doesn't have korean small, but we try anyway)
+        versions = sorted(versions, key=lambda x: str(x), reverse=True)
+        
+        for v in versions:
+            for m in model_types:
+                korean_configs.append((v, m))
+    except Exception as e:
+        print(f"[image_pdf_processor] Could not dynamically load RapidOCR enums: {e}", file=sys.stderr)
+        korean_configs = [
+            ("PP_OCRv4", "SERVER"),
+            ("PP_OCRv4", "MOBILE"),
+            ("PP_OCRv3", "SERVER"),
+            ("PP_OCRv3", "MOBILE"),
+            (None, None)
+        ]
+        
+    success = False
+    for ver, mod in korean_configs:
+        success = _run_ocr_subprocess(input_pdf, output_json, lang="korean", ocr_version=ver, model_type=mod)
+        if success:
+            print(f"[image_pdf_processor] Success with Korean model config: version={ver}, model={mod}", file=sys.stderr)
+            break
+            
     if not success:
-        print(f"[image_pdf_processor] Korean model failed (possible segfault). Falling back to default model...", file=sys.stderr)
-        # Second attempt: Default model
-        success = _run_ocr_subprocess(input_pdf, output_json, use_korean=False)
+        print(f"[image_pdf_processor] All Korean model configs failed (segfault/error). Falling back to default English model...", file=sys.stderr)
+        success = _run_ocr_subprocess(input_pdf, output_json, lang="None")
         if not success:
             print(f"[image_pdf_processor] Default model also failed. Exiting.", file=sys.stderr)
             sys.exit(1)

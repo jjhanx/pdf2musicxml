@@ -8,6 +8,7 @@ import { promises as fs } from 'node:fs';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+process.env.PYTHONUTF8 = '1';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { exec as execCallback } from 'node:child_process';
@@ -2607,7 +2608,7 @@ function pdftomusicFailureDetail(): string {
     'PDFtoMusic Pro(p2mp)가 MXL을 생성하지 못했습니다. ' +
     'clean_score_only.pdf가 **벡터 PDF**(악보 편집기에서 내보낸 PDF)인지, ' +
     'P2MP_BIN이 올바른지 확인하세요. 스캔/비트맵 PDF는 PDFtoMusic Pro로 처리할 수 없습니다. ' +
-    '아래 로그를 검토하세요.'
+    '디버그 ZIP의 `omr_engine.log`를 검토하세요.'
   );
 }
 
@@ -2617,16 +2618,16 @@ function aiOmrFailureDetail(): string {
     return (
       'homr OMR이 MXL을 생성하지 못했습니다. 서버 venv에서 ' +
       '`pip install -r requirements-ai.txt` 후 `homr --init`(또는 `python scripts/run_homr.py --init`)으로 가중치를 받았는지 확인하세요. ' +
-      '아래 로그를 검토하세요.'
+      '디버그 ZIP의 `omr_engine.log`를 검토하세요.'
     );
   }
   if (backend === 'tromr') {
     return (
       'TrOMR(HuggingFace) OMR 실패. `AI_OMR_MODEL`이 유효한 공개 체크포인트인지 확인하거나 ' +
-      '`AI_OMR_BACKEND=homr`(기본)로 전환하세요. 아래 로그를 검토하세요.'
+      '`AI_OMR_BACKEND=homr`(기본)로 전환하세요. 디버그 ZIP의 `omr_engine.log`를 검토하세요.'
     );
   }
-  return 'AI OMR이 MXL을 생성하지 못했습니다. 아래 로그를 검토하세요.';
+  return 'AI OMR이 MXL을 생성하지 못했습니다. 디버그 ZIP의 `omr_engine.log`를 검토하세요.';
 }
 
 function tail(s: string, max = 8000): string {
@@ -3635,6 +3636,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         }
       },
     });
+
+    const logOutPath = path.join(job.sessionRoot, 'omr_engine.log');
+    const logContent = `==== ${activeOmrEngine} STDOUT ====\n${result.stdout}\n==== ${activeOmrEngine} STDERR ====\n${result.stderr}\n`;
+    await fs.writeFile(logOutPath, logContent, 'utf8').catch((err) =>
+      console.warn(`[job ${jobId}] Failed to save omr_engine.log:`, err),
+    );
 
     outputs =
       result.mxlPaths.length > 0 ? result.mxlPaths : await collectMusicXmlOutputs(outBase);

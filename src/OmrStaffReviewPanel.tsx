@@ -39,6 +39,7 @@ type InspectSummary = {
   pageCountForUi: number;
   cleanScorePdf?: { exists: boolean };
   audiverisInputPdf?: string | null;
+  activeOmrEngine?: string;
 };
 
 const STAFF_FALLBACK = ['S', 'A', 'T', 'B', 'PR', 'PL'] as const;
@@ -628,7 +629,21 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   return (
     <div className="modal-light" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
       <div>
-        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.2rem' }}>OMR 품질 검토 (페이지×성부)</h2>
+        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          OMR 품질 검토 (페이지×성부)
+          {summary?.activeOmrEngine && (
+            <span style={{
+              fontSize: '0.75rem',
+              background: '#2563eb',
+              color: 'white',
+              padding: '2px 6px',
+              borderRadius: '12px',
+              fontWeight: 500
+            }}>
+              {summary.activeOmrEngine === 'ai' ? 'AI OMR' : summary.activeOmrEngine === 'pdftomusic' ? 'PDFtoMusic Pro' : 'Audiveris'}
+            </span>
+          )}
+        </h2>
         <p style={{ margin: 0, lineHeight: 1.55, fontSize: '0.92rem' }}>
           PDF와 MusicXML을 나란히 대조하세요. 오른쪽 악보에서 <strong>마디를 클릭</strong>해 쉼표·음표·점 등을
           조정하고, 「MXL에 반영·미리보기」로 오른쪽 악보에서 확인한 뒤 「이어하기」로

@@ -139,7 +139,7 @@ async function runAiOmrEngine(opts: OmrRunOptions): Promise<OmrRunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(pythonBin, argv, {
       windowsHide: true,
-      env: { ...process.env },
+      env: { ...process.env, PYTHONUTF8: '1' },
     });
     let stdout = '';
     let stderr = '';

@@ -2309,6 +2309,15 @@ bash scripts/install-font-separator-deps.sh`}
                             >
                               마스킹·인식 점검
                             </button>
+                            {' · '}
+                            <a
+                              href={`/api/diagnostic/${t.jobId}/debug-zip`}
+                              download={`debug-${t.jobId}.zip`}
+                              className="btn-link"
+                              style={{ marginLeft: '4px', color: '#dc3545', textDecoration: 'underline' }}
+                            >
+                              디버그 ZIP 다운로드
+                            </a>
                           </>
                         )}
                       </>

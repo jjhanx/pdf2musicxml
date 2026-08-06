@@ -2106,20 +2106,7 @@ async function enterOmrStaffHitlPhase(
     }
   }
   job.preInjectMxlPaths = [...mxlForInject];
-  console.log(`[job ${jobId}] Pausing for part label setup (성부 S/A/T/B…)…`);
-  setJobProgress(job, {
-    phase: 'hitl',
-    current: 0,
-    total: 2,
-    detail: '성부 라벨(S/A/T/B·PR/PL) 확인 대기…',
-  });
-  job.status = 'part_labels_needed';
-  await new Promise<void>((resolve, reject) => {
-    job.partLabelsDeferred = { resolve, reject };
-  });
-  delete job.partLabelsDeferred;
-  job.status = 'processing';
-  console.log(`[job ${jobId}] Part labels saved, continuing…`);
+  // early part_labels_needed happens before font_strip_needed now
   try {
     const lintCache = sessionMxlLintPath(job.sessionRoot);
     if (fsSync.existsSync(lintCache)) {
@@ -3253,6 +3240,21 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       } catch (detectErr) {
         console.warn(`[job ${jobId}] Failed to detect part labels (ignoring):`, detectErr);
       }
+      
+      console.log(`[job ${jobId}] Pausing for early part label setup (성부 S/A/T/B…)…`);
+      setJobProgress(job, {
+        phase: 'hitl',
+        current: 0,
+        total: 1,
+        detail: '성부 라벨(S/A/T/B·PR/PL) 및 악보 구조 초기 확인 대기…',
+      });
+      job.status = 'part_labels_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.partLabelsDeferred = { resolve, reject };
+      });
+      delete job.partLabelsDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Early part labels saved, continuing…`);
 
       setJobProgress(job, {
         phase: 'separator',
@@ -3317,8 +3319,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         });
         console.log(`[job ${jobId}] pdf_separator strip ranges=${rangeSpec}`);
         try {
+          const partsJsonPath = path.join(sessionRoot, 'detected_parts_raw.json');
+          const partsArg = fsSync.existsSync(partsJsonPath) ? ` --parts-json "${partsJsonPath}"` : '';
           await exec(
-            `"${pythonBin}" "${scriptSeparator}" strip "${inputPdfPath}" "${cleanScorePath}" --ranges "${rangeSpec}"${stripPuaFlag}`,
+            `"${pythonBin}" "${scriptSeparator}" strip "${inputPdfPath}" "${cleanScorePath}" --ranges "${rangeSpec}"${stripPuaFlag}${partsArg}`,
           );
         } catch (stripErr) {
           const msg = stripErr instanceof Error ? stripErr.message : String(stripErr);
@@ -5601,13 +5605,16 @@ app.get('/api/diagnostic/:jobId/score-parts', async (req, res) => {
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
-  if (!mxlPath) {
-    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
-    return;
-  }
   try {
     const pythonBin = resolvePythonBin();
-    const listed = await listScorePartsFromMxl(mxlPath, pythonBin);
+    let listed: any[] = [];
+    if (mxlPath) {
+      try {
+        listed = await listScorePartsFromMxl(mxlPath, pythonBin);
+      } catch (e) {
+        console.warn(`Failed to list score parts from ${mxlPath}`, e);
+      }
+    }
     let preset: string[] | undefined;
     const presetPath = sessionPartLabelsPresetPath(job.sessionRoot);
     if (fsSync.existsSync(presetPath)) {

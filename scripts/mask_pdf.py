@@ -576,8 +576,11 @@ def _lyric_glyphs_skip_music_overlap(
     legacy_intersect: bool,
     min_overlap_ratio: float,
     bypass_music_overlap_for_korean_overlay: bool,
+    protected_ys: list[float] | None = None,
 ) -> list[LyricGlyph]:
-    if not items or not music_rects:
+    if not items:
+        return []
+    if not music_rects and not protected_ys:
         return list(items)
     out: list[LyricGlyph] = []
     mor = float(min_overlap_ratio)
@@ -586,6 +589,17 @@ def _lyric_glyphs_skip_music_overlap(
         rd = redact_r.normalize()
         if rd.is_empty:
             continue
+            
+        if protected_ys:
+            y_center = (rd.y0 + rd.y1) / 2
+            protected = False
+            for py in protected_ys:
+                if abs(y_center - py) < 30.0:
+                    protected = True
+                    break
+            if protected:
+                continue
+                
         if bypass_music_overlap_for_korean_overlay and len(gh) == 1 and _is_korean_overlay_glyph(ord(gh)):
             out.append((overlap_r, rd, fs, sf, ci, gh))
             continue
@@ -858,6 +872,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                         legacy_intersect=music_overlap_legacy_intersect,
                         min_overlap_ratio=music_overlap_min,
                         bypass_music_overlap_for_korean_overlay=korean_music_overlap_bypass,
+                        protected_ys=protected_ys,
                     )
                 if lyric_glyphs:
                     lyric_glyphs_by_page.setdefault(page_idx, []).extend(lyric_glyphs)
@@ -955,6 +970,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                         legacy_intersect=music_overlap_legacy_intersect,
                         min_overlap_ratio=music_overlap_min,
                         bypass_music_overlap_for_korean_overlay=korean_music_overlap_bypass,
+                        protected_ys=protected_ys,
                     )
                 if not extra_gly:
                     continue

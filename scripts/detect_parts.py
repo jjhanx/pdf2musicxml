@@ -35,11 +35,17 @@ def detect_parts(pdf_path: str) -> list[str]:
                     if not text:
                         continue
                         
+                    bbox = span.get("bbox", [0,0,0,0])
+                    y_center = (bbox[1] + bbox[3]) / 2
+                    
                     # Remove some noise characters
                     clean_text = re.sub(r'[^a-zA-Z]', '', text)
                     if clean_text in PART_NAMES or any(clean_text.startswith(p) for p in ["Soprano", "Alto", "Tenor", "Bass"]):
-                        if clean_text not in detected:
-                            detected.append(clean_text)
+                        if not any(d["label"] == clean_text for d in detected):
+                            detected.append({
+                                "label": clean_text,
+                                "y_center": y_center
+                            })
                             
     return detected
 

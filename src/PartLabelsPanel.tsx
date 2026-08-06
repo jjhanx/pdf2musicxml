@@ -130,16 +130,13 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
     <div className="modal-light" style={{ maxWidth: 640 }}>
       <h2 style={{ margin: '0 0 0.5rem' }}>성부 라벨 지정</h2>
       <p style={{ margin: '0 0 1rem', lineHeight: 1.55, fontSize: '0.92rem', color: '#333' }}>
-        OMR이 인식한 <strong>파트(성부)</strong>마다 짧은 이름을 붙입니다. homr 등 OMR이 파트를
-        적게 만들어도(예: 3개), 문자 검토에서 정한 <strong>S A T B M W U PR PL</strong> 등 전체 성부 수에
-        맞춰 라벨을 지정할 수 있습니다. OMR에 없는 파트는 가사·lint 매핑용입니다. 확정한 라벨은 OMR
-        lint·검토와 <strong>최종 MXL part-name</strong>에 반영됩니다. <strong>S/A/T/B/M/W/U/P</strong> 등은
-        MusicXML에 <strong>같은 약어</strong>로 들어갑니다. 양손 피아노만 <strong>PR</strong>·
-        <strong>PL</strong> → <strong>Piano</strong>(Pno.). PDF{' '}
-        <strong>페이지(p.)</strong> 번호와 혼동하지 않도록 합니다.
+        악보 정리(가사 제거)를 시작하기 전에 <strong>악보의 성부 구성(S/A/T/B 등)</strong>을 미리 알려주세요.
+        이 초기 정보를 바탕으로 성부 위치를 추정하여 <strong>음표(오선 영역)가 지워지는 것을 방지</strong>합니다.
+        실제 악보에 쓰인 전체 성부 수에 맞춰 라벨을 지정하세요. 확정한 라벨은 
+        이후 OMR 과정과 <strong>최종 MXL part-name</strong>에 그대로 쓰입니다.
       </p>
 
-      {loading && <p>MXL 파트 목록 불러오는 중…</p>}
+      {loading && <p>성부 정보 불러오는 중…</p>}
       {err && <p style={{ color: '#c62828' }}>{err}</p>}
 
       {!loading && slotCount > 0 && (

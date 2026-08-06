@@ -39,13 +39,22 @@ def _is_music_font_name(name: str) -> bool:
     return any(h in u for h in _MUSIC_FONT_HINTS)
 
 
-def _should_strip_shown_glyph(current_font: str, eff_pt: float, ranges: list[tuple[float, float]]) -> bool:
+def _should_strip_shown_glyph(current_font: str, eff_pt: float, ranges: list[tuple[float, float]], y_coord: float = -1, protected_ys: list[float] = None, page_height: float = 0) -> bool:
     if not font_size_in_ranges(eff_pt, ranges):
         return False
     if _is_music_font_name(current_font):
         return False
     if eff_pt >= _MUSIC_GLYPH_MIN_PT:
         return False
+        
+    if protected_ys and page_height > 0 and y_coord >= 0:
+        # Convert pikepdf bottom-up Y to fitz top-down Y
+        fitz_y = page_height - y_coord
+        # If the text is within +/- 30pt of a protected staff center, do NOT strip it
+        for py in protected_ys:
+            if abs(fitz_y - py) < 30.0:
+                return False
+                
     return True
 
 
@@ -144,6 +153,8 @@ def _strip_commands_in_stream(
     ranges: list[tuple[float, float]],
     *,
     initial_ctm: list[float] | None = None,
+    protected_ys: list[float] | None = None,
+    page_height: float = 0,
 ) -> list:
     ctm_stack: list[list[float]] = [list(initial_ctm or [1.0, 0.0, 0.0, 1.0, 0.0, 0.0])]
     current_font = ""
@@ -175,7 +186,9 @@ def _strip_commands_in_stream(
 
         if op_name in ["Tj", "TJ", "'", '"']:
             eff = _effective_font_size_pt(current_font_size, ctm_stack[-1], tm)
-            if operands and _should_strip_shown_glyph(current_font, eff, ranges):
+            # tm[5] is the Y translation
+            y_coord = ctm_stack[-1][5] + tm[5] * ctm_stack[-1][3] if ctm_stack[-1] else tm[5]
+            if operands and _should_strip_shown_glyph(current_font, eff, ranges, y_coord, protected_ys, page_height):
                 if op_name == "TJ":
                     operands[0] = _blank_tj_array(operands[0])
                 else:
@@ -318,23 +331,44 @@ def strip_font_ranges(
     ranges: list[tuple[float, float]],
     *,
     replace_triplet_pua: bool = False,
+    parts_json: str | None = None,
 ) -> None:
     if not ranges:
         raise ValueError("제거할 폰트 크기 범위가 비어 있습니다.")
     ranges = merge_ranges(ranges)
     desc = ", ".join(f"{lo:g}–{hi:g}pt" for lo, hi in ranges)
     print(f"[strip] pikepdf로 {desc} 텍스트 제거 중...", file=sys.stderr)
+    
+    protected_ys = []
+    if parts_json and os.path.exists(parts_json):
+        try:
+            with open(parts_json, "r", encoding="utf-8") as f:
+                parts_data = json.load(f)
+                if isinstance(parts_data, list):
+                    for d in parts_data:
+                        if isinstance(d, dict) and "y_center" in d:
+                            protected_ys.append(float(d["y_center"]))
+        except Exception as e:
+            print(f"[strip] Failed to load parts_json: {e}", file=sys.stderr)
 
     with pikepdf.open(input_pdf_path) as pdf:
         for page in pdf.pages:
             if "/Contents" not in page:
                 continue
+            
+            page_height = 0
+            if "/MediaBox" in page:
+                try:
+                    mbox = page.MediaBox
+                    page_height = float(mbox[3]) - float(mbox[1])
+                except Exception:
+                    pass
             try:
                 commands = pikepdf.parse_content_stream(page)
             except Exception:
                 continue
 
-            clean_commands = _strip_commands_in_stream(commands, ranges)
+            clean_commands = _strip_commands_in_stream(commands, ranges, protected_ys=protected_ys, page_height=page_height)
             page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(clean_commands))
 
         pdf.save(output_pdf_path, linearize=True)
@@ -909,6 +943,7 @@ def cmd_strip(args: argparse.Namespace) -> int:
         args.output_pdf,
         ranges,
         replace_triplet_pua=bool(getattr(args, "replace_triplet_pua", False)),
+        parts_json=getattr(args, "parts_json", None),
     )
     return 0
 
@@ -955,6 +990,7 @@ def main() -> int:
         action="store_true",
         help="U+F073 세잇단 PUA→'3' 치환(기본 끔 — PyMuPDF 재저장 시 음표 머리 손실 위험)",
     )
+    p_strip.add_argument("--parts-json", help="Path to detected_parts_raw.json for staff protection")
     p_strip.set_defaults(func=cmd_strip)
 
     p_analyze = sub.add_parser("analyze", help="extracted JSON에서 폰트 크기 통계(JSON stdout)")

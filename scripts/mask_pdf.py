@@ -768,8 +768,8 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             music_pad = 0.12
         music_overlap_legacy_intersect = _env_truthy("MASK_PDF_LYRIC_MUSIC_LEGACY_INTERSECT")
         # 같은 가로 줄에 깔린 SMuFL·한글 글림 bbox가 과대하게 겹칠 때 MUSIC_SAFE 만으로 가사 한 글이 남습니다.
-        # 기본적으로 한글(완성형·호환 자모)은 겹침 스킵을 적용하지 않고 리덕합니다. `MASK_PDF_LYRIC_IGNORE_MUSIC_OVERLAP_FOR_KOREAN=0` 으로 끕니다.
-        korean_music_overlap_bypass = lyric_selective and not _env_falsy(
+        # 기본적으로 한글(완성형·호환 자모)은 겹침 스킵을 적용하지 않고 리덕합니다. `MASK_PDF_LYRIC_IGNORE_MUSIC_OVERLAP_FOR_KOREAN=1` 으로 켭니다.
+        korean_music_overlap_bypass = lyric_selective and _env_truthy(
             "MASK_PDF_LYRIC_IGNORE_MUSIC_OVERLAP_FOR_KOREAN"
         )
         raw_mor = os.environ.get("MASK_PDF_LYRIC_MUSIC_MIN_OVERLAP", "").strip()

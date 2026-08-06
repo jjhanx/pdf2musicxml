@@ -3235,6 +3235,24 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         });
         return;
       } else {
+      
+      try {
+        console.log(`[job ${jobId}] Detecting part labels from ${inputPdfPath}`);
+        const scriptDetectParts = path.join(__dirname, '..', 'scripts', 'detect_parts.py');
+        const { stdout: detectOut } = await exec(`"${pythonBin}" "${scriptDetectParts}" "${inputPdfPath}"`);
+        const detectedParts = JSON.parse(detectOut.trim());
+        if (Array.isArray(detectedParts) && detectedParts.length > 0) {
+          const presetPath = sessionPartLabelsPresetPath(sessionRoot);
+          await fs.writeFile(
+            presetPath,
+            JSON.stringify({ version: 1, labelsByIndex: detectedParts }, null, 2),
+            'utf8',
+          );
+          console.log(`[job ${jobId}] Detected and saved part labels preset:`, detectedParts);
+        }
+      } catch (detectErr) {
+        console.warn(`[job ${jobId}] Failed to detect part labels (ignoring):`, detectErr);
+      }
 
       setJobProgress(job, {
         phase: 'separator',

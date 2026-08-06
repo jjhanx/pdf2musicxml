@@ -8,11 +8,14 @@
     <div id="osmd-container"></div>
     <script>
         const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmd-container");
-        fetch('_cheongsan_preview_dump.xml')
+        fetch('debug_score.xml')
             .then(res => res.text())
             .then(xml => osmd.load(xml))
             .then(() => osmd.render())
-            .catch(err => console.error(err));
+            .catch(err => {
+                console.error(err);
+                document.body.innerHTML += "<pre style='color:red'>" + err + "</pre>";
+            });
     </script>
 </body>
 </html>

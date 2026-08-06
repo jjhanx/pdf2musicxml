@@ -3023,7 +3023,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   job.status = 'processing';
 
   const pythonBin = resolvePythonBin();
-  const activeOmrEngine = (pipelineMode === 'image_pdf' ? (job.imagePdfOmrEngine || 'ai') : resolveOmrEngine()) as any;
+  const activeOmrEngine = (job.imagePdfOmrEngine || resolveOmrEngine()) as any;
   if (activeOmrEngine === 'ai') {
     const aiDeps = await probeAiOmrDeps(pythonBin);
     if (!aiDeps.ok) {

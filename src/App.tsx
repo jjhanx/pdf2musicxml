@@ -2046,6 +2046,33 @@ export default function App() {
             <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #444', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#fff', marginBottom: '0.25rem' }}>고급 설정</span>
               {(startStage === 'full' || startStage === 'clean_score') && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.9rem', color: '#ddd' }}>OMR 엔진:</span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
+                    <input 
+                      type="radio" 
+                      name="imagePdfOmrEngine_global" 
+                      value="ai" 
+                      checked={imagePdfOmrEngine === 'ai'} 
+                      onChange={() => setImagePdfOmrEngine('ai')} 
+                      disabled={busy}
+                    />
+                    AI OMR (최신, 권장)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
+                    <input 
+                      type="radio" 
+                      name="imagePdfOmrEngine_global" 
+                      value="audiveris" 
+                      checked={imagePdfOmrEngine === 'audiveris'} 
+                      onChange={() => setImagePdfOmrEngine('audiveris')} 
+                      disabled={busy}
+                    />
+                    Audiveris
+                  </label>
+                </div>
+              )}
+              {(startStage === 'full' || startStage === 'clean_score') && (
                 <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
                   <input type="checkbox" checked={pauseAfterAudiveris} onChange={(e) => setPauseAfterAudiveris(e.target.checked)} disabled={busy} />
                   OMR 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)

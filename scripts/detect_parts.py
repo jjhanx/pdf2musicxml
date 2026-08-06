@@ -3,7 +3,7 @@ import sys
 import json
 import re
 
-PART_NAMES = ["Soprano", "Alto", "Tenor", "Bass", "S", "A", "T", "B", "Sop", "Ten"]
+PART_NAMES = ["Soprano", "Alto", "Tenor", "Bass", "S", "A", "T", "B", "Sop", "Ten", "SA", "TB", "SopranoAlto", "TenorBass"]
 
 def detect_parts(pdf_path: str) -> list[str]:
     doc = fitz.open(pdf_path)

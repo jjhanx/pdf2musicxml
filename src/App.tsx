@@ -2082,10 +2082,10 @@ export default function App() {
                   OMR 직후 품질 검토 (페이지×성부 lint, 기본 켜짐)
                 </label>
               )}
-              {pipelineMode === 'font_separator' && (startStage !== 'lyric_inject') && (
+              {(pipelineMode === 'font_separator' || pipelineMode === 'image_pdf') && (startStage !== 'lyric_inject') && (
                 <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
                   <input type="checkbox" checked={enablePymupdfReview} onChange={(e) => setEnablePymupdfReview(e.target.checked)} disabled={busy} />
-                  OMR·HITL 후 PyMuPDF 가사 검증·편집 (기본 켜짐)
+                  가사 마스킹 및 텍스트 영역 검증·편집 (HITL)
                 </label>
               )}
             </div>

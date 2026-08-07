@@ -3006,7 +3006,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   
   const startStageEarly: StartStage = job.startStage ?? 'full';
   const enablePymupdfReview =
-    pipelineMode === 'font_separator'
+    (pipelineMode === 'font_separator' || pipelineMode === 'image_pdf')
       ? startStageEarly === 'lyric_inject' || job.enablePymupdfReview !== false
       : true;
   const { sessionRoot, originalName, isDebug } = job;
@@ -3518,8 +3518,65 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        await fail({ status: 500, error: 'OCR 추출 실패', detail: msg });
+        await fail({ status: 500, error: 'OCR extract error', detail: msg });
         return;
+      }
+
+      if (enablePymupdfReview) {
+        const extractedStr = await fs.readFile(extractedJsonPath, 'utf8');
+        const extracted = JSON.parse(extractedStr);
+        const reviewItems: any[] = [];
+        for (const pageData of extracted) {
+          const pageNum = pageData.page + 1; // 1-indexed for frontend
+          for (const item of (pageData.text_elements || [])) {
+            reviewItems.push({
+              page: pageNum,
+              type: 'text',
+              bbox: [item.x0, item.y0, item.x1, item.y1],
+              text: item.raw_text,
+            });
+          }
+        }
+        await fs.writeFile(pymupdfReviewPath, JSON.stringify(reviewItems, null, 2), 'utf8');
+
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 1,
+          total: 2,
+          detail: '사용자 가사 마스킹 박스 확인 및 편집 대기중',
+        });
+        
+        job.status = 'review_pymupdf';
+        console.log(`[job ${jobId}] Paused for PyMuPDF review (image_pdf)`);
+        await new Promise<void>((resolve, reject) => {
+          job.reviewPymupdfDeferred = { resolve, reject };
+        });
+        job.status = 'processing';
+        console.log(`[job ${jobId}] Resumed after PyMuPDF review (image_pdf)`);
+
+        // Convert back
+        const updatedItems = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8'));
+        const extractedByPage = new Map();
+        for (const p of extracted) {
+          extractedByPage.set(p.page, p);
+          p.text_elements = [];
+        }
+        for (const item of updatedItems) {
+          if (item.type !== 'text') continue;
+          const pageIdx = item.page - 1;
+          if (extractedByPage.has(pageIdx)) {
+            extractedByPage.get(pageIdx).text_elements.push({
+              raw_text: item.text,
+              x0: item.bbox[0],
+              y0: item.bbox[1],
+              x1: item.bbox[2],
+              y1: item.bbox[3],
+              fontname: 'Manual',
+              size: item.bbox[3] - item.bbox[1]
+            });
+          }
+        }
+        await fs.writeFile(extractedJsonPath, JSON.stringify(extracted, null, 2), 'utf8');
       }
       
       if (job.imagePdfOmrEngine === 'ai') {

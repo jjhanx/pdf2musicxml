@@ -3476,22 +3476,33 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         return;
       }
       
-      setJobProgress(job, {
-        phase: 'separator',
-        current: 1,
-        total: 2,
-        detail: '추출된 텍스트 영역 마스킹 중…',
-      });
-      console.log(`[job ${jobId}] Running image_pdf_processor.py mask`);
-      
-      try {
-        await exec(
-          `"${pythonBin}" "${scriptImageProcessor}" mask "${inputPdfPath}" "${extractedJsonPath}" "${cleanScorePath}"`
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        await fail({ status: 500, error: '마스킹 실패', detail: msg });
-        return;
+      if (job.imagePdfOmrEngine === 'ai') {
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 1,
+          total: 2,
+          detail: 'AI OMR 사용으로 마스킹 건너뜀 (원본 보존)…',
+        });
+        console.log(`[job ${jobId}] Skipping mask for AI OMR, copying ${inputPdfPath} to ${cleanScorePath}`);
+        await fs.copyFile(inputPdfPath, cleanScorePath);
+      } else {
+        setJobProgress(job, {
+          phase: 'separator',
+          current: 1,
+          total: 2,
+          detail: '추출된 텍스트 영역 마스킹 중…',
+        });
+        console.log(`[job ${jobId}] Running image_pdf_processor.py mask`);
+        
+        try {
+          await exec(
+            `"${pythonBin}" "${scriptImageProcessor}" mask "${inputPdfPath}" "${extractedJsonPath}" "${cleanScorePath}"`
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          await fail({ status: 500, error: '마스킹 실패', detail: msg });
+          return;
+        }
       }
       
       setJobProgress(job, {
@@ -4056,6 +4067,12 @@ app.post('/api/convert', async (req, res) => {
       const v = String(val).trim();
       if (v === 'audiveris_only' || v === 'pymupdf_review' || v === 'font_separator' || v === 'image_pdf' || v === 'auto') {
         pipelineModeField = v as PipelineMode;
+      }
+    }
+    if (name === 'imagePdfOmrEngine') {
+      const v = String(val).trim();
+      if (v === 'ai' || v === 'audiveris' || v === 'pdftomusic') {
+        imagePdfOmrEngineField = v;
       }
     }
     if (name === 'enablePymupdfReview') {

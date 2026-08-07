@@ -46,6 +46,13 @@ def detect_parts(pdf_path: str) -> list[str]:
                                 "label": clean_text,
                                 "y_center": y_center
                             })
+                    # Add explicit heuristic for 'S. A.', 'S.A.', 'T.B.', 'S&A' etc.
+                    else:
+                        upper_text = text.upper()
+                        if re.search(r'S[\s\.\&]*A', upper_text) and not any(d["label"] == "SA" for d in detected):
+                            detected.append({"label": "SA", "y_center": y_center})
+                        elif re.search(r'T[\s\.\&]*B', upper_text) and not any(d["label"] == "TB" for d in detected):
+                            detected.append({"label": "TB", "y_center": y_center})
                             
     return detected
 

@@ -19,3 +19,7 @@
 - Image PDF의 BBox 추출을 담당하는 `RapidOCR` 엔진은 기본 설정(영/중) 시 한글 제목이나 가사를 제대로 잡아내지 못해 텍스트 박스 추출에서 아예 누락되거나 쓰레기 문자(Garbage)로 인식하는 현상이 있습니다.
 - 이로 인해 `clean_score_only.pdf`에 제목과 한글 가사 찌꺼기가 지워지지 않고 남는 문제가 발생했습니다.
 - **개선 상태 (General Solution)**: 한국어 인식률을 극대화하기 위해 `image_pdf_processor.py`에 **Tesseract OCR (kor+eng)** 추출 로직을 추가로 도입했습니다. RapidOCR이 1차로 영문/기호 BBox를 추출하고, Tesseract가 2차로 한글과 기타 누락된 텍스트의 BBox를 찾아내어 두 결과를 병합(Merge)합니다. 이를 통해 악보의 제목과 한글 가사가 찌꺼기 없이 깨끗하게 마스킹되도록 파이프라인 안정성을 대폭 개선했습니다. (단, 런타임 환경에 `tesseract-ocr` 및 `tesseract-ocr-kor` 시스템 패키지와 파이썬의 `pytesseract` 라이브러리가 필요합니다)
+
+## [General Solution] AI OMR용 마스킹 최적화
+이미지 PDF 처리 시 기존에는 가사를 하얀색 박스로 지우는 과정(masking)을 거쳤으나, 이는 악보 기호(오선, 음표 등)까지 파괴하는 문제가 있었습니다. 
+- **해결책**: AI OMR(homr 등)은 딥러닝 기반으로 학습되어 가사가 존재하더라도 악보 기호를 구분할 수 있습니다. 따라서 사용자가 `AI OMR`을 엔진으로 선택한 경우, 이미지 PDF에서 하얀색 마스킹 과정을 생략하고 원본(`original.pdf`)을 그대로 `clean_score.pdf`로 복사하여 전달하도록 개선되었습니다.

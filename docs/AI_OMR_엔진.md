@@ -105,3 +105,7 @@ Audiveris MusicXML을 대체하는 중간 표현. `*.symbol_graph.json`으로 �
 ### OpenCV resize 시 크기 0에 의한 크래시 방지
 - **문제**: `homr` 파이프라인에서 여백(margin)이나 스태프 영역이 아주 작게 인식될 경우, 캔버스 크기를 리사이징하는 계산 결과가 0 차원(`width`나 `height`가 0)으로 떨어질 수 있습니다. 이 상태로 `cv2.resize`를 호출하면 `error: (-215:Assertion failed) inv_scale_x > 0` 등의 에러가 발생하며 파이프라인이 즉시 중단됩니다.
 - **일반적 해결책**: `scripts/run_homr.py`에서 `homr` 패키지를 로드하기 전에 전역적으로 `cv2.resize`를 몽키패치하여 전달받는 목표 크기(`dsize`)가 항상 최소 `(1, 1)` 이상이 되도록 보장합니다.
+
+## [General Solution] SA / TB 합창 성부 지원 및 UI 개선
+- **해결책 (성부 분류)**: 합창 악보에서 하나의 오선지에 소프라노와 알토가 묶인 `SA`, 테너와 베이스가 묶인 `TB` 형태를 지원하기 위해, `detect_parts.py`의 휴리스틱과 `src/partLabelOptions.ts`의 사전정의 목록에 `SA`, `TB`를 공식 추가했습니다.
+- **해결책 (엔진 선택 UI)**: 고급 설정에 숨겨져 있고 특정 조건에서만 서버로 전송되던 OMR 엔진 선택(AI vs Audiveris) 라디오 버튼을 메인 화면으로 꺼내고 모드(벡터/이미지)에 관계없이 서버에 전달하도록 변경했습니다.

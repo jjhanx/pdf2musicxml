@@ -9,6 +9,8 @@ export const PART_LABEL_PICKLIST = [
   'A',
   'T',
   'B',
+  'SA',
+  'TB',
   'M',
   'W',
   'U',
@@ -30,6 +32,8 @@ export const PART_LABEL_PICKLIST_HINT: Partial<Record<(typeof PART_LABEL_PICKLIS
   M: 'M (Men)',
   W: 'W (Women)',
   U: 'U (Unison)',
+  SA: 'SA (Soprano & Alto)',
+  TB: 'TB (Tenor & Bass)',
 };
 
 export function defaultPartLabels(count: number): string[] {
@@ -53,6 +57,8 @@ export function isPianoPart(partName: string, instrumentName?: string): boolean 
 function inferChoirLabelFromName(partName: string, instrumentName?: string): string | null {
   const upper = combinedPartText(partName, instrumentName);
   if (/\bUNISON\b|\bUNIS\.?\b/.test(upper)) return 'U';
+  if (/(SOPRANO.*ALTO)|(ALTO.*SOPRANO)|\bSA\b/.test(upper)) return 'SA';
+  if (/(TENOR.*BASS)|(BASS.*TENOR)|\bTB\b/.test(upper)) return 'TB';
   if (/\bWOMEN\b|\bWOMAN\b|\bFEMALE\b/.test(upper) && !/\bMEN\b/.test(upper)) return 'W';
   if (/\bMEN\b|\bMAN\b|\bMALE\b/.test(upper) && !/\bWOMEN\b/.test(upper)) return 'M';
   return null;

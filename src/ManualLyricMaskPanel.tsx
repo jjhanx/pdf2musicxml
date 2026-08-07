@@ -678,16 +678,19 @@ export function ManualLyricMaskPanel(props: Props) {
         <div
           style={{
             marginTop: '12px',
-            position: 'relative',
-            display: 'inline-block',
             maxWidth: '100%',
-            lineHeight: 0,
             overflow: 'auto',
             maxHeight: '420px',
             border: '1px solid #ccc',
-            verticalAlign: 'top',
           }}
         >
+          <div
+            style={{
+              position: 'relative',
+              display: 'inline-block',
+              lineHeight: 0,
+            }}
+          >
           <img
             ref={imgRef}
             key={`${jobId}-${page}-${reloadKey}`}
@@ -835,6 +838,7 @@ export function ManualLyricMaskPanel(props: Props) {
             onMouseDown={onOverlayMouseDown}
             onMouseMove={onOverlayMouseMove}
           />
+          </div>
         </div>
       ) : dims ? (
         <div style={{ marginTop: '8px', color: '#757575' }}>이 페이지를 불러오는 중…</div>
@@ -869,6 +873,25 @@ export function ManualLyricMaskPanel(props: Props) {
                     onChange(next);
                   }}
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = [...value];
+                    next.splice(idx, 1);
+                    onChange(next);
+                  }}
+                  style={{
+                    background: '#ffebee',
+                    color: '#c62828',
+                    border: '1px solid #ffcdd2',
+                    borderRadius: '4px',
+                    padding: '4px 8px',
+                    fontSize: '0.8rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  지우기
+                </button>
               </div>
             ))}
           </div>

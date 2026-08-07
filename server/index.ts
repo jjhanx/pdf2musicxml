@@ -4193,6 +4193,7 @@ app.post('/api/convert', async (req, res) => {
       if (v === 'audiveris_only' || v === 'pymupdf_review' || v === 'font_separator' || v === 'image_pdf' || v === 'auto') {
         pipelineModeField = v as PipelineMode;
       }
+    }
     if (name === 'imagePdfOmrEngine') {
       const v = String(val).trim();
       if (v === 'ai' || v === 'audiveris' || v === 'pdftomusic') {

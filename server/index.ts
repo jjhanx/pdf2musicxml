@@ -1488,6 +1488,19 @@ async function applyPartLabelsToScoreFile(
     console.warn(`apply_part_labels skipped (no labels): ${scorePath}`);
     return;
   }
+  const restructureScript = path.join(__dirname, '..', 'scripts', 'restructure_mxl_parts.py');
+  if (fsSync.existsSync(restructureScript)) {
+    try {
+      await exec(
+        `"${pythonBin}" "${restructureScript}" "${scorePath}" "${scorePath}" "${labelsPath}"`,
+        { maxBuffer: 16 * 1024 * 1024 },
+      );
+      console.log(`restructure_mxl_parts completed for ${scorePath}`);
+    } catch (err) {
+      console.warn(`restructure_mxl_parts failed (${scorePath}): ${err}`);
+    }
+  }
+
   const script = path.join(__dirname, '..', 'scripts', 'apply_part_labels.py');
   if (!fsSync.existsSync(script)) return;
   try {

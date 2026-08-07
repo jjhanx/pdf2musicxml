@@ -1,0 +1,503 @@
+2026-08-07 12:47:06,556 INFO [clean_score_only]                 Book.java:560  | 7 sheets in /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+2026-08-07 12:47:06,679 INFO []                 Book.java:2565 | Stored /book.xml
+2026-08-07 12:47:06,679 INFO []                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+2026-08-07 12:47:06,681 INFO []                 Book.java:1929 | Book reaching PAGE on sheets:[#1#2#3#4#5#6#7]
+2026-08-07 12:47:06,681 INFO [clean_score_only#1]       StepMonitoring.java:98   | LOAD
+2026-08-07 12:47:07,148 INFO [clean_score_only#1]            SheetStub.java:1278 | Loaded image #1 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+2026-08-07 12:47:07,151 INFO [clean_score_only#1]       StepMonitoring.java:98   | BINARY
+2026-08-07 12:47:07,733 INFO [clean_score_only#1]       StepMonitoring.java:98   | SCALE
+2026-08-07 12:47:07,755 INFO [clean_score_only#1]         ScaleBuilder.java:255  | Beam  guessed height:  9 -- mid of [5..14]
+2026-08-07 12:47:07,756 INFO [clean_score_only#1]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.33 of [5..14] range at 219% of needed quorum
+2026-08-07 12:47:07,756 INFO [clean_score_only#1]         ScaleBuilder.java:401  | Normalized black jitter: 13.33 %
+2026-08-07 12:47:07,757 INFO [clean_score_only#1]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,5) beam(8)}
+2026-08-07 12:47:07,757 INFO [clean_score_only#1]       StepMonitoring.java:98   | GRID
+2026-08-07 12:47:08,388 INFO [clean_score_only#1]       LinesRetriever.java:1500 | Global slope: 0.01448
+2026-08-07 12:47:08,442 INFO [clean_score_only#1]    ClustersRetriever.java:851  | Destroying spurious Cluster#C3523{interline(14,15,16) size:5 fil#3523@0 fil#3587@1 fil#3646@2 fil#3708@3 fil#3736@4}
+2026-08-07 12:47:08,445 INFO [clean_score_only#1]    ClustersRetriever.java:326  | Retrieved raw line clusters: 13 of sizes [5] with interline(14,15,16)
+2026-08-07 12:47:08,630 INFO [clean_score_only#1]            PeakGraph.java:310  | Systems: #1[1] #2[2] #3[3] #4[4] #5[5, 6] #6[7, 8, 9] #7[10] #8[11] #9[12] #10[13]
+2026-08-07 12:47:09,121 INFO [clean_score_only#1]        SystemManager.java:134  | Indentation detected for system #4
+2026-08-07 12:47:09,121 INFO [clean_score_only#1]        SystemManager.java:134  | Indentation detected for system #9
+2026-08-07 12:47:09,122 INFO [clean_score_only#1]        SystemManager.java:723  | 3 pages found in sheet
+2026-08-07 12:47:09,122 INFO [clean_score_only#1]        SystemManager.java:779  | Page #1: 1 part along 3 systems
+2026-08-07 12:47:09,122 INFO [clean_score_only#1]        SystemManager.java:779  | Page #2: 2 parts along 5 systems
+2026-08-07 12:47:09,122 INFO [clean_score_only#1]        SystemManager.java:779  | Page #3: 1 part along 2 systems
+2026-08-07 12:47:09,122 INFO [clean_score_only#1]                 Book.java:543  | Created scores: [{Score 1}, {Score 2}, {Score 3}]
+2026-08-07 12:47:09,123 INFO [clean_score_only#1]       StepMonitoring.java:98   | HEADERS
+2026-08-07 12:47:09,614 WARN [clean_score_only#1]          ClefBuilder.java:658  | Staff#2 no recognized header clef.
+2026-08-07 12:47:09,636 WARN [clean_score_only#1]          ClefBuilder.java:658  | Staff#3 no recognized header clef.
+2026-08-07 12:47:09,940 WARN [clean_score_only#1]          ClefBuilder.java:658  | Staff#11 no recognized header clef.
+2026-08-07 12:47:09,954 WARN [clean_score_only#1]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-07 12:47:09,956 WARN [clean_score_only#1]          ClefBuilder.java:658  | Staff#13 no recognized header clef.
+2026-08-07 12:47:09,956 INFO [clean_score_only#1]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-07 12:47:10,013 INFO [clean_score_only#1]        StemSeedsStep.java:86   | stem(4 max:6)
+2026-08-07 12:47:10,079 INFO [clean_score_only#1]       StepMonitoring.java:98   | BEAMS
+2026-08-07 12:47:12,097 INFO [clean_score_only#1]       StepMonitoring.java:98   | LEDGERS
+2026-08-07 12:47:12,284 INFO [clean_score_only#1]       StepMonitoring.java:98   | HEADS
+2026-08-07 12:47:15,406 INFO [clean_score_only#1]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.6,R:-0.1] NOTEHEAD_BLACK[L:0.1,R:0.5]}
+2026-08-07 12:47:15,406 INFO [clean_score_only#1]       StepMonitoring.java:98   | STEMS
+2026-08-07 12:47:15,793 INFO [clean_score_only#1]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#1238{(0.472/0.804) BEAM_HOOK}
+2026-08-07 12:47:15,793 INFO [clean_score_only#1]           BeamLinker.java:1729 | Not linking shorter BeamInter#1239{(0.427/0.773) BEAM}
+2026-08-07 12:47:15,797 INFO [clean_score_only#1]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#1235{(0.550/0.851) BEAM_HOOK}
+2026-08-07 12:47:15,797 INFO [clean_score_only#1]           BeamLinker.java:1729 | Not linking shorter BeamInter#1236{(0.504/0.826) BEAM}
+2026-08-07 12:47:15,972 INFO [clean_score_only#1]       StepMonitoring.java:98   | REDUCTION
+2026-08-07 12:47:16,069 INFO [clean_score_only#1]        ReductionStep.java:105  | Stems free length median value: 49 pixels, 3.3 interlines
+2026-08-07 12:47:16,074 INFO [clean_score_only#1]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-07 12:47:16,075 INFO [clean_score_only#1]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-07 12:47:16,075 INFO [clean_score_only#1]       StepMonitoring.java:98   | TEXTS
+2026-08-07 12:47:16,591 INFO [clean_score_only#1]       StepMonitoring.java:98   | MEASURES
+2026-08-07 12:47:16,597 INFO [clean_score_only#1]                 Page.java:307  | 3 raw measures: [1 in system#1, 1 in system#2, 1 in system#3]
+2026-08-07 12:47:16,598 INFO [clean_score_only#1]                 Page.java:307  | 11 raw measures: [1 in system#4, 4 in system#5, 2 in system#6, 2 in system#7, 2 in system#8]
+2026-08-07 12:47:16,598 INFO [clean_score_only#1]                 Page.java:307  | 2 raw measures: [1 in system#9, 1 in system#10]
+2026-08-07 12:47:16,598 INFO [clean_score_only#1]       StepMonitoring.java:98   | CHORDS
+2026-08-07 12:47:16,610 INFO [clean_score_only#1]       StepMonitoring.java:98   | CURVES
+2026-08-07 12:47:17,392 INFO [clean_score_only#1]         SlursBuilder.java:240  | Slurs: 22
+2026-08-07 12:47:17,428 INFO [clean_score_only#1]      SegmentsBuilder.java:155  | Segments: 19
+2026-08-07 12:47:17,437 INFO [clean_score_only#1]       StepMonitoring.java:98   | SYMBOLS
+2026-08-07 12:47:18,141 INFO [clean_score_only#1]       StepMonitoring.java:98   | LINKS
+2026-08-07 12:47:18,143 INFO [clean_score_only#1]        SentenceInter.java:463  | No chord near SentenceInter#5058{(0.526) staff:1 mFont:BIMS-87 Direction} ._tﬁ,
+2026-08-07 12:47:18,155 INFO [clean_score_only#1]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#6331{(0.413) staff:6 OTTAVA} at java.awt.Point[x=288,y=1786]
+2026-08-07 12:47:18,157 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#6418{(0.791) staff:5 NATURAL pitch:2.0}
+2026-08-07 12:47:18,158 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#6412{(0.784) staff:6 NATURAL pitch:4.0}
+2026-08-07 12:47:18,158 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#6416{(0.423) staff:6 NATURAL pitch:-3.0}
+2026-08-07 12:47:18,177 INFO [clean_score_only#1]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#6461{(0.413) staff:7 OTTAVA ALTA} at java.awt.Point[x=288,y=1786]
+2026-08-07 12:47:18,177 INFO [clean_score_only#1]             KeyInter.java:1189 | No effective key before AlterInter#6503{(0.261) staff:8 NATURAL pitch:2.0}
+2026-08-07 12:47:18,202 INFO [clean_score_only#1]       StepMonitoring.java:98   | RHYTHMS
+2026-08-07 12:47:18,229 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#1} No timeOffset for HeadChordInter#5095{(0.921/0.921) slot#2 dur:1/8}
+2026-08-07 12:47:18,230 INFO [clean_score_only#1]          StackRhythm.java:224  | S4 MeasureStack#1 no correct rhythm
+2026-08-07 12:47:18,264 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#5} No timeOffset for HeadChordInter#5157{(0.930/0.930) staff:6 slot#3 dur:1/8}
+2026-08-07 12:47:18,265 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#5} No timeOffset for HeadChordInter#5158{(0.955/0.955) staff:6 slot#4 dur:1/8}
+2026-08-07 12:47:18,265 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#5} No timeOffset for HeadChordInter#5123{(0.842/0.842) staff:5 slot#7 dur:1/8}
+2026-08-07 12:47:18,266 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#5} No timeOffset for HeadChordInter#5127{(0.952/0.952) staff:5 slot#11 dur:1/32}
+2026-08-07 12:47:18,266 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#5} No timeOffset for HeadChordInter#5128{(0.587/0.587) staff:5 slot#11 dur:1/4}
+2026-08-07 12:47:18,266 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#5} No timeOffset for HeadChordInter#5129{(0.695/0.695) staff:5 slot#12 dur:1/2}
+2026-08-07 12:47:18,266 INFO [clean_score_only#1]                Voice.java:257  | Measure{#5} Voice{#1 excess:1/2} too long
+2026-08-07 12:47:18,267 INFO [clean_score_only#1]          StackRhythm.java:224  | S5 MeasureStack#5 no correct rhythm
+2026-08-07 12:47:18,278 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#7P2} No timeOffset for HeadChordInter#5172{(0.933/0.933) staff:8 slot#11 dur:1/16}
+2026-08-07 12:47:18,279 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#7P2} No timeOffset for HeadChordInter#5198{(0.613/0.613) staff:9 slot#11 dur:1}
+2026-08-07 12:47:18,279 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5175{(0.908/0.908) staff:8 slot#14 dur:3/4}
+2026-08-07 12:47:18,279 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5198{(0.613/0.613) staff:9 slot#11 dur:1}
+2026-08-07 12:47:18,279 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5175{(0.908/0.908) staff:8 slot#14 dur:3/4}
+2026-08-07 12:47:18,279 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5191{(0.810/0.810) staff:9 slot#13 dur:1/8}
+2026-08-07 12:47:18,279 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5175{(0.908/0.908) staff:8 slot#14 dur:3/4}
+2026-08-07 12:47:18,280 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5194{(0.934/0.934) staff:9 slot#16 dur:1/8}
+2026-08-07 12:47:18,280 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5175{(0.908/0.908) staff:8 slot#14 dur:3/4}
+2026-08-07 12:47:18,280 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5195{(0.915/0.915) staff:9 slot#17 dur:3/8}
+2026-08-07 12:47:18,280 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5176{(0.848/0.848) staff:8 slot#18 dur:1/2}
+2026-08-07 12:47:18,280 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#7P2} No timeOffset for HeadChordInter#5196{(0.796/0.796) staff:9 slot#18 dur:1/2}
+2026-08-07 12:47:18,281 INFO [clean_score_only#1]          StackRhythm.java:224  | S6 MeasureStack#7 no correct rhythm
+2026-08-07 12:47:18,282 INFO [clean_score_only#1]        MeasureRhythm.java:1044 | Measure{#10} No timeOffset for RestChordInter#6536{(0.793/0.793) staff:11 slot#3 dur:1/8}
+2026-08-07 12:47:18,282 INFO [clean_score_only#1]   AbstractChordInter.java:627  | Measure{#10} No timeOffset for RestChordInter#6536{(0.793/0.793) staff:11 slot#3 dur:1/8}
+2026-08-07 12:47:18,282 INFO [clean_score_only#1]                Voice.java:257  | Measure{#10} Voice{#1 excess:1/4} too long
+2026-08-07 12:47:18,283 INFO [clean_score_only#1]          StackRhythm.java:224  | S8 MeasureStack#10 no correct rhythm
+2026-08-07 12:47:18,285 INFO [clean_score_only#1]       StepMonitoring.java:98   | PAGE
+2026-08-07 12:47:18,292 INFO [clean_score_only#1]                Voice.java:257  | Measure{#5} Voice{#1 excess:1/2} too long
+2026-08-07 12:47:18,292 INFO [clean_score_only#1]                Voice.java:257  | Measure{#10} Voice{#1 excess:1/4} too long
+2026-08-07 12:47:18,293 WARN [clean_score_only#1]         MeasureFixer.java:343  | System#9 No target duration for measures local IDs [1], please check time signatures
+2026-08-07 12:47:18,293 WARN [clean_score_only#1]         MeasureFixer.java:343  | System#10 No target duration for measures local IDs [2], please check time signatures
+2026-08-07 12:47:18,293 INFO [clean_score_only#1]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-07 12:47:18,351 INFO [clean_score_only#1]                 Book.java:2565 | Stored /book.xml
+2026-08-07 12:47:18,435 INFO [clean_score_only#1]           DataHolder.java:348  | Stored /sheet#1/BINARY.png
+2026-08-07 12:47:18,988 INFO [clean_score_only#1]                Sheet.java:1583 | Stored /sheet#1/sheet#1.xml
+2026-08-07 12:47:18,988 INFO [clean_score_only#1]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+2026-08-07 12:47:18,989 INFO [clean_score_only#1]            SheetStub.java:1655 | Sheet#1 disposed
+2026-08-07 12:47:19,018 INFO [clean_score_only#1]                 Book.java:2050 | End of Stub#1
+2026-08-07 12:47:19,019 INFO [clean_score_only#2]       StepMonitoring.java:98   | LOAD
+2026-08-07 12:47:19,288 INFO [clean_score_only#2]            SheetStub.java:1278 | Loaded image #2 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+2026-08-07 12:47:19,288 INFO [clean_score_only#2]       StepMonitoring.java:98   | BINARY
+2026-08-07 12:47:19,825 INFO [clean_score_only#2]       StepMonitoring.java:98   | SCALE
+2026-08-07 12:47:19,834 INFO [clean_score_only#2]         ScaleBuilder.java:255  | Beam  guessed height:  9 -- mid of [5..14]
+2026-08-07 12:47:19,839 INFO [clean_score_only#2]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.33 of [5..14] range at 342% of needed quorum
+2026-08-07 12:47:19,839 INFO [clean_score_only#2]         ScaleBuilder.java:401  | Normalized black jitter: 13.33 %
+2026-08-07 12:47:19,839 INFO [clean_score_only#2]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,5) beam(8)}
+2026-08-07 12:47:19,839 INFO [clean_score_only#2]       StepMonitoring.java:98   | GRID
+2026-08-07 12:47:20,434 INFO [clean_score_only#2]       LinesRetriever.java:1500 | Global slope: 0.00995
+2026-08-07 12:47:20,468 INFO [clean_score_only#2]    ClustersRetriever.java:326  | Retrieved raw line clusters: 13 of sizes [5] with interline(14,15,16)
+2026-08-07 12:47:20,687 INFO [clean_score_only#2]            PeakGraph.java:310  | Systems: #1[1] #2[2, 3] #3[4] #4[5, 6] #5[7, 8, 9] #6[10, 11, 12, 13]
+2026-08-07 12:47:20,721 INFO [clean_score_only#2]        BarsRetriever.java:1305 | System#6
+2026-08-07 12:47:20,722 INFO [clean_score_only#2]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:10-11}
+2026-08-07 12:47:21,147 INFO [clean_score_only#2]        SystemManager.java:134  | Indentation detected for system #1
+2026-08-07 12:47:21,148 INFO [clean_score_only#2]        SystemManager.java:779  | 3 parts along 6 systems
+2026-08-07 12:47:21,148 INFO [clean_score_only#2]       StepMonitoring.java:98   | HEADERS
+2026-08-07 12:47:21,151 WARN [clean_score_only#2]          ClefBuilder.java:658  | Staff#1 no recognized header clef.
+2026-08-07 12:47:21,176 WARN [clean_score_only#2]          ClefBuilder.java:658  | Staff#3 no recognized header clef.
+2026-08-07 12:47:21,295 WARN [clean_score_only#2]          ClefBuilder.java:658  | Staff#9 no recognized header clef.
+2026-08-07 12:47:21,375 INFO [clean_score_only#2]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-07 12:47:21,415 INFO [clean_score_only#2]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-07 12:47:21,442 INFO [clean_score_only#2]       StepMonitoring.java:98   | BEAMS
+2026-08-07 12:47:23,453 INFO [clean_score_only#2]       StepMonitoring.java:98   | LEDGERS
+2026-08-07 12:47:23,675 INFO [clean_score_only#2]       StepMonitoring.java:98   | HEADS
+2026-08-07 12:47:27,834 INFO [clean_score_only#2]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.4] NOTEHEAD_BLACK[L:0.1,R:-0.0]}
+2026-08-07 12:47:27,835 INFO [clean_score_only#2]       StepMonitoring.java:98   | STEMS
+2026-08-07 12:47:28,683 INFO [clean_score_only#2]       StepMonitoring.java:98   | REDUCTION
+2026-08-07 12:47:28,831 INFO [clean_score_only#2]        ReductionStep.java:105  | Stems free length median value: 51 pixels, 3.4 interlines
+2026-08-07 12:47:28,836 INFO [clean_score_only#2]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-07 12:47:28,836 INFO [clean_score_only#2]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-07 12:47:28,837 INFO [clean_score_only#2]       StepMonitoring.java:98   | TEXTS
+2026-08-07 12:47:29,365 INFO [clean_score_only#2]       StepMonitoring.java:98   | MEASURES
+2026-08-07 12:47:29,367 INFO [clean_score_only#2]                 Page.java:307  | 17 raw measures: [2 in system#1, 3 in system#2, 3 in system#3, 3 in system#4, 3 in system#5, 3 in system#6]
+2026-08-07 12:47:29,367 INFO [clean_score_only#2]       StepMonitoring.java:98   | CHORDS
+2026-08-07 12:47:29,379 INFO [clean_score_only#2]       StepMonitoring.java:98   | CURVES
+2026-08-07 12:47:30,124 INFO [clean_score_only#2]         SlursBuilder.java:240  | Slurs: 75
+2026-08-07 12:47:30,134 INFO [clean_score_only#2]      SegmentsBuilder.java:155  | Segments: 19
+2026-08-07 12:47:30,137 INFO [clean_score_only#2]       StepMonitoring.java:98   | SYMBOLS
+2026-08-07 12:47:30,663 INFO [clean_score_only#2]       StepMonitoring.java:98   | LINKS
+2026-08-07 12:47:30,665 WARN [clean_score_only#2]             KeyInter.java:1174 | No effective clef before AlterInter#11073{(0.800) staff:3 SHARP pitch:-2.0}
+2026-08-07 12:47:30,685 INFO [clean_score_only#2]             KeyInter.java:1189 | No effective key before AlterInter#11167{(0.573) staff:5 NATURAL pitch:2.0}
+2026-08-07 12:47:30,686 INFO [clean_score_only#2]             KeyInter.java:1189 | No effective key before AlterInter#11166{(0.511) staff:6 NATURAL pitch:4.0}
+2026-08-07 12:47:30,731 INFO [clean_score_only#2]       StepMonitoring.java:98   | RHYTHMS
+2026-08-07 12:47:30,740 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#4} Time inconsistency in {1/2=[HeadChordInter#9242{(0.941/0.941) staff:2 slot#8 off:1/2 dur:1/4}], 5/8=[HeadChordInter#9267{(0.921/0.921) staff:3 slot#8 off:5/8 dur:1/8}]}
+2026-08-07 12:47:30,744 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#5} No timeOffset for RestChordInter#11100{(0.746/0.746) staff:2 slot#5 dur:1/2}
+2026-08-07 12:47:30,744 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#5} Time inconsistency in {1/4=[HeadChordInter#9274{(0.905/0.905) staff:3 slot#6 off:1/4 dur:1/16}], 5/16=[HeadChordInter#9249{(0.948/0.948) staff:2 slot#6 off:5/16 dur:1/8}]}
+2026-08-07 12:47:30,745 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#5} Time inconsistency in {7/16=[HeadChordInter#9276{(0.864/0.864) staff:3 slot#9 off:7/16 dur:1/2}], 9/16=[HeadChordInter#9251{(0.952/0.952) staff:2 slot#9 off:9/16 dur:1/4}]}
+2026-08-07 12:47:30,745 INFO [clean_score_only#2]   AbstractChordInter.java:627  | Measure{#5} No timeOffset for HeadChordInter#9252{(0.553/0.553) staff:2 slot#10 dur:1/2}
+2026-08-07 12:47:30,745 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#5} No timeOffset for HeadChordInter#9253{(0.931/0.931) staff:2 slot#11 dur:1/16}
+2026-08-07 12:47:30,745 INFO [clean_score_only#2]        MeasureRhythm.java:1044 | Measure{#5} No timeOffset for HeadChordInter#9277{(0.898/0.898) staff:3 slot#11 dur:1/4}
+2026-08-07 12:47:30,746 INFO [clean_score_only#2]          StackRhythm.java:224  | S2 MeasureStack#5 no correct rhythm
+2026-08-07 12:47:30,755 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#11} Time inconsistency in {5/4=[HeadChordInter#9312{(0.929/0.929) staff:5 slot#11 off:5/4 dur:1/16}], 7/4=[HeadChordInter#9336{(0.932/0.932) staff:6 slot#11 off:7/4 dur:1/8}]}
+2026-08-07 12:47:30,755 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#11} Time inconsistency in {11/8=[HeadChordInter#9314{(0.933/0.933) staff:5 slot#13 off:11/8 dur:1/16}], 15/8=[HeadChordInter#9337{(0.949/0.949) staff:6 slot#13 off:15/8 dur:1/8}]}
+2026-08-07 12:47:30,759 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#12P2} Time inconsistency in {1/4=[HeadChordInter#9354{(0.902/0.902) staff:8 slot#4 off:1/4 dur:1/8}], 5/16=[HeadChordInter#9388{(0.918/0.918) staff:9 slot#4 off:5/16 dur:1/16}]}
+2026-08-07 12:47:30,760 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#12P2} Time inconsistency in {5/8=[HeadChordInter#9357{(0.877/0.877) staff:8 slot#9 off:5/8 dur:1/2}], 3/4=[HeadChordInter#9393{(0.859/0.859) staff:9 slot#9 off:3/4 dur:1/2}]}
+2026-08-07 12:47:30,782 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#15P3} Time inconsistency in {3/4=[HeadChordInter#9454{(0.928/0.928) staff:12 slot#11 off:3/4 dur:1/16}], 5/4=[HeadChordInter#9487{(0.900/0.900) staff:13 slot#11 off:5/4 dur:1/4}]}
+2026-08-07 12:47:30,793 INFO [clean_score_only#2]        MeasureRhythm.java:1276 | Measure{#17P3} Time inconsistency in {3/4=[HeadChordInter#9478{(0.938/0.938) staff:12 slot#12 off:3/4 dur:1/8}], 7/8=[HeadChordInter#9509{(0.877/0.877) staff:13 slot#12 off:7/8 dur:1/4}]}
+2026-08-07 12:47:30,794 INFO [clean_score_only#2]       StepMonitoring.java:98   | PAGE
+2026-08-07 12:47:30,796 WARN [clean_score_only#2]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2], please check time signatures
+2026-08-07 12:47:30,796 WARN [clean_score_only#2]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [3, 4, 5], please check time signatures
+2026-08-07 12:47:30,796 WARN [clean_score_only#2]         MeasureFixer.java:343  | System#3 No target duration for measures local IDs [6, 7, 8], please check time signatures
+2026-08-07 12:47:30,797 WARN [clean_score_only#2]         MeasureFixer.java:343  | System#4 No target duration for measures local IDs [9, 10, 11], please check time signatures
+2026-08-07 12:47:30,797 WARN [clean_score_only#2]         MeasureFixer.java:343  | System#5 No target duration for measures local IDs [12, 13, 14], please check time signatures
+2026-08-07 12:47:30,797 WARN [clean_score_only#2]         MeasureFixer.java:343  | System#6 No target duration for measures local IDs [15, 16, 17], please check time signatures
+2026-08-07 12:47:30,797 INFO [clean_score_only#2]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-07 12:47:30,871 INFO [clean_score_only#2]                 Book.java:2565 | Stored /book.xml
+2026-08-07 12:47:30,955 INFO [clean_score_only#2]           DataHolder.java:348  | Stored /sheet#2/BINARY.png
+2026-08-07 12:47:31,552 INFO [clean_score_only#2]                Sheet.java:1583 | Stored /sheet#2/sheet#2.xml
+2026-08-07 12:47:31,552 INFO [clean_score_only#2]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+2026-08-07 12:47:31,554 INFO [clean_score_only#2]            SheetStub.java:1655 | Sheet#2 disposed
+2026-08-07 12:47:31,581 INFO [clean_score_only#2]                 Book.java:2050 | End of Stub#2
+2026-08-07 12:47:31,581 INFO [clean_score_only#3]       StepMonitoring.java:98   | LOAD
+2026-08-07 12:47:31,824 INFO [clean_score_only#3]            SheetStub.java:1278 | Loaded image #3 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+2026-08-07 12:47:31,824 INFO [clean_score_only#3]       StepMonitoring.java:98   | BINARY
+2026-08-07 12:47:32,357 INFO [clean_score_only#3]       StepMonitoring.java:98   | SCALE
+2026-08-07 12:47:32,362 INFO [clean_score_only#3]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-07 12:47:32,362 INFO [clean_score_only#3]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 377% of needed quorum
+2026-08-07 12:47:32,363 INFO [clean_score_only#3]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-07 12:47:32,363 INFO [clean_score_only#3]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-07 12:47:32,363 INFO [clean_score_only#3]       StepMonitoring.java:98   | GRID
+2026-08-07 12:47:32,761 INFO [clean_score_only#3]       LinesRetriever.java:1500 | Global slope: 0.01284
+2026-08-07 12:47:32,782 INFO [clean_score_only#3]    ClustersRetriever.java:851  | Destroying spurious Cluster#C3178{interline(14,15,16) size:5 fil#3178@0 fil#3222@1 fil#3300@2 fil#3367@3 fil#3423@4}
+2026-08-07 12:47:32,782 INFO [clean_score_only#3]    ClustersRetriever.java:851  | Destroying spurious Cluster#C3413{interline(14,15,16) size:5 fil#3174@0 fil#3209@1 fil#3286@2 fil#3351@3 fil#3413@4}
+2026-08-07 12:47:32,784 INFO [clean_score_only#3]    ClustersRetriever.java:326  | Retrieved raw line clusters: 19 of sizes [5] with interline(14,15,16)
+2026-08-07 12:47:32,870 INFO [clean_score_only#3]            PeakGraph.java:310  | Systems: #1[1] #2[2, 3] #3[4] #4[5] #5[6] #6[7, 8] #7[9] #8[10, 11] #9[12] #10[13] #11[14] #12[15] #13[16, 17]
+2026-08-07 12:47:32,871 WARN [clean_score_only#3]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#6
+2026-08-07 12:47:32,886 INFO [clean_score_only#3]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{283-299 F#7521 T#3 [BRACE]}
+2026-08-07 12:47:33,316 INFO [clean_score_only#3]        SystemManager.java:134  | Indentation detected for system #3
+2026-08-07 12:47:33,317 INFO [clean_score_only#3]        SystemManager.java:134  | Indentation detected for system #8
+2026-08-07 12:47:33,317 INFO [clean_score_only#3]        SystemManager.java:134  | Indentation detected for system #9
+2026-08-07 12:47:33,317 INFO [clean_score_only#3]        SystemManager.java:723  | 4 pages found in sheet
+2026-08-07 12:47:33,317 INFO [clean_score_only#3]        SystemManager.java:779  | Page #1: 2 parts along 2 systems
+2026-08-07 12:47:33,317 INFO [clean_score_only#3]        SystemManager.java:779  | Page #2: 2 parts along 5 systems
+2026-08-07 12:47:33,317 INFO [clean_score_only#3]        SystemManager.java:779  | Page #3: 2 parts along 1 system
+2026-08-07 12:47:33,317 INFO [clean_score_only#3]        SystemManager.java:779  | Page #4: 2 parts along 5 systems
+2026-08-07 12:47:33,317 INFO [clean_score_only#3]       StepMonitoring.java:98   | HEADERS
+2026-08-07 12:47:33,346 WARN [clean_score_only#3]          ClefBuilder.java:658  | Staff#2 no recognized header clef.
+2026-08-07 12:47:33,358 WARN [clean_score_only#3]                 Book.java:2044 | Error processing stub
+2026-08-07 12:47:33,358 INFO [clean_score_only#3]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-07 12:47:33,400 INFO [clean_score_only#3]                 Book.java:2565 | Stored /book.xml
+2026-08-07 12:47:33,464 INFO [clean_score_only#3]           DataHolder.java:348  | Stored /sheet#3/BINARY.png
+2026-08-07 12:47:33,529 INFO [clean_score_only#3]                Sheet.java:1583 | Stored /sheet#3/sheet#3.xml
+2026-08-07 12:47:33,529 INFO [clean_score_only#3]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+2026-08-07 12:47:33,531 INFO [clean_score_only#3]            SheetStub.java:1655 | Sheet#3 disposed
+2026-08-07 12:47:33,556 INFO [clean_score_only#3]                 Book.java:2050 | End of Stub#3
+2026-08-07 12:47:33,556 INFO [clean_score_only#4]       StepMonitoring.java:98   | LOAD
+2026-08-07 12:47:33,776 INFO [clean_score_only#4]            SheetStub.java:1278 | Loaded image #4 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+2026-08-07 12:47:33,777 INFO [clean_score_only#4]       StepMonitoring.java:98   | BINARY
+2026-08-07 12:47:34,314 INFO [clean_score_only#4]       StepMonitoring.java:98   | SCALE
+2026-08-07 12:47:34,317 INFO [clean_score_only#4]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-07 12:47:34,317 INFO [clean_score_only#4]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 330% of needed quorum
+2026-08-07 12:47:34,317 INFO [clean_score_only#4]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-07 12:47:34,317 INFO [clean_score_only#4]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-07 12:47:34,317 INFO [clean_score_only#4]       StepMonitoring.java:98   | GRID
+2026-08-07 12:47:34,925 INFO [clean_score_only#4]       LinesRetriever.java:1500 | Global slope: 0.01599
+2026-08-07 12:47:34,946 INFO [clean_score_only#4]    ClustersRetriever.java:851  | Destroying spurious Cluster#C4293{interline(14,15,16) size:5 fil#4096@0 fil#4160@1 fil#4225@2 fil#4293@3 fil#4357@4}
+2026-08-07 12:47:34,946 INFO [clean_score_only#4]    ClustersRetriever.java:851  | Destroying spurious Cluster#C4232{interline(14,15,16) size:5 fil#4162@0 fil#4232@1 fil#4261@2 fil#4360@3 fil#4384@4}
+2026-08-07 12:47:34,948 INFO [clean_score_only#4]    ClustersRetriever.java:326  | Retrieved raw line clusters: 16 of sizes [5] with interline(14,15,16)
+2026-08-07 12:47:35,073 INFO [clean_score_only#4]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6] #3[7, 8, 9] #4[10] #5[11] #6[12] #7[13] #8[14] #9[15, 16]
+2026-08-07 12:47:35,099 INFO [clean_score_only#4]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{264-286 F#9609 T#2 [BRACE]}
+2026-08-07 12:47:35,099 INFO [clean_score_only#4]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{220-259 F#9614 T#7 [BRACE]}
+2026-08-07 12:47:35,100 INFO [clean_score_only#4]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{255-273 F#9616 T#9 [BRACE]}
+2026-08-07 12:47:35,619 INFO [clean_score_only#4]        SystemManager.java:134  | Indentation detected for system #6
+2026-08-07 12:47:35,619 INFO [clean_score_only#4]        SystemManager.java:723  | 2 pages found in sheet
+2026-08-07 12:47:35,619 INFO [clean_score_only#4]        SystemManager.java:779  | Page #1: 3 parts along 5 systems
+2026-08-07 12:47:35,619 INFO [clean_score_only#4]        SystemManager.java:779  | Page #2: 2 parts along 4 systems
+2026-08-07 12:47:35,620 INFO [clean_score_only#4]       StepMonitoring.java:98   | HEADERS
+2026-08-07 12:47:35,818 WARN [clean_score_only#4]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-07 12:47:35,819 WARN [clean_score_only#4]                 Book.java:2044 | Error processing stub
+2026-08-07 12:47:35,819 INFO [clean_score_only#4]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-07 12:47:35,864 INFO [clean_score_only#4]                 Book.java:2565 | Stored /book.xml
+2026-08-07 12:47:35,928 INFO [clean_score_only#4]           DataHolder.java:348  | Stored /sheet#4/BINARY.png
+2026-08-07 12:47:36,022 INFO [clean_score_only#4]                Sheet.java:1583 | Stored /sheet#4/sheet#4.xml
+2026-08-07 12:47:36,022 INFO [clean_score_only#4]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+2026-08-07 12:47:36,025 INFO [clean_score_only#4]            SheetStub.java:1655 | Sheet#4 disposed
+2026-08-07 12:47:36,049 INFO [clean_score_only#4]                 Book.java:2050 | End of Stub#4
+2026-08-07 12:47:36,049 INFO [clean_score_only#5]       StepMonitoring.java:98   | LOAD
+2026-08-07 12:47:36,280 INFO [clean_score_only#5]            SheetStub.java:1278 | Loaded image #5 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+2026-08-07 12:47:36,281 INFO [clean_score_only#5]       StepMonitoring.java:98   | BINARY
+2026-08-07 12:47:36,823 INFO [clean_score_only#5]       StepMonitoring.java:98   | SCALE
+2026-08-07 12:47:36,825 INFO [clean_score_only#5]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-07 12:47:36,825 INFO [clean_score_only#5]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 322% of needed quorum
+2026-08-07 12:47:36,825 INFO [clean_score_only#5]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-07 12:47:36,825 INFO [clean_score_only#5]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-07 12:47:36,825 INFO [clean_score_only#5]       StepMonitoring.java:98   | GRID
+2026-08-07 12:47:37,182 INFO [clean_score_only#5]       LinesRetriever.java:1500 | Global slope: 0.02404
+2026-08-07 12:47:37,196 INFO [clean_score_only#5]    ClustersRetriever.java:851  | Destroying spurious Cluster#C13{interline(14,15,16) size:5 fil#13@0 fil#46@1 fil#102@2 fil#163@3 fil#232@4}
+2026-08-07 12:47:37,197 INFO [clean_score_only#5]    ClustersRetriever.java:851  | Destroying spurious Cluster#C3891{interline(14,15,16) size:5 fil#3891@0 fil#3952@1 fil#4019@2 fil#4072@3 fil#4094@4}
+2026-08-07 12:47:37,199 INFO [clean_score_only#5]    ClustersRetriever.java:326  | Retrieved raw line clusters: 21 of sizes [5] with interline(14,15,16)
+2026-08-07 12:47:37,252 INFO [clean_score_only#5]            PeakGraph.java:310  | Systems: #1[1] #2[2] #3[3] #4[4] #5[5] #6[6] #7[7] #8[8] #9[9] #10[10] #11[11] #12[12, 13] #13[14] #14[15] #15[16]
+2026-08-07 12:47:37,265 INFO [clean_score_only#5]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{215-236 F#7263 T#13 [BRACE]}
+2026-08-07 12:47:37,648 INFO [clean_score_only#5]        SystemManager.java:134  | Indentation detected for system #1
+2026-08-07 12:47:37,648 INFO [clean_score_only#5]        SystemManager.java:134  | Indentation detected for system #3
+2026-08-07 12:47:37,648 INFO [clean_score_only#5]        SystemManager.java:134  | Indentation detected for system #5
+2026-08-07 12:47:37,648 INFO [clean_score_only#5]        SystemManager.java:134  | Indentation detected for system #7
+2026-08-07 12:47:37,649 INFO [clean_score_only#5]        SystemManager.java:134  | Indentation detected for system #10
+2026-08-07 12:47:37,649 INFO [clean_score_only#5]        SystemManager.java:723  | 5 pages found in sheet
+2026-08-07 12:47:37,649 INFO [clean_score_only#5]        SystemManager.java:779  | Page #1: 1 part along 2 systems
+2026-08-07 12:47:37,649 INFO [clean_score_only#5]        SystemManager.java:779  | Page #2: 1 part along 2 systems
+2026-08-07 12:47:37,649 INFO [clean_score_only#5]        SystemManager.java:779  | Page #3: 1 part along 2 systems
+2026-08-07 12:47:37,649 INFO [clean_score_only#5]        SystemManager.java:779  | Page #4: 1 part along 3 systems
+2026-08-07 12:47:37,649 INFO [clean_score_only#5]        SystemManager.java:779  | Page #5: 2 parts along 6 systems
+2026-08-07 12:47:37,649 INFO [clean_score_only#5]       StepMonitoring.java:98   | HEADERS
+2026-08-07 12:47:37,660 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#1 no recognized header clef.
+2026-08-07 12:47:37,661 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#2 no recognized header clef.
+2026-08-07 12:47:37,683 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#3 no recognized header clef.
+2026-08-07 12:47:37,684 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#4 no recognized header clef.
+2026-08-07 12:47:37,692 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#5 no recognized header clef.
+2026-08-07 12:47:37,734 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#7 no recognized header clef.
+2026-08-07 12:47:37,753 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#9 no recognized header clef.
+2026-08-07 12:47:37,754 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#10 no recognized header clef.
+2026-08-07 12:47:37,776 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#12 no recognized header clef.
+2026-08-07 12:47:37,781 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#13 no recognized header clef.
+2026-08-07 12:47:37,803 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#14 no recognized header clef.
+2026-08-07 12:47:37,862 WARN [clean_score_only#5]          ClefBuilder.java:658  | Staff#16 no recognized header clef.
+2026-08-07 12:47:37,876 INFO [clean_score_only#5]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-07 12:47:37,912 INFO [clean_score_only#5]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-07 12:47:37,925 INFO [clean_score_only#5]       StepMonitoring.java:98   | BEAMS
+2026-08-07 12:47:39,934 INFO [clean_score_only#5]       StepMonitoring.java:98   | LEDGERS
+2026-08-07 12:47:40,068 INFO [clean_score_only#5]       StepMonitoring.java:98   | HEADS
+2026-08-07 12:47:43,495 INFO [clean_score_only#5]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.8] NOTEHEAD_BLACK[L:0.1,R:0.1]}
+2026-08-07 12:47:43,495 INFO [clean_score_only#5]       StepMonitoring.java:98   | STEMS
+2026-08-07 12:47:43,578 INFO [clean_score_only#5]           BeamLinker.java:1729 | Not linking shorter BeamInter#1813{(0.552) BEAM}
+2026-08-07 12:47:43,926 INFO [clean_score_only#5]           BeamLinker.java:1729 | Not linking shorter BeamHookInter#2156{(0.508/0.693) BEAM_HOOK}
+2026-08-07 12:47:43,933 INFO [clean_score_only#5]       StepMonitoring.java:98   | REDUCTION
+2026-08-07 12:47:44,003 INFO [clean_score_only#5]        ReductionStep.java:105  | Stems free length median value: 53 pixels, 3.5 interlines
+2026-08-07 12:47:44,006 INFO [clean_score_only#5]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-07 12:47:44,006 INFO [clean_score_only#5]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-07 12:47:44,007 INFO [clean_score_only#5]       StepMonitoring.java:98   | TEXTS
+2026-08-07 12:47:44,449 INFO [clean_score_only#5]       StepMonitoring.java:98   | MEASURES
+2026-08-07 12:47:44,449 INFO [clean_score_only#5]                 Page.java:307  | 5 raw measures: [3 in system#1, 2 in system#2]
+2026-08-07 12:47:44,449 INFO [clean_score_only#5]                 Page.java:307  | 2 raw measures: [1 in system#3, 1 in system#4]
+2026-08-07 12:47:44,450 INFO [clean_score_only#5]                 Page.java:307  | 3 raw measures: [1 in system#5, 2 in system#6]
+2026-08-07 12:47:44,450 INFO [clean_score_only#5]                 Page.java:307  | 5 raw measures: [2 in system#7, 2 in system#8, 1 in system#9]
+2026-08-07 12:47:44,450 INFO [clean_score_only#5]                 Page.java:307  | 9 raw measures: [1 in system#10, 3 in system#11, 1 in system#12, 1 in system#13, 1 in system#14, 2 in system#15]
+2026-08-07 12:47:44,450 INFO [clean_score_only#5]       StepMonitoring.java:98   | CHORDS
+2026-08-07 12:47:44,453 INFO [clean_score_only#5]       StepMonitoring.java:98   | CURVES
+2026-08-07 12:47:44,950 WARN [clean_score_only#5]         SlursBuilder.java:254  | Error in SlursBuilder: java.lang.NullPointerException: Cannot invoke "org.audiveris.omr.sheet.Staff.isTablature()" because "staff" is null
+java.lang.NullPointerException: Cannot invoke "org.audiveris.omr.sheet.Staff.isTablature()" because "staff" is null
+	at org.audiveris.omr.sheet.curve.SlurLinker.canBeOrphan(SlurLinker.java:148)
+	at org.audiveris.omr.sheet.curve.SlurLinker.lookupLinkPair(SlurLinker.java:560)
+	at org.audiveris.omr.sheet.curve.ClumpPruner$ClumpLinker.selectSlur(ClumpPruner.java:423)
+	at org.audiveris.omr.sheet.curve.ClumpPruner.prune(ClumpPruner.java:171)
+	at org.audiveris.omr.sheet.curve.SlursBuilder.pruneClump(SlursBuilder.java:757)
+	at org.audiveris.omr.sheet.curve.CurvesBuilder.buildCurve(CurvesBuilder.java:242)
+	at org.audiveris.omr.sheet.curve.SlursBuilder.buildSlurs(SlursBuilder.java:222)
+	at org.audiveris.omr.sheet.curve.Curves.buildCurves(Curves.java:141)
+	at org.audiveris.omr.sheet.curve.CurvesStep.doit(CurvesStep.java:54)
+	at org.audiveris.omr.step.OmrStep.doit(OmrStep.java:138)
+	at org.audiveris.omr.sheet.SheetStub.lambda$doOneStep$0(SheetStub.java:503)
+	at java.base/java.util.concurrent.FutureTask.run(Unknown Source)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+	at java.base/java.lang.Thread.run(Unknown Source)
+2026-08-07 12:47:44,986 INFO [clean_score_only#5]      SegmentsBuilder.java:155  | Segments: 42
+2026-08-07 12:47:44,988 INFO [clean_score_only#5]       StepMonitoring.java:98   | SYMBOLS
+2026-08-07 12:47:45,734 INFO [clean_score_only#5]       StepMonitoring.java:98   | LINKS
+2026-08-07 12:47:45,743 WARN [clean_score_only#5]             KeyInter.java:1174 | No effective clef before AlterInter#8342{(0.247) staff:9 NATURAL pitch:5.0}
+2026-08-07 12:47:45,754 INFO [clean_score_only#5]       StepMonitoring.java:98   | RHYTHMS
+2026-08-07 12:47:45,774 INFO [clean_score_only#5]       StepMonitoring.java:98   | PAGE
+2026-08-07 12:47:45,777 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+2026-08-07 12:47:45,777 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [4, 5], please check time signatures
+2026-08-07 12:47:45,777 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#3 No target duration for measures local IDs [1], please check time signatures
+2026-08-07 12:47:45,777 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#4 No target duration for measures local IDs [2], please check time signatures
+2026-08-07 12:47:45,777 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#5 No target duration for measures local IDs [1], please check time signatures
+2026-08-07 12:47:45,778 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#6 No target duration for measures local IDs [2, 3], please check time signatures
+2026-08-07 12:47:45,778 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#7 No target duration for measures local IDs [1, 2], please check time signatures
+2026-08-07 12:47:45,778 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#8 No target duration for measures local IDs [3, 4], please check time signatures
+2026-08-07 12:47:45,778 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#9 No target duration for measures local IDs [5], please check time signatures
+2026-08-07 12:47:45,778 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#10 No target duration for measures local IDs [1], please check time signatures
+2026-08-07 12:47:45,778 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#11 No target duration for measures local IDs [2, 3, 4], please check time signatures
+2026-08-07 12:47:45,778 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#12 No target duration for measures local IDs [5], please check time signatures
+2026-08-07 12:47:45,778 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#13 No target duration for measures local IDs [6], please check time signatures
+2026-08-07 12:47:45,779 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#14 No target duration for measures local IDs [7], please check time signatures
+2026-08-07 12:47:45,779 WARN [clean_score_only#5]         MeasureFixer.java:343  | System#15 No target duration for measures local IDs [8, 9], please check time signatures
+2026-08-07 12:47:45,779 INFO [clean_score_only#5]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-07 12:47:45,838 INFO [clean_score_only#5]                 Book.java:2565 | Stored /book.xml
+2026-08-07 12:47:45,900 INFO [clean_score_only#5]           DataHolder.java:348  | Stored /sheet#5/BINARY.png
+2026-08-07 12:47:46,383 INFO [clean_score_only#5]                Sheet.java:1583 | Stored /sheet#5/sheet#5.xml
+2026-08-07 12:47:46,384 INFO [clean_score_only#5]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+2026-08-07 12:47:46,387 INFO [clean_score_only#5]            SheetStub.java:1655 | Sheet#5 disposed
+2026-08-07 12:47:46,411 INFO [clean_score_only#5]                 Book.java:2050 | End of Stub#5
+2026-08-07 12:47:46,412 INFO [clean_score_only#6]       StepMonitoring.java:98   | LOAD
+2026-08-07 12:47:46,628 INFO [clean_score_only#6]            SheetStub.java:1278 | Loaded image #6 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+2026-08-07 12:47:46,629 INFO [clean_score_only#6]       StepMonitoring.java:98   | BINARY
+2026-08-07 12:47:47,157 INFO [clean_score_only#6]       StepMonitoring.java:98   | SCALE
+2026-08-07 12:47:47,158 INFO [clean_score_only#6]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-07 12:47:47,158 INFO [clean_score_only#6]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 263% of needed quorum
+2026-08-07 12:47:47,158 INFO [clean_score_only#6]         ScaleBuilder.java:401  | Normalized black jitter: 26.67 %
+2026-08-07 12:47:47,158 INFO [clean_score_only#6]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(2,4,6) beam(8)}
+2026-08-07 12:47:47,158 INFO [clean_score_only#6]       StepMonitoring.java:98   | GRID
+2026-08-07 12:47:47,521 INFO [clean_score_only#6]       LinesRetriever.java:1500 | Global slope: 0.01792
+2026-08-07 12:47:47,535 INFO [clean_score_only#6]    ClustersRetriever.java:851  | Destroying spurious Cluster#C1600{interline(14,15,16) size:5 fil#1600@0 fil#1680@1 fil#1759@2 fil#1816@3 fil#1842@4}
+2026-08-07 12:47:47,537 INFO [clean_score_only#6]    ClustersRetriever.java:326  | Retrieved raw line clusters: 11 of sizes [5] with interline(14,15,16)
+2026-08-07 12:47:47,648 INFO [clean_score_only#6]            PeakGraph.java:310  | Systems: #1[1, 2, 3, 4] #2[5, 6] #3[7] #4[8] #5[9, 10, 11]
+2026-08-07 12:47:47,649 WARN [clean_score_only#6]        BarsRetriever.java:1294 | No startColumn found for multi-staff System#1
+2026-08-07 12:47:47,669 INFO [clean_score_only#6]        BarsRetriever.java:1305 | System#2
+2026-08-07 12:47:47,669 INFO [clean_score_only#6]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:5-6}
+2026-08-07 12:47:48,047 INFO [clean_score_only#6]        SystemManager.java:134  | Indentation detected for system #3
+2026-08-07 12:47:48,048 INFO [clean_score_only#6]        SystemManager.java:723  | 2 pages found in sheet
+2026-08-07 12:47:48,048 INFO [clean_score_only#6]        SystemManager.java:779  | Page #1: 4 parts along 2 systems
+2026-08-07 12:47:48,048 INFO [clean_score_only#6]        SystemManager.java:779  | Page #2: 2 parts along 3 systems
+2026-08-07 12:47:48,048 INFO [clean_score_only#6]       StepMonitoring.java:98   | HEADERS
+2026-08-07 12:47:48,198 WARN [clean_score_only#6]          ClefBuilder.java:658  | Staff#7 no recognized header clef.
+2026-08-07 12:47:48,209 WARN [clean_score_only#6]          ClefBuilder.java:658  | Staff#8 no recognized header clef.
+2026-08-07 12:47:48,223 WARN [clean_score_only#6]          ClefBuilder.java:658  | Staff#9 no recognized header clef.
+2026-08-07 12:47:48,255 INFO [clean_score_only#6]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-07 12:47:48,286 INFO [clean_score_only#6]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-07 12:47:48,296 INFO [clean_score_only#6]       StepMonitoring.java:98   | BEAMS
+2026-08-07 12:47:50,106 INFO [clean_score_only#6]       StepMonitoring.java:98   | LEDGERS
+2026-08-07 12:47:50,262 INFO [clean_score_only#6]       StepMonitoring.java:98   | HEADS
+2026-08-07 12:47:53,481 INFO [clean_score_only#6]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.4,R:-0.7] NOTEHEAD_BLACK[L:0.0,R:-0.1]}
+2026-08-07 12:47:53,481 INFO [clean_score_only#6]       StepMonitoring.java:98   | STEMS
+2026-08-07 12:47:54,443 INFO [clean_score_only#6]           BeamLinker.java:1729 | Not linking shorter BeamInter#1810{(0.595) BEAM}
+2026-08-07 12:47:54,470 INFO [clean_score_only#6]       StepMonitoring.java:98   | REDUCTION
+2026-08-07 12:47:54,593 INFO [clean_score_only#6]        ReductionStep.java:105  | Stems free length median value: 52 pixels, 3.5 interlines
+2026-08-07 12:47:54,595 INFO [clean_score_only#6]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-07 12:47:54,596 INFO [clean_score_only#6]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-07 12:47:54,596 INFO [clean_score_only#6]       StepMonitoring.java:98   | TEXTS
+2026-08-07 12:47:55,155 INFO [clean_score_only#6]       StepMonitoring.java:98   | MEASURES
+2026-08-07 12:47:55,156 INFO [clean_score_only#6]      MeasuresBuilder.java:416  | S2 partial barline column: s5:G(x:2233,y:1918)[20]
+2026-08-07 12:47:55,156 INFO [clean_score_only#6]      MeasuresBuilder.java:428  | S2 deleting   half column: s5:G(x:2233,y:1918)[20]
+2026-08-07 12:47:55,157 INFO [clean_score_only#6]                 Page.java:307  | 5 raw measures: [2 in system#1, 3 in system#2]
+2026-08-07 12:47:55,157 INFO [clean_score_only#6]                 Page.java:307  | 8 raw measures: [1 in system#3, 3 in system#4, 4 in system#5]
+2026-08-07 12:47:55,157 INFO [clean_score_only#6]       StepMonitoring.java:98   | CHORDS
+2026-08-07 12:47:55,166 INFO [clean_score_only#6]       StepMonitoring.java:98   | CURVES
+2026-08-07 12:47:55,754 INFO [clean_score_only#6]         SlursBuilder.java:240  | Slurs: 25
+2026-08-07 12:47:55,769 INFO [clean_score_only#6]      SegmentsBuilder.java:155  | Segments: 31
+2026-08-07 12:47:55,872 INFO [clean_score_only#6]    RehearsalsBuilder.java:229  | RehearsalInter#8629{(0.615) staff:5 mFont:BMS-68 Rehearsal enclosure:java.awt.Rectangle[x=780,y=1733,width=61,height=72]}
+2026-08-07 12:47:55,874 INFO [clean_score_only#6]       StepMonitoring.java:98   | SYMBOLS
+2026-08-07 12:47:56,523 INFO [clean_score_only#6]       StepMonitoring.java:98   | LINKS
+2026-08-07 12:47:56,539 INFO [clean_score_only#6]             KeyInter.java:1189 | No effective key before AlterInter#10161{(0.757) staff:10 NATURAL pitch:-1.0}
+2026-08-07 12:47:56,540 INFO [clean_score_only#6]             KeyInter.java:1189 | No effective key before AlterInter#10199{(0.129) staff:10 NATURAL pitch:-6.0}
+2026-08-07 12:47:56,567 INFO [clean_score_only#6]       StepMonitoring.java:98   | RHYTHMS
+2026-08-07 12:47:56,596 INFO [clean_score_only#6]        MeasureRhythm.java:1276 | Measure{#7P2} Time inconsistency in {1/4=[HeadChordInter#8285{(0.928/0.928) staff:10 slot#3 off:1/4 dur:1/4}], 5/16=[HeadChordInter#8329{(0.949/0.949) staff:11 slot#3 off:5/16 dur:1/8}]}
+2026-08-07 12:47:56,605 INFO [clean_score_only#6]       StepMonitoring.java:98   | PAGE
+2026-08-07 12:47:56,606 WARN [clean_score_only#6]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2], please check time signatures
+2026-08-07 12:47:56,606 WARN [clean_score_only#6]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [3, 4, 5], please check time signatures
+2026-08-07 12:47:56,607 WARN [clean_score_only#6]         MeasureFixer.java:343  | System#3 No target duration for measures local IDs [1], please check time signatures
+2026-08-07 12:47:56,607 WARN [clean_score_only#6]         MeasureFixer.java:343  | System#4 No target duration for measures local IDs [2, 3, 4], please check time signatures
+2026-08-07 12:47:56,607 WARN [clean_score_only#6]         MeasureFixer.java:343  | System#5 No target duration for measures local IDs [5, 6, 7, 8], please check time signatures
+2026-08-07 12:47:56,607 INFO [clean_score_only#6]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-07 12:47:56,674 INFO [clean_score_only#6]                 Book.java:2565 | Stored /book.xml
+2026-08-07 12:47:56,735 INFO [clean_score_only#6]           DataHolder.java:348  | Stored /sheet#6/BINARY.png
+2026-08-07 12:47:57,213 INFO [clean_score_only#6]                Sheet.java:1583 | Stored /sheet#6/sheet#6.xml
+2026-08-07 12:47:57,213 INFO [clean_score_only#6]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+2026-08-07 12:47:57,216 INFO [clean_score_only#6]            SheetStub.java:1655 | Sheet#6 disposed
+2026-08-07 12:47:57,241 INFO [clean_score_only#6]                 Book.java:2050 | End of Stub#6
+2026-08-07 12:47:57,242 INFO [clean_score_only#7]       StepMonitoring.java:98   | LOAD
+2026-08-07 12:47:57,462 INFO [clean_score_only#7]            SheetStub.java:1278 | Loaded image #7 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+2026-08-07 12:47:57,462 INFO [clean_score_only#7]       StepMonitoring.java:98   | BINARY
+2026-08-07 12:47:57,992 INFO [clean_score_only#7]       StepMonitoring.java:98   | SCALE
+2026-08-07 12:47:57,993 INFO [clean_score_only#7]         ScaleBuilder.java:255  | Beam  guessed height: 10 -- mid of [6..14]
+2026-08-07 12:47:57,993 INFO [clean_score_only#7]         ScaleBuilder.java:271  | Beam measured height:  8 -- 0.25 of [6..14] range at 219% of needed quorum
+2026-08-07 12:47:57,994 INFO [clean_score_only#7]         ScaleBuilder.java:401  | Normalized black jitter: 20.00 %
+2026-08-07 12:47:57,994 INFO [clean_score_only#7]            ScaleStep.java:65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+2026-08-07 12:47:57,994 INFO [clean_score_only#7]       StepMonitoring.java:98   | GRID
+2026-08-07 12:47:58,221 INFO [clean_score_only#7]       LinesRetriever.java:1500 | Global slope: 0.00995
+2026-08-07 12:47:58,231 INFO [clean_score_only#7]    ClustersRetriever.java:851  | Destroying spurious Cluster#C1406{interline(14,15,16) size:5 fil#1406@0 fil#1466@1 fil#1513@2 fil#1556@3 fil#1585@4}
+2026-08-07 12:47:58,232 INFO [clean_score_only#7]    ClustersRetriever.java:326  | Retrieved raw line clusters: 17 of sizes [5] with interline(14,15,16)
+2026-08-07 12:47:58,272 INFO [clean_score_only#7]            PeakGraph.java:310  | Systems: #1[1] #2[2] #3[3, 4] #4[5] #5[6, 7] #6[8, 9]
+2026-08-07 12:47:58,283 INFO [clean_score_only#7]        BarsRetriever.java:769  | No brace partner at level:1 for Peak{275-295 F#5158 T#4 [BRACE]}
+2026-08-07 12:47:58,283 INFO [clean_score_only#7]        BarsRetriever.java:1305 | System#5
+2026-08-07 12:47:58,283 INFO [clean_score_only#7]        BarsRetriever.java:1308 |    PartGroup{bracket number:1 barline:false staves:6-7}
+2026-08-07 12:47:58,510 INFO [clean_score_only#7]        SystemManager.java:134  | Indentation detected for system #2
+2026-08-07 12:47:58,510 INFO [clean_score_only#7]        SystemManager.java:134  | Indentation detected for system #4
+2026-08-07 12:47:58,510 INFO [clean_score_only#7]        SystemManager.java:723  | 3 pages found in sheet
+2026-08-07 12:47:58,510 INFO [clean_score_only#7]        SystemManager.java:779  | Page #1: 1 part along 1 system
+2026-08-07 12:47:58,510 INFO [clean_score_only#7]        SystemManager.java:779  | Page #2: 2 parts along 2 systems
+2026-08-07 12:47:58,510 INFO [clean_score_only#7]        SystemManager.java:779  | Page #3: 2 parts along 3 systems
+2026-08-07 12:47:58,511 INFO [clean_score_only#7]       StepMonitoring.java:98   | HEADERS
+2026-08-07 12:47:58,524 WARN [clean_score_only#7]          ClefBuilder.java:658  | Staff#2 no recognized header clef.
+2026-08-07 12:47:58,559 WARN [clean_score_only#7]          ClefBuilder.java:658  | Staff#5 no recognized header clef.
+2026-08-07 12:47:58,612 WARN [clean_score_only#7]          ClefBuilder.java:658  | Staff#8 no recognized header clef.
+2026-08-07 12:47:58,628 INFO [clean_score_only#7]       StepMonitoring.java:98   | STEM_SEEDS
+2026-08-07 12:47:58,658 INFO [clean_score_only#7]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-08-07 12:47:58,663 INFO [clean_score_only#7]       StepMonitoring.java:98   | BEAMS
+2026-08-07 12:48:00,308 INFO [clean_score_only#7]       StepMonitoring.java:98   | LEDGERS
+2026-08-07 12:48:00,382 INFO [clean_score_only#7]       StepMonitoring.java:98   | HEADS
+2026-08-07 12:48:02,220 INFO [clean_score_only#7]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.0] NOTEHEAD_BLACK[L:-0.0,R:0.2]}
+2026-08-07 12:48:02,220 INFO [clean_score_only#7]       StepMonitoring.java:98   | STEMS
+2026-08-07 12:48:02,342 INFO [clean_score_only#7]       StepMonitoring.java:98   | REDUCTION
+2026-08-07 12:48:02,367 INFO [clean_score_only#7]        ReductionStep.java:105  | Stems free length median value: 54 pixels, 3.6 interlines
+2026-08-07 12:48:02,368 INFO [clean_score_only#7]       StepMonitoring.java:98   | CUE_BEAMS
+2026-08-07 12:48:02,368 INFO [clean_score_only#7]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-08-07 12:48:02,369 INFO [clean_score_only#7]       StepMonitoring.java:98   | TEXTS
+2026-08-07 12:48:02,708 INFO [clean_score_only#7]       StepMonitoring.java:98   | MEASURES
+2026-08-07 12:48:02,708 INFO [clean_score_only#7]                 Page.java:307  | 3 raw measures: [3 in system#1]
+2026-08-07 12:48:02,709 INFO [clean_score_only#7]                 Page.java:307  | 4 raw measures: [2 in system#2, 2 in system#3]
+2026-08-07 12:48:02,709 INFO [clean_score_only#7]                 Page.java:307  | 5 raw measures: [1 in system#4, 2 in system#5, 2 in system#6]
+2026-08-07 12:48:02,709 INFO [clean_score_only#7]       StepMonitoring.java:98   | CHORDS
+2026-08-07 12:48:02,710 INFO [clean_score_only#7]       StepMonitoring.java:98   | CURVES
+2026-08-07 12:48:03,180 INFO [clean_score_only#7]         SlursBuilder.java:240  | Slurs: 13
+2026-08-07 12:48:03,188 INFO [clean_score_only#7]      SegmentsBuilder.java:155  | Segments: 22
+2026-08-07 12:48:03,189 INFO [clean_score_only#7]       StepMonitoring.java:98   | SYMBOLS
+2026-08-07 12:48:03,787 INFO [clean_score_only#7]       StepMonitoring.java:98   | LINKS
+2026-08-07 12:48:03,787 INFO [clean_score_only#7]        SymbolsLinker.java:258  | No chord linked to OctaveShiftInter#3594{(0.375) staff:1 QUINDICESIMA ALTA} at java.awt.Point[x=355,y=426]
+2026-08-07 12:48:03,792 WARN [clean_score_only#7]             KeyInter.java:1174 | No effective clef before AlterInter#3604{(0.796) staff:2 SHARP pitch:2.0}
+2026-08-07 12:48:03,797 WARN [clean_score_only#7]             KeyInter.java:1174 | No effective clef before AlterInter#3666{(0.302) staff:5 SHARP pitch:5.0}
+2026-08-07 12:48:03,802 INFO [clean_score_only#7]       StepMonitoring.java:98   | RHYTHMS
+2026-08-07 12:48:03,812 INFO [clean_score_only#7]       StepMonitoring.java:98   | PAGE
+2026-08-07 12:48:03,813 WARN [clean_score_only#7]         MeasureFixer.java:343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+2026-08-07 12:48:03,813 WARN [clean_score_only#7]         MeasureFixer.java:343  | System#2 No target duration for measures local IDs [1, 2], please check time signatures
+2026-08-07 12:48:03,813 WARN [clean_score_only#7]         MeasureFixer.java:343  | System#3 No target duration for measures local IDs [3, 4], please check time signatures
+2026-08-07 12:48:03,813 WARN [clean_score_only#7]         MeasureFixer.java:343  | System#4 No target duration for measures local IDs [1], please check time signatures
+2026-08-07 12:48:03,813 WARN [clean_score_only#7]         MeasureFixer.java:343  | System#5 No target duration for measures local IDs [2, 3], please check time signatures
+2026-08-07 12:48:03,813 WARN [clean_score_only#7]         MeasureFixer.java:343  | System#6 No target duration for measures local IDs [4, 5], please check time signatures
+2026-08-07 12:48:03,814 INFO [clean_score_only#7]                 Book.java:2584 | Book{clean_score_only} storing
+2026-08-07 12:48:03,861 INFO [clean_score_only#7]                 Book.java:2565 | Stored /book.xml
+2026-08-07 12:48:03,923 INFO [clean_score_only#7]           DataHolder.java:348  | Stored /sheet#7/BINARY.png
+2026-08-07 12:48:04,175 INFO [clean_score_only#7]                Sheet.java:1583 | Stored /sheet#7/sheet#7.xml
+2026-08-07 12:48:04,175 INFO [clean_score_only#7]                 Book.java:2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+2026-08-07 12:48:04,178 INFO [clean_score_only#7]            SheetStub.java:1655 | Sheet#7 disposed
+2026-08-07 12:48:04,201 INFO [clean_score_only#7]                 Book.java:2050 | End of Stub#7
+2026-08-07 12:48:04,201 INFO [clean_score_only]                 Book.java:2057 | End of Book{clean_score_only}
+2026-08-07 12:48:04,201 INFO [clean_score_only]                 Book.java:596  | Could not export since transcription did not complete successfully
+2026-08-07 12:48:04,202 WARN [clean_score_only]                  CLI.java:956  | Exception occurred java.lang.Exception: Error in export
+java.lang.Exception: Error in export
+	at org.audiveris.omr.CLI$ProcessingTask.processBook(CLI.java:930)
+	at org.audiveris.omr.CLI$CliTask.call(CLI.java:513)
+	at org.audiveris.omr.Main.runBatchTasks(Main.java:361)
+	at org.audiveris.omr.Main.main(Main.java:263)
+	at Audiveris.main(Audiveris.java:50)
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 1}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 2}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 3}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 4}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 5}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 6}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 7}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 8}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 9}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 10}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 11}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 12}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 13}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 14}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 15}
+2026-08-07 12:48:04,224 INFO [clean_score_only]                Score.java:181  | Closing {Score 16}

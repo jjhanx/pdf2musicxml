@@ -4294,6 +4294,7 @@ app.post('/api/convert', async (req, res) => {
       job.isDebug = debugField;
       job.pauseAfterAudiveris = pauseAfterAudiverisField;
       job.pipelineMode = pipelineModeField;
+      job.imagePdfOmrEngine = imagePdfOmrEngineField;
       job.enablePymupdfReview = enablePymupdfReviewField;
       job.enableOmrStaffReview = enableOmrStaffReviewField;
       job.startStage = startStageField;

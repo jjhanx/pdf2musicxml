@@ -583,7 +583,7 @@ function taskProgressFromJobStatus(status: string): TaskProgress | undefined {
     case 'omr_staff_review_needed':
       return { phase: 'hitl', current: 0, total: 0, detail: 'OMR 품질 검토 — PDF·MXL 대조·마디 편집 대기…' };
     case 'audiveris_review_needed':
-      return { phase: 'hitl', current: 0, total: 0, detail: 'Audiveris 결과 보정 대기…' };
+      return { phase: 'hitl', current: 0, total: 0, detail: 'OMR 결과 보정 대기…' };
     default:
       return undefined;
   }
@@ -1668,10 +1668,10 @@ export default function App() {
   return (
     <div className="page">
       <div className="card">
-        <h1>PDF → MusicXML (Audiveris)</h1>
+        <h1>PDF → MusicXML</h1>
         <p className="sub">
           mxlplayer와 동일하게 <strong>Vite + React + TypeScript</strong>입니다. 악보 인식은{' '}
-          <strong>Audiveris</strong>로 <code>clean_score_only.pdf</code>를 MusicXML로 변환하고, 검증된
+          <strong>AI OMR (권장) 또는 Audiveris</strong>로 <code>clean_score_only.pdf</code>를 MusicXML로 변환하고, 검증된
           가사(<code>inject_ocr.py</code>)를 병합합니다. 결과는 표준 <code>.mxl</code> /
           <code>.musicxml</code> 이라 mxlplayer의 업로드(.xml / .musicxml / .mxl)와 호환됩니다.
         </p>
@@ -1953,7 +1953,7 @@ export default function App() {
                 <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.5, color: '#ddd' }}>
                   <strong>[3단계] omr-work.zip으로 OMR·HITL 이어하기</strong>
                   <br />
-                  OMR 검토 중 저장한 ZIP으로 Audiveris 없이 검토를 이어갑니다.
+                  OMR 검토 중 저장한 ZIP으로 OMR 엔진 재시작 없이 검토를 이어갑니다.
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>omr-work.zip (필수)</span>

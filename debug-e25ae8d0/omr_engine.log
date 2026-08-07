@@ -1,0 +1,642 @@
+==== audiveris STDOUT ====
+[stdout] INFO  [clean_score_only#3]             SystemManager 723  | 4 pages found in sheet
+[stdout] INFO  [clean_score_only#3]             SystemManager 779  | Page #1: 2 parts along 2 systems
+[stdout] INFO  [clean_score_only#3]             SystemManager 779  | Page #2: 2 parts along 5 systems
+[stdout] INFO  [clean_score_only#3]             SystemManager 779  | Page #3: 2 parts along 1 system
+[stdout] INFO  [clean_score_only#3]             SystemManager 779  | Page #4: 2 parts along 5 systems
+[stdout] INFO  [clean_score_only#3]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#3]               ClefBuilder 658  | Staff#2 no recognized header clef.
+[stdout] WARN  [clean_score_only#3]                      Book 2044 | Error processing stub
+[stdout] INFO  [clean_score_only#3]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#3]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#3]                DataHolder 348  | Stored /sheet#3/BINARY.png
+[stdout] INFO  [clean_score_only#3]                     Sheet 1583 | Stored /sheet#3/sheet#3.xml
+[stdout] INFO  [clean_score_only#3]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#3]                 SheetStub 1655 | Sheet#3 disposed
+[stdout] INFO  [clean_score_only#3]                      Book 2050 | End of Stub#3
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | LOAD
+[stdout] INFO  [clean_score_only#4]                 SheetStub 1278 | Loaded image #4 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | BINARY
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | SCALE
+[stdout] INFO  [clean_score_only#4]              ScaleBuilder 255  | Beam  guessed height: 10 -- mid of [6..14]
+[stdout] INFO  [clean_score_only#4]              ScaleBuilder 271  | Beam measured height:  8 -- 0.25 of [6..14] range at 330% of needed quorum
+[stdout] INFO  [clean_score_only#4]              ScaleBuilder 401  | Normalized black jitter: 20.00 %
+[stdout] INFO  [clean_score_only#4]                 ScaleStep 65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | GRID
+[stdout] INFO  [clean_score_only#4]            LinesRetriever 1500 | Global slope: 0.01599
+[stdout] INFO  [clean_score_only#4]         ClustersRetriever 851  | Destroying spurious Cluster#C4293{interline(14,15,16) size:5 fil#4096@0 fil#4160@1 fil#4225@2 fil#4293@3 fil#4357@4}
+[stdout] INFO  [clean_score_only#4]         ClustersRetriever 851  | Destroying spurious Cluster#C4232{interline(14,15,16) size:5 fil#4162@0 fil#4232@1 fil#4261@2 fil#4360@3 fil#4384@4}
+[stdout] INFO  [clean_score_only#4]         ClustersRetriever 326  | Retrieved raw line clusters: 16 of sizes [5] with interline(14,15,16)
+[stdout] INFO  [clean_score_only#4]                 PeakGraph 310  | Systems: #1[1, 2, 3, 4] #2[5, 6] #3[7, 8, 9] #4[10] #5[11] #6[12] #7[13] #8[14] #9[15, 16]
+[stdout] INFO  [clean_score_only#4]             BarsRetriever 769  | No brace partner at level:1 for Peak{264-286 F#9609 T#2 [BRACE]}
+[stdout] INFO  [clean_score_only#4]             BarsRetriever 769  | No brace partner at level:1 for Peak{220-259 F#9614 T#7 [BRACE]}
+[stdout] INFO  [clean_score_only#4]             BarsRetriever 769  | No brace partner at level:1 for Peak{255-273 F#9616 T#9 [BRACE]}
+[stdout] INFO  [clean_score_only#4]             SystemManager 134  | Indentation detected for system #6
+[stdout] INFO  [clean_score_only#4]             SystemManager 723  | 2 pages found in sheet
+[stdout] INFO  [clean_score_only#4]             SystemManager 779  | Page #1: 3 parts along 5 systems
+[stdout] INFO  [clean_score_only#4]             SystemManager 779  | Page #2: 2 parts along 4 systems
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#4]               ClefBuilder 658  | Staff#12 no recognized header clef.
+[stdout] WARN  [clean_score_only#4]                      Book 2044 | Error processing stub
+[stdout] INFO  [clean_score_only#4]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#4]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#4]                DataHolder 348  | Stored /sheet#4/BINARY.png
+[stdout] INFO  [clean_score_only#4]                     Sheet 1583 | Stored /sheet#4/sheet#4.xml
+[stdout] INFO  [clean_score_only#4]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#4]                 SheetStub 1655 | Sheet#4 disposed
+[stdout] INFO  [clean_score_only#4]                      Book 2050 | End of Stub#4
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | LOAD
+[stdout] INFO  [clean_score_only#5]                 SheetStub 1278 | Loaded image #5 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | BINARY
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | SCALE
+[stdout] INFO  [clean_score_only#5]              ScaleBuilder 255  | Beam  guessed height: 10 -- mid of [6..14]
+[stdout] INFO  [clean_score_only#5]              ScaleBuilder 271  | Beam measured height:  8 -- 0.25 of [6..14] range at 322% of needed quorum
+[stdout] INFO  [clean_score_only#5]              ScaleBuilder 401  | Normalized black jitter: 20.00 %
+[stdout] INFO  [clean_score_only#5]                 ScaleStep 65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | GRID
+[stdout] INFO  [clean_score_only#5]            LinesRetriever 1500 | Global slope: 0.02404
+[stdout] INFO  [clean_score_only#5]         ClustersRetriever 851  | Destroying spurious Cluster#C13{interline(14,15,16) size:5 fil#13@0 fil#46@1 fil#102@2 fil#163@3 fil#232@4}
+[stdout] INFO  [clean_score_only#5]         ClustersRetriever 851  | Destroying spurious Cluster#C3891{interline(14,15,16) size:5 fil#3891@0 fil#3952@1 fil#4019@2 fil#4072@3 fil#4094@4}
+[stdout] INFO  [clean_score_only#5]         ClustersRetriever 326  | Retrieved raw line clusters: 21 of sizes [5] with interline(14,15,16)
+[stdout] INFO  [clean_score_only#5]                 PeakGraph 310  | Systems: #1[1] #2[2] #3[3] #4[4] #5[5] #6[6] #7[7] #8[8] #9[9] #10[10] #11[11] #12[12, 13] #13[14] #14[15] #15[16]
+[stdout] INFO  [clean_score_only#5]             BarsRetriever 769  | No brace partner at level:1 for Peak{215-236 F#7263 T#13 [BRACE]}
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #1
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #3
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #5
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #7
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #10
+[stdout] INFO  [clean_score_only#5]             SystemManager 723  | 5 pages found in sheet
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #1: 1 part along 2 systems
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #2: 1 part along 2 systems
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #3: 1 part along 2 systems
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #4: 1 part along 3 systems
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #5: 2 parts along 6 systems
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#1 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#2 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#3 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#4 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#5 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#7 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#9 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#10 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#12 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#13 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#14 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#16 no recognized header clef.
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | STEM_SEEDS
+[stdout] INFO  [clean_score_only#5]             StemSeedsStep 86   | stem(4 max:5)
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | BEAMS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | LEDGERS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | HEADS
+[stdout] INFO  [clean_score_only#5]             HeadSeedTally 235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.8] NOTEHEAD_BLACK[L:0.1,R:0.1]}
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | STEMS
+[stdout] INFO  [clean_score_only#5]                BeamLinker 1729 | Not linking shorter BeamInter#1813{(0.552) BEAM}
+[stdout] INFO  [clean_score_only#5]                BeamLinker 1729 | Not linking shorter BeamHookInter#2156{(0.508/0.693) BEAM_HOOK}
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | REDUCTION
+[stdout] INFO  [clean_score_only#5]             ReductionStep 105  | Stems free length median value: 53 pixels, 3.5 interlines
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | CUE_BEAMS
+[stdout] INFO  [clean_score_only#5]              CueBeamsStep 81   | Step CUE_BEAMS is skipped because small heads switch is off
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | TEXTS
+[stderr] Estimating resolution as 347
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | MEASURES
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 5 raw measures: [3 in system#1, 2 in system#2]
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 2 raw measures: [1 in system#3, 1 in system#4]
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 3 raw measures: [1 in system#5, 2 in system#6]
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 5 raw measures: [2 in system#7, 2 in system#8, 1 in system#9]
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 9 raw measures: [1 in system#10, 3 in system#11, 1 in system#12, 1 in system#13, 1 in system#14, 2 in system#15]
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | CHORDS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | CURVES
+[stdout] WARN  [clean_score_only#5]              SlursBuilder 254  | Error in SlursBuilder: java.lang.NullPointerException: Cannot invoke "org.audiveris.omr.sheet.Staff.isTablature()" because "staff" is null
+[stdout] java.lang.NullPointerException: Cannot invoke "org.audiveris.omr.sheet.Staff.isTablature()" because "staff" is null
+[stdout] 	at org.audiveris.omr.sheet.curve.SlurLinker.canBeOrphan(SlurLinker.java:148)
+[stdout] 	at org.audiveris.omr.sheet.curve.SlurLinker.lookupLinkPair(SlurLinker.java:560)
+[stdout] 	at org.audiveris.omr.sheet.curve.ClumpPruner$ClumpLinker.selectSlur(ClumpPruner.java:423)
+[stdout] 	at org.audiveris.omr.sheet.curve.ClumpPruner.prune(ClumpPruner.java:171)
+[stdout] 	at org.audiveris.omr.sheet.curve.SlursBuilder.pruneClump(SlursBuilder.java:757)
+[stdout] 	at org.audiveris.omr.sheet.curve.CurvesBuilder.buildCurve(CurvesBuilder.java:242)
+[stdout] 	at org.audiveris.omr.sheet.curve.SlursBuilder.buildSlurs(SlursBuilder.java:222)
+[stdout] 	at org.audiveris.omr.sheet.curve.Curves.buildCurves(Curves.java:141)
+[stdout] 	at org.audiveris.omr.sheet.curve.CurvesStep.doit(CurvesStep.java:54)
+[stdout] 	at org.audiveris.omr.step.OmrStep.doit(OmrStep.java:138)
+[stdout] 	at org.audiveris.omr.sheet.SheetStub.lambda$doOneStep$0(SheetStub.java:503)
+[stdout] 	at java.base/java.util.concurrent.FutureTask.run(Unknown Source)
+[stdout] 	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+[stdout] 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+[stdout] 	at java.base/java.lang.Thread.run(Unknown Source)
+[stdout] INFO  [clean_score_only#5]           SegmentsBuilder 155  | Segments: 42
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | SYMBOLS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | LINKS
+[stdout] WARN  [clean_score_only#5]                  KeyInter 1174 | No effective clef before AlterInter#8342{(0.247) staff:9 NATURAL pitch:5.0}
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | RHYTHMS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | PAGE
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#2 No target duration for measures local IDs [4, 5], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#3 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#4 No target duration for measures local IDs [2], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#5 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#6 No target duration for measures local IDs [2, 3], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#7 No target duration for measures local IDs [1, 2], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#8 No target duration for measures local IDs [3, 4], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#9 No target duration for measures local IDs [5], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#10 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#11 No target duration for measures local IDs [2, 3, 4], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#12 No target duration for measures local IDs [5], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#13 No target duration for measures local IDs [6], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#14 No target duration for measures local IDs [7], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#15 No target duration for measures local IDs [8, 9], please check time signatures
+[stdout] INFO  [clean_score_only#5]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#5]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#5]                DataHolder 348  | Stored /sheet#5/BINARY.png
+[stdout] INFO  [clean_score_only#5]                     Sheet 1583 | Stored /sheet#5/sheet#5.xml
+[stdout] INFO  [clean_score_only#5]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#5]                 SheetStub 1655 | Sheet#5 disposed
+[stdout] INFO  [clean_score_only#5]                      Book 2050 | End of Stub#5
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | LOAD
+[stdout] INFO  [clean_score_only#6]                 SheetStub 1278 | Loaded image #6 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | BINARY
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | SCALE
+[stdout] INFO  [clean_score_only#6]              ScaleBuilder 255  | Beam  guessed height: 10 -- mid of [6..14]
+[stdout] INFO  [clean_score_only#6]              ScaleBuilder 271  | Beam measured height:  8 -- 0.25 of [6..14] range at 263% of needed quorum
+[stdout] INFO  [clean_score_only#6]              ScaleBuilder 401  | Normalized black jitter: 26.67 %
+[stdout] INFO  [clean_score_only#6]                 ScaleStep 65   | Scale{ interline(14,15,16) line(2,4,6) beam(8)}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | GRID
+[stdout] INFO  [clean_score_only#6]            LinesRetriever 1500 | Global slope: 0.01792
+[stdout] INFO  [clean_score_only#6]         ClustersRetriever 851  | Destroying spurious Cluster#C1600{interline(14,15,16) size:5 fil#1600@0 fil#1680@1 fil#1759@2 fil#1816@3 fil#1842@4}
+[stdout] INFO  [clean_score_only#6]         ClustersRetriever 326  | Retrieved raw line clusters: 11 of sizes [5] with interline(14,15,16)
+[stdout] INFO  [clean_score_only#6]                 PeakGraph 310  | Systems: #1[1, 2, 3, 4] #2[5, 6] #3[7] #4[8] #5[9, 10, 11]
+[stdout] WARN  [clean_score_only#6]             BarsRetriever 1294 | No startColumn found for multi-staff System#1
+[stdout] INFO  [clean_score_only#6]             BarsRetriever 1305 | System#2
+[stdout] INFO  [clean_score_only#6]             BarsRetriever 1308 |    PartGroup{bracket number:1 barline:false staves:5-6}
+[stdout] INFO  [clean_score_only#6]             SystemManager 134  | Indentation detected for system #3
+[stdout] INFO  [clean_score_only#6]             SystemManager 723  | 2 pages found in sheet
+[stdout] INFO  [clean_score_only#6]             SystemManager 779  | Page #1: 4 parts along 2 systems
+[stdout] INFO  [clean_score_only#6]             SystemManager 779  | Page #2: 2 parts along 3 systems
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#6]               ClefBuilder 658  | Staff#7 no recognized header clef.
+[stdout] WARN  [clean_score_only#6]               ClefBuilder 658  | Staff#8 no recognized header clef.
+[stdout] WARN  [clean_score_only#6]               ClefBuilder 658  | Staff#9 no recognized header clef.
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | STEM_SEEDS
+[stdout] INFO  [clean_score_only#6]             StemSeedsStep 86   | stem(4 max:5)
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | BEAMS
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | LEDGERS
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | HEADS
+[stdout] INFO  [clean_score_only#6]             HeadSeedTally 235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.4,R:-0.7] NOTEHEAD_BLACK[L:0.0,R:-0.1]}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | STEMS
+[stdout] INFO  [clean_score_only#6]                BeamLinker 1729 | Not linking shorter BeamInter#1810{(0.595) BEAM}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | REDUCTION
+[stdout] INFO  [clean_score_only#6]             ReductionStep 105  | Stems free length median value: 52 pixels, 3.5 interlines
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | CUE_BEAMS
+[stdout] INFO  [clean_score_only#6]              CueBeamsStep 81   | Step CUE_BEAMS is skipped because small heads switch is off
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | TEXTS
+[stderr] Estimating resolution as 335
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | MEASURES
+[stdout] INFO  [clean_score_only#6]           MeasuresBuilder 416  | S2 partial barline column: s5:G(x:2233,y:1918)[20]
+[stdout] INFO  [clean_score_only#6]           MeasuresBuilder 428  | S2 deleting   half column: s5:G(x:2233,y:1918)[20]
+[stdout] INFO  [clean_score_only#6]                      Page 307  | 5 raw measures: [2 in system#1, 3 in system#2]
+[stdout] INFO  [clean_score_only#6]                      Page 307  | 8 raw measures: [1 in system#3, 3 in system#4, 4 in system#5]
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | CHORDS
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | CURVES
+[stdout] INFO  [clean_score_only#6]              SlursBuilder 240  | Slurs: 25
+[stdout] INFO  [clean_score_only#6]           SegmentsBuilder 155  | Segments: 31
+[stdout] INFO  [clean_score_only#6]         RehearsalsBuilder 229  | RehearsalInter#8629{(0.615) staff:5 mFont:BMS-68 Rehearsal enclosure:java.awt.Rectangle[x=780,y=1733,width=61,height=72]}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | SYMBOLS
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | LINKS
+[stdout] INFO  [clean_score_only#6]                  KeyInter 1189 | No effective key before AlterInter#10161{(0.757) staff:10 NATURAL pitch:-1.0}
+[stdout] INFO  [clean_score_only#6]                  KeyInter 1189 | No effective key before AlterInter#10199{(0.129) staff:10 NATURAL pitch:-6.0}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | RHYTHMS
+[stdout] INFO  [clean_score_only#6]             MeasureRhythm 1276 | Measure{#7P2} Time inconsistency in {1/4=[HeadChordInter#8285{(0.928/0.928) staff:10 slot#3 off:1/4 dur:1/4}], 5/16=[HeadChordInter#8329{(0.949/0.949) staff:11 slot#3 off:5/16 dur:1/8}]}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | PAGE
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#1 No target duration for measures local IDs [1, 2], please check time signatures
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#2 No target duration for measures local IDs [3, 4, 5], please check time signatures
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#3 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#4 No target duration for measures local IDs [2, 3, 4], please check time signatures
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#5 No target duration for measures local IDs [5, 6, 7, 8], please check time signatures
+[stdout] INFO  [clean_score_only#6]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#6]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#6]                DataHolder 348  | Stored /sheet#6/BINARY.png
+[stdout] INFO  [clean_score_only#6]                     Sheet 1583 | Stored /sheet#6/sheet#6.xml
+[stdout] INFO  [clean_score_only#6]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#6]                 SheetStub 1655 | Sheet#6 disposed
+[stdout] INFO  [clean_score_only#6]                      Book 2050 | End of Stub#6
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | LOAD
+[stdout] INFO  [clean_score_only#7]                 SheetStub 1278 | Loaded image #7 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | BINARY
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | SCALE
+[stdout] INFO  [clean_score_only#7]              ScaleBuilder 255  | Beam  guessed height: 10 -- mid of [6..14]
+[stdout] INFO  [clean_score_only#7]              ScaleBuilder 271  | Beam measured height:  8 -- 0.25 of [6..14] range at 219% of needed quorum
+[stdout] INFO  [clean_score_only#7]              ScaleBuilder 401  | Normalized black jitter: 20.00 %
+[stdout] INFO  [clean_score_only#7]                 ScaleStep 65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | GRID
+[stdout] INFO  [clean_score_only#7]            LinesRetriever 1500 | Global slope: 0.00995
+[stdout] INFO  [clean_score_only#7]         ClustersRetriever 851  | Destroying spurious Cluster#C1406{interline(14,15,16) size:5 fil#1406@0 fil#1466@1 fil#1513@2 fil#1556@3 fil#1585@4}
+[stdout] INFO  [clean_score_only#7]         ClustersRetriever 326  | Retrieved raw line clusters: 17 of sizes [5] with interline(14,15,16)
+[stdout] INFO  [clean_score_only#7]                 PeakGraph 310  | Systems: #1[1] #2[2] #3[3, 4] #4[5] #5[6, 7] #6[8, 9]
+[stdout] INFO  [clean_score_only#7]             BarsRetriever 769  | No brace partner at level:1 for Peak{275-295 F#5158 T#4 [BRACE]}
+[stdout] INFO  [clean_score_only#7]             BarsRetriever 1305 | System#5
+[stdout] INFO  [clean_score_only#7]             BarsRetriever 1308 |    PartGroup{bracket number:1 barline:false staves:6-7}
+[stdout] INFO  [clean_score_only#7]             SystemManager 134  | Indentation detected for system #2
+[stdout] INFO  [clean_score_only#7]             SystemManager 134  | Indentation detected for system #4
+[stdout] INFO  [clean_score_only#7]             SystemManager 723  | 3 pages found in sheet
+[stdout] INFO  [clean_score_only#7]             SystemManager 779  | Page #1: 1 part along 1 system
+[stdout] INFO  [clean_score_only#7]             SystemManager 779  | Page #2: 2 parts along 2 systems
+[stdout] INFO  [clean_score_only#7]             SystemManager 779  | Page #3: 2 parts along 3 systems
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#7]               ClefBuilder 658  | Staff#2 no recognized header clef.
+[stdout] WARN  [clean_score_only#7]               ClefBuilder 658  | Staff#5 no recognized header clef.
+[stdout] WARN  [clean_score_only#7]               ClefBuilder 658  | Staff#8 no recognized header clef.
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | STEM_SEEDS
+[stdout] INFO  [clean_score_only#7]             StemSeedsStep 86   | stem(4 max:5)
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | BEAMS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | LEDGERS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | HEADS
+[stdout] INFO  [clean_score_only#7]             HeadSeedTally 235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.0] NOTEHEAD_BLACK[L:-0.0,R:0.2]}
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | STEMS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | REDUCTION
+[stdout] INFO  [clean_score_only#7]             ReductionStep 105  | Stems free length median value: 54 pixels, 3.6 interlines
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | CUE_BEAMS
+[stdout] INFO  [clean_score_only#7]              CueBeamsStep 81   | Step CUE_BEAMS is skipped because small heads switch is off
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | TEXTS
+[stderr] Estimating resolution as 508
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | MEASURES
+[stdout] INFO  [clean_score_only#7]                      Page 307  | 3 raw measures: [3 in system#1]
+[stdout] INFO  [clean_score_only#7]                      Page 307  | 4 raw measures: [2 in system#2, 2 in system#3]
+[stdout] INFO  [clean_score_only#7]                      Page 307  | 5 raw measures: [1 in system#4, 2 in system#5, 2 in system#6]
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | CHORDS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | CURVES
+[stdout] INFO  [clean_score_only#7]              SlursBuilder 240  | Slurs: 13
+[stdout] INFO  [clean_score_only#7]           SegmentsBuilder 155  | Segments: 22
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | SYMBOLS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | LINKS
+[stdout] INFO  [clean_score_only#7]             SymbolsLinker 258  | No chord linked to OctaveShiftInter#3594{(0.375) staff:1 QUINDICESIMA ALTA} at java.awt.Point[x=355,y=426]
+[stdout] WARN  [clean_score_only#7]                  KeyInter 1174 | No effective clef before AlterInter#3604{(0.796) staff:2 SHARP pitch:2.0}
+[stdout] WARN  [clean_score_only#7]                  KeyInter 1174 | No effective clef before AlterInter#3666{(0.302) staff:5 SHARP pitch:5.0}
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | RHYTHMS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | PAGE
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#2 No target duration for measures local IDs [1, 2], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#3 No target duration for measures local IDs [3, 4], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#4 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#5 No target duration for measures local IDs [2, 3], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#6 No target duration for measures local IDs [4, 5], please check time signatures
+[stdout] INFO  [clean_score_only#7]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#7]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#7]                DataHolder 348  | Stored /sheet#7/BINARY.png
+[stdout] INFO  [clean_score_only#7]                     Sheet 1583 | Stored /sheet#7/sheet#7.xml
+[stdout] INFO  [clean_score_only#7]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#7]                 SheetStub 1655 | Sheet#7 disposed
+[stdout] INFO  [clean_score_only#7]                      Book 2050 | End of Stub#7
+[stdout] INFO  [clean_score_only]                      Book 2057 | End of Book{clean_score_only}
+[stdout] INFO  [clean_score_only]                      Book 596  | Could not export since transcription did not complete successfully
+[stdout] WARN  [clean_score_only]                       CLI 956  | Exception occurred java.lang.Exception: Error in export
+[stdout] java.lang.Exception: Error in export
+[stdout] 	at org.audiveris.omr.CLI$ProcessingTask.processBook(CLI.java:930)
+[stdout] 	at org.audiveris.omr.CLI$CliTask.call(CLI.java:513)
+[stdout] 	at org.audiveris.omr.Main.runBatchTasks(Main.java:361)
+[stdout] 	at org.audiveris.omr.Main.main(Main.java:263)
+[stdout] 	at Audiveris.main(Audiveris.java:50)
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 1}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 2}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 3}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 4}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 5}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 6}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 7}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 8}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 9}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 10}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 11}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 12}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 13}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 14}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 15}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 16}
+[stdout] WARN  []                      Main 364  | Exception on clean_score_only, java.lang.Exception: Error in export
+[stdout] java.lang.Exception: Error in export
+[stdout] 	at org.audiveris.omr.CLI$ProcessingTask.processBook(CLI.java:930)
+[stdout] 	at org.audiveris.omr.CLI$CliTask.call(CLI.java:513)
+[stdout] 	at org.audiveris.omr.Main.runBatchTasks(Main.java:361)
+[stdout] 	at org.audiveris.omr.Main.main(Main.java:263)
+[stdout] 	at Audiveris.main(Audiveris.java:50)
+[stdout] WARN  []                      Main 298  | Exit forced. Failure
+==== audiveris STDERR ====
+[stdout] INFO  [clean_score_only#3]             SystemManager 723  | 4 pages found in sheet
+[stdout] INFO  [clean_score_only#3]             SystemManager 779  | Page #1: 2 parts along 2 systems
+[stdout] INFO  [clean_score_only#3]             SystemManager 779  | Page #2: 2 parts along 5 systems
+[stdout] INFO  [clean_score_only#3]             SystemManager 779  | Page #3: 2 parts along 1 system
+[stdout] INFO  [clean_score_only#3]             SystemManager 779  | Page #4: 2 parts along 5 systems
+[stdout] INFO  [clean_score_only#3]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#3]               ClefBuilder 658  | Staff#2 no recognized header clef.
+[stdout] WARN  [clean_score_only#3]                      Book 2044 | Error processing stub
+[stdout] INFO  [clean_score_only#3]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#3]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#3]                DataHolder 348  | Stored /sheet#3/BINARY.png
+[stdout] INFO  [clean_score_only#3]                     Sheet 1583 | Stored /sheet#3/sheet#3.xml
+[stdout] INFO  [clean_score_only#3]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#3]                 SheetStub 1655 | Sheet#3 disposed
+[stdout] INFO  [clean_score_only#3]                      Book 2050 | End of Stub#3
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | LOAD
+[stdout] INFO  [clean_score_only#4]                 SheetStub 1278 | Loaded image #4 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | BINARY
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | SCALE
+[stdout] INFO  [clean_score_only#4]              ScaleBuilder 255  | Beam  guessed height: 10 -- mid of [6..14]
+[stdout] INFO  [clean_score_only#4]              ScaleBuilder 271  | Beam measured height:  8 -- 0.25 of [6..14] range at 330% of needed quorum
+[stdout] INFO  [clean_score_only#4]              ScaleBuilder 401  | Normalized black jitter: 20.00 %
+[stdout] INFO  [clean_score_only#4]                 ScaleStep 65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | GRID
+[stdout] INFO  [clean_score_only#4]            LinesRetriever 1500 | Global slope: 0.01599
+[stdout] INFO  [clean_score_only#4]         ClustersRetriever 851  | Destroying spurious Cluster#C4293{interline(14,15,16) size:5 fil#4096@0 fil#4160@1 fil#4225@2 fil#4293@3 fil#4357@4}
+[stdout] INFO  [clean_score_only#4]         ClustersRetriever 851  | Destroying spurious Cluster#C4232{interline(14,15,16) size:5 fil#4162@0 fil#4232@1 fil#4261@2 fil#4360@3 fil#4384@4}
+[stdout] INFO  [clean_score_only#4]         ClustersRetriever 326  | Retrieved raw line clusters: 16 of sizes [5] with interline(14,15,16)
+[stdout] INFO  [clean_score_only#4]                 PeakGraph 310  | Systems: #1[1, 2, 3, 4] #2[5, 6] #3[7, 8, 9] #4[10] #5[11] #6[12] #7[13] #8[14] #9[15, 16]
+[stdout] INFO  [clean_score_only#4]             BarsRetriever 769  | No brace partner at level:1 for Peak{264-286 F#9609 T#2 [BRACE]}
+[stdout] INFO  [clean_score_only#4]             BarsRetriever 769  | No brace partner at level:1 for Peak{220-259 F#9614 T#7 [BRACE]}
+[stdout] INFO  [clean_score_only#4]             BarsRetriever 769  | No brace partner at level:1 for Peak{255-273 F#9616 T#9 [BRACE]}
+[stdout] INFO  [clean_score_only#4]             SystemManager 134  | Indentation detected for system #6
+[stdout] INFO  [clean_score_only#4]             SystemManager 723  | 2 pages found in sheet
+[stdout] INFO  [clean_score_only#4]             SystemManager 779  | Page #1: 3 parts along 5 systems
+[stdout] INFO  [clean_score_only#4]             SystemManager 779  | Page #2: 2 parts along 4 systems
+[stdout] INFO  [clean_score_only#4]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#4]               ClefBuilder 658  | Staff#12 no recognized header clef.
+[stdout] WARN  [clean_score_only#4]                      Book 2044 | Error processing stub
+[stdout] INFO  [clean_score_only#4]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#4]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#4]                DataHolder 348  | Stored /sheet#4/BINARY.png
+[stdout] INFO  [clean_score_only#4]                     Sheet 1583 | Stored /sheet#4/sheet#4.xml
+[stdout] INFO  [clean_score_only#4]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#4]                 SheetStub 1655 | Sheet#4 disposed
+[stdout] INFO  [clean_score_only#4]                      Book 2050 | End of Stub#4
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | LOAD
+[stdout] INFO  [clean_score_only#5]                 SheetStub 1278 | Loaded image #5 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | BINARY
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | SCALE
+[stdout] INFO  [clean_score_only#5]              ScaleBuilder 255  | Beam  guessed height: 10 -- mid of [6..14]
+[stdout] INFO  [clean_score_only#5]              ScaleBuilder 271  | Beam measured height:  8 -- 0.25 of [6..14] range at 322% of needed quorum
+[stdout] INFO  [clean_score_only#5]              ScaleBuilder 401  | Normalized black jitter: 20.00 %
+[stdout] INFO  [clean_score_only#5]                 ScaleStep 65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | GRID
+[stdout] INFO  [clean_score_only#5]            LinesRetriever 1500 | Global slope: 0.02404
+[stdout] INFO  [clean_score_only#5]         ClustersRetriever 851  | Destroying spurious Cluster#C13{interline(14,15,16) size:5 fil#13@0 fil#46@1 fil#102@2 fil#163@3 fil#232@4}
+[stdout] INFO  [clean_score_only#5]         ClustersRetriever 851  | Destroying spurious Cluster#C3891{interline(14,15,16) size:5 fil#3891@0 fil#3952@1 fil#4019@2 fil#4072@3 fil#4094@4}
+[stdout] INFO  [clean_score_only#5]         ClustersRetriever 326  | Retrieved raw line clusters: 21 of sizes [5] with interline(14,15,16)
+[stdout] INFO  [clean_score_only#5]                 PeakGraph 310  | Systems: #1[1] #2[2] #3[3] #4[4] #5[5] #6[6] #7[7] #8[8] #9[9] #10[10] #11[11] #12[12, 13] #13[14] #14[15] #15[16]
+[stdout] INFO  [clean_score_only#5]             BarsRetriever 769  | No brace partner at level:1 for Peak{215-236 F#7263 T#13 [BRACE]}
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #1
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #3
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #5
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #7
+[stdout] INFO  [clean_score_only#5]             SystemManager 134  | Indentation detected for system #10
+[stdout] INFO  [clean_score_only#5]             SystemManager 723  | 5 pages found in sheet
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #1: 1 part along 2 systems
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #2: 1 part along 2 systems
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #3: 1 part along 2 systems
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #4: 1 part along 3 systems
+[stdout] INFO  [clean_score_only#5]             SystemManager 779  | Page #5: 2 parts along 6 systems
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#1 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#2 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#3 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#4 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#5 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#7 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#9 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#10 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#12 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#13 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#14 no recognized header clef.
+[stdout] WARN  [clean_score_only#5]               ClefBuilder 658  | Staff#16 no recognized header clef.
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | STEM_SEEDS
+[stdout] INFO  [clean_score_only#5]             StemSeedsStep 86   | stem(4 max:5)
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | BEAMS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | LEDGERS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | HEADS
+[stdout] INFO  [clean_score_only#5]             HeadSeedTally 235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.3,R:-0.8] NOTEHEAD_BLACK[L:0.1,R:0.1]}
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | STEMS
+[stdout] INFO  [clean_score_only#5]                BeamLinker 1729 | Not linking shorter BeamInter#1813{(0.552) BEAM}
+[stdout] INFO  [clean_score_only#5]                BeamLinker 1729 | Not linking shorter BeamHookInter#2156{(0.508/0.693) BEAM_HOOK}
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | REDUCTION
+[stdout] INFO  [clean_score_only#5]             ReductionStep 105  | Stems free length median value: 53 pixels, 3.5 interlines
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | CUE_BEAMS
+[stdout] INFO  [clean_score_only#5]              CueBeamsStep 81   | Step CUE_BEAMS is skipped because small heads switch is off
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | TEXTS
+[stderr] Estimating resolution as 347
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | MEASURES
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 5 raw measures: [3 in system#1, 2 in system#2]
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 2 raw measures: [1 in system#3, 1 in system#4]
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 3 raw measures: [1 in system#5, 2 in system#6]
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 5 raw measures: [2 in system#7, 2 in system#8, 1 in system#9]
+[stdout] INFO  [clean_score_only#5]                      Page 307  | 9 raw measures: [1 in system#10, 3 in system#11, 1 in system#12, 1 in system#13, 1 in system#14, 2 in system#15]
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | CHORDS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | CURVES
+[stdout] WARN  [clean_score_only#5]              SlursBuilder 254  | Error in SlursBuilder: java.lang.NullPointerException: Cannot invoke "org.audiveris.omr.sheet.Staff.isTablature()" because "staff" is null
+[stdout] java.lang.NullPointerException: Cannot invoke "org.audiveris.omr.sheet.Staff.isTablature()" because "staff" is null
+[stdout] 	at org.audiveris.omr.sheet.curve.SlurLinker.canBeOrphan(SlurLinker.java:148)
+[stdout] 	at org.audiveris.omr.sheet.curve.SlurLinker.lookupLinkPair(SlurLinker.java:560)
+[stdout] 	at org.audiveris.omr.sheet.curve.ClumpPruner$ClumpLinker.selectSlur(ClumpPruner.java:423)
+[stdout] 	at org.audiveris.omr.sheet.curve.ClumpPruner.prune(ClumpPruner.java:171)
+[stdout] 	at org.audiveris.omr.sheet.curve.SlursBuilder.pruneClump(SlursBuilder.java:757)
+[stdout] 	at org.audiveris.omr.sheet.curve.CurvesBuilder.buildCurve(CurvesBuilder.java:242)
+[stdout] 	at org.audiveris.omr.sheet.curve.SlursBuilder.buildSlurs(SlursBuilder.java:222)
+[stdout] 	at org.audiveris.omr.sheet.curve.Curves.buildCurves(Curves.java:141)
+[stdout] 	at org.audiveris.omr.sheet.curve.CurvesStep.doit(CurvesStep.java:54)
+[stdout] 	at org.audiveris.omr.step.OmrStep.doit(OmrStep.java:138)
+[stdout] 	at org.audiveris.omr.sheet.SheetStub.lambda$doOneStep$0(SheetStub.java:503)
+[stdout] 	at java.base/java.util.concurrent.FutureTask.run(Unknown Source)
+[stdout] 	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+[stdout] 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+[stdout] 	at java.base/java.lang.Thread.run(Unknown Source)
+[stdout] INFO  [clean_score_only#5]           SegmentsBuilder 155  | Segments: 42
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | SYMBOLS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | LINKS
+[stdout] WARN  [clean_score_only#5]                  KeyInter 1174 | No effective clef before AlterInter#8342{(0.247) staff:9 NATURAL pitch:5.0}
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | RHYTHMS
+[stdout] INFO  [clean_score_only#5]            StepMonitoring 98   | PAGE
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#2 No target duration for measures local IDs [4, 5], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#3 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#4 No target duration for measures local IDs [2], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#5 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#6 No target duration for measures local IDs [2, 3], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#7 No target duration for measures local IDs [1, 2], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#8 No target duration for measures local IDs [3, 4], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#9 No target duration for measures local IDs [5], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#10 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#11 No target duration for measures local IDs [2, 3, 4], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#12 No target duration for measures local IDs [5], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#13 No target duration for measures local IDs [6], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#14 No target duration for measures local IDs [7], please check time signatures
+[stdout] WARN  [clean_score_only#5]              MeasureFixer 343  | System#15 No target duration for measures local IDs [8, 9], please check time signatures
+[stdout] INFO  [clean_score_only#5]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#5]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#5]                DataHolder 348  | Stored /sheet#5/BINARY.png
+[stdout] INFO  [clean_score_only#5]                     Sheet 1583 | Stored /sheet#5/sheet#5.xml
+[stdout] INFO  [clean_score_only#5]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#5]                 SheetStub 1655 | Sheet#5 disposed
+[stdout] INFO  [clean_score_only#5]                      Book 2050 | End of Stub#5
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | LOAD
+[stdout] INFO  [clean_score_only#6]                 SheetStub 1278 | Loaded image #6 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | BINARY
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | SCALE
+[stdout] INFO  [clean_score_only#6]              ScaleBuilder 255  | Beam  guessed height: 10 -- mid of [6..14]
+[stdout] INFO  [clean_score_only#6]              ScaleBuilder 271  | Beam measured height:  8 -- 0.25 of [6..14] range at 263% of needed quorum
+[stdout] INFO  [clean_score_only#6]              ScaleBuilder 401  | Normalized black jitter: 26.67 %
+[stdout] INFO  [clean_score_only#6]                 ScaleStep 65   | Scale{ interline(14,15,16) line(2,4,6) beam(8)}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | GRID
+[stdout] INFO  [clean_score_only#6]            LinesRetriever 1500 | Global slope: 0.01792
+[stdout] INFO  [clean_score_only#6]         ClustersRetriever 851  | Destroying spurious Cluster#C1600{interline(14,15,16) size:5 fil#1600@0 fil#1680@1 fil#1759@2 fil#1816@3 fil#1842@4}
+[stdout] INFO  [clean_score_only#6]         ClustersRetriever 326  | Retrieved raw line clusters: 11 of sizes [5] with interline(14,15,16)
+[stdout] INFO  [clean_score_only#6]                 PeakGraph 310  | Systems: #1[1, 2, 3, 4] #2[5, 6] #3[7] #4[8] #5[9, 10, 11]
+[stdout] WARN  [clean_score_only#6]             BarsRetriever 1294 | No startColumn found for multi-staff System#1
+[stdout] INFO  [clean_score_only#6]             BarsRetriever 1305 | System#2
+[stdout] INFO  [clean_score_only#6]             BarsRetriever 1308 |    PartGroup{bracket number:1 barline:false staves:5-6}
+[stdout] INFO  [clean_score_only#6]             SystemManager 134  | Indentation detected for system #3
+[stdout] INFO  [clean_score_only#6]             SystemManager 723  | 2 pages found in sheet
+[stdout] INFO  [clean_score_only#6]             SystemManager 779  | Page #1: 4 parts along 2 systems
+[stdout] INFO  [clean_score_only#6]             SystemManager 779  | Page #2: 2 parts along 3 systems
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#6]               ClefBuilder 658  | Staff#7 no recognized header clef.
+[stdout] WARN  [clean_score_only#6]               ClefBuilder 658  | Staff#8 no recognized header clef.
+[stdout] WARN  [clean_score_only#6]               ClefBuilder 658  | Staff#9 no recognized header clef.
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | STEM_SEEDS
+[stdout] INFO  [clean_score_only#6]             StemSeedsStep 86   | stem(4 max:5)
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | BEAMS
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | LEDGERS
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | HEADS
+[stdout] INFO  [clean_score_only#6]             HeadSeedTally 235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.4,R:-0.7] NOTEHEAD_BLACK[L:0.0,R:-0.1]}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | STEMS
+[stdout] INFO  [clean_score_only#6]                BeamLinker 1729 | Not linking shorter BeamInter#1810{(0.595) BEAM}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | REDUCTION
+[stdout] INFO  [clean_score_only#6]             ReductionStep 105  | Stems free length median value: 52 pixels, 3.5 interlines
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | CUE_BEAMS
+[stdout] INFO  [clean_score_only#6]              CueBeamsStep 81   | Step CUE_BEAMS is skipped because small heads switch is off
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | TEXTS
+[stderr] Estimating resolution as 335
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | MEASURES
+[stdout] INFO  [clean_score_only#6]           MeasuresBuilder 416  | S2 partial barline column: s5:G(x:2233,y:1918)[20]
+[stdout] INFO  [clean_score_only#6]           MeasuresBuilder 428  | S2 deleting   half column: s5:G(x:2233,y:1918)[20]
+[stdout] INFO  [clean_score_only#6]                      Page 307  | 5 raw measures: [2 in system#1, 3 in system#2]
+[stdout] INFO  [clean_score_only#6]                      Page 307  | 8 raw measures: [1 in system#3, 3 in system#4, 4 in system#5]
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | CHORDS
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | CURVES
+[stdout] INFO  [clean_score_only#6]              SlursBuilder 240  | Slurs: 25
+[stdout] INFO  [clean_score_only#6]           SegmentsBuilder 155  | Segments: 31
+[stdout] INFO  [clean_score_only#6]         RehearsalsBuilder 229  | RehearsalInter#8629{(0.615) staff:5 mFont:BMS-68 Rehearsal enclosure:java.awt.Rectangle[x=780,y=1733,width=61,height=72]}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | SYMBOLS
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | LINKS
+[stdout] INFO  [clean_score_only#6]                  KeyInter 1189 | No effective key before AlterInter#10161{(0.757) staff:10 NATURAL pitch:-1.0}
+[stdout] INFO  [clean_score_only#6]                  KeyInter 1189 | No effective key before AlterInter#10199{(0.129) staff:10 NATURAL pitch:-6.0}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | RHYTHMS
+[stdout] INFO  [clean_score_only#6]             MeasureRhythm 1276 | Measure{#7P2} Time inconsistency in {1/4=[HeadChordInter#8285{(0.928/0.928) staff:10 slot#3 off:1/4 dur:1/4}], 5/16=[HeadChordInter#8329{(0.949/0.949) staff:11 slot#3 off:5/16 dur:1/8}]}
+[stdout] INFO  [clean_score_only#6]            StepMonitoring 98   | PAGE
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#1 No target duration for measures local IDs [1, 2], please check time signatures
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#2 No target duration for measures local IDs [3, 4, 5], please check time signatures
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#3 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#4 No target duration for measures local IDs [2, 3, 4], please check time signatures
+[stdout] WARN  [clean_score_only#6]              MeasureFixer 343  | System#5 No target duration for measures local IDs [5, 6, 7, 8], please check time signatures
+[stdout] INFO  [clean_score_only#6]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#6]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#6]                DataHolder 348  | Stored /sheet#6/BINARY.png
+[stdout] INFO  [clean_score_only#6]                     Sheet 1583 | Stored /sheet#6/sheet#6.xml
+[stdout] INFO  [clean_score_only#6]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#6]                 SheetStub 1655 | Sheet#6 disposed
+[stdout] INFO  [clean_score_only#6]                      Book 2050 | End of Stub#6
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | LOAD
+[stdout] INFO  [clean_score_only#7]                 SheetStub 1278 | Loaded image #7 2483x3508 from /tmp/pdf2mxl-up-yJ1ama/clean_score_only.pdf
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | BINARY
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | SCALE
+[stdout] INFO  [clean_score_only#7]              ScaleBuilder 255  | Beam  guessed height: 10 -- mid of [6..14]
+[stdout] INFO  [clean_score_only#7]              ScaleBuilder 271  | Beam measured height:  8 -- 0.25 of [6..14] range at 219% of needed quorum
+[stdout] INFO  [clean_score_only#7]              ScaleBuilder 401  | Normalized black jitter: 20.00 %
+[stdout] INFO  [clean_score_only#7]                 ScaleStep 65   | Scale{ interline(14,15,16) line(3,4,6) beam(8)}
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | GRID
+[stdout] INFO  [clean_score_only#7]            LinesRetriever 1500 | Global slope: 0.00995
+[stdout] INFO  [clean_score_only#7]         ClustersRetriever 851  | Destroying spurious Cluster#C1406{interline(14,15,16) size:5 fil#1406@0 fil#1466@1 fil#1513@2 fil#1556@3 fil#1585@4}
+[stdout] INFO  [clean_score_only#7]         ClustersRetriever 326  | Retrieved raw line clusters: 17 of sizes [5] with interline(14,15,16)
+[stdout] INFO  [clean_score_only#7]                 PeakGraph 310  | Systems: #1[1] #2[2] #3[3, 4] #4[5] #5[6, 7] #6[8, 9]
+[stdout] INFO  [clean_score_only#7]             BarsRetriever 769  | No brace partner at level:1 for Peak{275-295 F#5158 T#4 [BRACE]}
+[stdout] INFO  [clean_score_only#7]             BarsRetriever 1305 | System#5
+[stdout] INFO  [clean_score_only#7]             BarsRetriever 1308 |    PartGroup{bracket number:1 barline:false staves:6-7}
+[stdout] INFO  [clean_score_only#7]             SystemManager 134  | Indentation detected for system #2
+[stdout] INFO  [clean_score_only#7]             SystemManager 134  | Indentation detected for system #4
+[stdout] INFO  [clean_score_only#7]             SystemManager 723  | 3 pages found in sheet
+[stdout] INFO  [clean_score_only#7]             SystemManager 779  | Page #1: 1 part along 1 system
+[stdout] INFO  [clean_score_only#7]             SystemManager 779  | Page #2: 2 parts along 2 systems
+[stdout] INFO  [clean_score_only#7]             SystemManager 779  | Page #3: 2 parts along 3 systems
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | HEADERS
+[stdout] WARN  [clean_score_only#7]               ClefBuilder 658  | Staff#2 no recognized header clef.
+[stdout] WARN  [clean_score_only#7]               ClefBuilder 658  | Staff#5 no recognized header clef.
+[stdout] WARN  [clean_score_only#7]               ClefBuilder 658  | Staff#8 no recognized header clef.
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | STEM_SEEDS
+[stdout] INFO  [clean_score_only#7]             StemSeedsStep 86   | stem(4 max:5)
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | BEAMS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | LEDGERS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | HEADS
+[stdout] INFO  [clean_score_only#7]             HeadSeedTally 235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.0] NOTEHEAD_BLACK[L:-0.0,R:0.2]}
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | STEMS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | REDUCTION
+[stdout] INFO  [clean_score_only#7]             ReductionStep 105  | Stems free length median value: 54 pixels, 3.6 interlines
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | CUE_BEAMS
+[stdout] INFO  [clean_score_only#7]              CueBeamsStep 81   | Step CUE_BEAMS is skipped because small heads switch is off
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | TEXTS
+[stderr] Estimating resolution as 508
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | MEASURES
+[stdout] INFO  [clean_score_only#7]                      Page 307  | 3 raw measures: [3 in system#1]
+[stdout] INFO  [clean_score_only#7]                      Page 307  | 4 raw measures: [2 in system#2, 2 in system#3]
+[stdout] INFO  [clean_score_only#7]                      Page 307  | 5 raw measures: [1 in system#4, 2 in system#5, 2 in system#6]
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | CHORDS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | CURVES
+[stdout] INFO  [clean_score_only#7]              SlursBuilder 240  | Slurs: 13
+[stdout] INFO  [clean_score_only#7]           SegmentsBuilder 155  | Segments: 22
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | SYMBOLS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | LINKS
+[stdout] INFO  [clean_score_only#7]             SymbolsLinker 258  | No chord linked to OctaveShiftInter#3594{(0.375) staff:1 QUINDICESIMA ALTA} at java.awt.Point[x=355,y=426]
+[stdout] WARN  [clean_score_only#7]                  KeyInter 1174 | No effective clef before AlterInter#3604{(0.796) staff:2 SHARP pitch:2.0}
+[stdout] WARN  [clean_score_only#7]                  KeyInter 1174 | No effective clef before AlterInter#3666{(0.302) staff:5 SHARP pitch:5.0}
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | RHYTHMS
+[stdout] INFO  [clean_score_only#7]            StepMonitoring 98   | PAGE
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#1 No target duration for measures local IDs [1, 2, 3], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#2 No target duration for measures local IDs [1, 2], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#3 No target duration for measures local IDs [3, 4], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#4 No target duration for measures local IDs [1], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#5 No target duration for measures local IDs [2, 3], please check time signatures
+[stdout] WARN  [clean_score_only#7]              MeasureFixer 343  | System#6 No target duration for measures local IDs [4, 5], please check time signatures
+[stdout] INFO  [clean_score_only#7]                      Book 2584 | Book{clean_score_only} storing
+[stdout] INFO  [clean_score_only#7]                      Book 2565 | Stored /book.xml
+[stdout] INFO  [clean_score_only#7]                DataHolder 348  | Stored /sheet#7/BINARY.png
+[stdout] INFO  [clean_score_only#7]                     Sheet 1583 | Stored /sheet#7/sheet#7.xml
+[stdout] INFO  [clean_score_only#7]                      Book 2525 | Book stored as /tmp/pdf2mxl-up-yJ1ama/audiveris-out/clean_score_only.omr
+[stdout] INFO  [clean_score_only#7]                 SheetStub 1655 | Sheet#7 disposed
+[stdout] INFO  [clean_score_only#7]                      Book 2050 | End of Stub#7
+[stdout] INFO  [clean_score_only]                      Book 2057 | End of Book{clean_score_only}
+[stdout] INFO  [clean_score_only]                      Book 596  | Could not export since transcription did not complete successfully
+[stdout] WARN  [clean_score_only]                       CLI 956  | Exception occurred java.lang.Exception: Error in export
+[stdout] java.lang.Exception: Error in export
+[stdout] 	at org.audiveris.omr.CLI$ProcessingTask.processBook(CLI.java:930)
+[stdout] 	at org.audiveris.omr.CLI$CliTask.call(CLI.java:513)
+[stdout] 	at org.audiveris.omr.Main.runBatchTasks(Main.java:361)
+[stdout] 	at org.audiveris.omr.Main.main(Main.java:263)
+[stdout] 	at Audiveris.main(Audiveris.java:50)
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 1}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 2}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 3}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 4}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 5}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 6}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 7}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 8}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 9}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 10}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 11}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 12}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 13}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 14}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 15}
+[stdout] INFO  [clean_score_only]                     Score 181  | Closing {Score 16}
+[stdout] WARN  []                      Main 364  | Exception on clean_score_only, java.lang.Exception: Error in export
+[stdout] java.lang.Exception: Error in export
+[stdout] 	at org.audiveris.omr.CLI$ProcessingTask.processBook(CLI.java:930)
+[stdout] 	at org.audiveris.omr.CLI$CliTask.call(CLI.java:513)
+[stdout] 	at org.audiveris.omr.Main.runBatchTasks(Main.java:361)
+[stdout] 	at org.audiveris.omr.Main.main(Main.java:263)
+[stdout] 	at Audiveris.main(Audiveris.java:50)
+[stdout] WARN  []                      Main 298  | Exit forced. Failure

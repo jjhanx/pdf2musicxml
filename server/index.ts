@@ -5694,7 +5694,7 @@ app.get('/api/diagnostic/:jobId/score-parts', async (req, res) => {
         /* ignore */
       }
     }
-    const partsRaw = listed.parts as Array<{
+    const partsRaw = (listed.parts || []) as Array<{
       index: number;
       id: string;
       name?: string;

@@ -880,9 +880,7 @@ export default function App() {
     fd.append('debug', 'false');
     fd.append('startStage', opts?.startStage ?? 'full');
     fd.append('pipelineMode', opts?.pipelineMode ?? 'font_separator');
-    if (opts?.pipelineMode === 'image_pdf') {
-      fd.append('imagePdfOmrEngine', opts?.imagePdfOmrEngine ?? 'ai');
-    }
+    fd.append('imagePdfOmrEngine', opts?.imagePdfOmrEngine ?? 'ai');
     if (opts?.pipelineMode === 'font_separator') {
       fd.append('enablePymupdfReview', opts?.enablePymupdfReview !== false ? 'true' : 'false');
     }

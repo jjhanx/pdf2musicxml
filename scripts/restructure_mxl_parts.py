@@ -69,6 +69,7 @@ def determine_mapping(k: int, labels: list[str]) -> list[tuple[str, str]]:
 
 def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
     labels = load_part_labels_json(labels_path)
+    print("LABELS:", labels)
     if not labels:
         if mxl_in.resolve() != mxl_out.resolve():
             mxl_out.write_bytes(mxl_in.read_bytes())
@@ -137,6 +138,8 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
             
             # Create a combined measure for each new part
             new_measures = defaultdict(lambda: ET.Element(_q(ns, "measure"), number=num))
+            for i in range(len(labels)):
+                _ = new_measures[f"P{i+1}"]
             
             # Merge attributes from first available measure
             attrs_copied = False

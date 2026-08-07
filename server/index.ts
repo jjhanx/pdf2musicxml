@@ -3455,6 +3455,39 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         return;
       }
       
+      try {
+        console.log(`[job ${jobId}] Detecting part labels from ${inputPdfPath}`);
+        const scriptDetectParts = path.join(__dirname, '..', 'scripts', 'detect_parts.py');
+        const { stdout: detectOut } = await exec(`"${pythonBin}" "${scriptDetectParts}" "${inputPdfPath}"`);
+        const detectedParts = JSON.parse(detectOut.trim());
+        if (Array.isArray(detectedParts) && detectedParts.length > 0) {
+          const presetPath = sessionPartLabelsPresetPath(sessionRoot);
+          await fs.writeFile(
+            presetPath,
+            JSON.stringify({ version: 1, labelsByIndex: detectedParts }, null, 2),
+            'utf8',
+          );
+          console.log(`[job ${jobId}] Detected and saved part labels preset:`, detectedParts);
+        }
+      } catch (detectErr) {
+        console.warn(`[job ${jobId}] Failed to detect part labels (ignoring):`, detectErr);
+      }
+      
+      console.log(`[job ${jobId}] Pausing for early part label setup (성부 S/A/T/B…)…`);
+      setJobProgress(job, {
+        phase: 'hitl',
+        current: 0,
+        total: 1,
+        detail: '성부 라벨(S/A/T/B·PR/PL) 및 악보 구조 초기 확인 대기…',
+      });
+      job.status = 'part_labels_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.partLabelsDeferred = { resolve, reject };
+      });
+      delete job.partLabelsDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Early part labels saved, continuing…`);
+
       const scriptImageProcessor = path.join(__dirname, '..', 'scripts', 'image_pdf_processor.py');
       
       setJobProgress(job, {

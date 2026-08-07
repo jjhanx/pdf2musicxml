@@ -643,6 +643,7 @@ export default function App() {
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>('auto');
   const [imagePdfOmrEngine, setImagePdfOmrEngine] = useState<'ai' | 'audiveris'>('ai');
+  const [skipPaddleOcr, setSkipPaddleOcr] = useState(true);
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
   const [enableOmrStaffReview, setEnableOmrStaffReview] = useState(true);
   const [startStage, setStartStage] = useState<StartStage>(() => {
@@ -1171,6 +1172,7 @@ export default function App() {
                 pauseAfterAudiveris,
                 pipelineMode,
                 imagePdfOmrEngine,
+                skipPaddleOcr,
                 enablePymupdfReview,
                 enableOmrStaffReview,
                 startStage,
@@ -2086,6 +2088,12 @@ export default function App() {
                 <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
                   <input type="checkbox" checked={enablePymupdfReview} onChange={(e) => setEnablePymupdfReview(e.target.checked)} disabled={busy} />
                   가사 마스킹 및 텍스트 영역 검증·편집 (HITL)
+                </label>
+              )}
+              {pipelineMode === 'image_pdf' && enablePymupdfReview && startStage !== 'lyric_inject' && (
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd', marginLeft: '1.5rem' }}>
+                  <input type="checkbox" checked={skipPaddleOcr} onChange={(e) => setSkipPaddleOcr(e.target.checked)} disabled={busy} />
+                  자동 가사 추출(PaddleOCR) 건너뛰기 (완전 수동 가사 입력 모드)
                 </label>
               )}
             </div>

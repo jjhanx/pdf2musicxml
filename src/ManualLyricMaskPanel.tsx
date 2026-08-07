@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export type ManualLyricBBox = {
   page: number;
   bbox: [number, number, number, number];
+  text?: string;
 };
 
 type PdfDims = {
@@ -731,18 +732,30 @@ export function ManualLyricMaskPanel(props: Props) {
                   const c = bxToNx(r.bbox);
                   if (!c) return null;
                   const { xa, ya, xb, yb } = c;
+                  const idx = value.indexOf(r);
                   return (
-                    <rect
-                      key={`m-${page}-${ri}`}
-                      x={Math.min(xa, xb)}
-                      y={Math.min(ya, yb)}
-                      width={Math.abs(xb - xa)}
-                      height={Math.abs(yb - ya)}
-                      fill="rgba(233,30,99,0.14)"
-                      stroke="rgba(194,24,91,0.95)"
-                      strokeWidth={Math.max(2.5, nat.nw / 320)}
-                      vectorEffect="non-scaling-stroke"
-                    />
+                    <g key={`m-${page}-${ri}`}>
+                      <rect
+                        x={Math.min(xa, xb)}
+                        y={Math.min(ya, yb)}
+                        width={Math.abs(xb - xa)}
+                        height={Math.abs(yb - ya)}
+                        fill="rgba(233,30,99,0.14)"
+                        stroke="rgba(194,24,91,0.95)"
+                        strokeWidth={Math.max(2.5, nat.nw / 320)}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                      <text
+                        x={Math.min(xa, xb) + 4}
+                        y={Math.min(ya, yb) + 16}
+                        fill="#880e4f"
+                        fontSize={Math.max(14, nat.nw / 80)}
+                        fontWeight="bold"
+                        style={{ textShadow: '1px 1px 0px rgba(255,255,255,0.8)' }}
+                      >
+                        #{idx + 1}
+                      </text>
+                    </g>
                   );
                 })}
                 {displayFocusedBbox ? (
@@ -830,6 +843,37 @@ export function ManualLyricMaskPanel(props: Props) {
       <p style={{ margin: '8px 0 0', fontSize: '0.82rem', color: '#795548' }}>
         수동 추가 지우기 표시 영역 전체 <strong>{value.length}</strong>개 (모든 페이지)
       </p>
+
+      {value.length > 0 && (
+        <div style={{ marginTop: '16px', background: '#fafafa', padding: '12px', borderRadius: '6px', border: '1px solid #e0e0e0' }}>
+          <strong style={{ fontSize: '0.9rem', color: '#424242' }}>수동 마스킹 가사 입력</strong>
+          <p style={{ fontSize: '0.8rem', color: '#757575', margin: '4px 0 8px' }}>
+            위에서 드래그하여 추가한 분홍색 박스(#{`1~${value.length}`})에 들어갈 가사를 직접 타이핑하세요.<br/>
+            (여기에 입력된 텍스트가 OMR 결과에 가사로 합성됩니다. 비워두면 단순히 지우기만 수행합니다.)
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
+            {value.map((rect, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#880e4f', minWidth: '30px' }}>
+                  #{idx + 1}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#999' }}>p.{rect.page}</span>
+                <input
+                  type="text"
+                  value={rect.text || ''}
+                  placeholder="가사 텍스트..."
+                  style={{ flex: 1, padding: '4px 6px', fontSize: '0.85rem' }}
+                  onChange={(e) => {
+                    const next = [...value];
+                    next[idx] = { ...next[idx], text: e.target.value };
+                    onChange(next);
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

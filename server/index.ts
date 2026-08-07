@@ -475,6 +475,7 @@ type JobRecord = {
   /** 변환 파이프라인: 폰트 분리(권장) · PyMuPDF 마스킹 · Audiveris만 */
   pipelineMode?: PipelineMode;
     imagePdfOmrEngine?: string;
+  skipPaddleOcr?: boolean;
   /** font_separator 모드에서 PyMuPDF 가사 검증 UI 사용 */
   enablePymupdfReview?: boolean;
   /** Audiveris 직후 페이지×staff MXL lint HITL (기본 켜짐) */
@@ -3509,17 +3510,30 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         total: 2,
         detail: 'PaddleOCR로 이미지 PDF 텍스트 추출 중…',
       });
-      console.log(`[job ${jobId}] Running image_pdf_processor.py extract`);
-      
-      try {
-        await exec(
-          `"${pythonBin}" "${scriptImageProcessor}" extract "${inputPdfPath}" "${extractedJsonPath}"`,
-          { maxBuffer: 16 * 1024 * 1024 }
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        await fail({ status: 500, error: 'OCR extract error', detail: msg });
-        return;
+      if (job.skipPaddleOcr) {
+        console.log(`[job ${jobId}] Skipping PaddleOCR extract, creating empty JSON`);
+        // We still need extractedJsonPath for the next step, so we mock it.
+        // The mock must match what `image_pdf_processor.py extract` would output:
+        // A list of objects { "page": i, "text_elements": [] }
+        // We don't know the exact page count here easily unless we read it, 
+        // but image_pdf_processor mask uses the page numbers from the JSON.
+        // Actually, we can just write an empty array, and the frontend review 
+        // logic will just start from scratch, and we can generate page entries during resume.
+        // But to be safe, let's write an empty array for now.
+        const mockEmpty = [];
+        await fs.writeFile(extractedJsonPath, JSON.stringify(mockEmpty, null, 2), 'utf8');
+      } else {
+        console.log(`[job ${jobId}] Running image_pdf_processor.py extract`);
+        try {
+          await exec(
+            `"${pythonBin}" "${scriptImageProcessor}" extract "${inputPdfPath}" "${extractedJsonPath}"`,
+            { maxBuffer: 16 * 1024 * 1024 }
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          await fail({ status: 500, error: 'OCR extract error', detail: msg });
+          return;
+        }
       }
 
       if (enablePymupdfReview) {
@@ -3546,12 +3560,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           detail: '사용자 가사 마스킹 박스 확인 및 편집 대기중',
         });
         
-        job.status = 'review_pymupdf';
+        job.status = 'review_needed';
+        job.reviewData = reviewItems;
         console.log(`[job ${jobId}] Paused for PyMuPDF review (image_pdf)`);
         await new Promise<void>((resolve, reject) => {
-          job.reviewPymupdfDeferred = { resolve, reject };
+          job.reviewDeferred = { resolve, reject };
         });
         job.status = 'processing';
+        delete job.reviewData;
         console.log(`[job ${jobId}] Resumed after PyMuPDF review (image_pdf)`);
 
         // Convert back
@@ -3564,18 +3580,23 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         for (const item of updatedItems) {
           if (item.type !== 'text') continue;
           const pageIdx = item.page - 1;
-          if (extractedByPage.has(pageIdx)) {
-            extractedByPage.get(pageIdx).text_elements.push({
-              raw_text: item.text,
-              x0: item.bbox[0],
-              y0: item.bbox[1],
-              x1: item.bbox[2],
-              y1: item.bbox[3],
-              fontname: 'Manual',
-              size: item.bbox[3] - item.bbox[1]
-            });
+          if (!extractedByPage.has(pageIdx)) {
+            const newPageData = { page: pageIdx, text_elements: [] };
+            extractedByPage.set(pageIdx, newPageData);
+            extracted.push(newPageData);
           }
+          extractedByPage.get(pageIdx).text_elements.push({
+            raw_text: item.text || '',
+            x0: item.bbox[0],
+            y0: item.bbox[1],
+            x1: item.bbox[2],
+            y1: item.bbox[3],
+            fontname: 'Manual',
+            size: item.bbox[3] - item.bbox[1]
+          });
         }
+        // sort extracted by page just in case
+        extracted.sort((a: any, b: any) => a.page - b.page);
         await fs.writeFile(extractedJsonPath, JSON.stringify(extracted, null, 2), 'utf8');
       }
       
@@ -4148,6 +4169,7 @@ app.post('/api/convert', async (req, res) => {
   let pauseAfterAudiverisField = false;
   let pipelineModeField: PipelineMode = 'font_separator';
   let imagePdfOmrEngineField = 'ai';
+  let skipPaddleOcrField = true;
   let enablePymupdfReviewField = true;
   let enableOmrStaffReviewField = true;
   let startStageField: StartStage = 'full';
@@ -4171,12 +4193,14 @@ app.post('/api/convert', async (req, res) => {
       if (v === 'audiveris_only' || v === 'pymupdf_review' || v === 'font_separator' || v === 'image_pdf' || v === 'auto') {
         pipelineModeField = v as PipelineMode;
       }
-    }
     if (name === 'imagePdfOmrEngine') {
       const v = String(val).trim();
       if (v === 'ai' || v === 'audiveris' || v === 'pdftomusic') {
         imagePdfOmrEngineField = v;
       }
+    }
+    if (name === 'skipPaddleOcr') {
+      skipPaddleOcrField = val === 'true';
     }
     if (name === 'enablePymupdfReview') {
       enablePymupdfReviewField = val === 'true' || val === '1';
@@ -4398,6 +4422,7 @@ app.post('/api/convert', async (req, res) => {
       job.pauseAfterAudiveris = pauseAfterAudiverisField;
       job.pipelineMode = pipelineModeField;
       job.imagePdfOmrEngine = imagePdfOmrEngineField;
+      job.skipPaddleOcr = skipPaddleOcrField;
       job.enablePymupdfReview = enablePymupdfReviewField;
       job.enableOmrStaffReview = enableOmrStaffReviewField;
       job.startStage = startStageField;

@@ -3600,7 +3600,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         await fs.writeFile(extractedJsonPath, JSON.stringify(extracted, null, 2), 'utf8');
       }
       
-      if (job.imagePdfOmrEngine === 'ai') {
+      if (job.false) {
         setJobProgress(job, {
           phase: 'separator',
           current: 1,

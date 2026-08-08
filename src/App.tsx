@@ -4,7 +4,6 @@ import { FontStripPanel } from './FontStripPanel';
 import { CleanScorePreviewPanel } from './CleanScorePreviewPanel';
 import { LyricManifestSavePanel } from './LyricManifestSavePanel';
 import { AudiverisInspectPanel, InspectPanelErrorBoundary } from './AudiverisInspectPanel';
-import { OmrStaffReviewPanel } from './OmrStaffReviewPanel';
 import { PartLabelsPanel } from './PartLabelsPanel';
 import { defaultPartLabels } from './partLabelOptions';
 import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPanel';
@@ -642,7 +641,7 @@ export default function App() {
   } | null>(null);
   const [pauseAfterAudiveris, setPauseAfterAudiveris] = useState(false);
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>('auto');
-  const [imagePdfOmrEngine, setImagePdfOmrEngine] = useState<'ai' | 'audiveris'>('ai');
+  const [ setImagePdfOmrEngine] = useState<'ai' | 'audiveris'>('ai');
   const [skipPaddleOcr, setSkipPaddleOcr] = useState(true);
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
   const [enableOmrStaffReview, setEnableOmrStaffReview] = useState(true);
@@ -1081,9 +1080,7 @@ export default function App() {
         setStatus(
           healthArg.omrEngine === 'pdftomusic'
             ? `PDFtoMusic Pro(p2mp)가 준비되지 않았습니다. ${healthArg.pdftomusicDepsHint ?? 'P2MP_BIN을 설정하세요.'}`
-            : healthArg.omrEngine === 'ai'
-              ? `AI OMR 의존성이 없습니다. ${healthArg.aiOmrDepsHint ?? 'pip install -r requirements.txt'}`
-              : 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.',
+            : 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.',
         );
         return;
       }
@@ -1171,7 +1168,7 @@ export default function App() {
               {
                 pauseAfterAudiveris,
                 pipelineMode,
-                imagePdfOmrEngine,
+                
                 skipPaddleOcr,
                 enablePymupdfReview,
                 enableOmrStaffReview,
@@ -1234,7 +1231,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [convertOne, pauseAfterAudiveris, pipelineMode, imagePdfOmrEngine, enablePymupdfReview, enableOmrStaffReview, startStage, resumeCleanScoreFile, resumeLyricManifestFile, resumeOmrWorkFile],
+    [convertOne, pauseAfterAudiveris, pipelineMode,  enablePymupdfReview, enableOmrStaffReview, startStage, resumeCleanScoreFile, resumeLyricManifestFile, resumeOmrWorkFile],
   );
 
   const onDragEnter = (e: React.DragEvent) => {
@@ -1817,33 +1814,15 @@ export default function App() {
                   <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff', marginBottom: '0.5rem' }}>PDF 타입 선택</div>
                   <div style={{ display: 'flex', gap: '1rem' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.85rem' }}>
-                      <input 
-                        type="radio" 
-                        name="pipelineMode" 
-                        value="auto" 
-                        checked={pipelineMode === 'auto'} 
-                        onChange={() => setPipelineMode('auto')} 
-                      />
+                      
                       자동 판별 (Auto)
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.85rem' }}>
-                      <input 
-                        type="radio" 
-                        name="pipelineMode" 
-                        value="font_separator" 
-                        checked={pipelineMode === 'font_separator'} 
-                        onChange={() => setPipelineMode('font_separator')} 
-                      />
+                      
                       일반 벡터 PDF (Vector)
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.85rem' }}>
-                      <input 
-                        type="radio" 
-                        name="pipelineMode" 
-                        value="image_pdf" 
-                        checked={pipelineMode === 'image_pdf'} 
-                        onChange={() => setPipelineMode('image_pdf')} 
-                      />
+                      
                       이미지 스캔 PDF (Raster/Image)
                     </label>
                   </div>
@@ -2049,25 +2028,11 @@ export default function App() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
                   <span style={{ fontSize: '0.9rem', color: '#ddd' }}>OMR 엔진:</span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    <input 
-                      type="radio" 
-                      name="imagePdfOmrEngine_global" 
-                      value="ai" 
-                      checked={imagePdfOmrEngine === 'ai'} 
-                      onChange={() => setImagePdfOmrEngine('ai')} 
-                      disabled={busy}
-                    />
+                    
                     AI OMR (최신, 권장)
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    <input 
-                      type="radio" 
-                      name="imagePdfOmrEngine_global" 
-                      value="audiveris" 
-                      checked={imagePdfOmrEngine === 'audiveris'} 
-                      onChange={() => setImagePdfOmrEngine('audiveris')} 
-                      disabled={busy}
-                    />
+                    
                     Audiveris
                   </label>
                 </div>
@@ -2213,13 +2178,7 @@ export default function App() {
                     ? 'AI (실험)'
                     : 'Audiveris'}
               </strong>
-              {health.omrEngine === 'ai' && (
-                <>
-                  {' '}
-                  (backend={health.aiOmrBackend ?? 'homr'}
-                  {health.aiOmrCudaAvailable ? ', CUDA' : ''})
-                </>
-              )}
+              
               {health.omrEngineDetail ? ` — ${health.omrEngineDetail}` : ''}
             </div>
           )}
@@ -3089,11 +3048,7 @@ bash scripts/install-font-separator-deps.sh`}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-              <OmrStaffReviewPanel
-                jobId={omrStaffReviewJobId}
-                onContinue={submitContinueOmrStaffReview}
-                continuing={omrStaffContinueBusy}
-              />
+              
             </div>
           </div>,
           document.body,

@@ -935,6 +935,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                     rawdict_flags,
                 )
                 if not manual_gly:
+                    white_rects.setdefault(page_idx, []).append(clip)
                     continue
                 bucket = lyric_glyphs_by_page.setdefault(page_idx, [])
                 seen_keys = {_lyric_glyph_dedupe_key(x) for x in bucket}

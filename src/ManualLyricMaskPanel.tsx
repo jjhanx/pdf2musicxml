@@ -853,7 +853,7 @@ export function ManualLyricMaskPanel(props: Props) {
           <strong style={{ fontSize: '0.9rem', color: '#424242' }}>수동 마스킹 가사 입력</strong>
           <p style={{ fontSize: '0.8rem', color: '#757575', margin: '4px 0 8px' }}>
             위에서 드래그하여 추가한 분홍색 박스(#{`1~${value.length}`})에 들어갈 가사를 직접 타이핑하세요.<br/>
-            (여기에 입력된 텍스트가 OMR 결과에 가사로 합성됩니다. 비워두면 단순히 지우기만 수행합니다.)
+            (여기에 입력된 텍스트가 OMR 결과에 가사로 합성됩니다. 비워두면 단순히 지우기만 수행합니다. <strong>Enter 키를 눌러 여러 줄(줄바꿈)을 입력할 수 있습니다.</strong>)
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
             {value.map((rect, idx) => (
@@ -864,8 +864,8 @@ export function ManualLyricMaskPanel(props: Props) {
                 <span style={{ fontSize: '0.75rem', color: '#999', marginTop: '4px' }}>p.{rect.page}</span>
                 <textarea
                   value={rect.text || ''}
-                  placeholder="가사 텍스트..."
-                  rows={2}
+                  placeholder="가사 텍스트 (Enter로 줄바꿈)..."
+                  rows={4}
                   style={{ flex: 1, padding: '4px 6px', fontSize: '0.85rem', resize: 'vertical' }}
                   onChange={(e) => {
                     const next = [...value];

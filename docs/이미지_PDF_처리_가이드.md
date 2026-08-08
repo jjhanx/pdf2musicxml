@@ -5,21 +5,19 @@
 
 - 기존 벡터 PDF 처리 외에 이미지 스캔본 PDF를 처리하는 파이프라인 추가.
 - RapidOCR을 이용해 텍스트와 좌표 추출 (image_pdf_processor.py)
-- 추출된 BBox로 PDF 마스킹 (clean_score_only.pdf 생성)
-- UI에서 Vector PDF와 Image PDF 중 선택 가능
-
+- 추출된 BBox 및 수동 마스킹 영역으로 PDF 마스킹 (clean_score_only.pdf 생성)
 - UI에서 기본으로 자동 판별(Auto) 모드를 지원하여 업로드된 PDF가 이미지 기반인지(텍스트 50자 미만) 텍스트 기반인지 검사 후 적절한 모드로 자동 라우팅합니다.
 
-### OMR 엔진 동적 라우팅 정책 (General Solution)
-- **Vector PDF (`font_separator`)**: Audiveris 엔진 고정 (기존 식당 사항 유지).
-- **Image PDF (`image_pdf`)**: 스캔본에서의 음표 위치 인식률을 극대화하기 위해 기본적으로 **AI OMR 엔진(HOMR/TrOMR)**을 추천(기본값)하지만, 사용자가 UI에서 명시적으로 **Audiveris**를 선택하여 박자/빔 처리의 안정성을 확보하는 기존 방식으로 폴백(Fallback)할 수 있도록 인터페이스가 추가되었습니다.
-- 동일한 `.mxl` 포맷으로 반환되므로, 가사 병합 및 검수 UI 등 후속 파이프라인은 두 엔진 모두 완벽히 호환됩니다.
+### OMR 엔진 고정 정책 (General Solution)
+- 기존에는 이미지 PDF에 대해 AI OMR을 우선 적용하려는 시도가 있었으나, 최종 결과물의 품질 및 박자/빔 처리의 안정성을 위해 **모든 PDF(Vector/Image) 처리는 오직 Audiveris 엔진 하나만 사용**하도록 프로세스가 통일되었습니다.
+- 사용자는 어떤 유형의 PDF를 업로드하더라도 동일하게 Audiveris 기반의 MusicXML 변환 파이프라인을 거칩니다.
 
 ### 한글 가사 마스킹 정책 (General Solution - Tesseract 병행 도입)
 - Image PDF의 BBox 추출을 담당하는 `RapidOCR` 엔진은 기본 설정(영/중) 시 한글 제목이나 가사를 제대로 잡아내지 못해 텍스트 박스 추출에서 아예 누락되거나 쓰레기 문자(Garbage)로 인식하는 현상이 있습니다.
 - 이로 인해 `clean_score_only.pdf`에 제목과 한글 가사 찌꺼기가 지워지지 않고 남는 문제가 발생했습니다.
 - **개선 상태 (General Solution)**: 한국어 인식률을 극대화하기 위해 `image_pdf_processor.py`에 **Tesseract OCR (kor+eng)** 추출 로직을 추가로 도입했습니다. RapidOCR이 1차로 영문/기호 BBox를 추출하고, Tesseract가 2차로 한글과 기타 누락된 텍스트의 BBox를 찾아내어 두 결과를 병합(Merge)합니다. 이를 통해 악보의 제목과 한글 가사가 찌꺼기 없이 깨끗하게 마스킹되도록 파이프라인 안정성을 대폭 개선했습니다. (단, 런타임 환경에 `tesseract-ocr` 및 `tesseract-ocr-kor` 시스템 패키지와 파이썬의 `pytesseract` 라이브러리가 필요합니다)
 
-## [General Solution] AI OMR용 마스킹 최적화
-이미지 PDF 처리 시 기존에는 가사를 하얀색 박스로 지우는 과정(masking)을 거쳤으나, 이는 악보 기호(오선, 음표 등)까지 파괴하는 문제가 있었습니다. 
-- **해결책**: AI OMR(homr 등)은 딥러닝 기반으로 학습되어 가사가 존재하더라도 악보 기호를 구분할 수 있습니다. 따라서 사용자가 `AI OMR`을 엔진으로 선택한 경우, 이미지 PDF에서 하얀색 마스킹 과정을 생략하고 원본(`original.pdf`)을 그대로 `clean_score.pdf`로 복사하여 전달하도록 개선되었습니다.
+## [General Solution] 스캔/이미지 PDF의 수동 마스킹 영구 삭제 방식 도입
+- **문제점**: 텍스트가 없는 스캔 이미지 기반 PDF를 처리할 때, 사용자가 UI에서 가사를 지우기 위해 분홍색 박스(수동 마스킹)를 쳐도 Audiveris가 렌더링한 이미지에서는 가사가 그대로 남아있는 문제가 있었습니다. PyMuPDF의 `draw_rect`(하얀 벡터 사각형 그리기)를 사용하면, 원본 이미지 레이어 위에 그려지긴 하지만 백엔드(Audiveris) 렌더러가 이를 무시하거나 이미지 뒤로 숨겨버려 악보 인식을 망가뜨리는 원인이 되었습니다.
+- **해결책**: 수동 마스킹 영역을 처리할 때 단순한 그리기(`draw_rect`) 대신 정식 리덕션 방식인 `add_redact_annot(..., fill=(1,1,1))` 후 `apply_redactions()`를 일괄 호출하도록 `mask_pdf.py`를 변경했습니다. 이 방식은 백그라운드 이미지의 픽셀 자체를 오려내고(지우고) 해당 영역을 흰색으로 영구적으로 덮어씌웁니다. 
+- 결과적으로 벡터 텍스트가 있든 없든(Image/Vector PDF 불문), 수동으로 지정한 모든 영역의 픽셀 정보가 완전히 삭제된 상태로 `clean_score_only.pdf`가 생성되므로 Audiveris의 인식 오류(Bar line 오인 등)가 근본적으로 차단됩니다.

@@ -21,3 +21,4 @@
 - **문제점**: 텍스트가 없는 스캔 이미지 기반 PDF를 처리할 때, 사용자가 UI에서 가사를 지우기 위해 분홍색 박스(수동 마스킹)를 쳐도 Audiveris가 렌더링한 이미지에서는 가사가 그대로 남아있는 문제가 있었습니다. PyMuPDF의 `draw_rect`(하얀 벡터 사각형 그리기)를 사용하면, 원본 이미지 레이어 위에 그려지긴 하지만 백엔드(Audiveris) 렌더러가 이를 무시하거나 이미지 뒤로 숨겨버려 악보 인식을 망가뜨리는 원인이 되었습니다.
 - **해결책**: 수동 마스킹 영역을 처리할 때 단순한 그리기(`draw_rect`) 대신 정식 리덕션 방식인 `add_redact_annot(..., fill=(1,1,1))` 후 `apply_redactions()`를 일괄 호출하도록 `mask_pdf.py`를 변경했습니다. 이 방식은 백그라운드 이미지의 픽셀 자체를 오려내고(지우고) 해당 영역을 흰색으로 영구적으로 덮어씌웁니다. 
 - 결과적으로 벡터 텍스트가 있든 없든(Image/Vector PDF 불문), 수동으로 지정한 모든 영역의 픽셀 정보가 완전히 삭제된 상태로 `clean_score_only.pdf`가 생성되므로 Audiveris의 인식 오류(Bar line 오인 등)가 근본적으로 차단됩니다.
+- **Image PDF 통합 마스킹 적용 (General Solution)**: 기존에는 Image PDF의 경우 `image_pdf_processor.py mask`라는 별도 로직을 타면서 수동 마스킹(Pink Box) 데이터(`ocr_data.json`)가 누락되는 버그가 있었습니다. 현재는 모든 Image/Vector 파이프라인에서 수동 박스 정보가 담긴 `ocr_data.json`과 원본 PDF를 받아 `mask_pdf.py` 하나로 통일되게 마스킹하도록 변경했습니다. 이를 통해 스캔본 이미지라도 사용자가 핑크 박스를 친 영역은 완벽하게 리덕션 처리되어 Audiveris 엔진으로 넘어갑니다.

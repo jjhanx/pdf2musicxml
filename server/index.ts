@@ -3543,6 +3543,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         for (const pageData of extracted) {
           const pageNum = pageData.page + 1; // 1-indexed for frontend
           for (const item of (pageData.text_elements || [])) {
+            const textRaw = (item.raw_text || '').trim();
+            if (!textRaw) continue;
+            if (textRaw === 'C') continue;
+            if (/^[\d\s/]+$/.test(textRaw)) continue; // numbers/time sigs
+            const lower = textRaw.toLowerCase();
+            const dynamics = new Set(["p", "mp", "mf", "f", "ff", "fff", "sfz", "cresc", "cresc.", "dim", "dim.", "rit", "rit.", "a tempo"]);
+            if (dynamics.has(lower)) continue;
+
             reviewItems.push({
               page: pageNum,
               type: 'text',
@@ -3616,16 +3624,22 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           total: 2,
           detail: '추출된 텍스트 영역 마스킹 중…',
         });
-        console.log(`[job ${jobId}] Running image_pdf_processor.py mask`);
+        console.log(`[job ${jobId}] Running mask_pdf.py for image_pdf`);
         
-        try {
-          await exec(
-            `"${pythonBin}" "${scriptImageProcessor}" mask "${inputPdfPath}" "${extractedJsonPath}" "${cleanScorePath}"`
-          );
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          await fail({ status: 500, error: '마스킹 실패', detail: msg });
-          return;
+        if (fsSync.existsSync(ocrJsonPath)) {
+          try {
+            const scriptMask = path.join(__dirname, '..', 'scripts', 'mask_pdf.py');
+            await exec(
+              `"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${cleanScorePath}" "${ocrJsonPath}"`
+            );
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            await fail({ status: 500, error: '마스킹 실패', detail: msg });
+            return;
+          }
+        } else {
+          console.log(`[job ${jobId}] ${ocrJsonPath} not found. Proceeding without masking.`);
+          await fs.copyFile(inputPdfPath, cleanScorePath);
         }
       }
       

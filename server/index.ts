@@ -6390,10 +6390,7 @@ app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res)
       return;
     }
 
-    const reviewSavePath =
-      job.pipelineMode === 'font_separator'
-        ? path.join(job.sessionRoot, 'ocr_data_pymupdf.json')
-        : path.join(job.sessionRoot, 'ocr_data.json');
+    const reviewSavePath = path.join(job.sessionRoot, 'ocr_data_pymupdf.json');
     await fs.writeFile(reviewSavePath, JSON.stringify(items, null, 2), 'utf8');
     await mergeOcrMetaTranspose(job.sessionRoot, transposeSemitones);
 

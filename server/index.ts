@@ -4056,6 +4056,22 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     }
 
     if (outputs.length === 0) {
+      let extraDetail = '';
+      if (activeOmrEngine === 'audiveris') {
+        const logPath = path.join(job.sessionRoot, 'audiveris-out', 'omr_engine.log');
+        if (fsSync.existsSync(logPath)) {
+          try {
+            const logContent = fsSync.readFileSync(logPath, 'utf8');
+            const match = logContent.match(/WARN\s+\[.*#(\d+)\]\s+Book\s+\d+\s+\|\s+Error processing stub/);
+            if (match) {
+              extraDetail = `\n\n🚨 [자동 분석 알림]: OMR 엔진이 **${match[1]}페이지**를 분석하던 중 복잡한 악보 기호(이음줄 등)로 인해 내부 치명적 오류(Error processing stub)가 발생하여 중단되었습니다. 이 페이지는 Audiveris 엔진의 한계로 처리가 불가능합니다. 디버그 ZIP을 다운로드한 후, Audiveris PC 프로그램으로 .omr 파일을 열어 ${match[1]}페이지의 문제가 되는 기호를 삭제하거나 해당 페이지를 제외한 뒤 수동으로 .mxl을 추출하세요. 그 후 [4단계]를 통해 업로드해 주세요.`;
+            }
+          } catch (e) {
+            console.error('Error reading omr_engine.log:', e);
+          }
+        }
+      }
+
       await fail({
         status: 422,
         error:
@@ -4073,7 +4089,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             ? pdftomusicFailureDetail()
             : activeOmrEngine === 'ai'
               ? aiOmrFailureDetail()
-              : 'Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.',
+              : ('Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.' + extraDetail),
       });
       return;
     }

@@ -68,14 +68,14 @@ def _env_falsy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("0", "false", "no", "off")
 
 
-def _apply_page_redactions(page: fitz.Page) -> bool:
+def _apply_page_redactions(page: fitz.Page, img_redact: int = 0) -> bool:
     """
     PyMuPDF `Page.apply_redactions` 기본 인자값이 images=PIXELS(2), graphics=IF_COVERED(1), text=REMOVE(0) 입니다.
 
     kwargs를 부분만 넘기면 graphics/images가 위 기본으로 남아 **리덕 사각형과 맞닿은 오선·벡터 음표**가 깎일 수 있습니다.
     성공 가능한 모든 경로에서 **항상 images·graphics·text를 세트로 고정**(벡터/이미지 무시·텍스트만 리덕)합니다.
     """
-    img = int(_PDF_REDACT_IMAGE_NONE)
+    img = int(img_redact)
     gra = int(_PDF_REDACT_LINE_ART_NONE)
     txt = int(_PDF_REDACT_TEXT_REMOVE)
     safe_kw: dict[str, int] = {"images": img, "graphics": gra, "text": txt}
@@ -881,7 +881,9 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                     white_rects.setdefault(page_idx, []).append(rect)
                 continue
 
-            if use_text_redact and _rect_has_vector_text(page, rect):
+            if not lyric_selective:
+                redact_rects.setdefault(page_idx, []).append(rect)
+            elif use_text_redact and _rect_has_vector_text(page, rect):
                 redact_rects.setdefault(page_idx, []).append(rect)
             else:
                 white_rects.setdefault(page_idx, []).append(rect)
@@ -1050,7 +1052,8 @@ def mask_pdf(pdf_in, pdf_out, json_path):
 
             rects_fallback = redact_rects.get(pidx, []) or [] if first_pass else []
 
-            if not _apply_page_redactions(page):
+            img_r = 0 if lyric_selective else getattr(fitz, "PDF_REDACT_IMAGE_PIXELS", 2)
+            if not _apply_page_redactions(page, img_redact=img_r):
                 print(
                     "[mask_pdf] warn: apply_redactions unsupported; "
                     "falling back to white rectangles (may hide noteheads). "

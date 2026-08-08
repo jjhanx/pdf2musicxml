@@ -227,7 +227,9 @@ function parseManualRectsFromUnknown(zones: unknown): ManualLyricBBox[] {
     const n2 = Number(bb[2]);
     const n3 = Number(bb[3]);
     if (![n0, n1, n2, n3].every((x) => Number.isFinite(x))) continue;
-    out.push({ page: Math.floor(page), bbox: [n0, n1, n2, n3] });
+    const textObj = (z as { text?: unknown }).text;
+    const text = typeof textObj === 'string' ? textObj : undefined;
+    out.push({ page: Math.floor(page), bbox: [n0, n1, n2, n3], ...(text !== undefined && { text }) });
   }
   return out;
 }

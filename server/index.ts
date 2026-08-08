@@ -3626,11 +3626,11 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         });
         console.log(`[job ${jobId}] Running mask_pdf.py for image_pdf`);
         
-        if (fsSync.existsSync(ocrJsonPath)) {
+        if (fsSync.existsSync(extractedJsonPath)) {
           try {
             const scriptMask = path.join(__dirname, '..', 'scripts', 'mask_pdf.py');
             await exec(
-              `"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${cleanScorePath}" "${ocrJsonPath}"`
+              `"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${cleanScorePath}" "${extractedJsonPath}"`
             );
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -3638,7 +3638,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             return;
           }
         } else {
-          console.log(`[job ${jobId}] ${ocrJsonPath} not found. Proceeding without masking.`);
+          console.log(`[job ${jobId}] ${extractedJsonPath} not found. Proceeding without masking.`);
           await fs.copyFile(inputPdfPath, cleanScorePath);
         }
       }

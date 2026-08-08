@@ -3586,7 +3586,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           p.text_elements = [];
         }
         for (const item of updatedItems) {
-          if (item.type !== 'text') continue;
+          if (item.type !== 'text') {
+            if (item.type === '_manual_lyric_mask') {
+              extracted.push(item);
+            }
+            continue;
+          }
           const pageIdx = item.page - 1;
           if (!extractedByPage.has(pageIdx)) {
             const newPageData = { page: pageIdx, text_elements: [] };

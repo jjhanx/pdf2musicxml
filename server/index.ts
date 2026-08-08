@@ -3635,7 +3635,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           try {
             const scriptMask = path.join(__dirname, '..', 'scripts', 'mask_pdf.py');
             await exec(
-              `"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${cleanScorePath}" "${extractedJsonPath}"`
+              `"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${cleanScorePath}" "${extractedJsonPath}"`,
+              {
+                env: {
+                  ...process.env,
+                  MASK_PDF_LYRIC_SELECTIVE: '0',
+                  MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK: '0',
+                }
+              }
             );
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

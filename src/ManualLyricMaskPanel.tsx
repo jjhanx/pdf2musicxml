@@ -857,16 +857,16 @@ export function ManualLyricMaskPanel(props: Props) {
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
             {value.map((rect, idx) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#880e4f', minWidth: '30px' }}>
+              <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#880e4f', minWidth: '30px', marginTop: '4px' }}>
                   #{idx + 1}
                 </span>
-                <span style={{ fontSize: '0.75rem', color: '#999' }}>p.{rect.page}</span>
-                <input
-                  type="text"
+                <span style={{ fontSize: '0.75rem', color: '#999', marginTop: '4px' }}>p.{rect.page}</span>
+                <textarea
                   value={rect.text || ''}
                   placeholder="가사 텍스트..."
-                  style={{ flex: 1, padding: '4px 6px', fontSize: '0.85rem' }}
+                  rows={2}
+                  style={{ flex: 1, padding: '4px 6px', fontSize: '0.85rem', resize: 'vertical' }}
                   onChange={(e) => {
                     const next = [...value];
                     next[idx] = { ...next[idx], text: e.target.value };
@@ -887,7 +887,8 @@ export function ManualLyricMaskPanel(props: Props) {
                     borderRadius: '4px',
                     padding: '4px 8px',
                     fontSize: '0.8rem',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    marginTop: '2px'
                   }}
                 >
                   지우기

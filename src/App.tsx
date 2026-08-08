@@ -2658,7 +2658,8 @@ bash scripts/install-font-separator-deps.sh`}
               공백·하이픈이 <em>없으면</em> OCR 줄 전체가 <strong>음표 하나</strong>에 붙습니다(예: <code>주님의</code>, <code>hello</code>). 음표마다 나누려면 <strong>공백</strong>으로 구분하세요(예: <code>주 님 의</code>).<br/>
               <strong>파트·가사 절·멜로디 줄:</strong> <strong>파트 순번</strong>은 MusicXML의 몇 번째 악기/성부인지(1=첫 파트)입니다. <strong>가사 절</strong>(1절·2절…)은 같은 멜로디에 붙는 <strong>서로 다른 가사 줄</strong>이며, 병합 시 같은 음표에 <code>lyric number=&quot;1&quot;</code>, <code>&quot;2&quot;</code>…로 나뉩니다. <strong>멜로디 줄(voice)</strong>은 같은 마디에서 <strong>동시에 울리는 서로 다른 선율</strong>(성부 2줄 등)에 쓰는 MusicXML <code>&lt;voice&gt;</code>이며 <em>1절/2절과 다릅니다</em>. 한 줄만 있는 성부는 보통 멜로디 줄 1과 가사 절만 쓰면 됩니다. 피아노·2멜로디 한 파트면 <strong>전체 순서 (*)</strong> 또는 해당 <code>&lt;voice&gt;</code> 번호를 지정하세요. 가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 <code> - </code>(빈 칸)을 쓰세요.<br/>
               <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다. <strong>마디 번호</strong>·<strong>페이지 번호</strong>는 가사 주입에서 제외됩니다(PDF p.는 각 줄 옆에 표시).<br/>
-              <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다. 수동 가사 지우기 영역은 백업·임시 저장에 포함됩니다.</em>
+              <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다. 수동 가사 지우기 영역은 백업·임시 저장에 포함됩니다.</em><br/>
+              <strong>🚨 경고:</strong> 이미지 PDF 모드에서 가사 지우기(핑크색 박스)는 <strong>PDF의 픽셀을 물리적으로 하얗게 지웁니다.</strong> 오선표(Stave), 음자리표, 박자표, 세로줄 등을 실수로 함께 덮어서 지워버리면, 다음 단계에서 악보 인식 엔진(Audiveris)이 악보 구조를 파악하지 못해 치명적인 <strong>'변환 실패(Exception in export)'</strong> 에러를 발생시킵니다. 박스를 그릴 때 절대 악보 기호를 건드리지 않도록 주의하세요!
             </div>
 
             {reviewingJobId ? (

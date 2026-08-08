@@ -887,7 +887,7 @@ def mask_pdf(pdf_in, pdf_out, json_path):
                 white_rects.setdefault(page_idx, []).append(rect)
 
         # 사용자가 검토 UI에서 직사각형으로 지정한 영역: bbox 안 글림만 선택 리덕, MUSIC_SAFE 생략 없음.
-        if lyric_selective and not _env_falsy("MASK_PDF_MANUAL_LYRIC_MASK"):
+        if not _env_falsy("MASK_PDF_MANUAL_LYRIC_MASK"):
             specs: list[tuple[int, fitz.Rect]] = []
             for item in data:
                 if item.get("type") != "_manual_lyric_mask":

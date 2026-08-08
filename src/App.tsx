@@ -1668,7 +1668,7 @@ export default function App() {
         <h1>PDF → MusicXML</h1>
         <p className="sub">
           mxlplayer와 동일하게 <strong>Vite + React + TypeScript</strong>입니다. 악보 인식은{' '}
-          <strong>AI OMR (권장) 또는 Audiveris</strong>로 <code>clean_score_only.pdf</code>를 MusicXML로 변환하고, 검증된
+          <strong>Audiveris</strong>로 <code>clean_score_only.pdf</code>를 MusicXML로 변환하고, 검증된
           가사(<code>inject_ocr.py</code>)를 병합합니다. 결과는 표준 <code>.mxl</code> /
           <code>.musicxml</code> 이라 mxlplayer의 업로드(.xml / .musicxml / .mxl)와 호환됩니다.
         </p>
@@ -2025,19 +2025,6 @@ export default function App() {
             <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #444', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#fff', marginBottom: '0.25rem' }}>고급 설정</span>
               {(startStage === 'full' || startStage === 'clean_score') && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '0.9rem', color: '#ddd' }}>OMR 엔진:</span>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    
-                    AI OMR (최신, 권장)
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
-                    
-                    Audiveris
-                  </label>
-                </div>
-              )}
-              {(startStage === 'full' || startStage === 'clean_score') && (
                 <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', color: '#ddd' }}>
                   <input type="checkbox" checked={pauseAfterAudiveris} onChange={(e) => setPauseAfterAudiveris(e.target.checked)} disabled={busy} />
                   OMR 직후 멈춤 (MXL 다운로드·조옮김·교체 후 이어하기)
@@ -2125,8 +2112,6 @@ export default function App() {
             <>
               {health.omrEngine === 'pdftomusic' ? (
                 <>PDFtoMusic Pro(p2mp)가 준비되지 않았습니다.</>
-              ) : health.omrEngine === 'ai' ? (
-                <>AI OMR 엔진이 준비되지 않았습니다.</>
               ) : (
                 <>Audiveris가 준비되지 않았습니다.</>
               )}

@@ -47,7 +47,7 @@ export interface OmrRunResult {
 export function resolveOmrEngine(): OmrEngineId {
   const raw = (process.env.OMR_ENGINE || 'audiveris').trim().toLowerCase();
   if (raw === 'pdftomusic') return 'pdftomusic';
-  if (raw === 'ai') return 'ai';
+  
   return 'audiveris';
 }
 

@@ -3757,8 +3757,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             : 'PDFtoMusic Pro 악보 인식 중…'
           : activeOmrEngine === 'ai'
             ? audiverisInput?.kind === 'clean_score'
-              ? 'clean_score_only.pdf → AI OMR 인식 중…'
-              : 'AI OMR 인식 중…'
+              ? 'clean_score_only.pdf → Audiveris 인식 중…'
+              : 'Audiveris 인식 중…'
             : audiverisInput?.kind === 'clean_score'
               ? 'clean_score_only.pdf → Audiveris 악보 인식 중…'
               : 'Audiveris 악보 인식 중…',
@@ -3787,7 +3787,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
               activeOmrEngine === 'pdftomusic'
                 ? 'PDFtoMusic Pro 처리'
                 : activeOmrEngine === 'ai'
-                  ? 'AI OMR 처리'
+                  ? 'Audiveris 처리'
                   : 'Audiveris 처리',
           });
         }

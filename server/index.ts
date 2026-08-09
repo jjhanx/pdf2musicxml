@@ -2260,8 +2260,10 @@ function resolveLyricReviewPdfPath(job: JobRecord): string | null {
   if (job.inputPdfPath && fsSync.existsSync(job.inputPdfPath)) {
     candidates.push(job.inputPdfPath);
   }
+  const sessionDeskewed = path.join(job.sessionRoot, 'deskewed.pdf');
   const sessionInput = path.join(job.sessionRoot, 'input.pdf');
   const sessionOriginal = path.join(job.sessionRoot, 'original.pdf');
+  if (fsSync.existsSync(sessionDeskewed)) candidates.push(sessionDeskewed);
   if (fsSync.existsSync(sessionInput)) candidates.push(sessionInput);
   if (fsSync.existsSync(sessionOriginal)) candidates.push(sessionOriginal);
   const lyricSource = candidates.find((p) => !isCleanScorePdfPath(job, p));

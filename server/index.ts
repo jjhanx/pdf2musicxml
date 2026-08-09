@@ -16,7 +16,7 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execCallback);
 
-/** fix_audiveris_mxl ??리듬 duration 변경�? 기본 off(OMR ?��?). */
+/** fix_audiveris_mxl — 리듬 duration 변경은 기본 off(OMR 유지). */
 function pythonMxlFixEnv(sessionRoot?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -70,7 +70,7 @@ import {
 
 const PORT = Number(process.env.PORT || 8787);
 
-/** ?�료·?�패 처리 ?�점부?????�간??지?�면 ?�업 ?�코?��?(?�요 ?? ?�시 ?�일????��?�니?? */
+/** 완료·실패 처리 시점부터 이 시간이 지나면 작업 레코드와(필요 시) 임시 파일을 삭제합니다. */
 const JOB_RETENTION_MS = 24 * 60 * 60 * 1000;
 const JOB_RETENTION_HOURS = JOB_RETENTION_MS / (60 * 60 * 1000);
 const PURGE_INTERVAL_MS = 15 * 60 * 1000;
@@ -163,10 +163,10 @@ const FONT_SEPARATOR_PY_MODULES = ['pikepdf', 'pdfplumber'] as const;
 
 function fontSeparatorDepsInstallHint(pythonBin: string): string {
   return `"${pythonBin}" -m pip install -r requirements.txt` +
-    ' (?�는 pip install pikepdf pdfplumber). Linux?�서 pikepdf 빌드 ?�패 ??libqpdf-dev ??QPDF 개발 ?�키지가 ?�요?????�습?�다.';
+    ' (또는 pip install pikepdf pdfplumber). Linux에서 pikepdf 빌드 실패 시 libqpdf-dev 등 QPDF 개발 패키지가 필요할 수 있습니다.';
 }
 
-/** font_separator ?�이?�라?�용 pdfplumber·pikepdf import 가???��? */
+/** font_separator 파이프라인용 pdfplumber·pikepdf import 가능 여부 */
 async function probeFontSeparatorDeps(pythonBin: string): Promise<{
   ok: boolean;
   pythonBin: string;
@@ -220,8 +220,8 @@ function isMissingPythonModuleError(msg: string, module: string): boolean {
 function formatFontSeparatorDepsError(depCheck: { missing: string[]; pythonBin: string }): JobErrorPayload {
   return {
     status: 503,
-    error: '?�트 분리 ?�이?�라??Python ?�키지가 ?�치?�어 ?��? ?�습?�다',
-    detail: `?�락 모듈: ${depCheck.missing.join(', ')}. Python: ${depCheck.pythonBin}. ?�치: ${fontSeparatorDepsInstallHint(depCheck.pythonBin)}`,
+    error: '폰트 분리 파이프라인 Python 패키지가 설치되어 있지 않습니다',
+    detail: `누락 모듈: ${depCheck.missing.join(', ')}. Python: ${depCheck.pythonBin}. 설치: ${fontSeparatorDepsInstallHint(depCheck.pythonBin)}`,
   };
 }
 
@@ -381,11 +381,11 @@ app.get('/api/health', async (_req, res) => {
     audiverisLegacyEngine: omr.engine === 'audiveris',
     jobRetentionHours: JOB_RETENTION_HOURS,
     jobRetentionNote:
-      '변???�료 ?�는 ?�패 처리 ???�버??보�??�는 ?�업·?�일?� 24?�간??지?�면 ?�동?�로 ??��?�니?? ?�료 직후 ?�운로드�?받아??같�? jobId�?마스?�·인???��? API??TTL ?�까지 ?�용?????�습?�다.',
+      '변환 완료 또는 실패 처리 후 서버에 보관되는 작업·파일은 24시간이 지나면 자동으로 삭제됩니다. 완료 직후 다운로드를 받아도 같은 jobId로 마스킹·인식 점검 API는 TTL 전까지 사용할 수 있습니다.',
   });
 });
 
-/** Audiveris 공식 ?�트 ?�계 ?�름 목록 (?�계�??�버�?UI·?�구??. */
+/** Audiveris 공식 시트 단계 이름 목록 (단계별 디버깅 UI·도구용). */
 app.get('/api/audiveris-sheet-steps', (_req, res) => {
   res.json({ steps: [...AUDIVERIS_SHEET_STEPS] });
 });
@@ -409,7 +409,7 @@ type JobProgressPhase = 'upload' | 'separator' | 'audiveris' | 'hitl';
 
 type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator' | 'image_pdf' | 'auto';
 
-/** 같�? PDF 반복 ?�업 ??중간 ?�계부???�작 */
+/** 같은 PDF 반복 작업 시 중간 단계부터 시작 */
 type StartStage = 'full' | 'clean_score' | 'omr_hitl' | 'lyric_inject';
 
 type JobProgress = {
@@ -430,7 +430,7 @@ type JobResult =
       kind: 'zip';
       finalOutputs: string[];
       isDebug: boolean;
-      /** ?�버�?ZIP???�로???�본 PDF�??�함????*/
+      /** 디버그 ZIP에 업로드 원본 PDF를 포함할 때 */
       uploadedPdfPath?: string;
       uploadedPdfZipName?: string;
       zipName: string;
@@ -449,40 +449,40 @@ type JobRecord = {
   status: JobStatus;
   sessionRoot: string;
   originalName: string;
-  /** ?�로?��? ?�나�??�정?�며, �???executeJob???�행?�니?? */
+  /** 업로드가 끝나면 설정되며, 그 후 executeJob이 실행됩니다. */
   inputPdfPath?: string;
   isDebug: boolean;
   createdAt: number;
-  /** 변?�이 ?�난 ?�점(?�공 ?�는 최종 ?�패 ?�정). TTL 기�?. */
+  /** 변환이 끝난 시점(성공 또는 최종 실패 판정). TTL 기준. */
   finishedAt?: number;
   error?: JobErrorPayload;
   result?: JobResult;
-  /** UI·?�링??진행�?(?�로?? Audiveris ?�계) */
+  /** UI·폴링용 진행률 (업로드, Audiveris 단계) */
   progress?: JobProgress;
-  /** Audiveris 로그?�서 추출???�체 ?�이지/?????�트 */
+  /** Audiveris 로그에서 추출한 전체 페이지/장 수 힌트 */
   pdfPageCount?: number;
   reviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   reviewData?: any;
-  /** font_separator: OMR·HITL ?�후 가??검�?UI (?�본 PDF 미리보기) */
+  /** font_separator: OMR·HITL 이후 가사 검증 UI (원본 PDF 미리보기) */
   reviewAfterOmr?: boolean;
-  /** OMR·HITL ??가??검�???manifest·1?�계 ?�집 ?��?(초기 추출�???? ?�음) */
+  /** OMR·HITL 후 가사 검증 — manifest·1단계 편집 유지(초기 추출로 덮지 않음) */
   reviewPreservesEdits?: boolean;
-  /** omr-work.zip?�서 가?�온 가??검�?JSON???�션???�음 */
+  /** omr-work.zip에서 가져온 가사 검증 JSON이 세션에 있음 */
   hasSavedLyricReview?: boolean;
-  /** Audiveris 직후 보정 ?�계??*/
+  /** Audiveris 직후 보정 단계용 */
   pauseAfterAudiveris?: boolean;
   preInjectMxlPaths?: string[];
   audiverisReviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   injectMxlPathsOverride?: string[];
-  /** 변???�이?�라?? ?�트 분리(권장) · PyMuPDF 마스??· Audiveris�?*/
+  /** 변환 파이프라인: 폰트 분리(권장) · PyMuPDF 마스킹 · Audiveris만 */
   pipelineMode?: PipelineMode;
     imagePdfOmrEngine?: string;
   skipPaddleOcr?: boolean;
-  /** font_separator 모드?�서 PyMuPDF 가??검�?UI ?�용 */
+  /** font_separator 모드에서 PyMuPDF 가사 검증 UI 사용 */
   enablePymupdfReview?: boolean;
-  /** Audiveris 직후 ?�이지×staff MXL lint HITL (기본 켜짐) */
+  /** Audiveris 직후 페이지×staff MXL lint HITL (기본 켜짐) */
   enableOmrStaffReview?: boolean;
-  /** full=?�본 PDF, clean_score=clean_score+가?? omr_hitl=ZIP+가?? lyric_inject=ZIP(MXL)+가??JSON */
+  /** full=원본 PDF, clean_score=clean_score+가사, omr_hitl=ZIP+가사, lyric_inject=ZIP(MXL)+가사 JSON */
   startStage?: StartStage;
   resumeCleanScorePath?: string;
   resumeLyricManifestPath?: string;
@@ -490,7 +490,7 @@ type JobRecord = {
   resumeCorrectedMxlPath?: string;
   omrStaffReviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   partLabelsDeferred?: { resolve: () => void; reject: (err: Error) => void };
-  /** ?��? ?�벨 ?�정 직후 메모�?보�?(?�일 ?�기 ?�패 ??lint relabel?? */
+  /** 성부 라벨 확정 직후 메모리 보관(파일 읽기 실패 시 lint relabel용) */
   partLabelsByIndex?: string[];
   fontStripDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripStats?: Record<string, unknown>;
@@ -500,7 +500,7 @@ type JobRecord = {
   cleanScorePreviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   cleanScorePreviewAction?: 'continue' | 'redo_font_strip';
   lyricManifestSaveDeferred?: { resolve: () => void; reject: (err: Error) => void };
-  /** ?�용???�로???�본 PDF ?�시 ?�름(MXL·ZIP ?�운로드 기본�? */
+  /** 사용자 업로드 원본 PDF 표시 이름(MXL·ZIP 다운로드 기본값) */
   sourcePdfDisplayName?: string;
 };
 
@@ -671,7 +671,7 @@ function sessionHitlBaselineMxlPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'omr_hitl_baseline.mxl');
 }
 
-/** HITL ?�션 `review.mxl` ??export·?�개·미리보기 canonical 복사�?*/
+/** HITL 세션 `review.mxl` — export·재개·미리보기 canonical 복사본 */
 function sessionReviewMxlPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'review.mxl');
 }
@@ -715,7 +715,7 @@ type OmrHitlCheckpoint = {
   hitlSkipped?: number;
   pendingCleared?: number;
   totalHitlApplied?: number;
-  /** baseline???�용??교정(HITL 보정·?�동 ?�리·?�동 ?�집�????�겨 ?�음 ??raw 롤백 금�? */
+  /** baseline에 사용자 교정(HITL 보정·자동 정리·수동 편집본)이 담겨 있음 — raw 롤백 금지 */
   baselineOwnsEdits?: boolean;
 };
 
@@ -788,7 +788,7 @@ async function runOmrHitlAutoNormalize(
     await writeOmrHitlFixes(sessionRoot, []);
   }
   await saveHitlBaseline(sessionRoot, scorePath);
-  // ?�동 ?�리 결과·?�진??보정?� baseline?�만 ?�는?????�음 ?�기?��? raw�??�돌리�? ?�도�?기록
+  // 자동 정리 결과·소진한 보정은 baseline에만 남는다 — 다음 동기화가 raw로 되돌리지 않도록 기록
   const prior = await readOmrHitlCheckpoint(sessionRoot);
   await writeOmrHitlCheckpoint(sessionRoot, {
     syncMode: 'auto-normalize',
@@ -814,7 +814,7 @@ async function ensureAudiverisRawBackup(scorePath: string, sessionRoot: string):
   await fs.copyFile(scorePath, rawPath);
 }
 
-/** HITL·검?�용 MXL???�션 `audiveris_raw.mxl`�??�일?�게 맞춤(?�처�?�baseline ?�염 ?�거). */
+/** HITL·검토용 MXL을 세션 `audiveris_raw.mxl`과 동일하게 맞춤(후처리·baseline 오염 제거). */
 async function restoreScoreFileFromAudiverisRaw(
   sessionRoot: string,
   scorePath: string,
@@ -951,7 +951,7 @@ async function syncOmrReviewMxl(
   };
 }
 
-/** @deprecated alias ??syncOmrReviewMxl ?�용 */
+/** @deprecated alias — syncOmrReviewMxl 사용 */
 async function rebuildOmrReviewMxl(
   sessionRoot: string,
   scorePath: string,
@@ -1018,7 +1018,7 @@ function resolvePartLabelsJsonPath(sessionRoot: string): string | null {
   return null;
 }
 
-/** 문자 검??초안�??�을 ??MXL·lint가 preset???�도�?part_labels.json?�로 복사 */
+/** 문자 검토 초안만 있을 때 MXL·lint가 preset을 쓰도록 part_labels.json으로 복사 */
 async function ensurePartLabelsJsonFromPreset(sessionRoot: string): Promise<string | null> {
   const savedPath = sessionPartLabelsPath(sessionRoot);
   if (fsSync.existsSync(savedPath)) return savedPath;
@@ -1033,7 +1033,7 @@ async function ensurePartLabelsJsonFromPreset(sessionRoot: string): Promise<stri
     source: 'part_labels_preset',
   };
   await fs.writeFile(savedPath, JSON.stringify(out, null, 2), 'utf8');
-  console.log(`part_labels: preset ??part_labels.json (${labels.join(', ')})`);
+  console.log(`part_labels: preset → part_labels.json (${labels.join(', ')})`);
   return savedPath;
 }
 
@@ -1127,7 +1127,7 @@ function relabelLintReportStaff(
   };
 }
 
-/** ?�료·보정 ?�기·실???�업�????�션 ?�더??PDF가 ?�아 ?�계 ?�버깅을 ?�릴 ???�는 경우 */
+/** 완료·보정 대기·실패 작업만 — 세션 폴더에 PDF가 남아 단계 디버깅을 돌릴 수 있는 경우 */
 function audiverisStepProbeJobsAllowed(job: JobRecord | undefined): job is JobRecord {
   if (!job?.sessionRoot || !fsSync.existsSync(job.sessionRoot)) return false;
   return (
@@ -1142,7 +1142,7 @@ function audiverisStepProbeJobsAllowed(job: JobRecord | undefined): job is JobRe
 function artifactPathWithinRunRoot(runRoot: string, rel: string): string | null {
   const trimmed = rel.trim();
   if (!trimmed || trimmed.includes('\0')) return null;
-  /* 리터??/ ??/ ?�에??`/` ?�스케?�프가 esbuild?�서 깨�?므�?문자 ?�래?�만 ?�용 */
+  /* 리터럴 / … / 안에서 `/` 이스케이프가 esbuild에서 깨지므로 문자 클래스만 사용 */
   const normalizedRel = path.normalize(trimmed).replace(/^(\.\.[\\/])+/, '');
   const resolved = path.resolve(runRoot, normalizedRel);
   const rootResolved = path.resolve(runRoot);
@@ -1215,7 +1215,7 @@ async function runMxlQualityLintForJob(
   );
   const offset = Number(process.env.MXL_MEASURE_OFFSET_PRINTED ?? '1') || 1;
   if (!fsSync.existsSync(script)) {
-    throw new Error(`mxl_quality_lint.py ?�음: ${script}`);
+    throw new Error(`mxl_quality_lint.py 없음: ${script}`);
   }
   await ensurePartLabelsJsonFromPreset(job.sessionRoot);
   const labelsPath = resolvePartLabelsJsonPath(job.sessionRoot);
@@ -1229,11 +1229,11 @@ async function runMxlQualityLintForJob(
     const e = err as { message?: string; stderr?: string; stdout?: string };
     const tail = [e.stderr, e.stdout].filter(Boolean).join('\n').trim();
     throw new Error(
-      tail ? `${e.message ?? 'mxl_quality_lint ?�패'}\n${tail.slice(-1200)}` : (e.message ?? String(err)),
+      tail ? `${e.message ?? 'mxl_quality_lint 실패'}\n${tail.slice(-1200)}` : (e.message ?? String(err)),
     );
   }
   if (!fsSync.existsSync(outJson)) {
-    throw new Error('mxl_lint.json???�성?��? ?�았?�니??);
+    throw new Error('mxl_lint.json이 생성되지 않았습니다');
   }
   const raw = await fs.readFile(outJson, 'utf8');
   let report = JSON.parse(raw) as Record<string, unknown>;
@@ -1449,9 +1449,9 @@ async function normalizeOmrRestsInScoreFile(
 }
 
 /**
- * HITL ?�집·ZIP 불러?�기???�션 canonical ?�일(`review.mxl`)?�만 ?�적?�다.
- * 검?��? ?�낼 ???��?�?보정??canonical???�진????�?결과�?주입·출력 ?�??MXL�??�돌???�서,
- * 가??병합·최종 ?�운로드가 ??�� 마�?�?교정본을 ?�도�?맞춘??
+ * HITL 편집·ZIP 불러오기는 세션 canonical 파일(`review.mxl`)에만 누적된다.
+ * 검토를 끝낼 때 대기 중 보정을 canonical에 소진한 뒤 그 결과를 주입·출력 대상 MXL로 되돌려 써서,
+ * 가사 병합·최종 다운로드가 항상 마지막 교정본을 쓰도록 맞춘다.
  */
 async function applyOmrHitlFixesForJob(job: JobRecord, pythonBin: string): Promise<void> {
   const paths = job.preInjectMxlPaths?.filter((p) => p && fsSync.existsSync(p)) ?? [];
@@ -1468,7 +1468,7 @@ async function applyOmrHitlFixesForJob(job: JobRecord, pythonBin: string): Promi
   for (const step of steps) {
     if (step.kind === 'copy-canonical') {
       await fs.copyFile(step.from, step.to);
-      console.log(`[omr-hitl] 최종 교정�?review.mxl) ??주입 ?�??반영: ${step.to}`);
+      console.log(`[omr-hitl] 최종 교정본(review.mxl) → 주입 대상 반영: ${step.to}`);
       continue;
     }
     await applyOmrHitlFixesToScoreFile(job.sessionRoot, step.target, pythonBin);
@@ -1534,7 +1534,7 @@ async function applyPartLabelsToScoreFile(
 }
 
 function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {
-  // lyric review ?�계?�서??(OMR 결과) MXL???�을 ???�다: review.mxl / baseline / raw ?�으�??�용
+  // lyric review 단계에서도 (OMR 결과) MXL이 있을 수 있다: review.mxl / baseline / raw 순으로 사용
   if (job.status === 'review_needed') {
     const review = path.join(job.sessionRoot, 'review.mxl');
     if (fsSync.existsSync(review)) return review;
@@ -1590,12 +1590,12 @@ function sessionOcrPymupdfReviewPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'ocr_data_pymupdf.json');
 }
 
-/** omr-work.zip???�함??가??검�??�집(?�어?�기?? */
+/** omr-work.zip에 포함된 가사 검증 편집(이어하기용) */
 function sessionOcrPymupdfSavedPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'ocr_data_pymupdf_saved.json');
 }
 
-/** ?�본 PDF 1�?추출 기�?(?�목·?�곡·가???�체) */
+/** 원본 PDF 1차 추출 기준(제목·작곡·가사 전체) */
 function sessionOcrPymupdfBaselinePath(sessionRoot: string): string {
   return path.join(sessionRoot, 'ocr_data_pymupdf_baseline.json');
 }
@@ -1708,7 +1708,7 @@ function reviewItemsHaveUserEdits(items: unknown[]): boolean {
   return false;
 }
 
-/** 검??UI 구분 기본�???unknown(미분�?미선???� 가?? ?�용?��? 고른 미분류만 ?��? */
+/** 검토 UI 구분 기본값 — unknown(미분류 미선택)은 가사. 사용자가 고른 미분류만 유지 */
 function applyReviewUiDefaultRoles(items: unknown[]): unknown[] {
   return items.map((item) => {
     if (!item || typeof item !== 'object') return item;
@@ -1751,7 +1751,7 @@ async function loadLyricReviewItemsFromManifest(manifestPath: string): Promise<u
   }
 }
 
-/** manifest·1?�계 ?�집�?????��·?��?·bbox·?�동 ?�역 ?��? */
+/** manifest·1단계 편집분 — 역할·성부·bbox·수동 영역 유지 */
 function applyEditedReviewShape(items: unknown[]): unknown[] {
   return items.map((item, i) => {
     if (!item || typeof item !== 'object') return item;
@@ -1909,7 +1909,7 @@ async function restoreOmrWorkPdfsFromExtractDir(
 }
 
 type OmrWorkImportOptions = {
-  /** 가??�PDF???�션 ?�출�??��?, MXL·HITL 보정�?ZIP?�서 가?�옴 (1?�계 + 기존 MXL) */
+  /** 가사·PDF는 세션 산출물 유지, MXL·HITL 보정만 ZIP에서 가져옴 (1단계 + 기존 MXL) */
   mxlOnly?: boolean;
 };
 
@@ -1969,7 +1969,7 @@ async function importOmrWorkFromExtractDir(
   } else if (fsSync.existsSync(sessionHitlBaselineMxlPath(sessionRoot))) {
     await fs.unlink(sessionHitlBaselineMxlPath(sessionRoot)).catch(() => {});
   }
-  // ZIP??baseline??raw?� ?�르�??�용??교정???�긴 �???raw 롤백 금�?(구버??ZIP?� ?�래그�? ?�다)
+  // ZIP의 baseline이 raw와 다르면 사용자 교정이 담긴 것 — raw 롤백 금지(구버전 ZIP은 플래그가 없다)
   if (baselineSrc && rawSrc) {
     try {
       const [baseBuf, rawBuf] = await Promise.all([fs.readFile(baselineSrc), fs.readFile(rawSrc)]);
@@ -1977,7 +1977,7 @@ async function importOmrWorkFromExtractDir(
         await writeOmrHitlCheckpoint(sessionRoot, { baselineOwnsEdits: true });
       }
     } catch {
-      /* 비교 ?�패 ??기존 checkpoint ?��? */
+      /* 비교 실패 시 기존 checkpoint 유지 */
     }
   }
   if (baselineSrc) {
@@ -1987,7 +1987,7 @@ async function importOmrWorkFromExtractDir(
   } else if (rawSrc) {
     await fs.copyFile(rawSrc, scorePath);
   } else {
-    throw new Error('ZIP??review.mxl ?�는 audiveris_raw.mxl???�습?�다');
+    throw new Error('ZIP에 review.mxl 또는 audiveris_raw.mxl이 없습니다');
   }
   let manualEditDetected = false;
   if (reviewSrc) {
@@ -2006,16 +2006,16 @@ async function importOmrWorkFromExtractDir(
     }
   }
 
-  /** ZIP??review.mxl???��??�서 ?�동?�로 변경되?�을 경우(?�는 baseline???�을 경우), ?��? ?�로??baseline?�로 ?�아 ?�동 ?�집 ?�용??보존?�니?? */
+  /** ZIP의 review.mxl이 외부에서 수동으로 변경되었을 경우(또는 baseline이 없을 경우), 이를 새로운 baseline으로 삼아 수동 편집 내용을 보존합니다. */
   if (manualEditDetected && reviewSrc) {
     console.warn(
-      '[omr-work import] review.mxl ?�동 ?�집 감�? (?�는 baseline ?�락) ???��? ?�동 ?�집본을 ?�선?�여 baseline??갱신?�니??,
+      '[omr-work import] review.mxl 수동 편집 감지 (또는 baseline 누락) — 외부 수동 편집본을 우선하여 baseline을 갱신합니다',
     );
-    // ?��? ?�로그램 ?�으�??�작???�집??review.mxl??존재?��?�? ?��? scorePath?� baseline?�로 ??��?�웁?�다.
+    // 외부 프로그램 등으로 수작업 편집된 review.mxl이 존재하므로, 이를 scorePath와 baseline으로 덮어씌웁니다.
     await fs.copyFile(reviewSrc, scorePath);
     await fs.copyFile(reviewSrc, sessionHitlBaselineMxlPath(sessionRoot));
 
-    // syncOmrReviewMxl ?�계?�서 ?�동 ?�집본이 raw_audiveris ?�일�?롤백?�는 것을 방�??�기 ?�해 checkpoint 조작
+    // syncOmrReviewMxl 단계에서 수동 편집본이 raw_audiveris 파일로 롤백되는 것을 방지하기 위해 checkpoint 조작
     const cp = await readOmrHitlCheckpoint(sessionRoot);
     await writeOmrHitlCheckpoint(sessionRoot, {
       syncMode: 'manual-edit-import',
@@ -2023,7 +2023,7 @@ async function importOmrWorkFromExtractDir(
       baselineOwnsEdits: true,
     });
 
-    // ?�동 ?�집??review.mxl??baseline?�로 ?�았?��?�? 기존 fixes가 중복 ?�용?��? ?�도�?초기?�합?�다.
+    // 수동 편집된 review.mxl을 baseline으로 삼았으므로, 기존 fixes가 중복 적용되지 않도록 초기화합니다.
     await writeOmrHitlFixes(sessionRoot, []);
   }
   const fixesAfterImport = await readOmrHitlFixes(sessionRoot);
@@ -2048,7 +2048,7 @@ async function bootstrapFromOmrWorkZip(
     phase: 'hitl',
     current: 0,
     total: 3,
-    detail: 'OMR 검??ZIP ?�축 ?�제 중�?,
+    detail: 'OMR 검토 ZIP 압축 해제 중…',
   });
   const extractDir = path.join(job.sessionRoot, `_omr_work_import_${Date.now()}`);
   await extractZipArchive(zipPath, extractDir, pythonBin);
@@ -2056,7 +2056,7 @@ async function bootstrapFromOmrWorkZip(
     phase: 'hitl',
     current: 1,
     total: 3,
-    detail: '?�?�된 MXL·보정 목록 복원 중�?,
+    detail: '저장된 MXL·보정 목록 복원 중…',
   });
   const base = resolveDownloadBaseName(job);
   const destMxl = path.join(outBase, `${base}.mxl`);
@@ -2077,7 +2077,7 @@ async function bootstrapFromOmrWorkZip(
     phase: 'hitl',
     current: 2,
     total: 3,
-    detail: `OMR 검??ZIP 불러?�기 ?�료 (보정 ${fixCount}�?기록)`,
+    detail: `OMR 검토 ZIP 불러오기 완료 (보정 ${fixCount}건 기록)`,
   });
   return destMxl;
 }
@@ -2119,7 +2119,7 @@ async function enterOmrStaffHitlPhase(
         phase: 'separator',
         current: 0,
         total: 1,
-        detail: '가??검증용 PDF 초기 추출 준�?중�?,
+        detail: '가사 검증용 PDF 초기 추출 준비 중…',
       });
       try {
         await bootstrapLyricReviewAfterOmrZipImport(
@@ -2152,12 +2152,12 @@ async function enterOmrStaffHitlPhase(
     const msg = lintErr instanceof Error ? lintErr.message : String(lintErr);
     console.warn(`[job ${jobId}] mxl_quality_lint failed (continuing): ${msg}`);
   }
-  console.log(`[job ${jobId}] Pausing for OMR staff·page review (HITL)??);
+  console.log(`[job ${jobId}] Pausing for OMR staff·page review (HITL)…`);
   setJobProgress(job, {
     phase: 'hitl',
     current: 1,
     total: 2,
-    detail: 'OMR ?�질 검??HITL) ??PDF·MXL ?�조·마???�집 ?�기�?,
+    detail: 'OMR 품질 검토(HITL) — PDF·MXL 대조·마디 편집 대기…',
   });
   job.status = 'omr_staff_review_needed';
   await new Promise<void>((resolve, reject) => {
@@ -2165,9 +2165,9 @@ async function enterOmrStaffHitlPhase(
   });
   delete job.omrStaffReviewDeferred;
   job.status = 'processing';
-  // 검??종료 경로가 무엇?�든 canonical(review.mxl) 교정본을 주입 ?�?�에 ?�실??반영
+  // 검토 종료 경로가 무엇이든 canonical(review.mxl) 교정본을 주입 대상에 확실히 반영
   await applyOmrHitlFixesForJob(job, pythonBin);
-  console.log(`[job ${jobId}] OMR staff review done, continuing pipeline??);
+  console.log(`[job ${jobId}] OMR staff review done, continuing pipeline…`);
 }
 
 async function runFontSeparatorResumePhase(opts: {
@@ -2213,9 +2213,9 @@ async function runFontSeparatorResumePhase(opts: {
     } else {
       await fail({
         status: 400,
-        error: 'clean_score_only.pdf가 ?�요?�니??,
+        error: 'clean_score_only.pdf가 필요합니다',
         detail:
-          'font_separator 모드?�서 가??검증·OMR ?�계부???�작?�려�??�전??만든 clean_score_only.pdf�??�께 ?�로?�하?�요.',
+          'font_separator 모드에서 가사 검증·OMR 단계부터 시작하려면 이전에 만든 clean_score_only.pdf를 함께 업로드하세요.',
       });
       return false;
     }
@@ -2236,9 +2236,9 @@ async function runFontSeparatorResumePhase(opts: {
     if (!manifestReady) {
       await fail({
         status: 400,
-        error: '분리??가??lyric_manifest.json)가 ?�요?�니??,
+        error: '분리된 가사(lyric_manifest.json)가 필요합니다',
         detail:
-          '2?�계??clean_score_only.pdf?� 1?�계?�서 만든 lyric_manifest.json(?�는 ?�등??가??JSON)???�께 ?�로?�해??최종 MXL??가?��? 주입?????�습?�다.',
+          '2단계는 clean_score_only.pdf와 1단계에서 만든 lyric_manifest.json(또는 동등한 가사 JSON)을 함께 업로드해야 최종 MXL에 가사를 주입할 수 있습니다.',
       });
       return false;
     }
@@ -2254,7 +2254,7 @@ function isCleanScorePdfPath(job: JobRecord, absPath: string): boolean {
   return fsSync.existsSync(clean) && path.resolve(absPath) === path.resolve(clean);
 }
 
-/** 가??검�?UI 미리보기 ???�본(가???�함) PDF ?�선, clean_score_only??최후 */
+/** 가사 검증 UI 미리보기 — 원본(가사 포함) PDF 우선, clean_score_only는 최후 */
 function resolveLyricReviewPdfPath(job: JobRecord): string | null {
   const candidates: string[] = [];
   if (job.inputPdfPath && fsSync.existsSync(job.inputPdfPath)) {
@@ -2276,7 +2276,7 @@ function resolveLyricReviewPdfPath(job: JobRecord): string | null {
   return fallback;
 }
 
-/** ?�로???�본???�션 input.pdf�?고정 ??가??검증·ZIP 복원 경로 ?�일 */
+/** 업로드 원본을 세션 input.pdf로 고정 — 가사 검증·ZIP 복원 경로 통일 */
 async function ensureSessionLyricSourcePdf(job: JobRecord): Promise<void> {
   const dest = path.join(job.sessionRoot, 'input.pdf');
   if (fsSync.existsSync(dest)) return;
@@ -2285,7 +2285,7 @@ async function ensureSessionLyricSourcePdf(job: JobRecord): Promise<void> {
   await fs.copyFile(src, dest).catch(() => {});
 }
 
-/** omr-work.zip만으�??�개????pdfplumber 추출???�으�?병합 ?�패 방�? */
+/** omr-work.zip만으로 재개할 때 pdfplumber 추출이 없으면 병합 실패 방지 */
 async function ensureExtractedMusicTextJson(
   sessionRoot: string,
   opts?: {
@@ -2305,21 +2305,21 @@ async function ensureExtractedMusicTextJson(
         `"${opts.pythonBin}" "${opts.scriptSeparator}" extract "${inputPdf}" "${extractedJsonPath}"`,
       );
       if (fsSync.existsSync(extractedJsonPath)) {
-        console.log('[session] extracted_music_text.json ?�성 (pdfplumber ?�추�?');
+        console.log('[session] extracted_music_text.json 생성 (pdfplumber 재추출)');
         return extractedJsonPath;
       }
     } catch (err) {
-      console.warn('[session] pdfplumber 추출 ?�패 ??�?extracted ?�용', err);
+      console.warn('[session] pdfplumber 추출 실패 — 빈 extracted 사용', err);
     }
   }
   await fs.writeFile(extractedJsonPath, '[]\n', 'utf8');
   console.warn(
-    '[session] extracted_music_text.json ?�음 ??�?배열�??��?(omr-work·PyMuPDF 검??병합)',
+    '[session] extracted_music_text.json 없음 — 빈 배열로 대체 (omr-work·PyMuPDF 검토 병합)',
   );
   return extractedJsonPath;
 }
 
-/** OMR·HITL ??가??검증용 ocr_data_pymupdf.json ???�으�?manifest·?�본 PDF?�서 준�?*/
+/** OMR·HITL 후 가사 검증용 ocr_data_pymupdf.json — 없으면 manifest·원본 PDF에서 준비 */
 async function ensurePymupdfReviewPayload(opts: {
   pymupdfReviewPath: string;
   lyricManifestPath: string;
@@ -2374,7 +2374,7 @@ async function ensurePymupdfReviewPayload(opts: {
   return fsSync.existsSync(pymupdfReviewPath);
 }
 
-/** 검??UI?????��?·?�·건?�뛰�????�람???��? 메�?�??�거 */
+/** 검토 UI용 — 성부·절·건너뛰기 등 사람이 넣은 메타만 제거 */
 function stripLyricReviewMeta(item: unknown): unknown {
   if (!item || typeof item !== 'object') return item;
   const o = { ...(item as Record<string, unknown>) };
@@ -2389,7 +2389,7 @@ function stripLyricReviewMetaList(items: unknown[]): unknown[] {
   return items.map(stripLyricReviewMeta);
 }
 
-/** 검??UI PDF 초기 추출 ??마디·?�이지 번호�??��?, ?�머지 기본 ??�� 가??*/
+/** 검토 UI PDF 초기 추출 — 마디·페이지 번호만 유지, 나머지 기본 역할 가사 */
 function applyBaselineReviewShape(items: unknown[]): unknown[] {
   return items.map((item) => {
     if (!item || typeof item !== 'object') return item;
@@ -2406,7 +2406,7 @@ function applyBaselineReviewShape(items: unknown[]): unknown[] {
   });
 }
 
-/** ?�본 PDF 1�?추출 ??PyMuPDF ?�체 + pdfplumber 가??보강 */
+/** 원본 PDF 1차 추출 — PyMuPDF 전체 + pdfplumber 가사 보강 */
 async function buildInitialLyricReviewItems(opts: {
   sessionRoot: string;
   pdfPath: string;
@@ -2419,8 +2419,8 @@ async function buildInitialLyricReviewItems(opts: {
   const tempPymupdf = path.join(sessionRoot, '_lyric_baseline_pymupdf.json');
 
   await fs.unlink(tempPymupdf).catch(() => {});
-  // NOTE: ?�용?��? "?�본 ?�인 그�?�? 검증을 ?�해 baseline?� PyMuPDF 1�?추출�??�용?�니??
-  // (pdfplumber 병합/보강?� lyric_manifest ?�성 ?�계?�서�??�용)
+  // NOTE: 사용자가 "원본 라인 그대로" 검증을 원해 baseline은 PyMuPDF 1차 추출만 사용합니다.
+  // (pdfplumber 병합/보강은 lyric_manifest 생성 단계에서만 사용)
 
   await exec(`"${pythonBin}" "${scriptExtract}" "${pdfPath}" "${tempPymupdf}"`, {
     maxBuffer: 16 * 1024 * 1024,
@@ -2429,7 +2429,7 @@ async function buildInitialLyricReviewItems(opts: {
   const raw = JSON.parse(await fs.readFile(tempPymupdf, 'utf8')) as unknown;
   await fs.unlink(tempPymupdf).catch(() => {});
   if (!Array.isArray(raw)) {
-    throw new Error('extract_text.py 출력??배열???�닙?�다');
+    throw new Error('extract_text.py 출력이 배열이 아닙니다');
   }
   return applyBaselineReviewShape(stripLyricReviewMetaList(raw));
 }
@@ -2471,7 +2471,7 @@ async function ensureLyricReviewBaseline(opts: {
   return items;
 }
 
-/** omr-work.zip 불러??????가??검증�? PDF 1�?추출 기�??�로 ?�작 */
+/** omr-work.zip 불러온 뒤 — 가사 검증은 PDF 1차 추출 기준으로 시작 */
 async function bootstrapLyricReviewAfterOmrZipImport(
   job: JobRecord,
   pythonBin: string,
@@ -2493,7 +2493,7 @@ async function bootstrapLyricReviewAfterOmrZipImport(
   await activateLyricReviewItems(job.sessionRoot, items);
 }
 
-/** OMR·HITL ??가??검�?UI ???�집??manifest·pymupdf ?�선, ?�으�?PDF 초기 추출 */
+/** OMR·HITL 후 가사 검증 UI — 편집된 manifest·pymupdf 우선, 없으면 PDF 초기 추출 */
 async function preparePostOmrLyricReviewItems(
   job: JobRecord,
   pythonBin: string,
@@ -2565,16 +2565,16 @@ async function preparePostOmrLyricReviewItems(
 async function loadSavedLyricReviewItems(sessionRoot: string): Promise<unknown[]> {
   const savedPath = sessionOcrPymupdfSavedPath(sessionRoot);
   if (!fsSync.existsSync(savedPath)) {
-    throw new Error('ZIP???�?�된 가??검�??�이?��? ?�습?�다');
+    throw new Error('ZIP에 저장된 가사 검증 데이터가 없습니다');
   }
   const raw = JSON.parse(await fs.readFile(savedPath, 'utf8')) as unknown;
   if (!Array.isArray(raw)) {
-    throw new Error('?�?�된 가??검�?JSON??배열???�닙?�다');
+    throw new Error('저장된 가사 검증 JSON이 배열이 아닙니다');
   }
   return raw;
 }
 
-/** Audiveris·?��? UI???�길 PDF ??clean_score > masked > ?�본 ??*/
+/** Audiveris·점검 UI에 넘길 PDF — clean_score > masked > 원본 순 */
 function resolveAudiverisInputPdfPath(job: JobRecord): {
   path: string;
   kind: 'clean_score' | 'masked' | 'original';
@@ -2623,7 +2623,7 @@ function parseAudiverisProgressLine(line: string, pageFallback: number): { curre
     const b = parseInt(slash[2], 10);
     if (b > 0 && a >= 0 && a <= b) return { current: a, total: b };
   }
-  const sheet = line.match(/(?:sheet|page|?�이지)\s*[#:�??\s*(\d+)/i);
+  const sheet = line.match(/(?:sheet|page|페이지)\s*[#:：]?\s*(\d+)/i);
   if (sheet && pageFallback > 0) {
     const n = parseInt(sheet[1], 10);
     if (n > 0) return { current: Math.min(n, pageFallback), total: pageFallback };
@@ -2633,10 +2633,10 @@ function parseAudiverisProgressLine(line: string, pageFallback: number): { curre
 
 function pdftomusicFailureDetail(): string {
   return (
-    'PDFtoMusic Pro(p2mp)가 MXL???�성?��? 못했?�니?? ' +
-    'clean_score_only.pdf가 **벡터 PDF**(?�보 ?�집기에???�보??PDF)?��?, ' +
-    'P2MP_BIN???�바른�? ?�인?�세?? ?�캔/비트�?PDF??PDFtoMusic Pro�?처리?????�습?�다. ' +
-    '?�버�?ZIP??`omr_engine.log`�?검?�하?�요.'
+    'PDFtoMusic Pro(p2mp)가 MXL을 생성하지 못했습니다. ' +
+    'clean_score_only.pdf가 **벡터 PDF**(악보 편집기에서 내보낸 PDF)인지, ' +
+    'P2MP_BIN이 올바른지 확인하세요. 스캔/비트맵 PDF는 PDFtoMusic Pro로 처리할 수 없습니다. ' +
+    '디버그 ZIP의 `omr_engine.log`를 검토하세요.'
   );
 }
 
@@ -2644,18 +2644,18 @@ function aiOmrFailureDetail(): string {
   const backend = (process.env.AI_OMR_BACKEND || 'homr').trim().toLowerCase();
   if (backend === 'homr') {
     return (
-      'homr OMR??MXL???�성?��? 못했?�니?? ?�버 venv?�서 ' +
-      '`pip install -r requirements-ai.txt` ??`homr --init`(?�는 `python scripts/run_homr.py --init`)?�로 가중치�?받았?��? ?�인?�세?? ' +
-      '?�버�?ZIP??`omr_engine.log`�?검?�하?�요.'
+      'homr OMR이 MXL을 생성하지 못했습니다. 서버 venv에서 ' +
+      '`pip install -r requirements-ai.txt` 후 `homr --init`(또는 `python scripts/run_homr.py --init`)으로 가중치를 받았는지 확인하세요. ' +
+      '디버그 ZIP의 `omr_engine.log`를 검토하세요.'
     );
   }
   if (backend === 'tromr') {
     return (
-      'TrOMR(HuggingFace) OMR ?�패. `AI_OMR_MODEL`???�효??공개 체크?�인?�인지 ?�인?�거??' +
-      '`AI_OMR_BACKEND=homr`(기본)�??�환?�세?? ?�버�?ZIP??`omr_engine.log`�?검?�하?�요.'
+      'TrOMR(HuggingFace) OMR 실패. `AI_OMR_MODEL`이 유효한 공개 체크포인트인지 확인하거나 ' +
+      '`AI_OMR_BACKEND=homr`(기본)로 전환하세요. 디버그 ZIP의 `omr_engine.log`를 검토하세요.'
     );
   }
-  return 'AI OMR??MXL???�성?��? 못했?�니?? ?�버�?ZIP??`omr_engine.log`�?검?�하?�요.';
+  return 'AI OMR이 MXL을 생성하지 못했습니다. 디버그 ZIP의 `omr_engine.log`를 검토하세요.';
 }
 
 function tail(s: string, max = 8000): string {
@@ -2917,7 +2917,7 @@ async function writeFontStripConfig(sessionRoot: string, cfg: Record<string, unk
   await fs.writeFile(fontStripConfigPath(sessionRoot), JSON.stringify(cfg, null, 2), 'utf8');
 }
 
-/** scoreTitle??font_strip_config ??lyric_manifest ?�쪽??맞추�?inject??title ??��??갱신 */
+/** scoreTitle을 font_strip_config ↔ lyric_manifest 양쪽에 맞추고 inject용 title 항목을 갱신 */
 async function syncScoreTitlePersistence(sessionRoot: string, manifestPath: string): Promise<void> {
   if (!fsSync.existsSync(manifestPath)) return;
   try {
@@ -3044,7 +3044,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   const wipeSession = () => fs.rm(sessionRoot, { recursive: true, force: true }).catch(() => {});
 
   const fail = async (payload: JobErrorPayload) => {
-    // 24?�간 ??purgeExpiredJobs?�서 ??��?�도�?wipeSession??주석 처리?�여 ?�버�?ZIP ?�운로드가 가?�하�???
+    // 24시간 후 purgeExpiredJobs에서 삭제되도록 wipeSession을 주석 처리하여 디버그 ZIP 다운로드가 가능하게 함
     // await wipeSession();
     job.status = 'failed';
     job.error = payload;
@@ -3055,8 +3055,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
   if (!inputPdfPath && (job.startStage ?? 'full') !== 'omr_hitl' && (job.startStage ?? 'full') !== 'lyric_inject') {
     await fail({
       status: 400,
-      error: '?�력 PDF가 ?�습?�다',
-      detail: '?�본 PDF ?�는 clean_score_only.pdf�??�로?�하?�요.',
+      error: '입력 PDF가 없습니다',
+      detail: '원본 PDF 또는 clean_score_only.pdf를 업로드하세요.',
     });
     return;
   }
@@ -3070,8 +3070,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     if (!aiDeps.ok) {
       await fail({
         status: 503,
-        error: 'AI OMR Python ?�존?�이 ?�습?�다',
-        detail: aiDeps.hint || `?�락: ${aiDeps.missing.join(', ')}`,
+        error: 'AI OMR Python 의존성이 없습니다',
+        detail: aiDeps.hint || `누락: ${aiDeps.missing.join(', ')}`,
       });
       return;
     }
@@ -3080,7 +3080,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     if (!p2mDeps.ok) {
       await fail({
         status: 503,
-        error: 'PDFtoMusic Pro(p2mp)가 준비되지 ?�았?�니??,
+        error: 'PDFtoMusic Pro(p2mp)가 준비되지 않았습니다',
         detail: p2mDeps.hint || p2mpInstallHint(),
       });
       return;
@@ -3112,9 +3112,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       if (!job.resumeOmrWorkZipPath || !fsSync.existsSync(job.resumeOmrWorkZipPath)) {
         await fail({
           status: 400,
-          error: 'OMR 검???�업 ZIP???�요?�니??,
+          error: 'OMR 검토 작업 ZIP이 필요합니다',
           detail:
-            'OMR ?�질 검?�에???�작???�??ZIP)?�으�?받�? omr-work.zip???�께 ?�로?�하?�요. Audiveris ?�인???�이 ?�?�된 MXL·보정?�로 검?��? ?�어갑니??',
+            'OMR 품질 검토에서 「작업 저장(ZIP)」으로 받은 omr-work.zip을 함께 업로드하세요. Audiveris 재인식 없이 저장된 MXL·보정으로 검토를 이어갑니다.',
         });
         return;
       }
@@ -3122,7 +3122,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'hitl',
         current: 0,
         total: pageHint,
-        detail: '?�?�된 OMR 검??ZIP 불러?�는 �?(Audiveris ?�략)??,
+        detail: '저장된 OMR 검토 ZIP 불러오는 중 (Audiveris 생략)…',
       });
       const mxlPath = await bootstrapFromOmrWorkZip(
         job,
@@ -3140,9 +3140,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       if (!lyricManifestHasItems(lyricManifestPath)) {
         await fail({
           status: 400,
-          error: 'ZIP??분리??가?��? ?�습?�다',
+          error: 'ZIP에 분리된 가사가 없습니다',
           detail:
-            '3?�계 omr-work.zip?�는 lyric_manifest.json(?�는 ocr_data_pymupdf.json)???�함?�어???�니?? 1?�계?�서 ?�?�한 ZIP???�거??가??JSON???�께 ?�로?�하?�요.',
+            '3단계 omr-work.zip에는 lyric_manifest.json(또는 ocr_data_pymupdf.json)이 포함되어야 합니다. 1단계에서 저장한 ZIP을 쓰거나 가사 JSON을 함께 업로드하세요.',
         });
         return;
       }
@@ -3173,16 +3173,16 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       if (!job.resumeOmrWorkZipPath || !fsSync.existsSync(job.resumeOmrWorkZipPath)) {
         await fail({
           status: 400,
-          error: 'OMR 검???�업 ZIP???�요?�니??,
-          detail: '4?�계??교정 ?�료 MXL???�어 ?�는 omr-work.zip???�로?�하?�요.',
+          error: 'OMR 검토 작업 ZIP이 필요합니다',
+          detail: '4단계는 교정 완료 MXL이 들어 있는 omr-work.zip을 업로드하세요.',
         });
         return;
       }
       if (!job.resumeLyricManifestPath || !fsSync.existsSync(job.resumeLyricManifestPath)) {
         await fail({
           status: 400,
-          error: '가??JSON ?�일???�요?�니??,
-          detail: '4?�계???�집 중인 가??JSON(lyric_manifest.json ?????�께 ?�로?�하?�요.',
+          error: '가사 JSON 파일이 필요합니다',
+          detail: '4단계는 편집 중인 가사 JSON(lyric_manifest.json 등)을 함께 업로드하세요.',
         });
         return;
       }
@@ -3191,7 +3191,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'hitl',
         current: 0,
         total: pageHint,
-        detail: '교정 ?�료 MXL·가???�이??불러?�는 중�?,
+        detail: '교정 완료 MXL·가사 데이터 불러오는 중…',
       });
       const mxlPath = await bootstrapFromOmrWorkZip(
         job,
@@ -3210,7 +3210,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       await preparePymupdfReviewFromManifest(lyricManifestPath, pymupdfReviewPath);
       await restorePartLabelsFromManifest(job.sessionRoot, lyricManifestPath);
 
-      // omr-work.zip???�함??omr_hitl_fixes.json??MXL??최종 반영?�니??
+      // omr-work.zip에 포함된 omr_hitl_fixes.json을 MXL에 최종 반영합니다
       await applyOmrHitlFixesForJob(job, pythonBin);
     }
 
@@ -3220,7 +3220,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'upload',
         current: 1,
         total: 1,
-        detail: 'Audiveris 준�?�?(?�행 처리 ?�음)??,
+        detail: 'Audiveris 준비 중 (선행 처리 없음)…',
       });
     } else if (pipelineMode === 'font_separator') {
       const depCheck = await probeFontSeparatorDeps(pythonBin);
@@ -3257,9 +3257,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       } else if (startStage === 'clean_score') {
         await fail({
           status: 400,
-          error: '2?�계??clean_score PDF?� 가??JSON???�요?�니??,
+          error: '2단계에 clean_score PDF와 가사 JSON이 필요합니다',
           detail:
-            'clean_score_only.pdf?� lyric_manifest.json(분리??가?????�께 ?�로?�하?�요.',
+            'clean_score_only.pdf와 lyric_manifest.json(분리된 가사)을 함께 업로드하세요.',
         });
         return;
       } else {
@@ -3287,7 +3287,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'hitl',
         current: 0,
         total: 1,
-        detail: '?�평 보정 결과 ?�운로드 ?��?..',
+        detail: '수평 보정 결과 다운로드 대기...',
       });
       job.status = 'deskew_save_needed';
       await new Promise<void>((resolve, reject) => {
@@ -3297,12 +3297,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       job.status = 'processing';
       console.log(`[job ${jobId}] Deskew save confirmed, continuing...`);
 
-      console.log(`[job ${jobId}] Pausing for early part label setup (?��? S/A/T/B????);
+      console.log(`[job ${jobId}] Pausing for early part label setup (성부 S/A/T/B…)…`);
       setJobProgress(job, {
         phase: 'hitl',
         current: 0,
         total: 1,
-        detail: '?��? ?�벨(S/A/T/B·PR/PL) �??�보 구조 초기 ?�인 ?�기�?,
+        detail: '성부 라벨(S/A/T/B·PR/PL) 및 악보 구조 초기 확인 대기…',
       });
       job.status = 'part_labels_needed';
       await new Promise<void>((resolve, reject) => {
@@ -3310,13 +3310,13 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       });
       delete job.partLabelsDeferred;
       job.status = 'processing';
-      console.log(`[job ${jobId}] Early part labels saved, continuing??);
+      console.log(`[job ${jobId}] Early part labels saved, continuing…`);
 
       setJobProgress(job, {
         phase: 'separator',
         current: 0,
         total: 2,
-        detail: 'pdfplumber�?문자 ?�이?�웃 추출 중�?,
+        detail: 'pdfplumber로 문자 레이아웃 추출 중…',
       });
       console.log(`[job ${jobId}] pdf_separator extract using ${pythonBin}`);
       try {
@@ -3335,8 +3335,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       if (!fsSync.existsSync(extractedJsonPath)) {
         await fail({
           status: 500,
-          error: 'extracted_music_text.json ?�성 ?�패',
-          detail: 'pdfplumber 추출 결과가 ?�습?�다.',
+          error: 'extracted_music_text.json 생성 실패',
+          detail: 'pdfplumber 추출 결과가 없습니다.',
         });
         return;
       }
@@ -3353,7 +3353,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       const stripPuaFlag = replaceTripletPua ? ' --replace-triplet-pua' : '';
 
       for (;;) {
-        console.log(`[job ${jobId}] Pausing for font size strip selection??);
+        console.log(`[job ${jobId}] Pausing for font size strip selection…`);
         job.status = 'font_strip_needed';
         await new Promise<void>((resolve, reject) => {
           job.fontStripDeferred = { resolve, reject };
@@ -3371,7 +3371,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           phase: 'separator',
           current: 1,
           total: 2,
-          detail: `pikepdf ?�스???�거 (${rangeSpec})??,
+          detail: `pikepdf 텍스트 제거 (${rangeSpec})…`,
         });
         console.log(`[job ${jobId}] pdf_separator strip ranges=${rangeSpec}`);
         try {
@@ -3384,7 +3384,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           const msg = stripErr instanceof Error ? stripErr.message : String(stripErr);
           await fail({
             status: 500,
-            error: 'clean_score_only.pdf ?�성 ?�패',
+            error: 'clean_score_only.pdf 생성 실패',
             detail: msg,
           });
           return;
@@ -3392,8 +3392,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         if (!fsSync.existsSync(cleanScorePath)) {
           await fail({
             status: 500,
-            error: 'clean_score_only.pdf ?�성 ?�패',
-            detail: 'pdf_separator.py가 ?�보 PDF�?만들지 못했?�니??',
+            error: 'clean_score_only.pdf 생성 실패',
+            detail: 'pdf_separator.py가 악보 PDF를 만들지 못했습니다.',
           });
           return;
         }
@@ -3422,7 +3422,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           }
         }
 
-        console.log(`[job ${jobId}] Pausing for clean_score PDF preview??);
+        console.log(`[job ${jobId}] Pausing for clean_score PDF preview…`);
         job.cleanScorePreviewAction = undefined;
         job.status = 'clean_score_preview_needed';
         await new Promise<void>((resolve, reject) => {
@@ -3445,7 +3445,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           phase: 'upload',
           current: 1,
           total: 1,
-          detail: 'PyMuPDF�?가??�메?� 문자 추출 �?(검?�용)??,
+          detail: 'PyMuPDF로 가사·메타 문자 추출 중 (검토용)…',
         });
         console.log(`[job ${jobId}] Running extract_text.py (font_separator review) using ${pythonBin}`);
         const { stdout, stderr } = await exec(
@@ -3460,7 +3460,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           phase: 'separator',
           current: 1,
           total: 1,
-          detail: 'pdfplumber·PyMuPDF 검??결과 병합 중�?,
+          detail: 'pdfplumber·PyMuPDF 검토 결과 병합 중…',
         });
         const mergeArgs = [
           `"${pythonBin}"`,
@@ -3489,7 +3489,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         await syncScoreTitlePersistence(sessionRoot, lyricManifestPath);
         await attachPartLabelsToManifest(sessionRoot, lyricManifestPath, job);
 
-        console.log(`[job ${jobId}] Pausing for lyric_manifest.json save??);
+        console.log(`[job ${jobId}] Pausing for lyric_manifest.json save…`);
         job.status = 'lyric_manifest_save_needed';
         await new Promise<void>((resolve, reject) => {
           job.lyricManifestSaveDeferred = { resolve, reject };
@@ -3505,8 +3505,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       if (startStage !== 'full') {
         await fail({
           status: 400,
-          error: 'Image PDF 모드??1?�계(?�본 PDF)�?지?�합?�다',
-          detail: '2?�계 ?�후??지?�되지 ?�습?�다.',
+          error: 'Image PDF 모드는 1단계(원본 PDF)만 지원합니다',
+          detail: '2단계 이후는 지원되지 않습니다.',
         });
         return;
       }
@@ -3531,7 +3531,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'hitl',
         current: 0,
         total: 1,
-        detail: '?�평 보정(Deskew) 각도 ?�인 ?��?..',
+        detail: '수평 보정(Deskew) 각도 확인 대기...',
       });
       job.status = 'deskew_needed';
       job.deskewAnglesPath = deskewAnglesPath;
@@ -3559,7 +3559,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
                   phase: 'hitl',
                   current: parseInt(m[1], 10),
                   total: parseInt(m[2], 10),
-                  detail: '?�평 보정 결과 ?�성 �?..',
+                  detail: '수평 보정 결과 생성 중...',
                 });
               }
             }
@@ -3589,7 +3589,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           }
         }
       } catch (err) {
-        console.warn(`[job ${jobId}] Failed to apply deskew (continuing with original):`, err); throw err;
+        console.warn(`[job ${jobId}] Failed to apply deskew (continuing with original):`, err);
       }
       
       try {
@@ -3615,7 +3615,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'hitl',
         current: 0,
         total: 1,
-        detail: '?�평 보정 결과 ?�운로드 ?��?..',
+        detail: '수평 보정 결과 다운로드 대기...',
       });
       job.status = 'deskew_save_needed';
       await new Promise<void>((resolve, reject) => {
@@ -3625,12 +3625,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       job.status = 'processing';
       console.log(`[job ${jobId}] Deskew save confirmed, continuing...`);
 
-      console.log(`[job ${jobId}] Pausing for early part label setup (?��? S/A/T/B????);
+      console.log(`[job ${jobId}] Pausing for early part label setup (성부 S/A/T/B…)…`);
       setJobProgress(job, {
         phase: 'hitl',
         current: 0,
         total: 1,
-        detail: '?��? ?�벨(S/A/T/B·PR/PL) �??�보 구조 초기 ?�인 ?�기�?,
+        detail: '성부 라벨(S/A/T/B·PR/PL) 및 악보 구조 초기 확인 대기…',
       });
       job.status = 'part_labels_needed';
       await new Promise<void>((resolve, reject) => {
@@ -3638,7 +3638,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       });
       delete job.partLabelsDeferred;
       job.status = 'processing';
-      console.log(`[job ${jobId}] Early part labels saved, continuing??);
+      console.log(`[job ${jobId}] Early part labels saved, continuing…`);
 
       const scriptImageProcessor = path.join(__dirname, '..', 'scripts', 'image_pdf_processor.py');
       
@@ -3646,7 +3646,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'separator',
         current: 0,
         total: 2,
-        detail: 'PaddleOCR�??��?지 PDF ?�스??추출 중�?,
+        detail: 'PaddleOCR로 이미지 PDF 텍스트 추출 중…',
       });
       if (job.skipPaddleOcr) {
         console.log(`[job ${jobId}] Skipping PaddleOCR extract, creating empty JSON`);
@@ -3703,7 +3703,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           phase: 'separator',
           current: 1,
           total: 2,
-          detail: '?�용??가??마스??박스 ?�인 �??�집 ?�기중',
+          detail: '사용자 가사 마스킹 박스 확인 및 편집 대기중',
         });
         
         job.status = 'review_needed';
@@ -3756,7 +3756,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           phase: 'separator',
           current: 1,
           total: 2,
-          detail: 'AI OMR ?�용?�로 마스??건너?� (?�본 보존)??,
+          detail: 'AI OMR 사용으로 마스킹 건너뜀 (원본 보존)…',
         });
         console.log(`[job ${jobId}] Skipping mask for AI OMR, copying ${inputPdfPath} to ${cleanScorePath}`);
         await fs.copyFile(inputPdfPath, cleanScorePath);
@@ -3765,7 +3765,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           phase: 'separator',
           current: 1,
           total: 2,
-          detail: '추출???�스???�역 마스??중�?,
+          detail: '추출된 텍스트 영역 마스킹 중…',
         });
         console.log(`[job ${jobId}] Running mask_pdf.py for image_pdf`);
         
@@ -3784,7 +3784,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             );
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            await fail({ status: 500, error: '마스???�패', detail: msg });
+            await fail({ status: 500, error: '마스킹 실패', detail: msg });
             return;
           }
         } else {
@@ -3797,7 +3797,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'separator',
         current: 1,
         total: 1,
-        detail: '가??매니?�스??병합 중�?,
+        detail: '가사 매니페스트 병합 중…',
       });
       const mergeArgs = [
         `"${pythonBin}"`,
@@ -3813,7 +3813,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       
       await attachPartLabelsToManifest(sessionRoot, lyricManifestPath, job);
 
-      console.log(`[job ${jobId}] Pausing for lyric_manifest.json save??);
+      console.log(`[job ${jobId}] Pausing for lyric_manifest.json save…`);
       job.status = 'lyric_manifest_save_needed';
       await new Promise<void>((resolve, reject) => {
         job.lyricManifestSaveDeferred = { resolve, reject };
@@ -3823,12 +3823,12 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       console.log(`[job ${jobId}] lyric_manifest save step completed`);
 
     } else {
-      // pymupdf_review ??기존 마스???�이?�라??(1?�계 full�?
+      // pymupdf_review — 기존 마스킹 파이프라인 (1단계 full만)
       if (startStage !== 'full') {
         await fail({
           status: 400,
-          error: 'PyMuPDF 마스??모드??1?�계(?�본 PDF)�?지?�합?�다',
-          detail: '2?�계 ?�후???�폰???�기 분리??방식???�용?�세??',
+          error: 'PyMuPDF 마스킹 모드는 1단계(원본 PDF)만 지원합니다',
+          detail: '2단계 이후는 「폰트 크기 분리」 방식을 사용하세요.',
         });
         return;
       }
@@ -3836,7 +3836,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'upload',
         current: 1,
         total: 1,
-        detail: 'PDF?�서 문자 추출 �?(PyMuPDF / RapidOCR)??,
+        detail: 'PDF에서 문자 추출 중 (PyMuPDF / RapidOCR)…',
       });
 
       console.log(`[job ${jobId}] Running extract_text.py using ${pythonBin}`);
@@ -3848,13 +3848,13 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
       if (fsSync.existsSync(ocrJsonPath)) {
         const ocrData = JSON.parse(await fs.readFile(ocrJsonPath, 'utf8'));
-        console.log(`[job ${jobId}] Pausing for UI review??);
+        console.log(`[job ${jobId}] Pausing for UI review…`);
         job.status = 'review_needed';
         job.reviewData = ocrData;
         await new Promise<void>((resolve, reject) => {
           job.reviewDeferred = { resolve, reject };
         });
-        console.log(`[job ${jobId}] Review completed, resuming??);
+        console.log(`[job ${jobId}] Review completed, resuming…`);
         job.status = 'processing';
       }
 
@@ -3862,7 +3862,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'audiveris',
         current: 0,
         total: pageHint,
-        detail: activeOmrEngine === 'ai' ? 'PDF 마스??�?OMR 준�?중�? : 'PDF 마스??�?Audiveris 준�?중�?,
+        detail: activeOmrEngine === 'ai' ? 'PDF 마스킹 및 OMR 준비 중…' : 'PDF 마스킹 및 Audiveris 준비 중…',
       });
 
       if (fsSync.existsSync(ocrJsonPath)) {
@@ -3882,7 +3882,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'hitl',
         current: 0,
         total: pageHint,
-        detail: '기존 OMR 검??ZIP?�서 MXL 불러?�는 �?(Audiveris ?�략)??,
+        detail: '기존 OMR 검토 ZIP에서 MXL 불러오는 중 (Audiveris 생략)…',
       });
       console.log(
         `[job ${jobId}] full + omr-work.zip: lyric pipeline kept, Audiveris OMR skipped`,
@@ -3917,20 +3917,20 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       detail:
         activeOmrEngine === 'pdftomusic'
           ? audiverisInput?.kind === 'clean_score'
-            ? 'clean_score_only.pdf ??PDFtoMusic Pro ?�식 중�?
-            : 'PDFtoMusic Pro ?�보 ?�식 중�?
+            ? 'clean_score_only.pdf → PDFtoMusic Pro 인식 중…'
+            : 'PDFtoMusic Pro 악보 인식 중…'
           : activeOmrEngine === 'ai'
             ? audiverisInput?.kind === 'clean_score'
-              ? 'clean_score_only.pdf ??Audiveris ?�식 중�?
-              : 'Audiveris ?�식 중�?
+              ? 'clean_score_only.pdf → Audiveris 인식 중…'
+              : 'Audiveris 인식 중…'
             : audiverisInput?.kind === 'clean_score'
-              ? 'clean_score_only.pdf ??Audiveris ?�보 ?�식 중�?
-              : 'Audiveris ?�보 ?�식 중�?,
+              ? 'clean_score_only.pdf → Audiveris 악보 인식 중…'
+              : 'Audiveris 악보 인식 중…',
     });
 
     const p2mpBin = resolveP2mpBin();
     console.log(
-      `[job ${jobId}] Running ${activeOmrEngine} OMR on ${pdfToProcess} (pipeline=${pipelineMode})??,
+      `[job ${jobId}] Running ${activeOmrEngine} OMR on ${pdfToProcess} (pipeline=${pipelineMode})…`,
     );
 
     const result = await runOmrEngine({
@@ -3974,7 +3974,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       audiverisLogSuggestsHumanReview(result.stdout, result.stderr);
     if (autoPauseFromAudiverisLog) {
       console.log(
-        `[job ${jobId}] AUDIVERIS_PAUSE_ON_WARN: 로그??WARN ?�이 감�??�어 Audiveris 보정(HITL) ?�계�??�환?�니??`,
+        `[job ${jobId}] AUDIVERIS_PAUSE_ON_WARN: 로그에 WARN 등이 감지되어 Audiveris 보정(HITL) 단계로 전환합니다.`,
       );
     }
     pauseForAudiverisReview = job.pauseAfterAudiveris || autoPauseFromAudiverisLog;
@@ -4005,7 +4005,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     if (outputs.length > 0 && pauseForAudiverisReview && mxlForInject.length > 0) {
       job.preInjectMxlPaths = [...mxlForInject];
-      console.log(`[job ${jobId}] Pausing for Audiveris 결과 보정??);
+      console.log(`[job ${jobId}] Pausing for Audiveris 결과 보정…`);
       job.status = 'audiveris_review_needed';
       await new Promise<void>((resolve, reject) => {
         job.audiverisReviewDeferred = { resolve, reject };
@@ -4020,7 +4020,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         : [...(job.preInjectMxlPaths ?? [])];
       delete job.injectMxlPathsOverride;
       job.status = 'processing';
-      console.log(`[job ${jobId}] Audiveris 보정 ?�계 ?�후 주입 ?�개...`);
+      console.log(`[job ${jobId}] Audiveris 보정 단계 이후 주입 재개...`);
     }
 
     // Pause for PyMuPDF lyric review AFTER OMR HITL edits are finished
@@ -4058,16 +4058,16 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           phase: 'separator',
           current: 0,
           total: 0,
-          detail: '가??검증·편�??�기�?,
+          detail: '가사 검증·편집 대기…',
         });
-        console.log(`[job ${jobId}] Pausing for PyMuPDF lyric review (font_separator) AFTER OMR HITL??);
+        console.log(`[job ${jobId}] Pausing for PyMuPDF lyric review (font_separator) AFTER OMR HITL…`);
         job.status = 'review_needed';
         job.reviewAfterOmr = true;
         job.reviewData = ocrData;
         await new Promise<void>((resolve, reject) => {
           job.reviewDeferred = { resolve, reject };
         });
-        console.log(`[job ${jobId}] PyMuPDF review completed, merging final lyric sources??);
+        console.log(`[job ${jobId}] PyMuPDF review completed, merging final lyric sources…`);
         job.status = 'processing';
 
         if (startStage === 'lyric_inject') {
@@ -4092,7 +4092,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             phase: 'separator',
             current: 1,
             total: 1,
-            detail: 'pdfplumber·PyMuPDF 검??결과 병합 중�?,
+            detail: 'pdfplumber·PyMuPDF 검토 결과 병합 중…',
           });
           const mergeArgs = [
             `"${pythonBin}"`,
@@ -4124,8 +4124,8 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       } else {
         const pdfPath = resolveLyricReviewPdfPath(job);
         const skipDetail = !pdfPath
-          ? '가??검�??�략 ???�본 PDF(input.pdf) ?�음. omr-work ZIP??input.pdf�??�거???�본 PDF�??�로?�하?�요.'
-          : '가??검�??�략 ??PyMuPDF 추출 ?�이???�음(lyric_manifest.json ?�는 ?�본 PDF ?�인).';
+          ? '가사 검증 생략 — 원본 PDF(input.pdf) 없음. omr-work ZIP에 input.pdf를 넣거나 원본 PDF를 업로드하세요.'
+          : '가사 검증 생략 — PyMuPDF 추출 데이터 없음(lyric_manifest.json 또는 원본 PDF 확인).';
         console.warn(`[job ${jobId}] PyMuPDF lyric review skipped: ${skipDetail}`);
         setJobProgress(job, {
           phase: 'separator',
@@ -4158,7 +4158,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'audiveris',
         current: pageHint,
         total: pageHint,
-        detail: '최종 MXL ?�처�??�표·?�아??timeline·조표) 중�?,
+        detail: '최종 MXL 후처리(쉼표·피아노 timeline·조표) 중…',
       });
       for (const p of finalizeMxlPaths) {
         await postprocessAudiverisMxlInScoreFile(p, pythonBin, job.sessionRoot);
@@ -4170,7 +4170,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         phase: 'audiveris',
         current: pageHint,
         total: pageHint,
-        detail: '?�식??가?��? 메�??�이??주입 중�?,
+        detail: '인식된 가사와 메타데이터 주입 중…',
       });
 
       const scriptInject = path.join(__dirname, '..', 'scripts', 'inject_ocr.py');
@@ -4202,7 +4202,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             const logContent = fsSync.readFileSync(logPath, 'utf8');
             const match = logContent.match(/WARN\s+\[.*#(\d+)\]\s+Book\s+\d+\s+\|\s+Error processing stub/);
             if (match) {
-              extraDetail = `\n\n?�� [?�동 분석 ?�림]: OMR ?�진??**${match[1]}?�이지**�?분석?�던 �?복잡???�보 기호(?�음�???�??�해 ?��? 치명???�류(Error processing stub)가 발생?�여 중단?�었?�니?? ???�이지??Audiveris ?�진???�계�?처리가 불�??�합?�다. ?�버�?ZIP???�운로드???? Audiveris PC ?�로그램?�로 .omr ?�일???�어 ${match[1]}?�이지??문제가 ?�는 기호�???��?�거???�당 ?�이지�??�외?????�동?�로 .mxl??추출?�세?? �???[4?�계]�??�해 ?�로?�해 주세??`;
+              extraDetail = `\n\n🚨 [자동 분석 알림]: OMR 엔진이 **${match[1]}페이지**를 분석하던 중 복잡한 악보 기호(이음줄 등)로 인해 내부 치명적 오류(Error processing stub)가 발생하여 중단되었습니다. 이 페이지는 Audiveris 엔진의 한계로 처리가 불가능합니다. 디버그 ZIP을 다운로드한 후, Audiveris PC 프로그램으로 .omr 파일을 열어 ${match[1]}페이지의 문제가 되는 기호를 삭제하거나 해당 페이지를 제외한 뒤 수동으로 .mxl을 추출하세요. 그 후 [4단계]를 통해 업로드해 주세요.`;
             }
           } catch (e) {
             console.error('Error reading omr_engine.log:', e);
@@ -4214,20 +4214,20 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         status: 422,
         error:
           startStage === 'omr_hitl'
-            ? 'OMR 검??ZIP?�서 MXL??불러?��? 못했?�니??
+            ? 'OMR 검토 ZIP에서 MXL을 불러오지 못했습니다'
             : activeOmrEngine === 'pdftomusic'
-            ? 'PDFtoMusic Pro가 MusicXML/MXL??만들지 못했?�니??
+            ? 'PDFtoMusic Pro가 MusicXML/MXL을 만들지 못했습니다'
             : activeOmrEngine === 'ai'
-              ? 'AI OMR??MusicXML/MXL??만들지 못했?�니??
-              : 'Audiveris가 MusicXML/MXL??만들지 못했?�니??,
+              ? 'AI OMR이 MusicXML/MXL을 만들지 못했습니다'
+              : 'Audiveris가 MusicXML/MXL을 만들지 못했습니다',
         detail:
           startStage === 'omr_hitl'
-            ? 'ZIP??review.mxl ?�는 audiveris_raw.mxl???�는지 ?�인?�세??'
+            ? 'ZIP에 review.mxl 또는 audiveris_raw.mxl이 있는지 확인하세요.'
             : activeOmrEngine === 'pdftomusic'
             ? pdftomusicFailureDetail()
             : activeOmrEngine === 'ai'
               ? aiOmrFailureDetail()
-              : ('Audiveris 출력 ?�더??.mxl/.musicxml???�습?�다. 로그??WARN [#N]·ERS ?��? 보통 ?�당 ??처리 ?�보?�기 문제�??�하�? ???�이?�도 ?�패?�면 ?�일???�을 ???�습?�다. Audiveris GUI�??�일 PDF�??�어 ?�류�??�인?�거???�버�?ZIP??로그�?검?�하?�요.' + extraDetail),
+              : ('Audiveris 출력 폴더에 .mxl/.musicxml이 없습니다. 로그의 WARN [#N]·ERS 등은 보통 해당 장 처리 내보내기 문제를 뜻하며, 한 장이라도 실패하면 파일이 없을 수 있습니다. Audiveris GUI로 동일 PDF를 열어 오류를 확인하거나 디버그 ZIP의 로그를 검토하세요.' + extraDetail),
       });
       return;
     }
@@ -4260,7 +4260,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     console.log(`[job ${jobId}] Completed`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await fail({ status: 500, error: '변??�??�류', detail: msg });
+    await fail({ status: 500, error: '변환 중 오류', detail: msg });
     console.error(`[job ${jobId}]`, e);
   }
 }
@@ -4291,7 +4291,7 @@ app.post('/api/convert', async (req, res) => {
   } else if (!bin) {
     res.status(503).json({
       error: 'AUDIVERIS_BIN is not set',
-      detail: 'Linux: export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris  (?�거?? OMR_ENGINE=audiveris)',
+      detail: 'Linux: export AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris  (레거시: OMR_ENGINE=audiveris)',
     });
     return;
   }
@@ -4300,7 +4300,7 @@ app.post('/api/convert', async (req, res) => {
   if (!ct.toLowerCase().includes('multipart/form-data')) {
     res
       .status(400)
-      .json({ error: 'Content-Type?� multipart/form-data ?�야 ?�니??(?�드 pdf, ?�택 debug)' });
+      .json({ error: 'Content-Type은 multipart/form-data 여야 합니다 (필드 pdf, 선택 debug)' });
     return;
   }
 
@@ -4308,7 +4308,7 @@ app.post('/api/convert', async (req, res) => {
   try {
     sessionRoot = fsSync.mkdtempSync(path.join(os.tmpdir(), 'pdf2mxl-up-'));
   } catch (_e) {
-    res.status(500).json({ error: '?�시 ?�로???�더�?만들 ???�습?�다' });
+    res.status(500).json({ error: '임시 업로드 폴더를 만들 수 없습니다' });
     return;
   }
 
@@ -4321,7 +4321,7 @@ app.post('/api/convert', async (req, res) => {
     isDebug: false,
     createdAt: Date.now(),
   });
-  /** 202??multipart·?�일 ?�?�이 ?�난 ?�에�?보냅?�다(조기 202 ???��? 브라?��?·?�록?�에??본문 ?�송??멈춤). */
+  /** 202는 multipart·파일 저장이 끝난 뒤에만 보냅니다(조기 202 시 일부 브라우저·프록시에서 본문 전송이 멈춤). */
 
   let receiveSettled = false;
   const failReceive = (payload: JobErrorPayload) => {
@@ -4403,8 +4403,8 @@ app.post('/api/convert', async (req, res) => {
       file.on('limit', () => {
         failReceive({
           status: 400,
-          error: '?�일???�무 ?�니??,
-          detail: `최�? ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB`,
+          error: '파일이 너무 큽니다',
+          detail: `최대 ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB`,
         });
       });
       uploadChain = uploadChain.then(() =>
@@ -4417,7 +4417,7 @@ app.post('/api/convert', async (req, res) => {
           .catch((e) =>
             failReceive({
               status: 500,
-              error: '?�로???�???�패',
+              error: '업로드 저장 실패',
               detail: e instanceof Error ? e.message : String(e),
             }),
           ),
@@ -4438,7 +4438,7 @@ app.post('/api/convert', async (req, res) => {
         phase: 'upload',
         current: 0,
         total: 1,
-        detail: 'PDF ?�일 ?�??중�?,
+        detail: 'PDF 파일 저장 중…',
       });
       queueUpload(destPath, (j) => {
         j.inputPdfPath = destPath;
@@ -4446,7 +4446,7 @@ app.post('/api/convert', async (req, res) => {
           phase: 'upload',
           current: 1,
           total: 1,
-          detail: '?�로???�료, 변??준�?중�?,
+          detail: '업로드 완료, 변환 준비 중…',
         });
       });
       return;
@@ -4494,7 +4494,7 @@ app.post('/api/convert', async (req, res) => {
   bb.on('error', (e) => {
     failReceive({
       status: 400,
-      error: 'multipart 처리 ?�류',
+      error: 'multipart 처리 오류',
       detail: e instanceof Error ? e.message : String(e),
     });
   });
@@ -4512,7 +4512,7 @@ app.post('/api/convert', async (req, res) => {
         if (!cleanScoreOnly) {
           failReceive({
             status: 400,
-            error: 'pdf ?�일 ?�드가 ?�요?�니??,
+            error: 'pdf 파일 필드가 필요합니다',
             detail: 'multipart field name: pdf',
           });
           return;
@@ -4534,7 +4534,7 @@ app.post('/api/convert', async (req, res) => {
         } else {
           failReceive({
             status: 500,
-            error: '?�로?��? ?�료?��? ?�았?�니??,
+            error: '업로드가 완료되지 않았습니다',
           });
           return;
         }
@@ -4542,8 +4542,8 @@ app.post('/api/convert', async (req, res) => {
       if (startStageField === 'omr_hitl' && !job.resumeOmrWorkZipPath) {
         failReceive({
           status: 400,
-          error: 'OMR 검???�업 ZIP???�요?�니??,
-          detail: '?�작 ?�계가 ?�OMR 검???�어?�기?�일 ??omrWorkZip ?�일???�께 ?�로?�하?�요.',
+          error: 'OMR 검토 작업 ZIP이 필요합니다',
+          detail: '시작 단계가 「OMR 검토 이어하기」일 때 omrWorkZip 파일을 함께 업로드하세요.',
         });
         return;
       }
@@ -4551,16 +4551,16 @@ app.post('/api/convert', async (req, res) => {
         if (!job.resumeCleanScorePath) {
           failReceive({
             status: 400,
-            error: 'clean_score_only.pdf가 ?�요?�니??,
-            detail: '2?�계??clean_score_only.pdf�??�로?�하?�요.',
+            error: 'clean_score_only.pdf가 필요합니다',
+            detail: '2단계는 clean_score_only.pdf를 업로드하세요.',
           });
           return;
         }
         if (!job.resumeLyricManifestPath) {
           failReceive({
             status: 400,
-            error: '분리??가??JSON???�요?�니??,
-            detail: '2?�계??1?�계?�서 만든 lyric_manifest.json(가?????�께 ?�로?�하?�요.',
+            error: '분리된 가사 JSON이 필요합니다',
+            detail: '2단계는 1단계에서 만든 lyric_manifest.json(가사)을 함께 업로드하세요.',
           });
           return;
         }
@@ -4569,16 +4569,16 @@ app.post('/api/convert', async (req, res) => {
         if (!job.resumeOmrWorkZipPath) {
           failReceive({
             status: 400,
-            error: 'OMR 검???�업 ZIP???�요?�니??,
-            detail: '4?�계??omr-work.zip???�로?�하?�요.',
+            error: 'OMR 검토 작업 ZIP이 필요합니다',
+            detail: '4단계는 omr-work.zip을 업로드하세요.',
           });
           return;
         }
         if (!job.resumeLyricManifestPath) {
           failReceive({
             status: 400,
-            error: '가??JSON ?�일???�요?�니??,
-            detail: '4?�계???�집 중인 가??JSON???�께 ?�로?�하?�요.',
+            error: '가사 JSON 파일이 필요합니다',
+            detail: '4단계는 편집 중인 가사 JSON을 함께 업로드하세요.',
           });
           return;
         }
@@ -4591,8 +4591,8 @@ app.post('/api/convert', async (req, res) => {
       ) {
         failReceive({
           status: 400,
-          error: 'clean_score_only.pdf가 ?�요?�니??,
-          detail: '2?�계??clean_score_only.pdf?� lyric_manifest.json???�께 ?�로?�하?�요.',
+          error: 'clean_score_only.pdf가 필요합니다',
+          detail: '2단계는 clean_score_only.pdf와 lyric_manifest.json을 함께 업로드하세요.',
         });
         return;
       }
@@ -4610,7 +4610,7 @@ app.post('/api/convert', async (req, res) => {
       if (!res.headersSent) {
         res.setHeader('X-Accel-Buffering', 'no');
         res.setHeader('X-Pdf2Mxl-Async', '202-after-upload');
-        res.status(202).json({ jobId, message: '?�업???�수?�었?�니?? });
+        res.status(202).json({ jobId, message: '작업이 접수되었습니다' });
       }
       void executeJob(jobId, bin);
     });
@@ -4619,7 +4619,7 @@ app.post('/api/convert', async (req, res) => {
   req.on('error', (e) => {
     failReceive({
       status: 400,
-      error: '?�로???�결 ?�류',
+      error: '업로드 연결 오류',
       detail: e instanceof Error ? e.message : String(e),
     });
   });
@@ -4631,7 +4631,7 @@ app.get('/api/status/:jobId', (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
 
@@ -4709,11 +4709,11 @@ function streamZipToResponse(res: express.Response, result: Extract<JobResult, {
 app.get('/api/download/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   if (job.status !== 'completed' || !job.result) {
-    res.status(409).json({ error: '변?�이 ?�직 ?�나지 ?�았거나 ?�패?�습?�다' });
+    res.status(409).json({ error: '변환이 아직 끝나지 않았거나 실패했습니다' });
     return;
   }
 
@@ -4743,7 +4743,7 @@ app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
   if (!diagnosticJobsAllowed(job)) {
     res
       .status(404)
-      .json({ error: '마스?�·인???��????????�는 ?�업???�니거나 만료?�었?�니?? });
+      .json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
     return;
   }
   const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
@@ -4755,7 +4755,7 @@ app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
         ? cleanScorePath
         : null;
   if (!inputPdfPath) {
-    res.status(404).json({ error: '비교??PDF가 ?�션???�습?�다 (omr-work.zip??PDF ?�함 ?�는 clean_score ?�로??' });
+    res.status(404).json({ error: '비교용 PDF가 세션에 없습니다 (omr-work.zip에 PDF 포함 또는 clean_score 업로드)' });
     return;
   }
   const maskedExists = fsSync.existsSync(maskedPdfPath);
@@ -4831,7 +4831,7 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
 
   const count = await pdfPageCountViaPython(pdfPath);
   if (!count || !Number.isFinite(page) || page < 1 || page > count) {
-    res.status(400).json({ error: '?�이지 번호가 범위�?벗어?�습?�다' });
+    res.status(400).json({ error: '페이지 번호가 범위를 벗어났습니다' });
     return;
   }
 
@@ -4870,12 +4870,12 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: '?��? ?�???�업???�닙?�다' });
+    res.status(404).json({ error: '점검 대상 작업이 아닙니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath) {
-    res.status(404).json({ error: 'MXL/MusicXML ?�일??찾을 ???�습?�다' });
+    res.status(404).json({ error: 'MXL/MusicXML 파일을 찾을 수 없습니다' });
     return;
   }
   try {
@@ -4883,7 +4883,7 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
     const cacheDir = path.join(job.sessionRoot, '.diag-cache');
     await fs.mkdir(cacheDir, { recursive: true });
     const outXml = path.join(cacheDir, 'inspect-score.musicxml');
-    // OMR HITL: raw+HITL�???fix_audiveris_mxl·rest ?�규?�는 ?�용?��? ?�음
+    // OMR HITL: raw+HITL만 — fix_audiveris_mxl·rest 정규화는 적용하지 않음
     if (job.status === 'omr_staff_review_needed') {
       await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
     } else {
@@ -4907,11 +4907,11 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
 app.get('/api/diagnostic/:jobId/debug-zip', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   if (!fsSync.existsSync(job.sessionRoot)) {
-    res.status(404).json({ error: '?�션 ?�더가 ?��? ??��?�었?�니?? });
+    res.status(404).json({ error: '세션 폴더가 이미 삭제되었습니다' });
     return;
   }
   res.setHeader('Content-Type', 'application/zip');
@@ -4927,14 +4927,14 @@ app.get('/api/diagnostic/:jobId/debug-zip', (req, res) => {
 app.get('/api/diagnostic/:jobId/masked-pdf', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: '마스?�·인???��????????�는 ?�업???�니거나 만료?�었?�니?? });
+    res.status(404).json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
     return;
   }
   const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
   if (!fsSync.existsSync(maskedPdfPath)) {
     res.status(404).json({
       error:
-        'masked_input.pdf가 ?�습?�다. OCR·마스???�계가 ?�었거나, ?�직 ?�성?��? ?�았?????�습?�다.',
+        'masked_input.pdf가 없습니다. OCR·마스킹 단계가 없었거나, 아직 생성되지 않았을 수 있습니다.',
     });
     return;
   }
@@ -4953,12 +4953,12 @@ app.get('/api/diagnostic/:jobId/masked-pdf', (req, res) => {
 app.get('/api/diagnostic/:jobId/original-pdf', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: '마스?�·인???��????????�는 ?�업???�니거나 만료?�었?�니?? });
+    res.status(404).json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
     return;
   }
   let inputPdfPath = job.inputPdfPath;
   if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
-    res.status(404).json({ error: '?�로???�본 PDF가 ?�션???�습?�다' });
+    res.status(404).json({ error: '업로드 원본 PDF가 세션에 없습니다' });
     return;
   }
   const attachment =
@@ -4976,14 +4976,14 @@ app.get('/api/diagnostic/:jobId/original-pdf', (req, res) => {
 app.get('/api/diagnostic/:jobId/clean-score-pdf', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: '마스?�·인???��????????�는 ?�업???�니거나 만료?�었?�니?? });
+    res.status(404).json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
     return;
   }
   const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
   if (!fsSync.existsSync(cleanScorePath)) {
     res.status(404).json({
       error:
-        'clean_score_only.pdf가 ?�습?�다. ?�트 분리(font_separator) ?�이?�라?�을 ?�용?��? ?�았거나 ?�직 ?�성?��? ?�았?????�습?�다.',
+        'clean_score_only.pdf가 없습니다. 폰트 분리(font_separator) 파이프라인을 사용하지 않았거나 아직 생성되지 않았을 수 있습니다.',
     });
     return;
   }
@@ -4999,20 +4999,20 @@ app.get('/api/diagnostic/:jobId/clean-score-pdf', (req, res) => {
   );
 });
 
-/** 마스?�·점검 ?�업 ?�션?�서 Audiveris `-step` 배치 ?�행 (`-save`, `-export` ?�음). ?�버 부??가?????�요 ?�만 ?�용. */
+/** 마스킹·점검 작업 세션에서 Audiveris `-step` 배치 실행 (`-save`, `-export` 없음). 서버 부하 가능 — 필요 시만 사용. */
 app.post('/api/diagnostic/:jobId/audiveris-step-probe', express.json({ limit: '48kb' }), async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!audiverisStepProbeJobsAllowed(job)) {
     res.status(404).json({
       error:
-        'Audiveris ?�계 ?�행???????�는 ?�업???�니거나 ?�션??만료?�었?�니?? ?�료·?�패·Audiveris 보정 ?��??�태??jobId�?가?�합?�다.',
+        'Audiveris 단계 실행을 할 수 있는 작업이 아니거나 세션이 만료되었습니다. 완료·실패·Audiveris 보정 대기 상태의 jobId만 가능합니다.',
     });
     return;
   }
   const bin = resolveAudiverisBin();
   if (!bin) {
-    res.status(503).json({ error: 'AUDIVERIS_BIN???�정?�어 ?��? ?�습?�다.' });
+    res.status(503).json({ error: 'AUDIVERIS_BIN이 설정되어 있지 않습니다.' });
     return;
   }
 
@@ -5025,7 +5025,7 @@ app.post('/api/diagnostic/:jobId/audiveris-step-probe', express.json({ limit: '4
   const stepRaw = typeof body.step === 'string' ? body.step.trim() : '';
   if (!isAudiverisSheetStep(stepRaw)) {
     res.status(400).json({
-      error: '?�효?��? ?��? step?�니??',
+      error: '유효하지 않은 step입니다.',
       steps: [...AUDIVERIS_SHEET_STEPS],
     });
     return;
@@ -5085,22 +5085,22 @@ app.post('/api/diagnostic/:jobId/audiveris-step-probe', express.json({ limit: '4
 
   if (pdfRequested === 'clean_score') {
     if (!tryClean()) {
-      if (tryMasked()) note = 'clean_score_only.pdf가 ?�어 masked_input.pdf�??�행?�습?�다.';
-      else if (tryOrig()) note = 'clean_score_only.pdf가 ?�어 ?�로???�본 PDF�??�행?�습?�다.';
+      if (tryMasked()) note = 'clean_score_only.pdf가 없어 masked_input.pdf로 실행했습니다.';
+      else if (tryOrig()) note = 'clean_score_only.pdf가 없어 업로드 원본 PDF로 실행했습니다.';
     }
   } else if (pdfRequested === 'masked') {
     if (!tryMasked()) {
-      if (tryClean()) note = 'masked_input.pdf가 ?�어 clean_score_only.pdf�??�행?�습?�다.';
-      else if (tryOrig()) note = '마스??PDF가 ?�어 ?�로???�본 PDF�??�행?�습?�다.';
+      if (tryClean()) note = 'masked_input.pdf가 없어 clean_score_only.pdf로 실행했습니다.';
+      else if (tryOrig()) note = '마스킹 PDF가 없어 업로드 원본 PDF로 실행했습니다.';
     }
   } else if (!tryOrig()) {
-    if (tryClean()) note = '?�본 PDF�?찾�? 못해 clean_score_only.pdf�??�행?�습?�다.';
+    if (tryClean()) note = '원본 PDF를 찾지 못해 clean_score_only.pdf로 실행했습니다.';
     else tryMasked();
   }
 
   if (!pdfPath) {
     res.status(404).json({
-      error: 'Audiveris???�길 PDF(clean_score·masked·original)�?찾을 ???�습?�다.',
+      error: 'Audiveris에 넘길 PDF(clean_score·masked·original)를 찾을 수 없습니다.',
     });
     return;
   }
@@ -5145,32 +5145,32 @@ app.post('/api/diagnostic/:jobId/audiveris-step-probe', express.json({ limit: '4
   }
 });
 
-/** `POST .../audiveris-step-probe` 결과 ?�더 ???�일 ?�운로드. `rel`?� ?�당 ?�행 ?�더 기�? ?��? 경로(?? `subdir/book.omr`). */
+/** `POST .../audiveris-step-probe` 결과 폴더 안 파일 다운로드. `rel`은 해당 실행 폴더 기준 상대 경로(예: `subdir/book.omr`). */
 app.get('/api/diagnostic/:jobId/audiveris-step-probe/:runId/download', async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!audiverisStepProbeJobsAllowed(job)) {
-    res.status(404).json({ error: '?�업??찾을 ???�거???�계 ?�행 결과???�근?????�습?�다.' });
+    res.status(404).json({ error: '작업을 찾을 수 없거나 단계 실행 결과에 접근할 수 없습니다.' });
     return;
   }
   const runRoot = path.join(job.sessionRoot, 'audiveris-step-probes', req.params.runId);
   if (!fsSync.existsSync(runRoot)) {
-    res.status(404).json({ error: '?�당 ?�행(runId) ?�더가 ?�습?�다.' });
+    res.status(404).json({ error: '해당 실행(runId) 폴더가 없습니다.' });
     return;
   }
   const rel = req.query.rel;
   if (typeof rel !== 'string' || !rel.trim()) {
-    res.status(400).json({ error: '쿼리 rel(?��? 경로)???�요?�니??' });
+    res.status(400).json({ error: '쿼리 rel(상대 경로)이 필요합니다.' });
     return;
   }
   const abs = artifactPathWithinRunRoot(runRoot, rel);
   if (!abs || !fsSync.existsSync(abs)) {
-    res.status(404).json({ error: '?�일??찾을 ???�습?�다.' });
+    res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
     return;
   }
   try {
     const st = await fs.stat(abs);
     if (!st.isFile()) {
-      res.status(400).json({ error: '?�일�??�운로드?????�습?�다.' });
+      res.status(400).json({ error: '파일만 다운로드할 수 있습니다.' });
       return;
     }
     const base = path.basename(abs);
@@ -5203,11 +5203,11 @@ app.get('/api/font-strip/:jobId', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   if (job.status !== 'font_strip_needed') {
-    res.status(400).json({ error: '?�트 ?�기 ?�택 ?�계가 ?�닙?�다' });
+    res.status(400).json({ error: '폰트 크기 선택 단계가 아닙니다' });
     return;
   }
   try {
@@ -5221,7 +5221,7 @@ app.get('/api/font-strip/:jobId', async (req, res) => {
       res.json(job.fontStripStats);
       return;
     }
-    res.status(404).json({ error: '?�트 ?�계가 준비되지 ?�았?�니?? });
+    res.status(404).json({ error: '폰트 통계가 준비되지 않았습니다' });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -5230,16 +5230,16 @@ app.get('/api/font-strip/:jobId', async (req, res) => {
 app.post('/api/font-strip/:jobId', express.json({ limit: '256kb' }), async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   if (job.status !== 'font_strip_needed' || !job.fontStripDeferred) {
-    res.status(400).json({ error: '?�트 ?�기 ?�택 ?��??�태가 ?�닙?�다' });
+    res.status(400).json({ error: '폰트 크기 선택 대기 상태가 아닙니다' });
     return;
   }
   const ranges = parseFontStripRangesBody(req.body);
   if (!ranges) {
-    res.status(400).json({ error: '{ "ranges": [{ "minPt": number, "maxPt": number }] } ?�식???�요?�니?? });
+    res.status(400).json({ error: '{ "ranges": [{ "minPt": number, "maxPt": number }] } 형식이 필요합니다' });
     return;
   }
   try {
@@ -5302,13 +5302,13 @@ app.get('/api/clean-score-preview/:jobId', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!cleanScorePreviewJobsAllowed(job)) {
-    res.status(400).json({ error: 'clean_score 미리보기 ?�계가 ?�닙?�다' });
+    res.status(400).json({ error: 'clean_score 미리보기 단계가 아닙니다' });
     return;
   }
   let inputPdfPath = job.inputPdfPath;
   const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
   if (!inputPdfPath || !fsSync.existsSync(inputPdfPath) || !fsSync.existsSync(cleanScorePath)) {
-    res.status(404).json({ error: '미리보기 PDF가 준비되지 ?�았?�니?? });
+    res.status(404).json({ error: '미리보기 PDF가 준비되지 않았습니다' });
     return;
   }
   const [origCount, cleanCount] = await Promise.all([
@@ -5371,7 +5371,7 @@ app.get('/api/clean-score-preview/:jobId/page/:pageNum/png', async (req, res) =>
   }
   const count = await pdfPageCountViaPython(pdfPath);
   if (!count || !Number.isFinite(page) || page < 1 || page > count) {
-    res.status(400).json({ error: '?�이지 번호가 범위�?벗어?�습?�다' });
+    res.status(400).json({ error: '페이지 번호가 범위를 벗어났습니다' });
     return;
   }
   try {
@@ -5387,12 +5387,12 @@ app.get('/api/clean-score-preview/:jobId/page/:pageNum/png', async (req, res) =>
 app.get('/api/clean-score-preview/:jobId/pdf', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!cleanScorePreviewJobsAllowed(job)) {
-    res.status(400).json({ error: 'clean_score 미리보기 ?�계가 ?�닙?�다' });
+    res.status(400).json({ error: 'clean_score 미리보기 단계가 아닙니다' });
     return;
   }
   const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
   if (!fsSync.existsSync(cleanScorePath)) {
-    res.status(404).json({ error: 'clean_score_only.pdf가 ?�습?�다' });
+    res.status(404).json({ error: 'clean_score_only.pdf가 없습니다' });
     return;
   }
   const attachment =
@@ -5411,7 +5411,7 @@ app.post('/api/clean-score-preview/:jobId/score-title', express.json({ limit: '6
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!cleanScorePreviewJobsAllowed(job)) {
-    res.status(400).json({ error: 'clean_score 미리보기 ?�계가 ?�닙?�다' });
+    res.status(400).json({ error: 'clean_score 미리보기 단계가 아닙니다' });
     return;
   }
   const body = req.body as {
@@ -5423,7 +5423,7 @@ app.post('/api/clean-score-preview/:jobId/score-title', express.json({ limit: '6
   };
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   if (!text) {
-    res.status(400).json({ error: '?�목 ?�스?��? ?�요?�니?? });
+    res.status(400).json({ error: '제목 텍스트가 필요합니다' });
     return;
   }
   const cfg = await readFontStripConfig(job.sessionRoot);
@@ -5465,7 +5465,7 @@ app.post('/api/clean-score-preview/:jobId/score-title', express.json({ limit: '6
   let maskRedactions = 0;
   let maskWarning: string | undefined;
   if (!bbox) {
-    maskWarning = '?�목 bbox�?찾�? 못해 PDF 마스?�을 건너?�었?�니?? ?�목 ?�치가 pdfplumber·PyMuPDF 모두?�서 보이지 ?�을 ???�습?�다.';
+    maskWarning = '제목 bbox를 찾지 못해 PDF 마스킹을 건너뛰었습니다. 제목 위치가 pdfplumber·PyMuPDF 모두에서 보이지 않을 수 있습니다.';
   } else if (applyMask && scoreTitle.mask !== false && fsSync.existsSync(cleanScorePath)) {
     try {
       maskRedactions = await applyScoreTitleMaskOnPdf(
@@ -5477,10 +5477,10 @@ app.post('/api/clean-score-preview/:jobId/score-title', express.json({ limit: '6
       );
       if (maskRedactions <= 0) {
         maskWarning =
-          '?�목 ?�역 마스?�이 ?�용?��? ?�았?�니??bbox ?�에 ?�거???�스?�·도?�이 ?�음). clean_score 미리보기 PNG�??�인?�세??';
+          '제목 영역 마스킹이 적용되지 않았습니다(bbox 안에 제거할 텍스트·도형이 없음). clean_score 미리보기 PNG를 확인하세요.';
       }
     } catch (e) {
-      res.status(500).json({ error: `?�목 ?�역 마스???�패: ${String(e)}` });
+      res.status(500).json({ error: `제목 영역 마스킹 실패: ${String(e)}` });
       return;
     }
   }
@@ -5491,7 +5491,7 @@ app.post('/api/clean-score-preview/:jobId/continue', express.json(), (req, res) 
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'clean_score_preview_needed' || !job.cleanScorePreviewDeferred) {
-    res.status(400).json({ error: 'clean_score 미리보기 ?��??�태가 ?�닙?�다' });
+    res.status(400).json({ error: 'clean_score 미리보기 대기 상태가 아닙니다' });
     return;
   }
   job.cleanScorePreviewAction = 'continue';
@@ -5504,7 +5504,7 @@ app.post('/api/clean-score-preview/:jobId/redo-font-strip', express.json(), (req
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'clean_score_preview_needed' || !job.cleanScorePreviewDeferred) {
-    res.status(400).json({ error: 'clean_score 미리보기 ?��??�태가 ?�닙?�다' });
+    res.status(400).json({ error: 'clean_score 미리보기 대기 상태가 아닙니다' });
     return;
   }
   job.cleanScorePreviewAction = 'redo_font_strip';
@@ -5517,12 +5517,12 @@ app.get('/api/lyric-manifest/:jobId', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!lyricManifestSaveJobsAllowed(job) && !lyricManifestDownloadJobsAllowed(job)) {
-    res.status(404).json({ error: 'lyric_manifest.json???�?�할 ???�는 ?�업???�니거나 ?�직 ?�성?��? ?�았?�니?? });
+    res.status(404).json({ error: 'lyric_manifest.json을 저장할 수 있는 작업이 아니거나 아직 생성되지 않았습니다' });
     return;
   }
   const summary = await readLyricManifestSummary(job.sessionRoot);
   if (!summary) {
-    res.status(404).json({ error: 'lyric_manifest.json???�습?�다' });
+    res.status(404).json({ error: 'lyric_manifest.json이 없습니다' });
     return;
   }
   res.json({
@@ -5535,7 +5535,7 @@ app.get('/api/lyric-manifest/:jobId', async (req, res) => {
 app.get('/api/lyric-manifest/:jobId/download', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!lyricManifestDownloadJobsAllowed(job)) {
-    res.status(404).json({ error: 'lyric_manifest.json???�려받을 ???�습?�다' });
+    res.status(404).json({ error: 'lyric_manifest.json을 내려받을 수 없습니다' });
     return;
   }
   const manifestPath = sessionLyricManifestPath(job.sessionRoot);
@@ -5548,7 +5548,7 @@ app.post('/api/lyric-manifest/:jobId/continue', express.json(), (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'lyric_manifest_save_needed' || !job.lyricManifestSaveDeferred) {
-    res.status(400).json({ error: 'lyric_manifest ?�???��??�태가 ?�닙?�다' });
+    res.status(400).json({ error: 'lyric_manifest 저장 대기 상태가 아닙니다' });
     return;
   }
   job.lyricManifestSaveDeferred.resolve();
@@ -5560,11 +5560,11 @@ app.get('/api/review/:jobId', (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   if (job.status !== 'review_needed' || !job.reviewData) {
-    res.status(400).json({ error: '리뷰가 ?�요?��? ?�거??준비되지 ?�았?�니?? });
+    res.status(400).json({ error: '리뷰가 필요하지 않거나 준비되지 않았습니다' });
     return;
   }
   res.json(job.reviewData);
@@ -5574,7 +5574,7 @@ app.get('/api/review/:jobId/lyric-source-info', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   const hasSaved =
@@ -5591,27 +5591,27 @@ app.get('/api/review/:jobId/lyric-source-info', async (req, res) => {
   });
 });
 
-/** OMR·HITL ??가??검�????�본 PDF 1�?추출(?�목·?�곡·가??�??�돌�?*/
+/** OMR·HITL 후 가사 검증 — 원본 PDF 1차 추출(제목·작곡·가사)로 되돌림 */
 app.post('/api/review/:jobId/reset-lyrics-initial', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   if (job.status !== 'review_needed' || !job.reviewData) {
-    res.status(400).json({ error: '리뷰가 ?�요?��? ?�거??준비되지 ?�았?�니?? });
+    res.status(400).json({ error: '리뷰가 필요하지 않거나 준비되지 않았습니다' });
     return;
   }
   if (!job.reviewAfterOmr) {
     res.status(400).json({
-      error: 'OMR·HITL ?�후 가??검�??�계?�서�?초기?�할 ???�습?�다',
+      error: 'OMR·HITL 이후 가사 검증 단계에서만 초기화할 수 있습니다',
     });
     return;
   }
   const pdfPath = resolveLyricReviewPdfPath(job);
   if (!pdfPath) {
-    res.status(404).json({ error: '?�본 PDF가 ?�션???�습?�다' });
+    res.status(404).json({ error: '원본 PDF가 세션에 없습니다' });
     return;
   }
   try {
@@ -5635,21 +5635,21 @@ app.post('/api/review/:jobId/reset-lyrics-initial', async (req, res) => {
   }
 });
 
-/** OMR·HITL ??가??검�???omr-work.zip???�?�된 가??검�??�집 불러?�기 */
+/** OMR·HITL 후 가사 검증 — omr-work.zip에 저장된 가사 검증 편집 불러오기 */
 app.post('/api/review/:jobId/load-saved-lyrics', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   if (job.status !== 'review_needed' || !job.reviewData) {
-    res.status(400).json({ error: '리뷰가 ?�요?��? ?�거??준비되지 ?�았?�니?? });
+    res.status(400).json({ error: '리뷰가 필요하지 않거나 준비되지 않았습니다' });
     return;
   }
   if (!job.reviewAfterOmr) {
     res.status(400).json({
-      error: 'OMR·HITL ?�후 가??검�??�계?�서�?불러?????�습?�다',
+      error: 'OMR·HITL 이후 가사 검증 단계에서만 불러올 수 있습니다',
     });
     return;
   }
@@ -5665,17 +5665,17 @@ app.post('/api/review/:jobId/load-saved-lyrics', async (req, res) => {
   }
 });
 
-/** 문자 검??리뷰) ?�계: ?�본 PDF �??�이지 ?�기(pt) ???�동 가??마스??좌표 변??*/
+/** 문자 검토(리뷰) 단계: 원본 PDF 각 페이지 크기(pt) — 수동 가사 마스킹 좌표 변환 */
 app.get('/api/review/:jobId/pdf-dimensions', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'review_needed') {
-    res.status(404).json({ error: '리뷰 준�??�이거나 ?�업??찾을 ???�습?�다' });
+    res.status(404).json({ error: '리뷰 준비 전이거나 작업을 찾을 수 없습니다' });
     return;
   }
   const inputPdfPath = resolveLyricReviewPdfPath(job);
   if (!inputPdfPath) {
-    res.status(404).json({ error: '?�로??PDF가 ?�션???�습?�다' });
+    res.status(404).json({ error: '업로드 PDF가 세션에 없습니다' });
     return;
   }
   try {
@@ -5694,16 +5694,16 @@ app.get('/api/review/:jobId/pdf-dimensions', async (req, res) => {
   }
 });
 
-/** 문자 검???�계: ???�이지 미리보기 PNG (PDF pt?� ?�일 ?�로방향 좌표) */
+/** 문자 검토 단계: 한 페이지 미리보기 PNG (PDF pt와 동일 세로방향 좌표) */
 app.get('/api/review/:jobId/pdf-page-png/:pageNum', async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'review_needed') {
-    res.status(404).json({ error: '리뷰 준�??�이거나 ?�업??찾을 ???�습?�다' });
+    res.status(404).json({ error: '리뷰 준비 전이거나 작업을 찾을 수 없습니다' });
     return;
   }
   const inputPdfPath = resolveLyricReviewPdfPath(job);
   if (!inputPdfPath) {
-    res.status(404).json({ error: '?�로??PDF가 ?�션???�습?�다' });
+    res.status(404).json({ error: '업로드 PDF가 세션에 없습니다' });
     return;
   }
   const pageNum = parseInt(req.params.pageNum, 10);
@@ -5726,7 +5726,7 @@ app.get('/api/review/:jobId/pdf-page-png/:pageNum', async (req, res) => {
       pageNum < 1 ||
       pageNum > pageCount
     ) {
-      res.status(400).json({ error: '?�이지 번호가 범위�?벗어?�습?�다' });
+      res.status(400).json({ error: '페이지 번호가 범위를 벗어났습니다' });
       return;
     }
 
@@ -5757,17 +5757,17 @@ app.get('/api/review/:jobId/pdf-page-png/:pageNum', async (req, res) => {
   }
 });
 
-/** 가??검�?UI?????�재 score??part/voice�?가???�???�표 ??*/
+/** 가사 검증 UI용 — 현재 score의 part/voice별 가사 대상 음표 수 */
 app.get('/api/review/:jobId/note-counts', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath || !fsSync.existsSync(mxlPath)) {
-    res.status(404).json({ error: '?�션??MusicXML???�습?�다' });
+    res.status(404).json({ error: '세션에 MusicXML이 없습니다' });
     return;
   }
   try {
@@ -5809,12 +5809,12 @@ app.get('/api/diagnostic/:jobId/mxl-lint', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: 'MXL lint�?조회?????�는 ?�업???�닙?�다' });
+    res.status(404).json({ error: 'MXL lint를 조회할 수 있는 작업이 아닙니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath) {
-    res.status(404).json({ error: 'MXL/MusicXML ?�일??찾을 ???�습?�다' });
+    res.status(404).json({ error: 'MXL/MusicXML 파일을 찾을 수 없습니다' });
     return;
   }
   const lintPath = sessionMxlLintPath(job.sessionRoot);
@@ -5876,7 +5876,7 @@ app.get('/api/diagnostic/:jobId/omr-policy', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: 'OMR ?�책??조회?????�는 ?�업???�닙?�다' });
+    res.status(404).json({ error: 'OMR 정책을 조회할 수 있는 작업이 아닙니다' });
     return;
   }
   const measureOffsetPrinted =
@@ -5912,16 +5912,16 @@ app.get('/api/diagnostic/:jobId/omr-policy', async (req, res) => {
     cleanScoreConstantsActive: audiverisCleanScoreConstantArgsFromEnv().length > 0,
     audiverisCliExtraArgsCount: audiverisExtraCliArgsFromEnv().length,
     pCauses: pCauses ?? [
-      'TEXTS(OCR)가 SYMBOLS 글리프�??�점 ??Audiveris TextWord·OCR eng',
-      '?�성부 ?�로 ?�렬�?tuplet ?�자가 ??staff?�만 붙음 ??SYMBOLS/BEAMS',
-      '마디 ??8�??�표 ??RHYTHMS 마디 채우�?heuristic)',
-      '마디 경계 ???�서 ??LINKS/RHYTHMS(heuristic)',
+      'TEXTS(OCR)가 SYMBOLS 글리프를 선점 — Audiveris TextWord·OCR eng',
+      '다성부 세로 정렬로 tuplet 숫자가 한 staff에만 붙음 — SYMBOLS/BEAMS',
+      '마디 끝 8분 쉼표 — RHYTHMS 마디 채우기(heuristic)',
+      '마디 경계 음 순서 — LINKS/RHYTHMS(heuristic)',
     ],
     lintSummary,
     hints: {
-      printedMeasureFormula: '?�쇄 마디 ??MusicXML measure@number + measureOffsetPrinted ??1',
-      symbolsUi: 'SYMBOLS ???�인?��? MXL ?�처리만?�로???�거?��? ?�음 ??Audiveris GUI·?�진',
-      fixMxlScript: 'scripts/fix_audiveris_mxl.py ??direction words P/9 ???��?',
+      printedMeasureFormula: '인쇄 마디 ≈ MusicXML measure@number + measureOffsetPrinted − 1',
+      symbolsUi: 'SYMBOLS 탭 오인식은 MXL 후처리만으로는 제거되지 않음 — Audiveris GUI·엔진',
+      fixMxlScript: 'scripts/fix_audiveris_mxl.py — direction words P/9 등 일부',
     },
   });
 });
@@ -5930,7 +5930,7 @@ app.get('/api/diagnostic/:jobId/score-parts', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: '?�트 목록??조회?????�는 ?�업???�닙?�다' });
+    res.status(404).json({ error: '파트 목록을 조회할 수 있는 작업이 아닙니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
@@ -6001,17 +6001,17 @@ app.get('/api/diagnostic/:jobId/score-parts', async (req, res) => {
 app.post('/api/part-labels/:jobId', express.json({ limit: '64kb' }), async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'part_labels_needed' || !job.partLabelsDeferred) {
-    res.status(400).json({ error: '?��? ?�벨 지???��??�태가 ?�닙?�다' });
+    res.status(400).json({ error: '성부 라벨 지정 대기 상태가 아닙니다' });
     return;
   }
   const body = req.body as { labelsByIndex?: unknown };
   if (!Array.isArray(body.labelsByIndex) || body.labelsByIndex.length < 1) {
-    res.status(400).json({ error: 'labelsByIndex 문자??배열???�요?�니?? });
+    res.status(400).json({ error: 'labelsByIndex 문자열 배열이 필요합니다' });
     return;
   }
   const labelsByIndex = body.labelsByIndex.map((x) => String(x ?? '').trim());
   if (labelsByIndex.some((l) => !l)) {
-    res.status(400).json({ error: '모든 ?�트???�벨??지?�해 주세?? });
+    res.status(400).json({ error: '모든 파트에 라벨을 지정해 주세요' });
     return;
   }
   try {
@@ -6043,12 +6043,12 @@ app.get('/api/raw-mxl/:jobId', (req, res) => {
       job.status !== 'part_labels_needed') ||
     !job.preInjectMxlPaths?.length
   ) {
-    res.status(404).json({ error: '?�본 MXL???�려받을 ???�는 ?�태?�니?? });
+    res.status(404).json({ error: '원본 MXL을 내려받을 수 없는 상태입니다' });
     return;
   }
   const p = job.preInjectMxlPaths[0];
   if (!fsSync.existsSync(p)) {
-    res.status(404).json({ error: 'MXL ?�일???�습?�다' });
+    res.status(404).json({ error: 'MXL 파일이 없습니다' });
     return;
   }
   const asciiName = path.basename(p).replace(/[^\x20-\x7E]/g, '_') || 'audiveris-raw.mxl';
@@ -6067,7 +6067,7 @@ app.get('/api/omr-hitl/:jobId/fixes', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: 'OMR HITL 보정??조회?????�는 ?�업???�닙?�다' });
+    res.status(404).json({ error: 'OMR HITL 보정을 조회할 수 있는 작업이 아닙니다' });
     return;
   }
   const fixesPath = sessionOmrHitlFixesPath(job.sessionRoot);
@@ -6090,12 +6090,12 @@ app.post('/api/omr-hitl/:jobId/fixes', express.json({ limit: '512kb' }), async (
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'omr_staff_review_needed') {
-    res.status(400).json({ error: 'OMR ?�질 검???��?중에�?보정???�?�할 ???�습?�다' });
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 보정을 저장할 수 있습니다' });
     return;
   }
   const body = req.body as { fixes?: unknown };
   if (!Array.isArray(body.fixes)) {
-    res.status(400).json({ error: 'fixes 배열???�요?�니?? });
+    res.status(400).json({ error: 'fixes 배열이 필요합니다' });
     return;
   }
   try {
@@ -6115,18 +6115,18 @@ app.get('/api/omr-hitl/:jobId/measure', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!diagnosticJobsAllowed(job)) {
-    res.status(404).json({ error: '마디 조회�??????�는 ?�업???�닙?�다' });
+    res.status(404).json({ error: '마디 조회를 할 수 있는 작업이 아닙니다' });
     return;
   }
   const partId = typeof req.query.partId === 'string' ? req.query.partId.trim() : '';
   const measureMxl = typeof req.query.measureMxl === 'string' ? req.query.measureMxl.trim() : '';
   if (!partId || !measureMxl) {
-    res.status(400).json({ error: 'partId, measureMxl 쿼리가 ?�요?�니?? });
+    res.status(400).json({ error: 'partId, measureMxl 쿼리가 필요합니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath) {
-    res.status(404).json({ error: 'MXL ?�일??찾을 ???�습?�다' });
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
   const script = path.join(__dirname, '..', 'scripts', 'omr_hitl_measure_cli.py');
@@ -6147,12 +6147,12 @@ app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'omr_staff_review_needed') {
-    res.status(400).json({ error: 'OMR ?�질 검???��?중에�?보정???�용?????�습?�다' });
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 보정을 적용할 수 있습니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath) {
-    res.status(404).json({ error: 'MXL ?�일??찾을 ???�습?�다' });
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
   const pythonBin = resolvePythonBin();
@@ -6186,12 +6186,12 @@ app.post('/api/omr-hitl/:jobId/normalize-rests', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'omr_staff_review_needed') {
-    res.status(400).json({ error: 'OMR ?�질 검???��?중에�??�동 ?�리�??�행?????�습?�다' });
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 자동 정리를 실행할 수 있습니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath) {
-    res.status(404).json({ error: 'MXL ?�일??찾을 ???�습?�다' });
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
   const pythonBin = resolvePythonBin();
@@ -6208,12 +6208,12 @@ app.post('/api/omr-hitl/:jobId/sync-preview', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'omr_staff_review_needed') {
-    res.status(400).json({ error: 'OMR ?�질 검???��?중에�?미리보기�??�기?�할 ???�습?�다' });
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 미리보기를 동기화할 수 있습니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath) {
-    res.status(404).json({ error: 'MXL ?�일??찾을 ???�습?�다' });
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
   const pythonBin = resolvePythonBin();
@@ -6229,12 +6229,12 @@ app.post('/api/omr-hitl/:jobId/sync-preview', async (req, res) => {
 app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'omr_staff_review_needed') {
-    res.status(400).json({ error: 'OMR ?�질 검???��?중에�??�업???�보?????�습?�다' });
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 작업을 내보낼 수 있습니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath || !fsSync.existsSync(mxlPath)) {
-    res.status(404).json({ error: 'MXL ?�일??찾을 ???�습?�다' });
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
   try {
@@ -6242,7 +6242,7 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
     await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
     await invalidateInspectScoreCache(job.sessionRoot);
   } catch (e) {
-    res.status(500).json({ error: `?�????MXL ?�기???�패: ${String(e)}` });
+    res.status(500).json({ error: `저장 전 MXL 동기화 실패: ${String(e)}` });
     return;
   }
   const base = resolveDownloadBaseName(job);
@@ -6323,12 +6323,12 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
   noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'omr_staff_review_needed') {
-    res.status(400).json({ error: 'OMR ?�질 검???��?중에�??�업??불러?????�습?�다' });
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 작업을 불러올 수 있습니다' });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
   if (!mxlPath) {
-    res.status(404).json({ error: 'MXL ?�일??찾을 ???�습?�다' });
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
   const bb = busboy({ headers: req.headers, limits: { fileSize: 80 * 1024 * 1024, files: 1 } });
@@ -6336,7 +6336,7 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
   let importErr: string | null = null;
   bb.on('file', (_name, file, info) => {
     if (!info.filename.toLowerCase().endsWith('.zip')) {
-      importErr = 'ZIP ?�일�??�로?�할 ???�습?�다';
+      importErr = 'ZIP 파일만 업로드할 수 있습니다';
       file.resume();
       return;
     }
@@ -6354,7 +6354,7 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
         return;
       }
       if (!zipPath || !fsSync.existsSync(zipPath)) {
-        res.status(400).json({ error: '?�로?�된 ZIP???�습?�다' });
+        res.status(400).json({ error: '업로드된 ZIP이 없습니다' });
         return;
       }
       try {
@@ -6399,7 +6399,7 @@ app.post('/api/continue-omr-staff-review/:jobId', (req, res) => {
     const job = jobs.get(req.params.jobId);
     if (!job) {
       res.status(404).json({
-        error: '?�업??찾을 ???�습?�다. ?�버 ?�시??pm2 restart) ?�에??변?�을 처음부???�시 ?�작?�세??',
+        error: '작업을 찾을 수 없습니다. 서버 재시작(pm2 restart) 후에는 변환을 처음부터 다시 시작하세요.',
       });
       return;
     }
@@ -6414,9 +6414,9 @@ app.post('/api/continue-omr-staff-review/:jobId', (req, res) => {
     if (job.status !== 'omr_staff_review_needed' || !job.omrStaffReviewDeferred) {
       const hint =
         job.status === 'part_labels_needed'
-          ? '?��? ?�벨 지??모달?�서 ?�정????OMR 검???�계�??�어가?�요.'
-          : `?�재 ?�태: ${job.status}`;
-      res.status(400).json({ error: 'OMR ?�이지·?��? 검???��??�태가 ?�닙?�다', detail: hint });
+          ? '성부 라벨 지정 모달에서 확정한 뒤 OMR 검토 단계로 넘어가세요.'
+          : `현재 상태: ${job.status}`;
+      res.status(400).json({ error: 'OMR 페이지·성부 검토 대기 상태가 아닙니다', detail: hint });
       return;
     }
     const pythonBin = resolvePythonBin();
@@ -6431,7 +6431,7 @@ app.post('/api/continue-omr-staff-review/:jobId', (req, res) => {
 app.post('/api/continue-audiveris/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'audiveris_review_needed' || !job.audiverisReviewDeferred) {
-    res.status(400).json({ error: 'Audiveris 보정 ?��??�태가 ?�닙?�다' });
+    res.status(400).json({ error: 'Audiveris 보정 대기 상태가 아닙니다' });
     return;
   }
   const ct = (req.headers['content-type'] || '').toLowerCase();
@@ -6511,14 +6511,14 @@ app.post('/api/continue-audiveris/:jobId', (req, res) => {
     return;
   }
   res.status(400).json({
-    error: 'Content-Type?� application/json ?�는 multipart/form-data ?�야 ?�니??,
+    error: 'Content-Type은 application/json 또는 multipart/form-data 여야 합니다',
   });
 });
 
 app.get('/api/deskew/:jobId', async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job || !job.deskewAnglesPath || !fsSync.existsSync(job.deskewAnglesPath)) {
-    res.status(404).json({ error: '각도 ?�이?��? 찾을 ???�습?�다' });
+    res.status(404).json({ error: '각도 데이터를 찾을 수 없습니다' });
     return;
   }
   try {
@@ -6596,11 +6596,11 @@ app.post('/api/deskew/:jobId/finish', async (req, res) => {
 app.post('/api/deskew/:jobId/continue', express.json(), async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?�업??찾을 ???�습?�다' });
+    res.status(404).json({ error: '작업을 찾을 수 없습니다' });
     return;
   }
   if (job.status !== 'deskew_needed' || !job.deskewDeferred) {
-    res.status(400).json({ error: '?�재 ?�업??deskew 검???��??�태가 ?�닙?�다' });
+    res.status(400).json({ error: '현재 작업이 deskew 검수 대기 상태가 아닙니다' });
     return;
   }
   try {
@@ -6621,11 +6621,11 @@ app.post('/api/deskew/:jobId/continue', express.json(), async (req, res) => {
 app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {
-    res.status(404).json({ error: '?????�는 ?�업?�니?? });
+    res.status(404).json({ error: '알 수 없는 작업입니다' });
     return;
   }
   if (job.status !== 'review_needed' || !job.reviewDeferred) {
-    res.status(400).json({ error: '?�재 ?�업??리뷰 ?��??�태가 ?�닙?�다' });
+    res.status(400).json({ error: '현재 작업이 리뷰 대기 상태가 아닙니다' });
     return;
   }
 
@@ -6648,7 +6648,7 @@ app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res)
     } else {
       res.status(400).json({
         error:
-          '본문?� ??�� 배열?�거??{ "items": [...], "transposeSemitones"?: number } ?�식?�어???�니??,
+          '본문은 항목 배열이거나 { "items": [...], "transposeSemitones"?: number } 형식이어야 합니다',
       });
       return;
     }

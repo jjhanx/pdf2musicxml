@@ -92,6 +92,11 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
               window.clearInterval(interval);
               setProcessingPhase('done');
               setBusy(false);
+            } else if (jobData.status === 'failed') {
+              window.clearInterval(interval);
+              setErr(jobData.detail || jobData.errorDetail || jobData.error || '작업이 실패했습니다');
+              setProcessingPhase('idle');
+              setBusy(false);
             }
           }
         } catch(err) {}

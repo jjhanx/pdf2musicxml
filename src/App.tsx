@@ -1537,6 +1537,10 @@ export default function App() {
             if (jobData.status === 'lyric_manifest_save_needed') {
               window.clearInterval(interval);
               setReviewProcessingPhase('done');
+            } else if (jobData.status === 'failed') {
+              window.clearInterval(interval);
+              setReviewProcessingPhase('idle');
+              alert(jobData.detail || jobData.error || 'OMR 작업이 실패했습니다.');
             }
           }
         } catch(err) {}

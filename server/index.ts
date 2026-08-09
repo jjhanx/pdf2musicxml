@@ -6469,6 +6469,21 @@ app.get('/api/deskew/:jobId/pdf', (req, res) => {
   res.sendFile(deskewedPdfPath);
 });
 
+app.get('/api/deskew/:jobId/clean-score-pdf', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).send('Job not found');
+    return;
+  }
+  const cleanScorePdfPath = path.join(job.sessionRoot, 'clean_score_only.pdf');
+  if (!fsSync.existsSync(cleanScorePdfPath)) {
+    res.status(404).send('Clean score PDF not found');
+    return;
+  }
+  setAttachmentFilenameHeader(res, `${job.originalName || 'deskewed'}-clean-score-only.pdf`);
+  res.sendFile(cleanScorePdfPath);
+});
+
 app.post('/api/deskew/:jobId/continue', express.json({ limit: '10mb' }), async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {

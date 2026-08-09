@@ -48,7 +48,9 @@ def _get_skew_angle(image_np: np.ndarray) -> float:
             max_variance = variance
             best_angle = angle
             
-    return round(float(best_angle), 2)
+    # UI uses CSS rotation (positive = clockwise), but OpenCV uses positive = counter-clockwise.
+    # So we negate the angle so positive means clockwise rotation is needed.
+    return round(float(-best_angle), 2)
 
 def analyze(input_pdf: str, output_json: str):
     print(f"[deskew_processor] Analyzing {input_pdf}...", file=sys.stderr)
@@ -112,7 +114,8 @@ def apply(input_pdf: str, angles_json: str, output_pdf: str):
             # Rotate image with white background
             h, w = img_np.shape[:2]
             center = (w // 2, h // 2)
-            M = cv2.getRotationMatrix2D(center, angle, 1.0)
+            # angle is CW (from UI), so negate it for OpenCV (which expects CCW)
+            M = cv2.getRotationMatrix2D(center, -angle, 1.0)
             
             # Calculate new bounding box dimensions
             cos = np.abs(M[0, 0])

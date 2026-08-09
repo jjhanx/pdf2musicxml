@@ -2316,8 +2316,19 @@ bash scripts/install-font-separator-deps.sh`}
                               download={`deskewed-${t.jobId}.pdf`}
                               className="btn-link"
                               style={{ color: '#10b981', textDecoration: 'underline' }}
+                              title="수평보정된 원본 PDF (가사 포함)"
                             >
-                              수평보정 PDF
+                              수평보정 원본 PDF
+                            </a>
+                            {' · '}
+                            <a
+                              href={`/api/deskew/${t.jobId}/clean-score-pdf`}
+                              download={`clean-score-${t.jobId}.pdf`}
+                              className="btn-link"
+                              style={{ color: '#f59e0b', textDecoration: 'underline' }}
+                              title="가사가 제거된 수평보정 PDF"
+                            >
+                              Clean Score PDF
                             </a>
                           </>
                         )}

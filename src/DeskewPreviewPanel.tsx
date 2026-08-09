@@ -87,7 +87,7 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
             }
           }
         } catch(err) {}
-      }, 2000);
+      }, 1000);
       setPollIntervalId(interval as unknown as number);
       
     } catch (e) {
@@ -109,7 +109,7 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
           </button>
         )}
         {processingPhase === 'polling' && (
-          <span style={{ color: '#007bff', fontWeight: 'bold' }}>결과 PDF 생성 중... (최대 1분 소요)</span>
+          <span style={{ color: '#007bff', fontWeight: 'bold' }}>결과 PDF 생성 중... (수 초 소요)</span>
         )}
         {processingPhase === 'done' && (
           <>
@@ -121,15 +121,6 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
               title="수평보정된 원본 PDF (가사 포함)"
             >
               수평보정 원본 PDF 다운로드
-            </a>
-            <a
-              href={`/api/deskew/${jobId}/clean-score-pdf`}
-              download={`clean-score-${jobId}.pdf`}
-              className="btn-link"
-              style={{ color: '#f59e0b', textDecoration: 'underline', marginRight: '1rem', fontSize: '0.9rem' }}
-              title="가사가 제거된 수평보정 PDF"
-            >
-              Clean Score PDF 다운로드
             </a>
             <button onClick={() => onContinue()} style={{ padding: '8px 16px', background: '#28a745', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
               다음 단계로 이동
@@ -208,10 +199,10 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
                 transition: 'transform 0.1s ease-out'
               }}
             />
-            {/* 수평 가이드라인 (사용자가 수평을 맞출 때 참고용) */}
-            <div style={{ position: 'absolute', top: '25%', left: 0, width: '100%', borderTop: '2px solid red', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', top: '50%', left: 0, width: '100%', borderTop: '2px solid red', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', top: '75%', left: 0, width: '100%', borderTop: '2px solid red', pointerEvents: 'none' }} />
+            {/* 수평 가이드라인 (더 선명하게) */}
+            <div style={{ position: 'absolute', top: '25%', left: 0, width: '100%', borderTop: '2px solid red', boxShadow: '0 0 2px #000', pointerEvents: 'none', opacity: 0.8 }} />
+            <div style={{ position: 'absolute', top: '50%', left: 0, width: '100%', borderTop: '2px solid red', boxShadow: '0 0 2px #000', pointerEvents: 'none', opacity: 0.8 }} />
+            <div style={{ position: 'absolute', top: '75%', left: 0, width: '100%', borderTop: '2px solid red', boxShadow: '0 0 2px #000', pointerEvents: 'none', opacity: 0.8 }} />
           </div>
         </div>
       </div>

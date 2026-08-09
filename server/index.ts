@@ -3545,40 +3545,6 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         console.warn(`[job ${jobId}] Failed to apply deskew (continuing with original):`, err);
       }
       
-      // NEW: Run OCR and generate clean_score.pdf BEFORE part labels so user can download them in Deskew UI
-      setJobProgress(job, {
-        phase: 'separator',
-        current: 0,
-        total: 2,
-        detail: 'PaddleOCR로 이미지 PDF 텍스트 추출 중…',
-      });
-      const scriptImageProcessor = path.join(__dirname, '..', 'scripts', 'image_pdf_processor.py');
-      if (!job.skipPaddleOcr) {
-        console.log(`[job ${jobId}] Running image_pdf_processor.py extract early`);
-        try {
-          await exec(
-            `"${pythonBin}" "${scriptImageProcessor}" extract "${inputPdfPath}" "${extractedJsonPath}"`,
-            { maxBuffer: 16 * 1024 * 1024 }
-          );
-        } catch (err) {
-          console.warn(`[job ${jobId}] Early OCR failed:`, err);
-        }
-      } else {
-        await fs.writeFile(extractedJsonPath, '[]', 'utf8');
-      }
-      if (fsSync.existsSync(extractedJsonPath)) {
-        console.log(`[job ${jobId}] Running mask_pdf.py early for preview`);
-        try {
-          const scriptMask = path.join(__dirname, '..', 'scripts', 'mask_pdf.py');
-          await exec(
-            `"${pythonBin}" "${scriptMask}" "${inputPdfPath}" "${cleanScorePath}" "${extractedJsonPath}"`,
-            { env: { ...process.env, MASK_PDF_LYRIC_SELECTIVE: '0', MASK_PDF_GLOBAL_HANGUL_SYLLABLE_BLANK: '0' } }
-          );
-        } catch (err) {
-          console.warn(`[job ${jobId}] Early mask failed:`, err);
-        }
-      }
-
       try {
         console.log(`[job ${jobId}] Detecting part labels from ${inputPdfPath}`);
         const scriptDetectParts = path.join(__dirname, '..', 'scripts', 'detect_parts.py');
@@ -3598,7 +3564,54 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       }
       
       console.log(`[job ${jobId}] Pausing for early part label setup (성부 S/A/T/B…)…`);
-      // Extraction already done earlier in the pipeline for preview
+      setJobProgress(job, {
+        phase: 'hitl',
+        current: 0,
+        total: 1,
+        detail: '성부 라벨(S/A/T/B·PR/PL) 및 악보 구조 초기 확인 대기…',
+      });
+      job.status = 'part_labels_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.partLabelsDeferred = { resolve, reject };
+      });
+      delete job.partLabelsDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Early part labels saved, continuing…`);
+
+      const scriptImageProcessor = path.join(__dirname, '..', 'scripts', 'image_pdf_processor.py');
+      
+      setJobProgress(job, {
+        phase: 'separator',
+        current: 0,
+        total: 2,
+        detail: 'PaddleOCR로 이미지 PDF 텍스트 추출 중…',
+      });
+      if (job.skipPaddleOcr) {
+        console.log(`[job ${jobId}] Skipping PaddleOCR extract, creating empty JSON`);
+        // We still need extractedJsonPath for the next step, so we mock it.
+        // The mock must match what `image_pdf_processor.py extract` would output:
+        // A list of objects { "page": i, "text_elements": [] }
+        // We don't know the exact page count here easily unless we read it, 
+        // but image_pdf_processor mask uses the page numbers from the JSON.
+        // Actually, we can just write an empty array, and the frontend review 
+        // logic will just start from scratch, and we can generate page entries during resume.
+        // But to be safe, let's write an empty array for now.
+        const mockEmpty = [];
+        await fs.writeFile(extractedJsonPath, JSON.stringify(mockEmpty, null, 2), 'utf8');
+      } else {
+        console.log(`[job ${jobId}] Running image_pdf_processor.py extract`);
+        try {
+          await exec(
+            `"${pythonBin}" "${scriptImageProcessor}" extract "${inputPdfPath}" "${extractedJsonPath}"`,
+            { maxBuffer: 16 * 1024 * 1024 }
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          await fail({ status: 500, error: 'OCR extract error', detail: msg });
+          return;
+        }
+      }
+
       if (enablePymupdfReview) {
         const extractedStr = await fs.readFile(extractedJsonPath, 'utf8');
         const extracted = JSON.parse(extractedStr);

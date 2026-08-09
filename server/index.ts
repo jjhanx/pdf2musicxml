@@ -3545,8 +3545,11 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           const { spawn } = require('child_process');
           const proc = spawn(pythonBin, [scriptDeskewProcessor, 'apply', inputPdfPath, deskewAnglesPath, deskewedPdfPath]);
           let errOut = '';
+          let outBuf = '';
           proc.stdout.on('data', (d: Buffer) => {
-            const lines = d.toString().split('\n');
+            outBuf += d.toString();
+            const lines = outBuf.split('\n');
+            outBuf = lines.pop() || '';
             for (const line of lines) {
               const m = line.match(/PROGRESS:\s*(\d+)\/(\d+)/);
               if (m) {

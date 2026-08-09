@@ -137,6 +137,8 @@ def apply(input_pdf: str, angles_json: str, output_pdf: str):
             # If no rotation, just insert the page directly to preserve vector
             out_doc.insert_pdf(doc, from_page=page_idx, to_page=page_idx)
             
+        print(f"PROGRESS: {page_idx + 1}/{len(doc)}", flush=True)
+            
     out_doc.save(output_pdf)
     out_doc.close()
     doc.close()

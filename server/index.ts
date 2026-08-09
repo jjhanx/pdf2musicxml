@@ -6437,19 +6437,16 @@ app.get('/api/deskew/:jobId/page/:pageNum/png', async (req, res) => {
     res.status(404).send('PDF not found');
     return;
   }
-  const pageIdx = parseInt(req.params.pageNum, 10) - 1;
-  const pythonBin = resolvePythonBin();
-  const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
+  const page = parseInt(req.params.pageNum, 10);
   try {
-    const { stdout } = await exec(`"${pythonBin}" "${scriptExtract}" render-page "${job.inputPdfPath}" ${pageIdx} 2.0`, {
-      maxBuffer: 32 * 1024 * 1024,
-      encoding: 'buffer',
-    });
-    res.set('Content-Type', 'image/png');
-    res.send(stdout);
+    const dpi = 264; // High resolution for deskew preview
+    const cacheFile = await renderSessionPagePng(job, job.inputPdfPath, page, dpi, 'deskew-preview');
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=120');
+    res.sendFile(path.resolve(cacheFile));
   } catch (err) {
     console.error(`[deskew] render-page error:`, err);
-    res.status(500).send('Render failed');
+    if (!res.headersSent) res.status(500).send('Render failed');
   }
 });
 

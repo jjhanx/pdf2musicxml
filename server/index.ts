@@ -2263,8 +2263,13 @@ function resolveLyricReviewPdfPath(job: JobRecord): string | null {
   if (fsSync.existsSync(sessionInput)) candidates.push(sessionInput);
   if (fsSync.existsSync(sessionOriginal)) candidates.push(sessionOriginal);
   const lyricSource = candidates.find((p) => !isCleanScorePdfPath(job, p));
-  if (lyricSource) return lyricSource;
-  return candidates[0] ?? null;
+  if (lyricSource) {
+    console.log(`[job ${job.id}] resolveLyricReviewPdfPath -> ${lyricSource}`);
+    return lyricSource;
+  }
+  const fallback = candidates[0] ?? null;
+  console.log(`[job ${job.id}] resolveLyricReviewPdfPath fallback -> ${fallback}`);
+  return fallback;
 }
 
 /** 업로드 원본을 세션 input.pdf로 고정 — 가사 검증·ZIP 복원 경로 통일 */

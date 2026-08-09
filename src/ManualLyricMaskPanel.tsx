@@ -652,6 +652,24 @@ export function ManualLyricMaskPanel(props: Props) {
           >
             미리보기 다시 받기
           </button>
+          <a
+            href={`/api/deskew/${jobId}/pdf`}
+            download={`deskewed-${jobId}.pdf`}
+            className="btn-link"
+            style={{ color: '#10b981', textDecoration: 'underline', marginLeft: 'auto', fontSize: '0.9rem' }}
+            title="수평보정된 원본 PDF (가사 포함)"
+          >
+            수평보정 원본 PDF 다운로드
+          </a>
+          <a
+            href={`/api/deskew/${jobId}/clean-score-pdf`}
+            download={`clean-score-${jobId}.pdf`}
+            className="btn-link"
+            style={{ color: '#f59e0b', textDecoration: 'underline', fontSize: '0.9rem' }}
+            title="가사가 제거된 수평보정 PDF"
+          >
+            Clean Score PDF 다운로드
+          </a>
           {focusedReviewIndex != null &&
             focusedItem &&
             onFocusedReviewIndexChange &&

@@ -3520,10 +3520,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         await exec(`"${pythonBin}" "${scriptDeskewProcessor}" analyze "${inputPdfPath}" "${deskewAnglesPath}"`, {
           maxBuffer: 16 * 1024 * 1024
         });
-      } catch (err) {
-        console.warn(`[job ${jobId}] Failed to analyze deskew (ignoring):`, err);
-        // Fallback to empty angles
-        await fs.writeFile(deskewAnglesPath, '[]', 'utf8');
+      } catch (err: any) {
+        console.warn(`[job ${jobId}] Failed to analyze deskew:`, err);
+        await fail({
+          status: 500,
+          error: '수평 보정 분석 실패',
+          detail: '수평 보정(Deskew) 분석 중 서버 오류가 발생했습니다. opencv-python 등이 설치되어 있는지 확인하세요.\n' + err.message,
+        });
+        return;
       }
 
       console.log(`[job ${jobId}] Pausing for deskew review...`);
@@ -3588,8 +3592,14 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
             console.warn(`[job ${jobId}] Failed to clear caches after deskew:`, e);
           }
         }
-      } catch (err) {
-        console.warn(`[job ${jobId}] Failed to apply deskew (continuing with original):`, err);
+      } catch (err: any) {
+        console.warn(`[job ${jobId}] Failed to apply deskew:`, err);
+        await fail({
+          status: 500,
+          error: '수평 보정 적용 실패',
+          detail: '수평 보정(Deskew) 적용 중 서버 오류가 발생했습니다. opencv-python 등이 설치되어 있는지 확인하세요.\n' + err.message,
+        });
+        return;
       }
       
       try {

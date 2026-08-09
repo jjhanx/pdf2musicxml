@@ -28,3 +28,17 @@
 - **해결책**: 원인은 mask_pdf.py가 이미지 PDF를 처리할 때 벡터 텍스트가 없다는 이유로 모든 박스를 단순 그리기(draw_rect) 기능인 white_rects 배열로 보내버렸고, 설령 리덕션(pply_redactions)이 적용되더라도 기본적으로 이미지 픽셀은 건드리지 않도록 images=0으로 고정되어 있었기 때문입니다. 이를 해결하기 위해 이미지 PDF(lyric_selective = False)인 경우에는 모든 박스를 강제로 edact_rects로 보내고, pply_redactions를 호출할 때 img_redact=2(PDF_REDACT_IMAGE_PIXELS) 옵션을 주어 **실제 PDF 내부의 이미지 픽셀 데이터 자체를 물리적으로 지우도록** 일반적인(General) 해결책을 적용했습니다.
 - **[추가] 백엔드 파이프라인의 Image PDF 모드 환경 변수 누락 수정 (General Solution)**: 파이썬 스크립트 수정에 더해 백엔드(server/index.ts)에서 Image PDF 모드로 mask_pdf.py를 실행할 때, MASK_PDF_LYRIC_SELECTIVE=0 환경 변수를 아예 넘기지 않고 있었습니다. 이로 인해 스크립트 내부에서 디폴트 값인 lyric_selective = True(벡터 PDF 모드)로 오인하여 픽셀 지우기가 비활성화되는 연쇄적인 버그가 있었습니다. 백엔드 exec 호출 시 환경 변수를 명시적으로 주입하여 백엔드 파이프라인 레벨에서도 완벽한 General Solution을 구축했습니다.
 - **[최종] UI 제출 데이터가 엉뚱한 파일에 저장되는 블랙홀(Blackhole) 현상 수정 (General Solution)**: 사용자가 UI에서 가사 박스를 치고 '완료'를 눌렀을 때 백엔드의 /api/review/:jobId 엔드포인트가 데이터를 저장하는 파일 경로(ocr_data.json)와, 파이프라인이 다시 재개되면서 데이터를 읽어들이는 파일 경로(ocr_data_pymupdf.json)가 서로 달랐습니다. 이로 인해 사용자가 애써 그린 수동 마스킹 데이터가 영구적으로 유실되고, 백엔드는 초기 상태의 빈 데이터([])를 읽어와 파이프라인을 계속 진행하는 치명적인 데이터 블랙홀 버그가 있었습니다. 이를 해결하기 위해 /api/review/:jobId가 이미지 PDF 모드에서도 항상 파이프라인이 기대하는 ocr_data_pymupdf.json에 데이터를 기록하도록 동기화하여 완벽한 General Solution을 적용했습니다.
+
+## 수평 보정 (Deskew) 및 HITL 검수 기능
+
+이미지 PDF 파이프라인(스캔 악보 등)에서는 스캔 과정에서 약간 기울어진 악보 이미지가 자주 발생합니다. Audiveris는 자체적으로 수평 보정을 지원하지 않으므로, OMR 인식 전에 이를 교정(Deskew)하는 전처리 과정이 필수적입니다.
+
+### 동작 원리
+1. **자동 수평 분석**: deskew_processor.py analyze 스크립트를 통해 OpenCV의 HoughLinesP를 이용하여 오선(Staff Lines)의 각도를 탐지합니다.
+2. **HITL 각도 검토 (Deskew Preview Panel)**: 웹 UI에서 사용자에게 탐지된 각도를 제시하고, 슬라이더를 통해 각 페이지별 회전 각도를 미세 조정할 수 있는 기회를 제공합니다.
+3. **회전 적용**: 사용자가 승인하면 deskew_processor.py apply 스크립트가 cv2.warpAffine를 이용해 이미지의 수평을 맞춘 뒤 새로운 deskewed.pdf를 생성합니다.
+4. **파이프라인 계속**: 교정된 deskewed.pdf를 입력으로 삼아 이후 과정(가사 추출, OMR 등)을 수행합니다.
+
+### 기대 효과
+- Audiveris의 오선 및 음표 인식률 대폭 향상
+- 스캔 문서의 품질 변동성에 강건한 대처 기능 확보

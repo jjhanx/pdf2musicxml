@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FontStripPanel } from './FontStripPanel';
+import { DeskewPreviewPanel } from './DeskewPreviewPanel';
 import { CleanScorePreviewPanel } from './CleanScorePreviewPanel';
 import { LyricManifestSavePanel } from './LyricManifestSavePanel';
 import { AudiverisInspectPanel, InspectPanelErrorBoundary } from './AudiverisInspectPanel';
@@ -574,6 +575,8 @@ function taskProgressFromJobStatus(status: string): TaskProgress | undefined {
   switch (status) {
     case 'font_strip_needed':
       return { phase: 'separator', current: 0, total: 0, detail: '폰트 크기 선택 대기…' };
+    case 'deskew_needed':
+      return { phase: 'separator', current: 0, total: 0, detail: '수평 보정(Deskew) 각도 확인 대기…' };
     case 'clean_score_preview_needed':
       return { phase: 'separator', current: 0, total: 0, detail: 'clean_score PDF 확인 대기…' };
     case 'lyric_manifest_save_needed':
@@ -663,6 +666,7 @@ export default function App() {
   const [resumeLyricManifestFile, setResumeLyricManifestFile] = useState<File | null>(null);
   const [resumeOmrWorkFile, setResumeOmrWorkFile] = useState<File | null>(null);
   const [fontStripJobId, setFontStripJobId] = useState<string | null>(null);
+  const [deskewPreviewJobId, setDeskewPreviewJobId] = useState<string | null>(null);
   const [cleanScorePreviewJobId, setCleanScorePreviewJobId] = useState<string | null>(null);
   const [lyricManifestSaveJobId, setLyricManifestSaveJobId] = useState<string | null>(null);
   const [partLabelsJobId, setPartLabelsJobId] = useState<string | null>(null);
@@ -786,8 +790,9 @@ export default function App() {
       partLabelsJobId ||
       audiverisReviewJobId ||
       lyricManifestSaveJobId ||
-      cleanScorePreviewJobId ||
-      fontStripJobId
+      fontStripJobId ||
+      deskewPreviewJobId ||
+      cleanScorePreviewJobId
     ) {
       return;
     }
@@ -801,8 +806,9 @@ export default function App() {
     partLabelsJobId,
     audiverisReviewJobId,
     lyricManifestSaveJobId,
-    cleanScorePreviewJobId,
     fontStripJobId,
+    deskewPreviewJobId,
+    cleanScorePreviewJobId,
     loadLyricReviewJob,
   ]);
 
@@ -858,6 +864,7 @@ export default function App() {
       onProgress?: (p: TaskProgress | undefined) => void,
       onReviewNeeded?: (jobId: string) => void,
       onFontStripNeeded?: (jobId: string) => void,
+      onDeskewNeeded?: (jobId: string) => void,
       onCleanScorePreviewNeeded?: (jobId: string) => void,
       onLyricManifestSaveNeeded?: (jobId: string) => void,
       onAudiverisReviewNeeded?: (jobId: string) => void,
@@ -964,6 +971,10 @@ export default function App() {
 
       if (j.status === 'font_strip_needed') {
         onFontStripNeeded?.(jobId);
+      }
+
+      if (j.status === 'deskew_needed') {
+        onDeskewNeeded?.(jobId);
       }
 
       if (j.status === 'clean_score_preview_needed') {
@@ -1147,6 +1158,9 @@ export default function App() {
               },
               (jobId) => {
                 setFontStripJobId(jobId);
+              },
+              (jobId) => {
+                setDeskewPreviewJobId(jobId);
               },
               (jobId) => {
                 setCleanScorePreviewJobId(jobId);
@@ -2390,6 +2404,32 @@ bash scripts/install-font-separator-deps.sh`}
           >
             <div className="font-strip-modal">
               <FontStripPanel jobId={fontStripJobId} onSubmitted={() => setFontStripJobId(null)} />
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {deskewPreviewJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9998,
+            }}
+          >
+            <div className="font-strip-modal">
+              <DeskewPreviewPanel
+                jobId={deskewPreviewJobId}
+                onContinue={() => setDeskewPreviewJobId(null)}
+              />
             </div>
           </div>,
           document.body,

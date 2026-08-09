@@ -394,6 +394,7 @@ type JobStatus =
   | 'pending'
   | 'processing'
   | 'font_strip_needed'
+  | 'deskew_needed'
   | 'clean_score_preview_needed'
   | 'lyric_manifest_save_needed'
   | 'review_needed'
@@ -492,6 +493,8 @@ type JobRecord = {
   partLabelsByIndex?: string[];
   fontStripDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripStats?: Record<string, unknown>;
+  deskewDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  deskewAnglesPath?: string;
   cleanScorePreviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   cleanScorePreviewAction?: 'continue' | 'redo_font_strip';
   lyricManifestSaveDeferred?: { resolve: () => void; reject: (err: Error) => void };
@@ -3469,6 +3472,49 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         return;
       }
       
+      const deskewAnglesPath = path.join(sessionRoot, 'deskew_angles.json');
+      const deskewedPdfPath = path.join(sessionRoot, 'deskewed.pdf');
+      const scriptDeskewProcessor = path.join(__dirname, '..', 'scripts', 'deskew_processor.py');
+
+      console.log(`[job ${jobId}] Running deskew_processor.py analyze`);
+      try {
+        await exec(`"${pythonBin}" "${scriptDeskewProcessor}" analyze "${inputPdfPath}" "${deskewAnglesPath}"`, {
+          maxBuffer: 16 * 1024 * 1024
+        });
+      } catch (err) {
+        console.warn(`[job ${jobId}] Failed to analyze deskew (ignoring):`, err);
+        // Fallback to empty angles
+        await fs.writeFile(deskewAnglesPath, '[]', 'utf8');
+      }
+
+      console.log(`[job ${jobId}] Pausing for deskew review...`);
+      setJobProgress(job, {
+        phase: 'hitl',
+        current: 0,
+        total: 1,
+        detail: '수평 보정(Deskew) 각도 확인 대기...',
+      });
+      job.status = 'deskew_needed';
+      job.deskewAnglesPath = deskewAnglesPath;
+      await new Promise<void>((resolve, reject) => {
+        job.deskewDeferred = { resolve, reject };
+      });
+      delete job.deskewDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Deskew confirmed, applying...`);
+
+      try {
+        await exec(`"${pythonBin}" "${scriptDeskewProcessor}" apply "${inputPdfPath}" "${deskewAnglesPath}" "${deskewedPdfPath}"`, {
+          maxBuffer: 16 * 1024 * 1024
+        });
+        if (fsSync.existsSync(deskewedPdfPath)) {
+          inputPdfPath = deskewedPdfPath; // Use the deskewed PDF for the rest of the pipeline
+          job.inputPdfPath = inputPdfPath; // Update job record
+        }
+      } catch (err) {
+        console.warn(`[job ${jobId}] Failed to apply deskew (continuing with original):`, err);
+      }
+      
       try {
         console.log(`[job ${jobId}] Detecting part labels from ${inputPdfPath}`);
         const scriptDetectParts = path.join(__dirname, '..', 'scripts', 'detect_parts.py');
@@ -6370,6 +6416,67 @@ app.post('/api/continue-audiveris/:jobId', (req, res) => {
     error: 'Content-Type은 application/json 또는 multipart/form-data 여야 합니다',
   });
 });
+
+app.get('/api/deskew/:jobId', async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || !job.deskewAnglesPath || !fsSync.existsSync(job.deskewAnglesPath)) {
+    res.status(404).json({ error: '각도 데이터를 찾을 수 없습니다' });
+    return;
+  }
+  try {
+    const data = await fs.readFile(job.deskewAnglesPath, 'utf8');
+    res.json(JSON.parse(data));
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/deskew/:jobId/page/:pageNum/png', async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || !job.inputPdfPath) {
+    res.status(404).send('PDF not found');
+    return;
+  }
+  const pageIdx = parseInt(req.params.pageNum, 10) - 1;
+  const pythonBin = resolvePythonBin();
+  const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
+  try {
+    const { stdout } = await exec(`"${pythonBin}" "${scriptExtract}" render-page "${job.inputPdfPath}" ${pageIdx} 1.0`, {
+      maxBuffer: 32 * 1024 * 1024,
+      encoding: 'buffer',
+    });
+    res.set('Content-Type', 'image/png');
+    res.send(stdout);
+  } catch (err) {
+    console.error(`[deskew] render-page error:`, err);
+    res.status(500).send('Render failed');
+  }
+});
+
+app.post('/api/deskew/:jobId/continue', express.json({ limit: '10mb' }), async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: '작업을 찾을 수 없습니다' });
+    return;
+  }
+  if (job.status !== 'deskew_needed' || !job.deskewDeferred) {
+    res.status(400).json({ error: '현재 작업이 deskew 검수 대기 상태가 아닙니다' });
+    return;
+  }
+  try {
+    const newAngles = req.body;
+    if (Array.isArray(newAngles)) {
+      if (job.deskewAnglesPath) {
+        await fs.writeFile(job.deskewAnglesPath, JSON.stringify(newAngles, null, 2), 'utf8');
+      }
+    }
+    job.deskewDeferred.resolve();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 
 app.post('/api/review/:jobId', express.json({ limit: '10mb' }), async (req, res) => {
   const job = jobs.get(req.params.jobId);

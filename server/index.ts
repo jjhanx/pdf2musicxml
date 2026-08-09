@@ -494,6 +494,7 @@ type JobRecord = {
   fontStripDeferred?: { resolve: () => void; reject: (err: Error) => void };
   fontStripStats?: Record<string, unknown>;
   deskewDeferred?: { resolve: () => void; reject: (err: Error) => void };
+  deskewSaveDeferred?: { resolve: () => void; reject: (err: Error) => void };
   deskewAnglesPath?: string;
   cleanScorePreviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
   cleanScorePreviewAction?: 'continue' | 'redo_font_strip';
@@ -3524,9 +3525,34 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       console.log(`[job ${jobId}] Deskew confirmed, applying...`);
 
       try {
-        await exec(`"${pythonBin}" "${scriptDeskewProcessor}" apply "${inputPdfPath}" "${deskewAnglesPath}" "${deskewedPdfPath}"`, {
-          maxBuffer: 16 * 1024 * 1024
+        await new Promise<void>((resolve, reject) => {
+          const { spawn } = require('child_process');
+          const proc = spawn(pythonBin, [scriptDeskewProcessor, 'apply', inputPdfPath, deskewAnglesPath, deskewedPdfPath]);
+          let errOut = '';
+          proc.stdout.on('data', (d: Buffer) => {
+            const lines = d.toString().split('\n');
+            for (const line of lines) {
+              const m = line.match(/PROGRESS:\s*(\d+)\/(\d+)/);
+              if (m) {
+                setJobProgress(job, {
+                  phase: 'hitl',
+                  current: parseInt(m[1], 10),
+                  total: parseInt(m[2], 10),
+                  detail: '수평 보정 결과 생성 중...',
+                });
+              }
+            }
+          });
+          proc.stderr.on('data', (d: Buffer) => {
+            errOut += d.toString();
+          });
+          proc.on('close', (code: number) => {
+            if (code !== 0) reject(new Error(`deskew apply failed with exit code ${code}: ${errOut}`));
+            else resolve();
+          });
+          proc.on('error', reject);
         });
+        
         if (fsSync.existsSync(deskewedPdfPath)) {
           inputPdfPath = deskewedPdfPath; // Use the deskewed PDF for the rest of the pipeline
           job.inputPdfPath = inputPdfPath; // Update job record
@@ -6516,7 +6542,22 @@ app.get('/api/deskew/:jobId/clean-score-pdf', (req, res) => {
   res.sendFile(cleanScorePdfPath);
 });
 
-app.post('/api/deskew/:jobId/continue', express.json({ limit: '10mb' }), async (req, res) => {
+app.post('/api/deskew/:jobId/finish', async (req, res) => {
+  const jobId = req.params.jobId;
+  const job = jobs.get(jobId);
+  if (!job || job.status !== 'deskew_save_needed' || !job.deskewSaveDeferred) {
+    return res.status(400).json({ error: 'Job not in deskew save pending state' });
+  }
+
+  try {
+    job.deskewSaveDeferred.resolve();
+    return res.json({ status: 'ok' });
+  } catch (e) {
+    return res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/deskew/:jobId/continue', express.json(), async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {
     res.status(404).json({ error: '작업을 찾을 수 없습니다' });

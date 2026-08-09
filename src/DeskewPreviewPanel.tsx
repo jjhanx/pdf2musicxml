@@ -80,7 +80,15 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
           const statusRes = await fetch(`/api/job/${jobId}`);
           if (statusRes.ok) {
             const jobData = await statusRes.json();
-            if (jobData.status === 'part_labels_needed') {
+            if (jobData.progress) {
+              const p = jobData.progress;
+              if (p.total > 0 && p.current > 0) {
+                const pct = Math.round((p.current / p.total) * 100);
+                const el = document.getElementById('deskew-progress-text');
+                if (el) el.innerText = `결과 PDF 생성 중... (${pct}%)`;
+              }
+            }
+            if (jobData.status === 'deskew_save_needed') {
               window.clearInterval(interval);
               setProcessingPhase('done');
               setBusy(false);
@@ -109,7 +117,7 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
           </button>
         )}
         {processingPhase === 'polling' && (
-          <span style={{ color: '#007bff', fontWeight: 'bold' }}>결과 PDF 생성 중... (수 초 소요)</span>
+          <span id="deskew-progress-text" style={{ color: '#007bff', fontWeight: 'bold' }}>결과 PDF 생성 중... (수 초 소요)</span>
         )}
         {processingPhase === 'done' && (
           <>
@@ -122,7 +130,15 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
             >
               수평보정 원본 PDF 다운로드
             </a>
-            <button onClick={() => onContinue()} style={{ padding: '8px 16px', background: '#28a745', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+            <button onClick={async () => {
+              try {
+                await fetch(`/api/deskew/${jobId}/finish`, { method: 'POST' });
+                onContinue();
+              } catch (e) {
+                console.error(e);
+                onContinue();
+              }
+            }} style={{ padding: '8px 16px', background: '#28a745', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
               다음 단계로 이동
             </button>
           </>

@@ -577,6 +577,7 @@ function taskProgressFromJobStatus(status: string): TaskProgress | undefined {
     case 'font_strip_needed':
       return { phase: 'separator', current: 0, total: 0, detail: '폰트 크기 선택 대기…' };
     case 'deskew_needed':
+    case 'deskew_save_needed':
       return { phase: 'separator', current: 0, total: 0, detail: '수평 보정(Deskew) 각도 확인 대기…' };
     case 'clean_score_preview_needed':
       return { phase: 'separator', current: 0, total: 0, detail: 'clean_score PDF 확인 대기…' };

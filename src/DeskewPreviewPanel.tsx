@@ -77,7 +77,7 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
       
       const interval = window.setInterval(async () => {
         try {
-          const statusRes = await fetch(`/api/job/${jobId}`);
+          const statusRes = await fetch(`/api/status/${jobId}`);
           if (statusRes.ok) {
             const jobData = await statusRes.json();
             if (jobData.progress) {

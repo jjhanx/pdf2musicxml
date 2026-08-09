@@ -1448,201 +1448,6 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-                  isLikelyNetworkError(e) && !msg.includes('작업 ID') ? `${msg}${jobHint}` : msg;
-                return { ...t, phase: 'error', errorMessage: friendly, progress: undefined };
-              }),
-            );
-          }
-        }
-        setStatus('변환 종료 — 결과를 저장하세요.');
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setStatus(`변환 준비 중 오류: ${msg}`);
-        console.error(e);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [convertOne, pauseAfterAudiveris, pipelineMode, enablePymupdfReview, enableOmrStaffReview, startStage, resumeCleanScoreFile, resumeLyricManifestFile, resumeOmrWorkFile],
-  );
-
-  const onDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(true);
-  };
-
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'copy';
-    setDragOver(true);
-  };
-
-  const onDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const related = e.relatedTarget as Node | null;
-    if (related && e.currentTarget.contains(related)) return;
-    setDragOver(false);
-  };
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(false);
-    const dropped = extractPdfFilesFromDataTransfer(e.dataTransfer);
-    if (dropped.length) addFilesFromList(dropped);
-    else setStatus('여기에 놓인 파일에서 PDF를 찾지 못했습니다. 확장자 .pdf 인지 확인해 주세요.');
-  };
-
-  useEffect(() => {
-    if (
-      reviewingJobId &&
-      reviewOriginalFileName &&
-      (reviewData.length > 0 || manualLyricRects.length > 0)
-    ) {
-      const draft: StoredReviewDraftV2 = {
-        v: 2,
-        items: reviewData,
-        manualLyricRects,
-      };
-      localStorage.setItem('pdf2mxl_review_' + reviewOriginalFileName, JSON.stringify(draft));
-    }
-  }, [reviewData, manualLyricRects, reviewingJobId, reviewOriginalFileName]);
-
-  const handleLoadPrevious = () => {
-    if (!reviewOriginalFileName) return;
-    const saved = localStorage.getItem('pdf2mxl_review_' + reviewOriginalFileName);
-    if (saved) {
-       try {
-         const parsed = JSON.parse(saved);
-         const { items: restoredRows, manualLyricRects: restoredRects } =
-           loadReviewDraftFromLocalStorageJson(parsed);
-         const merged = reviewData.map((item) => {
-            const match = restoredRows.find((p: { id?: string }) => p.id === item.id);
-            return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
-         });
-         setReviewData(merged);
-         if (restoredRects.length > 0) setManualLyricRects(restoredRects);
-       } catch (e) {
-         console.error('Failed to load saved data', e);
-       }
-    }
-  };
-
-  const handleResetLyricsToInitial = async () => {
-    if (!reviewingJobId || !reviewAfterOmr) return;
-    const ok = window.confirm(
-      '원본 PDF 1차 추출(구분 기본 가사)로 되돌립니다.\n' +
-        'OMR·HITL(마디·성부) 교정은 그대로 유지됩니다.\n\n' +
-        '지금 화면의 편집 중 내용은 「초기화 되돌리기」로 한 번 복구할 수 있습니다.',
-    );
-    if (!ok) return;
-    setLyricReviewUndo({
-      items: reviewData.map((item) => ({ ...item })),
-      manualLyricRects: manualLyricRects.map((r) => ({ ...r, bbox: [...r.bbox] as [number, number, number, number] })),
-    });
-    try {
-      const r = await fetch(`/api/review/${reviewingJobId}/reset-lyrics-initial`, {
-        method: 'POST',
-      });
-      if (!r.ok) {
-        let msg = `HTTP ${r.status}`;
-        try {
-          const j = (await r.json()) as { error?: string };
-          if (j.error) msg = j.error;
-        } catch {
-          msg = await r.text();
-        }
-        alert(msg);
-        setLyricReviewUndo(null);
-        return;
-      }
-      const dataRaw = (await r.json()) as unknown[];
-      const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
-        Array.isArray(dataRaw) ? dataRaw : [],
-      );
-      setReviewData(normalizeReviewItemsForBaseline(payloadItems));
-      setManualLyricRects(fromPayload);
-      setFocusedReviewRowIndex(null);
-      if (reviewOriginalFileName) {
-        localStorage.removeItem('pdf2mxl_review_' + reviewOriginalFileName);
-        setHasSavedData(false);
-      }
-    } catch (e) {
-      console.error('Failed to reset lyrics', e);
-      alert('PDF 초기 추출로 되돌리지 못했습니다.');
-      setLyricReviewUndo(null);
-    }
-  };
-
-  const handleLoadSavedLyricsFromZip = async () => {
-    if (!reviewingJobId || !reviewAfterOmr || !hasSavedLyricReview) return;
-    const ok = window.confirm(
-      'omr-work.zip에 저장된 가사 검증 편집을 불러옵니다.\n' +
-        '제목·성부·가사 역할 등 ZIP 저장 시점의 내용으로 바뀝니다.\n\n' +
-        '지금 화면은 「초기화 되돌리기」로 한 번 복구할 수 있습니다.',
-    );
-    if (!ok) return;
-    setLyricReviewUndo({
-      items: reviewData.map((item) => ({ ...item })),
-      manualLyricRects: manualLyricRects.map((r) => ({ ...r, bbox: [...r.bbox] as [number, number, number, number] })),
-    });
-    try {
-      const r = await fetch(`/api/review/${reviewingJobId}/load-saved-lyrics`, {
-        method: 'POST',
-      });
-      if (!r.ok) {
-        let msg = `HTTP ${r.status}`;
-        try {
-          const j = (await r.json()) as { error?: string };
-          if (j.error) msg = j.error;
-        } catch {
-          msg = await r.text();
-        }
-        alert(msg);
-        setLyricReviewUndo(null);
-        return;
-      }
-      const dataRaw = (await r.json()) as unknown[];
-      const { items: payloadItems, manualLyricRects: fromPayload } = partitionReviewPayload(
-        Array.isArray(dataRaw) ? dataRaw : [],
-      );
-      setReviewData(normalizeReviewItemsForUi(payloadItems));
-      setManualLyricRects(fromPayload);
-      setFocusedReviewRowIndex(null);
-    } catch (e) {
-      console.error('Failed to load saved lyrics', e);
-      alert('저장된 가사 검증을 불러오지 못했습니다.');
-      setLyricReviewUndo(null);
-    }
-  };
-
-  const handleUndoLyricReset = () => {
-    if (!lyricReviewUndo) return;
-    setReviewData(lyricReviewUndo.items);
-    setManualLyricRects(lyricReviewUndo.manualLyricRects);
-    setLyricReviewUndo(null);
-    setFocusedReviewRowIndex(null);
-  };
-
-  const handleDownloadReview = () => {
-    const draft: StoredReviewDraftV2 = {
-      v: 2,
-      items: reviewData,
-      manualLyricRects,
-    };
-    const jsonStr = JSON.stringify(draft, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `review_backup_${reviewOriginalFileName || 'data'}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const handleUploadReview = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1714,7 +1519,7 @@ export default function App() {
           const j = (await res.json()) as { error?: string };
           if (j.error) msg = j.error;
         } catch {
-          msg = await r.text();
+          msg = await res.text();
         }
         alert(msg);
         return;
@@ -1722,9 +1527,7 @@ export default function App() {
       if (reviewOriginalFileName) {
          localStorage.removeItem('pdf2mxl_review_' + reviewOriginalFileName);
       }
-      
       setReviewProcessingPhase('polling');
-      
       const interval = window.setInterval(async () => {
         try {
           const statusRes = await fetch(`/api/job/${reviewingJobId}`);
@@ -1738,7 +1541,6 @@ export default function App() {
         } catch(err) {}
       }, 1000);
       setReviewPollIntervalId(interval as unknown as number);
-      
     } catch (e) {
       console.error(e);
       alert('리뷰 제출 실패');
@@ -2476,7 +2278,7 @@ bash scripts/install-font-separator-deps.sh`}
             <>
               <br />
               <span style={{ fontSize: '0.9em' }}>
-                Audiveris 로그에 WARN이 나오면 자동으로 <strong>결과 보정</strong> 단계에서 멈춥니다 (
+                Audiveris 로그에 WARN이 나오면 자동으로 <strong>결과 보정</strong> 단계에서 멈칩니다 (
                 <code>AUDIVERIS_PAUSE_ON_WARN</code>).
               </span>
             </>
@@ -2590,6 +2392,563 @@ bash scripts/install-font-separator-deps.sh`}
                           디버그 ZIP
                         </a>
                       </>
+                    )}
+                    {t.phase === 'error' && (
+                      <>
+                        <span className="err task-err" title={t.errorMessage}>
+                          {t.errorMessage ?? ''}
+                        </span>
+                        {t.jobId && (
+                          <>
+                            {' · '}
+                            <button
+                              type="button"
+                              className="btn-link"
+                              onClick={() => setInspectJobId(t.jobId!)}
+                            >
+                              마스킹·인식 점검
+                            </button>
+                            {' · '}
+                            <a
+                              href={`/api/diagnostic/${t.jobId}/debug-zip`}
+                              download={`debug-${t.jobId}.zip`}
+                              className="btn-link"
+                              style={{ marginLeft: '4px', color: '#dc3545', textDecoration: 'underline' }}
+                            >
+                              디버그 ZIP 다운로드
+                            </a>
+                          </>
+                        )}
+                      </>
+                    )}
+                    {t.phase === 'hitl' && t.jobId && (
+                      <>
+                        <a
+                          href={`/api/diagnostic/${t.jobId}/debug-zip`}
+                          download={`debug-${t.jobId}.zip`}
+                          className="btn-link"
+                          style={{ marginLeft: '4px', color: '#dc3545', textDecoration: 'underline' }}
+                        >
+                          디버그 ZIP 다운로드
+                        </a>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card">
+        <p className="sub" style={{ margin: 0 }}>
+          CLI만 쓰려면: <code>npm run convert -- &quot;악보.pdf&quot;</code> → 기본 저장 위치는{' '}
+          <strong>Downloads</strong> 폴더입니다.
+        </p>
+      </div>
+
+        {fontStripJobId &&
+          createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9998,
+            }}
+          >
+            <div className="font-strip-modal">
+              <FontStripPanel jobId={fontStripJobId} onSubmitted={() => setFontStripJobId(null)} />
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {deskewPreviewJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9998,
+            }}
+          >
+            <div className="font-strip-modal clean-score-preview-modal">
+              <DeskewPreviewPanel
+                jobId={deskewPreviewJobId}
+                onContinue={() => setDeskewPreviewJobId(null)}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {cleanScorePreviewJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9998,
+            }}
+          >
+            <div className="font-strip-modal clean-score-preview-modal">
+              <CleanScorePreviewPanel
+                jobId={cleanScorePreviewJobId}
+                onContinue={() => setCleanScorePreviewJobId(null)}
+                onRedoFontStrip={() => {
+                  setCleanScorePreviewJobId(null);
+                  setFontStripJobId(cleanScorePreviewJobId);
+                }}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {lyricManifestSaveJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9998,
+            }}
+          >
+            <div className="font-strip-modal lyric-manifest-save-modal">
+              <LyricManifestSavePanel
+                jobId={lyricManifestSaveJobId}
+                onContinue={() => setLyricManifestSaveJobId(null)}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {reviewingJobId &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100010,
+            }}
+          >
+          <div
+            className="modal-light"
+            style={{
+              padding: '2rem',
+              borderRadius: '8px',
+              maxWidth: 'min(1120px, 96vw)',
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              width: '95%',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.35)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 0 }}>
+               <h2 style={{ margin: 0 }}>
+                 {reviewAfterOmr
+                   ? '가사 검증·편집 (OMR·HITL 완료 후)'
+                   : '문자 검토 및 매핑 (OMR 실행 전)'}
+               </h2>
+               <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {reviewAfterOmr && hasSavedLyricReview && (
+                    <button
+                      onClick={handleLoadSavedLyricsFromZip}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        background: '#2e7d32',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      ZIP 저장 가사 불러오기
+                    </button>
+                  )}
+                  {reviewAfterOmr && lyricReviewUndo && (
+                    <button
+                      onClick={handleUndoLyricReset}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        background: '#1565c0',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      초기화 되돌리기
+                    </button>
+                  )}
+                  {reviewAfterOmr && (
+                    <button
+                      onClick={handleResetLyricsToInitial}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        background: '#c62828',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      PDF 초기 추출
+                    </button>
+                  )}
+                  {hasSavedData && (
+                     <button onClick={handleLoadPrevious} style={{ padding: '0.5rem 1rem', background: '#f57c00', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                        이전 작업 불러오기
+                     </button>
+                  )}
+                  <button onClick={handleDownloadReview} style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }}>
+                     백업(.json) 저장
+                  </button>
+                  {reviewAfterOmr && reviewingJobId ? (
+                    <a
+                      href={`/api/lyric-manifest/${reviewingJobId}/download`}
+                      style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', textDecoration: 'none', display: 'inline-block' }}
+                      download
+                    >
+                      lyric_manifest.json 저장
+                    </a>
+                  ) : null}
+                  <label style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', display: 'inline-block' }}>
+                     불러오기
+                     <input type="file" ref={uploadReviewRef} accept=".json" style={{ display: 'none' }} onChange={handleUploadReview} />
+                  </label>
+               </div>
+            </div>
+            <p style={{ marginTop: '0.5rem', color: '#333' }}>
+              인식된 글자가 제목인지, 가사인지 등 역할을 지정해주세요.
+              {reviewAfterOmr ? (
+                <>
+                  {' '}
+                  Audiveris OMR과 마디·성부 검토(HITL)가 끝난 뒤, <strong>원본 PDF</strong>에서 추출한
+                  가사·메타 문자를 최종 확인합니다. 줄마다 역할 기본값은 <strong>가사</strong>입니다.
+                  <strong>Moderato</strong>·<strong>expressivo</strong> 등 악곽 표시·표현어는{' '}
+                  <strong>미분류</strong>로 두면 MXL 가사 주입에서 빠집니다(OMR·HITL의 direction으로 다루는 경우가 많음).
+                  omr-work.zip을 불러오면 처음에는 PDF 초기 추출 상태이며, ZIP 저장 편집은{' '}
+                  <strong>ZIP 저장 가사 불러오기</strong>로 이어갈 수 있습니다. 검토 결과는{' '}
+                  <code>lyric_manifest.json</code>에 병합된 후 교정된 MusicXML에 주입됩니다.
+                </>
+              ) : pipelineMode === 'font_separator' ? (
+                <>
+                  {' '}
+                  (앞 단계에서 선택한 폰트 크기로 <code>clean_score_only.pdf</code>가 만들어지고
+                  <strong> 원본과 나란히 확인</strong>한 뒤) pdfplumber·검토
+                  결과가 <code>lyric_manifest.json</code>(v3)으로 병합되고 MusicXML에 주입됩니다.
+                </>
+              ) : pipelineMode === 'image_pdf' ? (
+                <>
+                  {' '}
+                  OCR 기술(RapidOCR)로 추출된 텍스트 위치를 바탕으로 영역이 마스킹되어 <code>clean_score_only.pdf</code>가 생성되며, 추출된 가사 결과가 <code>lyric_manifest.json</code>으로 병합됩니다.
+                </>
+              ) : (
+                <>
+                  {' '}
+                  지정된 영역은 OMR에 넘어가기 전 하얗게 마스킹됩니다.
+                </>
+              )}
+              {' '}
+              템포는 숫자만(예: 75) 또는 ♩= 75 형태로 편집하면 MusicXML에 <code>sound tempo</code>로 들어갑니다.
+            </p>
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '1rem',
+                borderRadius: '6px',
+                background: '#f5f5f5',
+                border: '1px solid #ccc',
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: '0.5rem', color: '#111' }}>
+                성부 라벨 (PDF 페이지 번호와 구분)
+              </div>
+              <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: '#444', lineHeight: 1.45 }}>
+                가사를 붙일 <strong>성부</strong>를 S/A/T/B/M/W/U/PR/PL 등으로 미리 정합니다. OMR
+                lint에서도 동일 라벨을 씁니다.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <button type="button" className="btn-muted" onClick={() => {
+                  setPartLabelCount(6);
+                  setPartLabelsPreset(defaultPartLabels(6));
+                }}>
+                  합창+피아노 6
+                </button>
+                <button type="button" className="btn-muted" onClick={() => {
+                  setPartLabelCount(4);
+                  setPartLabelsPreset(['S', 'A', 'T', 'B']);
+                }}>
+                  SATB 4
+                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88rem' }}>
+                  파트 수
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={partLabelCount}
+                    onChange={(e) => {
+                      const n = Math.max(1, Math.min(12, parseInt(e.target.value, 10) || 1));
+                      setPartLabelCount(n);
+                      setPartLabelsPreset((prev) => defaultPartLabels(n).map((d, i) => prev[i] ?? d));
+                    }}
+                    style={{ width: '3rem', padding: '0.3rem' }}
+                  />
+                </label>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem' }}>
+                {partLabelsPreset.slice(0, partLabelCount).map((lab, i) => (
+                  <label key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.78rem' }}>
+                    <span style={{ fontWeight: 700, color: '#0d47a1' }}>파트 {i + 1}</span>
+                    <input
+                      type="text"
+                      value={lab}
+                      onChange={(e) =>
+                        setPartLabelsPreset((prev) => {
+                          const next = [...prev];
+                          next[i] = e.target.value.trim();
+                          return next;
+                        })
+                      }
+                      style={{ width: '3.25rem', padding: '0.35rem', textAlign: 'center' }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="status" style={{ background: '#e3f2fd', color: '#0d47a1', border: '1px solid #bbdefb', padding: '1rem', borderRadius: '4px', marginTop: '1rem' }}>
+              <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
+              <strong>토큰 규칙</strong>(공백·하이픈이 있을 때): <strong>띄어쓰기</strong>는 다음 음표(단어 경계), 토큰 안 <strong>하이픈</strong>(예: <code>hel-lo</code>)은 같은 단어의 다음 음절(<code>syllabic</code>+하이픈 표시), <strong>공백으로 감싼 단독 <code>-</code></strong>(예: <code>주 - 님</code>)은 가사 없는 음표 한 칸입니다.<br/>
+              공백·하이픈이 <em>없으면</em> OCR 줄 전체가 <strong>음표 하나</strong>에 붙습니다(예: <code>주님의</code>, <code>hello</code>). 음표마다 나누려면 <strong>공백</strong>으로 구분하세요(예: <code>주 님 의</code>).<br/>
+              <strong>파트·가사 절·멜로디 줄:</strong> <strong>파트 순번</strong>은 MusicXML의 몇 번째 악기/성부인지(1=첫 파트)입니다. <strong>가사 절</strong>(1절·2절…)은 같은 멜로디에 붙는 <strong>서로 다른 가사 줄</strong>이며, 병합 시 같은 음표에 <code>lyric number=&quot;1&quot;</code>, <code>&quot;2&quot;</code>…로 나뉩니다. <strong>멜로디 줄(voice)</strong>은 같은 마디에서 <strong>동시에 울리는 서로 다른 선율</strong>(성부 2줄 등)에 쓰는 MusicXML <code>&lt;voice&gt;</code>이며 <em>1절/2절과 다릅니다</em>. 한 줄만 있는 성부는 보통 멜로디 줄 1과 가사 절만 쓰면 됩니다. 피아노·2멜로디 한 파트면 <strong>전체 순서 (*)</strong> 또는 해당 <code>&lt;voice&gt;</code> 번호를 지정하세요. 가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 <code> - </code>(빈 칸)을 쓰세요.<br/>
+              <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다. <strong>마디 번호</strong>·<strong>페이지 번호</strong>는 가사 주입에서 제외됩니다(PDF p.는 각 줄 옆에 표시).<br/>
+              <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다. 수동 가사 지우기 영역은 백업·임시 저장에 포함됩니다.</em><br/>
+              <strong>🚨 경고:</strong> 이미지 PDF 모드에서 가사 지우기(핑크색 박스)는 <strong>PDF의 픽셀을 물리적으로 하얗게 지웁니다.</strong> 오선표(Stave), 음자리표, 박자표, 세로줄 등을 실수로 함께 덮어서 지워버리면, 다음 단계에서 악보 인식 엔진(Audiveris)이 악보 구조를 파악하지 못해 치명적인 <strong>'변환 실패(Exception in export)'</strong> 에러를 발생시킵니다. 박스를 그릴 때 절대 악보 기호를 건드리지 않도록 주의하세요!
+            </div>
+
+            {reviewingJobId ? (
+              <ManualLyricMaskPanel
+                jobId={reviewingJobId}
+                value={manualLyricRects}
+                onChange={setManualLyricRects}
+                reviewItems={reviewData}
+                focusedReviewIndex={focusedReviewRowIndex}
+                onFocusedReviewIndexChange={setFocusedReviewRowIndex}
+                onReviewItemBBoxChange={handleReviewItemBBoxCommit}
+              />
+            ) : null}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
+              {reviewData.map((item, i) => (
+                <div
+                  key={item.id}
+                  ref={(el) => {
+                    reviewRowRefs.current[i] = el;
+                  }}
+                  className={`review-row-card${
+                    item.type === 'lyrics'
+                      ? ' review-row-card--lyrics'
+                      : item.type === 'tempo'
+                        ? ' review-row-card--tempo'
+                        : ''
+                  }`}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    padding: '1rem',
+                    borderRadius: '4px',
+                    outline:
+                      focusedReviewRowIndex === i ? '2px solid #00897b' : 'none',
+                    outlineOffset: 2,
+                  }}
+                >
+                  <div className="review-controls-row">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusedReviewRowIndex(i);
+                          scrollReviewRowIntoView(i);
+                        }}
+                        style={{
+                          padding: '0.35rem 0.6rem',
+                          fontSize: '0.82rem',
+                          border: '1px solid #00897b',
+                          borderRadius: '4px',
+                          background: focusedReviewRowIndex === i ? '#b2dfdb' : '#fff',
+                          color: '#004d40',
+                          cursor: 'pointer',
+                          alignSelf: 'flex-end',
+                        }}
+                        title="위 미리보기에서 이 줄의 bbox를 표시·편집합니다"
+                      >
+                        미리보기
+                      </button>
+                      <label className="review-field">
+                        <span className="review-field-label">PDF p.</span>
+                        <span
+                          style={{
+                            padding: '0.45rem 0.55rem',
+                            fontSize: '0.95rem',
+                            minWidth: '2.5rem',
+                            textAlign: 'center',
+                            background: '#f5f5f5',
+                            border: '1px solid #ccc',
+                            borderRadius: '4px',
+                          }}
+                          title="이 블록이 있는 PDF 페이지 번호"
+                        >
+                          {typeof item.page === 'number' && item.page >= 1 ? item.page : 1}
+                        </span>
+                      </label>
+                      <label className="review-field">
+                        <span className="review-field-label">구분</span>
+                        <select
+                         value={reviewTypeSelectValue(item.type, reviewAfterOmr)}
+                         onChange={(e) => handleReviewTypeChange(i, e.target.value)}
+                         style={{ padding: '0.45rem', fontSize: '0.95rem', minWidth: '9.5rem' }}
+                      >
+                         <option value="lyrics">가사</option>
+                         <option value="unknown">
+                           {reviewAfterOmr ? '미분류 (가사·메타 주입 제외)' : '악보 기호 (마스킹 X)'}
+                         </option>
+                         <option value="title">제목</option>
+                         <option value="composer">작곡가</option>
+                         <option value="lyricist">작사가</option>
+                         <option value="copyright">저작권</option>
+                         <option value="tempo">템포(BPM)</option>
+                         <option value="measure_number">마디 번호</option>
+                         <option value="page_number">페이지 번호</option>
+                      </select>
+                      </label>
+                      {item.type === 'lyrics' && (
+                        <>
+                          <label className="review-field">
+                            <span className="review-field-label">성부</span>
+                            <select
+                              value={item.lyricPartIndex ?? 1}
+                              onChange={(e) =>
+                                handleLyricPartIndexChange(i, parseInt(e.target.value, 10))
+                              }
+                              style={{ padding: '0.4rem', minWidth: '6.5rem' }}
+                              title="MusicXML part 순서 — 위 성부 라벨과 동일"
+                            >
+                              {partLabelsPreset.slice(0, partLabelCount).map((lab, idx) => (
+                                <option key={idx} value={idx + 1}>
+                                  {lab} (파트 {idx + 1})
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="review-field">
+                            <span className="review-field-label">가사 절</span>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={32}
+                              title="1절=1, 2절=2 … MusicXML lyric number"
+                              value={item.lyricVerseIndex ?? 1}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                if (raw === '') return;
+                                const v = parseInt(raw, 10);
+                                if (!Number.isFinite(v)) return;
+                                handleLyricVerseIndexChange(i, v);
+                              }}
+                              onBlur={(e) => {
+                                const v = parseInt(e.target.value, 10);
+                                if (!Number.isFinite(v) || v < 1) {
+                                  handleLyricVerseIndexChange(i, 1);
+                                }
+                              }}
+                              style={{ width: '3.5rem', padding: '0.4rem' }}
+                            />
+                            <button
+                              type="button"
+                              className="btn-muted"
+                              style={{ fontSize: '0.78rem', padding: '0.25rem 0.45rem', whiteSpace: 'nowrap' }}
+                              title="같은 성부(W 등)의 모든 가사 줄에 이 절 번호 적용"
+                              onClick={() => handleApplyLyricVerseToPart(i)}
+                            >
+                              성부 전체
+                            </button>
+                            </div>
+                          </label>
+                          <label className="review-field">
+                            <span className="review-field-label">멜로디 줄</span>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              <select
+                                value={lyricVoicePresetKey(item.lyricVoice)}
+                                onChange={(e) => handleLyricVoicePresetChange(i, e.target.value)}
+                                style={{ padding: '0.4rem', minWidth: '7.5rem' }}
+                                title="MusicXML &lt;voice&gt;: 동시에 울리는 다른 선율. 1절/2절과 무관."
+                              >
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="*">전체 (*)</option>
+                                <option value="__custom__">직접</option>
+                              </select>
+                              {lyricVoicePresetKey(item.lyricVoice) === '__custom__' && (
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  title="MusicXML voice 번호"
+                                  value={item.lyricVoice ?? ''}
+                                  onChange={(e) => handleLyricVoiceCustomInputChange(i, e.target.value)}
+                                  style={{ width: '2.75rem', padding: '0.4rem' }}
+                                />
+                              )}
+                            </div>
+                          </label>
+                          <label className="review-field">
+                            <span className="review-field-label">앞쪽 음표 생략</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={999}
                               value={item.lyricSkipNotes ?? 0}
                               onChange={(e) =>
                                 handleLyricSkipNotesChange(i, parseInt(e.target.value, 10))
@@ -2719,8 +3078,8 @@ bash scripts/install-font-separator-deps.sh`}
               {reviewProcessingPhase === 'done' && (
                 <>
                   <a
-                    href={/api/deskew//clean-score-pdf}
-                    download={clean-score-.pdf}
+                    href={`/api/deskew/${reviewingJobId}/clean-score-pdf`}
+                    download={`clean-score-${reviewingJobId}.pdf`}
                     className="btn-link"
                     style={{ color: '#f59e0b', textDecoration: 'underline', fontWeight: 'bold', fontSize: '1rem' }}
                     title="가사가 제거된 Clean Score PDF"

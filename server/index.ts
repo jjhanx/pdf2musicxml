@@ -1879,7 +1879,22 @@ async function restoreOmrWorkPdfsFromExtractDir(
       /* optional */
     }
   }
-  if (inputSrc) {
+  
+  const deskewedSrc = pick('deskewed.pdf');
+  if (deskewedSrc) {
+    const deskewedDest = path.join(sessionRoot, 'deskewed.pdf');
+    await fs.copyFile(deskewedSrc, deskewedDest);
+  }
+
+  if (deskewedSrc) {
+    const deskewedDest = path.join(sessionRoot, 'deskewed.pdf');
+    if (job) job.inputPdfPath = deskewedDest;
+    hasInput = true;
+    if (inputSrc) { // Still restore input.pdf as original for reference
+      const inputDest = path.join(sessionRoot, 'input.pdf');
+      await fs.copyFile(inputSrc, inputDest);
+    }
+  } else if (inputSrc) {
     const inputDest = path.join(sessionRoot, 'input.pdf');
     await fs.copyFile(inputSrc, inputDest);
     if (job) job.inputPdfPath = inputDest;
@@ -4570,8 +4585,10 @@ app.get('/api/status/:jobId', (req, res) => {
     reviewAfterOmr?: boolean;
     reviewPreservesEdits?: boolean;
     hasSavedLyricReview?: boolean;
+    pipelineMode?: string;
   } = {
     status: job.status,
+    pipelineMode: job.pipelineMode,
   };
   if (job.status === 'review_needed' && job.reviewAfterOmr) {
     payload.reviewAfterOmr = true;

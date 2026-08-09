@@ -872,6 +872,7 @@ export default function App() {
       onOmrStaffReviewNeeded?: (jobId: string) => void,
       onPartLabelsNeeded?: (jobId: string) => void,
       onJobAccepted?: (jobId: string) => void,
+      onPipelineModeChange?: (mode: PipelineMode) => void,
       opts?: {
         pauseAfterAudiveris?: boolean;
         pipelineMode?: PipelineMode;
@@ -961,7 +962,12 @@ export default function App() {
         stdoutTail?: string;
         stderrTail?: string;
         progress?: TaskProgress;
+        pipelineMode?: PipelineMode;
       };
+
+      if (j.pipelineMode) {
+        onPipelineModeChange?.(j.pipelineMode);
+      }
 
       if (j.progress) {
         onProgress?.(j.progress);
@@ -1183,6 +1189,11 @@ export default function App() {
               (jobId) => {
                 setTasks((prev) =>
                   prev.map((t) => (t.id === taskId ? { ...t, jobId } : t)),
+                );
+              },
+              (mode) => {
+                setTasks((prev) =>
+                  prev.map((t) => (t.id === taskId ? { ...t, pipelineMode: mode } : t)),
                 );
               },
               {
@@ -2306,55 +2317,54 @@ bash scripts/install-font-separator-deps.sh`}
                   </td>
                   <td>
                     {t.phase === 'done' && t.downloadUrl && (
+                      <a href={t.downloadUrl} download={t.downloadName}>
+                        저장
+                      </a>
+                    )}
+                    {t.jobId && t.pipelineMode === 'image_pdf' && (
                       <>
-                        <a href={t.downloadUrl} download={t.downloadName}>
-                          저장
+                        {t.phase === 'done' && t.downloadUrl ? ' · ' : ''}
+                        <a
+                          href={`/api/deskew/${t.jobId}/pdf`}
+                          download={`deskewed-${t.jobId}.pdf`}
+                          className="btn-link"
+                          style={{ color: '#10b981', textDecoration: 'underline' }}
+                          title="수평보정된 원본 PDF (가사 포함)"
+                        >
+                          수평보정 원본 PDF
                         </a>
-                        {t.jobId && t.pipelineMode === 'image_pdf' && (
-                          <>
-                            {' · '}
-                            <a
-                              href={`/api/deskew/${t.jobId}/pdf`}
-                              download={`deskewed-${t.jobId}.pdf`}
-                              className="btn-link"
-                              style={{ color: '#10b981', textDecoration: 'underline' }}
-                              title="수평보정된 원본 PDF (가사 포함)"
-                            >
-                              수평보정 원본 PDF
-                            </a>
-                            {' · '}
-                            <a
-                              href={`/api/deskew/${t.jobId}/clean-score-pdf`}
-                              download={`clean-score-${t.jobId}.pdf`}
-                              className="btn-link"
-                              style={{ color: '#f59e0b', textDecoration: 'underline' }}
-                              title="가사가 제거된 수평보정 PDF"
-                            >
-                              Clean Score PDF
-                            </a>
-                          </>
-                        )}
-                        {t.jobId && (
-                          <>
-                            {' · '}
-                            <button
-                              type="button"
-                              className="btn-link"
-                              onClick={() => setInspectJobId(t.jobId!)}
-                            >
-                              마스킹·인식 점검
-                            </button>
-                            {' · '}
-                            <a
-                              href={`/api/diagnostic/${t.jobId}/debug-zip`}
-                              download={`debug-${t.jobId}.zip`}
-                              className="btn-link"
-                              style={{ marginLeft: '4px', color: '#dc3545', textDecoration: 'underline' }}
-                            >
-                              디버그 ZIP 다운로드
-                            </a>
-                          </>
-                        )}
+                        {' · '}
+                        <a
+                          href={`/api/deskew/${t.jobId}/clean-score-pdf`}
+                          download={`clean-score-${t.jobId}.pdf`}
+                          className="btn-link"
+                          style={{ color: '#f59e0b', textDecoration: 'underline' }}
+                          title="가사가 제거된 수평보정 PDF"
+                        >
+                          Clean Score PDF
+                        </a>
+                      </>
+                    )}
+                    {t.jobId && (
+                      <>
+                        {(t.phase === 'done' && t.downloadUrl) || (t.pipelineMode === 'image_pdf') ? ' · ' : ''}
+                        <button
+                          type="button"
+                          className="btn-link"
+                          onClick={() => setInspectJobId(t.jobId!)}
+                        >
+                          마스킹·인식 점검
+                        </button>
+                        {' · '}
+                        <a
+                          href={`/api/diagnostic/${t.jobId}/debug-zip`}
+                          download={`debug-${t.jobId}.zip`}
+                          className="btn-link"
+                          style={{ marginLeft: '4px', color: '#dc3545', textDecoration: 'underline' }}
+                          title="서버 오류 분석용 디버그 데이터 다운로드"
+                        >
+                          디버그 ZIP
+                        </a>
                       </>
                     )}
                     {t.phase === 'error' && (

@@ -11,7 +11,7 @@ import path from 'node:path';
 process.env.PYTHONUTF8 = '1';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { exec as execCallback } from 'node:child_process';
+import { exec as execCallback, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const exec = promisify(execCallback);
@@ -3548,7 +3548,6 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
       try {
         await new Promise<void>((resolve, reject) => {
-          const { spawn } = require('child_process');
           const proc = spawn(pythonBin, [scriptDeskewProcessor, 'apply', inputPdfPath, deskewAnglesPath, deskewedPdfPath]);
           let errOut = '';
           let outBuf = '';

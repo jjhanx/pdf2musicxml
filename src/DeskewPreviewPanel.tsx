@@ -12,6 +12,8 @@ type Props = {
 
 export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
   const [angles, setAngles] = useState<DeskewAngle[]>([]);
+  const [processingPhase, setProcessingPhase] = useState<'idle' | 'polling' | 'done'>('idle');
+  const [pollIntervalId, setPollIntervalId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -51,6 +53,12 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
     );
   };
 
+  useEffect(() => {
+    return () => {
+      if (pollIntervalId) window.clearInterval(pollIntervalId);
+    };
+  }, [pollIntervalId]);
+
   const submitAngles = async () => {
     setBusy(true);
     setErr('');
@@ -64,7 +72,24 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
-      onContinue();
+      
+      setProcessingPhase('polling');
+      
+      const interval = window.setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/job/${jobId}`);
+          if (statusRes.ok) {
+            const jobData = await statusRes.json();
+            if (jobData.status === 'part_labels_needed') {
+              window.clearInterval(interval);
+              setProcessingPhase('done');
+              setBusy(false);
+            }
+          }
+        } catch(err) {}
+      }, 2000);
+      setPollIntervalId(interval as unknown as number);
+      
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -78,9 +103,39 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
         <h2>수평 보정 (Deskew)</h2>
         <div style={{ flex: 1 }} />
-        <button onClick={submitAngles} disabled={busy} style={{ padding: '8px 16px', background: '#007bff', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-          적용 및 다음 단계로
-        </button>
+        {processingPhase === 'idle' && (
+          <button onClick={submitAngles} disabled={busy} style={{ padding: '8px 16px', background: '#007bff', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+            적용 및 결과 생성
+          </button>
+        )}
+        {processingPhase === 'polling' && (
+          <span style={{ color: '#007bff', fontWeight: 'bold' }}>결과 PDF 생성 중... (최대 1분 소요)</span>
+        )}
+        {processingPhase === 'done' && (
+          <>
+            <a
+              href={`/api/deskew/${jobId}/pdf`}
+              download={`deskewed-${jobId}.pdf`}
+              className="btn-link"
+              style={{ color: '#10b981', textDecoration: 'underline', marginRight: '1rem', fontSize: '0.9rem' }}
+              title="수평보정된 원본 PDF (가사 포함)"
+            >
+              수평보정 원본 PDF 다운로드
+            </a>
+            <a
+              href={`/api/deskew/${jobId}/clean-score-pdf`}
+              download={`clean-score-${jobId}.pdf`}
+              className="btn-link"
+              style={{ color: '#f59e0b', textDecoration: 'underline', marginRight: '1rem', fontSize: '0.9rem' }}
+              title="가사가 제거된 수평보정 PDF"
+            >
+              Clean Score PDF 다운로드
+            </a>
+            <button onClick={() => onContinue()} style={{ padding: '8px 16px', background: '#28a745', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+              다음 단계로 이동
+            </button>
+          </>
+        )}
       </div>
 
       {err && <div style={{ color: 'red', marginBottom: '1rem' }}>{err}</div>}
@@ -153,10 +208,10 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
                 transition: 'transform 0.1s ease-out'
               }}
             />
-            {/* 수평 가이드라인 (더 선명하게) */}
-            <div style={{ position: 'absolute', top: '25%', left: 0, width: '100%', borderTop: '2px dashed #00ff00', boxShadow: '0 0 2px #000', pointerEvents: 'none', opacity: 0.8 }} />
-            <div style={{ position: 'absolute', top: '50%', left: 0, width: '100%', borderTop: '2px dashed #00ff00', boxShadow: '0 0 2px #000', pointerEvents: 'none', opacity: 0.8 }} />
-            <div style={{ position: 'absolute', top: '75%', left: 0, width: '100%', borderTop: '2px dashed #00ff00', boxShadow: '0 0 2px #000', pointerEvents: 'none', opacity: 0.8 }} />
+            {/* 수평 가이드라인 (사용자가 수평을 맞출 때 참고용) */}
+            <div style={{ position: 'absolute', top: '25%', left: 0, width: '100%', borderTop: '2px solid red', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', top: '50%', left: 0, width: '100%', borderTop: '2px solid red', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', top: '75%', left: 0, width: '100%', borderTop: '2px solid red', pointerEvents: 'none' }} />
           </div>
         </div>
       </div>

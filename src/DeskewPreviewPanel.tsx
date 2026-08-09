@@ -154,10 +154,10 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
               }}
             />
             {/* 수평 가이드라인 (사용자가 수평을 맞출 때 참고용) */}
-            <div style={{ position: 'absolute', top: '20%', left: 0, width: '100%', borderTop: '1px dashed rgba(255, 0, 0, 0.4)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', top: '40%', left: 0, width: '100%', borderTop: '1px dashed rgba(255, 0, 0, 0.4)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', top: '60%', left: 0, width: '100%', borderTop: '1px dashed rgba(255, 0, 0, 0.4)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', top: '80%', left: 0, width: '100%', borderTop: '1px dashed rgba(255, 0, 0, 0.4)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', top: '20%', left: 0, width: '100%', borderTop: '2px solid rgba(255, 0, 0, 0.7)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', top: '40%', left: 0, width: '100%', borderTop: '2px solid rgba(255, 0, 0, 0.7)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', top: '60%', left: 0, width: '100%', borderTop: '2px solid rgba(255, 0, 0, 0.7)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', top: '80%', left: 0, width: '100%', borderTop: '2px solid rgba(255, 0, 0, 0.7)', pointerEvents: 'none' }} />
           </div>
         </div>
       </div>

@@ -56,6 +56,7 @@ type ConvertTask = {
   downloadName?: string;
   errorMessage?: string;
   progress?: TaskProgress;
+  pipelineMode?: PipelineMode;
 };
 
 type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator' | 'image_pdf';
@@ -1122,10 +1123,11 @@ export default function App() {
           ? f.name
           : startStage === 'omr_hitl' || startStage === 'lyric_inject'
             ? (resumeOmrWorkFile?.name ?? 'omr-work.zip')
-            : startStage === 'clean_score'
-              ? (resumeCleanScoreFile?.name ?? 'clean_score_only.pdf')
-              : 'score',
+              : startStage === 'clean_score'
+                ? (resumeCleanScoreFile?.name ?? 'clean_score_only.pdf')
+                : 'score',
         phase: 'queued',
+        pipelineMode: pipelineMode,
       }));
       setTasks(initialTasks);
       setBusy(true);

@@ -3510,6 +3510,16 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         if (fsSync.existsSync(deskewedPdfPath)) {
           inputPdfPath = deskewedPdfPath; // Use the deskewed PDF for the rest of the pipeline
           job.inputPdfPath = inputPdfPath; // Update job record
+          
+          // Clear any previously cached PNGs that were based on the original un-deskewed PDF
+          try {
+            const reviewCache = path.join(sessionRoot, '.review-ui-cache');
+            const diagCache = path.join(sessionRoot, '.diag-cache');
+            if (fsSync.existsSync(reviewCache)) await fs.rm(reviewCache, { recursive: true, force: true });
+            if (fsSync.existsSync(diagCache)) await fs.rm(diagCache, { recursive: true, force: true });
+          } catch (e) {
+            console.warn(`[job ${jobId}] Failed to clear caches after deskew:`, e);
+          }
         }
       } catch (err) {
         console.warn(`[job ${jobId}] Failed to apply deskew (continuing with original):`, err);

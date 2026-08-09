@@ -395,6 +395,7 @@ type JobStatus =
   | 'processing'
   | 'font_strip_needed'
   | 'deskew_needed'
+  | 'deskew_save_needed'
   | 'clean_score_preview_needed'
   | 'lyric_manifest_save_needed'
   | 'review_needed'
@@ -3035,7 +3036,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       ? startStageEarly === 'lyric_inject' || job.enablePymupdfReview !== false
       : true;
   const { sessionRoot, originalName, isDebug } = job;
-  const inputPdfPath = job.inputPdfPath;
+  let inputPdfPath = job.inputPdfPath;
   await ensureSessionLyricSourcePdf(job);
   const outBase = path.join(sessionRoot, 'audiveris-out');
   const wipeSession = () => fs.rm(sessionRoot, { recursive: true, force: true }).catch(() => {});
@@ -3279,6 +3280,21 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         console.warn(`[job ${jobId}] Failed to detect part labels (ignoring):`, detectErr);
       }
       
+      console.log(`[job ${jobId}] Pausing for deskew save...`);
+      setJobProgress(job, {
+        phase: 'hitl',
+        current: 0,
+        total: 1,
+        detail: '수평 보정 결과 다운로드 대기...',
+      });
+      job.status = 'deskew_save_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.deskewSaveDeferred = { resolve, reject };
+      });
+      delete job.deskewSaveDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Deskew save confirmed, continuing...`);
+
       console.log(`[job ${jobId}] Pausing for early part label setup (성부 S/A/T/B…)…`);
       setJobProgress(job, {
         phase: 'hitl',
@@ -3589,6 +3605,21 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
         console.warn(`[job ${jobId}] Failed to detect part labels (ignoring):`, detectErr);
       }
       
+      console.log(`[job ${jobId}] Pausing for deskew save...`);
+      setJobProgress(job, {
+        phase: 'hitl',
+        current: 0,
+        total: 1,
+        detail: '수평 보정 결과 다운로드 대기...',
+      });
+      job.status = 'deskew_save_needed';
+      await new Promise<void>((resolve, reject) => {
+        job.deskewSaveDeferred = { resolve, reject };
+      });
+      delete job.deskewSaveDeferred;
+      job.status = 'processing';
+      console.log(`[job ${jobId}] Deskew save confirmed, continuing...`);
+
       console.log(`[job ${jobId}] Pausing for early part label setup (성부 S/A/T/B…)…`);
       setJobProgress(job, {
         phase: 'hitl',
@@ -4920,7 +4951,7 @@ app.get('/api/diagnostic/:jobId/original-pdf', (req, res) => {
     res.status(404).json({ error: '마스킹·인식 점검을 할 수 있는 작업이 아니거나 만료되었습니다' });
     return;
   }
-  const inputPdfPath = job.inputPdfPath;
+  let inputPdfPath = job.inputPdfPath;
   if (!inputPdfPath || !fsSync.existsSync(inputPdfPath)) {
     res.status(404).json({ error: '업로드 원본 PDF가 세션에 없습니다' });
     return;
@@ -5269,7 +5300,7 @@ app.get('/api/clean-score-preview/:jobId', async (req, res) => {
     res.status(400).json({ error: 'clean_score 미리보기 단계가 아닙니다' });
     return;
   }
-  const inputPdfPath = job.inputPdfPath;
+  let inputPdfPath = job.inputPdfPath;
   const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
   if (!inputPdfPath || !fsSync.existsSync(inputPdfPath) || !fsSync.existsSync(cleanScorePath)) {
     res.status(404).json({ error: '미리보기 PDF가 준비되지 않았습니다' });
@@ -5326,7 +5357,7 @@ app.get('/api/clean-score-preview/:jobId/page/:pageNum/png', async (req, res) =>
   const page = parseInt(req.params.pageNum, 10);
   const dpiRaw = parseInt(String(req.query.dpi ?? '132'), 10);
   const dpi = Number.isFinite(dpiRaw) ? Math.min(240, Math.max(72, dpiRaw)) : 132;
-  const inputPdfPath = job.inputPdfPath;
+  let inputPdfPath = job.inputPdfPath;
   const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
   const pdfPath = source === 'clean_score' ? cleanScorePath : inputPdfPath;
   if (!pdfPath || !fsSync.existsSync(pdfPath)) {

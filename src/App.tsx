@@ -2425,7 +2425,7 @@ bash scripts/install-font-separator-deps.sh`}
               zIndex: 9998,
             }}
           >
-            <div className="font-strip-modal">
+            <div className="font-strip-modal clean-score-preview-modal">
               <DeskewPreviewPanel
                 jobId={deskewPreviewJobId}
                 onContinue={() => setDeskewPreviewJobId(null)}

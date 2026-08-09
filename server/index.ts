@@ -6441,7 +6441,7 @@ app.get('/api/deskew/:jobId/page/:pageNum/png', async (req, res) => {
   const pythonBin = resolvePythonBin();
   const scriptExtract = path.join(__dirname, '..', 'scripts', 'extract_text.py');
   try {
-    const { stdout } = await exec(`"${pythonBin}" "${scriptExtract}" render-page "${job.inputPdfPath}" ${pageIdx} 1.0`, {
+    const { stdout } = await exec(`"${pythonBin}" "${scriptExtract}" render-page "${job.inputPdfPath}" ${pageIdx} 2.0`, {
       maxBuffer: 32 * 1024 * 1024,
       encoding: 'buffer',
     });

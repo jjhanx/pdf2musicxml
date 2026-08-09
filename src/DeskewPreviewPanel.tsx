@@ -97,6 +97,7 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
                   padding: '0.5rem',
                   textAlign: 'left',
                   background: page === a.page_number ? '#e0f0ff' : '#fff',
+                  color: '#000',
                   border: '1px solid #ccc',
                   cursor: 'pointer',
                   borderRadius: '4px'
@@ -144,8 +145,8 @@ export function DeskewPreviewPanel({ jobId, onContinue }: Props) {
               style={{
                 transform: `rotate(${currentAngle}deg)`,
                 transformOrigin: 'center center',
-                maxWidth: '90%',
-                maxHeight: '90%',
+                maxWidth: '100%',
+                maxHeight: '100%',
                 objectFit: 'contain',
                 boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
                 background: 'white',

@@ -2308,6 +2308,19 @@ bash scripts/install-font-separator-deps.sh`}
                         <a href={t.downloadUrl} download={t.downloadName}>
                           저장
                         </a>
+                        {t.jobId && t.pipelineMode === 'image_pdf' && (
+                          <>
+                            {' · '}
+                            <a
+                              href={`/api/deskew/${t.jobId}/pdf`}
+                              download={`deskewed-${t.jobId}.pdf`}
+                              className="btn-link"
+                              style={{ color: '#10b981', textDecoration: 'underline' }}
+                            >
+                              수평보정 PDF
+                            </a>
+                          </>
+                        )}
                         {t.jobId && (
                           <>
                             {' · '}

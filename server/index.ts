@@ -2240,13 +2240,13 @@ function isCleanScorePdfPath(job: JobRecord, absPath: string): boolean {
 /** 가사 검증 UI 미리보기 — 원본(가사 포함) PDF 우선, clean_score_only는 최후 */
 function resolveLyricReviewPdfPath(job: JobRecord): string | null {
   const candidates: string[] = [];
+  if (job.inputPdfPath && fsSync.existsSync(job.inputPdfPath)) {
+    candidates.push(job.inputPdfPath);
+  }
   const sessionInput = path.join(job.sessionRoot, 'input.pdf');
   const sessionOriginal = path.join(job.sessionRoot, 'original.pdf');
   if (fsSync.existsSync(sessionInput)) candidates.push(sessionInput);
   if (fsSync.existsSync(sessionOriginal)) candidates.push(sessionOriginal);
-  if (job.inputPdfPath && fsSync.existsSync(job.inputPdfPath)) {
-    candidates.push(job.inputPdfPath);
-  }
   const lyricSource = candidates.find((p) => !isCleanScorePdfPath(job, p));
   if (lyricSource) return lyricSource;
   return candidates[0] ?? null;
@@ -6185,6 +6185,10 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
     archive.file(inputPath, { name: 'input.pdf' });
     pdfIncluded.input = true;
   }
+  const deskewedPdfPath = path.join(job.sessionRoot, 'deskewed.pdf');
+  if (fsSync.existsSync(deskewedPdfPath)) {
+    archive.file(deskewedPdfPath, { name: 'deskewed.pdf' });
+  }
   const lyricManifestPath = path.join(job.sessionRoot, 'lyric_manifest.json');
   const pymupdfReviewPath = path.join(job.sessionRoot, 'ocr_data_pymupdf.json');
   const extractedJsonPath = path.join(job.sessionRoot, 'extracted_music_text.json');
@@ -6448,6 +6452,21 @@ app.get('/api/deskew/:jobId/page/:pageNum/png', async (req, res) => {
     console.error(`[deskew] render-page error:`, err);
     if (!res.headersSent) res.status(500).send('Render failed');
   }
+});
+
+app.get('/api/deskew/:jobId/pdf', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).send('Job not found');
+    return;
+  }
+  const deskewedPdfPath = path.join(job.sessionRoot, 'deskewed.pdf');
+  if (!fsSync.existsSync(deskewedPdfPath)) {
+    res.status(404).send('Deskewed PDF not found');
+    return;
+  }
+  setAttachmentFilenameHeader(res, `${job.originalName || 'deskewed'}-deskewed.pdf`);
+  res.sendFile(deskewedPdfPath);
 });
 
 app.post('/api/deskew/:jobId/continue', express.json({ limit: '10mb' }), async (req, res) => {

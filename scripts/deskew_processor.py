@@ -14,35 +14,41 @@ except ImportError:
 
 def _get_skew_angle(image_np: np.ndarray) -> float:
     # Convert to grayscale
-    gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-    
+    if len(image_np.shape) == 3:
+        gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = image_np
+        
     # Invert the image (black background, white text/lines)
     gray = cv2.bitwise_not(gray)
     
     # Threshold
     thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
     
-    # Use Hough lines to find staff lines
-    # Staff lines are typically long horizontal lines
-    lines = cv2.HoughLinesP(thresh, 1, np.pi/180, 100, minLineLength=image_np.shape[1] // 4, maxLineGap=20)
+    best_angle = 0.0
+    max_variance = 0.0
     
-    if lines is None:
-        return 0.0
+    # Scan from -5.0 to +5.0 degrees in 0.1 degree increments
+    angles = np.arange(-5.0, 5.1, 0.1)
+    
+    h, w = thresh.shape
+    center = (w // 2, h // 2)
+    
+    for angle in angles:
+        M = cv2.getRotationMatrix2D(center, angle, 1.0)
+        rotated = cv2.warpAffine(thresh, M, (w, h), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
         
-    angles = []
-    for line in lines:
-        x1, y1, x2, y2 = line[0]
-        angle = math.degrees(math.atan2(y2 - y1, x2 - x1))
-        # We only care about nearly horizontal lines (staff lines)
-        if -15 <= angle <= 15:
-            angles.append(angle)
+        # Calculate horizontal projection profile (sum of rows)
+        proj = np.sum(rotated, axis=1)
+        
+        # Calculate variance of the projection profile
+        variance = np.var(proj)
+        
+        if variance > max_variance:
+            max_variance = variance
+            best_angle = angle
             
-    if not angles:
-        return 0.0
-        
-    # Median angle is usually robust against outliers
-    median_angle = np.median(angles)
-    return round(float(median_angle), 2)
+    return round(float(best_angle), 2)
 
 def analyze(input_pdf: str, output_json: str):
     print(f"[deskew_processor] Analyzing {input_pdf}...", file=sys.stderr)

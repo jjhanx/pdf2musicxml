@@ -4,6 +4,7 @@ import sys
 import zipfile
 import io
 import re
+import copy
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
@@ -16,6 +17,10 @@ def _ns(root: ET.Element) -> str:
 
 def _q(ns: str, local: str) -> str:
     return f"{{{ns}}}{local}" if ns else local
+
+def _local(el: ET.Element) -> str:
+    t = el.tag
+    return t[t.index("}") + 1 :] if t.startswith("{") else t
 
 def _load_mxl_score_xml(mxl_path: Path) -> tuple[dict[str, bytes], str]:
     with zipfile.ZipFile(mxl_path, "r") as z:
@@ -44,28 +49,126 @@ def load_part_labels_json(path: Path | None) -> list[str] | None:
             return labels
     return None
 
-def determine_mapping(k: int, labels: list[str]) -> list[tuple[str, str]]:
-    target_parts = []
+def determine_mapping_advanced(staves, labels):
+    target_logical_staves = []
     for i, label in enumerate(labels):
         pid = f"P{i+1}"
         if label.upper() in _PIANO_DISPLAY_LABELS:
-            target_parts.append((pid, "1"))
-            target_parts.append((pid, "2"))
+            target_logical_staves.append((pid, "1", label))
+            target_logical_staves.append((pid, "2", label))
         else:
-            target_parts.append((pid, "1"))
+            target_logical_staves.append((pid, "1", label))
             
-    if k >= len(target_parts):
-        return target_parts[:k]
+    num_source = len(staves)
+    num_target = len(target_logical_staves)
     
-    # Generic heuristic for typical scores: piano at bottom
-    if len(labels) == 3 and labels[-1].upper() in _PIANO_DISPLAY_LABELS:
-        if k == 2:
-            return [("P3", "1"), ("P3", "2")]
-        if k == 3:
-            # Fallback SA + Piano
-            return [("P1", "1"), ("P3", "1"), ("P3", "2")]
+    mapping = defaultdict(list)
     
-    return target_parts[-k:]
+    if num_source == num_target:
+        for s, t in zip(staves, target_logical_staves):
+            mapping[s].append((t[0], t[1]))
+    elif num_source < num_target:
+        if len(staves) >= 2 and target_logical_staves[-1][2].upper() in _PIANO_DISPLAY_LABELS:
+            mapping[staves[-1]].append((target_logical_staves[-1][0], target_logical_staves[-1][1]))
+            mapping[staves[-2]].append((target_logical_staves[-2][0], target_logical_staves[-2][1]))
+            
+            rem_source = staves[:-2]
+            rem_target = target_logical_staves[:-2]
+            
+            if len(rem_source) == 2 and len(rem_target) == 4:
+                mapping[rem_source[0]] = [(rem_target[0][0], rem_target[0][1]), (rem_target[1][0], rem_target[1][1])]
+                mapping[rem_source[1]] = [(rem_target[2][0], rem_target[2][1]), (rem_target[3][0], rem_target[3][1])]
+            else:
+                idx = 0
+                for t in rem_target:
+                    mapping[rem_source[min(idx, len(rem_source)-1)]].append((t[0], t[1]))
+                    idx += 1
+        else:
+            for i, t in enumerate(target_logical_staves):
+                mapping[staves[min(i, num_source-1)]].append((t[0], t[1]))
+    else:
+        for i, t in enumerate(target_logical_staves):
+            mapping[staves[-num_target + i]].append((t[0], t[1]))
+            
+    return mapping
+
+def get_pitch_value(note, ns=""):
+    pitch = note.find(f"{ns}pitch")
+    if pitch is None:
+        return -1
+    step = pitch.find(f"{ns}step")
+    octave = pitch.find(f"{ns}octave")
+    if step is None or octave is None:
+        return -1
+    step_val = {"C":0, "D":1, "E":2, "F":3, "G":4, "A":5, "B":6}.get(step.text, 0)
+    return int(octave.text) * 7 + step_val
+
+def split_measure_elements(measure_children, target_count, ns=""):
+    voices = set()
+    for child in measure_children:
+        if child.tag == f"{ns}note":
+            v = child.find(f"{ns}voice")
+            if v is not None and v.text:
+                voices.add(v.text)
+                
+    if len(voices) > 1:
+        sorted_voices = sorted(list(voices))
+        voice_to_target = {}
+        for i, v in enumerate(sorted_voices):
+            voice_to_target[v] = min(i, target_count - 1)
+            
+        out_children = [[] for _ in range(target_count)]
+        for child in measure_children:
+            if child.tag == f"{ns}note":
+                v = child.find(f"{ns}voice")
+                v_text = v.text if v is not None else sorted_voices[0]
+                target_idx = voice_to_target.get(v_text, 0)
+                out_children[target_idx].append(copy.deepcopy(child))
+            elif child.tag in (f"{ns}backup", f"{ns}forward"):
+                pass
+            else:
+                for idx in range(target_count):
+                    out_children[idx].append(copy.deepcopy(child))
+        return out_children
+        
+    else:
+        out_children = [[] for _ in range(target_count)]
+        current_chord = []
+        
+        def flush_chord():
+            if not current_chord: return
+            if len(current_chord) == 1:
+                for idx in range(target_count):
+                    out_children[idx].append(copy.deepcopy(current_chord[0]))
+            else:
+                sorted_chord = sorted(current_chord, key=lambda n: get_pitch_value(n, ns), reverse=True)
+                for idx in range(target_count):
+                    note_idx = min(idx, len(sorted_chord) - 1)
+                    new_note = copy.deepcopy(sorted_chord[note_idx])
+                    chord_tag = new_note.find(f"{ns}chord")
+                    if chord_tag is not None:
+                        new_note.remove(chord_tag)
+                    out_children[idx].append(new_note)
+            current_chord.clear()
+
+        for child in measure_children:
+            if child.tag == f"{ns}note":
+                if child.find(f"{ns}chord") is not None:
+                    current_chord.append(child)
+                else:
+                    flush_chord()
+                    current_chord.append(child)
+            elif child.tag in (f"{ns}backup", f"{ns}forward"):
+                flush_chord()
+                for idx in range(target_count):
+                    out_children[idx].append(copy.deepcopy(child))
+            else:
+                flush_chord()
+                for idx in range(target_count):
+                    out_children[idx].append(copy.deepcopy(child))
+        flush_chord()
+        
+        return out_children
 
 def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
     labels = load_part_labels_json(labels_path)
@@ -84,7 +187,6 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
         if part_list is None:
             raise ValueError("No part-list found")
 
-        # Create new part-list based on labels
         new_part_list = ET.Element(_q(ns, "part-list"))
         for i, label in enumerate(labels):
             pid = f"P{i+1}"
@@ -98,14 +200,13 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 if child == part_list:
                     part_list_parent = parent
                     break
-            if part_list_parent: break
+            if part_list_parent is not None: break
         
         if part_list_parent is not None:
             idx = list(part_list_parent).index(part_list)
             part_list_parent.remove(part_list)
             part_list_parent.insert(idx, new_part_list)
 
-        # Re-assign measures
         measures_by_num = defaultdict(list)
         for part in root.findall(_q(ns, "part")):
             for measure in part.findall(_q(ns, "measure")):
@@ -115,7 +216,6 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
 
         new_parts = {f"P{i+1}": ET.Element(_q(ns, "part"), id=f"P{i+1}") for i in range(len(labels))}
         
-        # Sort measure numbers to process in order (basic sort, assuming numbers are sequential or logical)
         measure_nums = sorted(list(measures_by_num.keys()), key=lambda x: int(re.sub(r'[^0-9]', '', x)) if re.sub(r'[^0-9]', '', x) else 0)
 
         for num in measure_nums:
@@ -123,66 +223,55 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
             staves = set()
             for part, measure in measure_nodes:
                 pid = part.get("id")
-                # find all staff elements in notes
                 for note in measure.findall(_q(ns, "note")):
                     staff = note.find(_q(ns, "staff"))
                     s_num = staff.text if staff is not None else "1"
                     staves.add((pid, s_num))
             
-            # Sort staves (P1-1, P1-2, P2-1...)
             sorted_staves = sorted(list(staves))
-            mapping = determine_mapping(len(sorted_staves), labels)
+            mapping = determine_mapping_advanced(sorted_staves, labels)
             
-            # map: (old_pid, old_snum) -> (new_pid, new_snum)
-            staff_map = {old: new for old, new in zip(sorted_staves, mapping)}
-            
-            # Create a combined measure for each new part
             new_measures = defaultdict(lambda: ET.Element(_q(ns, "measure"), number=num))
             for i in range(len(labels)):
                 _ = new_measures[f"P{i+1}"]
             
-            # Merge attributes from first available measure
-            attrs_copied = False
-            for part, measure in measure_nodes:
-                # Copy everything but attributes and notes first
-                for child in measure:
-                    tag = _local(child) if hasattr(child, 'tag') else child.tag
-                    if tag == "attributes":
-                        if not attrs_copied:
-                            for np_id, nm in new_measures.items():
-                                nm.append(ET.fromstring(ET.tostring(child)))
-                            attrs_copied = True
-                    elif tag == "note" or tag == "backup" or tag == "forward":
-                        pass
-                    else:
-                        # Append other elements to the first part to avoid duplication
-                        if len(labels) > 0:
-                            new_measures[f"P1"].append(ET.fromstring(ET.tostring(child)))
-            
-            # Now distribute notes/backups
             for part, measure in measure_nodes:
                 pid = part.get("id")
+                
+                elements_by_staff = defaultdict(list)
+                current_staff = "1"
+                
                 for child in measure:
-                    tag = _local(child) if hasattr(child, 'tag') else child.tag
-                    if tag in ["note", "backup", "forward"]:
-                        staff = child.find(_q(ns, "staff"))
-                        s_num = staff.text if staff is not None else "1"
-                        new_p, new_s = staff_map.get((pid, s_num), (f"P1", "1"))
+                    tag = _local(child)
+                    if tag in ("note", "direction"):
+                        st_el = child.find(_q(ns, "staff"))
+                        if st_el is not None and st_el.text:
+                            current_staff = st_el.text
+                    elements_by_staff[current_staff].append(child)
+                    
+                for s_num, elements in elements_by_staff.items():
+                    while elements and _local(elements[-1]) in ("backup", "forward"):
+                        elements.pop()
                         
-                        child_copy = ET.fromstring(ET.tostring(child))
-                        staff_el = child_copy.find(_q(ns, "staff"))
-                        if staff_el is None and tag == "note":
-                            staff_el = ET.SubElement(child_copy, _q(ns, "staff"))
-                        if staff_el is not None:
-                            staff_el.text = new_s
-                            
-                        new_measures[new_p].append(child_copy)
+                    targets = mapping.get((pid, s_num))
+                    if not targets: continue
+                    
+                    target_count = len(targets)
+                    split_res = split_measure_elements(elements, target_count, _q(ns, ""))
+                    
+                    for target_idx, (new_p, new_s) in enumerate(targets):
+                        for el in split_res[target_idx]:
+                            el_copy = copy.deepcopy(el)
+                            st_el = el_copy.find(_q(ns, "staff"))
+                            if st_el is None and _local(el_copy) == "note":
+                                st_el = ET.SubElement(el_copy, _q(ns, "staff"))
+                            if st_el is not None:
+                                st_el.text = new_s
+                            new_measures[new_p].append(el_copy)
 
-            # Append new measures to parts
             for np_id in new_parts:
                 new_parts[np_id].append(new_measures[np_id])
                 
-        # Remove old parts and add new
         for old_part in root.findall(_q(ns, "part")):
             root.remove(old_part)
             
@@ -202,10 +291,6 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
         traceback.print_exc()
         if mxl_in.resolve() != mxl_out.resolve():
             mxl_out.write_bytes(mxl_in.read_bytes())
-
-def _local(el: ET.Element) -> str:
-    t = el.tag
-    return t[t.index("}") + 1 :] if t.startswith("{") else t
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:

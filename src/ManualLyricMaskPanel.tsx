@@ -217,6 +217,19 @@ export function ManualLyricMaskPanel(props: Props) {
     'crosshair' | 'grab' | 'grabbing'
   >('crosshair');
 
+  const prevValueLengthRef = useRef(value.length);
+  const textareasRef = useRef<(HTMLTextAreaElement | null)[]>([]);
+
+  useEffect(() => {
+    if (value.length > prevValueLengthRef.current) {
+      const newIdx = value.length - 1;
+      setTimeout(() => {
+        textareasRef.current[newIdx]?.focus();
+      }, 0);
+    }
+    prevValueLengthRef.current = value.length;
+  }, [value.length]);
+
   useEffect(() => {
     bboxPointerCleanupRef.current?.();
     bboxPointerCleanupRef.current = null;
@@ -881,6 +894,7 @@ export function ManualLyricMaskPanel(props: Props) {
                 </span>
                 <span style={{ fontSize: '0.75rem', color: '#999', marginTop: '4px' }}>p.{rect.page}</span>
                 <textarea
+                  ref={(el) => { textareasRef.current[idx] = el; }}
                   value={rect.text || ''}
                   placeholder="가사 텍스트 (Enter로 줄바꿈)..."
                   rows={4}

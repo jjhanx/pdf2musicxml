@@ -1697,11 +1697,27 @@ const OSMD_WIDTH_RAF_RETRIES = 90;
 /** Clears OSMD output and replaces with inline error message. */
 function showOsmdHostError(host: HTMLDivElement, message: string) {
   host.innerHTML = '';
+  const container = document.createElement('div');
+  container.style.cssText = 'position:relative;height:100%;';
+  
   const d = document.createElement('div');
   d.style.cssText =
-    'padding:14px;font-size:0.86rem;line-height:1.5;color:#b71c1c;white-space:pre-wrap;word-break:break-word;overflow-y:auto;max-height:400px;';
+    'padding:14px;font-size:0.86rem;line-height:1.5;color:#b71c1c;white-space:pre-wrap;word-break:break-word;overflow-y:auto;max-height:400px;user-select:text;-webkit-user-select:text;';
   d.textContent = message;
-  host.appendChild(d);
+
+  const btn = document.createElement('button');
+  btn.textContent = '에러 복사';
+  btn.style.cssText = 'position:absolute;top:10px;right:10px;padding:4px 8px;font-size:0.75rem;cursor:pointer;border:1px solid #fca5a5;background:#fee2e2;color:#b71c1c;border-radius:4px;';
+  btn.onclick = () => {
+    navigator.clipboard.writeText(message).then(() => {
+      btn.textContent = '복사됨!';
+      setTimeout(() => { btn.textContent = '에러 복사'; }, 2000);
+    });
+  };
+
+  container.appendChild(d);
+  container.appendChild(btn);
+  host.appendChild(container);
 }
 
 function appendOsmdWidthHint(host: HTMLDivElement) {

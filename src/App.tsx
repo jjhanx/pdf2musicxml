@@ -1532,7 +1532,7 @@ export default function App() {
       setReviewProcessingPhase('polling');
       const interval = window.setInterval(async () => {
         try {
-          const statusRes = await fetch(`/api/job/${reviewingJobId}`);
+          const statusRes = await fetch(`/api/status/${reviewingJobId}`);
           if (statusRes.ok) {
             const jobData = await statusRes.json();
             if (jobData.status === 'lyric_manifest_save_needed') {

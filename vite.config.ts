@@ -22,6 +22,10 @@ function osmdNavigationLabelPlugin(): Plugin {
       'case s.RepetitionInstructionEnum.Coda:i>0&&this.findInstructionInPreviousMeasure(n,o.measureIndex,s.RepetitionInstructionEnum.ToCoda)&&(o.type=s.RepetitionInstructionEnum.None);break;',
       'case s.RepetitionInstructionEnum.Coda:break;',
     ],
+    [
+      'h||(h=r.KeyInstruction.copy(this.activeKeys[i]))',
+      'h||(this.activeKeys[i]&&(h=r.KeyInstruction.copy(this.activeKeys[i])))'
+    ],
   ];
   return {
     name: 'osmd-navigation-labels',

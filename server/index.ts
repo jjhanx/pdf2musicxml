@@ -4199,6 +4199,10 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     if (scorePathsForLabels.length > 0) {
       for (const p of scorePathsForLabels) {
         await applyPartLabelsToScoreFile(job.sessionRoot, p, pythonBin);
+        const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
+        if (fsSync.existsSync(rawPath) && p !== rawPath) {
+          await fs.copyFile(p, rawPath);
+        }
       }
     }
 

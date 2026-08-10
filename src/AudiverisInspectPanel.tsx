@@ -1060,15 +1060,9 @@ export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
       );
       if (hasPickupKey) continue;
 
-      let firstKeyM: number | null = null;
-      for (const m of measures.sort((a, b) => measureNum(a) - measureNum(b))) {
-        const f = keyFifthsInMeasure(m);
-        if (f != null) {
-          firstKeyM = measureNum(m);
-          break;
-        }
-      }
-      if (firstKeyM == null || firstKeyM < 2) continue;
+      // [OSMD Bug] 만약 악보 전체에 <key>가 하나도 없으면 OSMD가 줄바꿈 시 복사할
+      // activeKeys가 undefined가 되어 `KeyInstruction.copy(undefined)` 크래시가 발생함.
+      // 따라서 첫 마디에 조표가 없다면 무조건 <key><fifths>0</fifths></key>를 명시해야 함.
 
       const ns = attrs?.namespaceURI ?? firstMeas.namespaceURI;
       const mk = (local: string) =>
@@ -1709,10 +1703,29 @@ function showOsmdHostError(host: HTMLDivElement, message: string) {
   btn.textContent = '에러 복사';
   btn.style.cssText = 'position:absolute;top:10px;right:10px;padding:4px 8px;font-size:0.75rem;cursor:pointer;border:1px solid #fca5a5;background:#fee2e2;color:#b71c1c;border-radius:4px;';
   btn.onclick = () => {
-    navigator.clipboard.writeText(message).then(() => {
+    const fallbackCopy = (text: string) => {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand('copy');
+      } catch (err) {}
+      document.body.removeChild(textArea);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(message).then(() => {
+        btn.textContent = '복사됨!';
+        setTimeout(() => { btn.textContent = '에러 복사'; }, 2000);
+      });
+    } else {
+      fallbackCopy(message);
       btn.textContent = '복사됨!';
       setTimeout(() => { btn.textContent = '에러 복사'; }, 2000);
-    });
+    }
   };
 
   container.appendChild(d);

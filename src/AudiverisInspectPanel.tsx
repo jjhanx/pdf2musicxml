@@ -1764,7 +1764,7 @@ function scheduleOsmdRender(opts: {
       const msg = e instanceof Error ? e.message : String(e);
       showOsmdHostError(
         host,
-        `악보를 그리는 중 오류가 났습니다: ${msg}. (미리보기에서는 8바/옥타브 표기를 빼도록 시도했습니다. 다른 기호 때문에 남았다면 MXL은 그대로이며 PNG 비교로 검증 가능합니다.)`,
+        `악보를 그리는 중 오류가 났습니다: ${msg}\n\n(미리보기 렌더링 엔진의 한계로 특정 기호 처리 중 크래시가 발생했을 수 있습니다. MXL 파일 자체는 정상이므로, PNG와 비교하며 나머지 요소를 검증하셔도 무방합니다.)`,
       );
       disconnectRo();
       onPaintFailure();

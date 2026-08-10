@@ -291,6 +291,10 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        try:
+            Path('restructure_crash.txt').write_text(traceback.format_exc(), encoding='utf-8')
+        except:
+            pass
         if mxl_in.resolve() != mxl_out.resolve():
             mxl_out.write_bytes(mxl_in.read_bytes())
 

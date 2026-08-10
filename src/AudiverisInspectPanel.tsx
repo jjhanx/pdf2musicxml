@@ -1040,7 +1040,7 @@ export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
 
     for (const part of findXmlParts(doc)) {
       const measures = [...part.children].filter((c) => xmlLocalName(c) === 'measure');
-      const firstMeas = measures.find((c) => (c.getAttribute('number') ?? '1') === '1');
+      const firstMeas = measures[0];
       if (!firstMeas) continue;
 
       let attrs = [...firstMeas.children].find((c) => xmlLocalName(c) === 'attributes');
@@ -1085,7 +1085,16 @@ export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
       const fifthsEl = mk('fifths');
       fifthsEl.textContent = '0';
       keyEl.appendChild(fifthsEl);
-      attrs.appendChild(keyEl);
+      
+      let insertBeforeNode: Element | null = null;
+      for (const c of [...attrs.children]) {
+        const n = xmlLocalName(c);
+        if (n === 'time' || n === 'staves' || n === 'part-symbol' || n === 'instruments' || n === 'clef' || n === 'staff-details' || n === 'transpose' || n === 'directive' || n === 'measure-style') {
+          insertBeforeNode = c;
+          break;
+        }
+      }
+      attrs.insertBefore(keyEl, insertBeforeNode);
     }
 
     return new XMLSerializer().serializeToString(doc);

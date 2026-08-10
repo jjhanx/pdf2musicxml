@@ -1699,7 +1699,7 @@ function showOsmdHostError(host: HTMLDivElement, message: string) {
   host.innerHTML = '';
   const d = document.createElement('div');
   d.style.cssText =
-    'padding:14px;font-size:0.86rem;line-height:1.5;color:#b71c1c;white-space:pre-wrap;word-break:break-word;';
+    'padding:14px;font-size:0.86rem;line-height:1.5;color:#b71c1c;white-space:pre-wrap;word-break:break-word;overflow-y:auto;max-height:400px;';
   d.textContent = message;
   host.appendChild(d);
 }
@@ -1761,7 +1761,10 @@ function scheduleOsmdRender(opts: {
       } catch {
         /* ignore */
       }
-      const msg = e instanceof Error ? e.message : String(e);
+      let msg = e instanceof Error ? e.message : String(e);
+      if (e instanceof Error && e.stack) {
+        msg += `\n\n[상세 에러 정보 (개발자용)]\n${e.stack}`;
+      }
       showOsmdHostError(
         host,
         `악보를 그리는 중 오류가 났습니다: ${msg}\n\n(미리보기 렌더링 엔진의 한계로 특정 기호 처리 중 크래시가 발생했을 수 있습니다. MXL 파일 자체는 정상이므로, PNG와 비교하며 나머지 요소를 검증하셔도 무방합니다.)`,

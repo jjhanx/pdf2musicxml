@@ -138,6 +138,9 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
             <button type="button" className="btn-muted" onClick={() => applyPreset(defaultPartLabels(6))}>
               합창+피아노 (S A T B PR PL)
             </button>
+            <button type="button" className="btn-muted" onClick={() => applyPreset(['S', 'A', 'T', 'B', 'P'])}>
+              합창+피아노 (S A T B P)
+            </button>
             <button
               type="button"
               className="btn-muted"

@@ -621,6 +621,7 @@ export default function App() {
   const [tasks, setTasks] = useState<ConvertTask[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [reviewProgressDetail, setReviewProgressDetail] = useState<string>('');
   const [dragOver, setDragOver] = useState(false);
   const [autoSave, setAutoSave] = useState(false);
   
@@ -1537,10 +1538,14 @@ export default function App() {
             if (jobData.status === 'lyric_manifest_save_needed') {
               window.clearInterval(interval);
               setReviewProcessingPhase('done');
+              setReviewProgressDetail('');
             } else if (jobData.status === 'failed') {
               window.clearInterval(interval);
               setReviewProcessingPhase('idle');
+              setReviewProgressDetail('');
               alert(jobData.detail || jobData.error || 'OMR 작업이 실패했습니다.');
+            } else if (jobData.progress && jobData.progress.detail) {
+              setReviewProgressDetail(jobData.progress.detail);
             }
           }
         } catch(err) {}
@@ -1562,6 +1567,7 @@ export default function App() {
     setReviewOriginalFileName('');
     setHasSavedData(false);
     setReviewProcessingPhase('idle');
+    setReviewProgressDetail('');
   };
 
   const submitContinueOmrStaffReview = async () => {
@@ -3078,7 +3084,10 @@ bash scripts/install-font-separator-deps.sh`}
                 </button>
               )}
               {reviewProcessingPhase === 'polling' && (
-                <span style={{ color: '#007bff', fontWeight: 'bold' }}>결과 PDF 생성 중... (수 초 소요)</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                  <span style={{ color: '#007bff', fontWeight: 'bold' }}>결과 PDF 생성 중... (수 초 소요)</span>
+                  {reviewProgressDetail && <span style={{ fontSize: '0.85rem', color: '#666' }}>{reviewProgressDetail}</span>}
+                </div>
               )}
               {reviewProcessingPhase === 'done' && (
                 <>

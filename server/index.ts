@@ -2138,6 +2138,15 @@ async function enterOmrStaffHitlPhase(
     for (const p of mxlForInject) {
       await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
     }
+  } else {
+    // 기존 ZIP에서 재개 시, 8성부 원본이 들어있을 수 있으므로 병합 스크립트 재적용
+    const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
+    if (fsSync.existsSync(rawPath) && resolvePartLabelsJsonPath(job.sessionRoot)) {
+      await applyPartLabelsToScoreFile(job.sessionRoot, rawPath, pythonBin);
+      for (const p of mxlForInject) {
+        if (p !== rawPath) await fs.copyFile(rawPath, p);
+      }
+    }
   }
   job.preInjectMxlPaths = [...mxlForInject];
   // early part_labels_needed happens before font_strip_needed now

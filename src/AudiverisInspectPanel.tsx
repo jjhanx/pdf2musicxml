@@ -1033,75 +1033,7 @@ export function convertMultiStaffDirectionsToNoteAttached(xml: string): string {
  * - 픽업(m0)에 `<key>` 없음 (m0 조표는 m1이 이어받음)
  * - 파트의 첫 `<key>`가 m2 이후 (중간 조바꿈)
  */
-export function ensureExplicitOpeningKeySignaturesForOsmd(xml: string): string {
-  try {
-    const doc = new DOMParser().parseFromString(xml, 'text/xml');
-    if (doc.querySelector('parsererror')) return xml;
 
-    for (const part of findXmlParts(doc)) {
-      const measures = [...part.children].filter((c) => xmlLocalName(c) === 'measure');
-      const firstMeas = measures[0];
-      if (!firstMeas) continue;
-
-      let attrs = [...firstMeas.children].find((c) => xmlLocalName(c) === 'attributes');
-      if (attrs?.querySelector('key, *|key')) continue;
-
-      const measureNum = (el: Element) => parseInt(el.getAttribute('number') ?? '0', 10);
-      const keyFifthsInMeasure = (meas: Element): number | null => {
-        const a = [...meas.children].find((c) => xmlLocalName(c) === 'attributes');
-        const key = a?.querySelector('key, *|key');
-        const f = key?.querySelector('fifths, *|fifths')?.textContent?.trim();
-        if (f == null || f === '' || !/^-?\d+$/.test(f)) return null;
-        return parseInt(f, 10);
-      };
-
-      const hasPickupKey = measures.some(
-        (m) => measureNum(m) < 1 && keyFifthsInMeasure(m) != null,
-      );
-      if (hasPickupKey) continue;
-
-      // [OSMD Bug] 만약 악보 전체에 <key>가 하나도 없으면 OSMD가 줄바꿈 시 복사할
-      // activeKeys가 undefined가 되어 `KeyInstruction.copy(undefined)` 크래시가 발생함.
-      // 따라서 첫 마디에 조표가 없다면 무조건 <key><fifths>0</fifths></key>를 명시해야 함.
-
-      const ns = attrs?.namespaceURI ?? firstMeas.namespaceURI;
-      const mk = (local: string) =>
-        ns ? doc.createElementNS(ns, local) : doc.createElement(local);
-
-      if (!attrs) {
-        attrs = mk('attributes');
-        let insertIdx = firstMeas.children.length;
-        for (let i = 0; i < firstMeas.children.length; i += 1) {
-          const tag = xmlLocalName(firstMeas.children[i]!);
-          if (tag === 'note' || tag === 'backup' || tag === 'forward' || tag === 'direction') {
-            insertIdx = i;
-            break;
-          }
-        }
-        firstMeas.insertBefore(attrs, firstMeas.children[insertIdx] ?? null);
-      }
-
-      const keyEl = mk('key');
-      const fifthsEl = mk('fifths');
-      fifthsEl.textContent = '0';
-      keyEl.appendChild(fifthsEl);
-      
-      let insertBeforeNode: Element | null = null;
-      for (const c of [...attrs.children]) {
-        const n = xmlLocalName(c);
-        if (n === 'time' || n === 'staves' || n === 'part-symbol' || n === 'instruments' || n === 'clef' || n === 'staff-details' || n === 'transpose' || n === 'directive' || n === 'measure-style') {
-          insertBeforeNode = c;
-          break;
-        }
-      }
-      attrs.insertBefore(keyEl, insertBeforeNode);
-    }
-
-    return new XMLSerializer().serializeToString(doc);
-  } catch {
-    return xml;
-  }
-}
 
 function previewKeyFifthsBefore(part: Element, measureNum: number): number {
   let fifths = 0;
@@ -1660,7 +1592,6 @@ function sanitizeMusicXmlForOsmd(
   try {
     let out = xml;
     if (!verbatim) {
-      out = ensureExplicitOpeningKeySignaturesForOsmd(out);
       out = repairKeyChangeClefMisreadForOsmd(out);
       out = removeRedundantCourtesyClefsForOsmd(out);
     }

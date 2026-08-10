@@ -51,6 +51,11 @@ const PATCHES = [
     from: 'case s.RepetitionInstructionEnum.Coda:i>0&&this.findInstructionInPreviousMeasure(n,o.measureIndex,s.RepetitionInstructionEnum.ToCoda)&&(o.type=s.RepetitionInstructionEnum.None);break;',
     to: 'case s.RepetitionInstructionEnum.Coda:break;',
   },
+  {
+    name: 'Prevent crash on missing activeKeys',
+    from: 'h||(h=r.KeyInstruction.copy(this.activeKeys[i]))',
+    to: 'h||(this.activeKeys[i]&&(h=r.KeyInstruction.copy(this.activeKeys[i])))',
+  },
 ];
 
 if (!fs.existsSync(target)) {

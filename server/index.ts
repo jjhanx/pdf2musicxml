@@ -2138,14 +2138,16 @@ async function enterOmrStaffHitlPhase(
     for (const p of mxlForInject) {
       await restoreScoreFileFromAudiverisRaw(job.sessionRoot, p);
     }
-  } else {
-    // 기존 ZIP에서 재개 시, 8성부 원본이 들어있을 수 있으므로 병합 스크립트 재적용
-    const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
-    if (fsSync.existsSync(rawPath) && resolvePartLabelsJsonPath(job.sessionRoot)) {
-      await applyPartLabelsToScoreFile(job.sessionRoot, rawPath, pythonBin);
-      for (const p of mxlForInject) {
-        if (p !== rawPath) await fs.copyFile(rawPath, p);
-      }
+  }
+  
+  // 새 PDF(1~2단계 시작)이든 기존 ZIP(3~4단계 시작)이든, 
+  // OMR 검토 진입 전에 part_labels가 있으면 무조건 성부 병합 스크립트를 선제 적용합니다.
+  // 이를 통해 사용자가 9성부 대신 지정한 5성부로만 검토할 수 있습니다.
+  const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
+  if (fsSync.existsSync(rawPath) && resolvePartLabelsJsonPath(job.sessionRoot)) {
+    await applyPartLabelsToScoreFile(job.sessionRoot, rawPath, pythonBin);
+    for (const p of mxlForInject) {
+      if (p !== rawPath) await fs.copyFile(rawPath, p);
     }
   }
   job.preInjectMxlPaths = [...mxlForInject];

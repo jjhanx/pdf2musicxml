@@ -98,6 +98,7 @@ python _smoke/test_printed_measure_numbers_circled.py  # 원문자·줄머리 OC
 1. OMR HITL **「이어하기」** 직후(또는 Audiveris 보정 모달을 거친 뒤) **「가사 검증·편집 (OMR·HITL 완료 후)」** 모달이 열립니다. 작업 표에 `가사 검증·편집 대기 (OMR·HITL 후)…`가 보이면 서버가 이 단계에서 멈춘 상태입니다. 프론트는 `review_needed` **진입마다** 모달을 띄우며(OMR 패널이 닫힌 뒤 재시도), 다른 대기 모달이 열려 있으면 잠시 보류했다가 자동으로 엽니다.
 2. **원본 PDF** PNG 미리보기에서 가사·제목·템포 등 역할을 확인·수정합니다. **2·4단계**(`clean_score`·`lyric_inject` + `lyric_manifest.json`)로 시작하면 **1단계에서 편집·저장한 manifest 항목**(역할·성부 순번·bbox·수동 마스킹 영역)을 **그대로** 이어 받습니다. `lyric_manifest.json`에 **`partLabelsByIndex`** 가 있으면 성부 라벨 preset도 복원됩니다. **1단계 full**만 처음 돌릴 때는 PDF 1차 추출 후 **구분 기본값 가사**로 시작합니다(표현어 등은 **미분류**로 바꿔 제외).
     - **일반 해결책**: 수동 마스킹 영역(가사 등) 추가 시 새 텍스트 박스로 포커스를 자동 이동하도록 UX가 개선되었습니다.
+    - **일반 해결책**: 검토 완료 전(결과 파일 생성 중)에 `clean_score.pdf` 다운로드 링크가 미리 노출되던 문제를 수정하고, 결과 PDF 생성 시 서버에서 제공하는 진행 상황 텍스트(예: "추출된 텍스트 영역 마스킹 중...")를 화면에 표시하여 사용자 경험을 개선했습니다.
 3. **「검증 완료 · 가사 주입 계속」** — `ocr_data_pymupdf.json` 저장 → `merge_lyric_sources.py` 재실행 → 교정된 MXL에 `inject_ocr.py`.
 
 ### G. 5단계 — Audiveris 보정 (선택)

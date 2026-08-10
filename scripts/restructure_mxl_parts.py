@@ -75,7 +75,9 @@ def determine_mapping_advanced(staves, labels):
             rem_source = staves[:-2]
             rem_target = target_logical_staves[:-2]
             
-            if len(rem_source) == 2 and len(rem_target) == 4:
+            if not rem_source:
+                pass
+            elif len(rem_source) == 2 and len(rem_target) == 4:
                 mapping[rem_source[0]] = [(rem_target[0][0], rem_target[0][1]), (rem_target[1][0], rem_target[1][1])]
                 mapping[rem_source[1]] = [(rem_target[2][0], rem_target[2][1]), (rem_target[3][0], rem_target[3][1])]
             else:

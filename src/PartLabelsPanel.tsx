@@ -85,14 +85,7 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
 
   const applyPreset = (preset: string[]) => {
     setCustomInputIndices(new Set());
-    setLabels((prev) => {
-      const n = Math.max(prev.length, preset.length, parts.length);
-      const next = defaultPartLabels(n);
-      for (let i = 0; i < n; i++) {
-        next[i] = (preset[i] ?? prev[i] ?? next[i] ?? `P${i + 1}`).trim();
-      }
-      return next;
-    });
+    setLabels(preset);
   };
 
   const addPartSlot = () => {

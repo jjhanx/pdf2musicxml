@@ -1678,18 +1678,10 @@ function sanitizeMusicXmlForOsmd(
       typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
 
     doc.querySelectorAll('*').forEach((el) => {
-      if (local(el) === 'octave-shift') el.remove();
-    });
-
-    doc.querySelectorAll('*').forEach((el) => {
-      if (local(el) !== 'direction-type') return;
-      if (el.childElementCount === 0 && !el.textContent?.trim()) el.remove();
-    });
-
-    doc.querySelectorAll('*').forEach((el) => {
-      if (local(el) !== 'direction') return;
-      const hasDirectionType = [...el.children].some((c) => local(c) === 'direction-type');
-      if (!hasDirectionType) el.remove();
+      if (local(el) === 'octave-shift') {
+        const words = doc.createElement('words');
+        el.replaceWith(words);
+      }
     });
 
     // layout default-x는 OSMD engraver에 넘기지 않음 — data-osmd-layout-x만 SVG align용으로 유지

@@ -478,7 +478,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       const a = document.createElement('a');
       a.href = url;
       a.download = `omr-work-${jobId.slice(0, 8)}.zip`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
       setWorkMsg('검토 진행 ZIP을 저장했습니다. 나중에 같은 변환 작업에서 「작업 불러오기」로 복원하세요.');
     } catch (e) {

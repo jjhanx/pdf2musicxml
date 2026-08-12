@@ -106,6 +106,9 @@ def get_pitch_value(note, ns=""):
     return int(octave.text) * 7 + step_val
 
 def split_measure_elements(measure_children, target_count, ns=""):
+    if target_count == 1:
+        return [[copy.deepcopy(child) for child in measure_children]]
+
     voices = set()
     for child in measure_children:
         if child.tag == f"{ns}note":

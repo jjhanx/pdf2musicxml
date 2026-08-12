@@ -60,6 +60,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [pendingFixes, setPendingFixes] = useState<OmrHitlFix[]>([]);
   const [scoreParts, setScoreParts] = useState<ScorePartRow[]>([]);
   const [applyBusy, setApplyBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [applyMsg, setApplyMsg] = useState('');
   const [rawXml, setRawXml] = useState<string | null>(null);
   const [xmlLoading, setXmlLoading] = useState(false);
@@ -467,6 +468,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const exportWork = useCallback(async () => {
     setWorkMsg('');
+    setExportBusy(true);
     try {
       const r = await fetch(`/api/omr-hitl/${jobId}/export-work`);
       if (!r.ok) {
@@ -485,6 +487,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setWorkMsg('검토 진행 ZIP을 저장했습니다. 나중에 같은 변환 작업에서 「작업 불러오기」로 복원하세요.');
     } catch (e) {
       setWorkMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExportBusy(false);
     }
   }, [jobId]);
 
@@ -932,8 +936,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           >
             {applyBusy ? '정리 중…' : 'OMR 자동 정리 (전체 성부)'}
           </button>
-          <button type="button" className="btn-muted" disabled={applyBusy} onClick={() => void exportWork()}>
-            작업 저장(ZIP)
+          <button type="button" className="btn-muted" disabled={applyBusy || exportBusy} onClick={() => void exportWork()}>
+            {exportBusy ? '저장 중...' : '작업 저장(ZIP)'}
           </button>
           <button
             type="button"

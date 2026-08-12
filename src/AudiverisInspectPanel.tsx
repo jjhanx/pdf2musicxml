@@ -1997,9 +1997,42 @@ export function OsmdBlock({
         const d = document.createElement('div');
         d.style.cssText =
           'padding:14px;font-size:0.86rem;line-height:1.5;color:#b71c1c;white-space:pre-wrap;word-break:break-word;';
-        const msg =
+        
+        let msg =
           loadErr instanceof Error ? loadErr.message : typeof loadErr === 'string' ? loadErr : String(loadErr);
-        d.textContent = `MusicXML 미리보기를 불러오지 못했습니다(${msg}). 곡별로 OSMXL 스키마 차이 등으로 실패할 수 있습니다. PNG 비교만으로도 마스킹 여부를 확인할 수 있습니다.`;
+        
+        if (msg.includes('The provided duration is not valid')) {
+          const match = xmlForOsmd.match(/<duration>\s*([a-zA-Z]+)\s*<\/duration>/);
+          if (match) {
+            const invalidVal = match[1];
+            const idx = match.index!;
+            const beforeStr = xmlForOsmd.substring(0, idx);
+            const measureMatches = [...beforeStr.matchAll(/<measure[^>]*number="([^"]+)"/g)];
+            const partMatches = [...beforeStr.matchAll(/<part[^>]*id="([^"]+)"/g)];
+            const measureNum = measureMatches.length > 0 ? measureMatches[measureMatches.length - 1][1] : '?';
+            const partId = partMatches.length > 0 ? partMatches[partMatches.length - 1][1] : '?';
+            msg += `\n\n[분석 결과] 파트 ${partId}, 마디 ${measureNum} 근처에서 유효하지 않은 길이(duration) 값 '${invalidVal}'이(가) 발견되었습니다.`;
+          }
+        }
+
+        const textSpan = document.createElement('span');
+        textSpan.textContent = `MusicXML 미리보기를 불러오지 못했습니다(${msg}). 곡별로 OSMXL 스키마 차이 등으로 실패할 수 있습니다. PNG 비교만으로도 마스킹 여부를 확인할 수 있습니다.\n\n`;
+        d.appendChild(textSpan);
+
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = '에러 메시지 복사';
+        copyBtn.className = 'btn-muted';
+        copyBtn.style.marginTop = '10px';
+        copyBtn.onclick = () => {
+          navigator.clipboard.writeText(msg).then(() => {
+            copyBtn.textContent = '복사되었습니다!';
+            setTimeout(() => {
+              if (copyBtn.isConnected) copyBtn.textContent = '에러 메시지 복사';
+            }, 2000);
+          });
+        };
+        d.appendChild(copyBtn);
+
         host.appendChild(d);
       });
 

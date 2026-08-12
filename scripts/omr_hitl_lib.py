@@ -949,8 +949,12 @@ def _set_tempo_on_measure(
         for direction in list(measure.findall(_q(ns, "direction"))):
             if direction is not target and _direction_has_tempo(direction, ns):
                 measure.remove(direction)
-        return True
-    new_dir = _build_tempo_direction(ns, bpm, beat_unit, show_metronome=show_metronome)
+        # Move target to correct position
+        measure.remove(target)
+        new_dir = target
+    else:
+        new_dir = _build_tempo_direction(ns, bpm, beat_unit, show_metronome=show_metronome)
+        
     insert_at = 0
     for i, child in enumerate(measure):
         if _local(child) in ("note", "forward", "backup"):

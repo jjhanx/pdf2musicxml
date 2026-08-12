@@ -2002,8 +2002,9 @@ export function OsmdBlock({
           loadErr instanceof Error ? loadErr.message : typeof loadErr === 'string' ? loadErr : String(loadErr);
         
         if (msg.includes('The provided duration is not valid')) {
-          const match = xmlForOsmd.match(/<duration>\s*([a-zA-Z]+)\s*<\/duration>/);
-          if (match) {
+          const match = xmlForOsmd.match(/<duration>\s*([^<]+)\s*<\/duration>/);
+          let extraMsg = '';
+          if (match && !/^\d+$/.test(match[1])) {
             const invalidVal = match[1];
             const idx = match.index!;
             const beforeStr = xmlForOsmd.substring(0, idx);
@@ -2011,12 +2012,22 @@ export function OsmdBlock({
             const partMatches = [...beforeStr.matchAll(/<part[^>]*id="([^"]+)"/g)];
             const measureNum = measureMatches.length > 0 ? measureMatches[measureMatches.length - 1][1] : '?';
             const partId = partMatches.length > 0 ? partMatches[partMatches.length - 1][1] : '?';
-            msg += `\n\n[분석 결과] 파트 ${partId}, 마디 ${measureNum} 근처에서 유효하지 않은 길이(duration) 값 '${invalidVal}'이(가) 발견되었습니다.`;
+            extraMsg = `\n\n[분석 결과] 파트 ${partId}, 마디 ${measureNum} 근처에서 유효하지 않은 길이(duration) 값 '${invalidVal}'이(가) 발견되었습니다.`;
+          } else {
+            // duration 값이 숫자로 정상이거나 없는 경우, divisions 누락 가능성 분석
+            const dirIdx = xmlForOsmd.indexOf('<direction');
+            const attrIdx = xmlForOsmd.indexOf('<attributes>');
+            if (dirIdx !== -1 && attrIdx !== -1 && dirIdx < attrIdx) {
+              extraMsg = `\n\n[분석 결과] 길이(duration) 관련 오류가 발생했습니다. <attributes> (divisions 선언부)보다 <direction> (템포 등)이 먼저 등장하여 발생한 MusicXML 구조 문제일 수 있습니다. (템포 지정 위치 조정 필요)`;
+            } else {
+              extraMsg = `\n\n[분석 결과] 길이(duration) 관련 오류가 발생했습니다. 특정 마디의 <duration> 값이 잘못되었거나 구조가 깨졌을 수 있습니다.`;
+            }
           }
+          msg += extraMsg;
         }
 
         const textSpan = document.createElement('span');
-        textSpan.textContent = `MusicXML 미리보기를 불러오지 못했습니다(${msg}). 곡별로 OSMXL 스키마 차이 등으로 실패할 수 있습니다. PNG 비교만으로도 마스킹 여부를 확인할 수 있습니다.\n\n`;
+        textSpan.textContent = `MusicXML 미리보기를 불러오지 못했습니다(${msg}).\n\n곡별로 OSMXL 스키마 차이 등으로 실패할 수 있습니다. PNG 비교만으로도 마스킹 여부를 확인할 수 있습니다.\n\n`;
         d.appendChild(textSpan);
 
         const copyBtn = document.createElement('button');

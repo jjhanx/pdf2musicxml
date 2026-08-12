@@ -953,7 +953,7 @@ def _set_tempo_on_measure(
     new_dir = _build_tempo_direction(ns, bpm, beat_unit, show_metronome=show_metronome)
     insert_at = 0
     for i, child in enumerate(measure):
-        if _local(child) in ("note", "direction", "attributes", "forward", "backup"):
+        if _local(child) in ("note", "forward", "backup"):
             insert_at = i
             break
         insert_at = i + 1

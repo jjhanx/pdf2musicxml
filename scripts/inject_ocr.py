@@ -596,6 +596,48 @@ def is_tag(el, ns, local):
     return el.tag == tag or el.tag.endswith("}" + local)
 
 
+def measure_header_insert_index(measure):
+    """Leading <print> / <attributes> 블록 직후 삽입 인덱스 (앞쪽 misplaced direction 무시)."""
+    insert_at = 0
+    for i, child in enumerate(measure):
+        local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        if local in ("print", "attributes"):
+            insert_at = i + 1
+        elif local == "direction":
+            continue
+        else:
+            break
+    return insert_at
+
+
+def reposition_tempo_directions_before_attributes(measure, ns):
+    """첫 <attributes> 이전 tempo direction을 header 뒤로 이동."""
+    children = list(measure)
+    first_attr = next(
+        (
+            i
+            for i, child in enumerate(children)
+            if (child.tag.split("}")[-1] if "}" in child.tag else child.tag) == "attributes"
+        ),
+        None,
+    )
+    if first_attr is None:
+        return
+    insert_at = measure_header_insert_index(measure)
+    for i, child in enumerate(children):
+        if i >= first_attr:
+            break
+        if not is_tag(child, ns, "direction"):
+            continue
+        if child.find(qname(ns, "metronome")) is None:
+            sound = child.find(qname(ns, "sound"))
+            if sound is None or "tempo" not in sound.attrib:
+                continue
+        measure.remove(child)
+        measure.insert(insert_at, child)
+        insert_at += 1
+
+
 def parse_bpm_from_text(text: str):
     """인식된 문자열에서 BPM 후보 추출 (♩= 75, =75, 75 등)."""
     if not text or not str(text).strip():
@@ -706,12 +748,14 @@ def ensure_opening_tempo(parts, ns, bpm: float):
                 el.text = bpm_str
 
     if has_sound_tempo:
+        reposition_tempo_directions_before_attributes(measure, ns)
         return
     if first_metro_dir is not None:
         sound_el = first_metro_dir.find(qname(ns, "sound"))
         if sound_el is None:
             sound_el = ET.SubElement(first_metro_dir, qname(ns, "sound"))
         sound_el.set("tempo", bpm_str)
+        reposition_tempo_directions_before_attributes(measure, ns)
         return
 
     # 첫 마디에 표준 템포 direction 삽입 (플레이어가 sound tempo를 읽도록)
@@ -727,7 +771,7 @@ def ensure_opening_tempo(parts, ns, bpm: float):
     sound = ET.SubElement(direction, qname(ns, "sound"))
     sound.set("tempo", bpm_str)
 
-    measure.insert(0, direction)
+    measure.insert(measure_header_insert_index(measure), direction)
 
 
 def collect_lyric_streams(ocr_data):

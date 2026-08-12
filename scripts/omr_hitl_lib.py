@@ -905,6 +905,60 @@ def _update_tempo_direction(
             el.text = bpm_str
 
 
+def _measure_header_insert_index(measure: ET.Element) -> int:
+    """Leading ``<print>`` / ``<attributes>`` 블록 직후 삽입 인덱스 (앞쪽 misplaced direction 무시)."""
+    insert_at = 0
+    for i, child in enumerate(measure):
+        loc = _local(child)
+        if loc in ("print", "attributes"):
+            insert_at = i + 1
+        elif loc == "direction":
+            continue
+        else:
+            break
+    return insert_at
+
+
+def _reposition_directions_before_first_attributes(
+    measure: ET.Element, ns: str, *, tempo_only: bool = False
+) -> int:
+    """Move directions before the first ``<attributes>`` to after the header block."""
+    children = list(measure)
+    first_attr = next(
+        (i for i, child in enumerate(children) if _local(child) == "attributes"),
+        None,
+    )
+    if first_attr is None:
+        return 0
+    insert_at = _measure_header_insert_index(measure)
+    moved = 0
+    for i, child in enumerate(children):
+        if i >= first_attr:
+            break
+        if _local(child) != "direction":
+            continue
+        if tempo_only and not _direction_has_tempo(child, ns):
+            continue
+        measure.remove(child)
+        insert_at = _measure_header_insert_index(measure)
+        measure.insert(insert_at, child)
+        moved += 1
+    return moved
+
+
+def _tempo_insert_index(measure: ET.Element) -> int:
+    """Insert tempo after header, before first note/forward/backup (or append)."""
+    header_end = _measure_header_insert_index(measure)
+    insert_at = header_end
+    for i, child in enumerate(measure):
+        if i < header_end:
+            continue
+        if _local(child) in ("note", "forward", "backup"):
+            return i
+        insert_at = i + 1
+    return insert_at
+
+
 def _remove_tempo_directions_in_measure(
     measure: ET.Element, ns: str, direction_index: int | None = None
 ) -> bool:
@@ -954,14 +1008,9 @@ def _set_tempo_on_measure(
         new_dir = target
     else:
         new_dir = _build_tempo_direction(ns, bpm, beat_unit, show_metronome=show_metronome)
-        
-    insert_at = 0
-    for i, child in enumerate(measure):
-        if _local(child) in ("note", "forward", "backup"):
-            insert_at = i
-            break
-        insert_at = i + 1
-    measure.insert(insert_at, new_dir)
+
+    measure.insert(_tempo_insert_index(measure), new_dir)
+    _reposition_directions_before_first_attributes(measure, ns, tempo_only=True)
     return True
 
 

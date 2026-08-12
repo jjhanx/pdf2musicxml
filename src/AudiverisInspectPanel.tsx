@@ -39,7 +39,12 @@ import {
   stripPageBreakPrintForOsmdPreview,
   stripDefaultXyKeepLayoutAttrsForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
-import { repositionDirectionsBeforeAttributesForOsmdPreview, measureHeaderInsertIndex, directionHasTempo } from '../shared/musicXmlDirectionPlacement';
+import {
+  repositionDirectionsBeforeAttributesForOsmdPreview,
+  ensureMetronomeOnSoundTempoDirectionsForOsmdPreview,
+  measureHeaderInsertIndex,
+  directionHasTempo,
+} from '../shared/musicXmlDirectionPlacement';
 import {
   enforceOsmdPreviewMeasureNumberRules,
   finalizeOsmdMeasureNumberPreview,
@@ -1559,7 +1564,8 @@ export function buildOsmdPreviewXml(
 ): string {
   const verbatim = options?.verbatim === true;
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
-  /** tempo 등 direction이 attributes 앞에 있으면 OSMD가 앞에 빈 마디를 그림 */
+  /** sound-only tempo는 OSMD가 첫 마디 음표를 버림 — metronome 보충 후 attributes 뒤로 */
+  xml = ensureMetronomeOnSoundTempoDirectionsForOsmdPreview(xml);
   xml = repositionDirectionsBeforeAttributesForOsmdPreview(xml, { tempoOnly: true });
   /** split·dynamics 변환 전에 timeline 정리 — orphan backup이 clone/part split에 복제되기 전 제거 */
   xml = repairTimelineForOsmdPreview(xml);
@@ -1599,6 +1605,7 @@ function sanitizeMusicXmlForOsmd(
       out = repairKeyChangeClefMisreadForOsmd(out);
       out = removeRedundantCourtesyClefsForOsmd(out);
     }
+    out = ensureMetronomeOnSoundTempoDirectionsForOsmdPreview(out);
     out = repositionDirectionsBeforeAttributesForOsmdPreview(out, { tempoOnly: true });
     out = repairRestDisplayForOsmdPreview(out);
     out = repairMissingNoteTypesForOsmdPreview(out);

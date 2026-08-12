@@ -54,4 +54,31 @@ tags2 = [_local(c) for c in meas2]
 print("reposition order:", tags2)
 assert tags2.index("attributes") < tags2.index("direction"), tags2
 
+# 2파트: P2도 metronome을 갖되 print-object=no (sound-only는 OSMD가 음표 삭제)
+two = ET.fromstring(
+    """<score-partwise version="3.1">
+<part id="P1"><measure number="1">
+  <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+  <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+</measure></part>
+<part id="P2"><measure number="1">
+  <attributes><divisions>1</divisions></attributes>
+  <note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+</measure></part>
+</score-partwise>"""
+)
+assert apply_fix(
+    two,
+    "",
+    {"kind": "setMeasureTempo", "partId": "P1", "measureMxl": "1", "tempoBpm": 72, "beatUnit": "quarter"},
+)
+p2m = next(m for p in two.findall(".//{*}part") if p.get("id") == "P2" for m in p.findall(".//{*}measure"))
+p2dir = next(d for d in p2m.findall(".//{*}direction"))
+assert p2dir.find(".//{*}metronome") is not None, ET.tostring(p2dir, encoding="unicode")
+assert p2dir.get("print-object") == "no"
+assert _local(list(p2m)[0]) == "attributes"
+assert _local(list(p2m)[1]) == "direction"
+assert _local(list(p2m)[2]) == "note"
+print("OK: P2 hidden metronome after attributes, before note")
+
 print("OK: m1 tempo after attributes")

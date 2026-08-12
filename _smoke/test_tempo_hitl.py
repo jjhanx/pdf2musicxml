@@ -69,7 +69,15 @@ assert apply_fix(
 assert tempo_in_measure("P1", "2", root, ns) == 88.0
 assert tempo_in_measure("P2", "2", root, ns) == 88.0
 assert has_metronome("P1", "2", root, ns)
-assert not has_metronome("P2", "2", root, ns)
+assert has_metronome("P2", "2", root, ns)
+p2 = next(p for p in root.findall(_q(ns, "part")) if p.get("id") == "P2")
+m2 = next(m for m in p2.findall(_q(ns, "measure")) if m.get("number") == "2")
+p2_dir = next(d for d in m2.findall(_q(ns, "direction")) if d.find(f".//{_q(ns, 'metronome')}") is not None)
+assert p2_dir.get("print-object") == "no"
+p1 = next(p for p in root.findall(_q(ns, "part")) if p.get("id") == "P1")
+m1p = next(m for m in p1.findall(_q(ns, "measure")) if m.get("number") == "2")
+p1_dir = next(d for d in m1p.findall(_q(ns, "direction")) if d.find(f".//{_q(ns, 'metronome')}") is not None)
+assert p1_dir.get("print-object") != "no"
 
 snap = measure_snapshot(root, ns, "P2", "2")
 assert snap is not None

@@ -49,6 +49,54 @@ function repositionMeasureDirectionsBeforeAttributes(meas: Element, tempoOnly: b
 }
 
 /**
+ * OSMD는 `<direction-type>` 없이 `<sound tempo>`만 있으면 길이 0 pickup 마디를 만들고
+ * 그 파트(또는 정렬된 전체 악보)의 첫 마디 음표를 버린다. 미리보기에서 metronome을 보충한다.
+ */
+export function ensureMetronomeOnSoundTempoDirectionsForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    const ns = doc.documentElement.namespaceURI;
+    const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
+    for (const part of findXmlParts(doc)) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+        for (const dir of [...meas.children].filter((c) => xmlLocalName(c) === 'direction')) {
+          const sound = [...dir.children].find(
+            (c) => xmlLocalName(c) === 'sound' && c.getAttribute('tempo'),
+          );
+          if (!sound) continue;
+          let hasMetro = false;
+          for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+            if ([...dt.children].some((c) => xmlLocalName(c) === 'metronome')) {
+              hasMetro = true;
+              break;
+            }
+          }
+          if (hasMetro) continue;
+          const bpm = sound.getAttribute('tempo')?.trim() || '120';
+          const dtype = mk('direction-type');
+          const metro = mk('metronome');
+          metro.setAttribute('parentheses', 'no');
+          const beat = mk('beat-unit');
+          beat.textContent = 'quarter';
+          const pm = mk('per-minute');
+          pm.textContent = bpm;
+          metro.appendChild(beat);
+          metro.appendChild(pm);
+          dtype.appendChild(metro);
+          dir.insertBefore(dtype, dir.firstChild);
+          if (!dir.getAttribute('print-object')) dir.setAttribute('print-object', 'no');
+        }
+      }
+    }
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/**
  * OSMD는 마디 첫 `<attributes>` 이전의 `<direction>`을 픽업(빈 마디)으로 해석한다.
  * HITL·inject·Audiveris 산출물을 미리보기 load 전에 `<attributes>` 뒤로 옮긴다(저장 MXL 불변).
  */

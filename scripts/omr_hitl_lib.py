@@ -847,14 +847,17 @@ def _build_tempo_direction(
     unit = (beat_unit or "quarter").strip() or "quarter"
     direction = ET.Element(_q(ns, "direction"))
     direction.set("placement", "above")
-    if show_metronome:
-        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
-        metro = ET.SubElement(dtype, _q(ns, "metronome"))
-        metro.set("parentheses", "no")
-        beat = ET.SubElement(metro, _q(ns, "beat-unit"))
-        beat.text = unit
-        pm = ET.SubElement(metro, _q(ns, "per-minute"))
-        pm.text = bpm_str
+    # OSMD는 direction-type 없이 <sound tempo>만 있으면 길이 0 pickup 마디를 만들고
+    # 같은 마디 음표를 버린다. 숨김 파트도 metronome은 반드시 둔다.
+    if not show_metronome:
+        direction.set("print-object", "no")
+    dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+    metro = ET.SubElement(dtype, _q(ns, "metronome"))
+    metro.set("parentheses", "no")
+    beat = ET.SubElement(metro, _q(ns, "beat-unit"))
+    beat.text = unit
+    pm = ET.SubElement(metro, _q(ns, "per-minute"))
+    pm.text = bpm_str
     sound = ET.SubElement(direction, _q(ns, "sound"))
     sound.set("tempo", bpm_str)
     return direction
@@ -871,31 +874,29 @@ def _update_tempo_direction(
     bpm_str = _format_tempo_bpm_str(bpm)
     unit = (beat_unit or "quarter").strip() or "quarter"
     metro = direction.find(f".//{_q(ns, 'metronome')}")
-    if show_metronome:
-        if metro is None:
-            dtype = direction.find(_q(ns, "direction-type"))
-            if dtype is None:
-                dtype = ET.SubElement(direction, _q(ns, "direction-type"))
-                direction.insert(0, dtype)
-            metro = ET.SubElement(dtype, _q(ns, "metronome"))
-            metro.set("parentheses", "no")
-            ET.SubElement(metro, _q(ns, "beat-unit")).text = unit
-            ET.SubElement(metro, _q(ns, "per-minute")).text = bpm_str
-        else:
-            beat = metro.find(_q(ns, "beat-unit"))
-            if beat is None:
-                beat = ET.SubElement(metro, _q(ns, "beat-unit"))
-            beat.text = unit
-            pm = metro.find(_q(ns, "per-minute"))
-            if pm is None:
-                pm = ET.SubElement(metro, _q(ns, "per-minute"))
-            pm.text = bpm_str
-    elif metro is not None:
+    if metro is None:
         dtype = direction.find(_q(ns, "direction-type"))
-        if dtype is not None:
-            dtype.remove(metro)
-            if len(dtype) == 0:
-                direction.remove(dtype)
+        if dtype is None:
+            dtype = ET.Element(_q(ns, "direction-type"))
+            direction.insert(0, dtype)
+        metro = ET.SubElement(dtype, _q(ns, "metronome"))
+        metro.set("parentheses", "no")
+        ET.SubElement(metro, _q(ns, "beat-unit")).text = unit
+        ET.SubElement(metro, _q(ns, "per-minute")).text = bpm_str
+    else:
+        beat = metro.find(_q(ns, "beat-unit"))
+        if beat is None:
+            beat = ET.SubElement(metro, _q(ns, "beat-unit"))
+        beat.text = unit
+        pm = metro.find(_q(ns, "per-minute"))
+        if pm is None:
+            pm = ET.SubElement(metro, _q(ns, "per-minute"))
+        pm.text = bpm_str
+    if show_metronome:
+        if direction.get("print-object") == "no":
+            del direction.attrib["print-object"]
+    else:
+        direction.set("print-object", "no")
     sound = direction.find(_q(ns, "sound"))
     if sound is None:
         sound = ET.SubElement(direction, _q(ns, "sound"))

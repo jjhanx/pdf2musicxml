@@ -15,13 +15,12 @@ function findXmlParts(doc: Document): Element[] {
   return out;
 }
 
-/** Leading `<print>` / `<attributes>` 블록 직후 삽입 인덱스 (앞쪽 misplaced direction 무시). */
+/** Leading `<print>` / `<attributes>` / `<direction>` 블록 직후 삽입 인덱스. */
 export function measureHeaderInsertIndex(meas: Element): number {
   let idx = 0;
   for (const child of [...meas.children]) {
     const name = xmlLocalName(child);
-    if (name === 'print' || name === 'attributes') idx += 1;
-    else if (name === 'direction') continue;
+    if (name === 'print' || name === 'attributes' || name === 'direction') idx += 1;
     else break;
   }
   return idx;

@@ -39,7 +39,7 @@ import {
   stripPageBreakPrintForOsmdPreview,
   stripDefaultXyKeepLayoutAttrsForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
-import { repositionDirectionsBeforeAttributesForOsmdPreview } from '../shared/musicXmlDirectionPlacement';
+import { repositionDirectionsBeforeAttributesForOsmdPreview, measureHeaderInsertIndex, directionHasTempo } from '../shared/musicXmlDirectionPlacement';
 import {
   enforceOsmdPreviewMeasureNumberRules,
   finalizeOsmdMeasureNumberPreview,
@@ -401,6 +401,10 @@ function reattachDirectionsForSingleStaffOsmdPreview(measure: Element, staffN: n
       }
       continue;
     }
+    if (directionHasTempo(child)) {
+      // 템포는 마디 header(print·attributes 뒤)에 유지 — anchor 음표 없어도 삭제하지 않음
+      continue;
+    }
     const anchor = anchorNoteForDirection(measure, child);
     if (!anchor || noteStaffN(anchor) !== staffN) {
       child.remove();
@@ -551,18 +555,14 @@ function staffVoicesOverlap(timed: StaffTimedNote[]): boolean {
 }
 
 function measureMusicalContentInsertIndex(measure: Element): number {
-  for (let i = 0; i < measure.children.length; i += 1) {
-    const tag = xmlLocalName(measure.children[i]!);
-    if (tag === 'attributes' || tag === 'print') continue;
-    if (tag === 'barline' && measure.children[i]!.getAttribute('location') === 'right') continue;
-    return i;
-  }
-  return measure.children.length;
+  /** print·attributes·leading direction(템포 등) 뒤에 note/forward/backup 재삽입 */
+  return measureHeaderInsertIndex(measure);
 }
 
 function measureHasLeadingForward(measure: Element): boolean {
   for (const child of [...measure.children]) {
     const tag = xmlLocalName(child);
+    if (tag === 'print' || tag === 'attributes' || tag === 'direction') continue;
     if (tag === 'forward') return true;
     if (tag === 'note') return false;
   }

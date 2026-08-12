@@ -906,14 +906,12 @@ def _update_tempo_direction(
 
 
 def _measure_header_insert_index(measure: ET.Element) -> int:
-    """Leading ``<print>`` / ``<attributes>`` 블록 직후 삽입 인덱스 (앞쪽 misplaced direction 무시)."""
+    """Leading ``<print>`` / ``<attributes>`` / ``<direction>`` 블록 직후 삽입 인덱스."""
     insert_at = 0
     for i, child in enumerate(measure):
         loc = _local(child)
-        if loc in ("print", "attributes"):
+        if loc in ("print", "attributes", "direction"):
             insert_at = i + 1
-        elif loc == "direction":
-            continue
         else:
             break
     return insert_at
@@ -946,8 +944,22 @@ def _reposition_directions_before_first_attributes(
     return moved
 
 
+def _measure_end_before_barline_index(measure: ET.Element) -> int:
+    for i, child in enumerate(measure):
+        if _local(child) != "barline":
+            continue
+        loc = (child.get("location") or "right").strip().lower()
+        if loc in ("right", ""):
+            return i
+    return len(measure)
+
+
 def _tempo_insert_index(measure: ET.Element) -> int:
     """Insert tempo after header, before first note/forward/backup (or append)."""
+    has_attr = any(_local(c) == "attributes" for c in measure)
+    if not has_attr:
+        # attributes 없는 파트 m1 — 맨 앞 direction은 OSMD pickup/빈 마디 유발 → 마디 끝에 sound tempo
+        return _measure_end_before_barline_index(measure)
     header_end = _measure_header_insert_index(measure)
     insert_at = header_end
     for i, child in enumerate(measure):

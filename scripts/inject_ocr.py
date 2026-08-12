@@ -597,14 +597,12 @@ def is_tag(el, ns, local):
 
 
 def measure_header_insert_index(measure):
-    """Leading <print> / <attributes> 블록 직후 삽입 인덱스 (앞쪽 misplaced direction 무시)."""
+    """Leading <print> / <attributes> / <direction> 블록 직후 삽입 인덱스."""
     insert_at = 0
     for i, child in enumerate(measure):
         local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-        if local in ("print", "attributes"):
+        if local in ("print", "attributes", "direction"):
             insert_at = i + 1
-        elif local == "direction":
-            continue
         else:
             break
     return insert_at

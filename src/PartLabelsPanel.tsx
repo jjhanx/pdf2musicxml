@@ -113,7 +113,7 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
       }
       onSubmitted();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }

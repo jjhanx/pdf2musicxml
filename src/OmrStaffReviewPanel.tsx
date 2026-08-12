@@ -754,7 +754,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               {xmlLoading && !rawXml ? (
                 <p className="omr-mxl-osmd-placeholder">MusicXML 불러오는 중…</p>
               ) : xmlLoadErr ? (
-                <p className="omr-mxl-osmd-placeholder omr-mxl-osmd-err">{xmlLoadErr}</p>
+                <div className="omr-mxl-osmd-placeholder omr-mxl-osmd-err" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+                  <p style={{ margin: 0, userSelect: 'text' }}>{xmlLoadErr}</p>
+                  <button type="button" className="btn-muted" onClick={() => navigator.clipboard.writeText(xmlLoadErr)}>
+                    에러 복사
+                  </button>
+                </div>
               ) : filteredXml ? (
                 <OsmdBlock
                   key={`osmd-preview-${previewRevision}`}

@@ -880,6 +880,8 @@ function elementTitle(
 ): string {
   const idx = el.index;
   const dirSuffix = noteDirectionsSummary(el) ? ` · ${noteDirectionsSummary(el)}` : '';
+  const staffVoice =
+    `${el.staff != null ? ` staff=${el.staff}` : ''}${el.voice != null && el.voice !== '' ? ` voice=${el.voice}` : ''}`;
   if (el.kind === 'rest') {
     const dots = el.dotCount ? ` ·×${el.dotCount}` : '';
     const pos =
@@ -888,7 +890,7 @@ function elementTitle(
         : '';
     const dur = el.duration != null ? ` dur=${el.duration}` : '';
     const ferms = el.fermatas?.length ? ` fermata=${el.fermatas.join(',')}` : '';
-    return `#${idx} ${el.type ?? 'rest'}쉼표${dots}${pos}${dur}${ferms}${dirSuffix}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+    return `#${idx} ${el.type ?? 'rest'}쉼표${dots}${pos}${dur}${ferms}${dirSuffix}${staffVoice}`;
   }
   const tie =
     el.tieStart && el.tieStop ? ' tie↔' : el.tieStart ? ' tie→' : el.tieStop ? ' tie←' : '';
@@ -916,7 +918,7 @@ function elementTitle(
         )
       : '?';
   const graceTag = el.hasGrace ? ` 꾸밈음${el.graceSlash ? '(slash)' : ''}` : '';
-  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${staffVoice}`;
 }
 
 export function OmrMeasureEditor({
@@ -1135,9 +1137,13 @@ export function OmrMeasureEditor({
         </p>
       ) : null}
       <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
-        <strong>연주순번</strong> — 마디 안에서 왼쪽→오른쪽(가사·연주) 순서입니다.{' '}
-        <strong>같은 번호 = 동시 시작</strong>으로 미리보기에 배치됩니다(피아노·성부 공통). 성부에 가사가
-        있으면 순번이 가사 음절 순서와 맞습니다. 빈 칸·0 입력 시 자동 순번으로 되돌립니다.
+        <strong>staff</strong> — 한 파트 안 <em>어느 오선 줄</em>인지입니다(피아노 2단이면 보통 1=PR·오른손, 2=PL·왼손). 같은
+        줄에서 위·아래로 겹치는 동시 연주를 가르는 값이 <strong>아닙니다</strong>.{' '}
+        <strong>voice</strong> — 같은 staff 위의 다른 성부 줄(겹침·다른 줄기).{' '}
+        <strong>연주순번</strong> — 왼쪽→오른쪽 열; <strong>같은 번호 = 동시 시작</strong>. 같은 오선에서
+        8분쉼표와 2분음표를 위아래로 그리려면 <strong>같은 staff + 다른 voice + 같은 순번</strong>이 맞고, staff만
+        바꾸면 PR/PL로 갈라집니다. 같은 voice로만 이어져 있으면 「동시 시작 voice 복원」을 쓰세요. 빈 칸·0이면
+        자동 순번입니다.
       </p>
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}

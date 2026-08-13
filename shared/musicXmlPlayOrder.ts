@@ -198,8 +198,47 @@ function noteDurationValue(note: Element): number {
  * 미리보기 layout onset — **musical onset ÷ 마디 길이** (앞 음표 박자만큼 누적한 위치).
  * 명시 연주순번이 같으면 같은 column(그 그룹 onset 최솟값). 저장 MXL timeline 불변.
  */
+/** 명시 연주순번이 음표에만 있고 쉼표 leader에는 없으면 timeline으로 재배열. */
+export function ensureRestPlayOrdersInMeasure(measure: Element): boolean {
+  const staves = new Set<number>();
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (isChordMember(child)) continue;
+    staves.add(noteStaffNumber(child));
+  }
+  let changed = false;
+  for (const staffN of staves) {
+    let hasRestWithout = false;
+    let hasPitchedWith = false;
+    for (const child of [...measure.children]) {
+      if (xmlLocalName(child) !== 'note') continue;
+      if (isChordMember(child)) continue;
+      if (noteStaffNumber(child) !== staffN) continue;
+      const po = readPlayOrder(child);
+      if (isRestNote(child)) {
+        if (po == null) hasRestWithout = true;
+      } else if (po != null) {
+        hasPitchedWith = true;
+      }
+    }
+    if (!hasRestWithout || !hasPitchedWith) continue;
+    const defaults = defaultPlayOrdersFromTimeline(measure, staffN);
+    for (const [leader, order] of defaults) {
+      const orderS = String(order);
+      for (const note of noteGroupWithChords(measure, leader)) {
+        if (note.getAttribute(HITL_PLAY_ORDER_ATTR) !== orderS) {
+          note.setAttribute(HITL_PLAY_ORDER_ATTR, orderS);
+          changed = true;
+        }
+      }
+    }
+  }
+  return changed;
+}
+
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   sanitizeConflictingPlayOrders(measure);
+  ensureRestPlayOrdersInMeasure(measure);
   const layoutLen = Math.max(1, previewLayoutLengthUnits(measure));
   const onsets = collectVoiceParallelNoteOnsets(measure);
 

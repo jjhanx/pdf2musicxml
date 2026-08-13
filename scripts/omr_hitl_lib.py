@@ -493,8 +493,8 @@ def _clear_play_order_on_other_onsets(
 def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> dict[int, int]:
     """staff musical onset(타임라인) 기본 연주순번 — 같은 onset = 같은 순번.
 
-    문서 순서(voice1 블록 → backup → voice2)는 미리보기 왼쪽→오른쪽과 어긋나
-    [F4,Bb4]가 기본 4로 보이는 등 UI 혼란을 만든다.
+    음표·쉼표 leader 모두 포함. 문서 순서(voice1 블록 → backup → voice2)는
+    미리보기 왼쪽→오른쪽과 어긋나 UI 혼란을 만든다.
     """
     notes = list_note_elements(measure, ns)
     leaders: list[tuple[int, float, int]] = []
@@ -517,6 +517,60 @@ def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> 
             prev_onset = onset
         out[i] = order
     return out
+
+
+def _staff_needs_rest_play_order_rebuild(measure: ET.Element, ns: str, staff: str) -> bool:
+    """명시 연주순번이 음표에만 있고 쉼표 leader에는 없으면 재배열 대상."""
+    notes = list_note_elements(measure, ns)
+    has_rest_without_po = False
+    has_pitched_with_po = False
+    for note in notes:
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        if _note_voice_staff(note, ns)[1] != staff:
+            continue
+        po = _read_play_order(note)
+        if note.find(_q(ns, "rest")) is not None:
+            if po is None:
+                has_rest_without_po = True
+        elif po is not None:
+            has_pitched_with_po = True
+    return has_rest_without_po and has_pitched_with_po
+
+
+def _apply_timeline_play_orders_to_staff(measure: ET.Element, ns: str, staff: str) -> bool:
+    """타임라인 기본 순번을 staff의 모든 leader(음·쉼)에 기록."""
+    defaults = _default_play_orders_for_staff(measure, ns, staff)
+    notes = list_note_elements(measure, ns)
+    changed = False
+    for i, order in defaults.items():
+        if _set_play_order_on_leader(notes, ns, i, order):
+            changed = True
+    return changed
+
+
+def normalize_play_orders_including_rests_in_measure(measure: ET.Element, ns: str) -> bool:
+    """쉼표 순번이 빠진 채 음표만 순번이 있으면 마디 staff별 timeline으로 재배열."""
+    notes = list_note_elements(measure, ns)
+    staves = {_note_voice_staff(n, ns)[1] for n in notes if n.find(_q(ns, "chord")) is None}
+    changed = False
+    for staff in sorted(staves, key=lambda s: int(s) if s.isdigit() else 0):
+        if not _staff_needs_rest_play_order_rebuild(measure, ns, staff):
+            continue
+        if _apply_timeline_play_orders_to_staff(measure, ns, staff):
+            changed = True
+    return changed
+
+
+def normalize_play_orders_including_rests_in_root(root: ET.Element) -> int:
+    """전 악보 — 쉼표 미포함 연주순번 마디를 timeline으로 재배열. 변경 마디 수."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            if normalize_play_orders_including_rests_in_measure(measure, ns):
+                n += 1
+    return n
 
 
 def _timeline_el_duration(el: ET.Element, ns: str) -> int:
@@ -1162,6 +1216,8 @@ def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> lis
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     # 옛 전파로 같은 po가 여러 onset에 남은 MXL을 편집 UI·미리보기 전에 정리
     _sanitize_conflicting_play_orders(measure, ns)
+    # 음표만 순번이 있고 쉼표는 빠진 옛 MXL → timeline 기준으로 재배열
+    normalize_play_orders_including_rests_in_measure(measure, ns)
     elements: list[dict[str, Any]] = []
     note_index = 0
     for child in measure:
@@ -1190,10 +1246,20 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
         else:
             leader_dx = snap.get("defaultX")
         snap["timelineX"] = leader_dx
-    for staff_n in sorted({s.get("staff") for s in elements if s.get("staff") is not None}):
+    staff_keys = sorted(
+        {
+            int(s.get("staff")) if s.get("staff") is not None else 1
+            for s in elements
+            if not s.get("chord")
+        }
+    )
+    for staff_n in staff_keys:
         defaults = _default_play_orders_for_staff(measure, ns, str(staff_n))
         for snap in elements:
-            if snap.get("staff") != staff_n or snap.get("chord"):
+            if snap.get("chord"):
+                continue
+            snap_staff = int(snap["staff"]) if snap.get("staff") is not None else 1
+            if snap_staff != staff_n:
                 continue
             idx = int(snap["index"])
             snap["defaultPlayOrder"] = defaults.get(idx)
@@ -6186,12 +6252,14 @@ def apply_fixes_file(mxl_path: Path, fixes: list[dict[str, Any]]) -> dict[str, A
     files, root_path, root = load_mxl_root(mxl_path)
     stats = apply_fixes_to_root(root, fixes) if fixes else {"applied": 0, "skipped": 0}
     chord_beam_measures = cleanup_chord_beams_in_root(root)
+    rest_play_order_measures = normalize_play_orders_including_rests_in_root(root)
     write_mxl_root(mxl_path, files, root_path, root)
     return {
         "path": str(mxl_path),
         **stats,
         "fixCount": len(fixes),
         "chordBeamMeasuresCleaned": chord_beam_measures,
+        "restPlayOrderMeasuresNormalized": rest_play_order_measures,
     }
 
 

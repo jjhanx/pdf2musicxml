@@ -1100,6 +1100,8 @@ export function OmrMeasureEditor({
       </div>
       <p className="omr-measure-editor-hint">
         요소를 고친 뒤 아래 <strong>「MXL에 반영·미리보기」</strong>를 눌러 오른쪽 MusicXML에서 결과를 확인하세요. 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset} − 1.
+        {' '}
+        <strong>연주순번</strong>은 음표·쉼표 모두에 지정할 수 있습니다(같은 번호 = 동시 시작). 예전에 음표만 순번이 저장된 마디는 열 때 쉼표를 포함해 자동 재배열됩니다.
       </p>
       <div className="omr-measure-insert-row">
         <strong>빈 마디 삽입</strong>
@@ -1170,7 +1172,7 @@ export function OmrMeasureEditor({
           {displayElements.map((el) => (
             <li key={`note-${el.index}`}>
               <div className="omr-measure-element-title">
-                {el.kind !== 'rest' && !el.chord ? (
+                {!el.chord ? (
                   <label style={{ marginRight: 10, fontWeight: 400, fontSize: '0.86rem' }}>
                     순번{' '}
                     <input

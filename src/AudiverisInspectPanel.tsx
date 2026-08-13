@@ -574,9 +574,25 @@ function measureHasLeadingForward(measure: Element): boolean {
   return false;
 }
 
+function measureHasSharedPlayOrderAcrossVoices(measure: Element): boolean {
+  const byPo = new Map<string, Set<string>>();
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (isChordNote(child)) continue;
+    const po = child.getAttribute('data-hitl-play-order')?.trim();
+    if (!po) continue;
+    const voice = noteVoiceN(child);
+    const set = byPo.get(po) ?? new Set<string>();
+    set.add(voice);
+    byPo.set(po, set);
+  }
+  return [...byPo.values()].some((voices) => voices.size >= 2);
+}
+
 /**
  * OSMD split 미리보기: backup(voice 없음)+forward(voice 지정) 등 다중 voice를
  * 순차(비겹침) 단일 voice + forward로 평탄화 — PL·PR 박자 정렬 유지.
+ * 같은 연주순번이 서로 다른 voice에 있으면(동시 column) 평탄화하지 않음.
  */
 function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   const timed = staffTimedNotesInMeasure(measure);
@@ -584,6 +600,7 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   const voices = new Set(timed.map((x) => x.voice));
   if (voices.size < 2) return;
   if (measureHasLeadingForward(measure)) return;
+  if (measureHasSharedPlayOrderAcrossVoices(measure)) return;
   if (staffVoicesOverlap(timed)) return;
 
   timed.sort((a, b) => a.time - b.time || Number(a.voice) - Number(b.voice));

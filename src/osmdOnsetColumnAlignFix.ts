@@ -245,6 +245,41 @@ type NoteHit = {
   heads: number;
 };
 
+function isRestGraphicNote(gn: Record<string, unknown>): boolean {
+  const src = asRecord(gn.sourceNote ?? gn.SourceNote);
+  if (!src) return false;
+  if (src.isRest === true || src.IsRest === true) return true;
+  const restFlag = src.rest ?? src.Rest;
+  if (restFlag === true) return true;
+  if (asRecord(restFlag)) return true;
+  return false;
+}
+
+function restCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
+  const restEl =
+    (stavenote.querySelector('.vf-rest') as SVGGraphicsElement | null) ??
+    (stavenote.querySelector('[class*="rest"]') as SVGGraphicsElement | null);
+  if (restEl) {
+    try {
+      const box = restEl.getBBox();
+      if (box && Number.isFinite(box.x) && Number.isFinite(box.width)) {
+        return svgUserXFromElement(restEl, box.x + box.width / 2);
+      }
+    } catch {
+      /* getBBox can throw on detached nodes */
+    }
+  }
+  try {
+    const box = stavenote.getBBox();
+    if (box && Number.isFinite(box.x) && Number.isFinite(box.width)) {
+      return svgUserXFromElement(stavenote, box.x + box.width / 2);
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 function pitchClassesEqual(a: string, b: string): boolean {
   if (a === b) return true;
   // OSMD vfpitch often emits Bn for MusicXML B♭ (alter=-1)
@@ -253,6 +288,7 @@ function pitchClassesEqual(a: string, b: string): boolean {
 }
 
 function hitHasPitch(hit: NoteHit, pitch: string): boolean {
+  if (pitch === 'REST') return hit.pitch === 'REST' || hit.pitches.includes('REST');
   if (hit.pitch === pitch || hit.pitches.includes(pitch)) return true;
   return pitchClassesEqual(hit.pitch, pitch) || hit.pitches.some((p) => pitchClassesEqual(p, pitch));
 }
@@ -273,8 +309,10 @@ function collectMeasureNoteHits(osmd: OpenSheetMusicDisplay, gmRaw: unknown): No
       for (const gnRaw of (gve.notes ?? gve.Notes ?? []) as unknown[]) {
         const gn = asRecord(gnRaw);
         if (!gn) continue;
-        const pitch = pitchFromGraphicNote(gn);
-        if (!pitch) continue;
+        const pitchRaw = pitchFromGraphicNote(gn);
+        const rest = !pitchRaw && isRestGraphicNote(gn);
+        if (!pitchRaw && !rest) continue;
+        const pitch = rest ? 'REST' : pitchRaw!;
         const voice = voiceFromGraphicNote(gn) ?? '1';
         const stavenote = graphicNoteStavenote(osmd, gn);
         if (!stavenote) continue;
@@ -286,7 +324,9 @@ function collectMeasureNoteHits(osmd: OpenSheetMusicDisplay, gmRaw: unknown): No
           }
           continue;
         }
-        const centerX = noteheadCenterXInSvgRoot(stavenote);
+        const centerX = rest
+          ? restCenterXInSvgRoot(stavenote)
+          : noteheadCenterXInSvgRoot(stavenote);
         if (centerX == null || !Number.isFinite(centerX)) continue;
         const hit: NoteHit = {
           stavenote,
@@ -295,7 +335,7 @@ function collectMeasureNoteHits(osmd: OpenSheetMusicDisplay, gmRaw: unknown): No
           voice,
           centerX,
           timestamp,
-          heads: stavenote.querySelectorAll('.vf-notehead').length,
+          heads: rest ? 0 : stavenote.querySelectorAll('.vf-notehead').length,
         };
         bySvg.set(stavenote, hit);
         hits.push(hit);

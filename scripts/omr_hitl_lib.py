@@ -2845,6 +2845,193 @@ def _compact_default_x_by_voice(measure: ET.Element, ns: str) -> bool:
     return _compact_default_x_by_staff(measure, ns)
 
 
+def _timeline_el_duration(el: ET.Element, ns: str) -> int:
+    dur_el = el.find(_q(ns, "duration"))
+    if dur_el is None or not dur_el.text:
+        return 0
+    try:
+        return max(0, int(dur_el.text.strip()))
+    except ValueError:
+        return 0
+
+
+def _musicxml_leader_onsets(measure: ET.Element, ns: str) -> dict[ET.Element, int]:
+    """MusicXML 단일 cursor(backup/forward) 기준 leader onset."""
+    cursor = 0
+    out: dict[ET.Element, int] = {}
+    for el in list(measure):
+        loc = _local(el)
+        if loc == "backup":
+            cursor = max(0, cursor - _timeline_el_duration(el, ns))
+        elif loc == "forward":
+            cursor += _timeline_el_duration(el, ns)
+        elif loc == "note":
+            if el.find(_q(ns, "chord")) is not None or _is_grace_or_cue(el, ns):
+                continue
+            out[el] = cursor
+            cursor += _note_duration(el, ns)
+    return out
+
+
+def _guess_type_for_duration(dur: int, divisions: int) -> str | None:
+    if dur <= 0 or divisions <= 0:
+        return None
+    for note_type in ("whole", "half", "quarter", "eighth", "16th", "32nd", "64th"):
+        if _duration_for_type_dots(note_type, divisions, 0) == dur:
+            return note_type
+    return None
+
+
+def _measure_divisions_beats(
+    measure: ET.Element, ns: str, part: ET.Element | None = None
+) -> tuple[int, int, int]:
+    if part is not None:
+        return _effective_divisions_and_time(part, ns, measure)
+    divisions, beats, beat_type = 1, 4, 4
+    for attr in measure.findall(_q(ns, "attributes")):
+        div_el = attr.find(_q(ns, "divisions"))
+        if div_el is not None and div_el.text and div_el.text.strip().isdigit():
+            divisions = max(1, int(div_el.text.strip()))
+        time_el = attr.find(_q(ns, "time"))
+        if time_el is not None:
+            b_el = time_el.find(_q(ns, "beats"))
+            bt_el = time_el.find(_q(ns, "beat-type"))
+            try:
+                if b_el is not None and b_el.text and b_el.text.strip():
+                    beats = max(1, int(b_el.text.strip()))
+                if bt_el is not None and bt_el.text and bt_el.text.strip():
+                    beat_type = max(1, int(bt_el.text.strip()))
+            except ValueError:
+                pass
+    return divisions, beats, beat_type
+
+
+def _coalesce_spurious_parallel_voices_on_staff(
+    measure: ET.Element,
+    ns: str,
+    staff: str,
+    *,
+    divisions: int,
+    measure_len: int,
+) -> bool:
+    """Audiveris가 같은 staff에 둔 가짜 병렬 voice(짧게 겹침)를 underfull primary에 흡수.
+
+    예: PL voice5(전반) + voice6(전마디 병렬) + voice7(후반·onset 0으로 잘못 기록)
+    → voice7을 voice5로 합치고, 마디를 채우기 위한 선행 쉼표가 비면 삽입.
+    저장 MXL의 진짜 다성부(서로 겹치는 full layer)는 parallel로 남겨 둔다.
+    """
+    if measure_len <= 0 or divisions <= 0:
+        return False
+    notes = [
+        n
+        for n in list_note_elements(measure, ns)
+        if _note_voice_staff(n, ns)[1] == staff and not _is_grace_or_cue(n, ns)
+    ]
+    leaders = [n for n in notes if n.find(_q(ns, "chord")) is None]
+    voices = {_note_voice_staff(n, ns)[0] for n in leaders}
+    if len(voices) < 3:
+        return False
+
+    onsets = _musicxml_leader_onsets(measure, ns)
+    by_voice: dict[str, list[ET.Element]] = {}
+    for n in leaders:
+        v, _st = _note_voice_staff(n, ns)
+        by_voice.setdefault(v, []).append(n)
+
+    voice_meta: dict[str, tuple[int, int]] = {}
+    for v, vnotes in by_voice.items():
+        ons = [onsets.get(n, 0) for n in vnotes]
+        min_o = min(ons) if ons else 0
+        layer_dur = _voice_layer_duration(vnotes, ns)
+        voice_meta[v] = (min_o, layer_dur)
+
+    voice_list = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)
+    primary = voice_list[0]
+    p_start, p_dur = voice_meta[primary]
+    if p_dur <= 0 or p_dur >= measure_len:
+        return False
+
+    parallel: list[str] = []
+    candidates: list[str] = []
+    for v in voice_list[1:]:
+        start, dur = voice_meta[v]
+        if start != p_start or dur <= 0:
+            continue
+        # 전마디에 가까운 층 → 진짜 병렬(유지)
+        if dur >= int(measure_len * 0.75 + 0.5):
+            parallel.append(v)
+        elif p_dur + dur <= measure_len:
+            candidates.append(v)
+    if not parallel or not candidates:
+        return False
+
+    remaining = measure_len - p_dur
+    absorbed_voices: list[str] = []
+    absorbed_dur = 0
+    for v in candidates:
+        _start, dur = voice_meta[v]
+        if dur > remaining - absorbed_dur:
+            continue
+        absorbed_voices.append(v)
+        absorbed_dur += dur
+    if not absorbed_voices:
+        return False
+
+    gap = remaining - absorbed_dur
+    gap_type: str | None = None
+    if gap > 0:
+        gap_type = _guess_type_for_duration(gap, divisions)
+        if gap_type is None:
+            return False
+
+    first_absorbed = by_voice[absorbed_voices[0]][0]
+    for v in absorbed_voices:
+        for note in list_note_elements(measure, ns):
+            nv, st = _note_voice_staff(note, ns)
+            if st == staff and nv == v:
+                _set_note_voice_staff(note, ns, primary, staff)
+
+    if gap > 0 and gap_type is not None:
+        rest = _build_inserted_rest_note(
+            ns,
+            rest_type=gap_type,
+            divisions=divisions,
+            staff_n=int(staff) if staff.isdigit() else 1,
+            voice=primary,
+        )
+        # 흡수된 첫 note 앞에 쉼표 — 후반 시작 박 맞춤
+        parent_idx = list(measure).index(first_absorbed)
+        measure.insert(parent_idx, rest)
+
+    _rebuild_staff_voice_block(measure, ns, staff, primary_voice=primary)
+    return True
+
+
+def coalesce_spurious_parallel_voices_in_measure(
+    measure: ET.Element, ns: str, part: ET.Element | None = None
+) -> bool:
+    divisions, beats, beat_type = _measure_divisions_beats(measure, ns, part)
+    measure_len = _measure_length_units(divisions, beats, beat_type)
+    changed = False
+    for staff in ("1", "2"):
+        if _coalesce_spurious_parallel_voices_on_staff(
+            measure, ns, staff, divisions=divisions, measure_len=measure_len
+        ):
+            changed = True
+    return changed
+
+
+def coalesce_spurious_parallel_voices_in_root(root: ET.Element) -> int:
+    """전 악보 — 가짜 병렬 voice 흡수. 변경된 마디 수 반환."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            if coalesce_spurious_parallel_voices_in_measure(measure, ns, part):
+                n += 1
+    return n
+
+
 def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> bool:
     notes = list_note_elements(measure, ns)
     voices: set[str] = set()
@@ -6061,11 +6248,14 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
     return True
 
 
-def rebuild_measure_timeline_clean(measure: ET.Element, ns: str) -> None:
+def rebuild_measure_timeline_clean(
+    measure: ET.Element, ns: str, part: ET.Element | None = None
+) -> None:
     """HITL 삽입 후 마디 timeline 정렬. 다중 voice·동시 시작(다른 박자) 보존."""
     notes = list_note_elements(measure, ns)
     _fix_chord_tag_consistency(notes, ns)
     _sync_all_chord_groups(notes, ns)
+    coalesce_spurious_parallel_voices_in_measure(measure, ns, part)
     for staff in ("1", "2"):
         _merge_staff_voices_if_non_overlapping(measure, ns, staff)
     for staff in ("1", "2"):
@@ -6228,7 +6418,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             _normalize_measure_note_engraving(part, ns, measure)
             notes = list_note_elements(measure, ns)
             _strip_chord_member_beams(notes, ns)
-            rebuild_measure_timeline_clean(measure, ns)
+            rebuild_measure_timeline_clean(measure, ns, part)
             _migrate_directions_to_notes(measure, ns)
     return stats
 
@@ -6253,6 +6443,7 @@ def apply_fixes_file(mxl_path: Path, fixes: list[dict[str, Any]]) -> dict[str, A
     stats = apply_fixes_to_root(root, fixes) if fixes else {"applied": 0, "skipped": 0}
     chord_beam_measures = cleanup_chord_beams_in_root(root)
     rest_play_order_measures = normalize_play_orders_including_rests_in_root(root)
+    coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root)
     write_mxl_root(mxl_path, files, root_path, root)
     return {
         "path": str(mxl_path),
@@ -6260,6 +6451,7 @@ def apply_fixes_file(mxl_path: Path, fixes: list[dict[str, Any]]) -> dict[str, A
         "fixCount": len(fixes),
         "chordBeamMeasuresCleaned": chord_beam_measures,
         "restPlayOrderMeasuresNormalized": rest_play_order_measures,
+        "coalesceVoiceMeasures": coalesce_voice_measures,
     }
 
 

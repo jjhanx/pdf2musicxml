@@ -307,7 +307,7 @@ export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNote
         const measureNumber = parseInt(measure.getAttribute('number') ?? '0', 10);
         if (!Number.isFinite(measureNumber) || measureNumber <= 0) continue;
         for (const leader of allLeadersInMeasure(measure)) {
-          if (isRestNote(leader) || isGraceNote(leader)) continue;
+          if (isGraceNote(leader)) continue;
           const rawX =
             leader.getAttribute(OSMD_LAYOUT_X_ATTR)?.trim() ||
             leader.getAttribute('default-x')?.trim();
@@ -316,6 +316,18 @@ export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNote
           if (!Number.isFinite(defaultXTenths)) continue;
           const playOrder = readPlayOrder(leader);
           const voice = noteVoiceNumber(leader);
+          if (isRestNote(leader)) {
+            out.push({
+              partId,
+              measureNumber,
+              staff: noteStaffNumber(leader),
+              voice,
+              pitch: 'REST',
+              defaultXTenths,
+              playOrder,
+            });
+            continue;
+          }
           for (const note of noteGroupWithChords(measure, leader)) {
             if (isRestNote(note) || isGraceNote(note)) continue;
             out.push({

@@ -22,61 +22,121 @@ function countMeasureRestDisplayD(xml: string): number {
   return n;
 }
 
-function countRestDisplayHints(xml: string): number {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  return doc.querySelectorAll('display-step, *|display-step').length;
+function xmlLocalName(el: Element): string {
+  return (el.localName || el.tagName).toLowerCase();
 }
 
-function countQuarterRestB4(xml: string): number {
+function leftoverHintsArePinnedShortRests(xml: string): boolean {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  let n = 0;
-  for (const note of doc.querySelectorAll('note')) {
-    const type = note.querySelector(':scope > type, :scope > *|type')?.textContent?.trim();
-    if (type !== 'quarter') continue;
-    const rest = note.querySelector(':scope > rest, :scope > *|rest');
-    if (!rest) continue;
-    const step = rest.querySelector(':scope > display-step, :scope > *|display-step')?.textContent?.trim();
-    const oct = rest.querySelector(':scope > display-octave, :scope > *|display-octave')?.textContent?.trim();
-    if (step === 'B' && oct === '4') n += 1;
+  for (const part of doc.querySelectorAll('part')) {
+    const clefByStaff = new Map<number, { sign: string; line: number }>();
+    for (const measure of [...part.children]) {
+      if (xmlLocalName(measure) !== 'measure') continue;
+      const voicesByStaff = new Map<number, Set<string>>();
+      for (const child of [...measure.children]) {
+        if (xmlLocalName(child) === 'attributes') {
+          for (const clef of [...child.children]) {
+            if (xmlLocalName(clef) !== 'clef') continue;
+            const numRaw = clef.getAttribute('number');
+            const staffN = numRaw && /^\d+$/.test(numRaw) ? parseInt(numRaw, 10) : 1;
+            const sign = clef.querySelector('sign, *|sign')?.textContent?.trim() || 'G';
+            const lineRaw = clef.querySelector('line, *|line')?.textContent?.trim() || '';
+            const line = parseInt(lineRaw, 10);
+            clefByStaff.set(staffN, { sign, line: Number.isFinite(line) ? line : 2 });
+          }
+        }
+        if (xmlLocalName(child) !== 'note') continue;
+        const staffEl = child.querySelector(':scope > staff, :scope > *|staff');
+        const staff = parseInt(staffEl?.textContent?.trim() ?? '1', 10) || 1;
+        const voice = child.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim() || '1';
+        const set = voicesByStaff.get(staff) ?? new Set<string>();
+        set.add(voice);
+        voicesByStaff.set(staff, set);
+      }
+      for (const note of [...measure.children]) {
+        if (xmlLocalName(note) !== 'note') continue;
+        const rest = note.querySelector(':scope > rest, :scope > *|rest');
+        if (!rest) continue;
+        const step = rest.querySelector(':scope > display-step, :scope > *|display-step')?.textContent?.trim();
+        const oct = rest.querySelector(':scope > display-octave, :scope > *|display-octave')?.textContent?.trim();
+        if (!step && !oct) continue;
+        if (rest.getAttribute('measure') === 'yes') return false;
+        const type = note.querySelector(':scope > type, :scope > *|type')?.textContent?.trim() || '';
+        if (!['quarter', 'eighth', '16th', '32nd', '64th', '128th'].includes(type)) return false;
+        const staffEl = note.querySelector(':scope > staff, :scope > *|staff');
+        const staff = parseInt(staffEl?.textContent?.trim() ?? '1', 10) || 1;
+        if ((voicesByStaff.get(staff)?.size ?? 0) < 2) return false;
+        const clef = clefByStaff.get(staff) ?? { sign: staff >= 2 ? 'F' : 'G', line: staff >= 2 ? 4 : 2 };
+        const expect =
+          clef.sign.toUpperCase() === 'F'
+            ? { step: 'D', oct: '3' }
+            : clef.sign.toUpperCase() === 'C' && clef.line === 4
+              ? { step: 'A', oct: '3' }
+              : clef.sign.toUpperCase() === 'C'
+                ? { step: 'C', oct: '4' }
+                : { step: 'B', oct: '4' };
+        if (step !== expect.step || oct !== expect.oct) return false;
+      }
+    }
   }
-  return n;
+  return true;
 }
+
+const pianoPl = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part id="P5">
+    <measure number="4">
+      <attributes>
+        <divisions>8</divisions>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+        <clef number="2"><sign>F</sign><line>4</line></clef>
+      </attributes>
+      <note>
+        <rest><display-step>A</display-step><display-octave>3</display-octave></rest>
+        <duration>4</duration>
+        <voice>5</voice>
+        <type>eighth</type>
+        <staff>2</staff>
+      </note>
+      <backup><duration>4</duration></backup>
+      <note>
+        <pitch><step>C</step><octave>3</octave></pitch>
+        <duration>16</duration>
+        <voice>6</voice>
+        <type>whole</type>
+        <staff>2</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+const pinned = repairRestDisplayForOsmdPreview(pianoPl);
+const pinDoc = new DOMParser().parseFromString(pinned, 'application/xml');
+const pinRest = pinDoc.querySelector('rest');
+const pinStep = pinRest?.querySelector(':scope > display-step, :scope > *|display-step')?.textContent?.trim();
+const pinOct = pinRest?.querySelector(':scope > display-octave, :scope > *|display-octave')?.textContent?.trim();
+if (pinStep !== 'D' || pinOct !== '3') {
+  console.error('expected F-clef polyphonic eighth rest pinned to D3, got', pinStep, pinOct);
+  process.exit(1);
+}
+console.log('piano PL eighth rest pin: D3 ok');
 
 const xmlPath = '_smoke/_6cbf_final/audiveris_raw/clean_score_only.xml';
-if (!fs.existsSync(xmlPath)) {
-  console.error('missing', xmlPath);
-  process.exit(2);
-}
-
-const raw = fs.readFileSync(xmlPath, 'utf8');
-const fixed = repairRestDisplayForOsmdPreview(raw);
-
-const beforeD = countMeasureRestDisplayD(raw);
-const afterD = countMeasureRestDisplayD(fixed);
-const beforeHints = countRestDisplayHints(raw);
-const afterHints = countRestDisplayHints(fixed);
-const beforeQ = countQuarterRestB4(raw);
-const afterQ = countQuarterRestB4(fixed);
-
-console.log('measure rest display-step D:', beforeD, '->', afterD);
-console.log('quarter rest B4 hints:', beforeQ, '->', afterQ);
-console.log('all rest display-step count:', beforeHints, '->', afterHints);
-
-if (beforeD === 0 && beforeQ === 0) {
-  console.error('fixture has no measure D or quarter B4 hints');
-  process.exit(2);
-}
-if (afterD !== 0) {
-  console.error('expected no measure=yes rests with display-step D after repair');
-  process.exit(1);
-}
-if (afterQ !== 0) {
-  console.error('expected no quarter rest B4 display hints after repair');
-  process.exit(1);
-}
-if (afterHints !== 0) {
-  console.error('expected all rest display-step hints removed in preview repair');
-  process.exit(1);
+if (fs.existsSync(xmlPath)) {
+  const raw = fs.readFileSync(xmlPath, 'utf8');
+  const fixed = repairRestDisplayForOsmdPreview(raw);
+  const afterD = countMeasureRestDisplayD(fixed);
+  console.log('measure rest display-step D after repair:', afterD);
+  if (afterD !== 0) {
+    console.error('expected no measure=yes rests with display-step D after repair');
+    process.exit(1);
+  }
+  if (!leftoverHintsArePinnedShortRests(fixed)) {
+    console.error('leftover display-step hints are not pinned polyphonic short rests');
+    process.exit(1);
+  }
+} else {
+  console.log('skip 6cbf fixture (missing)');
 }
 
 console.log('ok');

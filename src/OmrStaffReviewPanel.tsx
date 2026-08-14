@@ -61,6 +61,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [scoreParts, setScoreParts] = useState<ScorePartRow[]>([]);
   const [applyBusy, setApplyBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [exportPercent, setExportPercent] = useState(0);
   const [applyMsg, setApplyMsg] = useState('');
   const [rawXml, setRawXml] = useState<string | null>(null);
   const [xmlLoading, setXmlLoading] = useState(false);
@@ -469,8 +470,33 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const exportWork = useCallback(async () => {
     setWorkMsg('');
     setExportBusy(true);
+    setExportPercent(1);
+    const started = Date.now();
     try {
-      const r = await fetch(`/api/omr-hitl/${jobId}/export-work`);
+      const start = await fetch(`/api/omr-hitl/${jobId}/export-work/start`, { method: 'POST' });
+      if (!start.ok) {
+        const j = (await start.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `HTTP ${start.status}`);
+      }
+      for (;;) {
+        if (Date.now() - started > 15 * 60 * 1000) {
+          throw new Error('작업 저장이 너무 오래 걸립니다. 서버 로그를 확인하세요.');
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        const st = await fetch(`/api/omr-hitl/${jobId}/export-work/status`);
+        const j = (await st.json().catch(() => ({}))) as {
+          percent?: number;
+          detail?: string;
+          done?: boolean;
+          error?: string | null;
+        };
+        if (!st.ok) throw new Error(j.error ?? `HTTP ${st.status}`);
+        if (typeof j.percent === 'number') setExportPercent(Math.max(0, Math.min(100, j.percent)));
+        if (j.error) throw new Error(j.error);
+        if (j.done) break;
+      }
+      setExportPercent(100);
+      const r = await fetch(`/api/omr-hitl/${jobId}/export-work/file`);
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -489,6 +515,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setWorkMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setExportBusy(false);
+      setExportPercent(0);
     }
   }, [jobId]);
 
@@ -936,8 +963,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           >
             {applyBusy ? '정리 중…' : 'OMR 자동 정리 (전체 성부)'}
           </button>
-          <button type="button" className="btn-muted" disabled={applyBusy || exportBusy} onClick={() => void exportWork()}>
-            {exportBusy ? '저장 중...' : '작업 저장(ZIP)'}
+          <button
+            type="button"
+            className="btn-muted"
+            disabled={applyBusy || exportBusy}
+            onClick={() => void exportWork()}
+            title={exportBusy ? `저장 중… ${exportPercent}%` : '검토 진행 ZIP 저장'}
+          >
+            {exportBusy ? `저장 중… ${exportPercent}%` : '작업 저장(ZIP)'}
           </button>
           <button
             type="button"

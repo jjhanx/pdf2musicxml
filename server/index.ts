@@ -81,7 +81,7 @@ const distDir = path.join(__dirname, '..', 'dist');
 const app = express();
 app.use(cors({ origin: true }));
 
-const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 256 * 1024 * 1024;
 
 function decodeMultipartFilename(name: string): string {
   const raw = (name || 'input.pdf').trim() || 'input.pdf';
@@ -459,6 +459,15 @@ type JobRecord = {
   result?: JobResult;
   /** UI·폴링용 진행률 (업로드, Audiveris 단계) */
   progress?: JobProgress;
+  /** OMR 검토 「작업 저장(ZIP)」 진행 */
+  workExport?: {
+    percent: number;
+    detail: string;
+    error?: string;
+    zipPath?: string;
+    done: boolean;
+    building?: boolean;
+  };
   /** Audiveris 로그에서 추출한 전체 페이지/장 수 힌트 */
   pdfPageCount?: number;
   reviewDeferred?: { resolve: () => void; reject: (err: Error) => void };
@@ -1332,8 +1341,11 @@ async function coalesceStaffVoicesInScoreFile(
     });
     const line = String(stdout).trim();
     if (!line) return 0;
-    const parsed = JSON.parse(line) as { coalesceVoiceMeasures?: number };
-    return parsed.coalesceVoiceMeasures ?? 0;
+    const parsed = JSON.parse(line) as {
+      coalesceVoiceMeasures?: number;
+      restDisplayPinned?: number;
+    };
+    return (parsed.coalesceVoiceMeasures ?? 0) + (parsed.restDisplayPinned ?? 0);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`coalesce_staff_voices_mxl failed (${scorePath}): ${msg}`);
@@ -1608,6 +1620,27 @@ function diagnosticPdfDownloadBaseName(
 
 function sessionCleanScorePdfPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'clean_score_only.pdf');
+}
+
+async function compressScorePdfIfNeeded(pythonBin: string, pdfPath: string): Promise<void> {
+  const script = path.join(__dirname, '..', 'scripts', 'compress_score_pdf.py');
+  if (!fsSync.existsSync(script) || !fsSync.existsSync(pdfPath)) return;
+  try {
+    const st = await fs.stat(pdfPath);
+    if (st.size < 12 * 1024 * 1024) return;
+  } catch {
+    return;
+  }
+  try {
+    const { stdout } = await exec(`"${pythonBin}" "${script}" "${pdfPath}"`, {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    const line = String(stdout).trim();
+    if (line) console.log(`compress_score_pdf: ${line}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`compress_score_pdf failed (${pdfPath}): ${msg}`);
+  }
 }
 
 function sessionOcrPymupdfReviewPath(sessionRoot: string): string {
@@ -3432,6 +3465,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           });
           return;
         }
+        await compressScorePdfIfNeeded(pythonBin, cleanScorePath);
 
         const scoreTitleForMask = await ensureAutoScoreTitleInConfig(
           sessionRoot,
@@ -3835,6 +3869,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           console.log(`[job ${jobId}] ${extractedJsonPath} not found. Proceeding without masking.`);
           await fs.copyFile(inputPdfPath, cleanScorePath);
         }
+        await compressScorePdfIfNeeded(pythonBin, cleanScorePath);
       }
       
       setJobProgress(job, {
@@ -6274,10 +6309,15 @@ app.post('/api/omr-hitl/:jobId/sync-preview', async (req, res) => {
   }
 });
 
-app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
+app.post('/api/omr-hitl/:jobId/export-work/start', async (req, res) => {
+  noCacheJson(res);
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'omr_staff_review_needed') {
     res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 작업을 내보낼 수 있습니다' });
+    return;
+  }
+  if (job.workExport?.building) {
+    res.json({ ok: true, already: true });
     return;
   }
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
@@ -6285,86 +6325,180 @@ app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
     res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
-  try {
+  job.workExport = { percent: 1, detail: '저장 준비 중…', done: false, building: true };
+  const jobId = req.params.jobId;
+  void (async () => {
     const pythonBin = resolvePythonBin();
-    await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
-    await invalidateInspectScoreCache(job.sessionRoot);
-  } catch (e) {
-    res.status(500).json({ error: `저장 전 MXL 동기화 실패: ${String(e)}` });
+    const zipOut = path.join(job.sessionRoot, 'omr-work-export.zip');
+    const compactDir = path.join(job.sessionRoot, '_export_compact');
+    try {
+      job.workExport = { percent: 8, detail: 'MXL 동기화 중…', done: false, building: true };
+      await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+      await invalidateInspectScoreCache(job.sessionRoot);
+
+      job.workExport = { percent: 18, detail: '큰 PDF 압축 중…', done: false, building: true };
+      await fs.mkdir(compactDir, { recursive: true });
+      const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
+      await compressScorePdfIfNeeded(pythonBin, cleanScorePath);
+
+      const files: Array<{ abs: string; name: string }> = [];
+      files.push({ abs: mxlPath, name: 'review.mxl' });
+      const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
+      if (fsSync.existsSync(rawPath)) files.push({ abs: rawPath, name: 'audiveris_raw.mxl' });
+      const baselinePath = sessionHitlBaselineMxlPath(job.sessionRoot);
+      if (fsSync.existsSync(baselinePath)) files.push({ abs: baselinePath, name: 'omr_hitl_baseline.mxl' });
+      const fixesPath = sessionOmrHitlFixesPath(job.sessionRoot);
+      if (fsSync.existsSync(fixesPath)) files.push({ abs: fixesPath, name: 'omr_hitl_fixes.json' });
+      const labelsPath = sessionPartLabelsPath(job.sessionRoot);
+      if (fsSync.existsSync(labelsPath)) files.push({ abs: labelsPath, name: 'part_labels.json' });
+      const checkpointPath = sessionOmrHitlCheckpointPath(job.sessionRoot);
+      if (fsSync.existsSync(checkpointPath)) files.push({ abs: checkpointPath, name: 'omr_hitl_checkpoint.json' });
+
+      const pdfIncluded: { cleanScore?: boolean; input?: boolean } = {};
+      if (fsSync.existsSync(cleanScorePath)) {
+        files.push({ abs: cleanScorePath, name: 'clean_score_only.pdf' });
+        pdfIncluded.cleanScore = true;
+      }
+      const inputPath = job.inputPdfPath;
+      const inputDistinct =
+        inputPath &&
+        fsSync.existsSync(inputPath) &&
+        (!pdfIncluded.cleanScore || path.resolve(inputPath) !== path.resolve(cleanScorePath));
+      if (inputDistinct && inputPath) {
+        const inputCopy = path.join(compactDir, 'input.pdf');
+        await fs.copyFile(inputPath, inputCopy);
+        await compressScorePdfIfNeeded(pythonBin, inputCopy);
+        files.push({ abs: inputCopy, name: 'input.pdf' });
+        pdfIncluded.input = true;
+      }
+      const deskewedPdfPath = path.join(job.sessionRoot, 'deskewed.pdf');
+      if (fsSync.existsSync(deskewedPdfPath) && inputPath && fsSync.existsSync(inputPath)) {
+        const a = fsSync.statSync(deskewedPdfPath).size;
+        const b = fsSync.statSync(inputPath).size;
+        if (Math.abs(a - b) > 2048) {
+          const deskewCopy = path.join(compactDir, 'deskewed.pdf');
+          await fs.copyFile(deskewedPdfPath, deskewCopy);
+          await compressScorePdfIfNeeded(pythonBin, deskewCopy);
+          files.push({ abs: deskewCopy, name: 'deskewed.pdf' });
+        }
+      } else if (fsSync.existsSync(deskewedPdfPath) && !inputPath) {
+        const deskewCopy = path.join(compactDir, 'deskewed.pdf');
+        await fs.copyFile(deskewedPdfPath, deskewCopy);
+        await compressScorePdfIfNeeded(pythonBin, deskewCopy);
+        files.push({ abs: deskewCopy, name: 'deskewed.pdf' });
+      }
+
+      const extras: Array<[string, string]> = [
+        [path.join(job.sessionRoot, 'lyric_manifest.json'), 'lyric_manifest.json'],
+        [fontStripConfigPath(job.sessionRoot), 'font_strip_config.json'],
+        [path.join(job.sessionRoot, 'ocr_data_pymupdf.json'), 'ocr_data_pymupdf.json'],
+        [sessionOcrPymupdfBaselinePath(job.sessionRoot), 'ocr_data_pymupdf_baseline.json'],
+        [path.join(job.sessionRoot, 'extracted_music_text.json'), 'extracted_music_text.json'],
+      ];
+      for (const [abs, name] of extras) {
+        if (fsSync.existsSync(abs)) files.push({ abs, name });
+      }
+
+      job.workExport = { percent: 40, detail: 'ZIP 묶는 중…', done: false, building: true };
+      const displayPdfName =
+        job.sourcePdfDisplayName ??
+        readSourcePdfDisplayNameSync(job.sessionRoot) ??
+        (isGenericPdfBasename(job.originalName) ? null : job.originalName);
+      const manifest = {
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        jobId,
+        originalName: displayPdfName ?? job.originalName,
+        sourcePdfDisplayName: displayPdfName ?? undefined,
+        pdfIncluded,
+      };
+
+      await fs.unlink(zipOut).catch(() => {});
+      await new Promise<void>((resolve, reject) => {
+        const output = createWriteStream(zipOut);
+        const archive = archiver('zip', { zlib: { level: 1 } });
+        archive.on('error', reject);
+        output.on('close', () => resolve());
+        archive.on('progress', (p) => {
+          const total = p.fs.totalBytes || 0;
+          const processed = p.fs.processedBytes || 0;
+          const frac = total > 0 ? processed / total : 0;
+          const percent = Math.min(95, 40 + Math.round(frac * 55));
+          job.workExport = {
+            percent,
+            detail: `ZIP 묶는 중… ${percent}%`,
+            done: false,
+            building: true,
+          };
+        });
+        archive.pipe(output);
+        for (const f of files) archive.file(f.abs, { name: f.name });
+        archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+        void archive.finalize();
+      });
+      job.workExport = {
+        percent: 100,
+        detail: '완료',
+        done: true,
+        building: false,
+        zipPath: zipOut,
+      };
+    } catch (e) {
+      job.workExport = {
+        percent: 0,
+        detail: '',
+        done: false,
+        building: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  })();
+  res.json({ ok: true });
+});
+
+app.get('/api/omr-hitl/:jobId/export-work/status', (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'omr_staff_review_needed') {
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중이 아닙니다' });
+    return;
+  }
+  const st = job.workExport ?? { percent: 0, detail: '', done: false };
+  res.json({
+    percent: st.percent,
+    detail: st.detail,
+    done: st.done,
+    error: st.error ?? null,
+    building: Boolean(st.building),
+  });
+});
+
+app.get('/api/omr-hitl/:jobId/export-work/file', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'omr_staff_review_needed') {
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중이 아닙니다' });
+    return;
+  }
+  const zipPath = job.workExport?.zipPath;
+  if (!job.workExport?.done || !zipPath || !fsSync.existsSync(zipPath)) {
+    res.status(409).json({ error: 'ZIP이 아직 준비되지 않았습니다' });
     return;
   }
   const base = resolveDownloadBaseName(job);
   res.setHeader('Content-Type', 'application/zip');
   setAttachmentFilenameHeader(res, `${base}-omr-work.zip`);
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  archive.on('error', (err) => {
-    if (!res.headersSent) res.status(500).json({ error: String(err) });
+  res.sendFile(path.resolve(zipPath));
+});
+
+app.get('/api/omr-hitl/:jobId/export-work', async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'omr_staff_review_needed') {
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 작업을 내보낼 수 있습니다' });
+    return;
+  }
+  res.status(410).json({
+    error: '작업 저장 API가 갱신되었습니다. /export-work/start → status → file 을 사용하세요.',
   });
-  archive.pipe(res);
-  archive.file(mxlPath, { name: 'review.mxl' });
-  const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
-  if (fsSync.existsSync(rawPath)) archive.file(rawPath, { name: 'audiveris_raw.mxl' });
-  const baselinePath = sessionHitlBaselineMxlPath(job.sessionRoot);
-  if (fsSync.existsSync(baselinePath)) archive.file(baselinePath, { name: 'omr_hitl_baseline.mxl' });
-  const fixesPath = sessionOmrHitlFixesPath(job.sessionRoot);
-  if (fsSync.existsSync(fixesPath)) archive.file(fixesPath, { name: 'omr_hitl_fixes.json' });
-  const labelsPath = sessionPartLabelsPath(job.sessionRoot);
-  if (fsSync.existsSync(labelsPath)) archive.file(labelsPath, { name: 'part_labels.json' });
-  const checkpointPath = sessionOmrHitlCheckpointPath(job.sessionRoot);
-  if (fsSync.existsSync(checkpointPath)) archive.file(checkpointPath, { name: 'omr_hitl_checkpoint.json' });
-  const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
-  const pdfIncluded: { cleanScore?: boolean; input?: boolean } = {};
-  if (fsSync.existsSync(cleanScorePath)) {
-    archive.file(cleanScorePath, { name: 'clean_score_only.pdf' });
-    pdfIncluded.cleanScore = true;
-  }
-  const inputPath = job.inputPdfPath;
-  if (
-    inputPath &&
-    fsSync.existsSync(inputPath) &&
-    (!pdfIncluded.cleanScore || path.resolve(inputPath) !== path.resolve(cleanScorePath))
-  ) {
-    archive.file(inputPath, { name: 'input.pdf' });
-    pdfIncluded.input = true;
-  }
-  const deskewedPdfPath = path.join(job.sessionRoot, 'deskewed.pdf');
-  if (fsSync.existsSync(deskewedPdfPath)) {
-    archive.file(deskewedPdfPath, { name: 'deskewed.pdf' });
-  }
-  const lyricManifestPath = path.join(job.sessionRoot, 'lyric_manifest.json');
-  const pymupdfReviewPath = path.join(job.sessionRoot, 'ocr_data_pymupdf.json');
-  const extractedJsonPath = path.join(job.sessionRoot, 'extracted_music_text.json');
-  if (fsSync.existsSync(lyricManifestPath)) {
-    archive.file(lyricManifestPath, { name: 'lyric_manifest.json' });
-  }
-  const fontStripCfgPath = fontStripConfigPath(job.sessionRoot);
-  if (fsSync.existsSync(fontStripCfgPath)) {
-    archive.file(fontStripCfgPath, { name: 'font_strip_config.json' });
-  }
-  if (fsSync.existsSync(pymupdfReviewPath)) {
-    archive.file(pymupdfReviewPath, { name: 'ocr_data_pymupdf.json' });
-  }
-  const lyricBaselinePath = sessionOcrPymupdfBaselinePath(job.sessionRoot);
-  if (fsSync.existsSync(lyricBaselinePath)) {
-    archive.file(lyricBaselinePath, { name: 'ocr_data_pymupdf_baseline.json' });
-  }
-  if (fsSync.existsSync(extractedJsonPath)) {
-    archive.file(extractedJsonPath, { name: 'extracted_music_text.json' });
-  }
-  const displayPdfName =
-    job.sourcePdfDisplayName ??
-    readSourcePdfDisplayNameSync(job.sessionRoot) ??
-    (isGenericPdfBasename(job.originalName) ? null : job.originalName);
-  const manifest = {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    jobId: job.id,
-    originalName: displayPdfName ?? job.originalName,
-    sourcePdfDisplayName: displayPdfName ?? undefined,
-    pdfIncluded,
-  };
-  archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
-  await archive.finalize();
 });
 
 app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
@@ -6379,7 +6513,7 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
     res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
     return;
   }
-  const bb = busboy({ headers: req.headers, limits: { fileSize: 80 * 1024 * 1024, files: 1 } });
+  const bb = busboy({ headers: req.headers, limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
   let zipPath: string | null = null;
   let importErr: string | null = null;
   bb.on('file', (_name, file, info) => {

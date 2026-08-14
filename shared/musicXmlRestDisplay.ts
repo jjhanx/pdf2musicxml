@@ -79,20 +79,100 @@ function repairMissingNoteTypesInPart(part: Element): void {
   }
 }
 
+const SHORT_REST_TYPES = new Set(['quarter', 'eighth', '16th', '32nd', '64th', '128th']);
+
+function noteStaffN(note: Element): number {
+  const el = note.querySelector(':scope > staff, :scope > *|staff');
+  const n = parseInt(el?.textContent?.trim() ?? '1', 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+function noteVoice(note: Element): string {
+  return note.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim() || '1';
+}
+
+function noteTypeName(note: Element): string {
+  return note.querySelector(':scope > type, :scope > *|type')?.textContent?.trim() || '';
+}
+
+function middleLineForClef(sign: string, line: number): { step: string; octave: number } {
+  const s = sign.trim().toUpperCase();
+  if (s === 'F') return { step: 'D', octave: 3 };
+  if (s === 'C' && line === 4) return { step: 'A', octave: 3 };
+  if (s === 'C') return { step: 'C', octave: 4 };
+  return { step: 'B', octave: 4 };
+}
+
+function setRestDisplay(restEl: Element, step: string, octave: number): void {
+  const doc = restEl.ownerDocument;
+  if (!doc) return;
+  const ns = restEl.namespaceURI;
+  let stepEl = restEl.querySelector(':scope > display-step, :scope > *|display-step');
+  let octEl = restEl.querySelector(':scope > display-octave, :scope > *|display-octave');
+  if (!stepEl) {
+    stepEl = ns ? doc.createElementNS(ns, 'display-step') : doc.createElement('display-step');
+    restEl.appendChild(stepEl);
+  }
+  if (!octEl) {
+    octEl = ns ? doc.createElementNS(ns, 'display-octave') : doc.createElement('display-octave');
+    restEl.appendChild(octEl);
+  }
+  stepEl.textContent = step;
+  octEl.textContent = String(octave);
+}
+
+function pinPolyphonicShortRestsInMeasure(measure: Element, clefByStaff: Map<number, { sign: string; line: number }>): void {
+  const voicesByStaff = new Map<number, Set<string>>();
+  for (const note of [...measure.children]) {
+    if (xmlLocalName(note) !== 'note') continue;
+    if (note.querySelector(':scope > grace, :scope > *|grace')) continue;
+    const staff = noteStaffN(note);
+    const set = voicesByStaff.get(staff) ?? new Set<string>();
+    set.add(noteVoice(note));
+    voicesByStaff.set(staff, set);
+  }
+  for (const note of [...measure.children]) {
+    if (xmlLocalName(note) !== 'note') continue;
+    const restEl = note.querySelector(':scope > rest, :scope > *|rest');
+    if (!restEl) continue;
+    const staff = noteStaffN(note);
+    if ((voicesByStaff.get(staff)?.size ?? 0) < 2) continue;
+    if (!SHORT_REST_TYPES.has(noteTypeName(note))) continue;
+    const clef = clefByStaff.get(staff) ?? { sign: staff >= 2 ? 'F' : 'G', line: staff >= 2 ? 4 : 2 };
+    const mid = middleLineForClef(clef.sign, clef.line);
+    setRestDisplay(restEl, mid.step, mid.octave);
+  }
+}
+
 function repairRestDisplayInPart(part: Element): void {
+  const clefByStaff = new Map<number, { sign: string; line: number }>();
   for (const measure of [...part.children]) {
     if (xmlLocalName(measure) !== 'measure') continue;
+    for (const child of [...measure.children]) {
+      if (xmlLocalName(child) !== 'attributes') continue;
+      for (const clef of [...child.children]) {
+        if (xmlLocalName(clef) !== 'clef') continue;
+        const numRaw = clef.getAttribute('number');
+        const staffN = numRaw && /^\d+$/.test(numRaw) ? parseInt(numRaw, 10) : 1;
+        const sign = clef.querySelector('sign, *|sign')?.textContent?.trim() || 'G';
+        const lineRaw = clef.querySelector('line, *|line')?.textContent?.trim() || '';
+        const line = parseInt(lineRaw, 10);
+        clefByStaff.set(staffN, { sign, line: Number.isFinite(line) ? line : 2 });
+      }
+    }
     for (const note of [...measure.children]) {
       if (xmlLocalName(note) !== 'note') continue;
       const restEl = note.querySelector(':scope > rest, :scope > *|rest');
       if (restEl) clearRestDisplayHints(restEl);
     }
+    pinPolyphonicShortRestsInMeasure(measure, clefByStaff);
   }
 }
 
 /**
- * OSMD/HITL 미리보기 전용 — Audiveris rest `display-step`/`display-octave` 힌트 제거.
- * 온·2분·마디전체(D/C/E)뿐 아니라 4·8·16분 등 짧은 쉼(B4 등)도 OSMD 기본 위치로 그리게 한다.
+ * OSMD/HITL 미리보기 — 잘못된 Audiveris rest 힌트는 지우고,
+ * 같은 오선 다성부 짧은 쉼표는 오선 중선(F clef=D3, G=B4)에 고정한다.
+ * OSMD 기본 배치는 윗 voice 쉼표를 오선 밖으로 올려 8분쉼표가 잘못 읽히기 쉽다.
  */
 export function repairRestDisplayForOsmdPreview(xml: string): string {
   try {

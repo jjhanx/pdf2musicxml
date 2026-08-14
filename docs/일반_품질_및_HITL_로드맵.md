@@ -127,7 +127,9 @@ python _smoke/test_printed_measure_numbers_circled.py  # 원문자·줄머리 OC
 | POST | `/api/omr-hitl/:jobId/apply` | 보정을 MXL에 적용·lint 재생성 (원본 백업에서 후처리·보정 재합성) |
 | POST | `/api/omr-hitl/:jobId/sync-preview` | OMR 검토 미리보기 MXL 재빌드 |
 | POST | `/api/omr-hitl/:jobId/normalize-rests` | 전체 성부 OMR 자동 정리 |
-| GET | `/api/omr-hitl/:jobId/export-work` | OMR 검토 진행 ZIP 내보내기 |
+| POST | `/api/omr-hitl/:jobId/export-work/start` | OMR 검토 ZIP 백그라운드 생성 |
+| GET | `/api/omr-hitl/:jobId/export-work/status` | 작업 저장 진행률 % |
+| GET | `/api/omr-hitl/:jobId/export-work/file` | 준비된 ZIP 다운로드 |
 | POST | `/api/omr-hitl/:jobId/import-work` | OMR 검토 진행 ZIP 불러오기 |
 | GET | `/api/omr-hitl/:jobId/measure?partId=&measureMxl=` | 마디 내 음·쉼 목록 |
 | POST | `/api/continue-omr-staff-review/:jobId` | OMR HITL 이어하기(보정 자동 적용) |

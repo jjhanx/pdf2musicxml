@@ -1126,6 +1126,13 @@ def mask_pdf(pdf_in, pdf_out, json_path):
     finally:
         doc.close()
         fitz.TOOLS.set_small_glyph_heights(prev_glyph_h)
+    try:
+        from compress_score_pdf import compress_score_pdf
+
+        # 마스킹만 해도 save 시 비압축 PNG로 수백 MB가 됨 — 원본과 같은 픽셀·JPEG로 되돌림
+        compress_score_pdf(pdf_out, reference_path=pdf_in)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

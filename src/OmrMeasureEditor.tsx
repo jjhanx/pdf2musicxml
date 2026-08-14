@@ -669,9 +669,8 @@ function MeasureWedgeEditor({
       <div style={{ fontWeight: 700, marginBottom: 6 }}>셈여림 점선 (wedge / hairpin)</div>
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
         크레센도 <code>&lt;</code> / 디미뉴엔도 <code>&gt;</code> 는{' '}
-        <strong>시작 음 앞</strong>에 들어가고, <strong>wedge(stop)</strong> 은{' '}
-        <strong>끝나는 음 앞</strong>(또는 마디 끝)에 들어가 길이를 정합니다. OMR이 넣은 점선은 여기서
-        지우고, 없거나 길이가 틀린 경우 아래에서 새로 넣거나 끝만 옮기세요.
+        <strong>시작 음 앞</strong>에 들어가고, <strong>끝 음 뒤</strong>에 wedge(stop)이 들어가 그 음까지
+        덮습니다. 마지막 음으로 끝낼 때도 stop은 그 음 바로 뒤(backup 앞)에 두어 다음 마디로 이어지지 않게 합니다.
       </p>
       {directions.length > 0 ? (
         <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -738,7 +737,7 @@ function MeasureWedgeEditor({
           </select>
         </label>
         <label className="omr-measure-inline-field">
-          끝 (stop 앞)
+          끝 음 (이 음까지)
           <select
             value={String(toNote)}
             onChange={(e) => setToNote(parseInt(e.target.value, 10))}
@@ -787,7 +786,7 @@ function MeasureWedgeEditor({
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <label className="omr-measure-inline-field">
-          끝을 옮길 음
+          끝을 이 음까지
           <select
             value={String(stopNote)}
             onChange={(e) => setStopNote(parseInt(e.target.value, 10))}
@@ -815,7 +814,7 @@ function MeasureWedgeEditor({
             })
           }
         >
-          wedge(stop)을 이 음 앞으로
+          wedge(stop)을 이 음 뒤로
         </button>
       </div>
     </div>

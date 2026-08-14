@@ -15,6 +15,9 @@ import {
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
   normalizeMultiVoiceLayersForOsmdPreview,
   snapshotNoteDefaultXForOsmdPreview,
+  leadingDirectionsBeforeNote,
+  trailingDirectionsAfterNoteGroup,
+  reanchorWedgeStopsForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 import {
   drawOsmdMeasureHighlight,
@@ -398,7 +401,18 @@ function defeatOsmdTempoKeywordMatchingOnDirectionWords(dir: Element): void {
  * PR/PL·staff 분리 후 direction 유지.
  * **음표 staff를 1로 바꾸기 전에** 호출해야 함 — 바꾸면 staffN=2 대조가 실패해 PL words(ritard. 등)가 삭제됨.
  */
+function directionWedgeType(dir: Element): string | null {
+  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    for (const w of [...dt.children].filter((c) => xmlLocalName(c) === 'wedge')) {
+      const t = (w.getAttribute('type') || '').trim().toLowerCase();
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
 function reattachDirectionsForSingleStaffOsmdPreview(measure: Element, staffN: number): void {
+  reanchorWedgeStopsForOsmdPreview(measure, staffN);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     if (isNavigationDirectionElement(child)) {
@@ -413,6 +427,9 @@ function reattachDirectionsForSingleStaffOsmdPreview(measure: Element, staffN: n
     }
     if (directionHasTempo(child)) {
       // 템포는 마디 header(print·attributes 뒤)에 유지 — anchor 음표 없어도 삭제하지 않음
+      continue;
+    }
+    if (directionWedgeType(child) === 'stop') {
       continue;
     }
     const anchor = anchorNoteForDirection(measure, child);
@@ -619,9 +636,27 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   const ns = measure.namespaceURI || 'http://www.musicxml.org/ns/partwise';
   const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
 
+  const gluedBefore = new Map<Element, Element[]>();
+  const gluedAfter = new Map<Element, Element[]>();
+  const extraDirs = new Set<Element>();
+  const claimedTrailing = new Set<Element>();
+  for (const { note } of timed) {
+    const after = trailingDirectionsAfterNoteGroup(measure, note);
+    gluedAfter.set(note, after);
+    for (const d of after) {
+      extraDirs.add(d);
+      claimedTrailing.add(d);
+    }
+  }
+  for (const { note } of timed) {
+    const before = leadingDirectionsBeforeNote(measure, note).filter((d) => !claimedTrailing.has(d));
+    gluedBefore.set(note, before);
+    for (const d of before) extraDirs.add(d);
+  }
+
   const toRemove = [...measure.children].filter((c) => {
     const tag = xmlLocalName(c);
-    return tag === 'note' || tag === 'backup' || tag === 'forward';
+    return tag === 'note' || tag === 'backup' || tag === 'forward' || extraDirs.has(c);
   });
   for (const el of toRemove) measure.removeChild(el);
 
@@ -637,6 +672,10 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
       insertAt += 1;
       cursor = time;
     }
+    for (const d of gluedBefore.get(note) ?? []) {
+      measure.insertBefore(d, measure.children[insertAt] ?? null);
+      insertAt += 1;
+    }
     const clone = note.cloneNode(true) as Element;
     clone.querySelectorAll('voice, *|voice').forEach((v) => {
       v.textContent = '1';
@@ -644,6 +683,10 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
     measure.insertBefore(clone, measure.children[insertAt] ?? null);
     insertAt += 1;
     if (!isChordNote(clone)) cursor = time + noteDurationN(clone);
+    for (const d of gluedAfter.get(note) ?? []) {
+      measure.insertBefore(d, measure.children[insertAt] ?? null);
+      insertAt += 1;
+    }
   }
 }
 

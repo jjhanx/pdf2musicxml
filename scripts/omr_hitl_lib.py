@@ -3820,6 +3820,7 @@ def _build_direction_element(
     voice_n: int | None = None,
     placement: str | None = None,
     wedge_spread: str | None = None,
+    wedge_number: str | None = None,
 ) -> ET.Element:
     direction = ET.Element(_q(ns, "direction"))
     if placement in ("above", "below"):
@@ -3875,6 +3876,8 @@ def _build_direction_element(
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         w = ET.SubElement(dtype, _q(ns, "wedge"))
         w.set("type", wtype)
+        if wedge_number:
+            w.set("number", str(wedge_number))
         spread = (wedge_spread or "").strip()
         if not spread:
             if wtype == "crescendo":
@@ -3902,6 +3905,76 @@ def _build_direction_element(
     return direction
 
 
+def _insert_after_note_group(
+    measure: ET.Element,
+    ns: str,
+    new_el: ET.Element,
+    after_note_index: int,
+) -> None:
+    """after_note_index 음표와 뒤따르는 <chord/> 바로 뒤 — wedge stop이 그 음까지 덮이게."""
+    notes = [c for c in list(measure) if _local(c) == "note"]
+    if after_note_index < 0 or after_note_index >= len(notes):
+        _insert_direction_at_measure_end(measure, ns, new_el)
+        return
+    end_i = _chord_group_end_index(notes, ns, after_note_index)
+    end_note = notes[end_i]
+    children = list(measure)
+    try:
+        idx = children.index(end_note)
+    except ValueError:
+        _insert_direction_at_measure_end(measure, ns, new_el)
+        return
+    measure.insert(idx + 1, new_el)
+
+
+def _last_rhythmic_note_index_on_staff(notes: list[ET.Element], ns: str, staff_n: int) -> int:
+    last = -1
+    for i, note in enumerate(notes):
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        if (_note_staff_number(note, ns) or 1) != staff_n:
+            continue
+        last = i
+    return last
+
+
+def _wedge_element(direction: ET.Element, ns: str) -> ET.Element | None:
+    for dtype in direction.findall(_q(ns, "direction-type")):
+        wedge = dtype.find(_q(ns, "wedge"))
+        if wedge is not None:
+            return wedge
+    return None
+
+
+def _next_wedge_number(measure: ET.Element, ns: str) -> str:
+    used: set[int] = set()
+    for direction in measure.findall(_q(ns, "direction")):
+        wedge = _wedge_element(direction, ns)
+        if wedge is None:
+            continue
+        raw = (wedge.get("number") or "1").strip()
+        if raw.isdigit():
+            used.add(int(raw))
+    n = 1
+    while n in used:
+        n += 1
+    return str(n)
+
+
+def _open_wedge_number_on_staff(measure: ET.Element, ns: str, staff_n: int) -> str | None:
+    last_num: str | None = None
+    for direction in measure.findall(_q(ns, "direction")):
+        if (_direction_staff_number(direction, ns) or 1) != staff_n:
+            continue
+        wtype = _wedge_type_of(direction, ns)
+        if wtype in ("crescendo", "diminuendo"):
+            wedge = _wedge_element(direction, ns)
+            last_num = (wedge.get("number") if wedge is not None else None) or "1"
+        elif wtype == "stop":
+            last_num = None
+    return last_num
+
+
 def _insert_standalone_wedge(
     measure: ET.Element,
     ns: str,
@@ -3910,10 +3983,12 @@ def _insert_standalone_wedge(
     wtype: str,
     staff_n: int,
     placement: str | None,
-    before_note_index: int | None,
+    before_note_index: int | None = None,
+    after_note_index: int | None = None,
     wedge_spread: str | None = None,
+    wedge_number: str | None = None,
 ) -> ET.Element:
-    """마디 `<direction><wedge>` — 지정 음표 앞(또는 마디 처음/끝)."""
+    """마디 `<direction><wedge>` — 시작은 음 앞, stop은 음(화음) 뒤(마디 끝 barline은 OSMD가 다음 마디로 넘김)."""
     if placement not in ("above", "below"):
         placement = "below"
     new_dir = _build_direction_element(
@@ -3923,11 +3998,18 @@ def _insert_standalone_wedge(
         staff_n=staff_n,
         placement=placement,
         wedge_spread=wedge_spread,
+        wedge_number=wedge_number,
     )
-    if before_note_index is None or before_note_index < 0:
+    if after_note_index is not None:
+        _insert_after_note_group(measure, ns, new_dir, after_note_index)
+    elif before_note_index is None or before_note_index < 0:
         _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
     elif before_note_index >= len(notes):
-        _insert_direction_at_measure_end(measure, ns, new_dir)
+        last_i = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
+        if last_i >= 0:
+            _insert_after_note_group(measure, ns, new_dir, last_i)
+        else:
+            _insert_direction_at_measure_end(measure, ns, new_dir)
     else:
         _insert_before_note_element(measure, ns, new_dir, before_note_index, staff_n=staff_n)
     _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
@@ -4352,15 +4434,29 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 before_idx = len(notes)
             elif measure_anchor == "start":
                 before_idx = -1
-            _insert_standalone_wedge(
-                measure,
-                ns,
-                notes,
-                wtype=wtype,
-                staff_n=staff_n,
-                placement=placement,
-                before_note_index=before_idx,
-            )
+            if wtype == "stop":
+                end_i = before_idx if before_idx is not None and 0 <= before_idx < len(notes) else _last_rhythmic_note_index_on_staff(
+                    notes, ns, staff_n
+                )
+                _insert_standalone_wedge(
+                    measure,
+                    ns,
+                    notes,
+                    wtype="stop",
+                    staff_n=staff_n,
+                    placement=placement,
+                    after_note_index=end_i if end_i >= 0 else None,
+                )
+            else:
+                _insert_standalone_wedge(
+                    measure,
+                    ns,
+                    notes,
+                    wtype=wtype,
+                    staff_n=staff_n,
+                    placement=placement,
+                    before_note_index=before_idx,
+                )
             return True
         if _is_navigation_direction_type(direction_type):
             if placement is None:
@@ -4632,6 +4728,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             placement = "below"
         start_spread = "0" if wtype == "crescendo" else "15"
         stop_spread = "15" if wtype == "crescendo" else "0"
+        wedge_no = _next_wedge_number(measure, ns)
+        if end_i < 0:
+            end_i = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
         _insert_standalone_wedge(
             measure,
             ns,
@@ -4641,6 +4740,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             placement=placement,
             before_note_index=start_i,
             wedge_spread=start_spread,
+            wedge_number=wedge_no,
         )
         _insert_standalone_wedge(
             measure,
@@ -4649,8 +4749,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             wtype="stop",
             staff_n=staff_n,
             placement=placement,
-            before_note_index=end_i if end_i >= 0 else len(notes),
+            after_note_index=end_i if end_i >= 0 else None,
             wedge_spread=stop_spread,
+            wedge_number=wedge_no,
         )
         return True
 
@@ -4669,7 +4770,12 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         placement = str(fix.get("placement") or "below").strip().lower()
         if placement not in ("above", "below"):
             placement = "below"
+        wedge_no = _open_wedge_number_on_staff(measure, ns, staff_n)
         _remove_wedge_stops_on_staff(measure, ns, staff_n)
+        notes = [c for c in list(measure) if _local(c) == "note"]
+        end_i = before_idx
+        if end_i < 0:
+            end_i = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
         _insert_standalone_wedge(
             measure,
             ns,
@@ -4677,7 +4783,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             wtype="stop",
             staff_n=staff_n,
             placement=placement,
-            before_note_index=before_idx if before_idx >= 0 else len(notes),
+            after_note_index=end_i if end_i >= 0 else None,
+            wedge_number=wedge_no,
         )
         return True
 

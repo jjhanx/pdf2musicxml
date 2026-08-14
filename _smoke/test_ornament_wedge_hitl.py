@@ -73,13 +73,14 @@ assert {d.get("directionValue") for d in wedge_dirs} == {"crescendo", "stop"}, w
 measure = root.find(".//{*}measure")
 children = list(measure)
 notes = [c for c in children if (c.tag.endswith("note") if "}" in (c.tag or "") else c.tag == "note")]
-# stop should sit immediately before note index 4
+# stop should sit immediately after note index 4 (이 음까지)
 note4 = notes[4]
 stop_el = None
 for i, c in enumerate(children):
     if c is note4:
-        prev = children[i - 1]
-        stop_el = prev.find(".//{*}wedge")
+        nxt = children[i + 1] if i + 1 < len(children) else None
+        if nxt is not None:
+            stop_el = nxt.find(".//{*}wedge") if hasattr(nxt, "find") else None
         break
 assert stop_el is not None and stop_el.get("type") == "stop"
 
@@ -102,18 +103,65 @@ note5 = notes[5]
 stop_el = None
 stop_count = 0
 for i, c in enumerate(children):
-    w = c.find("{*}wedge") if hasattr(c, "find") else None
     tag = c.tag.rsplit("}", 1)[-1] if "}" in (c.tag or "") else c.tag
-    if tag == "direction":
-        w = None
-        for el in c.iter():
-            loc = el.tag.rsplit("}", 1)[-1] if "}" in el.tag else el.tag
-            if loc == "wedge" and el.get("type") == "stop":
-                w = el
-                stop_count += 1
-        if w is not None and i + 1 < len(children) and children[i + 1] is note5:
-            stop_el = w
+    if tag != "direction":
+        continue
+    w = None
+    for el in c.iter():
+        loc = el.tag.rsplit("}", 1)[-1] if "}" in el.tag else el.tag
+        if loc == "wedge" and el.get("type") == "stop":
+            w = el
+            stop_count += 1
+    if w is not None and i > 0 and children[i - 1] is note5:
+        stop_el = w
 assert stop_count == 1, stop_count
 assert stop_el is not None and stop_el.get("type") == "stop"
+
+# 마지막 음까지 — stop은 그 음 뒤·backup 앞 (barline/다음 마디 아님)
+root2 = ET.fromstring(
+    """<score-partwise version="3.1">
+<part id="P5"><measure number="5">
+<attributes><divisions>1</divisions><staves>2</staves></attributes>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><staff>1</staff></note>
+<note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><staff>1</staff></note>
+<backup><duration>2</duration></backup>
+<note><pitch><step>C</step><octave>3</octave></pitch><duration>2</duration><type>half</type><staff>2</staff></note>
+<barline location="right"><bar-style>regular</bar-style></barline>
+</measure></part></score-partwise>"""
+)
+assert apply_fix(
+    root2,
+    "",
+    {
+        "kind": "insertWedge",
+        "partId": "P5",
+        "measureMxl": "5",
+        "directionValue": "crescendo",
+        "fromNoteIndex": 0,
+        "toNoteIndex": 1,
+        "staff": 1,
+        "placement": "below",
+    },
+)
+m2 = root2.find(".//{*}measure")
+ch2 = list(m2)
+notes2 = [c for c in ch2 if (c.tag.endswith("note") if "}" in (c.tag or "") else c.tag == "note")]
+last_pr = notes2[1]
+stop_after_last = False
+bar_idx = next(i for i, c in enumerate(ch2) if (c.tag.endswith("barline") if "}" in (c.tag or "") else c.tag == "barline"))
+for i, c in enumerate(ch2):
+    tag = c.tag.rsplit("}", 1)[-1] if "}" in (c.tag or "") else c.tag
+    if tag != "direction":
+        continue
+    types = [
+        el.get("type")
+        for el in c.iter()
+        if (el.tag.rsplit("}", 1)[-1] if "}" in el.tag else el.tag) == "wedge"
+    ]
+    if "stop" in types:
+        assert i < bar_idx, "stop must not sit at/after barline (OSMD next-measure)"
+        assert ch2[i - 1] is last_pr
+        stop_after_last = True
+assert stop_after_last
 
 print("ornament+wedge hitl ok")

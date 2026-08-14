@@ -232,7 +232,9 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   if (fix.kind === 'insertWedge' || fix.kind === 'moveWedgeStop') {
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
     if (fix.directionValue) parts.push(fix.directionValue);
-    if (fix.kind === 'moveWedgeStop' && fix.beforeNoteIndex != null) parts.push(`끝 #${fix.beforeNoteIndex}`);
+    if (fix.kind === 'moveWedgeStop' && (fix.beforeNoteIndex != null || fix.toNoteIndex != null)) {
+      parts.push(`끝 #${fix.beforeNoteIndex ?? fix.toNoteIndex} 뒤`);
+    }
   }
   if (fix.kind === 'addArticulation' || fix.kind === 'setArticulationPlacement' || fix.kind === 'removeArticulation') {
     if (fix.articulation) parts.push(fix.articulation);

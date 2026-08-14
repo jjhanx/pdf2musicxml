@@ -422,6 +422,131 @@ function noteGroupWithChords(measure: Element, leader: Element): Element[] {
   return group;
 }
 
+/** print·attributes·선두 direction 뒤에 오는가 — 첫 note 앞 header. */
+export function isMeasureHeaderChild(measure: Element, el: Element): boolean {
+  for (const c of [...measure.children]) {
+    if (c === el) return true;
+    const tag = xmlLocalName(c);
+    if (tag === 'print' || tag === 'attributes' || tag === 'direction') continue;
+    return false;
+  }
+  return false;
+}
+
+/** 첫 note 앞이 아닌, 해당 음 바로 앞의 mid-measure `<direction>` (wedge stop 등). */
+export function leadingDirectionsBeforeNote(measure: Element, note: Element): Element[] {
+  const children = [...measure.children];
+  const idx = children.indexOf(note);
+  if (idx < 0) return [];
+  const out: Element[] = [];
+  for (let i = idx - 1; i >= 0; i -= 1) {
+    const el = children[i]!;
+    if (xmlLocalName(el) !== 'direction') break;
+    if (isMeasureHeaderChild(measure, el)) break;
+    out.unshift(el);
+  }
+  return out;
+}
+
+/** 화음 그룹 바로 뒤 trailing direction (wedge stop을 마지막 음 뒤에 둔 경우). */
+export function trailingDirectionsAfterNoteGroup(measure: Element, leader: Element): Element[] {
+  const group = noteGroupWithChords(measure, leader);
+  const last = group[group.length - 1];
+  if (!last) return [];
+  const children = [...measure.children];
+  const idx = children.indexOf(last);
+  if (idx < 0) return [];
+  const out: Element[] = [];
+  for (let i = idx + 1; i < children.length; i += 1) {
+    const el = children[i]!;
+    if (xmlLocalName(el) !== 'direction') break;
+    out.push(el);
+  }
+  return out;
+}
+
+export function lastRhythmicNoteInMeasure(measure: Element): Element | null {
+  let last: Element | null = null;
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (child.querySelector(':scope > chord, :scope > *|chord')) continue;
+    last = child;
+  }
+  return last;
+}
+
+function directionWedgeType(dir: Element): string | null {
+  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    for (const w of [...dt.children].filter((c) => xmlLocalName(c) === 'wedge')) {
+      const t = (w.getAttribute('type') || '').trim().toLowerCase();
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
+function directionStaffNumber(dir: Element): number {
+  const st = dir.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
+  return st && /^\d+$/.test(st) ? parseInt(st, 10) : 1;
+}
+
+function firstRhythmicNoteOnStaff(measure: Element, staffN: number): Element | null {
+  for (const c of [...measure.children]) {
+    if (xmlLocalName(c) !== 'note') continue;
+    if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
+    if (noteStaffNumber(c) !== staffN) continue;
+    return c;
+  }
+  return null;
+}
+
+function lastRhythmicNoteOnStaff(measure: Element, staffN: number): Element | null {
+  let last: Element | null = null;
+  for (const c of [...measure.children]) {
+    if (xmlLocalName(c) !== 'note') continue;
+    if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
+    if (noteStaffNumber(c) !== staffN) continue;
+    last = c;
+  }
+  return last;
+}
+
+function insertDirectionAfterNoteGroup(measure: Element, direction: Element, leader: Element): void {
+  const group = noteGroupWithChords(measure, leader);
+  const last = group[group.length - 1] ?? leader;
+  direction.remove();
+  const after = last.nextElementSibling;
+  if (after) measure.insertBefore(direction, after);
+  else measure.appendChild(direction);
+}
+
+/**
+ * OSMD: 마디 처음(첫 음 앞)이나 barline에 있는 wedge stop은 다음 마디 t=0으로 붙어
+ * 닫히지 않은 점선이 다음 마디 끝까지 이어진다. 그 경우만 해당 staff 마지막 음 뒤로 옮긴다.
+ * 중간 음 앞의 stop은 그대로 둔다(끝 음이 마지막이 아닌 점선).
+ */
+export function reanchorWedgeStopsForOsmdPreview(measure: Element, staffN: number): void {
+  const first = firstRhythmicNoteOnStaff(measure, staffN);
+  const last = lastRhythmicNoteOnStaff(measure, staffN);
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'direction') continue;
+    if (directionWedgeType(child) !== 'stop') continue;
+    if (directionStaffNumber(child) !== staffN) continue;
+    const children = [...measure.children];
+    const idx = children.indexOf(child);
+    const next = idx >= 0 && idx + 1 < children.length ? children[idx + 1] : null;
+    if (next && xmlLocalName(next) === 'note' && noteStaffNumber(next) === staffN) {
+      if (first && next === first) {
+        if (last) insertDirectionAfterNoteGroup(measure, child, last);
+        else child.remove();
+      }
+      continue;
+    }
+    if (last) insertDirectionAfterNoteGroup(measure, child, last);
+    else child.remove();
+  }
+}
+
 function ensureChordTag(note: Element): void {
   if (note.querySelector('chord, *|chord') !== null) return;
   const doc = note.ownerDocument;
@@ -844,6 +969,15 @@ type VoiceLayerBlock = { kind: 'forward' | 'note-group'; nodes: Element[] };
 
 function collectVoiceLayerBlocks(measure: Element): Map<string, VoiceLayerBlock[]> {
   const byVoice = new Map<string, VoiceLayerBlock[]>();
+  const trailingByLeader = new Map<Element, Element[]>();
+  const claimedTrailing = new Set<Element>();
+  for (const el of [...measure.children]) {
+    if (xmlLocalName(el) !== 'note') continue;
+    if (el.querySelector('chord, *|chord') !== null) continue;
+    const trailing = trailingDirectionsAfterNoteGroup(measure, el);
+    trailingByLeader.set(el, trailing);
+    for (const d of trailing) claimedTrailing.add(d);
+  }
   let lastVoice = '1';
   for (const el of [...measure.children]) {
     const tag = xmlLocalName(el);
@@ -860,7 +994,11 @@ function collectVoiceLayerBlocks(measure: Element): Map<string, VoiceLayerBlock[
       const v = noteVoiceNumber(el);
       lastVoice = v;
       const list = byVoice.get(v) ?? [];
-      list.push({ kind: 'note-group', nodes: noteGroupWithChords(measure, el) });
+      const leading = leadingDirectionsBeforeNote(measure, el).filter((d) => !claimedTrailing.has(d));
+      list.push({
+        kind: 'note-group',
+        nodes: [...leading, ...noteGroupWithChords(measure, el), ...(trailingByLeader.get(el) ?? [])],
+      });
       byVoice.set(v, list);
     }
   }
@@ -871,7 +1009,10 @@ function voiceLayerBlocksDuration(blocks: VoiceLayerBlock[]): number {
   let cursor = 0;
   for (const block of blocks) {
     if (block.kind === 'forward') cursor += timelineDurationEl(block.nodes[0]!);
-    else cursor += noteDurationValue(block.nodes[0]!);
+    else {
+      const note = block.nodes.find((n) => xmlLocalName(n) === 'note');
+      if (note) cursor += noteDurationValue(note);
+    }
   }
   return cursor;
 }
@@ -906,10 +1047,20 @@ export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boole
   const voices = [...byVoice.keys()].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99));
   if (voices.length < 2) return false;
 
+  const gluedDirs = new Set<Element>();
+  for (const blocks of byVoice.values()) {
+    for (const block of blocks) {
+      for (const node of block.nodes) {
+        if (xmlLocalName(node) === 'direction') gluedDirs.add(node);
+      }
+    }
+  }
+
   const timelineTags = new Set(['note', 'backup', 'forward']);
   const detached: Element[] = [];
   for (const child of [...measure.children]) {
-    if (!timelineTags.has(xmlLocalName(child))) continue;
+    const tag = xmlLocalName(child);
+    if (!timelineTags.has(tag) && !gluedDirs.has(child)) continue;
     measure.removeChild(child);
     detached.push(child);
   }

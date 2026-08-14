@@ -776,17 +776,9 @@ def _save_pymupdf_document(doc, opened_path: str, out_path: str) -> None:
         doc.save(tmp, deflate=True, garbage=3)
         doc.close()
         os.replace(tmp, opened_path)
-        saved = opened_path
     else:
         doc.save(out_path, deflate=True, garbage=3)
         doc.close()
-        saved = out_path
-    try:
-        from compress_score_pdf import compress_score_pdf
-
-        compress_score_pdf(saved)
-    except Exception:
-        pass
 
 
 def mask_bbox_text_regions(

@@ -1126,12 +1126,6 @@ def mask_pdf(pdf_in, pdf_out, json_path):
     finally:
         doc.close()
         fitz.TOOLS.set_small_glyph_heights(prev_glyph_h)
-    try:
-        from compress_score_pdf import compress_score_pdf
-
-        compress_score_pdf(pdf_out)
-    except Exception:
-        pass
 
 
 if __name__ == "__main__":

@@ -276,12 +276,6 @@ def mask(input_pdf: str, extracted_json: str, output_pdf: str):
             
     doc.save(output_pdf)
     doc.close()
-    try:
-        from compress_score_pdf import compress_score_pdf
-
-        compress_score_pdf(output_pdf)
-    except Exception:
-        pass
     print(f" -> {output_pdf}", file=sys.stderr)
 
 def analyze(extracted_json: str):

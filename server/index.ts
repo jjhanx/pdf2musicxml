@@ -1619,27 +1619,6 @@ function sessionCleanScorePdfPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'clean_score_only.pdf');
 }
 
-async function compressScorePdfIfNeeded(pythonBin: string, pdfPath: string): Promise<void> {
-  const script = path.join(__dirname, '..', 'scripts', 'compress_score_pdf.py');
-  if (!fsSync.existsSync(script) || !fsSync.existsSync(pdfPath)) return;
-  try {
-    const st = await fs.stat(pdfPath);
-    if (st.size < 12 * 1024 * 1024) return;
-  } catch {
-    return;
-  }
-  try {
-    const { stdout } = await exec(`"${pythonBin}" "${script}" "${pdfPath}"`, {
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    const line = String(stdout).trim();
-    if (line) console.log(`compress_score_pdf: ${line}`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`compress_score_pdf failed (${pdfPath}): ${msg}`);
-  }
-}
-
 function sessionOcrPymupdfReviewPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'ocr_data_pymupdf.json');
 }
@@ -3462,7 +3441,6 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           });
           return;
         }
-        await compressScorePdfIfNeeded(pythonBin, cleanScorePath);
 
         const scoreTitleForMask = await ensureAutoScoreTitleInConfig(
           sessionRoot,
@@ -3866,7 +3844,6 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           console.log(`[job ${jobId}] ${extractedJsonPath} not found. Proceeding without masking.`);
           await fs.copyFile(inputPdfPath, cleanScorePath);
         }
-        await compressScorePdfIfNeeded(pythonBin, cleanScorePath);
       }
       
       setJobProgress(job, {
@@ -6327,16 +6304,10 @@ app.post('/api/omr-hitl/:jobId/export-work/start', async (req, res) => {
   void (async () => {
     const pythonBin = resolvePythonBin();
     const zipOut = path.join(job.sessionRoot, 'omr-work-export.zip');
-    const compactDir = path.join(job.sessionRoot, '_export_compact');
     try {
       job.workExport = { percent: 8, detail: 'MXL 동기화 중…', done: false, building: true };
       await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
       await invalidateInspectScoreCache(job.sessionRoot);
-
-      job.workExport = { percent: 18, detail: '큰 PDF 압축 중…', done: false, building: true };
-      await fs.mkdir(compactDir, { recursive: true });
-      const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
-      await compressScorePdfIfNeeded(pythonBin, cleanScorePath);
 
       const files: Array<{ abs: string; name: string }> = [];
       files.push({ abs: mxlPath, name: 'review.mxl' });
@@ -6351,38 +6322,24 @@ app.post('/api/omr-hitl/:jobId/export-work/start', async (req, res) => {
       const checkpointPath = sessionOmrHitlCheckpointPath(job.sessionRoot);
       if (fsSync.existsSync(checkpointPath)) files.push({ abs: checkpointPath, name: 'omr_hitl_checkpoint.json' });
 
+      const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
       const pdfIncluded: { cleanScore?: boolean; input?: boolean } = {};
       if (fsSync.existsSync(cleanScorePath)) {
         files.push({ abs: cleanScorePath, name: 'clean_score_only.pdf' });
         pdfIncluded.cleanScore = true;
       }
       const inputPath = job.inputPdfPath;
-      const inputDistinct =
+      if (
         inputPath &&
         fsSync.existsSync(inputPath) &&
-        (!pdfIncluded.cleanScore || path.resolve(inputPath) !== path.resolve(cleanScorePath));
-      if (inputDistinct && inputPath) {
-        const inputCopy = path.join(compactDir, 'input.pdf');
-        await fs.copyFile(inputPath, inputCopy);
-        await compressScorePdfIfNeeded(pythonBin, inputCopy);
-        files.push({ abs: inputCopy, name: 'input.pdf' });
+        (!pdfIncluded.cleanScore || path.resolve(inputPath) !== path.resolve(cleanScorePath))
+      ) {
+        files.push({ abs: inputPath, name: 'input.pdf' });
         pdfIncluded.input = true;
       }
       const deskewedPdfPath = path.join(job.sessionRoot, 'deskewed.pdf');
-      if (fsSync.existsSync(deskewedPdfPath) && inputPath && fsSync.existsSync(inputPath)) {
-        const a = fsSync.statSync(deskewedPdfPath).size;
-        const b = fsSync.statSync(inputPath).size;
-        if (Math.abs(a - b) > 2048) {
-          const deskewCopy = path.join(compactDir, 'deskewed.pdf');
-          await fs.copyFile(deskewedPdfPath, deskewCopy);
-          await compressScorePdfIfNeeded(pythonBin, deskewCopy);
-          files.push({ abs: deskewCopy, name: 'deskewed.pdf' });
-        }
-      } else if (fsSync.existsSync(deskewedPdfPath) && !inputPath) {
-        const deskewCopy = path.join(compactDir, 'deskewed.pdf');
-        await fs.copyFile(deskewedPdfPath, deskewCopy);
-        await compressScorePdfIfNeeded(pythonBin, deskewCopy);
-        files.push({ abs: deskewCopy, name: 'deskewed.pdf' });
+      if (fsSync.existsSync(deskewedPdfPath)) {
+        files.push({ abs: deskewedPdfPath, name: 'deskewed.pdf' });
       }
 
       const extras: Array<[string, string]> = [
@@ -6396,7 +6353,7 @@ app.post('/api/omr-hitl/:jobId/export-work/start', async (req, res) => {
         if (fsSync.existsSync(abs)) files.push({ abs, name });
       }
 
-      job.workExport = { percent: 40, detail: 'ZIP 묶는 중…', done: false, building: true };
+      job.workExport = { percent: 20, detail: 'ZIP 묶는 중…', done: false, building: true };
       const displayPdfName =
         job.sourcePdfDisplayName ??
         readSourcePdfDisplayNameSync(job.sessionRoot) ??
@@ -6420,7 +6377,7 @@ app.post('/api/omr-hitl/:jobId/export-work/start', async (req, res) => {
           const total = p.fs.totalBytes || 0;
           const processed = p.fs.processedBytes || 0;
           const frac = total > 0 ? processed / total : 0;
-          const percent = Math.min(95, 40 + Math.round(frac * 55));
+          const percent = Math.min(95, 20 + Math.round(frac * 75));
           job.workExport = {
             percent,
             detail: `ZIP 묶는 중… ${percent}%`,

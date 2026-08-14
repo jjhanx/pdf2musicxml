@@ -82,6 +82,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   setNoteDirection: '음표 direction',
   clearNoteDirection: 'direction 지우기',
   addArticulation: '표(articulation) 추가',
+  setArticulationPlacement: '표 위/아래',
   addOrnament: '꾸밈음(ornament) 추가',
   removeOrnament: '꾸밈음(ornament) 제거',
   insertWedge: '셈여림 점선(wedge) 추가',
@@ -232,6 +233,11 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
     if (fix.directionValue) parts.push(fix.directionValue);
     if (fix.kind === 'moveWedgeStop' && fix.beforeNoteIndex != null) parts.push(`끝 #${fix.beforeNoteIndex}`);
+  }
+  if (fix.kind === 'addArticulation' || fix.kind === 'setArticulationPlacement' || fix.kind === 'removeArticulation') {
+    if (fix.articulation) parts.push(fix.articulation);
+    if (fix.placement === 'above') parts.push('위');
+    if (fix.placement === 'below') parts.push('아래');
   }
   if (fix.kind === 'addOrnament' || fix.kind === 'removeOrnament') {
     if (fix.ornament) parts.push(fix.ornament);

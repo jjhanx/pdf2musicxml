@@ -139,6 +139,24 @@ function articulationIdsFromEl(arts: string[] | undefined): string[] {
   return (arts ?? []).map((a) => a.split('(')[0]);
 }
 
+function markPlacementOf(raw: string): 'above' | 'below' | null {
+  if (/\(above\)/.test(raw)) return 'above';
+  if (/\(below\)/.test(raw)) return 'below';
+  return null;
+}
+
+function defaultArticulationPlacement(stem?: string | null): 'above' | 'below' {
+  if (stem === 'up') return 'below';
+  if (stem === 'down') return 'above';
+  return 'above';
+}
+
+function placementKo(pl: 'above' | 'below' | null | undefined): string {
+  if (pl === 'above') return '위';
+  if (pl === 'below') return '아래';
+  return '';
+}
+
 function isLikelySpuriousDirection(text: string | null | undefined): boolean {
   const compact = (text ?? '').replace(/\s+/g, '');
   if (!compact) return false;
@@ -1972,6 +1990,10 @@ function MeasureNoteEditor({
   const [chordOctave, setChordOctave] = useState(4);
   const [chordAlter, setChordAlter] = useState<PitchAlterOption>('0');
   const [pendingArtIds, setPendingArtIds] = useState<string[]>([]);
+  const [pendingArtPlacement, setPendingArtPlacement] = useState<Record<string, 'above' | 'below'>>({});
+  const [artPlacement, setArtPlacement] = useState<'above' | 'below'>(() =>
+    defaultArticulationPlacement(el.stem),
+  );
   const [pendingOrnamentIds, setPendingOrnamentIds] = useState<string[]>([]);
   const [graceStep, setGraceStep] = useState(parsed.step);
   const [graceOctave, setGraceOctave] = useState(parsed.octave);
@@ -1981,6 +2003,8 @@ function MeasureNoteEditor({
 
   useEffect(() => {
     setPendingArtIds([]);
+    setPendingArtPlacement({});
+    setArtPlacement(defaultArticulationPlacement(el.stem));
     setPendingOrnamentIds([]);
     const p = parsePitch(el.pitch);
     setPitchStep(p.step);
@@ -2101,6 +2125,8 @@ function MeasureNoteEditor({
       )}
       {(chordLeaderEl?.articulations ?? []).map((art) => {
         const name = art.split('(')[0];
+        const currentPl = markPlacementOf(art);
+        const selectPl = currentPl ?? defaultArticulationPlacement(chordLeaderEl?.stem ?? el.stem);
         const beamSide = (chordLeaderEl?.stem ?? el.stem) === 'up' ? 'above' : (chordLeaderEl?.stem ?? el.stem) === 'down' ? 'below' : null;
         const likelyTupletDigit =
           (chordLeaderEl?.timeMod ?? el.timeMod) != null &&
@@ -2108,19 +2134,40 @@ function MeasureNoteEditor({
           beamSide != null &&
           art.includes(beamSide);
         return (
-          <button
-            key={art}
-            type="button"
-            className={`omr-hitl-fix-btn${likelyTupletDigit ? ' omr-hitl-fix-btn--primary' : ''}`}
-            title={
-              likelyTupletDigit
-                ? '잇단 숫자(3)를 가리는 점 — OMR이 숫자를 스타카토로 오인한 것일 가능성이 높습니다'
-                : `이 음표의 ${name} 표를 제거합니다`
-            }
-            onClick={() => onFix({ kind: 'removeArticulation', noteIndex: chordLeaderIdx, articulation: name })}
-          >
-            {likelyTupletDigit ? `세잇단 숫자 가린 점(${name}) 제거` : `${name} 제거`}
-          </button>
+          <span key={art} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`omr-hitl-fix-btn${likelyTupletDigit ? ' omr-hitl-fix-btn--primary' : ''}`}
+              title={
+                likelyTupletDigit
+                  ? '잇단 숫자(3)를 가리는 점 — OMR이 숫자를 스타카토로 오인한 것일 가능성이 높습니다'
+                  : `이 음표의 ${name} 표를 제거합니다`
+              }
+              onClick={() => onFix({ kind: 'removeArticulation', noteIndex: chordLeaderIdx, articulation: name })}
+            >
+              {likelyTupletDigit ? `세잇단 숫자 가린 점(${name}) 제거` : `${name} 제거`}
+            </button>
+            <label className="omr-measure-inline-field">
+              위치
+              <select
+                value={selectPl}
+                onChange={(e) => {
+                  const next = e.target.value as 'above' | 'below';
+                  if (next === currentPl) return;
+                  onFix({
+                    kind: 'setArticulationPlacement',
+                    noteIndex: chordLeaderIdx,
+                    articulation: name,
+                    placement: next,
+                  });
+                }}
+                style={{ marginLeft: 4 }}
+              >
+                <option value="above">위</option>
+                <option value="below">아래</option>
+              </select>
+            </label>
+          </span>
         );
       })}
       {el.kind === 'note' && (
@@ -2128,32 +2175,60 @@ function MeasureNoteEditor({
           <span className="omr-measure-articulation-current">
             현재 표:{' '}
             {displayArtIds.length > 0
-              ? displayArtIds.map((id) => articulationOptionLabel(id)).join(' · ')
+              ? displayArtIds
+                  .map((id) => {
+                    const saved = (chordLeaderEl?.articulations ?? []).find((a) => a.split('(')[0] === id);
+                    const pl = saved
+                      ? markPlacementOf(saved)
+                      : pendingArtPlacement[id] ?? null;
+                    const side = placementKo(pl);
+                    return `${articulationOptionLabel(id)}${side ? ` (${side})` : ''}`;
+                  })
+                  .join(' · ')
               : '없음'}
             {pendingArtIds.length > 0 && savedArtIds.length < displayArtIds.length ? (
               <span className="omr-measure-articulation-pending"> (반영 대기)</span>
             ) : null}
           </span>
           {addableArtOptions.length > 0 ? (
-            <label className="omr-measure-inline-field omr-measure-articulation-add">
-              표 더 추가
-              <select
-                value=""
-                onChange={(e) => {
-                  const art = e.target.value;
-                  if (!art) return;
-                  setPendingArtIds((prev) => (prev.includes(art) ? prev : [...prev, art]));
-                  onFix({ kind: 'addArticulation', noteIndex: chordLeaderIdx, articulation: art });
-                }}
-              >
-                <option value="">— 종류 선택 —</option>
-                {addableArtOptions.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label className="omr-measure-inline-field">
+                위치
+                <select
+                  value={artPlacement}
+                  onChange={(e) => setArtPlacement(e.target.value as 'above' | 'below')}
+                  style={{ marginLeft: 4 }}
+                >
+                  <option value="above">위</option>
+                  <option value="below">아래</option>
+                </select>
+              </label>
+              <label className="omr-measure-inline-field omr-measure-articulation-add">
+                표 더 추가
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const art = e.target.value;
+                    if (!art) return;
+                    setPendingArtIds((prev) => (prev.includes(art) ? prev : [...prev, art]));
+                    setPendingArtPlacement((prev) => ({ ...prev, [art]: artPlacement }));
+                    onFix({
+                      kind: 'addArticulation',
+                      noteIndex: chordLeaderIdx,
+                      articulation: art,
+                      placement: artPlacement,
+                    });
+                  }}
+                >
+                  <option value="">— 종류 선택 —</option>
+                  {addableArtOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
           ) : (
             <span className="omr-measure-articulation-full">추가 가능한 표 없음</span>
           )}

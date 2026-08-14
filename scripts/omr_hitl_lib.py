@@ -4561,6 +4561,30 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 art_el.set("placement", auto)
         return True
 
+    if kind == "setArticulationPlacement":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        art = str(fix.get("articulation") or "").strip().lower().split("(")[0]
+        placement = str(fix.get("placement") or "").strip().lower()
+        if art not in _ARTICULATION_TAGS or placement not in ("above", "below"):
+            return False
+        note = notes[idx]
+        changed = False
+        for notations in note.findall(_q(ns, "notations")):
+            for arts in notations.findall(_q(ns, "articulations")):
+                for el in arts:
+                    if _local(el) != art:
+                        continue
+                    if el.get("placement") == placement:
+                        continue
+                    el.set("placement", placement)
+                    changed = True
+        return changed
+
     if kind == "addOrnament":
         try:
             idx = int(fix.get("noteIndex"))
@@ -6712,6 +6736,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "removeMeasureTempo",
         "addArticulation",
         "removeArticulation",
+        "setArticulationPlacement",
         "addOrnament",
         "removeOrnament",
         "insertWedge",

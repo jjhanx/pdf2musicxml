@@ -274,12 +274,12 @@ def mask(input_pdf: str, extracted_json: str, output_pdf: str):
             # Draw white rectangle
             page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1))
             
-    doc.save(output_pdf)
+    doc.save(output_pdf, deflate=True, garbage=4)
     doc.close()
     try:
         from compress_score_pdf import compress_score_pdf
 
-        compress_score_pdf(output_pdf, reference_path=input_pdf)
+        compress_score_pdf(output_pdf)
     except Exception:
         pass
     print(f" -> {output_pdf}", file=sys.stderr)

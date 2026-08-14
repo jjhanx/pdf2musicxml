@@ -42,6 +42,8 @@ pm2 logs pdf2mxl --lines 200 --nostream | grep -E "Part labels saved|inject_ocr|
 
 `merge_lyric_sources.py`의 `Output:`·`stats` 줄은 **stderr가 아니라 통계**이며 실패가 아닙니다. `mxl_quality_lint.py`의 `AttributeError`(예: 83번 줄)는 **옛 스크립트** — `git pull` 후 재시작하세요.
 
+이미지 PDF의 `clean_score`가 수백 MB였다가 JPEG로 줄인 뒤 **연속 쉼표 마디**가 보이면, 옛 JPEG 재인코딩 산출물입니다. `git pull` 후 **원본 PDF로 변환을 처음부터** 다시 하세요(같은 job의 옛 `clean_score`를 재사용하지 않음). 가사는 픽셀에서 지우고, 용량은 무손실 PNG/Flate만 씁니다.
+
 ### B. 1단계 — clean_score 만들 때 (폰트 strip)
 
 1. 변환 시작 → **폰트 크기 선택** UI가 뜨면:

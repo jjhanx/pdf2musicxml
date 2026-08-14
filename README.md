@@ -137,6 +137,8 @@ pip install pikepdf pdfplumber
 | `MASK_PDF_LYRIC_WHITE_FALLBACK` | (선택) `1`이면 가사 블록에서 글립 리덕을 하나도 못 만들 때 **전체 bbox 흰 박스** 폴백(기본 끔; 음표까지 가릴 수 있음). |
 | `MASK_PDF_MANUAL_LYRIC_MASK` | **기본 적용**(의미 없는 값 또는 생략=켜짐; `0`/`false`/`off`로 끔). 검토 UI에서 사용자가 표시한 **수동 가사 마스킹 영역**(`ocr_data.json` 의 `type`: `_manual_lyric_mask`, `manualRects`) 안의 텍스트 글림만 선택 리덕합니다. **`MASK_PDF_LYRIC_MUSIC_SAFE`를 적용하지 않습니다**(영역 책임은 사용자). |
 
+이미지 PDF `clean_score`: 가사는 `apply_redactions(images=PIXELS)`로 **픽셀에서** 지웁니다(Audiveris는 흰 벡터 칸을 무시함). 풀린 비트맵은 **무손실 PNG/Flate**만 하고, OMR 입력 JPEG를 품질 82 등으로 다시 넣지 않습니다(연속 쉼표 마디 오인).
+
 품질·호환 이슈(한글 파일명, mxlplayer `realValue`, 마디 수 등)는 [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md)를 참고하세요.
 
 영구 설정 예 (`~/.bashrc`):

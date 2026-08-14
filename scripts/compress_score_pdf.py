@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""이미지 악보 PDF — 마스킹 후 비압축 PNG로 불어난 스트림을 JPEG로 되돌림.
+"""마스킹 후 비압축으로 풀린 이미지 스트림만 무손실 압축.
 
-픽셀 크기(약 300 DPI)는 유지한다. 원본이 JPEG 이미지 PDF(~수 MB)인데
-mask/save 후 수백 MB가 되는 것은 해상도 증가가 아니라 스트림이 raw PNG로
-풀리기 때문이다. 벡터 전용 PDF는 손대지 않는다.
+원본 JPEG를 다시 JPEG로 넣으면(품질 82 등) 손실이 생겨 OMR이 연속 쉼표 마디로
+오인한다. 이미 작은 JPEG는 그대로 두고, 비압축/과대 PNG 스트림만 같은 픽셀로
+PNG(Flate) 한다. 벡터 PDF는 건너뛴다.
 """
 from __future__ import annotations
 
@@ -14,15 +14,15 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-_JPEG_QUALITY = 82
-_MIN_BYTES = 8 * 1024 * 1024
+_MIN_BYTES = 2 * 1024 * 1024
+# 픽셀 raw 대비 이보다 작으면 이미 압축된 것으로 본다.
+_ALREADY_COMPRESSED_RATIO = 0.40
 
 
 def compress_score_pdf(
     pdf_path: str | Path,
     out_path: str | Path | None = None,
     *,
-    jpeg_quality: int = _JPEG_QUALITY,
     min_bytes: int = _MIN_BYTES,
     reference_path: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -31,18 +31,12 @@ def compress_score_pdf(
     src = Path(pdf_path)
     dest = Path(out_path) if out_path else src
     before = src.stat().st_size if src.is_file() else 0
-    ref_bytes = 0
-    if reference_path:
-        ref = Path(reference_path)
-        if ref.is_file():
-            ref_bytes = ref.stat().st_size
     stats: dict[str, Any] = {
         "path": str(dest),
         "beforeBytes": before,
         "afterBytes": before,
-        "referenceBytes": ref_bytes or None,
         "imagesConverted": 0,
-        "jpegQuality": jpeg_quality,
+        "mode": "lossless-png",
         "skipped": False,
         "reason": "",
     }
@@ -55,74 +49,96 @@ def compress_score_pdf(
         stats["reason"] = "small"
         return stats
 
-    def _run(quality: int) -> tuple[int, int]:
-        doc = fitz.open(src)
-        converted = 0
-        try:
-            for page in doc:
-                for im in page.get_images(full=True):
-                    xref = int(im[0])
-                    try:
-                        pix = fitz.Pixmap(doc, xref)
-                    except Exception:
-                        continue
-                    if pix.n - pix.alpha >= 4 or pix.alpha:
-                        pix = fitz.Pixmap(fitz.csRGB, pix)
-                    try:
-                        jpg = pix.tobytes("jpeg", jpg_quality=quality)
-                    except TypeError:
-                        jpg = pix.tobytes("jpeg")
+    doc = fitz.open(src)
+    converted = 0
+    try:
+        for page in doc:
+            for im in page.get_images(full=True):
+                xref = int(im[0])
+                try:
+                    info = doc.extract_image(xref)
+                except Exception:
+                    continue
+                if not info:
+                    continue
+                ext = str(info.get("ext") or "").lower()
+                blob = info.get("image") or b""
+                w = int(info.get("width") or 0)
+                h = int(info.get("height") or 0)
+                if w <= 0 or h <= 0 or not blob:
+                    continue
+                # 원본 JPEG는 건드리지 않음 — 재인코딩이 OMR 쉼표 오인의 원인
+                if ext in ("jpeg", "jpg", "jpx", "jp2"):
+                    continue
+                raw_est = w * h * 3
+                if raw_est > 0 and len(blob) < raw_est * _ALREADY_COMPRESSED_RATIO:
+                    continue
+                try:
+                    pix = fitz.Pixmap(doc, xref)
+                except Exception:
+                    continue
+                if pix.n - pix.alpha >= 4 or pix.alpha:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                try:
+                    png = pix.tobytes("png")
+                except Exception:
                     pix = None
-                    if not jpg:
-                        continue
-                    try:
-                        page.replace_image(xref, stream=jpg)
-                        converted += 1
-                    except Exception:
-                        continue
-            if converted == 0:
-                return 0, before
-            tmp_fd, tmp_name = tempfile.mkstemp(suffix=".pdf", dir=str(dest.parent))
-            os.close(tmp_fd)
+                    continue
+                pix = None
+                if not png or len(png) >= len(blob) * 0.95:
+                    continue
+                try:
+                    page.replace_image(xref, stream=png)
+                    converted += 1
+                except Exception:
+                    continue
+
+        if converted == 0:
+            stats["skipped"] = True
+            stats["reason"] = "no-uncompressed-raster"
             try:
+                tmp_fd, tmp_name = tempfile.mkstemp(suffix=".pdf", dir=str(dest.parent))
+                os.close(tmp_fd)
                 doc.save(tmp_name, deflate=True, garbage=4)
                 doc.close()
                 doc = None
-                os.replace(tmp_name, dest)
-            except Exception:
-                if os.path.exists(tmp_name):
+                after = Path(tmp_name).stat().st_size
+                if after < before * 0.9:
+                    os.replace(tmp_name, dest)
+                    stats["afterBytes"] = after
+                    stats["skipped"] = False
+                    stats["reason"] = "deflate-only"
+                else:
                     os.unlink(tmp_name)
-                raise
-            return converted, dest.stat().st_size
-        finally:
-            if doc is not None:
-                try:
-                    doc.close()
-                except Exception:
-                    pass
+                    stats["afterBytes"] = before
+            except Exception:
+                stats["afterBytes"] = before
+            return stats
 
-    converted, after = _run(jpeg_quality)
-    if converted == 0:
-        stats["skipped"] = True
-        stats["reason"] = "no-raster-or-convert-failed"
+        tmp_fd, tmp_name = tempfile.mkstemp(suffix=".pdf", dir=str(dest.parent))
+        os.close(tmp_fd)
+        try:
+            doc.save(tmp_name, deflate=True, garbage=4)
+            doc.close()
+            doc = None
+            os.replace(tmp_name, dest)
+        except Exception:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+            raise
+        after = dest.stat().st_size
+        stats["afterBytes"] = after
+        stats["imagesConverted"] = converted
+        if after >= before * 0.9:
+            stats["skipped"] = True
+            stats["reason"] = "no-gain"
         return stats
-
-    # 원본보다 여전히 크게 부풀면 품질을 한 단계 낮춰 재시도(해상도는 동일)
-    if ref_bytes > 0 and after > max(ref_bytes * 2, min_bytes) and jpeg_quality > 70:
-        q2 = max(70, jpeg_quality - 12)
-        converted2, after2 = _run(q2)
-        if converted2 > 0 and after2 < after:
-            converted, after = converted2, after2
-            jpeg_quality = q2
-            stats["jpegQuality"] = q2
-
-    stats["afterBytes"] = after
-    stats["imagesConverted"] = converted
-    stats["jpegQuality"] = jpeg_quality
-    if after >= before * 0.9:
-        stats["skipped"] = True
-        stats["reason"] = "no-gain"
-    return stats
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
 
 
 def main() -> int:
@@ -131,9 +147,8 @@ def main() -> int:
         return 2
     src = Path(sys.argv[1])
     dest = Path(sys.argv[2]) if len(sys.argv) > 2 else src
-    ref = Path(sys.argv[3]) if len(sys.argv) > 3 else None
     try:
-        stats = compress_score_pdf(src, dest, reference_path=ref)
+        stats = compress_score_pdf(src, dest)
         print(json.dumps(stats, ensure_ascii=False))
         return 0
     except Exception as e:

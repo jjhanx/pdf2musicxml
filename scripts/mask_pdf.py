@@ -1052,6 +1052,9 @@ def mask_pdf(pdf_in, pdf_out, json_path):
 
             rects_fallback = redact_rects.get(pidx, []) or [] if first_pass else []
 
+            # 이미지 PDF(lyric_selective 끔): Audiveris는 흰 벡터 칸을 무시하므로
+            # IMAGE_PIXELS로 가사 픽셀을 지운다. 풀린 스트림은 저장 후 무손실 PNG/Flate만 한다.
+            # JPEG 재인코딩은 OMR이 연속 쉼표 마디로 오인하므로 하지 않는다.
             img_r = 0 if lyric_selective else getattr(fitz, "PDF_REDACT_IMAGE_PIXELS", 2)
             if not _apply_page_redactions(page, img_redact=img_r):
                 print(
@@ -1122,15 +1125,15 @@ def mask_pdf(pdf_in, pdf_out, json_path):
             for r in rects:
                 page.draw_rect(r, color=(1, 1, 1), fill=(1, 1, 1))
 
-        doc.save(pdf_out)
+        doc.save(pdf_out, deflate=True, garbage=4)
     finally:
         doc.close()
         fitz.TOOLS.set_small_glyph_heights(prev_glyph_h)
     try:
         from compress_score_pdf import compress_score_pdf
 
-        # 마스킹만 해도 save 시 비압축 PNG로 수백 MB가 됨 — 원본과 같은 픽셀·JPEG로 되돌림
-        compress_score_pdf(pdf_out, reference_path=pdf_in)
+        # 이미 풀린 비압축 스트림만 무손실 Flate/PNG. JPEG 재인코딩 없음(OMR 쉼표 오인 방지).
+        compress_score_pdf(pdf_out)
     except Exception:
         pass
 

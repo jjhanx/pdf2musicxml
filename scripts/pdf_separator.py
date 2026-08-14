@@ -784,7 +784,7 @@ def _save_pymupdf_document(doc, opened_path: str, out_path: str) -> None:
     try:
         from compress_score_pdf import compress_score_pdf
 
-        compress_score_pdf(saved, reference_path=opened_path)
+        compress_score_pdf(saved)
     except Exception:
         pass
 

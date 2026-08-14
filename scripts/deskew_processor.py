@@ -129,19 +129,26 @@ def apply(input_pdf: str, angles_json: str, output_pdf: str):
             
             rotated_img = cv2.warpAffine(img_np, M, (nW, nH), borderValue=(255, 255, 255))
             
-            # Convert back to fitz Pixmap
+            # Convert back to fitz Pixmap, then lossless PNG (JPEG 재인코딩은 OMR 쉼표 오인).
             rotated_pix = fitz.Pixmap(fitz.csRGB, nW, nH, rotated_img.tobytes(), 0) # 0 for alpha
             out_page = out_doc.new_page(width=nW / zoom, height=nH / zoom)
-            out_page.insert_image(out_page.rect, pixmap=rotated_pix)
+            png = rotated_pix.tobytes("png")
+            out_page.insert_image(out_page.rect, stream=png)
         else:
             # If no rotation, just insert the page directly to preserve vector
             out_doc.insert_pdf(doc, from_page=page_idx, to_page=page_idx)
             
         print(f"PROGRESS: {page_idx + 1}/{len(doc)}", flush=True)
             
-    out_doc.save(output_pdf)
+    out_doc.save(output_pdf, deflate=True, garbage=4)
     out_doc.close()
     doc.close()
+    try:
+        from compress_score_pdf import compress_score_pdf
+
+        compress_score_pdf(output_pdf)
+    except Exception:
+        pass
     
     print(f"[deskew_processor] Deskew complete -> {output_pdf}", file=sys.stderr)
 

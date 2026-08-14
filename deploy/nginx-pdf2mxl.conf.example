@@ -1,0 +1,30 @@
+# pdf2musicxml 앞단 nginx 예 (Ubuntu)
+
+# 사용:
+#   sudo cp deploy/nginx-pdf2mxl.conf.example /etc/nginx/sites-available/pdf2mxl
+#   sudo ln -sf /etc/nginx/sites-available/pdf2mxl /etc/nginx/sites-enabled/pdf2mxl
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# 이미 사이트가 있으면 server { } 안에 아래 두 줄만 추가해도 됩니다.
+#   client_max_body_size 256m;
+#   proxy_read_timeout 3600s;
+
+server {
+    listen 80;
+    server_name _;
+
+    # Node 업로드 한도(256MB)와 맞춤. 기본 1m 이면 omr-work.zip 3단계에서 413.
+    client_max_body_size 256m;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_request_buffering off;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

@@ -6339,7 +6339,22 @@ app.post('/api/omr-hitl/:jobId/export-work/start', async (req, res) => {
       }
       const deskewedPdfPath = path.join(job.sessionRoot, 'deskewed.pdf');
       if (fsSync.existsSync(deskewedPdfPath)) {
-        files.push({ abs: deskewedPdfPath, name: 'deskewed.pdf' });
+        const inputAbs =
+          inputPath && fsSync.existsSync(inputPath) ? path.resolve(inputPath) : '';
+        const deskewAbs = path.resolve(deskewedPdfPath);
+        const samePath = Boolean(inputAbs) && deskewAbs === inputAbs;
+        let sameBytes = false;
+        if (!samePath && inputAbs) {
+          try {
+            sameBytes = fsSync.statSync(deskewedPdfPath).size === fsSync.statSync(inputPath!).size;
+          } catch {
+            sameBytes = false;
+          }
+        }
+        // 수평 보정 후 input.pdf가 deskewed와 같으면 ZIP에 한 번만 넣는다(100MB급 413 방지).
+        if (!samePath && !sameBytes) {
+          files.push({ abs: deskewedPdfPath, name: 'deskewed.pdf' });
+        }
       }
 
       const extras: Array<[string, string]> = [

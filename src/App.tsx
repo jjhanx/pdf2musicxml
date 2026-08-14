@@ -9,6 +9,7 @@ import { OmrStaffReviewPanel } from './OmrStaffReviewPanel';
 import { PartLabelsPanel } from './PartLabelsPanel';
 import { defaultPartLabels } from './partLabelOptions';
 import { ManualLyricMaskPanel, type ManualLyricBBox } from './ManualLyricMaskPanel';
+import { formatConvertHttpError } from '../shared/uploadHttpError';
 
 type Health = {
   ok: boolean;
@@ -927,14 +928,8 @@ export default function App() {
     const acceptCt = acceptRes.headers.get('Content-Type') ?? '';
 
     if (acceptRes.status !== 202) {
-      let msg = `HTTP ${acceptRes.status}`;
-      if (acceptCt.includes('application/json')) {
-        const j = (await acceptRes.json()) as { error?: string; detail?: string; stderrTail?: string };
-        msg = [j.error, j.detail, j.stderrTail].filter(Boolean).join('\n') || msg;
-      } else {
-        msg = await acceptRes.text();
-      }
-      return { errorMessage: msg };
+      const raw = await acceptRes.text();
+      return { errorMessage: formatConvertHttpError(acceptRes.status, acceptCt, raw) };
     }
 
     const accepted = (await acceptRes.json()) as { jobId?: string };
@@ -2028,12 +2023,20 @@ export default function App() {
                       <input type="file" accept=".zip,application/zip" hidden onChange={(e) => setResumeOmrWorkFile(e.target.files?.[0] ?? null)} disabled={busy} />
                     </label>
                     <span style={{ fontSize: '0.85rem', color: resumeOmrWorkFile ? '#fff' : '#aaa' }}>
-                      {resumeOmrWorkFile ? resumeOmrWorkFile.name : '선택하지 않음'}
+                      {resumeOmrWorkFile
+                        ? `${resumeOmrWorkFile.name} (${(resumeOmrWorkFile.size / (1024 * 1024)).toFixed(1)} MB)`
+                        : '선택하지 않음'}
                     </span>
                     {resumeOmrWorkFile && (
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeOmrWorkFile(null)}>✖ 취소</button>
                     )}
                   </div>
+                  {resumeOmrWorkFile && resumeOmrWorkFile.size > 8 * 1024 * 1024 && (
+                    <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', lineHeight: 1.45, color: '#fbbf24' }}>
+                      이 ZIP은 {(resumeOmrWorkFile.size / (1024 * 1024)).toFixed(0)}MB입니다. nginx 기본 한도(1MB)면
+                      413이 납니다. 서버에 <code>client_max_body_size 256m;</code> 후 <code>sudo nginx -s reload</code> 하세요.
+                    </p>
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>lyric_manifest.json (ZIP에 없을 때 · 선택)</span>

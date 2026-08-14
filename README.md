@@ -296,9 +296,11 @@ DNS는 **호스트명 → IP**만 제공합니다. `http://도메인`은 **80번
 
 - **502 Bad Gateway**: nginx가 **업스트림(Node)에 TCP 연결을 못 하거나**, 앱이 **기동 직후 크래시**하면 납니다. 서버에서 `curl -sS http://127.0.0.1:8787/api/health`(포트는 환경에 맞게)로 직접 확인하고, `pm2 logs pdf2mxl` 등으로 **Node/TS 구문 오류·모듈 누락**을 봅니다. `proxy_pass`의 호스트·포트가 실제 리슨과 같은지 확인하세요.
 - **진행률이 안 바뀜 / 항상 '변환 중…'만 보임**: 브라우저·역프록시가 **`GET /api/status`를 캐시**하면 JSON이 갱신되지 않을 수 있습니다. 최신 코드는 응답에 `Cache-Control: no-store`를 붙이고, 클라이언트는 `fetch(..., { cache: 'no-store' })`로 폴링합니다. nginx에서 **`proxy_cache`** 를 쓰는 경우 `location /api/` 에 대해 캐시를 끄거나 해당 URI를 제외하세요.
+- **413 Request Entity Too Large (3단계 omr-work.zip 업로드 실패)**  
+  HTML이 nginx에서 그대로 나옵니다. **앱 한도는 256MB**인데 nginx 기본은 **1MB**입니다. `server { }`에 `client_max_body_size 256m;` 를 넣고 `sudo nginx -t && sudo nginx -s reload` 하세요. 예: [deploy/nginx-pdf2mxl.conf.example](deploy/nginx-pdf2mxl.conf.example). 급하면 ZIP에서 `clean_score_only.pdf`·`input.pdf`·`deskewed.pdf`를 빼고 올려도 3단계(MXL·가사)는 됩니다.
 - **504 Gateway Time-out (역프록시 뒤에서 변환/업로드 중 끊김)**  
   - **POST `/api/convert`**: nginx는 백엔드가 **202를 보낼 때까지** 응답을 기다립니다. 이 202는 **파일 업로드·저장이 끝난 뒤** 나가므로, **매우 큰 PDF·느린 업링크**에서는 업로드 시간만큼 `proxy_read_timeout`이 필요할 수 있습니다. 변환 자체는 202 이후 백그라운드에서 돌아가므로 긴 Audiveris 처리는 **상태 폴링**으로 이어집니다.  
-  - **다운로드**: `/api/download/...` 로 ZIP 등을 오래 받는 경우에도 프록시 **읽기 타임아웃**에 걸릴 수 있습니다. nginx 예: `proxy_read_timeout 3600s;`, `proxy_send_timeout 3600s;`, 필요 시 `client_max_body_size`(서버 업로드 한도 **256MB**)도 조정하세요.
+  - **다운로드**: `/api/download/...` 로 ZIP 등을 오래 받는 경우에도 프록시 **읽기 타임아웃**에 걸릴 수 있습니다. nginx 예: `proxy_read_timeout 3600s;`, `proxy_send_timeout 3600s;`, **`client_max_body_size 256m;`**(서버 업로드 한도 **256MB**). 예 설정: [deploy/nginx-pdf2mxl.conf.example](deploy/nginx-pdf2mxl.conf.example).
 - **업로드 단계에서 멈춘 것처럼 보임 / 작은 PDF인데 진행이 안 됨**: 과거 **업로드 도중 202**를 보내던 방식은 HTTP 클라이언트·프록시에 따라 **POST 본문 전송이 교착**될 수 있습니다. 최신 코드는 **저장 완료 후 202**입니다. 배포 후 `/api/convert` 응답 헤더에 `X-Pdf2Mxl-Async: 202-after-upload`인지 확인하세요.
 - **Failed to fetch (변환 목록에 실패)**  
   브라우저가 **`GET /api/status` 폴링 중 네트워크가 끊긴** 경우입니다. 노트북 절전·Wi‑Fi 재연결·브라우저 탭 장시간 백그라운드·**서버 `pm2 restart`** 등이 흔한 원인입니다. 최신 UI는 **최대 12시간** 네트워크 끊김까지 자동 재시도합니다. 그래도 실패하면 서버에서 `pm2 logs pdf2mxl --lines 100`으로 **작업이 서버에서 끝났는지** 확인하세요. 서버 재시작 후에는 메모리上的 jobId가 사라지므로 **처음부터 다시** 하거나, 이미 만든 **`clean_score_only.pdf`·`lyric_manifest.json`·`omr-work.zip`** 으로 **2~4단계**만 이어가는 것이 안전합니다. **1단계 full을 밤새 브라우저만 켜 두고 기다리기**보다 단계별 저장·재개를 권장합니다.

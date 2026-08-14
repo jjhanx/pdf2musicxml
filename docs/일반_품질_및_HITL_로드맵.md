@@ -44,6 +44,8 @@ pm2 logs pdf2mxl --lines 200 --nostream | grep -E "Part labels saved|inject_ocr|
 
 이미지 PDF의 `clean_score`가 수백 MB였다가 JPEG로 줄인 뒤 **연속 쉼표 마디**가 보이면, 옛 JPEG 재인코딩 산출물입니다. `git pull` 후 **원본 PDF로 변환을 처음부터** 다시 하세요(같은 job의 옛 `clean_score`를 재사용하지 않음). 가사는 픽셀에서 지우고, 용량은 무손실 PNG/Flate만 씁니다.
 
+피아노 PL처럼 같은 오선에 voice가 둘이면, 미리보기에서 짧은 쉼표는 음자리표 중선에 걸칩니다(F=D3). 강력 새로고침 후 해당 마디를 다시 보면 됩니다.
+
 ### B. 1단계 — clean_score 만들 때 (폰트 strip)
 
 1. 변환 시작 → **폰트 크기 선택** UI가 뜨면:

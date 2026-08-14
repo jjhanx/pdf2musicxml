@@ -1321,6 +1321,28 @@ def _from_diatonic_index(idx: int) -> tuple[str, int]:
     return step, octave
 
 
+def _set_rest_display_step_octave(
+    rest_el: ET.Element, ns: str, step: str, octave: int
+) -> bool:
+    """쉼표 display-step/octave를 오선 위치로 맞춘다. 바뀌면 True."""
+    step_el = rest_el.find(_q(ns, "display-step"))
+    oct_el = rest_el.find(_q(ns, "display-octave"))
+    changed = False
+    if step_el is None:
+        step_el = ET.SubElement(rest_el, _q(ns, "display-step"))
+        changed = True
+    if (step_el.text or "").strip() != step:
+        step_el.text = step
+        changed = True
+    if oct_el is None:
+        oct_el = ET.SubElement(rest_el, _q(ns, "display-octave"))
+        changed = True
+    if (oct_el.text or "").strip() != str(octave):
+        oct_el.text = str(octave)
+        changed = True
+    return changed
+
+
 def _note_staff_number(note: ET.Element, ns: str) -> int | None:
     staff_el = note.find(_q(ns, "staff"))
     if staff_el is None or staff_el.text is None or not staff_el.text.strip().isdigit():
@@ -4974,6 +4996,7 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
         "measuresChanged": 0,
         "measuresOverfullLeft": 0,
         "restDisplayCleared": 0,
+        "restDisplayPinned": 0,
         "tupletStaccatoRemoved": 0,
     }
     for part in root.findall(_q(ns, "part")):
@@ -5033,6 +5056,21 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
 
             measure_changed = False
 
+            staff_voices: dict[int, set[str]] = {}
+            for note in list_note_elements(measure, ns):
+                if note.find(_q(ns, "grace")) is not None:
+                    continue
+                if note.find(_q(ns, "chord")) is not None:
+                    continue
+                staff_n = _note_staff_number(note, ns) or 1
+                voice_el = note.find(_q(ns, "voice"))
+                voice = (
+                    (voice_el.text or "1").strip()
+                    if voice_el is not None and voice_el.text
+                    else "1"
+                )
+                staff_voices.setdefault(staff_n, set()).add(voice)
+
             # whole/half rest display-step C/D/E → 제거 (온쉼·2분쉼 한 줄 위로 붙는 현상)
             for note in list_note_elements(measure, ns):
                 rest_el = note.find(_q(ns, "rest"))
@@ -5055,7 +5093,7 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                 stats["restDisplayCleared"] += 1
                 measure_changed = True
 
-            # 4·8·16분 등 짧은 쉼 display-step(B4 등) → 제거
+            # 다성부 짧은 쉼: 오선 중선에 고정. 단성부는 힌트 제거(OSMD 기본 위치).
             for note in list_note_elements(measure, ns):
                 rest_el = note.find(_q(ns, "rest"))
                 if rest_el is None:
@@ -5065,6 +5103,14 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                     (type_el.text or "").strip() if type_el is not None and type_el.text else ""
                 )
                 if note_type not in ("quarter", "eighth", "16th", "32nd", "64th", "128th"):
+                    continue
+                staff_n = _note_staff_number(note, ns) or 1
+                if len(staff_voices.get(staff_n, ())) >= 2:
+                    sign, line = _clef_for_note_in_part(part, measure, note, ns)
+                    step, octave = _from_diatonic_index(_middle_line_diatonic(sign, line))
+                    if _set_rest_display_step_octave(rest_el, ns, step, octave):
+                        stats["restDisplayPinned"] += 1
+                        measure_changed = True
                     continue
                 step_el = rest_el.find(_q(ns, "display-step"))
                 if step_el is None or not step_el.text:
@@ -5150,7 +5196,12 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
 def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
     files, root_path, root = load_mxl_root(mxl_path)
     stats = normalize_rest_durations_root(root)
-    if stats["restsFixed"] > 0 or stats["restDisplayCleared"] > 0 or stats["tupletStaccatoRemoved"] > 0:
+    if (
+        stats["restsFixed"] > 0
+        or stats["restDisplayCleared"] > 0
+        or stats["restDisplayPinned"] > 0
+        or stats["tupletStaccatoRemoved"] > 0
+    ):
         write_mxl_root(mxl_path, files, root_path, root)
     return {"path": str(mxl_path), **stats}
 

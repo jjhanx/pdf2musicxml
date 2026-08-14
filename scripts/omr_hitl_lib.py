@@ -63,6 +63,23 @@ _ARTICULATION_TAGS = frozenset(
         "caesura",
     }
 )
+# MusicXML <ornaments> — OMR이 원본에 없는 모르덴트 등을 넣는 경우 HITL에서 삭제·추가
+_ORNAMENT_TAGS = frozenset(
+    {
+        "trill-mark",
+        "turn",
+        "delayed-turn",
+        "inverted-turn",
+        "mordent",
+        "inverted-mordent",
+        "shake",
+        "wavy-line",
+        "schleifer",
+        "tremolo",
+        "haydn",
+    }
+)
+_WEDGE_TYPES = frozenset({"crescendo", "diminuendo", "stop"})
 
 
 def _ns(root: ET.Element) -> str:
@@ -629,6 +646,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
             time_mod = f"{an.text.strip()}:{nn.text.strip()}"
     tuplet = None
     articulations: list[str] = []
+    ornaments: list[str] = []
     fermatas: list[str] = []
     for notations in note.findall(_q(ns, "notations")):
         for tup in notations.findall(_q(ns, "tuplet")):
@@ -638,6 +656,15 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
                 name = _local(art)
                 placement = art.get("placement")
                 articulations.append(f"{name}({placement})" if placement else name)
+        for orns in notations.findall(_q(ns, "ornaments")):
+            for orn in orns:
+                name = _local(orn)
+                if name not in _ORNAMENT_TAGS:
+                    continue
+                placement = orn.get("placement")
+                extra = (orn.get("type") or "").strip()
+                label = f"{name}:{extra}" if extra else name
+                ornaments.append(f"{label}({placement})" if placement else label)
         for ferm in notations.findall(_q(ns, "fermata")):
             ftype = (ferm.get("type") or "upright").strip() or "upright"
             placement = ferm.get("placement")
@@ -671,6 +698,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "timeMod": time_mod,
         "tuplet": tuplet,
         "articulations": articulations,
+        "ornaments": ornaments,
         "fermatas": fermatas,
         "defaultX": round(dx, 2) if dx is not None else None,
         "playOrder": _read_play_order(note),
@@ -823,6 +851,13 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
     reh = dtype.find(_q(ns, "rehearsal"))
     if reh is not None:
         return {"directionType": "rehearsal", "directionValue": (reh.text or "A").strip()}
+    wedge_type = _wedge_type_of(direction, ns)
+    if wedge_type:
+        pl = (direction.get("placement") or "").strip()
+        out = {"directionType": "wedge", "directionValue": wedge_type}
+        if pl in ("above", "below"):
+            out["placement"] = pl
+        return out
     text = _direction_text(direction)
     return {"directionType": "words", "directionValue": text or ""}
 
@@ -3765,6 +3800,17 @@ def _bind_direction_voice_from_staff(
             return
 
 
+def _wedge_type_of(direction: ET.Element, ns: str) -> str | None:
+    for dtype in direction.findall(_q(ns, "direction-type")):
+        wedge = dtype.find(_q(ns, "wedge"))
+        if wedge is None:
+            continue
+        t = (wedge.get("type") or "").strip().lower()
+        if t:
+            return t
+    return None
+
+
 def _build_direction_element(
     ns: str,
     direction_type: str,
@@ -3773,6 +3819,7 @@ def _build_direction_element(
     staff_n: int | None = None,
     voice_n: int | None = None,
     placement: str | None = None,
+    wedge_spread: str | None = None,
 ) -> ET.Element:
     direction = ET.Element(_q(ns, "direction"))
     if placement in ("above", "below"):
@@ -3823,6 +3870,21 @@ def _build_direction_element(
         words.text = "D.S."
         sound = ET.SubElement(direction, _q(ns, "sound"))
         sound.set("dalsegno", "segno")
+    elif kind == "wedge":
+        wtype = val.lower() if val.lower() in _WEDGE_TYPES else "crescendo"
+        dtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        w = ET.SubElement(dtype, _q(ns, "wedge"))
+        w.set("type", wtype)
+        spread = (wedge_spread or "").strip()
+        if not spread:
+            if wtype == "crescendo":
+                spread = "0"
+            elif wtype == "diminuendo":
+                spread = "15"
+            elif wtype == "stop":
+                spread = "15"
+        if spread:
+            w.set("spread", spread)
     elif kind in _NAVIGATION_DIRECTION_TAGS:
         # 하위 호환 — 알 수 없는 nav 태그는 words로
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
@@ -3838,6 +3900,50 @@ def _build_direction_element(
         staff_el = ET.SubElement(direction, _q(ns, "staff"))
         staff_el.text = str(staff_n)
     return direction
+
+
+def _insert_standalone_wedge(
+    measure: ET.Element,
+    ns: str,
+    notes: list[ET.Element],
+    *,
+    wtype: str,
+    staff_n: int,
+    placement: str | None,
+    before_note_index: int | None,
+    wedge_spread: str | None = None,
+) -> ET.Element:
+    """마디 `<direction><wedge>` — 지정 음표 앞(또는 마디 처음/끝)."""
+    if placement not in ("above", "below"):
+        placement = "below"
+    new_dir = _build_direction_element(
+        ns,
+        "wedge",
+        wtype,
+        staff_n=staff_n,
+        placement=placement,
+        wedge_spread=wedge_spread,
+    )
+    if before_note_index is None or before_note_index < 0:
+        _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
+    elif before_note_index >= len(notes):
+        _insert_direction_at_measure_end(measure, ns, new_dir)
+    else:
+        _insert_before_note_element(measure, ns, new_dir, before_note_index, staff_n=staff_n)
+    _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
+    return new_dir
+
+
+def _remove_wedge_stops_on_staff(measure: ET.Element, ns: str, staff_n: int) -> int:
+    removed = 0
+    for direction in list(measure.findall(_q(ns, "direction"))):
+        if _wedge_type_of(direction, ns) != "stop":
+            continue
+        if (_direction_staff_number(direction, ns) or 1) != staff_n:
+            continue
+        measure.remove(direction)
+        removed += 1
+    return removed
 
 
 def _looks_like_spurious_rest_dot_note(note: ET.Element, ns: str) -> bool:
@@ -4023,6 +4129,38 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 note.remove(notations)
         return removed
 
+    if kind == "removeOrnament":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        raw = str(fix.get("ornament") or "").strip()
+        target = raw.split("(")[0] or None
+        target_type = None
+        if target and ":" in target:
+            target, target_type = target.split(":", 1)
+            target = target.strip() or None
+            target_type = target_type.strip() or None
+        removed = False
+        for notations in list(note.findall(_q(ns, "notations"))):
+            for orns in list(notations.findall(_q(ns, "ornaments"))):
+                for orn in list(orns):
+                    name = _local(orn)
+                    extra = (orn.get("type") or "").strip()
+                    if target is None or (
+                        name == target and (target_type is None or extra == target_type)
+                    ):
+                        orns.remove(orn)
+                        removed = True
+                if len(orns) == 0:
+                    notations.remove(orns)
+            if len(notations) == 0:
+                note.remove(notations)
+        return removed
+
     if kind in ("removeNoteDot", "setNoteUndotted", "clearRestDots"):
         try:
             idx = int(fix.get("noteIndex"))
@@ -4198,6 +4336,32 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         placement = str(fix.get("placement") or "").strip().lower() or None
         if placement not in ("above", "below", ""):
             placement = None
+        if direction_type == "wedge":
+            wtype = direction_value.lower() if direction_value.lower() in _WEDGE_TYPES else "crescendo"
+            if placement is None:
+                placement = "below"
+            before_idx = fix.get("beforeNoteIndex")
+            if before_idx is None:
+                before_idx = after_idx if after_idx >= 0 else None
+            else:
+                try:
+                    before_idx = int(before_idx)
+                except (TypeError, ValueError):
+                    before_idx = None
+            if measure_anchor == "end":
+                before_idx = len(notes)
+            elif measure_anchor == "start":
+                before_idx = -1
+            _insert_standalone_wedge(
+                measure,
+                ns,
+                notes,
+                wtype=wtype,
+                staff_n=staff_n,
+                placement=placement,
+                before_note_index=before_idx,
+            )
+            return True
         if _is_navigation_direction_type(direction_type):
             if placement is None:
                 placement = "above"
@@ -4395,6 +4559,102 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             auto = _default_articulation_placement(note, ns)
             if auto:
                 art_el.set("placement", auto)
+        return True
+
+    if kind == "addOrnament":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        orn = str(fix.get("ornament") or "").strip().lower().split("(")[0]
+        if ":" in orn:
+            orn = orn.split(":", 1)[0]
+        if orn not in _ORNAMENT_TAGS:
+            return False
+        note = notes[idx]
+        if note.find(_q(ns, "rest")) is not None:
+            return False
+        notations = _ensure_notations(note, ns)
+        orns = notations.find(_q(ns, "ornaments"))
+        if orns is None:
+            orns = ET.SubElement(notations, _q(ns, "ornaments"))
+        for existing in orns:
+            if _local(existing) == orn:
+                return False
+        orn_el = ET.SubElement(orns, _q(ns, orn))
+        placement = str(fix.get("placement") or "").strip().lower()
+        if placement in ("above", "below"):
+            orn_el.set("placement", placement)
+        else:
+            orn_el.set("placement", "above")
+        return True
+
+    if kind == "insertWedge":
+        wtype = str(fix.get("directionValue") or fix.get("wedgeType") or "crescendo").strip().lower()
+        if wtype not in ("crescendo", "diminuendo"):
+            wtype = "crescendo"
+        try:
+            start_i = int(fix.get("fromNoteIndex"))
+            end_i = int(fix.get("toNoteIndex"))
+            staff_n = int(fix.get("staff", 1))
+        except (TypeError, ValueError):
+            return False
+        if start_i < 0:
+            start_i = 0
+        placement = str(fix.get("placement") or "below").strip().lower()
+        if placement not in ("above", "below"):
+            placement = "below"
+        start_spread = "0" if wtype == "crescendo" else "15"
+        stop_spread = "15" if wtype == "crescendo" else "0"
+        _insert_standalone_wedge(
+            measure,
+            ns,
+            notes,
+            wtype=wtype,
+            staff_n=staff_n,
+            placement=placement,
+            before_note_index=start_i,
+            wedge_spread=start_spread,
+        )
+        _insert_standalone_wedge(
+            measure,
+            ns,
+            notes,
+            wtype="stop",
+            staff_n=staff_n,
+            placement=placement,
+            before_note_index=end_i if end_i >= 0 else len(notes),
+            wedge_spread=stop_spread,
+        )
+        return True
+
+    if kind == "moveWedgeStop":
+        try:
+            staff_n = int(fix.get("staff", 1))
+        except (TypeError, ValueError):
+            return False
+        before_idx = fix.get("beforeNoteIndex")
+        if before_idx is None:
+            before_idx = fix.get("toNoteIndex", fix.get("noteIndex"))
+        try:
+            before_idx = int(before_idx)
+        except (TypeError, ValueError):
+            return False
+        placement = str(fix.get("placement") or "below").strip().lower()
+        if placement not in ("above", "below"):
+            placement = "below"
+        _remove_wedge_stops_on_staff(measure, ns, staff_n)
+        _insert_standalone_wedge(
+            measure,
+            ns,
+            notes,
+            wtype="stop",
+            staff_n=staff_n,
+            placement=placement,
+            before_note_index=before_idx if before_idx >= 0 else len(notes),
+        )
         return True
 
     if kind == "addFermata":
@@ -6450,6 +6710,12 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "clearNoteDirection",
         "setMeasureTempo",
         "removeMeasureTempo",
+        "addArticulation",
+        "removeArticulation",
+        "addOrnament",
+        "removeOrnament",
+        "insertWedge",
+        "moveWedgeStop",
     }
     measure_structure_kinds = {"insertEmptyMeasureBefore", "insertEmptyMeasureAfter"}
     pending = list(fixes)

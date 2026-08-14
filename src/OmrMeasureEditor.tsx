@@ -116,6 +116,25 @@ function articulationOptionLabel(id: string): string {
   return ARTICULATION_ADD_OPTIONS.find((o) => o.id === id)?.label ?? id;
 }
 
+const ORNAMENT_ADD_OPTIONS: { id: string; label: string }[] = [
+  { id: 'inverted-mordent', label: 'Inverted mordent (짧은 지그재그, 윗모르덴트)' },
+  { id: 'mordent', label: 'Mordent (모르덴트)' },
+  { id: 'trill-mark', label: 'Trill (트릴)' },
+  { id: 'turn', label: 'Turn (턴)' },
+  { id: 'inverted-turn', label: 'Inverted turn' },
+  { id: 'delayed-turn', label: 'Delayed turn' },
+  { id: 'shake', label: 'Shake' },
+];
+
+function ornamentOptionLabel(id: string): string {
+  const base = id.split(':')[0];
+  return ORNAMENT_ADD_OPTIONS.find((o) => o.id === base)?.label ?? id;
+}
+
+function ornamentIdsFromEl(orns: string[] | undefined): string[] {
+  return (orns ?? []).map((a) => a.split('(')[0]);
+}
+
 function articulationIdsFromEl(arts: string[] | undefined): string[] {
   return (arts ?? []).map((a) => a.split('(')[0]);
 }
@@ -347,6 +366,8 @@ export type MeasureNoteEl = {
   tuplet?: string | null;
   /** 붙어 있는 articulation 목록 (예: "staccato(above)") */
   articulations?: string[];
+  /** 꾸밈음 — inverted-mordent(지그재그) 등. 예: "inverted-mordent(above)" */
+  ornaments?: string[];
   /** 늘임표 (예: "upright", "inverted(below)") */
   fermatas?: string[];
   graceSlash?: boolean | null;
@@ -408,6 +429,28 @@ const NAVIGATION_INSERT_OPTIONS = [
 
 function isNavigationDirection(d: MeasureDirectionEl): boolean {
   return isNavigationDirectionType(d.directionType, d.directionValue || d.text);
+}
+
+function isWedgeDirection(d: MeasureDirectionEl): boolean {
+  const t = (d.directionType || '').trim().toLowerCase();
+  if (t === 'wedge') return true;
+  return /^wedge\(/i.test((d.text || d.directionValue || '').trim());
+}
+
+function wedgeTypeOf(d: MeasureDirectionEl): string {
+  if ((d.directionType || '').trim().toLowerCase() === 'wedge') {
+    return (d.directionValue || '').trim().toLowerCase();
+  }
+  const m = /wedge\(([^)]+)\)/i.exec((d.text || d.directionValue || '').trim());
+  return (m?.[1] || '').trim().toLowerCase();
+}
+
+function wedgeDirectionLabel(d: MeasureDirectionEl): string {
+  const v = wedgeTypeOf(d);
+  if (v === 'crescendo') return 'crescendo (<)';
+  if (v === 'diminuendo') return 'diminuendo (>)';
+  if (v === 'stop') return 'stop (끝)';
+  return d.text || v || 'wedge';
 }
 
 function MeasureNavigationEditor({
@@ -548,6 +591,219 @@ function MeasureNavigationEditor({
   );
 }
 
+function MeasureWedgeEditor({
+  directions,
+  noteEls,
+  partStaveCount,
+  editStaffWithinPart,
+  insertStaff,
+  onFix,
+}: {
+  directions: MeasureDirectionEl[];
+  noteEls: MeasureNoteEl[];
+  partStaveCount: number;
+  editStaffWithinPart?: number | null;
+  insertStaff: number;
+  onFix: (partial: FixPartial) => void;
+}) {
+  const [wedgeKind, setWedgeKind] = useState<'crescendo' | 'diminuendo'>('crescendo');
+  const [staff, setStaff] = useState(editStaffWithinPart ?? insertStaff ?? 1);
+  const [placement, setPlacement] = useState<'above' | 'below'>('below');
+
+  useEffect(() => {
+    setStaff(editStaffWithinPart ?? insertStaff ?? 1);
+  }, [editStaffWithinPart, insertStaff]);
+
+  const staffNotes = noteEls.filter(
+    (n) => isRhythmicSlice(n) && (editStaffWithinPart == null || (n.staff ?? 1) === staff),
+  );
+  const firstIdx = staffNotes[0]?.index ?? 0;
+  const lastIdx = staffNotes[staffNotes.length - 1]?.index ?? firstIdx;
+  const [fromNote, setFromNote] = useState(firstIdx);
+  const [toNote, setToNote] = useState(lastIdx);
+  const [stopNote, setStopNote] = useState(lastIdx);
+
+  useEffect(() => {
+    setFromNote(firstIdx);
+    setToNote(lastIdx);
+    setStopNote(lastIdx);
+  }, [firstIdx, lastIdx, staff, noteEls.length]);
+
+  const noteOptions = [
+    ...staffNotes.map((n) => ({
+      value: n.index,
+      label: `#${n.index} ${noteAnchorLabel(n)}${n.type ? ` ${NOTE_TYPE_LABELS[n.type] ?? n.type}` : ''}`,
+    })),
+    { value: -1, label: '마디 끝 (마지막 음 뒤)' },
+  ];
+
+  return (
+    <div
+      className="omr-measure-wedge-panel"
+      style={{
+        marginBottom: '0.85rem',
+        padding: '0.65rem 0.75rem',
+        background: '#f3e5f5',
+        borderRadius: 6,
+        border: '1px solid #ce93d8',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>셈여림 점선 (wedge / hairpin)</div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        크레센도 <code>&lt;</code> / 디미뉴엔도 <code>&gt;</code> 는{' '}
+        <strong>시작 음 앞</strong>에 들어가고, <strong>wedge(stop)</strong> 은{' '}
+        <strong>끝나는 음 앞</strong>(또는 마디 끝)에 들어가 길이를 정합니다. OMR이 넣은 점선은 여기서
+        지우고, 없거나 길이가 틀린 경우 아래에서 새로 넣거나 끝만 옮기세요.
+      </p>
+      {directions.length > 0 ? (
+        <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {directions.map((d) => (
+            <li
+              key={`wedge-${d.directionIndex}`}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                padding: '0.35rem 0',
+                borderBottom: '1px solid #e1bee7',
+              }}
+            >
+              <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
+                dir #{d.directionIndex}
+                {d.placement ? ` · ${d.placement}` : ''}
+                {d.staff != null ? ` · staff ${d.staff}` : ''}
+              </span>
+              <strong>{wedgeDirectionLabel(d)}</strong>
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                onClick={() =>
+                  onFix({
+                    kind: 'removeDirection',
+                    directionIndex: d.directionIndex,
+                  })
+                }
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>이 마디에 셈여림 점선 없음</p>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <label className="omr-measure-inline-field">
+          종류
+          <select
+            value={wedgeKind}
+            onChange={(e) => setWedgeKind(e.target.value as 'crescendo' | 'diminuendo')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="crescendo">crescendo (&lt;)</option>
+            <option value="diminuendo">diminuendo (&gt;)</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          시작 음
+          <select
+            value={String(fromNote)}
+            onChange={(e) => setFromNote(parseInt(e.target.value, 10))}
+            style={{ marginLeft: 4, minWidth: '9rem' }}
+          >
+            {noteOptions.filter((o) => o.value >= 0).map((o) => (
+              <option key={`from-${o.value}`} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          끝 (stop 앞)
+          <select
+            value={String(toNote)}
+            onChange={(e) => setToNote(parseInt(e.target.value, 10))}
+            style={{ marginLeft: 4, minWidth: '9rem' }}
+          >
+            {noteOptions.map((o) => (
+              <option key={`to-${o.value}`} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {partStaveCount >= 2 && editStaffWithinPart == null ? (
+          <label className="omr-measure-inline-field">
+            staff
+            <select value={String(staff)} onChange={(e) => setStaff(parseInt(e.target.value, 10) || 1)} style={{ marginLeft: 4 }}>
+              <option value="1">staff 1 (PR)</option>
+              <option value="2">staff 2 (PL)</option>
+            </select>
+          </label>
+        ) : null}
+        <label className="omr-measure-inline-field">
+          위치
+          <select value={placement} onChange={(e) => setPlacement(e.target.value as 'above' | 'below')} style={{ marginLeft: 4 }}>
+            <option value="below">아래</option>
+            <option value="above">위</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+          onClick={() =>
+            onFix({
+              kind: 'insertWedge',
+              directionType: 'wedge',
+              directionValue: wedgeKind,
+              fromNoteIndex: fromNote,
+              toNoteIndex: toNote,
+              staff: editStaffWithinPart ?? staff,
+              placement,
+            })
+          }
+        >
+          점선 추가 (시작→끝)
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <label className="omr-measure-inline-field">
+          끝을 옮길 음
+          <select
+            value={String(stopNote)}
+            onChange={(e) => setStopNote(parseInt(e.target.value, 10))}
+            style={{ marginLeft: 4, minWidth: '9rem' }}
+          >
+            {noteOptions.map((o) => (
+              <option key={`stop-${o.value}`} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() =>
+            onFix({
+              kind: 'moveWedgeStop',
+              directionType: 'wedge',
+              directionValue: 'stop',
+              beforeNoteIndex: stopNote >= 0 ? stopNote : undefined,
+              toNoteIndex: stopNote,
+              staff: editStaffWithinPart ?? staff,
+              placement,
+            })
+          }
+        >
+          wedge(stop)을 이 음 앞으로
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MeasureDirectionsEditor({
   directions,
   measureMxl,
@@ -595,7 +851,7 @@ function MeasureDirectionsEditor({
         : ''}
       </p>
       <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {directions.map((d) => (
+        {textDirections.map((d) => (
           <li
             key={`dir-${d.directionIndex}`}
             style={{
@@ -906,6 +1162,7 @@ function elementTitle(
       ? _noteEls.find((n) => n.index === chordLeaderIndex(el, _noteEls)) ?? el
       : el;
   const arts = artSource.articulations?.length ? ` [${artSource.articulations.join(', ')}]` : '';
+  const orns = artSource.ornaments?.length ? ` orn=[${artSource.ornaments.join(', ')}]` : '';
   const ferms = el.fermatas?.length ? ` fermata=${el.fermatas.join(',')}` : '';
   const beam = el.beams?.length ? ` beam=[${el.beams.join(',')}]` : '';
   const dur = el.duration != null ? ` dur=${el.duration}` : '';
@@ -918,7 +1175,7 @@ function elementTitle(
         )
       : '?';
   const graceTag = el.hasGrace ? ` 꾸밈음${el.graceSlash ? '(slash)' : ''}` : '';
-  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${staffVoice}`;
+  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${orns}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${staffVoice}`;
 }
 
 export function OmrMeasureEditor({
@@ -1038,7 +1295,11 @@ export function OmrMeasureEditor({
     [measureDirections],
   );
   const textDirections = useMemo(
-    () => measureDirections.filter((d) => !isNavigationDirection(d)),
+    () => measureDirections.filter((d) => !isNavigationDirection(d) && !isWedgeDirection(d)),
+    [measureDirections],
+  );
+  const wedgeDirections = useMemo(
+    () => measureDirections.filter((d) => isWedgeDirection(d)),
     [measureDirections],
   );
 
@@ -1154,6 +1415,14 @@ export function OmrMeasureEditor({
         <>
           <MeasureNavigationEditor
             directions={navigationDirections}
+            partStaveCount={partStaveCount}
+            editStaffWithinPart={editStaffWithinPart}
+            insertStaff={insertStaff}
+            onFix={pushFix}
+          />
+          <MeasureWedgeEditor
+            directions={wedgeDirections}
+            noteEls={noteEls}
             partStaveCount={partStaveCount}
             editStaffWithinPart={editStaffWithinPart}
             insertStaff={insertStaff}
@@ -1703,6 +1972,7 @@ function MeasureNoteEditor({
   const [chordOctave, setChordOctave] = useState(4);
   const [chordAlter, setChordAlter] = useState<PitchAlterOption>('0');
   const [pendingArtIds, setPendingArtIds] = useState<string[]>([]);
+  const [pendingOrnamentIds, setPendingOrnamentIds] = useState<string[]>([]);
   const [graceStep, setGraceStep] = useState(parsed.step);
   const [graceOctave, setGraceOctave] = useState(parsed.octave);
   const [graceAlter, setGraceAlter] = useState<PitchAlterOption>(pitchAlterToOption(el.pitchAlter));
@@ -1711,6 +1981,7 @@ function MeasureNoteEditor({
 
   useEffect(() => {
     setPendingArtIds([]);
+    setPendingOrnamentIds([]);
     const p = parsePitch(el.pitch);
     setPitchStep(p.step);
     setPitchOctave(p.octave);
@@ -1782,6 +2053,9 @@ function MeasureNoteEditor({
   const savedArtIds = articulationIdsFromEl(chordLeaderEl?.articulations);
   const displayArtIds = [...new Set([...savedArtIds, ...pendingArtIds])];
   const addableArtOptions = ARTICULATION_ADD_OPTIONS.filter((opt) => !displayArtIds.includes(opt.id));
+  const savedOrnamentIds = ornamentIdsFromEl(chordLeaderEl?.ornaments);
+  const displayOrnamentIds = [...new Set([...savedOrnamentIds, ...pendingOrnamentIds])];
+  const addableOrnamentOptions = ORNAMENT_ADD_OPTIONS.filter((opt) => !displayOrnamentIds.includes(opt.id));
   const fermatas = chordLeaderEl?.fermatas ?? el.fermatas ?? [];
   const [fermataTypeSel, setFermataTypeSel] = useState<'upright' | 'inverted'>('upright');
   const [pendingFermata, setPendingFermata] = useState<string | null>(null);
@@ -1792,8 +2066,9 @@ function MeasureNoteEditor({
 
   useEffect(() => {
     setPendingArtIds((prev) => prev.filter((id) => !savedArtIds.includes(id)));
+    setPendingOrnamentIds((prev) => prev.filter((id) => !savedOrnamentIds.includes(id)));
     setPendingFermata(null);
-  }, [savedArtIds.join('|'), fermatas.join('|'), el.index]);
+  }, [savedArtIds.join('|'), savedOrnamentIds.join('|'), fermatas.join('|'), el.index]);
 
   return (
     <div className="omr-measure-element-actions">
@@ -1881,6 +2156,56 @@ function MeasureNoteEditor({
             </label>
           ) : (
             <span className="omr-measure-articulation-full">추가 가능한 표 없음</span>
+          )}
+        </div>
+      )}
+      {(chordLeaderEl?.ornaments ?? []).map((orn) => {
+        const name = orn.split('(')[0];
+        return (
+          <button
+            key={orn}
+            type="button"
+            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+            title={`이 음표의 ${ornamentOptionLabel(name)} 꾸밈음을 제거합니다`}
+            onClick={() => onFix({ kind: 'removeOrnament', noteIndex: chordLeaderIdx, ornament: name })}
+          >
+            {ornamentOptionLabel(name)} 제거
+          </button>
+        );
+      })}
+      {el.kind === 'note' && (
+        <div className="omr-measure-articulation-row">
+          <span className="omr-measure-articulation-current">
+            꾸밈음:{' '}
+            {displayOrnamentIds.length > 0
+              ? displayOrnamentIds.map((id) => ornamentOptionLabel(id)).join(' · ')
+              : '없음'}
+            {pendingOrnamentIds.length > 0 && savedOrnamentIds.length < displayOrnamentIds.length ? (
+              <span className="omr-measure-articulation-pending"> (반영 대기)</span>
+            ) : null}
+          </span>
+          {addableOrnamentOptions.length > 0 ? (
+            <label className="omr-measure-inline-field omr-measure-articulation-add">
+              꾸밈음 추가
+              <select
+                value=""
+                onChange={(e) => {
+                  const orn = e.target.value;
+                  if (!orn) return;
+                  setPendingOrnamentIds((prev) => (prev.includes(orn) ? prev : [...prev, orn]));
+                  onFix({ kind: 'addOrnament', noteIndex: chordLeaderIdx, ornament: orn, placement: 'above' });
+                }}
+              >
+                <option value="">— 종류 선택 —</option>
+                {addableOrnamentOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="omr-measure-articulation-full">추가 가능한 꾸밈음 없음</span>
           )}
         </div>
       )}

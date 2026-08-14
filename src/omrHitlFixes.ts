@@ -44,9 +44,10 @@ export type OmrHitlFix = {
   fromPitchOctave?: number;
   fromPitchAlter?: number;
   removeFollowingNote?: boolean;
-  directionType?: 'dynamics' | 'words' | 'rehearsal' | 'segno' | 'coda' | 'fine' | 'dacapo' | 'dalsegno' | 'tocoda';
+  directionType?: 'dynamics' | 'words' | 'rehearsal' | 'segno' | 'coda' | 'fine' | 'dacapo' | 'dalsegno' | 'tocoda' | 'wedge';
   directionValue?: string;
   placement?: 'above' | 'below';
+  ornament?: string;
   /** 진행 제어 — 마디 처음(start) / 마디 끝(end). above/below보다 우선. */
   measureAnchor?: 'start' | 'end';
   tempoBpm?: number;
@@ -81,6 +82,10 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   setNoteDirection: '음표 direction',
   clearNoteDirection: 'direction 지우기',
   addArticulation: '표(articulation) 추가',
+  addOrnament: '꾸밈음(ornament) 추가',
+  removeOrnament: '꾸밈음(ornament) 제거',
+  insertWedge: '셈여림 점선(wedge) 추가',
+  moveWedgeStop: 'wedge(stop) 위치',
   removeTrailingPhantomRest: '마디 끝 쉼표 제거',
   setNoteStaff: '스태프 지정',
   nudgeRestDisplay: '쉼표 줄 이동',
@@ -146,6 +151,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.tieEnd ?? '',
     fix.slurEnd ?? '',
     fix.articulation ?? '',
+    fix.ornament ?? '',
     fix.fermataType ?? '',
     fix.actualNotes ?? '',
     fix.normalNotes ?? '',
@@ -221,6 +227,14 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   }
   if (fix.kind === 'setPlayOrder' && fix.playOrder != null) {
     parts.push(`순번 ${fix.playOrder}`);
+  }
+  if (fix.kind === 'insertWedge' || fix.kind === 'moveWedgeStop') {
+    if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+    if (fix.directionValue) parts.push(fix.directionValue);
+    if (fix.kind === 'moveWedgeStop' && fix.beforeNoteIndex != null) parts.push(`끝 #${fix.beforeNoteIndex}`);
+  }
+  if (fix.kind === 'addOrnament' || fix.kind === 'removeOrnament') {
+    if (fix.ornament) parts.push(fix.ornament);
   }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);

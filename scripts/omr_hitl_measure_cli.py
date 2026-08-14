@@ -14,6 +14,7 @@ from pathlib import Path
 
 from omr_hitl_lib import (  # noqa: E402
     coalesce_spurious_parallel_voices_in_root,
+    dedupe_identical_chord_pitches_in_root,
     load_mxl_root,
     measure_snapshot,
     normalize_play_orders_including_rests_in_root,
@@ -34,16 +35,19 @@ def main() -> int:
         # 전 악보 정규화 — 다른 마디에 남은 옛 순번도 함께 고침
         rest_po_fixed = normalize_play_orders_including_rests_in_root(root)
         coalesce_fixed = coalesce_spurious_parallel_voices_in_root(root)
+        chord_dupes = dedupe_identical_chord_pitches_in_root(root)
         snap = measure_snapshot(root, ns, args.part_id, args.measure)
         if snap is None:
             print(json.dumps({"error": "part or measure not found"}, ensure_ascii=False))
             return 1
-        if rest_po_fixed or coalesce_fixed:
+        if rest_po_fixed or coalesce_fixed or chord_dupes:
             write_mxl_root(args.mxl_path, files, root_path, root)
             if rest_po_fixed:
                 snap["restPlayOrderMeasuresNormalized"] = rest_po_fixed
             if coalesce_fixed:
                 snap["coalesceVoiceMeasures"] = coalesce_fixed
+            if chord_dupes:
+                snap["chordPitchDedupeMeasures"] = chord_dupes
         print(json.dumps(snap, ensure_ascii=False))
         return 0
     except (OSError, ValueError) as e:

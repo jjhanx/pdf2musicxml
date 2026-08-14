@@ -65,6 +65,7 @@ export function repairTimelineForOsmdPreview(xml: string): string {
   out = stripDefaultXyForOsmdPreview(out);
   out = realignDefaultXFromStaffTimelineForOsmdPreview(out);
   out = stripChordBeamsForOsmdPreview(out);
+  out = dedupeIdenticalChordPitchesForOsmdPreview(out);
   return out;
 }
 
@@ -193,6 +194,52 @@ export function stripChordBeamsForOsmdPreview(xml: string): string {
         note.querySelectorAll('beam, *|beam').forEach((beam) => beam.remove());
       }
     });
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+function notePitchKeyForChordDedupe(note: Element): string | null {
+  const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
+  if (!pitch) return null;
+  const step = pitch.querySelector(':scope > step, :scope > *|step')?.textContent?.trim() ?? '';
+  const oct = pitch.querySelector(':scope > octave, :scope > *|octave')?.textContent?.trim() ?? '';
+  const alter = pitch.querySelector(':scope > alter, :scope > *|alter')?.textContent?.trim() ?? '0';
+  if (!step || !oct) return null;
+  return `${step}|${oct}|${alter}`;
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — 한 화음 그룹에 같은 피치가 두 번 있으면 뒤 멤버를 뺀다.
+ * OMR이 유니즌을 중복 `<chord/>`로 넣으면 같은 머리가 두 번 그려진다. 저장 MXL은 HITL 조회·반영에서 정리.
+ */
+export function dedupeIdenticalChordPitchesForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    for (const part of findXmlParts(doc)) {
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        let groupKeys = new Set<string>();
+        for (const child of [...measure.children]) {
+          if (xmlLocalName(child) !== 'note') {
+            groupKeys = new Set();
+            continue;
+          }
+          const isChord = child.querySelector(':scope > chord, :scope > *|chord') != null;
+          if (!isChord) {
+            groupKeys = new Set();
+            const k = notePitchKeyForChordDedupe(child);
+            if (k) groupKeys.add(k);
+            continue;
+          }
+          const k = notePitchKeyForChordDedupe(child);
+          if (k && groupKeys.has(k)) child.remove();
+          else if (k) groupKeys.add(k);
+        }
+      }
+    }
     return serializeMusicXmlDocument(doc);
   } catch {
     return xml;

@@ -2858,6 +2858,47 @@ def _sync_all_chord_groups(notes: list[ET.Element], ns: str) -> bool:
     return changed
 
 
+def _dedupe_identical_pitches_in_chord_groups(measure: ET.Element, ns: str) -> int:
+    """같은 화음 그룹에서 step·octave·alter가 같은 멤버는 하나만 남긴다(OMR 유니즌 중복)."""
+    notes = list_note_elements(measure, ns)
+    to_remove: list[ET.Element] = []
+    i = 0
+    while i < len(notes):
+        note = notes[i]
+        if note.find(_q(ns, "chord")) is not None or _is_grace_or_cue(note, ns):
+            i += 1
+            continue
+        seen: set[tuple[str, int, int]] = set()
+        key = _note_pitch_key(note, ns)
+        if key is not None:
+            seen.add(key)
+        for j in _chord_follower_indices(notes, ns, i):
+            member = notes[j]
+            mkey = _note_pitch_key(member, ns)
+            if mkey is None:
+                continue
+            if mkey in seen:
+                to_remove.append(member)
+            else:
+                seen.add(mkey)
+        i += 1
+    for el in to_remove:
+        if el in list(measure):
+            measure.remove(el)
+    return len(to_remove)
+
+
+def dedupe_identical_chord_pitches_in_root(root: ET.Element) -> int:
+    """전 악보 — 화음 내 동일 피치 중복 제거. 변경 마디 수."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            if _dedupe_identical_pitches_in_chord_groups(measure, ns):
+                n += 1
+    return n
+
+
 def _compact_default_x_by_staff(measure: ET.Element, ns: str) -> bool:
     """voice timeline 시작이 같은 음은 같은 default-x — 동시 시작(다른 박자·줄기) 정렬."""
     notes = list_note_elements(measure, ns)
@@ -4180,13 +4221,21 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             idx = int(fix.get("noteIndex"))
         except (TypeError, ValueError):
             return False
-        if 0 <= idx < len(notes):
-            group_indices = _chord_group_note_indices(notes, ns, idx)
-            group = [notes[i] for i in group_indices]
-            for el in group:
-                measure.remove(el)
-            return True
-        return False
+        if not (0 <= idx < len(notes)):
+            return False
+        note = notes[idx]
+        is_member = note.find(_q(ns, "chord")) is not None
+        if not is_member:
+            followers = [notes[j] for j in _chord_follower_indices(notes, ns, idx)]
+            measure.remove(note)
+            if followers:
+                chord_el = followers[0].find(_q(ns, "chord"))
+                if chord_el is not None:
+                    followers[0].remove(chord_el)
+                    _sort_note_children(followers[0], ns)
+        else:
+            measure.remove(note)
+        return True
 
     if kind == "removeArticulation":
         try:
@@ -5624,6 +5673,9 @@ def _parallel_groups_may_cluster(
     """default-x·줄기 허용폭 + 빔 연속(순차)이면 동시 cluster 금지."""
     if not prev_grp or not next_grp:
         return False
+    # default-x 없음(1e6 sentinel)은 동시 onset 증거가 아님 — 순차 8분음이 한 화음이 되면 안 됨
+    if cluster_x >= 999_000.0 or next_x >= 999_000.0:
+        return False
     merged = [prev_grp, next_grp]
     tol = _parallel_cluster_x_tolerance(merged, ns)
     if abs(next_x - cluster_x) > tol:
@@ -5703,16 +5755,29 @@ def _apply_parallel_groups_to_staff(
     else:
         keeper_i = _pick_parallel_keeper_index(groups, notes, ns, staff, x_val)
     if len(set(durs)) == 1:
+        keeper_pitches: set[tuple[str, int, int]] = set()
+        for note in groups[keeper_i]:
+            key = _note_pitch_key(note, ns)
+            if key is not None:
+                keeper_pitches.add(key)
+            if note.get("default-x") != f"{x_val:.2f}":
+                note.set("default-x", f"{x_val:.2f}")
+                changed = True
         for i, grp in enumerate(groups):
             if i == keeper_i:
-                for note in grp:
-                    if note.get("default-x") != f"{x_val:.2f}":
-                        note.set("default-x", f"{x_val:.2f}")
-                        changed = True
                 continue
-            for note in grp:
+            for note in list(grp):
+                key = _note_pitch_key(note, ns)
+                if key is not None and key in keeper_pitches:
+                    # 이미 같은 피치가 있으면 화음 멤버로 붙이지 않고 버린다(원본에 없는 유니즌 중복).
+                    if note in list(measure):
+                        measure.remove(note)
+                        changed = True
+                    continue
                 if _ensure_chord_tag(note, ns):
                     changed = True
+                if key is not None:
+                    keeper_pitches.add(key)
                 if note.get("default-x") != f"{x_val:.2f}":
                     note.set("default-x", f"{x_val:.2f}")
                     changed = True
@@ -6735,6 +6800,7 @@ def rebuild_measure_timeline_clean(
     notes = list_note_elements(measure, ns)
     _fix_chord_tag_consistency(notes, ns)
     _sync_all_chord_groups(notes, ns)
+    _dedupe_identical_pitches_in_chord_groups(measure, ns)
     coalesce_spurious_parallel_voices_in_measure(measure, ns, part)
     for staff in ("1", "2"):
         _merge_staff_voices_if_non_overlapping(measure, ns, staff)
@@ -6750,6 +6816,7 @@ def rebuild_measure_timeline_clean(
     notes_after = list_note_elements(measure, ns)
     _fix_chord_tag_consistency(notes_after, ns)
     _sync_all_chord_groups(notes_after, ns)
+    _dedupe_identical_pitches_in_chord_groups(measure, ns)
     for staff in ("1", "2"):
         _merge_staff_voices_if_non_overlapping(measure, ns, staff)
     for staff in ("1", "2"):
@@ -6931,6 +6998,7 @@ def apply_fixes_file(mxl_path: Path, fixes: list[dict[str, Any]]) -> dict[str, A
     chord_beam_measures = cleanup_chord_beams_in_root(root)
     rest_play_order_measures = normalize_play_orders_including_rests_in_root(root)
     coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root)
+    chord_pitch_dupes = dedupe_identical_chord_pitches_in_root(root)
     write_mxl_root(mxl_path, files, root_path, root)
     return {
         "path": str(mxl_path),
@@ -6939,6 +7007,7 @@ def apply_fixes_file(mxl_path: Path, fixes: list[dict[str, Any]]) -> dict[str, A
         "chordBeamMeasuresCleaned": chord_beam_measures,
         "restPlayOrderMeasuresNormalized": rest_play_order_measures,
         "coalesceVoiceMeasures": coalesce_voice_measures,
+        "chordPitchDedupeMeasures": chord_pitch_dupes,
     }
 
 

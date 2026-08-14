@@ -237,19 +237,43 @@ export function ensureRestPlayOrdersInMeasure(measure: Element): boolean {
 }
 
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
-  sanitizeConflictingPlayOrders(measure);
+  // 연주순번이 layout 권위 — timeline onset이 어긋나도 같은 순번 column을 지우지 않음
   ensureRestPlayOrdersInMeasure(measure);
   const layoutLen = Math.max(1, previewLayoutLengthUnits(measure));
   const onsets = collectVoiceParallelNoteOnsets(measure);
 
   const poColumnOnset = new Map<string, number>();
+  const poRank = new Map<string, number>();
   for (const leader of allLeadersInMeasure(measure)) {
     const po = readPlayOrder(leader);
     if (po == null) continue;
-    const key = `${noteStaffNumber(leader)}:${po}`;
+    const staff = noteStaffNumber(leader);
+    const key = `${staff}:${po}`;
     const onset = onsets.get(leader) ?? 0;
     const prev = poColumnOnset.get(key);
     poColumnOnset.set(key, prev == null ? onset : Math.min(prev, onset));
+    if (!poRank.has(key)) poRank.set(key, po);
+  }
+
+  // staff별 순번 오름차순 → 균등 column (timeline이 틀려도 순번1이 맨 왼쪽)
+  const rankOnsetByStaffPo = new Map<string, number>();
+  const byStaff = new Map<number, number[]>();
+  for (const key of poColumnOnset.keys()) {
+    const [staffS, poS] = key.split(':');
+    const staff = parseInt(staffS ?? '1', 10) || 1;
+    const po = parseInt(poS ?? '0', 10);
+    if (!Number.isFinite(po) || po < 1) continue;
+    const list = byStaff.get(staff) ?? [];
+    if (!list.includes(po)) list.push(po);
+    byStaff.set(staff, list);
+  }
+  for (const [staff, pos] of byStaff) {
+    const sorted = [...pos].sort((a, b) => a - b);
+    const n = Math.max(1, sorted.length);
+    sorted.forEach((po, i) => {
+      const frac = n <= 1 ? 0 : i / (n - 1);
+      rankOnsetByStaffPo.set(`${staff}:${po}`, frac * layoutLen);
+    });
   }
 
   for (const leader of allLeadersInMeasure(measure)) {
@@ -257,7 +281,8 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     const po = readPlayOrder(leader);
     let layoutOnset = musicalOnset;
     if (po != null) {
-      layoutOnset = poColumnOnset.get(`${noteStaffNumber(leader)}:${po}`) ?? musicalOnset;
+      const key = `${noteStaffNumber(leader)}:${po}`;
+      layoutOnset = rankOnsetByStaffPo.get(key) ?? poColumnOnset.get(key) ?? musicalOnset;
     }
     setLayoutAttrsOnGroup(measure, leader, layoutOnset, layoutLen, po);
   }

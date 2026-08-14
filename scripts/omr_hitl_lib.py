@@ -2877,9 +2877,32 @@ def _guess_type_for_duration(dur: int, divisions: int) -> str | None:
     if dur <= 0 or divisions <= 0:
         return None
     for note_type in ("whole", "half", "quarter", "eighth", "16th", "32nd", "64th"):
-        if _duration_for_type_dots(note_type, divisions, 0) == dur:
-            return note_type
+        for dots in (0, 1, 2):
+            if _duration_for_type_dots(note_type, divisions, dots) == dur:
+                return note_type
     return None
+
+
+def _closest_type_for_duration(dur: int, divisions: int) -> tuple[str, int]:
+    """표준 type이 없으면 가장 가까운 type·dot. gap 쉼표 포기하지 않기 위함."""
+    exact = _guess_type_for_duration(dur, divisions)
+    if exact is not None:
+        for dots in (0, 1, 2):
+            if _duration_for_type_dots(exact, divisions, dots) == dur:
+                return exact, dots
+        return exact, 0
+    best: tuple[str, int, int] | None = None  # type, dots, abserr
+    for note_type in ("whole", "half", "quarter", "eighth", "16th", "32nd", "64th"):
+        for dots in (0, 1, 2):
+            d = _duration_for_type_dots(note_type, divisions, dots)
+            if d <= 0:
+                continue
+            err = abs(d - dur)
+            if best is None or err < best[2]:
+                best = (note_type, dots, err)
+    if best is None:
+        return "eighth", 0
+    return best[0], best[1]
 
 
 def _measure_divisions_beats(
@@ -2906,6 +2929,29 @@ def _measure_divisions_beats(
     return divisions, beats, beat_type
 
 
+def _staff_voice_layer_meta(
+    measure: ET.Element, ns: str, staff: str
+) -> dict[str, tuple[int, int, list[ET.Element]]]:
+    """voice → (first_onset, layer_dur, leaders). onset은 전체 MusicXML cursor."""
+    full_onsets = _musicxml_leader_onsets(measure, ns)
+    by_voice: dict[str, list[ET.Element]] = {}
+    for el in list(measure):
+        if _local(el) != "note":
+            continue
+        if el.find(_q(ns, "chord")) is not None or _is_grace_or_cue(el, ns):
+            continue
+        v, st = _note_voice_staff(el, ns)
+        if st != staff:
+            continue
+        by_voice.setdefault(v, []).append(el)
+    out: dict[str, tuple[int, int, list[ET.Element]]] = {}
+    for v, leaders in by_voice.items():
+        layer_dur = _voice_layer_duration(leaders, ns)
+        o0 = full_onsets.get(leaders[0], 0)
+        out[v] = (o0, layer_dur, leaders)
+    return out
+
+
 def _coalesce_spurious_parallel_voices_on_staff(
     measure: ET.Element,
     ns: str,
@@ -2914,92 +2960,84 @@ def _coalesce_spurious_parallel_voices_on_staff(
     divisions: int,
     measure_len: int,
 ) -> bool:
-    """Audiveris가 같은 staff에 둔 가짜 병렬 voice(짧게 겹침)를 underfull primary에 흡수.
+    """Audiveris가 같은 staff에 둔 가짜 병렬/잘린 voice를 underfull primary에 흡수.
 
-    예: PL voice5(전반) + voice6(전마디 병렬) + voice7(후반·onset 0으로 잘못 기록)
-    → voice7을 voice5로 합치고, 마디를 채우기 위한 선행 쉼표가 비면 삽입.
-    저장 MXL의 진짜 다성부(서로 겹치는 full layer)는 parallel로 남겨 둔다.
+    예: PL voice5(전반) + voice6(전마디 병렬) + voice7(후반·잘못된 voice)
+    → voice7→voice5, gap이면 쉼표 삽입.
     """
     if measure_len <= 0 or divisions <= 0:
         return False
-    notes = [
-        n
-        for n in list_note_elements(measure, ns)
-        if _note_voice_staff(n, ns)[1] == staff and not _is_grace_or_cue(n, ns)
-    ]
-    leaders = [n for n in notes if n.find(_q(ns, "chord")) is None]
-    voices = {_note_voice_staff(n, ns)[0] for n in leaders}
+    meta = _staff_voice_layer_meta(measure, ns, staff)
+    voices = set(meta.keys())
     if len(voices) < 3:
         return False
 
-    onsets = _musicxml_leader_onsets(measure, ns)
-    by_voice: dict[str, list[ET.Element]] = {}
-    for n in leaders:
-        v, _st = _note_voice_staff(n, ns)
-        by_voice.setdefault(v, []).append(n)
-
-    voice_meta: dict[str, tuple[int, int]] = {}
-    for v, vnotes in by_voice.items():
-        ons = [onsets.get(n, 0) for n in vnotes]
-        min_o = min(ons) if ons else 0
-        layer_dur = _voice_layer_duration(vnotes, ns)
-        voice_meta[v] = (min_o, layer_dur)
-
     voice_list = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)
     primary = voice_list[0]
-    p_start, p_dur = voice_meta[primary]
+    p_start, p_dur, _pleaders = meta[primary]
     if p_dur <= 0 or p_dur >= measure_len:
         return False
+    p_end = p_start + p_dur
 
     parallel: list[str] = []
     candidates: list[str] = []
     for v in voice_list[1:]:
-        start, dur = voice_meta[v]
-        if start != p_start or dur <= 0:
+        start, dur, _leaders = meta[v]
+        if dur <= 0:
             continue
         # 전마디에 가까운 층 → 진짜 병렬(유지)
-        if dur >= int(measure_len * 0.75 + 0.5):
+        if dur >= max(1, int(measure_len * 0.66 + 0.5)):
             parallel.append(v)
-        elif p_dur + dur <= measure_len:
-            candidates.append(v)
+            continue
+        # onset 0에 잘못 겹친 짧은 층, 또는 primary 끝에서 이어지는 잘못된 voice
+        if p_dur + dur <= measure_len + 1:
+            if start <= p_start + 1 or start >= p_end - 1:
+                candidates.append(v)
     if not parallel or not candidates:
         return False
 
     remaining = measure_len - p_dur
+    candidates.sort(key=lambda v: (meta[v][0], int(v) if v.isdigit() else 999))
     absorbed_voices: list[str] = []
     absorbed_dur = 0
     for v in candidates:
-        _start, dur = voice_meta[v]
-        if dur > remaining - absorbed_dur:
+        _start, dur, _leaders = meta[v]
+        if dur > remaining - absorbed_dur + 1:
             continue
         absorbed_voices.append(v)
         absorbed_dur += dur
     if not absorbed_voices:
         return False
 
-    gap = remaining - absorbed_dur
-    gap_type: str | None = None
-    if gap > 0:
-        gap_type = _guess_type_for_duration(gap, divisions)
-        if gap_type is None:
-            return False
+    first_v = absorbed_voices[0]
+    first_start = meta[first_v][0]
+    if first_start <= p_start + 1:
+        # false-parallel at measure start — fill remaining with leading rest if needed
+        gap = max(0, remaining - absorbed_dur)
+    else:
+        gap = max(0, first_start - p_end)
 
-    first_absorbed = by_voice[absorbed_voices[0]][0]
+    first_absorbed = meta[first_v][2][0]
     for v in absorbed_voices:
         for note in list_note_elements(measure, ns):
             nv, st = _note_voice_staff(note, ns)
             if st == staff and nv == v:
                 _set_note_voice_staff(note, ns, primary, staff)
 
-    if gap > 0 and gap_type is not None:
+    if gap > 0:
+        gap_type, gap_dots = _closest_type_for_duration(gap, divisions)
         rest = _build_inserted_rest_note(
             ns,
             rest_type=gap_type,
             divisions=divisions,
             staff_n=int(staff) if staff.isdigit() else 1,
             voice=primary,
+            dot_count=gap_dots,
         )
-        # 흡수된 첫 note 앞에 쉼표 — 후반 시작 박 맞춤
+        # duration을 gap에 맞게 강제(근사 type이어도 박자는 맞춤)
+        dur_el = rest.find(_q(ns, "duration"))
+        if dur_el is not None:
+            dur_el.text = str(gap)
         parent_idx = list(measure).index(first_absorbed)
         measure.insert(parent_idx, rest)
 

@@ -926,7 +926,8 @@ async function syncOmrReviewMxl(
   }
 
   const chordBeamCleaned = await cleanupChordBeamsInScoreFile(scorePath, pythonBin);
-  if (chordBeamCleaned > 0) {
+  const coalesceVoices = await coalesceStaffVoicesInScoreFile(scorePath, pythonBin);
+  if (chordBeamCleaned > 0 || coalesceVoices > 0) {
     await saveHitlBaseline(sessionRoot, scorePath);
   }
 
@@ -1319,6 +1320,27 @@ async function cleanupChordBeamsInScoreFile(
   }
 }
 
+async function coalesceStaffVoicesInScoreFile(
+  scorePath: string,
+  pythonBin: string,
+): Promise<number> {
+  const script = path.join(__dirname, '..', 'scripts', 'coalesce_staff_voices_mxl.py');
+  if (!fsSync.existsSync(script) || !fsSync.existsSync(scorePath)) return 0;
+  try {
+    const { stdout } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const line = String(stdout).trim();
+    if (!line) return 0;
+    const parsed = JSON.parse(line) as { coalesceVoiceMeasures?: number };
+    return parsed.coalesceVoiceMeasures ?? 0;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`coalesce_staff_voices_mxl failed (${scorePath}): ${msg}`);
+    return 0;
+  }
+}
+
 async function fixAudiverisMxlInScoreFile(
   scorePath: string,
   pythonBin: string,
@@ -1395,6 +1417,7 @@ async function postprocessAudiverisMxlInScoreFile(
     directionsRemoved: 0,
   };
   const chordBeamCleaned = await cleanupChordBeamsInScoreFile(scorePath, pythonBin);
+  const coalesceVoices = await coalesceStaffVoicesInScoreFile(scorePath, pythonBin);
   return {
     restsFixed: restStats.restsFixed,
     measuresChanged: restStats.measuresChanged,
@@ -1404,6 +1427,7 @@ async function postprocessAudiverisMxlInScoreFile(
     tupletShowNumberFixed: fixStats.tupletShowNumberFixed,
     directionsRemoved: fixStats.directionsRemoved,
     chordBeamMeasuresCleaned: chordBeamCleaned,
+    coalesceVoiceMeasures: coalesceVoices,
   };
 }
 

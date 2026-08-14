@@ -576,17 +576,22 @@ function measureHasLeadingForward(measure: Element): boolean {
 
 function measureHasSharedPlayOrderAcrossVoices(measure: Element): boolean {
   const byPo = new Map<string, Set<string>>();
+  let anyPo = false;
+  const voices = new Set<string>();
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'note') continue;
     if (isChordNote(child)) continue;
+    const voice = noteVoiceN(child);
+    voices.add(voice);
     const po = child.getAttribute('data-hitl-play-order')?.trim();
     if (!po) continue;
-    const voice = noteVoiceN(child);
+    anyPo = true;
     const set = byPo.get(po) ?? new Set<string>();
     set.add(voice);
     byPo.set(po, set);
   }
-  return [...byPo.values()].some((voices) => voices.size >= 2);
+  if (voices.size >= 2 && anyPo) return true;
+  return [...byPo.values()].some((vs) => vs.size >= 2);
 }
 
 /**

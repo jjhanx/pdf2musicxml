@@ -76,12 +76,17 @@ export function applyOsmdPreviewEngravingRules(
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
   rules.UseXMLMeasureNumbers = false;
-  // 다성부 동시음 가로 어긋남·과밀 완화 (연주순번 column 미리보기)
+  // OSMD 기본은 연속 온쉼 마디를 다중쉼표(오선 중 굵은 선+숫자)로 접음.
+  // OMR 검토는 PDF와 마디 1:1 — load() 전에 끔. 저장 MXL은 변경하지 않음.
   const r = rules as OpenSheetMusicDisplay['EngravingRules'] & {
     DisplacedNoteMargin?: number;
     VoiceSpacingAddendVexflow?: number;
     RepetitionEndInstructionXShiftAsPercentOfStaveWidth?: number;
+    RenderMultipleRestMeasures?: boolean;
+    AutoGenerateMultipleRestMeasuresFromRestMeasures?: boolean;
   };
+  r.RenderMultipleRestMeasures = false;
+  r.AutoGenerateMultipleRestMeasuresFromRestMeasures = false;
   if (typeof r.DisplacedNoteMargin === 'number') r.DisplacedNoteMargin = 0.05;
   if (typeof r.VoiceSpacingAddendVexflow === 'number') r.VoiceSpacingAddendVexflow = 2.0;
   // OSMD 기본 0.4는 줄 끝 마디의 D.S./Fine를 오른쪽으로 밀어 다음 마디 앞으로 보이게 함
@@ -1967,6 +1972,7 @@ export function OsmdBlock({
         backend: 'svg',
         drawMeasureNumbers: false,
         useXMLMeasureNumbers: false,
+        autoGenerateMultipleRestMeasuresFromRestMeasures: false,
       } as ConstructorParameters<typeof OpenSheetMusicDisplay>[1]);
       applyOsmdPreviewEngravingRules(osmd.EngravingRules);
       patchOsmdRenderForMeasureNumbers(osmd, host, () => printedMeasureMarkersRef.current);

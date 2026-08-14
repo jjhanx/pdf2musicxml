@@ -1360,80 +1360,6 @@ def _middle_line_diatonic(clef_sign: str, clef_line: int = 2) -> int:
     return 4 * 7 + 6  # B4 treble
 
 
-def _diatonic_to_step_octave(dia: int) -> tuple[str, int]:
-    return _STEPS[dia % 7], dia // 7
-
-
-_SHORT_REST_TYPES = frozenset({"quarter", "eighth", "16th", "32nd", "64th", "128th"})
-
-
-def _set_rest_display_step_octave(
-    rest_el: ET.Element, ns: str, step: str, octave: int
-) -> bool:
-    step_el = rest_el.find(_q(ns, "display-step"))
-    oct_el = rest_el.find(_q(ns, "display-octave"))
-    changed = False
-    if step_el is None:
-        step_el = ET.SubElement(rest_el, _q(ns, "display-step"))
-        changed = True
-    if (step_el.text or "").strip() != step:
-        step_el.text = step
-        changed = True
-    if oct_el is None:
-        oct_el = ET.SubElement(rest_el, _q(ns, "display-octave"))
-        changed = True
-    if (oct_el.text or "").strip() != str(octave):
-        oct_el.text = str(octave)
-        changed = True
-    return changed
-
-
-def pin_polyphonic_short_rests_in_measure(
-    measure: ET.Element, ns: str, part: ET.Element | None = None
-) -> bool:
-    """같은 오선에 voice가 둘 이상이면 짧은 쉼표를 오선 중선에 고정.
-
-    OSMD는 윗 voice 쉼표를 오선 밖으로 밀어 올려 8분쉼표가 잘못 읽히기 쉽다.
-    """
-    voices_by_staff: dict[str, set[str]] = {}
-    for note in list_note_elements(measure, ns):
-        if _is_grace_or_cue(note, ns):
-            continue
-        v, st = _note_voice_staff(note, ns)
-        voices_by_staff.setdefault(st, set()).add(v)
-    poly_staves = {st for st, vs in voices_by_staff.items() if len(vs) >= 2}
-    if not poly_staves:
-        return False
-    changed = False
-    for note in list_note_elements(measure, ns):
-        rest_el = note.find(_q(ns, "rest"))
-        if rest_el is None:
-            continue
-        _v, st = _note_voice_staff(note, ns)
-        if st not in poly_staves:
-            continue
-        type_el = note.find(_q(ns, "type"))
-        note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
-        if note_type not in _SHORT_REST_TYPES:
-            continue
-        sign, line = _clef_for_note_in_part(part, measure, note, ns)
-        step, octv = _diatonic_to_step_octave(_middle_line_diatonic(sign, line))
-        if _set_rest_display_step_octave(rest_el, ns, step, octv):
-            changed = True
-    return changed
-
-
-def pin_polyphonic_short_rests_in_root(root: ET.Element) -> int:
-    """전 악보 — 다성부 짧은 쉼표를 오선 중선에 고정. 변경된 마디 수."""
-    ns = _ns(root)
-    n = 0
-    for part in root.findall(_q(ns, "part")):
-        for measure in part.findall(_q(ns, "measure")):
-            if pin_polyphonic_short_rests_in_measure(measure, ns, part):
-                n += 1
-    return n
-
-
 def _clef_for_note_in_part(
     part: ET.Element | None, measure: ET.Element | None, note: ET.Element, ns: str
 ) -> tuple[str, int]:
@@ -5048,7 +4974,6 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
         "measuresChanged": 0,
         "measuresOverfullLeft": 0,
         "restDisplayCleared": 0,
-        "restDisplayPinned": 0,
         "tupletStaccatoRemoved": 0,
     }
     for part in root.findall(_q(ns, "part")):
@@ -5217,9 +5142,6 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                     measure_changed = True
                 if excess > 0:
                     stats["measuresOverfullLeft"] += 1
-            if pin_polyphonic_short_rests_in_measure(measure, ns, part):
-                stats["restDisplayPinned"] += 1
-                measure_changed = True
             if measure_changed:
                 stats["measuresChanged"] += 1
     return stats
@@ -5228,12 +5150,7 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
 def normalize_rest_durations_file(mxl_path: Path) -> dict[str, Any]:
     files, root_path, root = load_mxl_root(mxl_path)
     stats = normalize_rest_durations_root(root)
-    if (
-        stats["restsFixed"] > 0
-        or stats["restDisplayCleared"] > 0
-        or stats["restDisplayPinned"] > 0
-        or stats["tupletStaccatoRemoved"] > 0
-    ):
+    if stats["restsFixed"] > 0 or stats["restDisplayCleared"] > 0 or stats["tupletStaccatoRemoved"] > 0:
         write_mxl_root(mxl_path, files, root_path, root)
     return {"path": str(mxl_path), **stats}
 
@@ -6397,7 +6314,6 @@ def rebuild_measure_timeline_clean(
         _normalize_staff_note_order(measure, ns, staff)
     _compact_default_x_by_staff(measure, ns)
     _repair_tuplet_brackets_in_measure(measure, ns)
-    pin_polyphonic_short_rests_in_measure(measure, ns, part)
 
 
 def _repair_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> bool:

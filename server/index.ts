@@ -1341,11 +1341,8 @@ async function coalesceStaffVoicesInScoreFile(
     });
     const line = String(stdout).trim();
     if (!line) return 0;
-    const parsed = JSON.parse(line) as {
-      coalesceVoiceMeasures?: number;
-      restDisplayPinned?: number;
-    };
-    return (parsed.coalesceVoiceMeasures ?? 0) + (parsed.restDisplayPinned ?? 0);
+    const parsed = JSON.parse(line) as { coalesceVoiceMeasures?: number };
+    return parsed.coalesceVoiceMeasures ?? 0;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`coalesce_staff_voices_mxl failed (${scorePath}): ${msg}`);

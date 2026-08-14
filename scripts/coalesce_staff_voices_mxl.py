@@ -9,7 +9,6 @@ from pathlib import Path
 from omr_hitl_lib import (  # noqa: E402
     coalesce_spurious_parallel_voices_in_root,
     load_mxl_root,
-    pin_polyphonic_short_rests_in_root,
     write_mxl_root,
 )
 
@@ -22,15 +21,9 @@ def main() -> int:
     try:
         files, root_path, root = load_mxl_root(mxl_path)
         n = coalesce_spurious_parallel_voices_in_root(root)
-        pinned = pin_polyphonic_short_rests_in_root(root)
-        if n or pinned:
+        if n:
             write_mxl_root(mxl_path, files, root_path, root)
-        print(
-            json.dumps(
-                {"coalesceVoiceMeasures": n, "restDisplayPinned": pinned},
-                ensure_ascii=False,
-            )
-        )
+        print(json.dumps({"coalesceVoiceMeasures": n}, ensure_ascii=False))
         return 0
     except (OSError, ValueError) as e:
         print(json.dumps({"error": str(e)}, ensure_ascii=False))

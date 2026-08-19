@@ -6179,12 +6179,14 @@ def _chord_groups_in_order(notes: list[ET.Element], ns: str) -> list[list[ET.Ele
 
 def _sort_notes_by_default_x(notes: list[ET.Element], ns: str) -> list[ET.Element]:
     groups = _chord_groups_in_order(notes, ns)
-    groups.sort(
-        key=lambda grp: (
-            _parse_default_x(grp[0]) if _parse_default_x(grp[0]) is not None else 1_000_000.0,
-            list(notes).index(grp[0]) if grp[0] in notes else 0,
+    has_po = any(_read_play_order(grp[0]) is not None for grp in groups)
+    if has_po:
+        groups.sort(
+            key=lambda grp: (
+                _read_play_order(grp[0]) if _read_play_order(grp[0]) is not None else 999_999,
+                list(notes).index(grp[0]) if grp[0] in notes else 0,
+            )
         )
-    )
     out: list[ET.Element] = []
     for grp in groups:
         out.extend(grp)
@@ -6813,18 +6815,19 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
         return False
     notes = list_note_elements(measure, ns)
     groups = _chord_groups_in_order(notes_only, ns)
-    all_have_dx = all(_parse_default_x(g[0]) is not None for g in groups)
-    if not all_have_dx:
+    has_po = any(_read_play_order(g[0]) is not None for g in groups)
+    if has_po:
+        indexed = [
+            (
+                grp,
+                _read_play_order(grp[0]) if _read_play_order(grp[0]) is not None else 999_999,
+                notes.index(grp[0]),
+            )
+            for grp in groups
+        ]
+        indexed.sort(key=lambda t: (t[1], t[2]))
+    else:
         return False
-    indexed = [
-        (
-            grp,
-            _parse_default_x(grp[0]),
-            notes.index(grp[0]),
-        )
-        for grp in groups
-    ]
-    indexed.sort(key=lambda t: (t[1], t[2]))
     voices = {_note_voice_staff(g[0], ns)[0] for g, _, _ in indexed}
     if len(voices) > 1:
         return False

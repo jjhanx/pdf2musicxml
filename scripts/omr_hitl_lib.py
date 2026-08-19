@@ -845,10 +845,17 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
             if pl in ("above", "below"):
                 out["placement"] = pl
             return out
-        return {"directionType": "words", "directionValue": txt}
+        out = {"directionType": "words", "directionValue": txt}
+        if pl in ("above", "below"):
+            out["placement"] = pl
+        return out
     reh = dtype.find(_q(ns, "rehearsal"))
     if reh is not None:
-        return {"directionType": "rehearsal", "directionValue": (reh.text or "A").strip()}
+        pl = (direction.get("placement") or "").strip()
+        out = {"directionType": "rehearsal", "directionValue": (reh.text or "A").strip()}
+        if pl in ("above", "below"):
+            out["placement"] = pl
+        return out
     wedge_type = _wedge_type_of(direction, ns)
     if wedge_type:
         pl = (direction.get("placement") or "").strip()
@@ -857,7 +864,11 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
             out["placement"] = pl
         return out
     text = _direction_text(direction)
-    return {"directionType": "words", "directionValue": text or ""}
+    pl = (direction.get("placement") or "").strip()
+    out = {"directionType": "words", "directionValue": text or ""}
+    if pl in ("above", "below"):
+        out["placement"] = pl
+    return out
 
 
 def _read_note_direction_from_notations(note: ET.Element, ns: str) -> dict[str, Any] | None:
@@ -3929,6 +3940,8 @@ def _build_direction_element(
         if tag not in _DYNAMICS_TAGS:
             tag = "p"
         dyn = ET.SubElement(dtype, _q(ns, "dynamics"))
+        if placement in ("above", "below"):
+            dyn.set("placement", placement)
         ET.SubElement(dyn, _q(ns, tag))
     elif kind == "rehearsal":
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
@@ -4464,6 +4477,70 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             target = words
         target.text = new_text
         return True
+
+    if kind == "setDirectionPlacement":
+        placement = str(fix.get("placement") or "").strip().lower()
+        if placement not in ("above", "below"):
+            return False
+        try:
+            direction_index = int(fix.get("directionIndex"))
+        except (TypeError, ValueError):
+            return False
+        directions = measure.findall(_q(ns, "direction"))
+        if not (0 <= direction_index < len(directions)):
+            return False
+        direction = directions[direction_index]
+        direction.set("placement", placement)
+        dtype = direction.find(_q(ns, "direction-type"))
+        if dtype is not None:
+            dyn = dtype.find(_q(ns, "dynamics"))
+            if dyn is not None:
+                dyn.set("placement", placement)
+        return True
+
+    if kind == "setNoteDirectionPlacement":
+        placement = str(fix.get("placement") or "").strip().lower()
+        if placement not in ("above", "below"):
+            return False
+        try:
+            note_idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if note_idx < 0 or note_idx >= len(notes):
+            return False
+        note = notes[note_idx]
+        direction_type = str(fix.get("directionType") or "words").strip().lower()
+        direction_value = str(fix.get("directionValue") or "").strip()
+        changed = False
+        if direction_type == "dynamics":
+            for notations in note.findall(_q(ns, "notations")):
+                for dyn in notations.findall(_q(ns, "dynamics")):
+                    dyn.set("placement", placement)
+                    changed = True
+        children = list(measure)
+        try:
+            ni = children.index(note)
+        except ValueError:
+            return changed
+        for j in range(ni - 1, -1, -1):
+            c = children[j]
+            if _local(c) == "direction":
+                dtype = c.find(_q(ns, "direction-type"))
+                if dtype is not None:
+                    if direction_type == "dynamics" and dtype.find(_q(ns, "dynamics")) is not None:
+                        c.set("placement", placement)
+                        dyn = dtype.find(_q(ns, "dynamics"))
+                        if dyn is not None:
+                            dyn.set("placement", placement)
+                        changed = True
+                    else:
+                        mark = dtype.find(_q(ns, direction_type))
+                        if mark is not None and (not direction_value or (mark.text or "").strip() == direction_value):
+                            c.set("placement", placement)
+                            changed = True
+            if _local(c) == "note":
+                break
+        return changed
 
     if kind == "clearNoteDirection":
         try:

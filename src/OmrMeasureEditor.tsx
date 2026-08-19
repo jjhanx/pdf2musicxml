@@ -480,6 +480,7 @@ function MeasureNavigationEditor({
   const [navKind, setNavKind] = useState(0);
   const [measureAnchor, setMeasureAnchor] = useState<'start' | 'end'>('end');
   const [staff, setStaff] = useState(editStaffWithinPart ?? insertStaff ?? 1);
+  const [placement, setPlacement] = useState<'above' | 'below'>('above');
 
   useEffect(() => {
     setStaff(editStaffWithinPart ?? insertStaff ?? 1);
@@ -527,10 +528,24 @@ function MeasureNavigationEditor({
             >
               <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
                 dir #{d.directionIndex}
-                {d.placement ? ` · ${d.placement}` : ''}
                 {d.staff != null ? ` · staff ${d.staff}` : ''}
               </span>
               <strong>{navigationDirectionLabel(d.directionType, d.directionValue || d.text)}</strong>
+              <select
+                value={d.placement || 'above'}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setDirectionPlacement',
+                    directionIndex: d.directionIndex,
+                    placement: e.target.value as 'above' | 'below',
+                  })
+                }
+                style={{ fontSize: '0.82rem', padding: '1px 4px' }}
+                title="위치 (위/아래)"
+              >
+                <option value="above">위 (above)</option>
+                <option value="below">아래 (below)</option>
+              </select>
               <button
                 type="button"
                 className="omr-hitl-fix-btn"
@@ -571,6 +586,17 @@ function MeasureNavigationEditor({
             <option value="end">마디 끝</option>
           </select>
         </label>
+        <label className="omr-measure-inline-field">
+          위/아래
+          <select
+            value={placement}
+            onChange={(e) => setPlacement(e.target.value as 'above' | 'below')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="above">위 (above)</option>
+            <option value="below">아래 (below)</option>
+          </select>
+        </label>
         {partStaveCount >= 2 && editStaffWithinPart == null ? (
           <label className="omr-measure-inline-field">
             staff
@@ -591,7 +617,7 @@ function MeasureNavigationEditor({
               measureAnchor,
               afterNoteIndex: measureAnchor === 'start' ? -1 : undefined,
               staff: editStaffWithinPart ?? staff,
-              placement: 'above',
+              placement,
             })
           }
         >
@@ -681,10 +707,24 @@ function MeasureWedgeEditor({
             >
               <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
                 dir #{d.directionIndex}
-                {d.placement ? ` · ${d.placement}` : ''}
                 {d.staff != null ? ` · staff ${d.staff}` : ''}
               </span>
               <strong>{wedgeDirectionLabel(d)}</strong>
+              <select
+                value={d.placement || 'below'}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setDirectionPlacement',
+                    directionIndex: d.directionIndex,
+                    placement: e.target.value as 'above' | 'below',
+                  })
+                }
+                style={{ fontSize: '0.82rem', padding: '1px 4px' }}
+                title="위치 (위/아래)"
+              >
+                <option value="below">아래 (below)</option>
+                <option value="above">위 (above)</option>
+              </select>
               <button
                 type="button"
                 className="omr-hitl-fix-btn"
@@ -875,7 +915,6 @@ function MeasureDirectionsEditor({
           >
             <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
               dir #{d.directionIndex}
-              {d.placement ? ` · ${d.placement}` : ''}
               {d.staff != null ? ` · staff ${d.staff}` : ''}
             </span>
             <input
@@ -889,6 +928,21 @@ function MeasureDirectionsEditor({
               }
               style={{ flex: '1 1 12rem', minWidth: '8rem', padding: '0.35rem 0.5rem' }}
             />
+            <select
+              value={d.placement || 'above'}
+              onChange={(e) =>
+                onFix({
+                  kind: 'setDirectionPlacement',
+                  directionIndex: d.directionIndex,
+                  placement: e.target.value as 'above' | 'below',
+                })
+              }
+              style={{ fontSize: '0.82rem', padding: '0.35rem 0.4rem' }}
+              title="위치 (위/아래)"
+            >
+              <option value="above">위 (above)</option>
+              <option value="below">아래 (below)</option>
+            </select>
             <button
               type="button"
               className="omr-hitl-fix-btn"
@@ -1131,12 +1185,12 @@ function noteDirectionsSummary(el: MeasureNoteEl): string {
 
 function noteDirectionLabel(dir: NoteDirectionInfo | null | undefined): string {
   if (!dir?.directionValue && dir?.directionType !== 'dynamics') return '';
+  const pl = dir.placement === 'below' ? '↓' : dir.placement === 'above' ? '↑' : '';
   if (dir.directionType === 'dynamics') {
-    const pl = dir.placement === 'below' ? '↓' : dir.placement === 'above' ? '↑' : '';
     return `dir:${dir.directionValue || 'p'}${pl}`;
   }
-  if (dir.directionType === 'rehearsal') return `reh:${dir.directionValue || 'A'}`;
-  return `txt:${dir.directionValue}`;
+  if (dir.directionType === 'rehearsal') return `reh:${dir.directionValue || 'A'}${pl}`;
+  return `txt:${dir.directionValue}${pl}`;
 }
 
 function elementTitle(
@@ -1823,33 +1877,24 @@ function NoteDirectionEditor({
   const dirs = currentDirections ?? [];
   const [mode, setMode] = useState<'none' | 'dynamics' | 'words' | 'rehearsal'>('none');
   const [dynValue, setDynValue] = useState('mf');
-  const [dynPlacement, setDynPlacement] = useState<'above' | 'below'>('above');
+  const [dirPlacement, setDirPlacement] = useState<'above' | 'below'>('above');
   const [textValue, setTextValue] = useState('');
 
   useEffect(() => {
     setMode('none');
     setDynValue('mf');
-    setDynPlacement('above');
+    setDirPlacement('above');
     setTextValue('');
   }, [noteIndex]);
 
   const apply = () => {
     if (mode === 'none') return;
-    if (mode === 'dynamics') {
-      onFix({
-        kind: 'addNoteDirection',
-        noteIndex,
-        directionType: 'dynamics',
-        directionValue: dynValue,
-        placement: dynPlacement,
-      });
-      return;
-    }
     onFix({
       kind: 'addNoteDirection',
       noteIndex,
       directionType: mode,
-      directionValue: textValue.trim() || (mode === 'rehearsal' ? 'A' : ' '),
+      directionValue: mode === 'dynamics' ? dynValue : textValue.trim() || (mode === 'rehearsal' ? 'A' : ' '),
+      placement: dirPlacement,
     });
   };
 
@@ -1863,6 +1908,23 @@ function NoteDirectionEditor({
           {dirs.map((d, i) => (
             <span key={`${d.directionType}-${d.directionValue}-${i}`} className="omr-measure-direction-chip">
               {noteDirectionLabel(d)}
+              <select
+                value={d.placement || (d.directionType === 'dynamics' ? 'below' : 'above')}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setNoteDirectionPlacement',
+                    noteIndex,
+                    directionType: d.directionType,
+                    directionValue: d.directionValue,
+                    placement: e.target.value as 'above' | 'below',
+                  })
+                }
+                style={{ marginLeft: 4, fontSize: '0.78rem', padding: '1px 2px' }}
+                title="위치 (위/아래)"
+              >
+                <option value="above">위 (↑)</option>
+                <option value="below">아래 (↓)</option>
+              </select>
               <button
                 type="button"
                 className="omr-hitl-fix-btn"
@@ -1895,6 +1957,7 @@ function NoteDirectionEditor({
           onChange={(e) => {
             const v = e.target.value;
             setMode(v === '' ? 'none' : (v as 'dynamics' | 'words' | 'rehearsal'));
+            if (v === 'dynamics') setDirPlacement('above');
           }}
         >
           <option value="">종류 선택</option>
@@ -1904,26 +1967,13 @@ function NoteDirectionEditor({
         </select>
       </label>
       {mode === 'dynamics' ? (
-        <>
-          <select value={dynValue} onChange={(e) => setDynValue(e.target.value)} aria-label="dynamics">
-            {DYNAMICS_DIRECTION_VALUES.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-          <label className="omr-measure-inline-field">
-            위치
-            <select
-              value={dynPlacement}
-              onChange={(e) => setDynPlacement(e.target.value as 'above' | 'below')}
-              aria-label="dynamics placement"
-            >
-              <option value="above">음표 위</option>
-              <option value="below">음표 아래</option>
-            </select>
-          </label>
-        </>
+        <select value={dynValue} onChange={(e) => setDynValue(e.target.value)} aria-label="dynamics">
+          {DYNAMICS_DIRECTION_VALUES.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
       ) : mode === 'words' || mode === 'rehearsal' ? (
         <input
           type="text"
@@ -1932,6 +1982,19 @@ function NoteDirectionEditor({
           placeholder={mode === 'rehearsal' ? 'A' : 'a tempo, rit. …'}
           style={{ minWidth: 120 }}
         />
+      ) : null}
+      {mode !== 'none' ? (
+        <label className="omr-measure-inline-field">
+          위치
+          <select
+            value={dirPlacement}
+            onChange={(e) => setDirPlacement(e.target.value as 'above' | 'below')}
+            aria-label="direction placement"
+          >
+            <option value="above">음표 위</option>
+            <option value="below">음표 아래</option>
+          </select>
+        </label>
       ) : null}
       <button
         type="button"

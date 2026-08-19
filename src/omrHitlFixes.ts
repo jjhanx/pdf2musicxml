@@ -77,6 +77,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   removeSpuriousDirection: 'P·9 direction 제거',
   removeDirection: 'direction 제거',
   setMeasureDirectionText: '마디 direction 텍스트',
+  setDirectionPlacement: 'direction 위/아래',
+  setNoteDirectionPlacement: '음표 direction 위/아래',
   insertDirection: 'direction 추가',
   addNoteDirection: '음표 direction 추가',
   removeNoteDirection: '음표 direction 제거',
@@ -134,6 +136,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.detail ?? '',
     fix.staff ?? '',
     fix.voice ?? '',
+    fix.placement ?? '',
     fix.lineDelta ?? '',
     fix.noteType ?? '',
     fix.dotCount ?? '',
@@ -242,8 +245,16 @@ export function formatFixSummary(fix: OmrHitlFix): string {
       parts.push(`끝 #${fix.beforeNoteIndex ?? fix.toNoteIndex} 뒤`);
     }
   }
-  if (fix.kind === 'addArticulation' || fix.kind === 'setArticulationPlacement' || fix.kind === 'removeArticulation') {
+  if (
+    fix.kind === 'addArticulation' ||
+    fix.kind === 'setArticulationPlacement' ||
+    fix.kind === 'removeArticulation' ||
+    fix.kind === 'setDirectionPlacement' ||
+    fix.kind === 'setNoteDirectionPlacement'
+  ) {
     if (fix.articulation) parts.push(fix.articulation);
+    if (fix.directionType) parts.push(fix.directionType);
+    if (fix.directionValue) parts.push(fix.directionValue);
     if (fix.placement === 'above') parts.push('위');
     if (fix.placement === 'below') parts.push('아래');
   }

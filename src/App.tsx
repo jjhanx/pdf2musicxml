@@ -1459,6 +1459,36 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadLyricManifest = () => {
+    const baseName = reviewOriginalFileName
+      ? reviewOriginalFileName.replace(/\.[^/.]+$/, '')
+      : 'data';
+    const manifest = {
+      v: 3,
+      pipeline: 'font_separator',
+      sources: {
+        pdfplumber: true,
+        pymupdfReview: true,
+      },
+      matchStats: {
+        reviewItems: reviewData.length,
+      },
+      items: reviewData,
+      pymupdfReviewItems: reviewData,
+      manualLyricRects,
+    };
+    const jsonStr = JSON.stringify(manifest, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${baseName}-lyric_manifest.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleUploadReview = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2682,13 +2712,13 @@ bash scripts/install-font-separator-deps.sh`}
                      백업(.json) 저장
                   </button>
                   {reviewAfterOmr && reviewingJobId ? (
-                    <a
-                      href={`/api/lyric-manifest/${reviewingJobId}/download`}
-                      style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', textDecoration: 'none', display: 'inline-block' }}
-                      download
+                    <button
+                      type="button"
+                      onClick={handleDownloadLyricManifest}
+                      style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }}
                     >
                       lyric_manifest.json 저장
-                    </a>
+                    </button>
                   ) : null}
                   <label style={{ padding: '0.5rem 1rem', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', display: 'inline-block' }}>
                      불러오기

@@ -5577,6 +5577,34 @@ app.get('/api/lyric-manifest/:jobId', async (req, res) => {
     res.status(404).json({ error: 'lyric_manifest.json을 저장할 수 있는 작업이 아니거나 아직 생성되지 않았습니다' });
     return;
   }
+  const manifestPath = sessionLyricManifestPath(job.sessionRoot);
+  const pymupdfPath = sessionOcrPymupdfReviewPath(job.sessionRoot);
+  if (fsSync.existsSync(pymupdfPath)) {
+    try {
+      const pItems = JSON.parse(await fs.readFile(pymupdfPath, 'utf8'));
+      if (Array.isArray(pItems) && pItems.length > 0) {
+        let manifest: Record<string, unknown> = {};
+        if (fsSync.existsSync(manifestPath)) {
+          try {
+            manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+          } catch {
+            /* ignore */
+          }
+        }
+        manifest.v = 3;
+        manifest.pipeline = manifest.pipeline || 'font_separator';
+        manifest.items = pItems.filter((x: any) => x && x.type !== '_manual_lyric_mask');
+        manifest.pymupdfReviewItems = pItems.filter((x: any) => x && x.type !== '_manual_lyric_mask');
+        const manualObj = pItems.find((x: any) => x && x.type === '_manual_lyric_mask');
+        if (manualObj?.manualRects) {
+          manifest.manualLyricRects = manualObj.manualRects;
+        }
+        await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   const summary = await readLyricManifestSummary(job.sessionRoot);
   if (!summary) {
     res.status(404).json({ error: 'lyric_manifest.json이 없습니다' });
@@ -5589,13 +5617,40 @@ app.get('/api/lyric-manifest/:jobId', async (req, res) => {
   });
 });
 
-app.get('/api/lyric-manifest/:jobId/download', (req, res) => {
+app.get('/api/lyric-manifest/:jobId/download', async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!lyricManifestDownloadJobsAllowed(job)) {
     res.status(404).json({ error: 'lyric_manifest.json을 내려받을 수 없습니다' });
     return;
   }
   const manifestPath = sessionLyricManifestPath(job.sessionRoot);
+  const pymupdfPath = sessionOcrPymupdfReviewPath(job.sessionRoot);
+  if (fsSync.existsSync(pymupdfPath)) {
+    try {
+      const pItems = JSON.parse(await fs.readFile(pymupdfPath, 'utf8'));
+      if (Array.isArray(pItems) && pItems.length > 0) {
+        let manifest: Record<string, unknown> = {};
+        if (fsSync.existsSync(manifestPath)) {
+          try {
+            manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+          } catch {
+            /* ignore */
+          }
+        }
+        manifest.v = 3;
+        manifest.pipeline = manifest.pipeline || 'font_separator';
+        manifest.items = pItems.filter((x: any) => x && x.type !== '_manual_lyric_mask');
+        manifest.pymupdfReviewItems = pItems.filter((x: any) => x && x.type !== '_manual_lyric_mask');
+        const manualObj = pItems.find((x: any) => x && x.type === '_manual_lyric_mask');
+        if (manualObj?.manualRects) {
+          manifest.manualLyricRects = manualObj.manualRects;
+        }
+        await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   setAttachmentFilenameHeader(res, lyricManifestDownloadBaseName(job));
   res.sendFile(path.resolve(manifestPath));

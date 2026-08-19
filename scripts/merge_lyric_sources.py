@@ -356,11 +356,13 @@ def load_pymupdf_review(path: str | None) -> tuple[list[dict[str, Any]], list[di
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    if isinstance(data, dict) and data.get("v") in (2, 3) and isinstance(data.get("items"), list):
-        manual = data.get("manualLyricRects") or []
-        return [x for x in data["items"] if isinstance(x, dict)], [
-            x for x in manual if isinstance(x, dict)
-        ]
+    if isinstance(data, dict):
+        items = data.get("items") or data.get("pymupdfReviewItems")
+        if isinstance(items, list):
+            manual = data.get("manualLyricRects") or []
+            return [x for x in items if isinstance(x, dict)], [
+                x for x in manual if isinstance(x, dict)
+            ]
     if isinstance(data, list):
         return partition_review_payload(data)
     return [], []

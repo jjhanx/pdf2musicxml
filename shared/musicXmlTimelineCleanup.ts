@@ -1159,34 +1159,93 @@ export function realignDefaultXFromStaffTimelineForOsmdPreview(xml: string): str
 }
 
 /**
- * OSMD/HITL 미리보기 전용 — `<backup>` 시간이 누적 cursor보다 커서 음수 시간이 생기는 버그 방지.
- * OMR 오류로 note duration 총합이 부족한 상태에서 전체 마디 길이에 맞춰 `<backup>`을 하면
- * OSMD에서 마디 렌더링이 통째로 스킵되는 문제(예: 26마디 실종)를 방지합니다.
+ * OSMD/HITL 미리보기 전용 — 마디 박자 초과(Overfull Measure / Overflow) 및 음수 타임라인 방지.
+ * 1. 각 성부(voice)의 누적 duration 및 `<forward>`가 마디 기준 박자(예: 4/4 = divisions * 4)를 초과할 경우
+ *    마디 끝으로 clamp하여 음표가 다음 마디로 밀려나 렌더링되는 문제를 방지합니다.
+ * 2. `<backup>`이 누적 cursor보다 커서 음수 시간이 생기거나 마디 렌더링이 스킵되는 버그를 방지합니다.
  */
 export function capBackupDurationsForOsmdPreview(xml: string): string {
   try {
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return xml;
     for (const part of findXmlParts(doc)) {
+      let divisions = 1;
+      let beats = 4;
+      let beatType = 4;
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
+        for (const child of [...measure.children]) {
+          if (xmlLocalName(child) !== 'attributes') continue;
+          const divEl = child.querySelector('divisions, *|divisions');
+          const parsedDiv = parseInt(divEl?.textContent?.trim() ?? '', 10);
+          if (Number.isFinite(parsedDiv) && parsedDiv > 0) divisions = parsedDiv;
+          const timeEl = child.querySelector('time, *|time');
+          if (timeEl) {
+            const bEl = timeEl.querySelector('beats, *|beats');
+            const btEl = timeEl.querySelector('beat-type, *|beat-type');
+            const b = parseInt(bEl?.textContent?.trim() ?? '', 10);
+            const bt = parseInt(btEl?.textContent?.trim() ?? '', 10);
+            if (Number.isFinite(b) && b > 0) beats = b;
+            if (Number.isFinite(bt) && bt > 0) beatType = bt;
+          }
+        }
+        const capacity = Math.max(1, Math.round((divisions * beats * 4) / beatType));
         let cursor = 0;
+        let lastLeaderCapped = false;
+        let lastLeaderDur = 0;
         for (const child of Array.from(measure.children)) {
           const tag = xmlLocalName(child);
           if (tag === 'note') {
             const isChord = child.querySelector('chord, *|chord') !== null;
+            const isGrace = child.querySelector('grace, *|grace') !== null;
             const durationEl = child.querySelector('duration, *|duration');
-            if (durationEl && !isChord) {
-              const dur = parseInt(durationEl.textContent || '0', 10);
-              if (!isNaN(dur)) cursor += dur;
+            if (isChord) {
+              if (lastLeaderCapped && durationEl) {
+                durationEl.textContent = String(lastLeaderDur);
+              }
+            } else if (!isGrace) {
+              lastLeaderCapped = false;
+              lastLeaderDur = 0;
+              if (durationEl) {
+                const dur = parseInt(durationEl.textContent || '0', 10);
+                if (!isNaN(dur) && dur > 0) {
+                  if (cursor >= capacity) {
+                    durationEl.textContent = '0';
+                    lastLeaderCapped = true;
+                    lastLeaderDur = 0;
+                  } else if (cursor + dur > capacity) {
+                    const cappedDur = capacity - cursor;
+                    durationEl.textContent = String(cappedDur);
+                    lastLeaderCapped = true;
+                    lastLeaderDur = cappedDur;
+                    cursor = capacity;
+                  } else {
+                    cursor += dur;
+                  }
+                }
+              }
             }
           } else if (tag === 'forward') {
+            lastLeaderCapped = false;
+            lastLeaderDur = 0;
             const durationEl = child.querySelector('duration, *|duration');
             if (durationEl) {
               const dur = parseInt(durationEl.textContent || '0', 10);
-              if (!isNaN(dur)) cursor += dur;
+              if (!isNaN(dur) && dur > 0) {
+                if (cursor >= capacity) {
+                  child.remove();
+                } else if (cursor + dur > capacity) {
+                  const cappedDur = capacity - cursor;
+                  durationEl.textContent = String(cappedDur);
+                  cursor = capacity;
+                } else {
+                  cursor += dur;
+                }
+              }
             }
           } else if (tag === 'backup') {
+            lastLeaderCapped = false;
+            lastLeaderDur = 0;
             const durationEl = child.querySelector('duration, *|duration');
             if (durationEl) {
               const dur = parseInt(durationEl.textContent || '0', 10);

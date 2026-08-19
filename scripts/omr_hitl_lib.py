@@ -1709,7 +1709,7 @@ def _assign_insert_layout_defaults(
     if x_val is None and following is not None:
         fx = _parse_default_x(following)
         if fx is not None:
-            x_val = fx - 15.0
+            x_val = max(1.0, fx - 15.0)
     if x_val is None and staff_notes:
         best = 0.0
         found = False
@@ -1722,9 +1722,8 @@ def _assign_insert_layout_defaults(
                 found = True
         if found:
             x_val = best + 15.0
-    if x_val is None:
-        x_val = 1.0
-    new_note.set("default-x", f"{x_val:.2f}")
+    if x_val is not None:
+        new_note.set("default-x", f"{x_val:.2f}")
 
 
 def _insert_note_element(
@@ -5171,6 +5170,35 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
+        if anchor is not None:
+            anchor_po = _read_play_order(anchor)
+            if anchor_po is not None:
+                new_po = anchor_po + 1
+                for n in notes:
+                    if n.find(_q(ns, "chord")) is not None:
+                        continue
+                    if (_note_staff_number(n, ns) or 1) != staff_n:
+                        continue
+                    cur_po = _read_play_order(n)
+                    if cur_po is not None and cur_po >= new_po:
+                        _set_play_order_on_leader(notes, ns, notes.index(n), cur_po + 1)
+                new_note.set(PLAY_ORDER_ATTR, str(new_po))
+        elif after_idx < 0:
+            has_any_po = any(
+                _read_play_order(n) is not None
+                for n in notes
+                if (_note_staff_number(n, ns) or 1) == staff_n
+            )
+            if has_any_po:
+                new_note.set(PLAY_ORDER_ATTR, "1")
+                for n in notes:
+                    if n.find(_q(ns, "chord")) is not None:
+                        continue
+                    if (_note_staff_number(n, ns) or 1) != staff_n:
+                        continue
+                    cur_po = _read_play_order(n)
+                    if cur_po is not None:
+                        _set_play_order_on_leader(notes, ns, notes.index(n), cur_po + 1)
         _insert_note_element(measure, ns, new_note, insert_after_idx, staff_n=staff_n)
         _normalize_measure_note_engraving(part, ns, measure)
         return True
@@ -5219,6 +5247,35 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
+        if anchor is not None:
+            anchor_po = _read_play_order(anchor)
+            if anchor_po is not None:
+                new_po = anchor_po + 1
+                for n in notes:
+                    if n.find(_q(ns, "chord")) is not None:
+                        continue
+                    if (_note_staff_number(n, ns) or 1) != staff_n:
+                        continue
+                    cur_po = _read_play_order(n)
+                    if cur_po is not None and cur_po >= new_po:
+                        _set_play_order_on_leader(notes, ns, notes.index(n), cur_po + 1)
+                new_note.set(PLAY_ORDER_ATTR, str(new_po))
+        elif after_idx < 0:
+            has_any_po = any(
+                _read_play_order(n) is not None
+                for n in notes
+                if (_note_staff_number(n, ns) or 1) == staff_n
+            )
+            if has_any_po:
+                new_note.set(PLAY_ORDER_ATTR, "1")
+                for n in notes:
+                    if n.find(_q(ns, "chord")) is not None:
+                        continue
+                    if (_note_staff_number(n, ns) or 1) != staff_n:
+                        continue
+                    cur_po = _read_play_order(n)
+                    if cur_po is not None:
+                        _set_play_order_on_leader(notes, ns, notes.index(n), cur_po + 1)
         _insert_note_element(measure, ns, new_note, insert_after_idx, staff_n=staff_n)
         _normalize_measure_note_engraving(part, ns, measure)
         return True
@@ -6756,10 +6813,13 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
         return False
     notes = list_note_elements(measure, ns)
     groups = _chord_groups_in_order(notes_only, ns)
+    all_have_dx = all(_parse_default_x(g[0]) is not None for g in groups)
+    if not all_have_dx:
+        return False
     indexed = [
         (
             grp,
-            _parse_default_x(grp[0]) if _parse_default_x(grp[0]) is not None else 1_000_000.0,
+            _parse_default_x(grp[0]),
             notes.index(grp[0]),
         )
         for grp in groups

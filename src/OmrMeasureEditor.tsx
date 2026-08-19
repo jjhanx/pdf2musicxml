@@ -1520,11 +1520,11 @@ export function OmrMeasureEditor({
         staffDefault={insertStaff}
         noteEls={noteEls}
         pendingLeader={pendingInsertLeader}
-        onInsertRest={(afterNoteIndex, noteType, dotCount, staff) => {
+        onInsertRest={(afterNoteIndex, noteType, dotCount, staff, voice) => {
           setPendingInsertLeader(null);
-          pushFix({ kind: 'insertRest', afterNoteIndex, noteType, dotCount, staff });
+          pushFix({ kind: 'insertRest', afterNoteIndex, noteType, dotCount, staff, voice });
         }}
-        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, dotCount, staff, pitchAlter, extraChordMembers) => {
+        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, dotCount, staff, pitchAlter, extraChordMembers, voice) => {
           const leaderIdx = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
           const leaderLabel = formatPitchLabel(pitchStep, pitchOctave, pitchAlter);
           pushFix({
@@ -1536,6 +1536,7 @@ export function OmrMeasureEditor({
             noteType,
             dotCount,
             staff,
+            voice,
           });
           for (const cm of extraChordMembers) {
             pushFix({
@@ -1967,6 +1968,7 @@ function MeasureNoteEditor({
     noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
   );
   const [staffN, setStaffN] = useState(el.staff ?? 1);
+  const [voiceN, setVoiceN] = useState(String(el.voice ?? '1'));
   const [tieTo, setTieTo] = useState('');
   const [slurTo, setSlurTo] = useState('');
   const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
@@ -2011,6 +2013,7 @@ function MeasureNoteEditor({
       noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
     );
     setStaffN(el.staff ?? 1);
+    setVoiceN(String(el.voice ?? '1'));
     setTripletEnd(defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
     setTripletNormalType(defaultTripletNormalType(el));
     setTripletPreserveTypes(
@@ -2330,6 +2333,24 @@ function MeasureNoteEditor({
           </button>
         </label>
       )}
+      <label className="omr-measure-inline-field">
+        성부(Voice)
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          style={{ width: 48, marginLeft: 2 }}
+          value={voiceN}
+          onChange={(e) => setVoiceN(e.target.value)}
+        />
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() => onFix({ kind: 'setNoteVoice', noteIndex: el.index, voice: voiceN, staff: el.staff })}
+        >
+          성부 지정
+        </button>
+      </label>
       {el.kind === 'note' && (
         <div className="omr-measure-note-pitch">
           <label className="omr-measure-inline-field">
@@ -2847,7 +2868,7 @@ function InsertElementForm({
   noteEls: MeasureNoteEl[];
   pendingLeader: PendingInsertLeader | null;
   onClearPendingLeader: () => void;
-  onInsertRest: (after: number, type: string, dotCount: number, staff: number) => void;
+  onInsertRest: (after: number, type: string, dotCount: number, staff: number, voice?: string) => void;
   onInsertNote: (
     after: number,
     step: string,
@@ -2857,6 +2878,7 @@ function InsertElementForm({
     staff: number,
     pitchAlter: number | undefined,
     extraChordMembers: Array<{ step: string; octave: number; alter?: number }>,
+    voice?: string,
   ) => void;
   onInsertChordMember: (
     leaderNoteIndex: number,
@@ -2868,6 +2890,7 @@ function InsertElementForm({
   const [restTypeValueSel, setRestTypeValueSel] = useState(noteTypeValue('quarter', 0));
   const [noteTypeValueSel, setNoteTypeValueSel] = useState(noteTypeValue('eighth', 0));
   const [staff, setStaff] = useState(staffDefault);
+  const [voice, setVoice] = useState('1');
   const [step, setStep] = useState('C');
   const [octave, setOctave] = useState(4);
   const [insertAlter, setInsertAlter] = useState<PitchAlterOption>('0');
@@ -2902,7 +2925,7 @@ function InsertElementForm({
       octave: c.octave,
       alter: pitchAlterFromOption(c.alter),
     }));
-    onInsertNote(afterNoteIndex, step, octave, type, dots, staff, pitchAlterFromOption(insertAlter), extras);
+    onInsertNote(afterNoteIndex, step, octave, type, dots, staff, pitchAlterFromOption(insertAlter), extras, voice);
     setExtraChords([]);
   };
 
@@ -2967,6 +2990,10 @@ function InsertElementForm({
           <input type="number" min={1} max={4} value={staff} onChange={(e) => setStaff(Number(e.target.value))} style={{ width: 48 }} />
         </label>
         <label>
+          성부
+          <input type="text" inputMode="numeric" pattern="[0-9]*" value={voice} onChange={(e) => setVoice(e.target.value)} style={{ width: 40 }} />
+        </label>
+        <label>
           쉼표 종류
           <select value={restTypeValueSel} onChange={(e) => setRestTypeValueSel(e.target.value)}>
             {NOTE_TYPE_OPTIONS.map((opt) => (
@@ -2981,13 +3008,17 @@ function InsertElementForm({
           className="omr-hitl-fix-btn"
           onClick={() => {
             const { type, dots } = parseNoteTypeValue(restTypeValueSel);
-            onInsertRest(afterNoteIndex, type, dots, staff);
+            onInsertRest(afterNoteIndex, type, dots, staff, voice);
           }}
         >
           쉼표 추가
         </button>
       </div>
       <div className="omr-measure-insert-form-row">
+        <label>
+          성부
+          <input type="text" inputMode="numeric" pattern="[0-9]*" value={voice} onChange={(e) => setVoice(e.target.value)} style={{ width: 40 }} />
+        </label>
         <label>
           리더 음높이
           <select value={step} onChange={(e) => setStep(e.target.value)}>

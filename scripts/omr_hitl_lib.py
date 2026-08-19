@@ -4167,6 +4167,31 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         staff_el.text = str(staff_n)
         return True
 
+    if kind == "setNoteVoice":
+        try:
+            idx = int(fix.get("noteIndex"))
+            voice_val = str(fix.get("voice") or "1").strip()
+        except (TypeError, ValueError):
+            return False
+        if idx < 0 or idx >= len(notes):
+            return False
+        note = notes[idx]
+        group_indices = [idx]
+        if note.find(_q(ns, "chord")) is None:
+            group_indices.extend(_chord_follower_indices(notes, ns, idx))
+        else:
+            leader_i = _chord_leader_index(notes, ns, idx)
+            group_indices = [leader_i, *_chord_follower_indices(notes, ns, leader_i)]
+        for gi in group_indices:
+            n = notes[gi]
+            v_el = n.find(_q(ns, "voice"))
+            if v_el is None:
+                v_el = ET.SubElement(n, _q(ns, "voice"))
+            v_el.text = voice_val
+            _sort_note_children(n, ns)
+        _normalize_measure_note_engraving(part, ns, measure)
+        return True
+
     if kind == "nudgeRestDisplay":
         try:
             idx = int(fix.get("noteIndex"))
@@ -5139,7 +5164,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         insert_after_idx, staff_n, anchor, following, staff_notes = _resolve_insert_after_context(
             notes, ns, after_idx, staff_n
         )
+        voice_override = str(fix.get("voice") or "").strip()
         voice, _stem = _infer_voice_stem_from_neighbors(notes, ns, insert_after_idx, staff_n)
+        if voice_override:
+            voice = voice_override
         step = str(fix.get("displayStep") or "B").strip()
         try:
             octave = int(fix.get("displayOctave", 4))
@@ -5212,7 +5240,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         insert_after_idx, staff_n, anchor, following, staff_notes = _resolve_insert_after_context(
             notes, ns, after_idx, staff_n
         )
+        voice_override = str(fix.get("voice") or "").strip()
         voice, stem = _infer_voice_stem_from_neighbors(notes, ns, insert_after_idx, staff_n)
+        if voice_override:
+            voice = voice_override
         alter = fix.get("pitchAlter")
         alter_n: int | None = None
         if alter is not None and alter != "":

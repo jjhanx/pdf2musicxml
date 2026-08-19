@@ -19,6 +19,7 @@ export type OmrHitlFix = {
   directionIndex?: number;
   attachedToNoteIndex?: number;
   staff?: number;
+  voice?: string | number;
   restType?: string;
   noteType?: string;
   dotCount?: number;
@@ -89,6 +90,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   moveWedgeStop: 'wedge(stop) 위치',
   removeTrailingPhantomRest: '마디 끝 쉼표 제거',
   setNoteStaff: '스태프 지정',
+  setNoteVoice: '성부(Voice) 지정',
   nudgeRestDisplay: '쉼표 줄 이동',
   removeNote: '음·쉼표 삭제',
   removeNoteDot: '점(·) 제거',
@@ -131,6 +133,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.directionIndex ?? '',
     fix.detail ?? '',
     fix.staff ?? '',
+    fix.voice ?? '',
     fix.lineDelta ?? '',
     fix.noteType ?? '',
     fix.dotCount ?? '',
@@ -228,6 +231,9 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   }
   if (fix.kind === 'setPlayOrder' && fix.playOrder != null) {
     parts.push(`순번 ${fix.playOrder}`);
+  }
+  if (fix.kind === 'setNoteVoice' && fix.voice != null) {
+    parts.push(`voice ${fix.voice}`);
   }
   if (fix.kind === 'insertWedge' || fix.kind === 'moveWedgeStop') {
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);

@@ -1325,7 +1325,19 @@ export default function App() {
             const match = restoredRows.find((p: { id?: string }) => p.id === item.id);
             return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
          });
-         setReviewData(merged);
+         const existingIds = new Set(reviewData.map((item) => item.id));
+           const missing = restoredRows.filter((p: { id?: string }) => !existingIds.has(p.id));
+           if (missing.length > 0) {
+             const combined = merged.concat(missing as typeof reviewData);
+             combined.sort((a, b) => {
+               const waveA = a.page * 4 + (a.y > 842 * 0.22 ? 0 : -2);
+               const waveB = b.page * 4 + (b.y > 842 * 0.22 ? 0 : -2);
+               return waveA - waveB || a.y - b.y || a.x - b.x;
+             });
+             setReviewData(combined);
+           } else {
+             setReviewData(merged);
+           }
          if (restoredRects.length > 0) setManualLyricRects(restoredRects);
        } catch (e) {
          console.error('Failed to load saved data', e);
@@ -1464,14 +1476,16 @@ export default function App() {
             const existingIds = new Set(reviewData.map((item) => item.id));
             const missing = backupRows.filter((p: { id?: string }) => !existingIds.has(p.id));
             if (missing.length > 0) {
-              merged.push(...(missing as typeof reviewData));
-              merged.sort((a, b) => {
+              const combined = merged.concat(missing as typeof reviewData);
+              combined.sort((a, b) => {
                 const waveA = a.page * 4 + (a.y > 842 * 0.22 ? 0 : -2);
                 const waveB = b.page * 4 + (b.y > 842 * 0.22 ? 0 : -2);
                 return waveA - waveB || a.y - b.y || a.x - b.x;
               });
+              setReviewData(combined);
+            } else {
+              setReviewData(merged);
             }
-            setReviewData(merged);
          }
          if (fromFile.length > 0) setManualLyricRects(fromFile);
        } catch (err) {

@@ -95,20 +95,20 @@ export function defaultPlayOrdersFromDocumentOrder(measure: Element, staffN?: nu
  */
 export function defaultPlayOrdersFromTimeline(measure: Element, staffN?: number): Map<Element, number> {
   const onsets = collectVoiceParallelNoteOnsets(measure);
-  const leaders: { el: Element; onset: number; x: number }[] = [];
+  const leaders: { el: Element; onset: number; idx: number }[] = [];
+  let idx = 0;
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'note') continue;
     if (isChordMember(child)) continue;
+    const currentIdx = idx++;
     if (staffN != null && noteStaffNumber(child) !== staffN) continue;
-    const rawX = child.getAttribute('default-x');
-    const parsed = rawX ? parseFloat(rawX) : NaN;
     leaders.push({
       el: child,
       onset: onsets.get(child) ?? 0,
-      x: Number.isFinite(parsed) ? parsed : 0,
+      idx: currentIdx,
     });
   }
-  leaders.sort((a, b) => a.onset - b.onset || a.x - b.x);
+  leaders.sort((a, b) => a.onset - b.onset || a.idx - b.idx);
   const out = new Map<Element, number>();
   let order = 0;
   let prevOnset: number | null = null;

@@ -510,11 +510,10 @@ def _clear_play_order_on_other_onsets(
 def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> dict[int, int]:
     """staff musical onset(타임라인) 기본 연주순번 — 같은 onset = 같은 순번.
 
-    음표·쉼표 leader 모두 포함. 문서 순서(voice1 블록 → backup → voice2)는
-    미리보기 왼쪽→오른쪽과 어긋나 UI 혼란을 만든다.
+    음표·쉼표 leader 모두 포함.
     """
     notes = list_note_elements(measure, ns)
-    leaders: list[tuple[int, float, int]] = []
+    leaders: list[tuple[int, int]] = []
     for i, note in enumerate(notes):
         if note.find(_q(ns, "chord")) is not None:
             continue
@@ -522,13 +521,12 @@ def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> 
         if st != staff:
             continue
         onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, i)
-        dx = _parse_default_x(note)
-        leaders.append((onset, dx if dx is not None else 0.0, i))
+        leaders.append((onset, i))
     leaders.sort()
     out: dict[int, int] = {}
     order = 0
     prev_onset: int | None = None
-    for onset, _dx, i in leaders:
+    for onset, i in leaders:
         if prev_onset is None or onset != prev_onset:
             order += 1
             prev_onset = onset
@@ -1212,11 +1210,15 @@ def _apply_measure_tempo_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> 
 
 def _snapshot_timeline_sort_key(snap: dict[str, Any]) -> tuple[Any, ...]:
     staff = snap.get("staff") or 1
-    dx = snap.get("timelineX")
-    if dx is None:
-        dx = snap.get("defaultX")
-    x = dx if dx is not None else 1_000_000.0 + int(snap.get("index") or 0)
-    return (staff, x, 0 if not snap.get("chord") else 1, snap.get("index") or 0)
+    po = snap.get("playOrder")
+    if po is None:
+        po = snap.get("displayPlayOrder")
+    try:
+        po_val = int(po) if po is not None and int(po) > 0 else 999_999
+    except (ValueError, TypeError):
+        po_val = 999_999
+    idx = int(snap.get("index") or 0)
+    return (staff, po_val, idx, 0 if not snap.get("chord") else 1)
 
 
 def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:

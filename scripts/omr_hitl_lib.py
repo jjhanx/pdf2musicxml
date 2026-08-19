@@ -2733,6 +2733,75 @@ def _strip_chord_member_beams(notes: list[ET.Element], ns: str) -> bool:
     return changed
 
 
+def _clean_orphan_beams_in_measure(measure: ET.Element, ns: str) -> bool:
+    """staff/voice별 유효하지 않은 고아 빔(시작만 있고 끝이 없는 단독 빔 등) 자동 제거."""
+    notes = list_note_elements(measure, ns)
+    changed = False
+    by_layer: dict[tuple[str, str], list[ET.Element]] = {}
+    for n in notes:
+        if n.find(_q(ns, "chord")) is not None or n.find(_q(ns, "rest")) is not None:
+            continue
+        v, st = _note_voice_staff(n, ns)
+        by_layer.setdefault((st, v), []).append(n)
+
+    for (st, v), layer_notes in by_layer.items():
+        all_numbers: set[int] = set()
+        for n in layer_notes:
+            for b in n.findall(_q(ns, "beam")):
+                try:
+                    all_numbers.add(int(b.get("number") or "1"))
+                except ValueError:
+                    all_numbers.add(1)
+        for b_num in sorted(all_numbers):
+            active_run: list[ET.Element] = []
+            for n in layer_notes:
+                b_el = None
+                for b in n.findall(_q(ns, "beam")):
+                    try:
+                        num = int(b.get("number") or "1")
+                    except ValueError:
+                        num = 1
+                    if num == b_num:
+                        b_el = b
+                        break
+                if b_el is None:
+                    if active_run:
+                        for r_note in active_run:
+                            if _strip_beams_from_note(r_note, ns, b_num):
+                                changed = True
+                        active_run = []
+                    continue
+                val = (b_el.text or "").strip().lower()
+                if val == "begin":
+                    if active_run:
+                        for r_note in active_run:
+                            if _strip_beams_from_note(r_note, ns, b_num):
+                                changed = True
+                    active_run = [n]
+                elif val in ("continue", "forward hook", "backward hook"):
+                    if not active_run:
+                        if _strip_beams_from_note(n, ns, b_num):
+                            changed = True
+                    else:
+                        active_run.append(n)
+                elif val == "end":
+                    if not active_run:
+                        if _strip_beams_from_note(n, ns, b_num):
+                            changed = True
+                    else:
+                        active_run.append(n)
+                        if len(active_run) < 2:
+                            for r_note in active_run:
+                                if _strip_beams_from_note(r_note, ns, b_num):
+                                    changed = True
+                        active_run = []
+            if active_run:
+                for r_note in active_run:
+                    if _strip_beams_from_note(r_note, ns, b_num):
+                        changed = True
+    return changed
+
+
 def _chord_follower_indices(notes: list[ET.Element], ns: str, leader_idx: int) -> list[int]:
     out: list[int] = []
     for j in range(leader_idx + 1, len(notes)):
@@ -3391,9 +3460,9 @@ def _apply_beam_to_range(
     for idx in range(lo, hi + 1):
         if not (0 <= idx < len(notes)):
             continue
-        _strip_beams_from_note(notes[idx], ns, beam_number)
+        _strip_beams_from_note(notes[idx], ns, None)
         for fidx in _chord_follower_indices(notes, ns, idx):
-            _strip_beams_from_note(notes[fidx], ns, beam_number)
+            _strip_beams_from_note(notes[fidx], ns, None)
 
     for pos, idx in enumerate(pitched):
         if pos == 0:
@@ -5455,7 +5524,11 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         lo, hi = leaders[0], leaders[-1]
         divisions, _beats, _bt = _effective_divisions_and_time(part, ns, measure)
         indices = list(range(lo, hi + 1))
-        return _apply_beam_to_range(notes, ns, indices, beam_number, divisions)
+        applied = _apply_beam_to_range(notes, ns, indices, beam_number, divisions)
+        if applied:
+            _clean_orphan_beams_in_measure(measure, ns)
+            _normalize_measure_note_engraving(part, ns, measure)
+        return applied
 
     if kind == "removeBeam":
         try:
@@ -5474,7 +5547,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             try:
                 beam_number = int(beam_number_raw)
             except (TypeError, ValueError):
-                return False
+                beam_number = None
         changed = False
         for idx in range(from_idx, to_idx + 1):
             if _strip_beams_from_note(notes[idx], ns, beam_number):
@@ -5482,6 +5555,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             for fidx in _chord_follower_indices(notes, ns, idx):
                 if _strip_beams_from_note(notes[fidx], ns, beam_number):
                     changed = True
+        _clean_orphan_beams_in_measure(measure, ns)
+        _normalize_measure_note_engraving(part, ns, measure)
         return changed
 
     return False
@@ -6905,6 +6980,7 @@ def rebuild_measure_timeline_clean(
         _normalize_staff_note_order(measure, ns, staff)
     _compact_default_x_by_staff(measure, ns)
     _repair_tuplet_brackets_in_measure(measure, ns)
+    _clean_orphan_beams_in_measure(measure, ns)
 
 
 def _repair_tuplet_brackets_in_measure(measure: ET.Element, ns: str) -> bool:

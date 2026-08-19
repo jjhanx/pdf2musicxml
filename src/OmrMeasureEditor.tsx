@@ -2586,7 +2586,6 @@ function MeasureNoteEditor({
                   kind: 'removeBeam',
                   fromNoteIndex: existingBeam.from,
                   toNoteIndex: existingBeam.to,
-                  beamNumber,
                 })
               }
             >

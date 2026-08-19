@@ -1209,12 +1209,8 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
               if (durationEl) {
                 const dur = parseInt(durationEl.textContent || '0', 10);
                 if (!isNaN(dur) && dur > 0) {
-                  if (cursor >= capacity) {
-                    durationEl.textContent = '0';
-                    lastLeaderCapped = true;
-                    lastLeaderDur = 0;
-                  } else if (cursor + dur > capacity) {
-                    const cappedDur = capacity - cursor;
+                  if (cursor + dur > capacity) {
+                    const cappedDur = Math.max(1, capacity - cursor);
                     durationEl.textContent = String(cappedDur);
                     lastLeaderCapped = true;
                     lastLeaderDur = cappedDur;
@@ -1236,8 +1232,12 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
                   child.remove();
                 } else if (cursor + dur > capacity) {
                   const cappedDur = capacity - cursor;
-                  durationEl.textContent = String(cappedDur);
-                  cursor = capacity;
+                  if (cappedDur <= 0) {
+                    child.remove();
+                  } else {
+                    durationEl.textContent = String(cappedDur);
+                    cursor = capacity;
+                  }
                 } else {
                   cursor += dur;
                 }

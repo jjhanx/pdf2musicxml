@@ -60,7 +60,10 @@ type InspectErrorBoundaryProps = {
   onBack?: () => void;
 };
 
-type InspectErrorBoundaryState = { error: Error | null };
+type InspectErrorBoundaryState = {
+  error: Error | null;
+  copied?: boolean;
+};
 
 /** OMR·HITL 미리보기 — 이음줄·성부 라벨 등 OSMD 규칙 조정 */
 export function applyOsmdPreviewEngravingRules(
@@ -103,15 +106,35 @@ export class InspectPanelErrorBoundary extends Component<
   InspectErrorBoundaryProps,
   InspectErrorBoundaryState
 > {
-  state: InspectErrorBoundaryState = { error: null };
+  state: InspectErrorBoundaryState = { error: null, copied: false };
 
   static getDerivedStateFromError(error: Error): InspectErrorBoundaryState {
-    return { error };
+    return { error, copied: false };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[inspect-panel]', error, info.componentStack);
   }
+
+  handleCopyError = () => {
+    if (!this.state.error) return;
+    const msg = this.state.error.stack || this.state.error.message;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(msg).then(() => {
+        this.setState({ copied: true });
+        setTimeout(() => this.setState({ copied: false }), 2000);
+      }).catch(() => {});
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = msg;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+      this.setState({ copied: true });
+      setTimeout(() => this.setState({ copied: false }), 2000);
+    }
+  };
 
   render() {
     if (this.state.error) {
@@ -148,11 +171,41 @@ export class InspectPanelErrorBoundary extends Component<
           >
             {this.state.error.message}
           </pre>
-          {this.props.onBack ? (
-            <button type="button" onClick={this.props.onBack}>
-              보정·이어하기로 돌아가기
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '10px' }}>
+            <button
+              type="button"
+              onClick={this.handleCopyError}
+              style={{
+                padding: '6px 12px',
+                background: '#4a2525',
+                color: '#fff',
+                border: '1px solid #8b3a3a',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+              }}
+            >
+              {this.state.copied ? '✓ 복사됨!' : '에러 메시지 복사'}
             </button>
-          ) : null}
+            {this.props.onBack ? (
+              <button
+                type="button"
+                onClick={this.props.onBack}
+                style={{
+                  padding: '6px 12px',
+                  background: '#2a2d34',
+                  color: '#fff',
+                  border: '1px solid #555',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                }}
+              >
+                보정·이어하기로 돌아가기
+              </button>
+            ) : null}
+          </div>
         </div>
       );
     }

@@ -1461,6 +1461,16 @@ export default function App() {
                const match = backupRows.find((p: { id?: string }) => p.id === item.id);
                return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
             });
+            const existingIds = new Set(reviewData.map((item) => item.id));
+            const missing = backupRows.filter((p: { id?: string }) => !existingIds.has(p.id));
+            if (missing.length > 0) {
+              merged.push(...(missing as typeof reviewData));
+              merged.sort((a, b) => {
+                const waveA = a.page * 4 + (a.y > 842 * 0.22 ? 0 : -2);
+                const waveB = b.page * 4 + (b.y > 842 * 0.22 ? 0 : -2);
+                return waveA - waveB || a.y - b.y || a.x - b.x;
+              });
+            }
             setReviewData(merged);
          }
          if (fromFile.length > 0) setManualLyricRects(fromFile);

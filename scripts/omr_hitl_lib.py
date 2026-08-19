@@ -3203,8 +3203,8 @@ def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> 
 def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: str) -> bool:
     """Staff voice 병합 — 겹치지 않거나 same-x 잘못 분리된 sequential voice."""
     notes = list_note_elements(measure, ns)
+    timed_starts = dict(_staff_timed_leader_starts(measure, ns, staff))
     leaders: list[tuple[int, str, int, int]] = []
-    voice_cursor: dict[str, int] = {}
     leader_indices: list[int] = []
     for i, note in enumerate(notes):
         if _is_grace_or_cue(note, ns) or note.find(_q(ns, "chord")) is not None:
@@ -3213,10 +3213,9 @@ def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: 
         if st != staff:
             continue
         leader_indices.append(i)
-        start = voice_cursor.get(voice, 0)
+        start = timed_starts.get(i, 0)
         dur = _note_duration(note, ns)
         leaders.append((i, voice, start, start + dur))
-        voice_cursor[voice] = start + dur
     voices = {v for _, v, _, _ in leaders}
     if len(voices) <= 1:
         return False
@@ -3230,20 +3229,6 @@ def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: 
                 for sb, eb in intervals_by_voice.get(voice_list[b], []):
                     if max(sa, sb) < min(ea, eb):
                         return False
-    leader_xs = [_parse_default_x(notes[i]) for i in leader_indices]
-    distinct_x = {round(x, 0) for x in leader_xs if x is not None}
-    if len(distinct_x) >= len(voices):
-        return _merge_staff_voices_to_primary(measure, ns, staff)
-    for i in range(len(leader_indices) - 1):
-        a = notes[leader_indices[i]]
-        b = notes[leader_indices[i + 1]]
-        va, _ = _note_voice_staff(a, ns)
-        vb, _ = _note_voice_staff(b, ns)
-        if va != vb:
-            xa = _parse_default_x(a) or 0.0
-            xb = _parse_default_x(b) or 0.0
-            if abs(xa - xb) <= _SAME_X_TOLERANCE:
-                return _merge_staff_voices_to_primary(measure, ns, staff)
     return _merge_staff_voices_to_primary(measure, ns, staff)
 
 
@@ -4236,6 +4221,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                     _sort_note_children(followers[0], ns)
         else:
             measure.remove(note)
+        _normalize_measure_note_engraving(part, ns, measure)
         return True
 
     if kind == "removeArticulation":

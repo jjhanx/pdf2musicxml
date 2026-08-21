@@ -716,10 +716,11 @@ function insertDirectionAfterNoteGroup(measure: Element, direction: Element, lea
 /**
  * OSMD: 마디 처음(첫 음 앞)이나 barline에 있는 wedge stop은 다음 마디 t=0으로 붙어
  * 닫히지 않은 점선이 다음 마디 끝까지 이어진다. 그 경우만 해당 staff 마지막 음 뒤로 옮긴다.
- * 중간 음 앞의 stop은 그대로 둔다(끝 음이 마지막이 아닌 점선).
+ *
+ * 이미 같은 staff 음표 **뒤**(backup/forward 직전이어도)에 있는 stop은 옮기지 않는다.
+ * (PL A2→E2 stop을 E4 뒤로 옮기면 start보다 앞에 가 OSMD가 점선을 안 그림.)
  */
 export function reanchorWedgeStopsForOsmdPreview(measure: Element, staffN: number): void {
-  const first = firstRhythmicNoteOnStaff(measure, staffN);
   const last = lastRhythmicNoteOnStaff(measure, staffN);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
@@ -727,14 +728,22 @@ export function reanchorWedgeStopsForOsmdPreview(measure: Element, staffN: numbe
     if (directionStaffNumber(child) !== staffN) continue;
     const children = [...measure.children];
     const idx = children.indexOf(child);
-    const next = idx >= 0 && idx + 1 < children.length ? children[idx + 1] : null;
-    if (next && xmlLocalName(next) === 'note' && noteStaffNumber(next) === staffN) {
-      if (first && next === first) {
-        if (last) insertDirectionAfterNoteGroup(measure, child, last);
-        else child.remove();
+    if (idx < 0) continue;
+
+    let hasPrevNoteOnStaff = false;
+    for (let j = idx - 1; j >= 0; j -= 1) {
+      const c = children[j]!;
+      if (xmlLocalName(c) !== 'note') continue;
+      if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
+      if (noteStaffNumber(c) === staffN) {
+        hasPrevNoteOnStaff = true;
+        break;
       }
-      continue;
     }
+    // 이미 해당 staff 음 뒤에 있으면 유지 (backup 앞 stop 포함)
+    if (hasPrevNoteOnStaff) continue;
+
+    // 첫 음보다 앞·고아 stop → 해당 staff 마지막 음 뒤로
     if (last) insertDirectionAfterNoteGroup(measure, child, last);
     else child.remove();
   }
@@ -1215,7 +1224,15 @@ function collectVoiceLayerBlocks(measure: Element): Map<string, VoiceLayerBlock[
   for (const el of children) {
     if (xmlLocalName(el) !== 'note') continue;
     if (el.querySelector('chord, *|chord') !== null) continue;
-    const trailing = trailingDirectionsAfterNoteGroup(measure, el);
+    let trailing = trailingDirectionsAfterNoteGroup(measure, el);
+    // 쉼표 뒤 crescendo/diminuendo start는 다음 실음의 leading으로 둔다
+    // (REST trailing으로 붙었다가 backup 앞 voice drop 시 wedge가 사라지거나 앞으로 밀림)
+    if (el.querySelector('rest, *|rest')) {
+      trailing = trailing.filter((d) => {
+        const wt = directionWedgeType(d);
+        return !wt || wt === 'stop';
+      });
+    }
     trailingByLeader.set(el, trailing);
     for (const d of trailing) claimedTrailing.add(d);
   }

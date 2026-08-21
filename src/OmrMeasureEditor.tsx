@@ -1380,8 +1380,13 @@ export function OmrMeasureEditor({
     [measureDirections],
   );
   const wedgeDirections = useMemo(
-    () => measureDirections.filter((d) => isWedgeDirection(d)),
-    [measureDirections],
+    () =>
+      measureDirections.filter((d) => {
+        if (!isWedgeDirection(d)) return false
+        if (editStaffWithinPart == null) return true
+        return (d.staff ?? 1) === editStaffWithinPart;
+      }),
+    [measureDirections, editStaffWithinPart],
   );
 
   useEffect(() => {

@@ -908,6 +908,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               pendingFixCount={pendingFixes.length}
               pendingFixes={pendingFixes}
               previewBusy={applyBusy}
+              availableScoreParts={scoreParts}
               onPreview={() => void applyFixesToMxl()}
               onAddFix={addFix}
             />

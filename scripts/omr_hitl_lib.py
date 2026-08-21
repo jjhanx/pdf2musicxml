@@ -3049,27 +3049,12 @@ def dedupe_identical_chord_pitches_in_root(root: ET.Element) -> int:
     return n
 
 
-def _compact_default_x_by_staff(measure: ET.Element, ns: str) -> bool:
+def _compact_default_x_by_staff(
+    measure: ET.Element, ns: str, part: ET.Element | None = None
+) -> bool:
     """voice timeline 시작이 같은 음은 같은 default-x — 동시 시작(다른 박자·줄기) 정렬."""
     notes = list_note_elements(measure, ns)
-    divisions = 1
-    beats = 4
-    beat_type = 4
-    for attr in measure.findall(_q(ns, "attributes")):
-        div_el = attr.find(_q(ns, "divisions"))
-        if div_el is not None and div_el.text and div_el.text.strip().isdigit():
-            divisions = max(1, int(div_el.text.strip()))
-        time_el = attr.find(_q(ns, "time"))
-        if time_el is not None:
-            b_el = time_el.find(_q(ns, "beats"))
-            bt_el = time_el.find(_q(ns, "beat-type"))
-            try:
-                if b_el is not None and b_el.text and b_el.text.strip():
-                    beats = max(1, int(b_el.text.strip()))
-                if bt_el is not None and bt_el.text and bt_el.text.strip():
-                    beat_type = max(1, int(bt_el.text.strip()))
-            except ValueError:
-                pass
+    divisions, beats, beat_type = _measure_divisions_beats(measure, ns, part)
     measure_len = max(1, _measure_length_units(divisions, beats, beat_type))
     changed = False
     base_x = 32.0
@@ -3079,7 +3064,7 @@ def _compact_default_x_by_staff(measure: ET.Element, ns: str) -> bool:
         if not timed:
             continue
         for ni, start in timed:
-            x = base_x + (start / measure_len * span)
+            x = base_x + (min(start, measure_len) / measure_len * span)
             new_x = f"{x:.2f}"
             group = [notes[ni], *[notes[j] for j in _chord_follower_indices(notes, ns, ni)]]
             for note in group:
@@ -3089,8 +3074,10 @@ def _compact_default_x_by_staff(measure: ET.Element, ns: str) -> bool:
     return changed
 
 
-def _compact_default_x_by_voice(measure: ET.Element, ns: str) -> bool:
-    return _compact_default_x_by_staff(measure, ns)
+def _compact_default_x_by_voice(
+    measure: ET.Element, ns: str, part: ET.Element | None = None
+) -> bool:
+    return _compact_default_x_by_staff(measure, ns, part)
 
 
 def _timeline_el_duration(el: ET.Element, ns: str) -> int:
@@ -3227,6 +3214,7 @@ def _coalesce_spurious_parallel_voices_on_staff(
         return False
     p_end = p_start + p_dur
 
+    tol = max(3, divisions // 4)
     parallel: list[str] = []
     candidates: list[str] = []
     for v in voice_list[1:]:
@@ -3238,8 +3226,12 @@ def _coalesce_spurious_parallel_voices_on_staff(
             parallel.append(v)
             continue
         # onset 0에 잘못 겹친 짧은 층, 또는 primary 끝에서 이어지는 잘못된 voice
-        if p_dur + dur <= measure_len + 1:
-            if start <= p_start + 1 or start >= p_end - 1:
+        if p_dur + dur <= measure_len + tol:
+            if (
+                start <= p_start + tol
+                or start >= p_start + (p_dur // 2)
+                or start >= p_end - tol
+            ):
                 candidates.append(v)
     if not parallel or not candidates:
         return False
@@ -3250,7 +3242,7 @@ def _coalesce_spurious_parallel_voices_on_staff(
     absorbed_dur = 0
     for v in candidates:
         _start, dur, _leaders = meta[v]
-        if dur > remaining - absorbed_dur + 1:
+        if dur > remaining - absorbed_dur + tol:
             continue
         absorbed_voices.append(v)
         absorbed_dur += dur
@@ -3259,11 +3251,12 @@ def _coalesce_spurious_parallel_voices_on_staff(
 
     first_v = absorbed_voices[0]
     first_start = meta[first_v][0]
-    if first_start <= p_start + 1:
+    if first_start <= p_start + tol:
         # false-parallel at measure start — fill remaining with leading rest if needed
         gap = max(0, remaining - absorbed_dur)
     else:
-        gap = max(0, first_start - p_end)
+        raw_gap = first_start - p_end
+        gap = raw_gap if raw_gap > tol else 0
 
     first_absorbed = meta[first_v][2][0]
     for v in absorbed_voices:
@@ -7345,7 +7338,7 @@ def rebuild_measure_timeline_clean(
         _merge_staff_voices_if_non_overlapping(measure, ns, staff)
     for staff in ("1", "2"):
         _normalize_staff_note_order(measure, ns, staff)
-    _compact_default_x_by_staff(measure, ns)
+    _compact_default_x_by_staff(measure, ns, part)
     _repair_tuplet_brackets_in_measure(measure, ns)
     _clean_orphan_beams_in_measure(measure, ns)
 

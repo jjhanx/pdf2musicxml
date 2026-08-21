@@ -3319,10 +3319,16 @@ def coalesce_spurious_parallel_voices_in_root(root: ET.Element) -> int:
 
 
 def normalize_slurs_in_root(root: ET.Element) -> int:
-    """전 악보 — 이음줄(slur) 고아 stop 제거, 중복 start/stop 정리, 고유 number 부여, 왜곡된 bezier 좌표 제거.
+    """전 악보 — 이음줄(slur) 고아 stop 제거, 중복 start/stop 정리, number 정리, bezier 좌표 제거.
 
     같은 음에 start/stop이 여러 개면 bezier·default-x/y 없는 쪽을 우선한다.
     (좌표 있는 OMR 곡선을 남기면 OSMD가 끝 음 뒤로 끊긴 꼬리만 그리는 경우가 많음.)
+
+    stop은 **같은 staff + 같은 number**의 open start에만 짝짓는다.
+    (다른 number의 open start에 붙이면 OMR 고아 stop이 HITL 긴 이음줄을 가로챔.)
+
+    start number는 가능하면 유지하고, open/used와 충돌할 때만 새 번호를 부여한 뒤
+    같은 staff의 짝 stop number도 함께 갱신한다.
 
     같은 마디에서 stop 직후 number를 재사용하지 않는다. PR/PL 이음줄이 시간상 겹칠 때
     OSMD가 같은 number의 start/stop을 잘못 짝지어 한쪽이 안 보이는 것을 막는다.
@@ -3345,9 +3351,9 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
         for measure in part.findall(_q(ns, "measure")):
             mnum = measure.get("number") or ""
             m_changed = False
-            # MusicXML allows reusing a slur number after stop, but OSMD matches by time.
-            # Staff1/staff2 slurs that overlap in time must keep distinct numbers within the measure.
             used_nums_in_measure: set[str] = set(open_slurs.keys())
+            # start를 재번호화했을 때 같은 staff의 짝 stop이 따라오도록
+            stop_num_remap: dict[tuple[str, str], str] = {}
 
             for note in measure.findall(_q(ns, "note")):
                 notations = note.find(_q(ns, "notations"))
@@ -3364,7 +3370,6 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                 starts = [s for s in slurs if s.get("type") == "start"]
                 stops = [s for s in slurs if s.get("type") == "stop"]
 
-                # Deduplicate starts — prefer without Audiveris layout noise
                 if len(starts) > 1:
                     keep = _pick_preferred_slur(starts)
                     for s in starts:
@@ -3373,7 +3378,6 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                             m_changed = True
                     starts = [keep]
 
-                # Deduplicate stops — same preference
                 if len(stops) > 1:
                     keep = _pick_preferred_slur(stops)
                     for s in stops:
@@ -3384,7 +3388,6 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
 
                 slurs = list(notations.findall(_q(ns, "slur")))
 
-                # Strip corrupt bezier and default-x/y coordinates
                 for s in slurs:
                     for attr in layout_attrs:
                         if s.get(attr) is not None:
@@ -3394,42 +3397,43 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                 starts = [s for s in slurs if s.get("type") == "start"]
                 stops = [s for s in slurs if s.get("type") == "stop"]
 
-                # Process stops
                 for s in stops:
-                    orig_num = s.get("number") or "1"
+                    orig_num = (s.get("number") or "1").strip() or "1"
+                    lookup = stop_num_remap.get((staff, orig_num), orig_num)
                     matched_num = None
-                    if orig_num in open_slurs and open_slurs[orig_num]["staff"] == staff:
+                    if lookup in open_slurs and open_slurs[lookup]["staff"] == staff:
+                        matched_num = lookup
+                    elif orig_num in open_slurs and open_slurs[orig_num]["staff"] == staff:
                         matched_num = orig_num
-                    else:
-                        for k, v in open_slurs.items():
-                            if v["staff"] == staff:
-                                matched_num = k
-                                break
-
                     if matched_num is not None:
-                        s.set("number", str(matched_num))
+                        if (s.get("number") or "") != matched_num:
+                            s.set("number", matched_num)
+                            m_changed = True
                         del open_slurs[matched_num]
                         used_nums_in_measure.add(str(matched_num))
-                        m_changed = True
                     else:
-                        # Orphan stop with no matching start -> remove it to prevent broken cutoff slur line
+                        # 고아 stop — 다른 number의 open start를 가로채지 않음
                         notations.remove(s)
                         m_changed = True
 
-                # Process starts
                 for s in starts:
-                    next_num = 1
-                    while str(next_num) in open_slurs or str(next_num) in used_nums_in_measure:
-                        next_num += 1
-                    num = str(next_num)
-                    s.set("number", num)
-                    used_nums_in_measure.add(num)
+                    orig_num = (s.get("number") or "1").strip() or "1"
+                    num = orig_num
+                    if num in open_slurs or num in used_nums_in_measure:
+                        next_num = 1
+                        while str(next_num) in open_slurs or str(next_num) in used_nums_in_measure:
+                            next_num += 1
+                        num = str(next_num)
+                    if (s.get("number") or "") != num:
+                        s.set("number", num)
+                        m_changed = True
+                        if orig_num != num:
+                            stop_num_remap[(staff, orig_num)] = num
                     open_slurs[num] = {
                         "staff": staff,
                         "voice": voice,
                         "measure_num": mnum,
                     }
-                    m_changed = True
 
                 if not list(notations):
                     note.remove(notations)
@@ -5499,6 +5503,21 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         for s in list(to_not.findall(_q(ns, "slur"))):
             if s.get("type") == "stop":
                 to_not.remove(s)
+
+        # from~to 사이 같은 staff의 고아/짧은 OMR stop·start 제거 — 긴 이음줄이 중간에서 끊기지 않게
+        from_staff = _note_staff_number(from_note, ns) or 1
+        lo, hi = (from_idx, to_idx) if from_idx <= to_idx else (to_idx, from_idx)
+        for mid_i in range(lo + 1, hi):
+            mid = notes[mid_i]
+            if (_note_staff_number(mid, ns) or 1) != from_staff:
+                continue
+            mid_not = mid.find(_q(ns, "notations"))
+            if mid_not is None:
+                continue
+            for s in list(mid_not.findall(_q(ns, "slur"))):
+                mid_not.remove(s)
+            if not list(mid_not):
+                mid.remove(mid_not)
 
         existing_numbers = set()
         for n in notes:

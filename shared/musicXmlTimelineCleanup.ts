@@ -71,10 +71,11 @@ export function repairTimelineForOsmdPreview(xml: string): string {
 }
 
 /**
- * OSMD/HITL 미리보기 전용 — slur 좌표/고아 stop 정리 및 고유 number 부여.
+ * OSMD/HITL 미리보기 전용 — slur 좌표/고아 stop 정리 및 number 정리.
  * Audiveris raw bezier/default-y 좌표 및 끊어진 고아 stop 제거.
  * 같은 음에 start/stop이 여러 개면 **좌표(bezier·default-x/y) 없는 쪽**을 남긴다.
- * (좌표 있는 OMR 곡선을 남기면 OSMD가 끝 음 뒤로 끊긴 꼬리만 그리는 경우가 많음.)
+ * stop은 같은 staff+number의 open start에만 짝짓는다(고아 stop이 긴 이음줄을 가로채지 않음).
+ * start number는 가능하면 유지하고, 충돌 시에만 재번호화하며 짝 stop도 remap.
  * 같은 마디에서 stop 직후 number를 재사용하지 않는다 — PR/PL이 시간상 겹치면 OSMD가
  * 같은 number의 start/stop을 잘못 짝지어 한쪽 이음줄이 안 보인다.
  */
@@ -107,9 +108,8 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         const mnum = measure.getAttribute('number') || '';
-        // MusicXML allows reusing a slur number after stop, but OSMD matches by time.
-        // Staff1/staff2 slurs that overlap in time must keep distinct numbers within the measure.
         const usedNumsInMeasure = new Set<string>(openSlurs.keys());
+        const stopNumRemap = new Map<string, string>(); // `${staff}|${orig}` -> newNum
 
         for (const note of [...measure.children]) {
           if (xmlLocalName(note) !== 'note') continue;
@@ -127,7 +127,6 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
           let starts = slurs.filter((s) => s.getAttribute('type') === 'start');
           let stops = slurs.filter((s) => s.getAttribute('type') === 'stop');
 
-          // Deduplicate multiple starts — prefer without Audiveris layout noise
           if (starts.length > 1) {
             const keep = pickPreferredSlur(starts);
             for (const s of starts) {
@@ -136,7 +135,6 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
             starts = [keep];
           }
 
-          // Deduplicate multiple stops — same preference
           if (stops.length > 1) {
             const keep = pickPreferredSlur(stops);
             for (const s of stops) {
@@ -147,7 +145,6 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
 
           slurs = [...notations.children].filter((c) => xmlLocalName(c) === 'slur');
 
-          // Strip corrupt bezier and default-x/y coordinates
           for (const s of slurs) {
             s.removeAttribute('bezier-x');
             s.removeAttribute('bezier-y');
@@ -158,43 +155,41 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
           starts = slurs.filter((s) => s.getAttribute('type') === 'start');
           stops = slurs.filter((s) => s.getAttribute('type') === 'stop');
 
-          // Process stops
           for (const s of stops) {
-            const origNum = s.getAttribute('number') || '1';
+            const origNum = (s.getAttribute('number') || '1').trim() || '1';
+            const remapKey = `${staff}|${origNum}`;
+            const lookup = stopNumRemap.get(remapKey) || origNum;
             let matchedNum: string | null = null;
-            if (openSlurs.has(origNum) && openSlurs.get(origNum)!.staff === staff) {
+            if (openSlurs.has(lookup) && openSlurs.get(lookup)!.staff === staff) {
+              matchedNum = lookup;
+            } else if (openSlurs.has(origNum) && openSlurs.get(origNum)!.staff === staff) {
               matchedNum = origNum;
-            } else {
-              for (const [k, v] of openSlurs.entries()) {
-                if (v.staff === staff) {
-                  matchedNum = k;
-                  break;
-                }
-              }
             }
-
             if (matchedNum != null) {
-              s.setAttribute('number', matchedNum);
+              if ((s.getAttribute('number') || '') !== matchedNum) {
+                s.setAttribute('number', matchedNum);
+              }
               openSlurs.delete(matchedNum);
               usedNumsInMeasure.add(matchedNum);
             } else {
-              // Orphan stop with no matching start -> remove it to prevent broken cutoff slur line
               s.remove();
             }
           }
 
-          // Process starts
           for (const s of starts) {
-            let nextNum = 1;
-            while (
-              openSlurs.has(String(nextNum)) ||
-              usedNumsInMeasure.has(String(nextNum))
-            ) {
-              nextNum++;
+            const origNum = (s.getAttribute('number') || '1').trim() || '1';
+            let num = origNum;
+            if (openSlurs.has(num) || usedNumsInMeasure.has(num)) {
+              let nextNum = 1;
+              while (openSlurs.has(String(nextNum)) || usedNumsInMeasure.has(String(nextNum))) {
+                nextNum += 1;
+              }
+              num = String(nextNum);
             }
-            const num = String(nextNum);
-            s.setAttribute('number', num);
-            usedNumsInMeasure.add(num);
+            if ((s.getAttribute('number') || '') !== num) {
+              s.setAttribute('number', num);
+              if (origNum !== num) stopNumRemap.set(`${staff}|${origNum}`, num);
+            }
             openSlurs.set(num, {
               staff,
               voice,

@@ -512,6 +512,186 @@ function clearStavenoteTranslateX(svg: SVGGraphicsElement): void {
   else svg.removeAttribute('transform');
 }
 
+function readElementTranslateX(el: Element): number {
+  const tr = el.getAttribute('transform') ?? '';
+  const m = /translate\(\s*([-\d.]+)/.exec(tr);
+  return m ? parseFloat(m[1]!) : 0;
+}
+
+/** path/line에서 세로 줄기 x (로컬). */
+function stemLocalX(stemEl: Element): number | null {
+  for (const path of stemEl.querySelectorAll('path')) {
+    const d = path.getAttribute('d');
+    if (!d) continue;
+    const m = /^M\s*([-\d.]+)/.exec(d.trim());
+    if (m) return parseFloat(m[1]!);
+  }
+  for (const line of stemEl.querySelectorAll('line')) {
+    const x1 = parseFloat(line.getAttribute('x1') ?? '');
+    if (Number.isFinite(x1)) return x1;
+  }
+  return null;
+}
+
+/** path `d`의 모든 x(짝수 좌표)에 mapX 적용 — VexFlow beam/tie 폴리곤용. */
+function mapSvgPathXs(d: string, mapX: (x: number) => number): string {
+  const tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
+  if (!tokens?.length) return d;
+  let cmd = '';
+  let expectingX = true;
+  const out: string[] = [];
+  for (const tok of tokens) {
+    if (/^[MmLlHhVvCcSsQqTtAaZz]$/.test(tok)) {
+      cmd = tok;
+      expectingX = true;
+      out.push(tok);
+      continue;
+    }
+    const n = parseFloat(tok);
+    if (!Number.isFinite(n)) {
+      out.push(tok);
+      continue;
+    }
+    if (cmd === 'H' || cmd === 'h') {
+      out.push(String(mapX(n)));
+      continue;
+    }
+    if (cmd === 'V' || cmd === 'v') {
+      out.push(tok);
+      continue;
+    }
+    if (expectingX) {
+      out.push(String(mapX(n)));
+      expectingX = false;
+    } else {
+      out.push(tok);
+      expectingX = true;
+    }
+  }
+  return out.join(' ');
+}
+
+/**
+ * play-order align은 `.vf-stavenote`만 translate한다.
+ * VexFlow/OSMD는 빔 멤버의 줄기를 형제 `.vf-stem`으로, 빔을 `.vf-beam`으로 두어
+ * 음머리만 밀리면 빔·줄기가 앞쪽(원래 자리)에 남아 끊긴 것처럼 보인다.
+ * 같은 마디에서 줄기·빔(·이음줄)을 음표 shift에 맞춘다.
+ */
+export function syncVfStemsAndBeamsAfterStavenoteAlign(root: ParentNode): void {
+  const measures = root.querySelectorAll?.('.vf-measure') ?? [];
+  for (const measure of measures) {
+    syncVfEngravingInMeasure(measure);
+  }
+}
+
+function syncVfEngravingInMeasure(measure: Element): void {
+  const stavenotes = [
+    ...measure.querySelectorAll(':scope > .vf-stavenote, :scope > .vf-staveNote'),
+  ] as SVGGraphicsElement[];
+  if (!stavenotes.length) return;
+
+  type NoteShift = { el: SVGGraphicsElement; naturalX: number; dx: number };
+  const notes: NoteShift[] = [];
+  for (const sn of stavenotes) {
+    const dx = readElementTranslateX(sn);
+    const center = noteheadCenterXInSvgRoot(sn) ?? restCenterXInSvgRoot(sn);
+    if (center == null || !Number.isFinite(center)) continue;
+    notes.push({ el: sn, naturalX: center - dx, dx });
+  }
+  if (!notes.length) return;
+
+  const nearestNote = (x: number): NoteShift | null => {
+    let best: NoteShift | null = null;
+    let bestDist = Infinity;
+    for (const n of notes) {
+      const d = Math.abs(n.naturalX - x);
+      if (d < bestDist) {
+        bestDist = d;
+        best = n;
+      }
+    }
+    // 같은 마디 안 매칭 — 너무 멀면(다른 성부 잔여) 스킵
+    if (!best || bestDist > 40) return null;
+    return best;
+  };
+
+  const stemEls = [
+    ...measure.querySelectorAll(':scope > .vf-stem, :scope > [class*="vf-stem"]'),
+  ] as SVGGraphicsElement[];
+  for (const stem of stemEls) {
+    const localX = stemLocalX(stem);
+    if (localX == null) continue;
+    const naturalX = svgUserXFromElement(stem, localX) - readElementTranslateX(stem);
+    const note = nearestNote(naturalX);
+    if (!note) continue;
+    const cur = readElementTranslateX(stem);
+    const need = note.dx - cur;
+    if (Math.abs(need) >= 0.01) applySvgTranslateX(stem, need, Math.abs(need) + 1);
+  }
+
+  const reshapeByEndpoints = (el: Element, pad = 24): void => {
+    const paths = [...el.querySelectorAll('path')];
+    if (!paths.length) return;
+
+    type End = { naturalLocalX: number; dx: number };
+    const ends: End[] = [];
+    for (const stem of stemEls) {
+      const localX = stemLocalX(stem);
+      if (localX == null) continue;
+      ends.push({ naturalLocalX: localX, dx: readElementTranslateX(stem) });
+    }
+    if (ends.length < 2) {
+      for (const n of notes) {
+        // notehead user-x − 조상 보정 없이 dx만 씀
+        ends.push({ naturalLocalX: n.naturalX, dx: n.dx });
+      }
+    }
+    if (ends.length < 2) return;
+
+    for (const path of paths) {
+      const d = path.getAttribute('d');
+      if (!d) continue;
+      const xs: number[] = [];
+      const xToks = d.match(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g);
+      if (xToks) {
+        for (const m of xToks) {
+          const n = parseFloat(m.replace(/[MmLl]\s*/, ''));
+          if (Number.isFinite(n)) xs.push(n);
+        }
+      }
+      if (xs.length < 2) continue;
+      const oldLeft = Math.min(...xs);
+      const oldRight = Math.max(...xs);
+      if (oldRight - oldLeft < 1) continue;
+
+      const leftEnd = ends
+        .slice()
+        .sort((a, b) => Math.abs(a.naturalLocalX - oldLeft) - Math.abs(b.naturalLocalX - oldLeft))[0]!;
+      const rightEnd = ends
+        .slice()
+        .sort((a, b) => Math.abs(a.naturalLocalX - oldRight) - Math.abs(b.naturalLocalX - oldRight))[0]!;
+      if (leftEnd === rightEnd) continue;
+      if (Math.abs(leftEnd.naturalLocalX - oldLeft) > pad && Math.abs(rightEnd.naturalLocalX - oldRight) > pad) {
+        continue;
+      }
+      if (Math.abs(leftEnd.dx) < 0.2 && Math.abs(rightEnd.dx) < 0.2) continue;
+
+      const mapX = (x: number) => {
+        const t = (x - oldLeft) / (oldRight - oldLeft);
+        return x + (1 - t) * leftEnd.dx + t * rightEnd.dx;
+      };
+      path.setAttribute('d', mapSvgPathXs(d, mapX));
+    }
+  };
+
+  for (const beam of measure.querySelectorAll(':scope > .vf-beam, :scope > [class*="vf-beam"]')) {
+    reshapeByEndpoints(beam);
+  }
+  for (const tie of measure.querySelectorAll(':scope > .vf-stavetie, :scope > [class*="vf-tie"]')) {
+    reshapeByEndpoints(tie, 48);
+  }
+}
+
 /**
  * 연주순번 layout-x 그리드 → SVG 절대 배치.
  * 순번 column 단위로만 매칭·이동. 화음은 pitches[] 전부로 매칭.
@@ -885,6 +1065,13 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   });
 
   alignLinkedParallelHintGroups(osmd, hints);
+
+  // stavenote만 밀면 VexFlow 형제 stem/beam이 남아 빔이 앞쪽으로 끊겨 보임
+  const host =
+    (osmd as unknown as { container?: ParentNode | null }).container ??
+    (osmd as unknown as { root?: ParentNode | null }).root ??
+    null;
+  if (host) syncVfStemsAndBeamsAfterStavenoteAlign(host);
 }
 
 export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHint): number {

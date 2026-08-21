@@ -341,6 +341,72 @@ def _note_slur_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
             slur_stop = True
     return slur_start, slur_stop
 
+def _note_slur_placements(note: ET.Element, ns: str) -> tuple[str | None, str | None]:
+    """이음줄 start/stop의 placement(above|below). 없으면 None."""
+    start_pl: str | None = None
+    stop_pl: str | None = None
+    notations = note.find(_q(ns, "notations"))
+    if notations is None:
+        return start_pl, stop_pl
+    for slur in notations.findall(_q(ns, "slur")):
+        t = (slur.get("type") or "").strip()
+        pl = (slur.get("placement") or "").strip().lower()
+        if pl not in ("above", "below"):
+            pl = ""
+        if t == "start" and start_pl is None:
+            start_pl = pl or None
+        elif t == "stop" and stop_pl is None:
+            stop_pl = pl or None
+    return start_pl, stop_pl
+
+
+def _set_slur_pair_placement(
+    notes: list[ET.Element],
+    ns: str,
+    note_idx: int,
+    which: str,
+    placement: str,
+) -> bool:
+    """note_idx의 slur start/stop placement를 바꾸고, 같은 number의 짝에도 맞춤."""
+    if note_idx < 0 or note_idx >= len(notes):
+        return False
+    note = notes[note_idx]
+    notations = note.find(_q(ns, "notations"))
+    if notations is None:
+        return False
+    targets: list[ET.Element] = []
+    for slur in notations.findall(_q(ns, "slur")):
+        t = (slur.get("type") or "").strip()
+        if which == "both" or which == t:
+            targets.append(slur)
+    if not targets:
+        return False
+    changed = False
+    for slur in targets:
+        num = (slur.get("number") or "1").strip() or "1"
+        t = (slur.get("type") or "").strip()
+        if slur.get("placement") != placement:
+            slur.set("placement", placement)
+            changed = True
+        # Match pair across measure notes
+        want_other = "stop" if t == "start" else "start" if t == "stop" else ""
+        if not want_other:
+            continue
+        for other in notes:
+            onot = other.find(_q(ns, "notations"))
+            if onot is None:
+                continue
+            for os in onot.findall(_q(ns, "slur")):
+                if (os.get("type") or "").strip() != want_other:
+                    continue
+                other_num = (os.get("number") or "1").strip() or "1"
+                if other_num != num:
+                    continue
+                if os.get("placement") != placement:
+                    os.set("placement", placement)
+                    changed = True
+    return changed
+
 
 def _note_beams(note: ET.Element, ns: str) -> list[str]:
     """MusicXML `<beam>`는 `<note>` 직계 자식. 예전 HITL은 `<notations>` 아래에 쓴 경우도 읽는다."""
@@ -627,6 +693,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
                 pitch_alter = None
     tie_start, tie_stop = _note_tie_flags(note, ns)
     slur_start, slur_stop = _note_slur_flags(note, ns)
+    slur_start_pl, slur_stop_pl = _note_slur_placements(note, ns)
     duration = None
     dur_el = note.find(_q(ns, "duration"))
     if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
@@ -691,6 +758,8 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "tieStop": tie_stop,
         "slurStart": slur_start,
         "slurStop": slur_stop,
+        "slurStartPlacement": slur_start_pl,
+        "slurStopPlacement": slur_stop_pl,
         "beams": _note_beams(note, ns),
         "stem": (stem_el.text or "").strip() if stem_el is not None and stem_el.text else None,
         "timeMod": time_mod,
@@ -5247,7 +5316,13 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         from_not = _ensure_notations(from_note, ns)
         to_not = _ensure_notations(to_note, ns)
 
-        # Find unused slur number
+        for s in list(from_not.findall(_q(ns, "slur"))):
+            if s.get("type") == "start":
+                from_not.remove(s)
+        for s in list(to_not.findall(_q(ns, "slur"))):
+            if s.get("type") == "stop":
+                to_not.remove(s)
+
         existing_numbers = set()
         for n in notes:
             for notations_el in n.findall(_q(ns, "notations")):
@@ -5266,32 +5341,38 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 return "above"
             return "below"
 
-        plc_from = get_placement(from_note)
-        plc_to = get_placement(to_note)
+        placement = str(fix.get("placement") or "").strip().lower()
+        if placement not in ("above", "below"):
+            plc_from = get_placement(from_note)
+            plc_to = get_placement(to_note)
+            placement = plc_from if plc_from == plc_to else (plc_from or "below")
 
         start = ET.SubElement(from_not, _q(ns, "slur"))
         start.set("type", "start")
         start.set("number", str(new_num))
-        if plc_from:
-            start.set("placement", plc_from)
-            stem_dir = (from_note.find(_q(ns, "stem")).text or "").strip() if from_note.find(_q(ns, "stem")) is not None else ""
-            if plc_from == "below":
-                start.set("default-y", "-35" if stem_dir == "up" else "-25")
-            else:
-                start.set("default-y", "35" if stem_dir == "up" else "25")
+        if placement:
+            start.set("placement", placement)
 
         stop = ET.SubElement(to_not, _q(ns, "slur"))
         stop.set("type", "stop")
         stop.set("number", str(new_num))
-        if plc_to:
-            stop.set("placement", plc_to)
-            stem_dir = (to_note.find(_q(ns, "stem")).text or "").strip() if to_note.find(_q(ns, "stem")) is not None else ""
-            if plc_to == "below":
-                stop.set("default-y", "-35" if stem_dir == "up" else "-25")
-            else:
-                stop.set("default-y", "35" if stem_dir == "up" else "25")
+        if placement:
+            stop.set("placement", placement)
 
         return True
+
+    if kind == "setSlurPlacement":
+        try:
+            idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        placement = str(fix.get("placement") or "").strip().lower()
+        if placement not in ("above", "below"):
+            return False
+        which = str(fix.get("slurEnd") or "both").strip().lower()
+        if which not in ("start", "stop", "both"):
+            which = "both"
+        return _set_slur_pair_placement(notes, ns, idx, which, placement)
 
     if kind == "insertRest":
         rest_type = str(fix.get("noteType") or fix.get("restType") or "quarter").strip()

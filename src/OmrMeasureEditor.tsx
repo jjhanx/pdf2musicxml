@@ -369,6 +369,10 @@ export type MeasureNoteEl = {
   tieStop?: boolean;
   slurStart?: boolean;
   slurStop?: boolean;
+  /** 이음줄 start placement (above|below) */
+  slurStartPlacement?: 'above' | 'below' | null;
+  /** 이음줄 stop placement (above|below) */
+  slurStopPlacement?: 'above' | 'below' | null;
   beams?: string[];
   stem?: string | null;
   /** 잇단음표 비율 (예: "3:2" = 세잇단) */
@@ -410,6 +414,7 @@ type MeasureSnapshot = {
   measureDirections?: MeasureDirectionEl[];
   directionSourcePartId?: string;
   effectiveTempoBpm?: number | null;
+  effectiveClef?: { sign?: string; line?: number };
 };
 
 type MeasureTempoEntry = {
@@ -1102,6 +1107,7 @@ type Props = {
   editStaffWithinPart?: number | null;
   /** part `<staves>` — 동시 시작 voice 복원 staff 선택용 */
   partStaveCount?: number;
+  availableScoreParts?: Array<{ id: string; displayLabel?: string; suggestedLabel?: string; staffCount?: number }>;
   onAddFix: (fix: OmrHitlFix) => void;
   pendingFixes?: OmrHitlFix[];
   previewRevision?: number;
@@ -1215,7 +1221,20 @@ function elementTitle(
   const tie =
     el.tieStart && el.tieStop ? ' tie↔' : el.tieStart ? ' tie→' : el.tieStop ? ' tie←' : '';
   const slur =
-    el.slurStart && el.slurStop ? ' slur↔' : el.slurStart ? ' slur→' : el.slurStop ? ' slur←' : '';
+    el.slurStart && el.slurStop
+      ? ' slur↔'
+      : el.slurStart
+        ? ' slur→'
+        : el.slurStop
+          ? ' slur←'
+          : '';
+  const slurPl =
+    el.slurStartPlacement === 'above' || el.slurStopPlacement === 'above'
+      ? '↑'
+      : el.slurStartPlacement === 'below' || el.slurStopPlacement === 'below'
+        ? '↓'
+        : '';
+  const slurTag = slur ? `${slur}${slurPl}` : '';
   const dots = el.dotCount ? ` ·×${el.dotCount}` : '';
   const chord = el.chord ? ' (화음)' : '';
   const tuplet = el.timeMod
@@ -1239,7 +1258,7 @@ function elementTitle(
         )
       : '?';
   const graceTag = el.hasGrace ? ` 꾸밈음${el.graceSlash ? '(slash)' : ''}` : '';
-  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slur}${chord}${tuplet}${beam}${dur}${arts}${orns}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${staffVoice}`;
+  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slurTag}${chord}${tuplet}${beam}${dur}${arts}${orns}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${staffVoice}`;
 }
 
 export function OmrMeasureEditor({
@@ -1251,6 +1270,7 @@ export function OmrMeasureEditor({
   staffLabel,
   editStaffWithinPart = null,
   partStaveCount = 1,
+  availableScoreParts,
   onAddFix,
   pendingFixes = [],
   previewRevision = 0,
@@ -1268,6 +1288,121 @@ export function OmrMeasureEditor({
   const [pendingInsertLeader, setPendingInsertLeader] = useState<PendingInsertLeader | null>(null);
   const [repairStaff, setRepairStaff] = useState(editStaffWithinPart ?? 1);
   const [playOrderDraft, setPlayOrderDraft] = useState<Record<number, string>>({});
+
+  const availableParts = useMemo(() => {
+    if (availableScoreParts && availableScoreParts.length > 0) {
+      return availableScoreParts.map((p) => ({
+        id: p.id,
+        label: p.displayLabel || p.suggestedLabel || p.id,
+      }));
+    }
+    return [
+      { id: 'P1', label: 'S' },
+      { id: 'P2', label: 'A' },
+      { id: 'P3', label: 'T' },
+      { id: 'P4', label: 'B' },
+      { id: 'P5', label: 'P' },
+    ];
+  }, [availableScoreParts]);
+
+  const [copyFromPartId, setCopyFromPartId] = useState(partId);
+  const [copyToPartIds, setCopyToPartIds] = useState<string[]>(() => {
+    const isBass = partId === 'P4' || staffLabel === 'B' || staffLabel === 'Bass';
+    if (isBass) {
+      const sa = (availableScoreParts || [])
+        .filter((p) => ['S', 'A', 'SOPRANO', 'ALTO'].includes((p.displayLabel || p.suggestedLabel || '').toUpperCase()))
+        .map((p) => p.id);
+      return sa.length > 0 ? sa : ['P1', 'P2'];
+    }
+    return ['P1'];
+  });
+  const [copyRangeMode, setCopyRangeMode] = useState<'single' | 'range'>('single');
+  const [copyStartMeasure, setCopyStartMeasure] = useState(measureMxl);
+  const [copyEndMeasure, setCopyEndMeasure] = useState(measureMxl);
+  const [clearSourceAfterCopy, setClearSourceAfterCopy] = useState(false);
+  const [splitVoicesOnCopy, setSplitVoicesOnCopy] = useState(true);
+
+  const handleExecuteCopy = useCallback(() => {
+    if (copyToPartIds.length === 0) return;
+    const measureSpec = copyRangeMode === 'single' ? String(measureMxl) : `${copyStartMeasure}-${copyEndMeasure}`;
+    const fromLabel = availableParts.find((p) => p.id === copyFromPartId)?.label || copyFromPartId;
+    const toLabels = copyToPartIds.map((id) => availableParts.find((p) => p.id === id)?.label || id).join(', ');
+
+    const fix: OmrHitlFix = {
+      id: newFixId(),
+      kind: 'copyMeasureContent',
+      partId: copyFromPartId,
+      fromPartId: copyFromPartId,
+      toPartIds: copyToPartIds,
+      measureMxl: measureSpec,
+      clearSource: clearSourceAfterCopy,
+      splitVoices: splitVoicesOnCopy,
+      detail: `${fromLabel} ➡️ ${toLabels} (${copyRangeMode === 'single' ? `m.${measureMxl}` : `m.${measureSpec}`})${clearSourceAfterCopy ? ' [이동]' : ''}`,
+    };
+
+    onAddFix(fix);
+    setFixMsg(
+      `✅ ${fromLabel} 파트의 ${copyRangeMode === 'single' ? `${measureMxl}마디` : `${measureSpec}마디`} 내용을 ${toLabels} 파트로 복사 등록했습니다. 아래 [MXL에 반영·미리보기]를 눌러 적용하세요.`,
+    );
+  }, [
+    copyToPartIds,
+    copyRangeMode,
+    measureMxl,
+    copyStartMeasure,
+    copyEndMeasure,
+    availableParts,
+    copyFromPartId,
+    clearSourceAfterCopy,
+    splitVoicesOnCopy,
+    onAddFix,
+  ]);
+
+  const [clefScope, setClefScope] = useState<'all' | 'single' | 'range'>('all');
+  const [clefStartMeasure, setClefStartMeasure] = useState(measureMxl);
+  const [clefEndMeasure, setClefEndMeasure] = useState(measureMxl);
+
+  const handleApplyClef = useCallback(
+    (sign: 'G' | 'F', line: 2 | 4) => {
+      let rangeStr = String(measureMxl);
+      let scopeLabel = `${measureMxl}마디`;
+      if (clefScope === 'all') {
+        rangeStr = '1-999';
+        scopeLabel = '1마디부터 곡 전체';
+      } else if (clefScope === 'range') {
+        rangeStr = `${clefStartMeasure}-${clefEndMeasure}`;
+        scopeLabel = `${rangeStr}마디`;
+      }
+
+      const clefName = sign === 'G' ? '높은음자리표(𝄞)' : '낮은음자리표(𝄢)';
+
+      const fix: OmrHitlFix = {
+        id: newFixId(),
+        kind: 'setMeasureClef',
+        partId,
+        measureMxl: rangeStr,
+        clefSign: sign,
+        clefLine: line,
+        staff: editStaffWithinPart ?? 1,
+        removeSubsequentClefs: true,
+        detail: `${staffLabel ? `${staffLabel} ` : ''}${clefName} (${scopeLabel})`,
+      };
+
+      onAddFix(fix);
+      setFixMsg(
+        `✅ ${staffLabel ? `${staffLabel} 파트 ` : ''}${scopeLabel}를 ${clefName}로 변경 등록했습니다. 아래 [MXL에 반영·미리보기]를 눌러 적용하세요.`,
+      );
+    },
+    [
+      measureMxl,
+      clefScope,
+      clefStartMeasure,
+      clefEndMeasure,
+      partId,
+      staffLabel,
+      editStaffWithinPart,
+      onAddFix,
+    ],
+  );
 
   const measureMxlStr = String(measureMxl);
 
@@ -1454,6 +1589,324 @@ export function OmrMeasureEditor({
         <p className="omr-measure-editor-hint" style={{ margin: '6px 0 0', fontSize: '0.84rem' }}>
           예: 26마디에 27마디 내용이 들어와 있으면 「26 <strong>앞</strong>에 빈 마디」→ 반영 후 새 26마디에 음표를 추가하세요.
         </p>
+      </div>
+
+      <div
+        className="omr-measure-copy-section"
+        style={{
+          marginTop: 10,
+          marginBottom: 10,
+          padding: '10px 14px',
+          background: '#f8fafc',
+          border: '1px solid #cbd5e1',
+          borderRadius: 6,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: '0.92rem',
+            color: '#1e293b',
+            marginBottom: 6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span>📋</span>
+          <span>마디 파트 복사 / 이동 (다른 파트로 내용 배분)</span>
+        </div>
+        <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>
+          이미 고친 파트(예: B 파트)의 마디 내용을 <strong>다른 파트(예: S, A 파트)로 마디 단위 또는 범위로 복사·이동</strong>합니다.
+        </p>
+
+        {/* 1. 출처 및 대상 파트 선택 */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 8 }}>
+          <label style={{ fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 600 }}>출처 파트:</span>
+            <select
+              value={copyFromPartId}
+              onChange={(e) => setCopyFromPartId(e.target.value)}
+              style={{ padding: '3px 8px', borderRadius: 4, border: '1px solid #94a3b8' }}
+            >
+              {availableParts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} (part {p.id})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div style={{ fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>대상 파트:</span>
+            {availableParts
+              .filter((p) => p.id !== copyFromPartId)
+              .map((p) => (
+                <label key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={copyToPartIds.includes(p.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setCopyToPartIds([...copyToPartIds, p.id]);
+                      } else {
+                        setCopyToPartIds(copyToPartIds.filter((id) => id !== p.id));
+                      }
+                    }}
+                  />
+                  <span>{p.label}</span>
+                </label>
+              ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              type="button"
+              className="btn-muted"
+              style={{ padding: '2px 6px', fontSize: '0.78rem' }}
+              onClick={() => {
+                const saIds = availableParts
+                  .filter((p) => ['S', 'A', 'SOPRANO', 'ALTO'].includes(p.label.toUpperCase()))
+                  .map((p) => p.id);
+                if (saIds.length) setCopyToPartIds(saIds);
+                else setCopyToPartIds(availableParts.slice(0, 2).map((p) => p.id));
+              }}
+            >
+              S·A 선택
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              style={{ padding: '2px 6px', fontSize: '0.78rem' }}
+              onClick={() => {
+                const tbIds = availableParts
+                  .filter((p) => ['T', 'B', 'TENOR', 'BASS'].includes(p.label.toUpperCase()))
+                  .map((p) => p.id);
+                if (tbIds.length) setCopyToPartIds(tbIds);
+                else setCopyToPartIds(availableParts.slice(2, 4).map((p) => p.id));
+              }}
+            >
+              T·B 선택
+            </button>
+          </div>
+        </div>
+
+        {/* 2. 마디 범위 선택 */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            alignItems: 'center',
+            marginBottom: 8,
+            fontSize: '0.86rem',
+          }}
+        >
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="copyRangeType"
+              checked={copyRangeMode === 'single'}
+              onChange={() => setCopyRangeMode('single')}
+            />
+            <span>현재 마디만 (MXL {measureMxl} / 인쇄 m.{measurePrinted})</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="copyRangeType"
+              checked={copyRangeMode === 'range'}
+              onChange={() => setCopyRangeMode('range')}
+            />
+            <span>마디 범위 일괄:</span>
+            <input
+              type="number"
+              min={1}
+              value={copyStartMeasure}
+              onChange={(e) => setCopyStartMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+              disabled={copyRangeMode !== 'range'}
+            />
+            <span>~</span>
+            <input
+              type="number"
+              min={1}
+              value={copyEndMeasure}
+              onChange={(e) => setCopyEndMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+              disabled={copyRangeMode !== 'range'}
+            />
+            <span>마디</span>
+          </label>
+        </div>
+
+        {/* 3. 옵션 및 실행 버튼 */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: '1px dashed #cbd5e1',
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: '0.82rem' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={clearSourceAfterCopy}
+                onChange={(e) => setClearSourceAfterCopy(e.target.checked)}
+              />
+              <span>
+                복사 후 출처 파트를 <strong>온쉼표로 비우기 (이동)</strong>
+              </span>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={splitVoicesOnCopy}
+                onChange={(e) => setSplitVoicesOnCopy(e.target.checked)}
+              />
+              <span>
+                2개 성부/화음 시 <strong>상하 성부 자동 분할 (위 음 ➡️ S, 아래 음 ➡️ A)</strong>
+              </span>
+            </label>
+          </div>
+
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ padding: '5px 14px', fontSize: '0.86rem', fontWeight: 600 }}
+            disabled={copyToPartIds.length === 0}
+            onClick={handleExecuteCopy}
+          >
+            📋 파트 복사 등록
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="omr-measure-clef-section"
+        style={{
+          marginTop: 10,
+          marginBottom: 10,
+          padding: '10px 14px',
+          background: '#f1f5f9',
+          border: '1px solid #cbd5e1',
+          borderRadius: 6,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: '0.92rem',
+            color: '#1e293b',
+            marginBottom: 6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>𝄞 / 𝄢</span>
+            <span>음자리표 변경 (높은음 / 낮은음자리표)</span>
+          </div>
+          {snapshot?.effectiveClef ? (
+            <span
+              style={{
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                color: snapshot.effectiveClef.sign === 'F' ? '#b45309' : '#0369a1',
+                background: snapshot.effectiveClef.sign === 'F' ? '#fef3c7' : '#e0f2fe',
+                padding: '2px 8px',
+                borderRadius: 4,
+                border: snapshot.effectiveClef.sign === 'F' ? '1px solid #fde68a' : '1px solid #bae6fd',
+              }}
+            >
+              현재 적용: {snapshot.effectiveClef.sign === 'F' ? '𝄢 낮은음자리표 (F)' : '𝄞 높은음자리표 (G)'}
+            </span>
+          ) : null}
+        </div>
+
+        <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>
+          현재 파트(<strong>{staffLabel ? `${staffLabel} · ` : ''}part {partId}</strong>)의 음자리표를 높은음자리표(𝄞) 또는 낮은음자리표(𝄢)로 변경합니다.
+        </p>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 8, fontSize: '0.86rem' }}>
+          <span style={{ fontWeight: 600 }}>적용 범위:</span>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="clefRangeScope"
+              checked={clefScope === 'all'}
+              onChange={() => setClefScope('all')}
+            />
+            <span>1마디부터 곡 전체 적용 (m.1 ~ 끝)</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="clefRangeScope"
+              checked={clefScope === 'single'}
+              onChange={() => setClefScope('single')}
+            />
+            <span>현재 마디만 (m.{measurePrinted})</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="clefRangeScope"
+              checked={clefScope === 'range'}
+              onChange={() => setClefScope('range')}
+            />
+            <span>마디 범위 지정:</span>
+            <input
+              type="number"
+              min={1}
+              value={clefStartMeasure}
+              onChange={(e) => setClefStartMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+              disabled={clefScope !== 'range'}
+            />
+            <span>~</span>
+            <input
+              type="number"
+              min={1}
+              value={clefEndMeasure}
+              onChange={(e) => setClefEndMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+              disabled={clefScope !== 'range'}
+            />
+            <span>마디</span>
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ padding: '5px 12px', fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 4 }}
+            onClick={() => handleApplyClef('G', 2)}
+          >
+            <span>𝄞</span>
+            <span>높은음자리표 (Treble G) 로 변경</span>
+          </button>
+          <button
+            type="button"
+            className="btn-muted"
+            style={{ padding: '5px 12px', fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 4 }}
+            onClick={() => handleApplyClef('F', 4)}
+          >
+            <span>𝄢</span>
+            <span>낮은음자리표 (Bass F) 로 변경</span>
+          </button>
+        </div>
       </div>
       {editStaffWithinPart != null ? (
         <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
@@ -2034,6 +2487,9 @@ function MeasureNoteEditor({
   const [voiceN, setVoiceN] = useState(String(el.voice ?? '1'));
   const [tieTo, setTieTo] = useState('');
   const [slurTo, setSlurTo] = useState('');
+  const [slurPlacement, setSlurPlacement] = useState<'above' | 'below'>(() =>
+    el.stem === 'down' ? 'above' : 'below',
+  );
   const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
   const [tripletNormalType, setTripletNormalType] = useState(() => defaultTripletNormalType(el));
   const [tripletPreserveTypes, setTripletPreserveTypes] = useState(() =>
@@ -2096,7 +2552,29 @@ function MeasureNoteEditor({
     );
     setTieTo('');
     setSlurTo('');
-  }, [el.index, el.pitch, el.pitchAlter, el.type, el.staff, el.isDotted, el.dotCount, el.beams, noteEls]);
+    setSlurPlacement(
+      el.slurStartPlacement === 'above' || el.slurStartPlacement === 'below'
+        ? el.slurStartPlacement
+        : el.slurStopPlacement === 'above' || el.slurStopPlacement === 'below'
+          ? el.slurStopPlacement
+          : el.stem === 'down'
+            ? 'above'
+            : 'below',
+    );
+  }, [
+    el.index,
+    el.pitch,
+    el.pitchAlter,
+    el.type,
+    el.staff,
+    el.isDotted,
+    el.dotCount,
+    el.beams,
+    el.stem,
+    el.slurStartPlacement,
+    el.slurStopPlacement,
+    noteEls,
+  ]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
@@ -2554,6 +3032,31 @@ function MeasureNoteEditor({
                   이음 끝 제거
                 </button>
               )}
+              <label className="omr-measure-inline-field">
+                이음줄 위치
+                <select
+                  value={
+                    (el.slurStart ? el.slurStartPlacement : el.slurStopPlacement) === 'above' ||
+                    (el.slurStart ? el.slurStartPlacement : el.slurStopPlacement) === 'below'
+                      ? ((el.slurStart ? el.slurStartPlacement : el.slurStopPlacement) as 'above' | 'below')
+                      : slurPlacement
+                  }
+                  onChange={(e) => {
+                    const next = e.target.value as 'above' | 'below';
+                    setSlurPlacement(next);
+                    onFix({
+                      kind: 'setSlurPlacement',
+                      noteIndex: el.index,
+                      slurEnd: el.slurStart && el.slurStop ? 'both' : el.slurStart ? 'start' : 'stop',
+                      placement: next,
+                    });
+                  }}
+                  style={{ marginLeft: 4 }}
+                >
+                  <option value="above">위</option>
+                  <option value="below">아래</option>
+                </select>
+              </label>
             </>
           )}
           {laterNotes.length > 0 && (
@@ -2567,6 +3070,15 @@ function MeasureNoteEditor({
                   </option>
                 ))}
               </select>
+              <select
+                value={slurPlacement}
+                onChange={(e) => setSlurPlacement(e.target.value as 'above' | 'below')}
+                style={{ marginLeft: 4 }}
+                aria-label="이음줄 위치"
+              >
+                <option value="above">위</option>
+                <option value="below">아래</option>
+              </select>
               <button
                 type="button"
                 className="omr-hitl-fix-btn"
@@ -2576,6 +3088,7 @@ function MeasureNoteEditor({
                     kind: 'addSlur',
                     fromNoteIndex: el.index,
                     toNoteIndex: parseInt(slurTo, 10),
+                    placement: slurPlacement,
                   })
                 }
               >

@@ -71,9 +71,22 @@ export type OmrHitlFix = {
   playOrder?: number;
   source?: string;
   lintCode?: string;
+  fromPartId?: string;
+  toPartId?: string;
+  toPartIds?: string[];
+  clearSource?: boolean;
+  splitVoices?: boolean;
+  endMeasureMxl?: string;
+  clefSign?: 'G' | 'F' | 'C' | string;
+  clefLine?: number;
+  removeSubsequentClefs?: boolean;
 };
 
 export const FIX_KIND_LABEL: Record<string, string> = {
+  setMeasureClef: '음자리표 변경',
+  setPartClef: '음자리표 변경',
+  copyMeasureContent: '마디 파트 복사/이동',
+  copyMeasurePart: '마디 파트 복사/이동',
   removeSpuriousDirection: 'P·9 direction 제거',
   removeDirection: 'direction 제거',
   setMeasureDirectionText: '마디 direction 텍스트',
@@ -105,6 +118,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   addTie: '붙임줄 연결',
   removeSlur: '이음줄 제거',
   addSlur: '이음줄 연결',
+  setSlurPlacement: '이음줄 위/아래',
   insertRest: '쉼표 추가',
   insertNote: '음표 추가',
   insertGraceNote: '꾸밈음 추가',
@@ -196,6 +210,21 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
     );
     return [...filtered, { ...next, id: next.id || newFixId() }];
   }
+  if (next.kind === 'setSlurPlacement' && next.noteIndex != null) {
+    const mxl = String(next.measureMxl);
+    const slurEnd = next.slurEnd ?? 'both';
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          f.kind === 'setSlurPlacement' &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl &&
+          f.noteIndex === next.noteIndex &&
+          (f.slurEnd ?? 'both') === slurEnd
+        ),
+    );
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
   const key = fixDedupeKey(next);
   if (fixes.some((f) => fixDedupeKey(f) === key)) return fixes;
   return [...fixes, { ...next, id: next.id || newFixId() }];
@@ -250,7 +279,9 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     fix.kind === 'setArticulationPlacement' ||
     fix.kind === 'removeArticulation' ||
     fix.kind === 'setDirectionPlacement' ||
-    fix.kind === 'setNoteDirectionPlacement'
+    fix.kind === 'setNoteDirectionPlacement' ||
+    fix.kind === 'addSlur' ||
+    fix.kind === 'setSlurPlacement'
   ) {
     if (fix.articulation) parts.push(fix.articulation);
     if (fix.directionType) parts.push(fix.directionType);

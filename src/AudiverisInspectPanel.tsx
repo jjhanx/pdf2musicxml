@@ -72,8 +72,12 @@ export function applyOsmdPreviewEngravingRules(
   rules.TupletNumberLimitConsecutiveRepetitions = false;
   rules.TupletNumberAlwaysDisableAfterFirstMax = false;
   rules.SlurPlacementFromXML = true;
-  rules.SlurPlacementAtStems = false;
+  rules.SlurPlacementAtStems = true;
   rules.SlurPlacementUseSkyBottomLine = false;
+  // 오선 사이 간격을 충분히 확보하여 이음줄·가사가 위아래 오선과 겹치거나 잘리지 않도록 함
+  rules.BetweenStaffDistance = Math.max(rules.BetweenStaffDistance || 5.5, 8.0);
+  rules.StaffDistance = Math.max(rules.StaffDistance || 6.5, 8.5);
+  rules.MinStaffDistance = Math.max(rules.MinStaffDistance || 5.0, 7.0);
   // 성부 라벨은 installOsmdPartLabelOverlay(HTML)로 모든 system에 그림 — OSMD SVG 라벨은 z-order·Y 어긋남
   rules.RenderPartNames = false;
   rules.RenderPartAbbreviations = false;
@@ -586,19 +590,44 @@ function timelineVoiceN(el: Element, fallbackVoice: string): string {
   return text || fallbackVoice;
 }
 
-/** voice별 cursor — backup(voice 없음)은 직전 note voice에만 적용(MusicXML·HITL 삽입 후 stale backup 대응). */
+/** voice별 cursor — backup(voice 없음)은 직전 note voice에만 적용(MusicXML·HITL 삽입 후 stale backup 대응).
+ * voice 없는 forward는 **다음 음표 성부**에 적용(backup 뒤 멜로디 onset). */
 function staffTimedNotesInMeasure(measure: Element): StaffTimedNote[] {
+  const children = [...measure.children];
   const voiceCursor = new Map<string, number>();
   let lastNoteVoice = '1';
   const out: StaffTimedNote[] = [];
-  for (const child of [...measure.children]) {
+  const nextNoteVoice = (fromIdx: number): string => {
+    for (let j = fromIdx + 1; j < children.length; j += 1) {
+      const c = children[j]!;
+      if (xmlLocalName(c) !== 'note') continue;
+      if (isChordNote(c)) continue;
+      return noteVoiceN(c);
+    }
+    return lastNoteVoice;
+  };
+  for (let i = 0; i < children.length; i += 1) {
+    const child = children[i]!;
     const tag = xmlLocalName(child);
     if (tag === 'backup') {
       const v = timelineVoiceN(child, lastNoteVoice);
       const dur = timelineDurationEl(child);
       voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - dur));
     } else if (tag === 'forward') {
-      const v = timelineVoiceN(child, lastNoteVoice);
+      const explicit = child.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+      let v = explicit || nextNoteVoice(i);
+      if (explicit) {
+        let hasNote = false;
+        for (let j = i + 1; j < children.length; j += 1) {
+          const c = children[j]!;
+          if (xmlLocalName(c) !== 'note' || isChordNote(c)) continue;
+          if (noteVoiceN(c) === explicit) {
+            hasNote = true;
+            break;
+          }
+        }
+        if (!hasNote) v = nextNoteVoice(i);
+      }
       const dur = timelineDurationEl(child);
       voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + dur);
     } else if (tag === 'note') {

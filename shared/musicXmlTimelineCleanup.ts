@@ -1160,40 +1160,145 @@ export function reorderSingleStaffTimelineByOnsetForOsmdPreview(measure: Element
 
 type VoiceLayerBlock = { kind: 'forward' | 'note-group'; nodes: Element[] };
 
+function nextNoteVoiceAfter(measureChildren: Element[], fromIdx: number, fallback: string): string {
+  for (let j = fromIdx + 1; j < measureChildren.length; j += 1) {
+    const el = measureChildren[j]!;
+    if (xmlLocalName(el) !== 'note') continue;
+    if (el.querySelector('chord, *|chord') !== null) continue;
+    return noteVoiceNumber(el);
+  }
+  return fallback;
+}
+
+/** forward의 voice가 뒤쪽 음표에 없으면(성부 coalesce 잔재) 다음 음 성부로 재지정. */
+function resolveForwardVoice(
+  measureChildren: Element[],
+  fromIdx: number,
+  lastVoice: string,
+): string {
+  const el = measureChildren[fromIdx]!;
+  const explicit = el.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+  const nextV = nextNoteVoiceAfter(measureChildren, fromIdx, lastVoice);
+  if (!explicit) return nextV;
+  for (let j = fromIdx + 1; j < measureChildren.length; j += 1) {
+    const n = measureChildren[j]!;
+    if (xmlLocalName(n) !== 'note') continue;
+    if (n.querySelector('chord, *|chord') !== null) continue;
+    if (noteVoiceNumber(n) === explicit) return explicit;
+  }
+  return nextV;
+}
+
+function voiceLayerHasPitchedNote(blocks: VoiceLayerBlock[]): boolean {
+  for (const block of blocks) {
+    if (block.kind !== 'note-group') continue;
+    for (const node of block.nodes) {
+      if (xmlLocalName(node) !== 'note') continue;
+      if (node.querySelector('rest, *|rest')) continue;
+      if (node.querySelector('pitch, *|pitch')) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * backup 전/후로 나눠 성부 블록을 모은다.
+ * MusicXML에서 backup 뒤 voice 없는 `<forward>`는 **다음 음표 성부**의 onset 지연이다
+ * (직전 성부에 붙이면 PL 이음줄·박자가 깨짐).
+ * 같은 voice가 backup 앞(쉼표만)과 뒤(실음)에 모두 있으면 앞쪽을 버린다
+ * (성부 번호 coalesce 후 REST+멜로디가 같은 voice로 겹치는 경우).
+ */
 function collectVoiceLayerBlocks(measure: Element): Map<string, VoiceLayerBlock[]> {
-  const byVoice = new Map<string, VoiceLayerBlock[]>();
+  const children = [...measure.children];
   const trailingByLeader = new Map<Element, Element[]>();
   const claimedTrailing = new Set<Element>();
-  for (const el of [...measure.children]) {
+  for (const el of children) {
     if (xmlLocalName(el) !== 'note') continue;
     if (el.querySelector('chord, *|chord') !== null) continue;
     const trailing = trailingDirectionsAfterNoteGroup(measure, el);
     trailingByLeader.set(el, trailing);
     for (const d of trailing) claimedTrailing.add(d);
   }
+
+  const beforeBackup = new Map<string, VoiceLayerBlock[]>();
+  const afterBackup = new Map<string, VoiceLayerBlock[]>();
+  let passedBackup = false;
   let lastVoice = '1';
-  for (const el of [...measure.children]) {
+
+  const push = (voice: string, block: VoiceLayerBlock) => {
+    const map = passedBackup ? afterBackup : beforeBackup;
+    const list = map.get(voice) ?? [];
+    list.push(block);
+    map.set(voice, list);
+  };
+
+  for (let i = 0; i < children.length; i += 1) {
+    const el = children[i]!;
     const tag = xmlLocalName(el);
-    if (tag === 'backup') continue;
+    if (tag === 'backup') {
+      passedBackup = true;
+      continue;
+    }
     if (tag === 'forward') {
-      const v = timelineVoiceEl(el, lastVoice);
-      const list = byVoice.get(v) ?? [];
-      list.push({ kind: 'forward', nodes: [el] });
-      byVoice.set(v, list);
+      const v = resolveForwardVoice(children, i, lastVoice);
+      const voiceEl = el.querySelector(':scope > voice, :scope > *|voice');
+      if (voiceEl) voiceEl.textContent = v;
+      else {
+        const doc = el.ownerDocument!;
+        const ns = el.namespaceURI || 'http://www.musicxml.org/ns/partwise';
+        const created = ns ? doc.createElementNS(ns, 'voice') : doc.createElement('voice');
+        created.textContent = v;
+        el.appendChild(created);
+      }
+      push(v, { kind: 'forward', nodes: [el] });
       continue;
     }
     if (tag === 'note') {
       if (el.querySelector('chord, *|chord') !== null) continue;
       const v = noteVoiceNumber(el);
       lastVoice = v;
-      const list = byVoice.get(v) ?? [];
       const leading = leadingDirectionsBeforeNote(measure, el).filter((d) => !claimedTrailing.has(d));
-      list.push({
+      push(v, {
         kind: 'note-group',
         nodes: [...leading, ...noteGroupWithChords(measure, el), ...(trailingByLeader.get(el) ?? [])],
       });
-      byVoice.set(v, list);
     }
+  }
+
+  const voices = new Set<string>([...beforeBackup.keys(), ...afterBackup.keys()]);
+  const byVoice = new Map<string, VoiceLayerBlock[]>();
+  for (const voice of voices) {
+    const before = beforeBackup.get(voice) ?? [];
+    const after = afterBackup.get(voice) ?? [];
+    if (after.length > 0 && voiceLayerHasPitchedNote(after) && before.length > 0) {
+      // backup 뒤 실음이 있으면 앞쪽 같은 voice(대개 스퓨리어스 REST)는 버린다
+      byVoice.set(voice, after);
+    } else if (before.length && after.length) {
+      byVoice.set(voice, [...before, ...after]);
+    } else if (after.length) {
+      byVoice.set(voice, after);
+    } else {
+      byVoice.set(voice, before);
+    }
+  }
+  if (typeof process !== 'undefined' && process.env.DEBUG_VOICE_LAYERS === '1') {
+    const summarize = (blocks: VoiceLayerBlock[]) =>
+      blocks
+        .map((b) => {
+          if (b.kind === 'forward') return `fwd(${timelineDurationEl(b.nodes[0]!)})`;
+          const n = b.nodes.find((x) => xmlLocalName(x) === 'note');
+          if (!n) return 'grp?';
+          if (n.querySelector('rest, *|rest')) return 'REST';
+          return (
+            (n.querySelector('step, *|step')?.textContent || '?') +
+            (n.querySelector('octave, *|octave')?.textContent || '')
+          );
+        })
+        .join(',');
+    console.error(
+      'VOICE_LAYERS',
+      [...byVoice.entries()].map(([v, b]) => `v${v}=[${summarize(b)}]`).join(' | '),
+    );
   }
   return byVoice;
 }
@@ -1211,12 +1316,14 @@ function voiceLayerBlocksDuration(blocks: VoiceLayerBlock[]): number {
 }
 
 function measureHasInterleavedVoices(measure: Element): boolean {
+  const children = [...measure.children];
   const seenVoices = new Set<string>();
   let lastVoice = '1';
-  for (const el of [...measure.children]) {
+  for (let i = 0; i < children.length; i += 1) {
+    const el = children[i]!;
     const tag = xmlLocalName(el);
     if (tag === 'forward') {
-      seenVoices.add(timelineVoiceEl(el, lastVoice));
+      seenVoices.add(resolveForwardVoice(children, i, lastVoice));
       continue;
     }
     if (tag !== 'note' || el.querySelector('chord, *|chord') !== null) continue;
@@ -1233,6 +1340,8 @@ function measureHasInterleavedVoices(measure: Element): boolean {
 /**
  * OSMD split-staff 미리보기 — interleaved voice를 MusicXML 관례( voice1 전체 → backup → voice2 … )로
  * 재배치해 동시 onset 음(F4·E5 등)이 같은 staff column에 그려지게 함(저장 MXL 불변).
+ * backup 뒤 voice 없는 forward는 다음 음 성부에 붙이고, backup 앞·뒤에 같은 voice가
+ * 겹치면(성부 coalesce 후 REST+멜로디) 앞쪽을 버려 이음줄·박자 붕괴를 막는다.
  */
 export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boolean {
   if (!measureHasInterleavedVoices(measure)) return false;

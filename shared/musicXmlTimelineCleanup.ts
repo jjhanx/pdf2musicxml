@@ -66,7 +66,142 @@ export function repairTimelineForOsmdPreview(xml: string): string {
   out = realignDefaultXFromStaffTimelineForOsmdPreview(out);
   out = stripChordBeamsForOsmdPreview(out);
   out = dedupeIdenticalChordPitchesForOsmdPreview(out);
+  out = normalizeSlursForOsmdPreview(out);
   return out;
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — slur 좌표/고아 stop 정리 및 고유 number 부여.
+ * Audiveris raw bezier/default-y 좌표 및 끊어진 고아 stop 제거.
+ * 같은 음에 start/stop이 여러 개면 **좌표(bezier·default-x/y) 없는 쪽**을 남긴다.
+ * (좌표 있는 OMR 곡선을 남기면 OSMD가 끝 음 뒤로 끊긴 꼬리만 그리는 경우가 많음.)
+ */
+export function normalizeSlursForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+
+    const slurLayoutNoise = (s: Element): number =>
+      (['bezier-x', 'bezier-y', 'default-x', 'default-y'] as const).filter((a) => s.hasAttribute(a))
+        .length;
+
+    const pickPreferredSlur = (list: Element[]): Element => {
+      let best = list[0]!;
+      let bestNoise = slurLayoutNoise(best);
+      for (let i = 1; i < list.length; i += 1) {
+        const cand = list[i]!;
+        const n = slurLayoutNoise(cand);
+        if (n < bestNoise) {
+          best = cand;
+          bestNoise = n;
+        }
+      }
+      return best;
+    };
+
+    for (const part of findXmlParts(doc)) {
+      const openSlurs = new Map<string, { staff: string; voice: string; measureNum: string }>();
+
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        const mnum = measure.getAttribute('number') || '';
+
+        for (const note of [...measure.children]) {
+          if (xmlLocalName(note) !== 'note') continue;
+          const notations = [...note.children].find((c) => xmlLocalName(c) === 'notations');
+          if (!notations) continue;
+
+          const staff =
+            [...note.children].find((c) => xmlLocalName(c) === 'staff')?.textContent?.trim() || '1';
+          const voice =
+            [...note.children].find((c) => xmlLocalName(c) === 'voice')?.textContent?.trim() || '1';
+
+          let slurs = [...notations.children].filter((c) => xmlLocalName(c) === 'slur');
+          if (slurs.length === 0) continue;
+
+          let starts = slurs.filter((s) => s.getAttribute('type') === 'start');
+          let stops = slurs.filter((s) => s.getAttribute('type') === 'stop');
+
+          // Deduplicate multiple starts — prefer without Audiveris layout noise
+          if (starts.length > 1) {
+            const keep = pickPreferredSlur(starts);
+            for (const s of starts) {
+              if (s !== keep) s.remove();
+            }
+            starts = [keep];
+          }
+
+          // Deduplicate multiple stops — same preference
+          if (stops.length > 1) {
+            const keep = pickPreferredSlur(stops);
+            for (const s of stops) {
+              if (s !== keep) s.remove();
+            }
+            stops = [keep];
+          }
+
+          slurs = [...notations.children].filter((c) => xmlLocalName(c) === 'slur');
+
+          // Strip corrupt bezier and default-x/y coordinates
+          for (const s of slurs) {
+            s.removeAttribute('bezier-x');
+            s.removeAttribute('bezier-y');
+            s.removeAttribute('default-x');
+            s.removeAttribute('default-y');
+          }
+
+          starts = slurs.filter((s) => s.getAttribute('type') === 'start');
+          stops = slurs.filter((s) => s.getAttribute('type') === 'stop');
+
+          // Process stops
+          for (const s of stops) {
+            const origNum = s.getAttribute('number') || '1';
+            let matchedNum: string | null = null;
+            if (openSlurs.has(origNum) && openSlurs.get(origNum)!.staff === staff) {
+              matchedNum = origNum;
+            } else {
+              for (const [k, v] of openSlurs.entries()) {
+                if (v.staff === staff) {
+                  matchedNum = k;
+                  break;
+                }
+              }
+            }
+
+            if (matchedNum != null) {
+              s.setAttribute('number', matchedNum);
+              openSlurs.delete(matchedNum);
+            } else {
+              // Orphan stop with no matching start -> remove it to prevent broken cutoff slur line
+              s.remove();
+            }
+          }
+
+          // Process starts
+          for (const s of starts) {
+            let nextNum = 1;
+            while (openSlurs.has(String(nextNum))) {
+              nextNum++;
+            }
+            s.setAttribute('number', String(nextNum));
+            openSlurs.set(String(nextNum), {
+              staff,
+              voice,
+              measureNum: mnum,
+            });
+          }
+
+          if (notations.children.length === 0) {
+            notations.remove();
+          }
+        }
+      }
+    }
+
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
 }
 
 /**

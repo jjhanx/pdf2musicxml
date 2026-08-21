@@ -247,6 +247,8 @@ export function stripPrintElementsForOsmdPreview(xml: string): string {
 /**
  * OSMD/HITL 미리보기 전용 — note·direction 등 Audiveris `default-x`/`default-y` 제거.
  * 페이지·시스템 경계에서 절대 X가 OSMD 자동 줄바꿈·마디 폭 계산을 깨뜨려 0폭·skip·한 칸 밀림을 유발할 수 있음.
+ * **`<stem default-y>`·beam 좌표도 제거** — 남기면 OSMD가 빔을 절대좌표(앞쪽·위 오선 쪽)에 그려
+ * HITL로 이은 C3–E3 빔이 끊기거나 엉뚱한 위치에 보인다.
  */
 export function stripDefaultXyForOsmdPreview(xml: string): string {
   try {
@@ -259,10 +261,33 @@ export function stripDefaultXyForOsmdPreview(xml: string): string {
       }
       el.removeAttribute('default-x');
       el.removeAttribute('default-y');
+      stripEngravingChildDefaultXy(el);
+    });
+    doc.querySelectorAll('direction, *|direction').forEach((el) => {
+      el.removeAttribute('default-x');
+      el.removeAttribute('default-y');
     });
     return serializeMusicXmlDocument(doc);
   } catch {
     return xml;
+  }
+}
+
+/** stem·beam·notehead 등 자식의 Audiveris 절대 default-x/y 제거(미리보기 전용). */
+function stripEngravingChildDefaultXy(note: Element): void {
+  for (const child of [...note.children]) {
+    const tag = xmlLocalName(child);
+    if (
+      tag === 'stem' ||
+      tag === 'beam' ||
+      tag === 'notehead' ||
+      tag === 'accidental' ||
+      tag === 'dot' ||
+      tag === 'type'
+    ) {
+      child.removeAttribute('default-x');
+      child.removeAttribute('default-y');
+    }
   }
 }
 
@@ -288,6 +313,7 @@ export function stripDefaultXyKeepLayoutAttrsForOsmdPreview(xml: string): string
         el.removeAttribute('default-x');
       }
       el.removeAttribute('default-y');
+      stripEngravingChildDefaultXy(el);
     });
     doc.querySelectorAll('direction, *|direction').forEach((el) => {
       el.removeAttribute('default-x');

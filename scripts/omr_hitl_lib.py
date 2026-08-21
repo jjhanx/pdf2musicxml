@@ -3600,6 +3600,9 @@ def _set_note_stem(note: ET.Element, ns: str, stem: str) -> None:
     if stem_el is None:
         stem_el = ET.SubElement(note, _q(ns, "stem"))
     stem_el.text = stem
+    # Audiveris 절대 default-y가 남으면 OSMD 빔이 앞·위 오선 쪽으로 깨짐
+    stem_el.attrib.pop("default-y", None)
+    stem_el.attrib.pop("default-x", None)
 
 
 def _note_beam_value(note: ET.Element, ns: str, beam_number: int = 1) -> str | None:
@@ -3678,6 +3681,16 @@ def _apply_beam_to_range(
         else:
             val = "continue"
         _set_beam_on_note(notes[idx], ns, beam_number, val)
+    for idx in pitched:
+        stem_el = notes[idx].find(_q(ns, "stem"))
+        if stem_el is not None:
+            stem_el.attrib.pop("default-y", None)
+            stem_el.attrib.pop("default-x", None)
+        for fidx in _chord_follower_indices(notes, ns, idx):
+            fst = notes[fidx].find(_q(ns, "stem"))
+            if fst is not None:
+                fst.attrib.pop("default-y", None)
+                fst.attrib.pop("default-x", None)
     first_beam = _note_beam_value(notes[pitched[0]], ns, beam_number)
     last_beam = _note_beam_value(notes[pitched[-1]], ns, beam_number)
     return first_beam == "begin" and last_beam == "end"

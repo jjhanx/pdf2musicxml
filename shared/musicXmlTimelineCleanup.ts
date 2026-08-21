@@ -75,6 +75,8 @@ export function repairTimelineForOsmdPreview(xml: string): string {
  * Audiveris raw bezier/default-y 좌표 및 끊어진 고아 stop 제거.
  * 같은 음에 start/stop이 여러 개면 **좌표(bezier·default-x/y) 없는 쪽**을 남긴다.
  * (좌표 있는 OMR 곡선을 남기면 OSMD가 끝 음 뒤로 끊긴 꼬리만 그리는 경우가 많음.)
+ * 같은 마디에서 stop 직후 number를 재사용하지 않는다 — PR/PL이 시간상 겹치면 OSMD가
+ * 같은 number의 start/stop을 잘못 짝지어 한쪽 이음줄이 안 보인다.
  */
 export function normalizeSlursForOsmdPreview(xml: string): string {
   try {
@@ -105,6 +107,9 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         const mnum = measure.getAttribute('number') || '';
+        // MusicXML allows reusing a slur number after stop, but OSMD matches by time.
+        // Staff1/staff2 slurs that overlap in time must keep distinct numbers within the measure.
+        const usedNumsInMeasure = new Set<string>(openSlurs.keys());
 
         for (const note of [...measure.children]) {
           if (xmlLocalName(note) !== 'note') continue;
@@ -171,6 +176,7 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
             if (matchedNum != null) {
               s.setAttribute('number', matchedNum);
               openSlurs.delete(matchedNum);
+              usedNumsInMeasure.add(matchedNum);
             } else {
               // Orphan stop with no matching start -> remove it to prevent broken cutoff slur line
               s.remove();
@@ -180,11 +186,16 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
           // Process starts
           for (const s of starts) {
             let nextNum = 1;
-            while (openSlurs.has(String(nextNum))) {
+            while (
+              openSlurs.has(String(nextNum)) ||
+              usedNumsInMeasure.has(String(nextNum))
+            ) {
               nextNum++;
             }
-            s.setAttribute('number', String(nextNum));
-            openSlurs.set(String(nextNum), {
+            const num = String(nextNum);
+            s.setAttribute('number', num);
+            usedNumsInMeasure.add(num);
+            openSlurs.set(num, {
               staff,
               voice,
               measureNum: mnum,

@@ -123,6 +123,9 @@ python _smoke/test_printed_measure_numbers_circled.py  # 원문자·줄머리 OC
 | tenuto·accent 등이 음표 위/아래에 잘못 붙음 | HITL 표 **위치 위/아래** (`setArticulationPlacement`). 검증: `python _smoke/test_articulation_placement_hitl.py` | 마디 편집. 곡·마디 하드코딩 없음 |
 | 셈여림 점선(wedge) 없음·길이 오류 | HITL **셈여림 점선** 패널에서 시작→끝 추가, `wedge(stop)`을 끝 음 **뒤**로 이동(barline 금지). 검증: `python _smoke/test_ornament_wedge_hitl.py` · `npx tsx _smoke/test_wedge_last_note_preview.ts` | 마디 편집. 곡·마디 하드코딩 없음 |
 | 화음에 같은 음높이·박자가 두 번(원본에 없는 유니즌) | 화음 그룹에서 동일 pitch는 하나만 남김. `removeNote`는 **선택한 음만** 삭제(리더를 지우면 다음 멤버가 리더). 검증: `python _smoke/test_chord_duplicate_pitch_hitl.py` · `npx tsx _smoke/test_chord_duplicate_pitch_preview.ts` | 마디 편집에서 남은 중복만 삭제. 곡·마디 하드코딩 없음 |
+| 단일 오선 음표가 다른 파트(예: B)에 배정되어 고친 내용 재배분 필요 | HITL **마디 파트 복사/이동** (`copyMeasureContent`). 출처 파트(B)의 특정 마디 또는 범위를 대상 파트(S, A 등)로 복사/이동하며, 2성부/화음 상하 분할 및 출처 온쉼표 처리 지원. | 마디 편집 패널 「마디 파트 복사 / 이동」 |
+| 파트의 앞머리 또는 중간 음자리표가 잘못 배정됨 (예: Alto가 F clef로 고정) | HITL **음자리표 변경** (`setMeasureClef`). 특정 파트의 음자리표를 높은음자리표(𝄞) 또는 낮은음자리표(𝄢)로 1마디부터 곡 전체 또는 지정 범위에 변경 적용. | 마디 편집 패널 「음자리표 변경」 |
+| 이음줄(slur) 끊김·중복 번호 충돌·고아 stop으로 인한 끊어진 꼬리 렌더링 | **이음줄 자동 정규화** (`normalize_slurs_in_root` / `normalizeSlursForOsmdPreview`). 같은 음에 start/stop이 여러 개면 **bezier·default-x/y 없는 쪽**을 남기고, 좌표 있는 OMR 곡선·고아 stop을 제거. **같은 마디에서 stop 직후 number 재사용 금지**(PR/PL 시간 겹침 시 OSMD 한쪽 소실 방지). 검증: `python _smoke/test_m9_slur_prefer_clean.py` · `python _smoke/test_m9_slur_distinct_numbers.py` | OMR 파이프라인 및 OSMD 미리보기 자동 적용. 곡·마디 하드코딩 없음 |
 | PL 마디 세잇단 소실 | 자동 복구 어려움 | Audiveris GUI SYMBOLS/BEAMS, HITL |
 | 이음줄·순서 대량 오류 | lint만 | PDF 품질·스캔, Audiveris 단계 디버깅 |
 | 합창 예제 회귀 | `python scripts/verify_score_issues.py --regression` | [합창_피아노_SYMBOLS_오인식_대조.md](합창_피아노_SYMBOLS_오인식_대조.md) |

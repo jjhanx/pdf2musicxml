@@ -1,17 +1,20 @@
-"""m9 E3→E4: prefer clean slur (no bezier) over Audiveris layout noise."""
+# -*- coding: utf-8 -*-
+"""m9 PR+PL overlapping slurs must get distinct MusicXML numbers (OSMD time match).
+
+omr-work-e363bc61: staff1 E5→E5 and staff2 E3→E4 both used number=1; OSMD dropped one.
+"""
 import io
 import re
 import sys
 import zipfile
 import xml.etree.ElementTree as ET
-from pathlib import Path
 
 sys.path.insert(0, "scripts")
 from omr_hitl_lib import normalize_slurs_in_root, _ns, _q  # noqa: E402
 
 
-def load_review() -> ET.Element:
-    z = zipfile.ZipFile("omr-work-9ea1d514.zip")
+def load_review(zip_name: str) -> ET.Element:
+    z = zipfile.ZipFile(zip_name)
     d = z.read("review.mxl")
     z2 = zipfile.ZipFile(io.BytesIO(d))
     c = z2.read("META-INF/container.xml").decode()
@@ -44,19 +47,23 @@ def m9_slurs(root: ET.Element) -> list[tuple[str, str, dict]]:
     return out
 
 
-root = load_review()
+root = load_review("omr-work-e363bc61.zip")
 before = m9_slurs(root)
-assert any(p == "E3" and s.get("type") == "start" and s.get("number") == "2" for p, _, s in before), before
+assert any(p == "E3" and s.get("type") == "start" for p, _, s in before), before
+assert any(p == "E4" and s.get("type") == "stop" for p, _, s in before), before
+# Both pairs incorrectly share number 1 before normalize
+starts = [(p, st, s) for p, st, s in before if s.get("type") == "start"]
+assert len(starts) >= 2 and all(s.get("number") == "1" for _, _, s in starts), starts
+
 normalize_slurs_in_root(root)
 after = m9_slurs(root)
-e3 = [s for p, st, s in after if p == "E3"]
-e4 = [s for p, st, s in after if p == "E4"]
-assert len(e3) == 1 and e3[0].get("type") == "start", e3
-assert len(e4) == 1 and e4[0].get("type") == "stop", e4
-assert e3[0].get("placement") == "below", e3  # clean HITL/secondary, not Audiveris above+bezier
-assert e3[0].get("number") == e4[0].get("number"), (e3, e4)
-assert e3[0].get("number") is not None, e3
-for s in e3 + e4:
-    for a in ("bezier-x", "bezier-y", "default-x", "default-y"):
-        assert a not in s, s
-print("m9 slur prefer-clean ok", after)
+
+pr_start = next(s for p, st, s in after if p.startswith("E") and st == "1" and s.get("type") == "start")
+pr_stop = next(s for p, st, s in after if st == "1" and s.get("type") == "stop")
+pl_start = next(s for p, st, s in after if p == "E3" and st == "2" and s.get("type") == "start")
+pl_stop = next(s for p, st, s in after if p == "E4" and st == "2" and s.get("type") == "stop")
+
+assert pr_start.get("number") == pr_stop.get("number"), (pr_start, pr_stop)
+assert pl_start.get("number") == pl_stop.get("number"), (pl_start, pl_stop)
+assert pr_start.get("number") != pl_start.get("number"), after
+print("m9 slur distinct numbers ok", after)

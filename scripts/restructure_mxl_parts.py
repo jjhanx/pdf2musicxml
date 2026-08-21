@@ -36,61 +36,76 @@ def _load_mxl_score_xml(mxl_path: Path) -> tuple[dict[str, bytes], str]:
         raise ValueError(f"루트 MusicXML 없음: {root_path}")
     return files, root_path
 
-def load_part_labels_json(path: Path | None) -> list[str] | None:
+def load_part_labels_json(path: Path | None) -> dict | None:
     if path is None or not path.is_file():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
-    if isinstance(data, dict) and isinstance(data.get("labelsByIndex"), list):
-        labels = [str(x).strip() for x in data["labelsByIndex"]]
-        if labels and all(labels):
-            return labels
+    if isinstance(data, dict):
+        return data
     return None
 
-def determine_mapping_advanced(staves, labels):
+def determine_mapping_advanced(staves, labels, labels_data=None):
     target_logical_staves = []
+    label_to_logical = defaultdict(list)
     for i, label in enumerate(labels):
         pid = f"P{i+1}"
         if label.upper() in _PIANO_DISPLAY_LABELS:
             target_logical_staves.append((pid, "1", label))
             target_logical_staves.append((pid, "2", label))
+            label_to_logical[label].extend([(pid, "1"), (pid, "2")])
         else:
             target_logical_staves.append((pid, "1", label))
+            label_to_logical[label].append((pid, "1"))
             
     num_source = len(staves)
-    num_target = len(target_logical_staves)
-    
     mapping = defaultdict(list)
     
-    if num_source == num_target:
-        for s, t in zip(staves, target_logical_staves):
-            mapping[s].append((t[0], t[1]))
-    elif num_source < num_target:
-        if len(staves) >= 2 and target_logical_staves[-1][2].upper() in _PIANO_DISPLAY_LABELS:
-            mapping[staves[-1]].append((target_logical_staves[-1][0], target_logical_staves[-1][1]))
-            mapping[staves[-2]].append((target_logical_staves[-2][0], target_logical_staves[-2][1]))
-            
-            rem_source = staves[:-2]
-            rem_target = target_logical_staves[:-2]
-            
-            if not rem_source:
-                pass
-            elif len(rem_source) == 2 and len(rem_target) == 4:
-                mapping[rem_source[0]] = [(rem_target[0][0], rem_target[0][1]), (rem_target[1][0], rem_target[1][1])]
-                mapping[rem_source[1]] = [(rem_target[2][0], rem_target[2][1]), (rem_target[3][0], rem_target[3][1])]
-            else:
-                idx = 0
-                for t in rem_target:
-                    mapping[rem_source[min(idx, len(rem_source)-1)]].append((t[0], t[1]))
-                    idx += 1
+    # 1. Check explicit staff mapping
+    if labels_data and "staffMapping" in labels_data:
+        staff_mapping = labels_data["staffMapping"]
+        str_num_source = str(num_source)
+        if str_num_source in staff_mapping:
+            explicit_config = staff_mapping[str_num_source]
+            for s_idx, staff_config in enumerate(explicit_config):
+                if s_idx < num_source:
+                    target_labels = staff_config.get("labels", [])
+                    for tl in target_labels:
+                        if tl in label_to_logical:
+                            for logical in label_to_logical[tl]:
+                                mapping[staves[s_idx]].append(logical)
+            return mapping
+
+    # 2. Fallback heuristic
+    piano_targets = [t for t in target_logical_staves if t[2].upper() in _PIANO_DISPLAY_LABELS]
+    vocal_targets = [t for t in target_logical_staves if t[2].upper() not in _PIANO_DISPLAY_LABELS]
+    
+    num_piano_targets = len(piano_targets)
+    if num_piano_targets > 0 and len(staves) >= 2:
+        piano_sources = staves[-2:]
+        vocal_sources = staves[:-2]
+        if len(piano_targets) == 2:
+            mapping[piano_sources[0]].append((piano_targets[0][0], piano_targets[0][1]))
+            mapping[piano_sources[1]].append((piano_targets[1][0], piano_targets[1][1]))
+        elif len(piano_targets) == 4:
+            mapping[piano_sources[0]].extend([(piano_targets[0][0], piano_targets[0][1]), (piano_targets[1][0], piano_targets[1][1])])
+            mapping[piano_sources[1]].extend([(piano_targets[2][0], piano_targets[2][1]), (piano_targets[3][0], piano_targets[3][1])])
         else:
-            for i, t in enumerate(target_logical_staves):
-                mapping[staves[min(i, num_source-1)]].append((t[0], t[1]))
+            for i, t in enumerate(piano_targets):
+                mapping[piano_sources[min(i, len(piano_sources)-1)]].append((t[0], t[1]))
     else:
-        for i, t in enumerate(target_logical_staves):
-            mapping[staves[-num_target + i]].append((t[0], t[1]))
+        vocal_sources = staves
+        for i, t in enumerate(piano_targets):
+            mapping[staves[min(i, len(staves)-1)]].append((t[0], t[1]))
+            
+    if vocal_sources and vocal_targets:
+        num_v = len(vocal_sources)
+        num_t = len(vocal_targets)
+        for i, t in enumerate(vocal_targets):
+            idx = (i * num_v) // num_t
+            mapping[vocal_sources[idx]].append((t[0], t[1]))
             
     return mapping
 
@@ -176,7 +191,13 @@ def split_measure_elements(measure_children, target_count, ns=""):
         return out_children
 
 def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
-    labels = load_part_labels_json(labels_path)
+    labels_data = load_part_labels_json(labels_path)
+    if not labels_data:
+        if mxl_in.resolve() != mxl_out.resolve():
+            mxl_out.write_bytes(mxl_in.read_bytes())
+        return
+        
+    labels = [str(x).strip() for x in labels_data.get("labelsByIndex", []) if str(x).strip()]
     print("LABELS:", labels)
     if not labels:
         if mxl_in.resolve() != mxl_out.resolve():
@@ -234,7 +255,7 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                     staves.add((pid, s_num))
             
             sorted_staves = sorted(list(staves))
-            mapping = determine_mapping_advanced(sorted_staves, labels)
+            mapping = determine_mapping_advanced(sorted_staves, labels, labels_data)
             
             new_measures = defaultdict(lambda: ET.Element(_q(ns, "measure"), number=num))
             for i in range(len(labels)):

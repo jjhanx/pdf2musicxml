@@ -76,6 +76,14 @@ const JOB_RETENTION_HOURS = JOB_RETENTION_MS / (60 * 60 * 1000);
 const PURGE_INTERVAL_MS = 15 * 60 * 1000;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const envFile = path.join(__dirname, '..', '.env');
+if (fsSync.existsSync(envFile) && typeof process.loadEnvFile === 'function') {
+  try {
+    process.loadEnvFile(envFile);
+  } catch (e) {
+    console.warn('[server] .env 로드 실패:', e);
+  }
+}
 const distDir = path.join(__dirname, '..', 'dist');
 
 const app = express();

@@ -1544,12 +1544,7 @@ function directionWordsText(dir: Element): string | null {
   return null;
 }
 
-function directionHasTempo(dir: Element): boolean {
-  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
-    if ([...dt.children].some((c) => xmlLocalName(c) === 'metronome')) return true;
-  }
-  return false;
-}
+
 
 /**
  * Audiveris OCR·`<measure-numbering>` 잔여가 아닌, 마디마다 생긴 `<words>` 숫자(1,2,3…) 제거.

@@ -7,6 +7,7 @@
 
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import fsSync from 'node:fs';
 import path from 'node:path';
 
 export interface AudiverisRunOptions {
@@ -207,7 +208,29 @@ export function defaultExtraArgsFromEnv(): string[] {
 
 export function resolveAudiverisBin(): string | undefined {
   const v = process.env.AUDIVERIS_BIN?.trim();
-  return v || undefined;
+  if (v) return v;
+
+  if (process.platform === 'win32') {
+    const candidates = [
+      'C:\\Program Files\\Audiveris\\Audiveris.exe',
+      'C:\\Program Files (x86)\\Audiveris\\Audiveris.exe',
+      'C:\\Program Files\\Audiveris\\bin\\Audiveris.bat',
+      'C:\\tools\\audiveris\\bin\\Audiveris.bat',
+    ];
+    for (const cand of candidates) {
+      if (fsSync.existsSync(cand)) return cand;
+    }
+  } else {
+    const candidates = [
+      '/opt/audiveris/bin/Audiveris',
+      '/usr/local/bin/Audiveris',
+      '/usr/bin/Audiveris',
+    ];
+    for (const cand of candidates) {
+      if (fsSync.existsSync(cand)) return cand;
+    }
+  }
+  return undefined;
 }
 
 function attachLineReader(

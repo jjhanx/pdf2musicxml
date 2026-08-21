@@ -526,6 +526,13 @@ function noteStaffNumber(note: Element): number {
   return st && /^\d+$/.test(st) ? parseInt(st, 10) : 1;
 }
 
+/** 단일 staff 필터 후 note staff 태그가 없으면 이미 해당 staff만 남음. */
+function noteMatchesPreviewStaff(note: Element, staffN: number): boolean {
+  const st = note.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
+  if (!st) return true;
+  return noteStaffNumber(note) === staffN;
+}
+
 function noteVoiceNumber(note: Element): string {
   const v = note.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
   return v || '1';
@@ -687,7 +694,7 @@ function firstRhythmicNoteOnStaff(measure: Element, staffN: number): Element | n
   for (const c of [...measure.children]) {
     if (xmlLocalName(c) !== 'note') continue;
     if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
-    if (noteStaffNumber(c) !== staffN) continue;
+    if (!noteMatchesPreviewStaff(c, staffN)) continue;
     return c;
   }
   return null;
@@ -698,7 +705,7 @@ function lastRhythmicNoteOnStaff(measure: Element, staffN: number): Element | nu
   for (const c of [...measure.children]) {
     if (xmlLocalName(c) !== 'note') continue;
     if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
-    if (noteStaffNumber(c) !== staffN) continue;
+    if (!noteMatchesPreviewStaff(c, staffN)) continue;
     last = c;
   }
   return last;
@@ -735,7 +742,7 @@ export function reanchorWedgeStopsForOsmdPreview(measure: Element, staffN: numbe
       const c = children[j]!;
       if (xmlLocalName(c) !== 'note') continue;
       if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
-      if (noteStaffNumber(c) === staffN) {
+      if (noteMatchesPreviewStaff(c, staffN)) {
         hasPrevNoteOnStaff = true;
         break;
       }
@@ -1413,7 +1420,10 @@ export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boole
     }
     for (const block of blocks) {
       for (const node of block.nodes) {
-        node.querySelectorAll('staff, *|staff').forEach((st) => st.remove());
+        // note만 staff 제거 — direction staff를 지우면 이후 reattach가 PL wedge를 삭제함
+        if (xmlLocalName(node) === 'note') {
+          node.querySelectorAll('staff, *|staff').forEach((st) => st.remove());
+        }
         measure.insertBefore(node, measure.children[insertAt] ?? null);
         insertAt += 1;
       }

@@ -486,13 +486,31 @@ function reattachDirectionsForSingleStaffOsmdPreview(measure: Element, staffN: n
       // 템포는 마디 header(print·attributes 뒤)에 유지 — anchor 음표 없어도 삭제하지 않음
       continue;
     }
+    syncWedgeDirectionVoiceFromNeighbor(measure, child);
     if (directionWedgeType(child) === 'stop') {
       continue;
     }
     const anchor = anchorNoteForDirection(measure, child);
-    if (!anchor || noteStaffN(anchor) !== staffN) {
+    if (!anchor) {
       child.remove();
       continue;
+    }
+    // 단일 staff로 이미 필터된 뒤 note staff 태그가 없으면 staffN 불일치로 지우지 않음
+    const anchorStaffEl = anchor.querySelector(':scope > staff, :scope > *|staff');
+    if (anchorStaffEl?.textContent?.trim()) {
+      const aStaff = parseInt(anchorStaffEl.textContent.trim(), 10);
+      if (Number.isFinite(aStaff) && aStaff !== staffN) {
+        child.remove();
+        continue;
+      }
+    }
+    const dirStaffEl = child.querySelector(':scope > staff, :scope > *|staff');
+    if (dirStaffEl?.textContent?.trim()) {
+      const dStaff = parseInt(dirStaffEl.textContent.trim(), 10);
+      if (Number.isFinite(dStaff) && dStaff !== staffN) {
+        child.remove();
+        continue;
+      }
     }
     ensureDirectionBeforeAnchor(measure, child, anchor);
   }
@@ -501,6 +519,38 @@ function reattachDirectionsForSingleStaffOsmdPreview(measure: Element, staffN: n
     defeatOsmdTempoKeywordMatchingOnDirectionWords(child);
     forceStaffTagOnDirectionToOne(child);
   }
+}
+
+/** wedge start/stop voice를 backup을 넘지 않는 인접 음에 맞춤 (stop이 voice1로 붙어 OSMD 소실 방지). */
+function syncWedgeDirectionVoiceFromNeighbor(measure: Element, dir: Element): void {
+  const wt = directionWedgeType(dir);
+  if (!wt) return;
+  const children = [...measure.children];
+  const idx = children.indexOf(dir);
+  if (idx < 0) return;
+  let note: Element | null = null;
+  if (wt === 'stop') {
+    for (let j = idx - 1; j >= 0; j -= 1) {
+      const c = children[j]!;
+      const tag = xmlLocalName(c);
+      if (tag === 'backup') break;
+      if (tag !== 'note') continue;
+      if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
+      note = c;
+      break;
+    }
+  } else {
+    for (let j = idx + 1; j < children.length; j += 1) {
+      const c = children[j]!;
+      const tag = xmlLocalName(c);
+      if (tag === 'backup') break;
+      if (tag !== 'note') continue;
+      if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
+      note = c;
+      break;
+    }
+  }
+  if (note) attachVoiceFromNote(dir, note);
 }
 
 function findXmlParts(doc: Document): Element[] {
@@ -963,6 +1013,11 @@ function directionVoiceText(direction: Element): string | null {
   return text || null;
 }
 
+function noteHasExplicitStaff(note: Element): boolean {
+  const staffEl = note.querySelector(':scope > staff, :scope > *|staff');
+  return !!(staffEl && staffEl.textContent?.trim());
+}
+
 function anchorNoteForDirection(measure: Element, direction: Element): Element | null {
   const children = [...measure.children];
   const idx = children.indexOf(direction);
@@ -971,27 +1026,37 @@ function anchorNoteForDirection(measure: Element, direction: Element): Element |
   const staffEl = direction.querySelector(':scope > staff, :scope > *|staff');
   const wantStaff = staffEl && staffEl.textContent ? parseInt(staffEl.textContent, 10) : null;
 
+  const staffCompatible = (note: Element): boolean => {
+    if (wantStaff === null) return true;
+    // 단일 staff 필터 후 note staff 태그가 없으면 이미 해당 staff만 남음
+    if (!noteHasExplicitStaff(note)) return true;
+    return noteStaffN(note) === wantStaff;
+  };
+
   const next = idx + 1 < children.length ? children[idx + 1] : null;
-  if (next && xmlLocalName(next) === 'note') {
-    const nStaff = noteStaffN(next);
-    if (wantStaff === null || nStaff === wantStaff) {
-      if (!wantVoice) return next;
-      const nv = next.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
-      if (!nv || nv === wantVoice) return next;
-    }
+  if (next && xmlLocalName(next) === 'note' && staffCompatible(next)) {
+    if (!wantVoice) return next;
+    const nv = next.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+    if (!nv || nv === wantVoice) return next;
   }
   if (wantVoice) {
     for (const c of children) {
       if (xmlLocalName(c) !== 'note') continue;
-      const nStaff = noteStaffN(c);
-      if (wantStaff === null || nStaff === wantStaff) {
-        const nv = c.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
-        if (nv === wantVoice) return c;
-      }
+      if (!staffCompatible(c)) continue;
+      const nv = c.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+      if (nv === wantVoice) return c;
     }
   }
   if (wantStaff !== null) {
-    return firstNoteOnStaff(measure, wantStaff);
+    const onStaff = firstNoteOnStaff(measure, wantStaff);
+    if (onStaff) return onStaff;
+    // staff 태그 없는 단일-staff 마디 — 다음/첫 음
+    for (let j = idx + 1; j < children.length; j += 1) {
+      const c = children[j]!;
+      if (xmlLocalName(c) === 'backup') break;
+      if (xmlLocalName(c) === 'note' && !c.querySelector(':scope > chord, :scope > *|chord')) return c;
+    }
+    return firstNoteOnStaff(measure, 1);
   }
   return null;
 }

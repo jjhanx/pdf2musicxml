@@ -3937,13 +3937,19 @@ def _note_voice_number(note: ET.Element, ns: str) -> int | None:
 
 
 def _attach_voice_to_direction_from_note(
-    direction: ET.Element, ns: str, note: ET.Element | None
+    direction: ET.Element, ns: str, note: ET.Element | None, *, replace: bool = False
 ) -> None:
-    if note is None or direction.find(_q(ns, "voice")) is not None:
+    if note is None:
         return
     voice_n = _note_voice_number(note, ns)
-    if voice_n is not None:
-        ET.SubElement(direction, _q(ns, "voice")).text = str(voice_n)
+    if voice_n is None:
+        return
+    existing = direction.find(_q(ns, "voice"))
+    if existing is not None:
+        if replace:
+            existing.text = str(voice_n)
+        return
+    ET.SubElement(direction, _q(ns, "voice")).text = str(voice_n)
 
 
 def _copy_layout_from_note_to_direction(direction: ET.Element, note: ET.Element) -> None:
@@ -3956,24 +3962,53 @@ def _copy_layout_from_note_to_direction(direction: ET.Element, note: ET.Element)
 def _bind_direction_voice_from_staff(
     measure: ET.Element, ns: str, direction: ET.Element, staff_n: int
 ) -> None:
-    """PL 등 staff≥2 direction — OSMD 미리보기·MuseScore voice 연결."""
-    if staff_n < 2 or direction.find(_q(ns, "voice")) is not None:
+    """PL 등 staff≥2 direction — OSMD 미리보기·MuseScore voice 연결.
+
+    backup을 넘어 다음 성부 음을 보지 않는다. wedge(stop)은 직전 음을 우선한다.
+    wedge는 기존 voice가 있어도 인접 음에 다시 맞춘다.
+    """
+    wtype = _wedge_type_of(direction, ns)
+    is_wedge = wtype in ("crescendo", "diminuendo", "stop")
+    if staff_n < 2 and not is_wedge:
+        return
+    if direction.find(_q(ns, "voice")) is not None and not is_wedge:
         return
     children = list(measure)
     try:
         idx = children.index(direction)
     except ValueError:
         return
+    prefer_prev = wtype == "stop"
+
+    def _try_attach_from(note: ET.Element) -> bool:
+        if (_note_staff_number(note, ns) or 1) != staff_n:
+            return False
+        _attach_voice_to_direction_from_note(direction, ns, note, replace=is_wedge)
+        return True
+
+    if prefer_prev:
+        for j in range(idx - 1, -1, -1):
+            prv = children[j]
+            if _local(prv) == "backup":
+                break
+            if _local(prv) == "note" and prv.find(_q(ns, "chord")) is None:
+                if _try_attach_from(prv):
+                    return
     for j in range(idx + 1, len(children)):
         nxt = children[j]
-        if _local(nxt) == "note" and (_note_staff_number(nxt, ns) or 1) == staff_n:
-            _attach_voice_to_direction_from_note(direction, ns, nxt)
-            return
-    for j in range(idx - 1, -1, -1):
-        prv = children[j]
-        if _local(prv) == "note" and (_note_staff_number(prv, ns) or 1) == staff_n:
-            _attach_voice_to_direction_from_note(direction, ns, prv)
-            return
+        if _local(nxt) == "backup":
+            break
+        if _local(nxt) == "note" and nxt.find(_q(ns, "chord")) is None:
+            if _try_attach_from(nxt):
+                return
+    if not prefer_prev:
+        for j in range(idx - 1, -1, -1):
+            prv = children[j]
+            if _local(prv) == "backup":
+                break
+            if _local(prv) == "note" and prv.find(_q(ns, "chord")) is None:
+                if _try_attach_from(prv):
+                    return
 
 
 def _wedge_type_of(direction: ET.Element, ns: str) -> str | None:
@@ -4520,10 +4555,30 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         except (TypeError, ValueError):
             return False
         directions = measure.findall(_q(ns, "direction"))
-        if 0 <= direction_index < len(directions):
-            measure.remove(directions[direction_index])
-            return True
-        return False
+        if not (0 <= direction_index < len(directions)):
+            return False
+        target = directions[direction_index]
+        wtype = _wedge_type_of(target, ns)
+        staff_n = _direction_staff_number(target, ns) or 1
+        wedge_el = _wedge_element(target, ns)
+        wedge_no = (wedge_el.get("number") if wedge_el is not None else None) or "1"
+        measure.remove(target)
+        # 같은 staff·number의 wedge 짝(start↔stop)도 함께 제거 — PR/PL 독립 삭제
+        if wtype in ("crescendo", "diminuendo", "stop"):
+            for other in list(measure.findall(_q(ns, "direction"))):
+                if (_direction_staff_number(other, ns) or 1) != staff_n:
+                    continue
+                ow = _wedge_element(other, ns)
+                if ow is None:
+                    continue
+                if (ow.get("number") or "1") != wedge_no:
+                    continue
+                ot = _wedge_type_of(other, ns)
+                if wtype == "stop" and ot in ("crescendo", "diminuendo"):
+                    measure.remove(other)
+                elif wtype in ("crescendo", "diminuendo") and ot == "stop":
+                    measure.remove(other)
+        return True
 
     if kind == "setMeasureDirectionText":
         try:

@@ -694,6 +694,14 @@ function MeasureWedgeEditor({
         크레센도 <code>&lt;</code> / 디미뉴엔도 <code>&gt;</code> 는{' '}
         <strong>시작 음 앞</strong>에 들어가고, <strong>끝 음 뒤</strong>에 wedge(stop)이 들어가 그 음까지
         덮습니다. 마지막 음으로 끝낼 때도 stop은 그 음 바로 뒤(backup 앞)에 두어 다음 마디로 이어지지 않게 합니다.
+        {editStaffWithinPart != null ? (
+          <>
+            {' '}
+            이 줄(staff {editStaffWithinPart})의 점선만 표시·추가·삭제합니다. PR과 PL은 서로 독립입니다.
+          </>
+        ) : partStaveCount >= 2 ? (
+          <> staff를 고르면 PR(staff 1)·PL(staff 2)을 각각 설정할 수 있습니다.</>
+        ) : null}
       </p>
       {directions.length > 0 ? (
         <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>

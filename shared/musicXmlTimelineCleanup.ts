@@ -1289,8 +1289,15 @@ function collectVoiceLayerBlocks(measure: Element): Map<string, VoiceLayerBlock[
   for (const voice of voices) {
     const before = beforeBackup.get(voice) ?? [];
     const after = afterBackup.get(voice) ?? [];
-    if (after.length > 0 && voiceLayerHasPitchedNote(after) && before.length > 0) {
-      // backup 뒤 실음이 있으면 앞쪽 같은 voice(대개 스퓨리어스 REST)는 버린다
+    // backup 뒤 실음이 있고 앞쪽은 쉼표만이면(성부 coalesce 잔재 REST) 앞쪽만 버린다.
+    // 앞쪽에도 실음이 있으면(같은 voice가 backup 앞·뒤로 잘못 갈라진 경우) 이어 붙여 유지한다.
+    // 그렇지 않으면 PL m10처럼 C3·E3·G3가 사라지고 B2·A2만 남는 현상이 난다.
+    if (
+      after.length > 0 &&
+      voiceLayerHasPitchedNote(after) &&
+      before.length > 0 &&
+      !voiceLayerHasPitchedNote(before)
+    ) {
       byVoice.set(voice, after);
     } else if (before.length && after.length) {
       byVoice.set(voice, [...before, ...after]);
@@ -1437,9 +1444,10 @@ export function realignDefaultXFromStaffTimelineForOsmdPreview(xml: string): str
 
 /**
  * OSMD/HITL 미리보기 전용 — 마디 박자 초과(Overfull Measure / Overflow) 및 음수 타임라인 방지.
- * 1. 각 성부(voice)의 누적 duration 및 `<forward>`가 마디 기준 박자(예: 4/4 = divisions * 4)를 초과할 경우
- *    마디 끝으로 clamp하여 음표가 다음 마디로 밀려나 렌더링되는 문제를 방지합니다.
- * 2. `<backup>`이 누적 cursor보다 커서 음수 시간이 생기거나 마디 렌더링이 스킵되는 버그를 방지합니다.
+ * 1. **voice별** cursor로 duration·<forward>를 clamp한다.
+ *    grand staff에서 staff1(PR) 다음 backup 없이 staff2(PL)가 이어질 때 전역 cursor로 합산하면
+ *    PL 음표 duration이 1로 뭉개져 미리보기에서 거의 안 보인다.
+ * 2. <backup>은 직전 voice 스트림 cursor를 되돌린다(음수 시간·마디 스킵 방지).
  */
 export function capBackupDurationsForOsmdPreview(xml: string): string {
   try {
@@ -1467,15 +1475,24 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
           }
         }
         const capacity = Math.max(1, Math.round((divisions * beats * 4) / beatType));
-        let cursor = 0;
+        const cursorByVoice = new Map<string, number>();
+        let lastVoice = '1';
         let lastLeaderCapped = false;
         let lastLeaderDur = 0;
+
+        const voiceOf = (el: Element): string => {
+          const v = el.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+          return v || lastVoice;
+        };
+
         for (const child of Array.from(measure.children)) {
           const tag = xmlLocalName(child);
           if (tag === 'note') {
             const isChord = child.querySelector('chord, *|chord') !== null;
             const isGrace = child.querySelector('grace, *|grace') !== null;
-            const durationEl = child.querySelector('duration, *|duration');
+            const durationEl = child.querySelector(':scope > duration, :scope > *|duration');
+            const voice = voiceOf(child);
+            lastVoice = voice;
             if (isChord) {
               if (lastLeaderCapped && durationEl) {
                 durationEl.textContent = String(lastLeaderDur);
@@ -1486,6 +1503,7 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
               if (durationEl) {
                 const dur = parseInt(durationEl.textContent || '0', 10);
                 if (!isNaN(dur) && dur > 0) {
+                  let cursor = cursorByVoice.get(voice) ?? 0;
                   if (cursor + dur > capacity) {
                     const cappedDur = Math.max(1, capacity - cursor);
                     durationEl.textContent = String(cappedDur);
@@ -1495,16 +1513,20 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
                   } else {
                     cursor += dur;
                   }
+                  cursorByVoice.set(voice, cursor);
                 }
               }
             }
           } else if (tag === 'forward') {
             lastLeaderCapped = false;
             lastLeaderDur = 0;
-            const durationEl = child.querySelector('duration, *|duration');
+            const durationEl = child.querySelector(':scope > duration, :scope > *|duration');
+            const voice = voiceOf(child);
+            lastVoice = voice;
             if (durationEl) {
               const dur = parseInt(durationEl.textContent || '0', 10);
               if (!isNaN(dur) && dur > 0) {
+                let cursor = cursorByVoice.get(voice) ?? 0;
                 if (cursor >= capacity) {
                   child.remove();
                 } else if (cursor + dur > capacity) {
@@ -1513,25 +1535,26 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
                     child.remove();
                   } else {
                     durationEl.textContent = String(cappedDur);
-                    cursor = capacity;
+                    cursorByVoice.set(voice, capacity);
                   }
                 } else {
-                  cursor += dur;
+                  cursorByVoice.set(voice, cursor + dur);
                 }
               }
             }
           } else if (tag === 'backup') {
             lastLeaderCapped = false;
             lastLeaderDur = 0;
-            const durationEl = child.querySelector('duration, *|duration');
+            const durationEl = child.querySelector(':scope > duration, :scope > *|duration');
             if (durationEl) {
               const dur = parseInt(durationEl.textContent || '0', 10);
               if (!isNaN(dur)) {
+                let cursor = cursorByVoice.get(lastVoice) ?? 0;
                 if (dur > cursor) {
                   durationEl.textContent = cursor.toString();
-                  cursor = 0;
+                  cursorByVoice.set(lastVoice, 0);
                 } else {
-                  cursor -= dur;
+                  cursorByVoice.set(lastVoice, cursor - dur);
                 }
               }
             }
@@ -1544,3 +1567,5 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
     return xml;
   }
 }
+
+

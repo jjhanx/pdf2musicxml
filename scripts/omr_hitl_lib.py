@@ -3318,6 +3318,128 @@ def coalesce_spurious_parallel_voices_in_root(root: ET.Element) -> int:
     return n
 
 
+def normalize_slurs_in_root(root: ET.Element) -> int:
+    """전 악보 — 이음줄(slur) 고아 stop 제거, 중복 start/stop 정리, 고유 number 부여, 왜곡된 bezier 좌표 제거.
+
+    같은 음에 start/stop이 여러 개면 bezier·default-x/y 없는 쪽을 우선한다.
+    (좌표 있는 OMR 곡선을 남기면 OSMD가 끝 음 뒤로 끊긴 꼬리만 그리는 경우가 많음.)
+
+    같은 마디에서 stop 직후 number를 재사용하지 않는다. PR/PL 이음줄이 시간상 겹칠 때
+    OSMD가 같은 number의 start/stop을 잘못 짝지어 한쪽이 안 보이는 것을 막는다.
+
+    변경된 마디 수 반환.
+    """
+    ns = _ns(root)
+    changed_measures = 0
+    layout_attrs = ("bezier-x", "bezier-y", "default-x", "default-y")
+
+    def _slur_layout_noise(s: ET.Element) -> int:
+        return sum(1 for a in layout_attrs if s.get(a) is not None)
+
+    def _pick_preferred_slur(slurs: list[ET.Element]) -> ET.Element:
+        return min(slurs, key=_slur_layout_noise)
+
+    for part in root.findall(_q(ns, "part")):
+        open_slurs: dict[str, dict[str, Any]] = {}
+
+        for measure in part.findall(_q(ns, "measure")):
+            mnum = measure.get("number") or ""
+            m_changed = False
+            # MusicXML allows reusing a slur number after stop, but OSMD matches by time.
+            # Staff1/staff2 slurs that overlap in time must keep distinct numbers within the measure.
+            used_nums_in_measure: set[str] = set(open_slurs.keys())
+
+            for note in measure.findall(_q(ns, "note")):
+                notations = note.find(_q(ns, "notations"))
+                if notations is None:
+                    continue
+
+                slurs = list(notations.findall(_q(ns, "slur")))
+                if not slurs:
+                    continue
+
+                staff = note.findtext(_q(ns, "staff")) or "1"
+                voice = note.findtext(_q(ns, "voice")) or "1"
+
+                starts = [s for s in slurs if s.get("type") == "start"]
+                stops = [s for s in slurs if s.get("type") == "stop"]
+
+                # Deduplicate starts — prefer without Audiveris layout noise
+                if len(starts) > 1:
+                    keep = _pick_preferred_slur(starts)
+                    for s in starts:
+                        if s is not keep:
+                            notations.remove(s)
+                            m_changed = True
+                    starts = [keep]
+
+                # Deduplicate stops — same preference
+                if len(stops) > 1:
+                    keep = _pick_preferred_slur(stops)
+                    for s in stops:
+                        if s is not keep:
+                            notations.remove(s)
+                            m_changed = True
+                    stops = [keep]
+
+                slurs = list(notations.findall(_q(ns, "slur")))
+
+                # Strip corrupt bezier and default-x/y coordinates
+                for s in slurs:
+                    for attr in layout_attrs:
+                        if s.get(attr) is not None:
+                            s.attrib.pop(attr, None)
+                            m_changed = True
+
+                starts = [s for s in slurs if s.get("type") == "start"]
+                stops = [s for s in slurs if s.get("type") == "stop"]
+
+                # Process stops
+                for s in stops:
+                    orig_num = s.get("number") or "1"
+                    matched_num = None
+                    if orig_num in open_slurs and open_slurs[orig_num]["staff"] == staff:
+                        matched_num = orig_num
+                    else:
+                        for k, v in open_slurs.items():
+                            if v["staff"] == staff:
+                                matched_num = k
+                                break
+
+                    if matched_num is not None:
+                        s.set("number", str(matched_num))
+                        del open_slurs[matched_num]
+                        used_nums_in_measure.add(str(matched_num))
+                        m_changed = True
+                    else:
+                        # Orphan stop with no matching start -> remove it to prevent broken cutoff slur line
+                        notations.remove(s)
+                        m_changed = True
+
+                # Process starts
+                for s in starts:
+                    next_num = 1
+                    while str(next_num) in open_slurs or str(next_num) in used_nums_in_measure:
+                        next_num += 1
+                    num = str(next_num)
+                    s.set("number", num)
+                    used_nums_in_measure.add(num)
+                    open_slurs[num] = {
+                        "staff": staff,
+                        "voice": voice,
+                        "measure_num": mnum,
+                    }
+                    m_changed = True
+
+                if not list(notations):
+                    note.remove(notations)
+
+            if m_changed:
+                changed_measures += 1
+
+    return changed_measures
+
+
 def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> bool:
     notes = list_note_elements(measure, ns)
     voices: set[str] = set()

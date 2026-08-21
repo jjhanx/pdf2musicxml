@@ -18,6 +18,7 @@ from omr_hitl_lib import (  # noqa: E402
     load_mxl_root,
     measure_snapshot,
     normalize_play_orders_including_rests_in_root,
+    normalize_slurs_in_root,
     write_mxl_root,
     _ns,
 )
@@ -32,15 +33,16 @@ def main() -> int:
     try:
         files, root_path, root = load_mxl_root(args.mxl_path)
         ns = _ns(root)
-        # 전 악보 정규화 — 다른 마디에 남은 옛 순번도 함께 고침
+        # 전 악보 정규화 — 다른 마디에 남은 옛 순번 및 이음줄도 함께 고침
         rest_po_fixed = normalize_play_orders_including_rests_in_root(root)
         coalesce_fixed = coalesce_spurious_parallel_voices_in_root(root)
         chord_dupes = dedupe_identical_chord_pitches_in_root(root)
+        slurs_fixed = normalize_slurs_in_root(root)
         snap = measure_snapshot(root, ns, args.part_id, args.measure)
         if snap is None:
             print(json.dumps({"error": "part or measure not found"}, ensure_ascii=False))
             return 1
-        if rest_po_fixed or coalesce_fixed or chord_dupes:
+        if rest_po_fixed or coalesce_fixed or chord_dupes or slurs_fixed:
             write_mxl_root(args.mxl_path, files, root_path, root)
             if rest_po_fixed:
                 snap["restPlayOrderMeasuresNormalized"] = rest_po_fixed
@@ -48,6 +50,8 @@ def main() -> int:
                 snap["coalesceVoiceMeasures"] = coalesce_fixed
             if chord_dupes:
                 snap["chordPitchDedupeMeasures"] = chord_dupes
+            if slurs_fixed:
+                snap["slursNormalizedMeasures"] = slurs_fixed
         print(json.dumps(snap, ensure_ascii=False))
         return 0
     except (OSError, ValueError) as e:

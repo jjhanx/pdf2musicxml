@@ -96,7 +96,7 @@ function tripletRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: n
 const SHORT_BEAM_TYPES = new Set(['eighth', '16th', '32nd', '64th', '128th', '256th']);
 
 function isBeamableNoteEl(n: MeasureNoteEl): boolean {
-  if (n.hasGrace || n.isCue) return false;
+  if (n.isCue) return false;
   if (n.kind !== 'note' || n.chord) return false;
   return SHORT_BEAM_TYPES.has(n.type ?? '');
 }
@@ -265,10 +265,11 @@ function defaultBeamEndIndex(
   }
   const startPos = noteEls.findIndex((n) => n.index === elIndex);
   if (startPos < 0) return elIndex;
+  const isGrace = Boolean(el?.hasGrace);
   let count = 0;
   let endIdx = elIndex;
   for (let i = startPos; i < noteEls.length && count < 3; i++) {
-    if (isBeamableNoteEl(noteEls[i])) {
+    if (isBeamableNoteEl(noteEls[i]) && (el == null || Boolean(noteEls[i].hasGrace) === isGrace)) {
       count += 1;
       endIdx = noteEls[i].index;
     }
@@ -308,15 +309,19 @@ function beamRangeFor(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: numb
 /** 빔 UI·해제용 — 화음(리더) 음표 인덱스만 (드롭다운 후보와 동일) */
 function beamLeaderRange(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): { from: number; to: number } {
   const span = beamRangeFor(el, noteEls);
+  const isGrace = Boolean(el.hasGrace);
   const leaders = noteEls.filter(
-    (n) => n.index >= span.from && n.index <= span.to && isBeamableNoteEl(n),
+    (n) => n.index >= span.from && n.index <= span.to && isBeamableNoteEl(n) && Boolean(n.hasGrace) === isGrace,
   );
   if (leaders.length === 0) return { from: el.index, to: el.index };
   return { from: leaders[0].index, to: leaders[leaders.length - 1].index };
 }
 
 function clampBeamEnd(elIndex: number, want: number, noteEls: MeasureNoteEl[], el?: MeasureNoteEl): number {
-  const candidates = noteEls.filter((n) => n.index >= elIndex && isBeamableNoteEl(n)).slice(0, 8);
+  const isGrace = Boolean(el?.hasGrace);
+  const candidates = noteEls.filter(
+    (n) => n.index >= elIndex && isBeamableNoteEl(n) && (el == null || (Boolean(n.hasGrace) === isGrace && (n.staff ?? 1) === (el.staff ?? 1))),
+  ).slice(0, 8);
   if (candidates.length === 0) return elIndex;
   if (candidates.some((n) => n.index === want)) return want;
   if (el?.beams?.length) {
@@ -326,8 +331,10 @@ function clampBeamEnd(elIndex: number, want: number, noteEls: MeasureNoteEl[], e
   return candidates[Math.min(2, candidates.length - 1)].index;
 }
 
-function countBeamableInRange(from: number, to: number, noteEls: MeasureNoteEl[]): number {
-  return noteEls.filter((n) => n.index >= from && n.index <= to && isBeamableNoteEl(n)).length;
+function countBeamableInRange(from: number, to: number, noteEls: MeasureNoteEl[], isGrace?: boolean): number {
+  return noteEls.filter(
+    (n) => n.index >= from && n.index <= to && isBeamableNoteEl(n) && (isGrace === undefined || Boolean(n.hasGrace) === isGrace),
+  ).length;
 }
 
 function countNotesInRange(from: number, to: number, noteEls: MeasureNoteEl[]): number {
@@ -2610,10 +2617,13 @@ function MeasureNoteEditor({
     : tripletNormalType;
   const tripletActualNotes = tripletUsePreserve ? tripletSlotTotal : tripletNoteCount;
   const existingTriplet = tripletRangeFor(el, noteEls);
+  const isGrace = Boolean(el.hasGrace);
   const beamLeaderIdx = chordLeaderIndex(el, noteEls);
-  const beamCandidates = noteEls.filter((n) => n.index >= beamLeaderIdx && isBeamableNoteEl(n)).slice(0, 8);
+  const beamCandidates = noteEls.filter(
+    (n) => n.index >= beamLeaderIdx && isBeamableNoteEl(n) && Boolean(n.hasGrace) === isGrace && (n.staff ?? 1) === (el.staff ?? 1),
+  ).slice(0, 8);
   const beamEndNote = noteEls.find((n) => n.index === beamEnd);
-  const beamNoteCount = countBeamableInRange(beamLeaderIdx, beamEnd, noteEls);
+  const beamNoteCount = countBeamableInRange(beamLeaderIdx, beamEnd, noteEls, isGrace);
   const existingBeam = beamLeaderRange(el, noteEls);
   const beamEndEl = noteEls.find((n) => n.index === existingBeam.to);
   const beamIncomplete =
@@ -3087,7 +3097,7 @@ function MeasureNoteEditor({
                 <option value="">—</option>
                 {laterNotes.map((n) => (
                   <option key={n.index} value={String(n.index)}>
-                    #{n.index} {n.pitch ?? ''}
+                    #{n.index}{n.hasGrace ? ' (꾸밈음)' : ''} {n.pitch ?? ''}
                   </option>
                 ))}
               </select>

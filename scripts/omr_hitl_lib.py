@@ -2727,8 +2727,6 @@ def _is_beamable_pitched_note(note: ET.Element, ns: str) -> bool:
         return False
     if note.find(_q(ns, "chord")) is not None:
         return False
-    if note.find(_q(ns, "grace")) is not None:
-        return False
     if note.get("cue") == "yes":
         return False
     return True
@@ -2744,13 +2742,18 @@ def _beam_leader_indices_in_range(
 def _extend_beam_leaders(
     notes: list[ET.Element], ns: str, leaders: list[int], expected: int
 ) -> list[int]:
-    if expected < 2 or len(leaders) >= expected:
+    if not leaders or expected < 2 or len(leaders) >= expected:
         return leaders
     out = list(leaders)
     idx = out[-1]
+    is_grace = notes[idx].find(_q(ns, "grace")) is not None
     while len(out) < expected and idx + 1 < len(notes):
         idx += 1
-        if _is_beamable_pitched_note(notes[idx], ns):
+        n = notes[idx]
+        n_grace = n.find(_q(ns, "grace")) is not None
+        if n_grace != is_grace:
+            break
+        if _is_beamable_pitched_note(n, ns):
             out.append(idx)
     return out
 
@@ -3974,6 +3977,13 @@ def _apply_beam_to_range(
     for idx in pitched:
         if not _is_short_beamable_type(_note_written_type(notes[idx], ns)):
             return False
+
+    has_grace = [notes[i].find(_q(ns, "grace")) is not None for i in pitched]
+    if any(has_grace):
+        if not all(has_grace):
+            return False
+        _apply_grace_beams([notes[i] for i in pitched], ns)
+        return True
 
     leader_voice, leader_staff = _note_voice_staff(notes[pitched[0]], ns)
     leader_stem_el = notes[pitched[0]].find(_q(ns, "stem"))

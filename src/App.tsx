@@ -50,7 +50,7 @@ type TaskProgress = {
 type ConvertTask = {
   id: string;
   fileName: string;
-  phase: 'queued' | 'running' | 'done' | 'error';
+  phase: 'queued' | 'running' | 'done' | 'error' | 'hitl';
   /** 완료 후 마스킹·인식 점검 API용(24h TTL 전까지) */
   jobId?: string;
   downloadUrl?: string;
@@ -60,7 +60,7 @@ type ConvertTask = {
   pipelineMode?: PipelineMode;
 };
 
-type PipelineMode = 'audiveris_only' | 'pymupdf_review' | 'font_separator' | 'image_pdf';
+type PipelineMode = 'auto' | 'audiveris_only' | 'pymupdf_review' | 'font_separator' | 'image_pdf';
 
 /** 같은 PDF 반복 작업 시 중간 단계부터 시작 */
 type StartStage = 'full' | 'clean_score' | 'omr_hitl' | 'lyric_inject';
@@ -258,14 +258,14 @@ function partitionReviewPayload(rows: unknown[]): {
 }
 
 function loadReviewDraftFromLocalStorageJson(rawJson: unknown): {
-  items: unknown[];
+  items: OcrReviewItem[];
   manualLyricRects: ManualLyricBBox[];
 } {
   const r = rawJson;
   if (r && typeof r === 'object' && (r as { v?: number }).v === 2 && Array.isArray((r as StoredReviewDraftV2).items)) {
     const d = r as StoredReviewDraftV2;
     return {
-      items: d.items as unknown[],
+      items: d.items,
       manualLyricRects: parseManualRectsFromUnknown(d.manualLyricRects),
     };
   }
@@ -277,13 +277,13 @@ function loadReviewDraftFromLocalStorageJson(rawJson: unknown): {
   ) {
     const d = r as { items: unknown[]; manualLyricRects?: unknown };
     return {
-      items: d.items as unknown[],
+      items: d.items as OcrReviewItem[],
       manualLyricRects: parseManualRectsFromUnknown(d.manualLyricRects),
     };
   }
   if (Array.isArray(r)) {
     const { items, manualLyricRects } = partitionReviewPayload(r);
-    return { items: items as unknown[], manualLyricRects };
+    return { items, manualLyricRects };
   }
   return { items: [], manualLyricRects: [] };
 }
@@ -656,6 +656,7 @@ export default function App() {
   
   
   const [enablePymupdfReview, setEnablePymupdfReview] = useState(true);
+  const [skipPaddleOcr, setSkipPaddleOcr] = useState(false);
   const [enableOmrStaffReview, setEnableOmrStaffReview] = useState(true);
   const [startStage, setStartStage] = useState<StartStage>(() => {
     try {
@@ -1322,11 +1323,11 @@ export default function App() {
          const { items: restoredRows, manualLyricRects: restoredRects } =
            loadReviewDraftFromLocalStorageJson(parsed);
          const merged = reviewData.map((item) => {
-            const match = restoredRows.find((p: { id?: string }) => p.id === item.id);
+            const match = restoredRows.find((p) => p.id === item.id);
             return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
          });
          const existingIds = new Set(reviewData.map((item) => item.id));
-           const missing = restoredRows.filter((p: { id?: string }) => !existingIds.has(p.id));
+           const missing = restoredRows.filter((p) => Boolean(p.id && !existingIds.has(p.id)));
            if (missing.length > 0) {
              const combined = merged.concat(missing as typeof reviewData);
              combined.sort((a, b) => {
@@ -1500,11 +1501,11 @@ export default function App() {
            loadReviewDraftFromLocalStorageJson(parsed);
          if (backupRows.length > 0) {
             const merged = reviewData.map((item) => {
-               const match = backupRows.find((p: { id?: string }) => p.id === item.id);
+               const match = backupRows.find((p) => p.id === item.id);
                return match ? mergeReviewFieldsFromSaved(item, match as Record<string, unknown>) : item;
             });
             const existingIds = new Set(reviewData.map((item) => item.id));
-            const missing = backupRows.filter((p: { id?: string }) => !existingIds.has(p.id));
+            const missing = backupRows.filter((p) => Boolean(p.id && !existingIds.has(p.id)));
             if (missing.length > 0) {
               const combined = merged.concat(missing as typeof reviewData);
               combined.sort((a, b) => {
@@ -3238,11 +3239,13 @@ bash scripts/install-font-separator-deps.sh`}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-              <OmrStaffReviewPanel
-                jobId={omrStaffReviewJobId}
-                onContinue={submitContinueOmrStaffReview}
-                continuing={omrStaffContinueBusy}
-              />
+              <InspectPanelErrorBoundary onBack={() => setOmrStaffReviewJobId(null)}>
+                <OmrStaffReviewPanel
+                  jobId={omrStaffReviewJobId}
+                  onContinue={submitContinueOmrStaffReview}
+                  continuing={omrStaffContinueBusy}
+                />
+              </InspectPanelErrorBoundary>
             </div>
           </div>,
           document.body,

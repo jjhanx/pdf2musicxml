@@ -54,7 +54,8 @@ export type OmrHitlFix = {
   tempoBpm?: number;
   beatUnit?: string;
   articulation?: string;
-  fermataType?: 'upright' | 'inverted';
+  fermataType?: 'upright' | 'inverted' | string;
+  text?: string;
   actualNotes?: number;
   normalNotes?: number;
   normalType?: string;
@@ -63,6 +64,14 @@ export type OmrHitlFix = {
   beamNoteCount?: number;
   beforeNoteIndex?: number;
   graceSlash?: boolean;
+  graceNotes?: Array<{
+    pitchStep: string;
+    pitchOctave: number;
+    pitchAlter?: number;
+    noteType?: string;
+    graceSlash?: boolean;
+  }>;
+  beamGraceNotes?: boolean;
   fromPitch?: string;
   toPitch?: string;
   fromStaff?: number;

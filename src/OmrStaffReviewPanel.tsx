@@ -885,33 +885,35 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             </label>
           )}
           {editorPartId ? (
-            <OmrMeasureEditor
-              key={`${editorPartId}-${selectedMeasure.measureMxl}-${editorKey}-${previewRevision}`}
-              jobId={jobId}
-              partId={editorPartId}
-              measureMxl={selectedMeasure.measureMxl}
-              measurePrinted={selectedPrinted}
-              measureOffset={measureOffset}
-              staffLabel={
-                (selectedMeasure
-                  ? labelForPartStaff(editorPartId, editStaffWithinPart ?? selectedMeasure.staffWithinPart)
-                  : null) ||
-                staffFilter ||
-                scoreParts.find((p) => p.id === editorPartId)?.displayLabel ||
-                scoreParts.find((p) => p.id === editorPartId)?.suggestedLabel ||
-                undefined
-              }
-              editStaffWithinPart={editStaffWithinPart}
-              partStaveCount={rawXml ? staveCountForPart(rawXml, editorPartId) : 1}
-              previewRevision={previewRevision}
-              lastPreviewMsg={lastPreviewMsg}
-              pendingFixCount={pendingFixes.length}
-              pendingFixes={pendingFixes}
-              previewBusy={applyBusy}
-              availableScoreParts={scoreParts}
-              onPreview={() => void applyFixesToMxl()}
-              onAddFix={addFix}
-            />
+            <InspectPanelErrorBoundary>
+              <OmrMeasureEditor
+                key={`${editorPartId}-${selectedMeasure.measureMxl}-${editorKey}-${previewRevision}`}
+                jobId={jobId}
+                partId={editorPartId}
+                measureMxl={selectedMeasure.measureMxl}
+                measurePrinted={selectedPrinted}
+                measureOffset={measureOffset}
+                staffLabel={
+                  (selectedMeasure
+                    ? labelForPartStaff(editorPartId, editStaffWithinPart ?? selectedMeasure.staffWithinPart)
+                    : null) ||
+                  staffFilter ||
+                  scoreParts.find((p) => p.id === editorPartId)?.displayLabel ||
+                  scoreParts.find((p) => p.id === editorPartId)?.suggestedLabel ||
+                  undefined
+                }
+                editStaffWithinPart={editStaffWithinPart}
+                partStaveCount={rawXml ? staveCountForPart(rawXml, editorPartId) : 1}
+                previewRevision={previewRevision}
+                lastPreviewMsg={lastPreviewMsg}
+                pendingFixCount={pendingFixes.length}
+                pendingFixes={pendingFixes}
+                previewBusy={applyBusy}
+                availableScoreParts={scoreParts}
+                onPreview={() => void applyFixesToMxl()}
+                onAddFix={addFix}
+              />
+            </InspectPanelErrorBoundary>
           ) : (
             <p className="omr-measure-editor-err">파트 ID를 찾지 못했습니다. MXL 새로고침 후 다시 클릭하세요.</p>
           )}

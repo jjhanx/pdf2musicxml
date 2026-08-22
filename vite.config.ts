@@ -26,6 +26,22 @@ function osmdNavigationLabelPlugin(): Plugin {
       'h||(h=r.KeyInstruction.copy(this.activeKeys[i]))',
       'h||(this.activeKeys[i]&&(h=r.KeyInstruction.copy(this.activeKeys[i])))'
     ],
+    [
+      'else a=i-t.PositionAndShape.BorderMarginBottom;t.PositionAndShape.RelativePosition=new f.PointF2D(e.x,a)}',
+      'else a=i-t.PositionAndShape.BorderMarginBottom-3.8;t.PositionAndShape.RelativePosition=new f.PointF2D(e.x,a)}',
+    ],
+    [
+      'a=i>-n/2?-n/2:i-t.PositionAndShape.BorderMarginBottom',
+      'a=i>-n/2?-n/2:i-t.PositionAndShape.BorderMarginBottom-3.8',
+    ],
+    [
+      'else a=i-t.PositionAndShape.BorderMarginTop;t.PositionAndShape.RelativePosition=new f.PointF2D(e.x,a)}',
+      'else a=i-t.PositionAndShape.BorderMarginTop+2.5;t.PositionAndShape.RelativePosition=new f.PointF2D(e.x,a)}',
+    ],
+    [
+      'this.lastWedge.parentMeasure.MeasureNumberXML===i.MeasureNumberXML',
+      'this.lastWedge.parentMeasure===i',
+    ],
   ];
   return {
     name: 'osmd-navigation-labels',

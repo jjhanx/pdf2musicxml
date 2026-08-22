@@ -45,6 +45,7 @@ import {
 import {
   repositionDirectionsBeforeAttributesForOsmdPreview,
   ensureMetronomeOnSoundTempoDirectionsForOsmdPreview,
+  normalizeDynamicsAndWedgesForOsmdPreview,
   measureHeaderInsertIndex,
   directionHasTempo,
 } from '../shared/musicXmlDirectionPlacement';
@@ -77,7 +78,10 @@ export function applyOsmdPreviewEngravingRules(
   // 오선 사이 간격을 충분히 확보하여 이음줄·가사가 위아래 오선과 겹치거나 잘리지 않도록 함
   rules.BetweenStaffDistance = Math.max(rules.BetweenStaffDistance || 5.5, 8.0);
   rules.StaffDistance = Math.max(rules.StaffDistance || 6.5, 8.5);
-  rules.MinStaffDistance = Math.max(rules.MinStaffDistance || 5.0, 7.0);
+  (rules as unknown as { MinStaffDistance?: number }).MinStaffDistance = Math.max(
+    (rules as unknown as { MinStaffDistance?: number }).MinStaffDistance || 5.0,
+    7.0,
+  );
   // 성부 라벨은 installOsmdPartLabelOverlay(HTML)로 모든 system에 그림 — OSMD SVG 라벨은 z-order·Y 어긋남
   rules.RenderPartNames = false;
   rules.RenderPartAbbreviations = false;
@@ -99,6 +103,11 @@ export function applyOsmdPreviewEngravingRules(
   r.AutoGenerateMultipleRestMeasuresFromRestMeasures = false;
   if (typeof r.DisplacedNoteMargin === 'number') r.DisplacedNoteMargin = 0.05;
   if (typeof r.VoiceSpacingAddendVexflow === 'number') r.VoiceSpacingAddendVexflow = 2.0;
+  // 셈여림표(p, f, mf 등) 및 쐐기형 기호(crescendo, diminuendo)의 오선 이격 거리 충분히 확보
+  rules.DynamicExpressionSpacer = 3.0;
+  rules.WedgePlacementAboveY = -5.5;
+  rules.WedgePlacementBelowY = 3.5;
+  rules.WedgeVerticalMargin = 2.5;
   // OSMD 기본 0.4는 줄 끝 마디의 D.S./Fine를 오른쪽으로 밀어 다음 마디 앞으로 보이게 함
   if (typeof r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth === 'number') {
     r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth = 0;
@@ -487,6 +496,14 @@ function reattachDirectionsForSingleStaffOsmdPreview(measure: Element, staffN: n
       continue;
     }
     syncWedgeDirectionVoiceFromNeighbor(measure, child);
+    const dirStaffEl = child.querySelector(':scope > staff, :scope > *|staff');
+    if (dirStaffEl?.textContent?.trim()) {
+      const dStaff = parseInt(dirStaffEl.textContent.trim(), 10);
+      if (Number.isFinite(dStaff) && dStaff !== staffN) {
+        child.remove();
+        continue;
+      }
+    }
     if (directionWedgeType(child) === 'stop') {
       continue;
     }
@@ -500,14 +517,6 @@ function reattachDirectionsForSingleStaffOsmdPreview(measure: Element, staffN: n
     if (anchorStaffEl?.textContent?.trim()) {
       const aStaff = parseInt(anchorStaffEl.textContent.trim(), 10);
       if (Number.isFinite(aStaff) && aStaff !== staffN) {
-        child.remove();
-        continue;
-      }
-    }
-    const dirStaffEl = child.querySelector(':scope > staff, :scope > *|staff');
-    if (dirStaffEl?.textContent?.trim()) {
-      const dStaff = parseInt(dirStaffEl.textContent.trim(), 10);
-      if (Number.isFinite(dStaff) && dStaff !== staffN) {
         child.remove();
         continue;
       }
@@ -1033,11 +1042,16 @@ function anchorNoteForDirection(measure: Element, direction: Element): Element |
     return noteStaffN(note) === wantStaff;
   };
 
-  const next = idx + 1 < children.length ? children[idx + 1] : null;
-  if (next && xmlLocalName(next) === 'note' && staffCompatible(next)) {
-    if (!wantVoice) return next;
-    const nv = next.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
-    if (!nv || nv === wantVoice) return next;
+  // 1. 바로 뒤따라오는 음표(중간 direction 건너뜀) 탐색
+  for (let j = idx + 1; j < children.length; j += 1) {
+    const c = children[j]!;
+    if (xmlLocalName(c) === 'direction') continue;
+    if (xmlLocalName(c) === 'backup') break;
+    if (xmlLocalName(c) === 'note' && staffCompatible(c)) {
+      if (!wantVoice) return c;
+      const nv = c.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim();
+      if (!nv || nv === wantVoice) return c;
+    }
   }
   if (wantVoice) {
     for (const c of children) {
@@ -1064,8 +1078,6 @@ function anchorNoteForDirection(measure: Element, direction: Element): Element |
 function copyLayoutFromAnchor(direction: Element, anchor: Element): void {
   const dx = anchor.getAttribute('default-x');
   if (dx) direction.setAttribute('default-x', dx);
-  const dy = anchor.getAttribute('default-y');
-  if (dy) direction.setAttribute('default-y', dy);
 }
 
 function ensureDirectionBeforeAnchor(measure: Element, direction: Element, anchor: Element): void {
@@ -1198,19 +1210,6 @@ export function migrateDirectionsToNotes(xml: string): string {
             }
           }
 
-          const dtype = [...direction.children].find((c) => xmlLocalName(c) === 'direction-type');
-          const dyn = dtype
-            ? [...dtype.children].find((c) => xmlLocalName(c) === 'dynamics')
-            : undefined;
-          if (dyn) {
-            const tags = [...dyn.children].map((c) => xmlLocalName(c)).filter((t) => DYNAMICS_TAGS.has(t));
-            if (tags.length) {
-              const placement = direction.getAttribute('placement') || dyn.getAttribute('placement') || 'above';
-              attachDynamicsToNote(anchor, tags[0], placement);
-              direction.remove();
-              continue;
-            }
-          }
           ensureDirectionBeforeAnchor(measure, direction, anchor);
         }
       }
@@ -1824,6 +1823,7 @@ function sanitizeMusicXmlForOsmd(
     out = repairTimelineForOsmdPreview(out);
     out = repairUnderfullMeasuresForOsmdPreview(out);
     out = normalizeTiePlacementsForOsmdPreview(out);
+    out = normalizeDynamicsAndWedgesForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
     if (printedMeasureMarkers?.size) {

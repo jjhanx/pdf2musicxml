@@ -414,6 +414,7 @@ type MeasureSnapshot = {
   measureDirections?: MeasureDirectionEl[];
   directionSourcePartId?: string;
   effectiveTempoBpm?: number | null;
+  effectiveClef?: { sign?: string; line?: number };
 };
 
 type MeasureTempoEntry = {
@@ -1114,6 +1115,8 @@ type Props = {
   editStaffWithinPart?: number | null;
   /** part `<staves>` — 동시 시작 voice 복원 staff 선택용 */
   partStaveCount?: number;
+  /** 전체 악보 파트 목록 — 마디 복사/이동 대상 지정용 */
+  availableScoreParts?: Array<{ id: string; displayLabel?: string; suggestedLabel?: string; staffCount?: number }>;
   onAddFix: (fix: OmrHitlFix) => void;
   pendingFixes?: OmrHitlFix[];
   previewRevision?: number;
@@ -1282,6 +1285,7 @@ export function OmrMeasureEditor({
   lastPreviewMsg = '',
   pendingFixCount = 0,
   previewBusy = false,
+  availableScoreParts,
   onPreview,
 }: Props) {
   const [snapshot, setSnapshot] = useState<MeasureSnapshot | null>(null);
@@ -1293,6 +1297,121 @@ export function OmrMeasureEditor({
   const [pendingInsertLeader, setPendingInsertLeader] = useState<PendingInsertLeader | null>(null);
   const [repairStaff, setRepairStaff] = useState(editStaffWithinPart ?? 1);
   const [playOrderDraft, setPlayOrderDraft] = useState<Record<number, string>>({});
+
+  const availableParts = useMemo(() => {
+    if (availableScoreParts && availableScoreParts.length > 0) {
+      return availableScoreParts.map((p) => ({
+        id: p.id,
+        label: p.displayLabel || p.suggestedLabel || p.id,
+      }));
+    }
+    return [
+      { id: 'P1', label: 'S' },
+      { id: 'P2', label: 'A' },
+      { id: 'P3', label: 'T' },
+      { id: 'P4', label: 'B' },
+      { id: 'P5', label: 'P' },
+    ];
+  }, [availableScoreParts]);
+
+  const [copyFromPartId, setCopyFromPartId] = useState(partId);
+  const [copyToPartIds, setCopyToPartIds] = useState<string[]>(() => {
+    const isBass = partId === 'P4' || staffLabel === 'B' || staffLabel === 'Bass';
+    if (isBass) {
+      const sa = (availableScoreParts || [])
+        .filter((p) => ['S', 'A', 'SOPRANO', 'ALTO'].includes((p.displayLabel || p.suggestedLabel || '').toUpperCase()))
+        .map((p) => p.id);
+      return sa.length > 0 ? sa : ['P1', 'P2'];
+    }
+    return ['P1'];
+  });
+  const [copyRangeMode, setCopyRangeMode] = useState<'single' | 'range'>('single');
+  const [copyStartMeasure, setCopyStartMeasure] = useState(measureMxl);
+  const [copyEndMeasure, setCopyEndMeasure] = useState(measureMxl);
+  const [clearSourceAfterCopy, setClearSourceAfterCopy] = useState(false);
+  const [splitVoicesOnCopy, setSplitVoicesOnCopy] = useState(true);
+
+  const handleExecuteCopy = useCallback(() => {
+    if (copyToPartIds.length === 0) return;
+    const measureSpec = copyRangeMode === 'single' ? String(measureMxl) : `${copyStartMeasure}-${copyEndMeasure}`;
+    const fromLabel = availableParts.find((p) => p.id === copyFromPartId)?.label || copyFromPartId;
+    const toLabels = copyToPartIds.map((id) => availableParts.find((p) => p.id === id)?.label || id).join(', ');
+
+    const fix: OmrHitlFix = {
+      id: newFixId(),
+      kind: 'copyMeasureContent',
+      partId: copyFromPartId,
+      fromPartId: copyFromPartId,
+      toPartIds: copyToPartIds,
+      measureMxl: measureSpec,
+      clearSource: clearSourceAfterCopy,
+      splitVoices: splitVoicesOnCopy,
+      detail: `${fromLabel} ➡️ ${toLabels} (${copyRangeMode === 'single' ? `m.${measureMxl}` : `m.${measureSpec}`})${clearSourceAfterCopy ? ' [이동]' : ''}`,
+    };
+
+    onAddFix(fix);
+    setFixMsg(
+      `✅ ${fromLabel} 파트의 ${copyRangeMode === 'single' ? `${measureMxl}마디` : `${measureSpec}마디`} 내용을 ${toLabels} 파트로 복사/이동 등록했습니다. 아래 [MXL에 반영·미리보기]를 눌러 적용하세요.`,
+    );
+  }, [
+    copyToPartIds,
+    copyRangeMode,
+    measureMxl,
+    copyStartMeasure,
+    copyEndMeasure,
+    availableParts,
+    copyFromPartId,
+    clearSourceAfterCopy,
+    splitVoicesOnCopy,
+    onAddFix,
+  ]);
+
+  const [clefScope, setClefScope] = useState<'all' | 'single' | 'range'>('all');
+  const [clefStartMeasure, setClefStartMeasure] = useState(measureMxl);
+  const [clefEndMeasure, setClefEndMeasure] = useState(measureMxl);
+
+  const handleApplyClef = useCallback(
+    (sign: 'G' | 'F', line: 2 | 4) => {
+      let rangeStr = String(measureMxl);
+      let scopeLabel = `${measureMxl}마디`;
+      if (clefScope === 'all') {
+        rangeStr = '1-999';
+        scopeLabel = '1마디부터 곡 전체';
+      } else if (clefScope === 'range') {
+        rangeStr = `${clefStartMeasure}-${clefEndMeasure}`;
+        scopeLabel = `${rangeStr}마디`;
+      }
+
+      const clefName = sign === 'G' ? '높은음자리표(𝄞)' : '낮은음자리표(𝄢)';
+
+      const fix: OmrHitlFix = {
+        id: newFixId(),
+        kind: 'setMeasureClef',
+        partId,
+        measureMxl: rangeStr,
+        clefSign: sign,
+        clefLine: line,
+        staff: editStaffWithinPart ?? 1,
+        removeSubsequentClefs: true,
+        detail: `${staffLabel ? `${staffLabel} ` : ''}${clefName} (${scopeLabel})`,
+      };
+
+      onAddFix(fix);
+      setFixMsg(
+        `✅ ${staffLabel ? `${staffLabel} 파트 ` : ''}${scopeLabel}를 ${clefName}로 변경 등록했습니다. 아래 [MXL에 반영·미리보기]를 눌러 적용하세요.`,
+      );
+    },
+    [
+      measureMxl,
+      clefScope,
+      clefStartMeasure,
+      clefEndMeasure,
+      partId,
+      staffLabel,
+      editStaffWithinPart,
+      onAddFix,
+    ],
+  );
 
   const measureMxlStr = String(measureMxl);
 
@@ -1484,6 +1603,324 @@ export function OmrMeasureEditor({
         <p className="omr-measure-editor-hint" style={{ margin: '6px 0 0', fontSize: '0.84rem' }}>
           예: 26마디에 27마디 내용이 들어와 있으면 「26 <strong>앞</strong>에 빈 마디」→ 반영 후 새 26마디에 음표를 추가하세요.
         </p>
+      </div>
+
+      <div
+        className="omr-measure-copy-section"
+        style={{
+          marginTop: 10,
+          marginBottom: 10,
+          padding: '10px 14px',
+          background: '#f8fafc',
+          border: '1px solid #cbd5e1',
+          borderRadius: 6,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: '0.92rem',
+            color: '#1e293b',
+            marginBottom: 6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span>📋</span>
+          <span>마디 파트 복사 / 이동 (다른 파트로 내용 배분)</span>
+        </div>
+        <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>
+          이미 고친 파트(예: B 파트)의 마디 내용을 <strong>다른 파트(예: S, A 파트)로 마디 단위 또는 범위로 복사·이동</strong>합니다.
+        </p>
+
+        {/* 1. 출처 및 대상 파트 선택 */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 8 }}>
+          <label style={{ fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 600 }}>출처 파트:</span>
+            <select
+              value={copyFromPartId}
+              onChange={(e) => setCopyFromPartId(e.target.value)}
+              style={{ padding: '3px 8px', borderRadius: 4, border: '1px solid #94a3b8' }}
+            >
+              {availableParts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} (part {p.id})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div style={{ fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>대상 파트:</span>
+            {availableParts
+              .filter((p) => p.id !== copyFromPartId)
+              .map((p) => (
+                <label key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={copyToPartIds.includes(p.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setCopyToPartIds([...copyToPartIds, p.id]);
+                      } else {
+                        setCopyToPartIds(copyToPartIds.filter((id) => id !== p.id));
+                      }
+                    }}
+                  />
+                  <span>{p.label}</span>
+                </label>
+              ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              type="button"
+              className="btn-muted"
+              style={{ padding: '2px 6px', fontSize: '0.78rem' }}
+              onClick={() => {
+                const saIds = availableParts
+                  .filter((p) => ['S', 'A', 'SOPRANO', 'ALTO'].includes(p.label.toUpperCase()))
+                  .map((p) => p.id);
+                if (saIds.length) setCopyToPartIds(saIds);
+                else setCopyToPartIds(availableParts.slice(0, 2).map((p) => p.id));
+              }}
+            >
+              S·A 선택
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              style={{ padding: '2px 6px', fontSize: '0.78rem' }}
+              onClick={() => {
+                const tbIds = availableParts
+                  .filter((p) => ['T', 'B', 'TENOR', 'BASS'].includes(p.label.toUpperCase()))
+                  .map((p) => p.id);
+                if (tbIds.length) setCopyToPartIds(tbIds);
+                else setCopyToPartIds(availableParts.slice(2, 4).map((p) => p.id));
+              }}
+            >
+              T·B 선택
+            </button>
+          </div>
+        </div>
+
+        {/* 2. 마디 범위 선택 */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            alignItems: 'center',
+            marginBottom: 8,
+            fontSize: '0.86rem',
+          }}
+        >
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="copyRangeType"
+              checked={copyRangeMode === 'single'}
+              onChange={() => setCopyRangeMode('single')}
+            />
+            <span>현재 마디만 (MXL {measureMxl} / 인쇄 m.{measurePrinted})</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="copyRangeType"
+              checked={copyRangeMode === 'range'}
+              onChange={() => setCopyRangeMode('range')}
+            />
+            <span>마디 범위 일괄:</span>
+            <input
+              type="number"
+              min={1}
+              value={copyStartMeasure}
+              onChange={(e) => setCopyStartMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+              disabled={copyRangeMode !== 'range'}
+            />
+            <span>~</span>
+            <input
+              type="number"
+              min={1}
+              value={copyEndMeasure}
+              onChange={(e) => setCopyEndMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+              disabled={copyRangeMode !== 'range'}
+            />
+            <span>마디</span>
+          </label>
+        </div>
+
+        {/* 3. 옵션 및 실행 버튼 */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: '1px dashed #cbd5e1',
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: '0.82rem' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={clearSourceAfterCopy}
+                onChange={(e) => setClearSourceAfterCopy(e.target.checked)}
+              />
+              <span>
+                복사 후 출처 파트를 <strong>온쉼표로 비우기 (이동)</strong>
+              </span>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={splitVoicesOnCopy}
+                onChange={(e) => setSplitVoicesOnCopy(e.target.checked)}
+              />
+              <span>
+                2개 성부/화음 시 <strong>상하 성부 자동 분할 (위 음 ➡️ S, 아래 음 ➡️ A)</strong>
+              </span>
+            </label>
+          </div>
+
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ padding: '5px 14px', fontSize: '0.86rem', fontWeight: 600 }}
+            disabled={copyToPartIds.length === 0}
+            onClick={handleExecuteCopy}
+          >
+            📋 파트 복사/이동 등록
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="omr-measure-clef-section"
+        style={{
+          marginTop: 10,
+          marginBottom: 10,
+          padding: '10px 14px',
+          background: '#f1f5f9',
+          border: '1px solid #cbd5e1',
+          borderRadius: 6,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: '0.92rem',
+            color: '#1e293b',
+            marginBottom: 6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>𝄞 / 𝄢</span>
+            <span>음자리표 변경 (높은음 / 낮은음자리표)</span>
+          </div>
+          {snapshot?.effectiveClef ? (
+            <span
+              style={{
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                color: snapshot.effectiveClef.sign === 'F' ? '#b45309' : '#0369a1',
+                background: snapshot.effectiveClef.sign === 'F' ? '#fef3c7' : '#e0f2fe',
+                padding: '2px 8px',
+                borderRadius: 4,
+                border: snapshot.effectiveClef.sign === 'F' ? '1px solid #fde68a' : '1px solid #bae6fd',
+              }}
+            >
+              현재 적용: {snapshot.effectiveClef.sign === 'F' ? '𝄢 낮은음자리표 (F)' : '𝄞 높은음자리표 (G)'}
+            </span>
+          ) : null}
+        </div>
+
+        <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>
+          현재 파트(<strong>{staffLabel ? `${staffLabel} · ` : ''}part {partId}</strong>)의 음자리표를 높은음자리표(𝄞) 또는 낮은음자리표(𝄢)로 변경합니다.
+        </p>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 8, fontSize: '0.86rem' }}>
+          <span style={{ fontWeight: 600 }}>적용 범위:</span>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="clefRangeScope"
+              checked={clefScope === 'all'}
+              onChange={() => setClefScope('all')}
+            />
+            <span>1마디부터 곡 전체 적용 (m.1 ~ 끝)</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="clefRangeScope"
+              checked={clefScope === 'single'}
+              onChange={() => setClefScope('single')}
+            />
+            <span>현재 마디만 (m.{measurePrinted})</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="clefRangeScope"
+              checked={clefScope === 'range'}
+              onChange={() => setClefScope('range')}
+            />
+            <span>마디 범위 지정:</span>
+            <input
+              type="number"
+              min={1}
+              value={clefStartMeasure}
+              onChange={(e) => setClefStartMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+              disabled={clefScope !== 'range'}
+            />
+            <span>~</span>
+            <input
+              type="number"
+              min={1}
+              value={clefEndMeasure}
+              onChange={(e) => setClefEndMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+              disabled={clefScope !== 'range'}
+            />
+            <span>마디</span>
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ padding: '5px 12px', fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 4 }}
+            onClick={() => handleApplyClef('G', 2)}
+          >
+            <span>𝄞</span>
+            <span>높은음자리표 (Treble G) 로 변경</span>
+          </button>
+          <button
+            type="button"
+            className="btn-muted"
+            style={{ padding: '5px 12px', fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 4 }}
+            onClick={() => handleApplyClef('F', 4)}
+          >
+            <span>𝄢</span>
+            <span>낮은음자리표 (Bass F) 로 변경</span>
+          </button>
+        </div>
       </div>
       {editStaffWithinPart != null ? (
         <p className="omr-measure-editor-hint" style={{ marginTop: '-0.35rem', fontSize: '0.88rem' }}>
@@ -1695,7 +2132,7 @@ function CrossMeasureTieForm({
   partId: string;
   currentMeasureMxl: number;
   el: MeasureNoteEl;
-  onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
+  onFix: (partial: FixPartial) => void;
 }) {
   const parsed = parsePitch(el.pitch);
   const [nextMxl, setNextMxl] = useState(String(currentMeasureMxl + 1));
@@ -1758,7 +2195,7 @@ function CrossMeasureTieForm({
     `#${n.index} ${formatPitchLabel(parsePitch(n.pitch).step, parsePitch(n.pitch).octave, n.pitchAlter)}`;
 
   const applyForward = () => {
-    const partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'> = {
+    const partial: FixPartial = {
       kind: 'addTie',
       fromNoteIndex: el.index,
       toMeasureMxl: nextMxl,
@@ -1771,7 +2208,7 @@ function CrossMeasureTieForm({
   };
 
   const applyBackward = () => {
-    const partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'> = {
+    const partial: FixPartial = {
       kind: 'addTie',
       measureMxl: prevMxl,
       fromPitchStep,
@@ -1786,7 +2223,7 @@ function CrossMeasureTieForm({
         const p = parsePitch(picked.pitch);
         partial.fromPitchStep = p.step;
         partial.fromPitchOctave = p.octave;
-        partial.fromPitchAlter = pitchAlterFromOption(picked.pitchAlter);
+        partial.fromPitchAlter = pitchAlterFromOption(pitchAlterToOption(picked.pitchAlter));
         partial.fromNoteIndex = picked.index;
       }
     }
@@ -2085,11 +2522,18 @@ function MeasureNoteEditor({
     defaultArticulationPlacement(el.stem),
   );
   const [pendingOrnamentIds, setPendingOrnamentIds] = useState<string[]>([]);
-  const [graceStep, setGraceStep] = useState(parsed.step);
-  const [graceOctave, setGraceOctave] = useState(parsed.octave);
-  const [graceAlter, setGraceAlter] = useState<PitchAlterOption>(pitchAlterToOption(el.pitchAlter));
-  const [graceType, setGraceType] = useState<string>('eighth');
-  const [graceSlash, setGraceSlash] = useState(true);
+  type GraceDraftItem = {
+    step: string;
+    octave: number;
+    alter: PitchAlterOption;
+    noteType: string;
+  };
+
+  const [graceNotesDraft, setGraceNotesDraft] = useState<GraceDraftItem[]>([
+    { step: parsed.step, octave: parsed.octave, alter: pitchAlterToOption(el.pitchAlter), noteType: '16th' },
+  ]);
+  const [beamGraceNotes, setBeamGraceNotes] = useState(true);
+  const [graceSlash, setGraceSlash] = useState(false);
 
   useEffect(() => {
     setPendingArtIds([]);
@@ -2100,11 +2544,11 @@ function MeasureNoteEditor({
     setPitchStep(p.step);
     setPitchOctave(p.octave);
     setPitchAlter(pitchAlterToOption(el.pitchAlter));
-    setGraceStep(p.step);
-    setGraceOctave(p.octave);
-    setGraceAlter(pitchAlterToOption(el.pitchAlter));
-    setGraceType('eighth');
-    setGraceSlash(true);
+    setGraceNotesDraft([
+      { step: p.step, octave: p.octave, alter: pitchAlterToOption(el.pitchAlter), noteType: '16th' },
+    ]);
+    setBeamGraceNotes(true);
+    setGraceSlash(false);
     setNoteTypeValueSel(
       noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
     );
@@ -2464,7 +2908,7 @@ function MeasureNoteEditor({
         <button
           type="button"
           className="omr-hitl-fix-btn"
-          onClick={() => onFix({ kind: 'setNoteVoice', noteIndex: el.index, voice: voiceN, staff: el.staff })}
+          onClick={() => onFix({ kind: 'setNoteVoice', noteIndex: el.index, voice: voiceN, staff: el.staff ?? undefined })}
         >
           성부 지정
         </button>
@@ -2878,76 +3322,180 @@ function MeasureNoteEditor({
           ) : null}
         </div>
       )}
-      {el.kind === 'note' && !el.hasGrace && !el.chord && (
+      {el.kind === 'note' && !el.chord && (
         <div className="omr-measure-grace-row">
-          <span className="omr-measure-chord-hint">
-            꾸밈음 — 본음 #{chordLeaderIdx}
-            {chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 바로 앞에 삽입
-          </span>
-          <label className="omr-measure-inline-field">
-            꾸밈음 음
-            <select value={graceStep} onChange={(e) => setGraceStep(e.target.value)}>
-              {PITCH_STEPS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={0}
-              max={9}
-              value={graceOctave}
-              onChange={(e) => setGraceOctave(Number(e.target.value))}
-              style={{ width: 48 }}
-            />
-            <PitchAlterSelect value={graceAlter} onChange={setGraceAlter} />
-          </label>
-          <label className="omr-measure-inline-field">
-            길이
-            <select value={graceType} onChange={(e) => setGraceType(e.target.value)}>
-              {GRACE_NOTE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {NOTE_TYPE_LABELS[t] ?? t}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="omr-measure-inline-field">
-            <input type="checkbox" checked={graceSlash} onChange={(e) => setGraceSlash(e.target.checked)} />
-            slash 꾸밈음
-          </label>
-          <button
-            type="button"
-            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
-            onClick={() =>
-              onFix({
-                kind: 'insertGraceNote',
-                beforeNoteIndex: chordLeaderIdx,
-                pitchStep: graceStep,
-                pitchOctave: graceOctave,
-                pitchAlter: pitchAlterFromOption(graceAlter),
-                noteType: graceType,
-                graceSlash,
-              })
-            }
-          >
-            앞에 꾸밈음 추가
-          </button>
-          {gracesBefore.length > 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+            <span className="omr-measure-chord-hint" style={{ fontWeight: 600 }}>
+              {el.hasGrace
+                ? `꾸밈음 #${el.index} (${el.pitch}) 바로 앞 삽입`
+                : `꾸밈음 — 본음 #${chordLeaderIdx}${chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 바로 앞에 삽입`}
+            </span>
             <button
               type="button"
-              className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
-              onClick={() =>
-                onFix({
-                  kind: 'removeGraceBeforeNote',
-                  beforeNoteIndex: chordLeaderIdx,
-                })
-              }
+              className="omr-hitl-fix-btn"
+              style={{ fontSize: '0.78rem', padding: '2px 8px' }}
+              onClick={() => {
+                setGraceNotesDraft((prev) => [
+                  ...prev,
+                  {
+                    step: prev[prev.length - 1]?.step ?? 'D',
+                    octave: prev[prev.length - 1]?.octave ?? 4,
+                    alter: prev[prev.length - 1]?.alter ?? '0',
+                    noteType: prev[prev.length - 1]?.noteType ?? '16th',
+                  },
+                ]);
+              }}
             >
-              앞 꾸밈음 삭제 ({gracesBefore.length}개)
+              + 꾸밈음 추가 ({graceNotesDraft.length + 1}개로)
             </button>
-          ) : null}
+          </div>
+
+          {graceNotesDraft.map((draft, dIdx) => (
+            <div key={dIdx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.8rem', color: '#666', minWidth: 28 }}>#{dIdx + 1}:</span>
+              <label className="omr-measure-inline-field">
+                음
+                <select
+                  value={draft.step}
+                  onChange={(e) => {
+                    const next = [...graceNotesDraft];
+                    next[dIdx].step = e.target.value;
+                    setGraceNotesDraft(next);
+                  }}
+                >
+                  {PITCH_STEPS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={9}
+                  value={draft.octave}
+                  onChange={(e) => {
+                    const next = [...graceNotesDraft];
+                    next[dIdx].octave = Number(e.target.value);
+                    setGraceNotesDraft(next);
+                  }}
+                  style={{ width: 44 }}
+                />
+                <PitchAlterSelect
+                  value={draft.alter}
+                  onChange={(val) => {
+                    const next = [...graceNotesDraft];
+                    next[dIdx].alter = val;
+                    setGraceNotesDraft(next);
+                  }}
+                />
+              </label>
+              <label className="omr-measure-inline-field">
+                길이
+                <select
+                  value={draft.noteType}
+                  onChange={(e) => {
+                    const next = [...graceNotesDraft];
+                    next[dIdx].noteType = e.target.value;
+                    setGraceNotesDraft(next);
+                  }}
+                >
+                  {GRACE_NOTE_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {NOTE_TYPE_LABELS[t] ?? t}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {graceNotesDraft.length > 1 ? (
+                <button
+                  type="button"
+                  className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
+                  style={{ padding: '2px 6px', fontSize: '0.75rem' }}
+                  title="이 꾸밈음 항목 제거"
+                  onClick={() => {
+                    setGraceNotesDraft((prev) => prev.filter((_, i) => i !== dIdx));
+                  }}
+                >
+                  ✕
+                </button>
+              ) : null}
+            </div>
+          ))}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
+            {graceNotesDraft.length >= 2 ? (
+              <label className="omr-measure-inline-field" style={{ fontWeight: 600, color: '#1d4ed8' }}>
+                <input
+                  type="checkbox"
+                  checked={beamGraceNotes}
+                  onChange={(e) => setBeamGraceNotes(e.target.checked)}
+                />
+                빔(연결줄) 연결
+              </label>
+            ) : null}
+            <label className="omr-measure-inline-field">
+              <input
+                type="checkbox"
+                checked={graceSlash}
+                onChange={(e) => setGraceSlash(e.target.checked)}
+              />
+              slash 빗금 (단일 꾸밈음 acciaccatura)
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+              onClick={() => {
+                if (graceNotesDraft.length === 1) {
+                  const d0 = graceNotesDraft[0];
+                  onFix({
+                    kind: 'insertGraceNote',
+                    beforeNoteIndex: el.hasGrace ? el.index : chordLeaderIdx,
+                    pitchStep: d0.step,
+                    pitchOctave: d0.octave,
+                    pitchAlter: pitchAlterFromOption(d0.alter),
+                    noteType: d0.noteType,
+                    graceSlash,
+                  });
+                } else {
+                  onFix({
+                    kind: 'insertGraceNote',
+                    beforeNoteIndex: el.hasGrace ? el.index : chordLeaderIdx,
+                    graceNotes: graceNotesDraft.map((g) => ({
+                      pitchStep: g.step,
+                      pitchOctave: g.octave,
+                      pitchAlter: pitchAlterFromOption(g.alter),
+                      noteType: g.noteType,
+                      graceSlash,
+                    })),
+                    beamGraceNotes,
+                    graceSlash,
+                  });
+                }
+              }}
+            >
+              {graceNotesDraft.length > 1
+                ? `앞에 빔 연결 꾸밈음 삽입 (${graceNotesDraft.length}개)`
+                : '앞에 꾸밈음 추가'}
+            </button>
+            {gracesBefore.length > 0 && !el.hasGrace ? (
+              <button
+                type="button"
+                className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
+                onClick={() =>
+                  onFix({
+                    kind: 'removeGraceBeforeNote',
+                    beforeNoteIndex: chordLeaderIdx,
+                  })
+                }
+              >
+                앞 꾸밈음 삭제 ({gracesBefore.length}개)
+              </button>
+            ) : null}
+          </div>
         </div>
       )}
       {el.kind === 'note' && (

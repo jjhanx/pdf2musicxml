@@ -113,8 +113,8 @@ export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): 
           let gStart: GraphicalNoteLike;
           let gEnd: GraphicalNoteLike;
           try {
-            gStart = rules.GNote(startNote) as GraphicalNoteLike;
-            gEnd = rules.GNote(endNote) as GraphicalNoteLike;
+            gStart = rules.GNote(startNote as any) as GraphicalNoteLike;
+            gEnd = rules.GNote(endNote as any) as GraphicalNoteLike;
           } catch {
             continue;
           }

@@ -576,7 +576,7 @@ def _clear_play_order_on_other_onsets(
 def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> dict[int, int]:
     """staff musical onset(타임라인) 기본 연주순번 — 같은 onset = 같은 순번.
 
-    음표·쉼표 leader 모두 포함.
+    음표·쉼표 leader 모두 포함. 꾸밈음은 본음보다 앞선 별도 순번을 부여.
     """
     notes = list_note_elements(measure, ns)
     leaders: list[tuple[int, int]] = []
@@ -592,11 +592,14 @@ def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> 
     out: dict[int, int] = {}
     order = 0
     prev_onset: int | None = None
+    prev_was_grace = False
     for onset, i in leaders:
-        if prev_onset is None or onset != prev_onset:
+        is_grace = notes[i].find(_q(ns, "grace")) is not None
+        if prev_onset is None or onset != prev_onset or is_grace or prev_was_grace:
             order += 1
             prev_onset = onset
         out[i] = order
+        prev_was_grace = is_grace
     return out
 
 
@@ -1290,6 +1293,15 @@ def _apply_measure_tempo_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> 
 
 def _snapshot_timeline_sort_key(snap: dict[str, Any]) -> tuple[Any, ...]:
     staff = snap.get("staff") or 1
+    try:
+        staff_n = int(staff)
+    except (ValueError, TypeError):
+        staff_n = 1
+    voice = snap.get("voice") or "1"
+    try:
+        voice_n = int(voice)
+    except (ValueError, TypeError):
+        voice_n = 1
     po = snap.get("playOrder")
     if po is None:
         po = snap.get("displayPlayOrder")
@@ -1298,7 +1310,7 @@ def _snapshot_timeline_sort_key(snap: dict[str, Any]) -> tuple[Any, ...]:
     except (ValueError, TypeError):
         po_val = 999_999
     idx = int(snap.get("index") or 0)
-    return (staff, po_val, idx, 0 if not snap.get("chord") else 1)
+    return (staff_n, voice_n, po_val, idx, 0 if not snap.get("chord") else 1)
 
 
 def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
@@ -1388,6 +1400,31 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
     return elements
 
 
+def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, staff_n: int = 1) -> dict[str, Any] | None:
+    measures = part.findall(_q(ns, "measure"))
+    target_idx = None
+    for idx, m in enumerate(measures):
+        if m.get("number") == str(measure_mxl):
+            target_idx = idx
+            break
+    if target_idx is None:
+        target_idx = len(measures) - 1
+    last_clef = None
+    for i in range(target_idx + 1):
+        m = measures[i]
+        for attr in m.findall(_q(ns, "attributes")):
+            for clef in attr.findall(_q(ns, "clef")):
+                c_staff = clef.get("number")
+                if c_staff is None or c_staff == str(staff_n) or staff_n == 1:
+                    sign = clef.find(_q(ns, "sign"))
+                    line = clef.find(_q(ns, "line"))
+                    if sign is not None and sign.text:
+                        s_text = sign.text.strip().upper()
+                        l_text = int(line.text.strip()) if line is not None and line.text and line.text.strip().isdigit() else (2 if s_text == "G" else 4)
+                        last_clef = {"sign": s_text, "line": l_text}
+    return last_clef
+
+
 def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) -> dict[str, Any] | None:
     part = find_part(root, ns, part_id)
     if part is None:
@@ -1399,6 +1436,7 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
     elements = measure_elements_snapshot(measure, ns)
     tempos = _measure_tempo_snapshot(measure, ns)
     effective = _effective_tempo_bpm_before(root, ns, part_id, measure_mxl)
+    effective_clef = _effective_clef_for_measure(part, ns, measure_mxl)
     measure_directions = _measure_standalone_directions_snapshot(measure, ns)
     direction_source_part_id = part_id
     if not measure_directions and str(measure_mxl).strip() in ("0", "1"):
@@ -1419,10 +1457,12 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
         "tempos": tempos,
         "measureDirections": measure_directions,
         "effectiveTempoBpm": effective,
+        "effectiveClef": effective_clef,
     }
     if direction_source_part_id != part_id:
         out["directionSourcePartId"] = direction_source_part_id
     return out
+
 
 
 def _diatonic_index(step: str, octave: int) -> int:
@@ -2213,6 +2253,9 @@ def _note_matching_direction_voice(
 def _direction_effective_staff(
     measure: ET.Element, direction: ET.Element, ns: str, default: int = 1
 ) -> int:
+    dstaff = _direction_staff_number(direction, ns)
+    if dstaff is not None:
+        return dstaff
     voice_el = direction.find(_q(ns, "voice"))
     if voice_el is None:
         for el in direction.iter():
@@ -2232,8 +2275,7 @@ def _direction_effective_staff(
                         break
             if v is not None and (v.text or "").strip() == want:
                 return _note_staff_number(child, ns) or default
-    dstaff = _direction_staff_number(direction, ns)
-    return dstaff if dstaff is not None else default
+    return default
 
 
 def _direction_voice_text(direction: ET.Element, ns: str) -> str | None:
@@ -2453,13 +2495,16 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
         dtype = direction.find(_q(ns, "direction-type"))
         dyn = dtype.find(_q(ns, "dynamics")) if dtype is not None else None
         if dyn is not None:
-            tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
-            if tags:
-                placement = direction.get("placement") or dyn.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT
-                _attach_dynamics_to_note(anchor, ns, tags[0], placement)
-                measure.remove(direction)
-                changed = True
-                continue
+            # 셈여림표(p, f, mf 등)는 음표의 notation으로 흡수하지 않고 독립 direction으로 유지
+            # placement에 맞는 default-y 여백(above: 25, below: -65)을 보장
+            pl = direction.get("placement") or dyn.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT
+            direction.set("placement", pl)
+            if pl == "above":
+                direction.set("default-y", "25")
+                dyn.set("default-y", "25")
+            elif pl == "below":
+                direction.set("default-y", "-65")
+                dyn.set("default-y", "-65")
 
         # Ensure direction's staff matches the anchor note's staff
         astaff = _note_staff_number(anchor, ns)
@@ -2525,6 +2570,10 @@ def _try_preamble_direction_before_following_note(
     note_preamble: dict[ET.Element, list[ET.Element]],
 ) -> bool:
     """`<direction>` 바로 다음 `<note>` 앞 preamble — 화음 리더 직전 셈여림 등 timeline 재정렬 보존."""
+    ns = _ns(measure)
+    # wedge(stop)은 끝나는 음의 뒤(attachment)에 붙어야 하므로 앞선 음의 preamble로 취급하지 않음
+    if _wedge_type_of(direction, ns) == "stop":
+        return False
     children = list(measure)
     try:
         idx = children.index(direction)
@@ -2811,6 +2860,56 @@ def _strip_chord_member_beams(notes: list[ET.Element], ns: str) -> bool:
         if _strip_beams_from_note(note, ns, None):
             changed = True
     return changed
+
+
+def _beam_count_for_note_type(note_type: str) -> int:
+    return {"eighth": 1, "16th": 2, "32nd": 3, "64th": 4, "128th": 5}.get(note_type, 1)
+
+
+def _apply_grace_beams(notes: list[ET.Element], ns: str) -> None:
+    if len(notes) < 2:
+        return
+    for n in notes:
+        _strip_beams_from_note(n, ns, None)
+
+    counts = [
+        _beam_count_for_note_type(
+            (n.find(_q(ns, "type")).text or "eighth").strip()
+            if n.find(_q(ns, "type")) is not None and n.find(_q(ns, "type")).text
+            else "eighth"
+        )
+        for n in notes
+    ]
+    max_b = max(counts)
+
+    for b_idx in range(1, max_b + 1):
+        run_indices = []
+        for i, cnt in enumerate(counts):
+            if cnt >= b_idx:
+                run_indices.append(i)
+            else:
+                if len(run_indices) >= 2:
+                    _set_beam_on_note(notes[run_indices[0]], ns, b_idx, "begin")
+                    for mid in run_indices[1:-1]:
+                        _set_beam_on_note(notes[mid], ns, b_idx, "continue")
+                    _set_beam_on_note(notes[run_indices[-1]], ns, b_idx, "end")
+                elif len(run_indices) == 1:
+                    if run_indices[0] == 0:
+                        _set_beam_on_note(notes[run_indices[0]], ns, b_idx, "forward hook")
+                    else:
+                        _set_beam_on_note(notes[run_indices[0]], ns, b_idx, "backward hook")
+                run_indices = []
+        if len(run_indices) >= 2:
+            _set_beam_on_note(notes[run_indices[0]], ns, b_idx, "begin")
+            for mid in run_indices[1:-1]:
+                _set_beam_on_note(notes[mid], ns, b_idx, "continue")
+            _set_beam_on_note(notes[run_indices[-1]], ns, b_idx, "end")
+        elif len(run_indices) == 1:
+            if run_indices[0] == 0:
+                _set_beam_on_note(notes[run_indices[0]], ns, b_idx, "forward hook")
+            else:
+                _set_beam_on_note(notes[run_indices[0]], ns, b_idx, "backward hook")
+
 
 
 def _clean_orphan_beams_in_measure(measure: ET.Element, ns: str) -> bool:
@@ -3311,6 +3410,18 @@ def coalesce_spurious_parallel_voices_in_root(root: ET.Element) -> int:
     return n
 
 
+def normalize_measure_timelines_in_root(root: ET.Element) -> int:
+    """전 악보 — 다중 성부 및 분절 성부 스트림 통합·타임라인 재배열. 변경된 마디 수 반환."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            if _measure_has_multivoice_layers(measure, ns):
+                rebuild_measure_timeline_clean(measure, ns, part)
+                n += 1
+    return n
+
+
 def normalize_slurs_in_root(root: ET.Element) -> int:
     """전 악보 — 이음줄(slur) 고아 stop 제거, 중복 start/stop 정리, number 정리, bezier 좌표 제거.
 
@@ -3430,6 +3541,238 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
 
                 if not list(notations):
                     note.remove(notations)
+
+            if m_changed:
+                changed_measures += 1
+
+    return changed_measures
+
+
+def normalize_dynamics_in_root(root: ET.Element) -> int:
+    """전 악보 — note notations에 갇힌 dynamics를 <direction>으로 마이그레이션하고, default-y 여백 부여 및 dynamics -> wedge 시작 순서 보장. 변경된 마디 수 반환."""
+    ns = _ns(root)
+    changed_measures = 0
+
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            m_changed = False
+            # 1. 음표의 notations/dynamics를 <direction>으로 변환
+            for note in list(measure.findall(_q(ns, "note"))):
+                notations = note.find(_q(ns, "notations"))
+                if notations is None:
+                    continue
+                for dyn in list(notations.findall(_q(ns, "dynamics"))):
+                    pl = dyn.get("placement") or "above"
+                    staff_n = _note_staff_number(note, ns) or 1
+                    dyn_tags = [
+                        _local(c)
+                        for c in dyn
+                        if _local(c) in _DYNAMICS_TAGS
+                    ]
+                    for dtag in dyn_tags:
+                        dir_el = _build_direction_element(
+                            ns, "dynamics", dtag, staff_n=staff_n, placement=pl
+                        )
+                        if pl == "above":
+                            dir_el.set("default-y", "25")
+                            dt = dir_el.find(_q(ns, "direction-type"))
+                            if dt is not None:
+                                d_inner = dt.find(_q(ns, "dynamics"))
+                                if d_inner is not None:
+                                    d_inner.set("default-y", "25")
+                        elif pl == "below":
+                            dir_el.set("default-y", "-65")
+                            dt = dir_el.find(_q(ns, "direction-type"))
+                            if dt is not None:
+                                d_inner = dt.find(_q(ns, "dynamics"))
+                                if d_inner is not None:
+                                    d_inner.set("default-y", "-65")
+                        idx = list(measure).index(note)
+                        measure.insert(idx, dir_el)
+                    notations.remove(dyn)
+                    if not list(notations):
+                        note.remove(notations)
+                    m_changed = True
+
+            # 2. 모든 direction dynamics에 default-y 보정 (오선과 너무 가깝게 붙는 현상 방지)
+            for d in measure.findall(_q(ns, "direction")):
+                pl = d.get("placement") or "below"
+                dt = d.find(_q(ns, "direction-type"))
+                if dt is None:
+                    continue
+                dyn = dt.find(_q(ns, "dynamics"))
+                if dyn is not None:
+                    if pl == "above":
+                        if not d.get("default-y"):
+                            d.set("default-y", "25")
+                            m_changed = True
+                        if not dyn.get("default-y"):
+                            dyn.set("default-y", "25")
+                            m_changed = True
+                    elif pl == "below":
+                        if not d.get("default-y"):
+                            d.set("default-y", "-65")
+                            m_changed = True
+                        if not dyn.get("default-y"):
+                            dyn.set("default-y", "-65")
+                            m_changed = True
+
+            # 3. 동일 onset에서 dynamics가 wedge start보다 앞에 오도록 순서 정돈 (p > 순서)
+            children = list(measure)
+            for i in range(len(children) - 1):
+                c1 = children[i]
+                c2 = children[i + 1]
+                if _local(c1) == "direction" and _local(c2) == "direction":
+                    st1 = _direction_effective_staff(measure, c1, ns, 1)
+                    st2 = _direction_effective_staff(measure, c2, ns, 1)
+                    if st1 == st2:
+                        w1 = _wedge_type_of(c1, ns)
+                        dyn2 = c2.find(f".//{_q(ns, 'dynamics')}")
+                        if w1 in ("crescendo", "diminuendo") and dyn2 is not None:
+                            idx1 = list(measure).index(c1)
+                            measure.remove(c2)
+                            measure.insert(idx1, c2)
+                            m_changed = True
+
+            if m_changed:
+                changed_measures += 1
+
+    return changed_measures
+
+
+def normalize_wedges_in_root(root: ET.Element) -> int:
+    """전 악보 — 쐐기형 셈여림(crescendo/diminuendo) 순서 역전 보정, 고아 stop 제거, 마디 간 누수 방지, 음표 상단(above) default-y 여백 보정. 변경된 마디 수 반환."""
+    ns = _ns(root)
+    changed_measures = 0
+
+    for part in root.findall(_q(ns, "part")):
+        open_wedges: dict[str, dict[str, Any]] = {}
+
+        for measure in part.findall(_q(ns, "measure")):
+            m_changed = False
+            mnum = measure.get("number") or ""
+
+            # 수집: 이 마디의 wedge directions
+            wedge_dirs: list[tuple[int, ET.Element, str, str, str]] = []  # (idx, dir_el, staff, wtype, number)
+            for idx, el in enumerate(list(measure)):
+                if _local(el) == "direction":
+                    wtype = _wedge_type_of(el, ns)
+                    if wtype in ("crescendo", "diminuendo", "stop"):
+                        st_n = _direction_effective_staff(measure, el, ns, 1)
+                        staff = str(st_n)
+                        wel = _wedge_element(el, ns)
+                        wnum = (wel.get("number") if wel is not None else None) or "1"
+                        pl = el.get("placement") or "below"
+                        if pl == "above":
+                            if not el.get("default-y"):
+                                el.set("default-y", "25")
+                                m_changed = True
+                            if wel is not None and not wel.get("default-y"):
+                                wel.set("default-y", "25")
+                                m_changed = True
+                        wedge_dirs.append((idx, el, staff, wtype, wnum))
+
+            staves = sorted({wd[2] for wd in wedge_dirs} | set(open_wedges.keys()))
+            for st in staves:
+                st_wedges = [wd for wd in wedge_dirs if wd[2] == st]
+                starts = [wd for wd in st_wedges if wd[3] in ("crescendo", "diminuendo")]
+                stops = [wd for wd in st_wedges if wd[3] == "stop"]
+
+                # 1. 마디 내 역전 검사 (start 전에 stop이 먼저 나온 경우)
+                if starts and stops and st not in open_wedges:
+                    first_stop_idx = next(i for i, wd in enumerate(st_wedges) if wd[3] == "stop")
+                    first_start_idx = next(i for i, wd in enumerate(st_wedges) if wd[3] in ("crescendo", "diminuendo"))
+                    if first_stop_idx < first_start_idx:
+                        stop_dir = st_wedges[first_stop_idx][1]
+                        measure.remove(stop_dir)
+                        measure.append(stop_dir)
+                        m_changed = True
+                        st_wedges = [wd for wd in st_wedges if wd[1] != stop_dir]
+                        st_wedges.append((len(measure) - 1, stop_dir, st, "stop", st_wedges[0][4] if st_wedges else "1"))
+                        starts = [wd for wd in st_wedges if wd[3] in ("crescendo", "diminuendo")]
+                        stops = [wd for wd in st_wedges if wd[3] == "stop"]
+
+                # 2. 다중 성부 오선에서 placement=above인 쐐기 셈여림이 보조 성부에 있는 경우 주 성부로 승격
+                if (starts or stops) and any(wd[1].get("placement") == "above" for wd in st_wedges):
+                    st_n = int(st) if st.isdigit() else 1
+                    notes = list_note_elements(measure, ns)
+                    st_notes = [n for n in notes if (_note_staff_number(n, ns) or 1) == st_n]
+                    if st_notes:
+                        voices_on_st: list[str] = []
+                        for n in st_notes:
+                            v = _note_voice_staff(n, ns)[0]
+                            if v not in voices_on_st:
+                                voices_on_st.append(v)
+                        if len(voices_on_st) > 1:
+                            # Primary voice is voices_on_st[0]
+                            p_voice = voices_on_st[0]
+                            p_notes = [n for n in st_notes if _note_voice_staff(n, ns)[0] == p_voice]
+                            if p_notes:
+                                for wd in st_wedges:
+                                    d_el = wd[1]
+                                    if d_el.get("placement") == "above" and d_el in list(measure):
+                                        wtype = wd[3]
+                                        measure.remove(d_el)
+                                        if wtype in ("crescendo", "diminuendo"):
+                                            s_idx = list(measure).index(p_notes[0])
+                                            measure.insert(s_idx, d_el)
+                                        elif wtype == "stop":
+                                            e_idx = list(measure).index(p_notes[-1])
+                                            measure.insert(e_idx + 1, d_el)
+                                        m_changed = True
+
+                # 3. 이전 마디의 미종료 wedge가 있는데 이 마디에서 새 wedge가 시작되는 경우 -> 이전 마디 끝 닫기
+                if starts and st in open_wedges:
+                    prev_info = open_wedges[st]
+                    prev_m = prev_info["measure"]
+                    stop_dir = _build_direction_element(
+                        ns, "wedge", "stop", staff_n=int(st) if st.isdigit() else 1, placement=prev_info.get("placement") or "below", wedge_number=prev_info.get("number") or "1"
+                    )
+                    if prev_info.get("placement") == "above":
+                        stop_dir.set("default-y", "25")
+                        wel = _wedge_element(stop_dir, ns)
+                        if wel is not None:
+                            wel.set("default-y", "25")
+                    bl = prev_m.find(_q(ns, "barline"))
+                    if bl is not None:
+                        b_idx = list(prev_m).index(bl)
+                        prev_m.insert(b_idx, stop_dir)
+                    else:
+                        prev_m.append(stop_dir)
+                    changed_measures += 1
+                    del open_wedges[st]
+
+                # 4. 고아 stop 제거 (열린 wedge가 없는데 단독 stop만 있는 경우)
+                if stops and not starts and st not in open_wedges:
+                    for wd in stops:
+                        if wd[1] in list(measure):
+                            measure.remove(wd[1])
+                            m_changed = True
+                    stops = []
+
+                # 5. open_wedges 상태 갱신
+                if starts and not stops:
+                    open_wedges[st] = {
+                        "measure": measure,
+                        "wedge_dir": starts[-1][1],
+                        "type": starts[-1][3],
+                        "number": starts[-1][4],
+                        "placement": starts[-1][1].get("placement") or "below",
+                    }
+                elif stops and not starts:
+                    open_wedges.pop(st, None)
+                elif starts and stops:
+                    last_w = st_wedges[-1]
+                    if last_w[3] in ("crescendo", "diminuendo"):
+                        open_wedges[st] = {
+                            "measure": measure,
+                            "wedge_dir": last_w[1],
+                            "type": last_w[3],
+                            "number": last_w[4],
+                            "placement": last_w[1].get("placement") or "below",
+                        }
+                    else:
+                        open_wedges.pop(st, None)
 
             if m_changed:
                 changed_measures += 1
@@ -4168,6 +4511,7 @@ def _build_direction_element(
     direction = ET.Element(_q(ns, "direction"))
     if placement in ("above", "below"):
         direction.set("placement", placement)
+        direction.set("default-y", "45" if placement == "above" else "-65")
     kind = (direction_type or "words").strip().lower()
     val = str(value or "").strip()
     if kind == "dynamics":
@@ -4178,6 +4522,7 @@ def _build_direction_element(
         dyn = ET.SubElement(dtype, _q(ns, "dynamics"))
         if placement in ("above", "below"):
             dyn.set("placement", placement)
+            dyn.set("default-y", "45" if placement == "above" else "-65")
         ET.SubElement(dyn, _q(ns, tag))
     elif kind == "rehearsal":
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
@@ -4221,6 +4566,8 @@ def _build_direction_element(
         dtype = ET.SubElement(direction, _q(ns, "direction-type"))
         w = ET.SubElement(dtype, _q(ns, "wedge"))
         w.set("type", wtype)
+        if placement in ("above", "below"):
+            w.set("default-y", "45" if placement == "above" else "-65")
         if wedge_number:
             w.set("number", str(wedge_number))
         spread = (wedge_spread or "").strip()
@@ -4413,12 +4760,256 @@ def _is_spurious_detail(text: str, detail: str | None) -> bool:
     return False
 
 
+def _filter_elements_for_split(elements: list[ET.Element], ns: str, voice_layer: int = 0) -> list[ET.Element]:
+    res = []
+    i = 0
+    while i < len(elements):
+        el = elements[i]
+        tag = _local(el)
+        if tag == "direction":
+            res.append(copy.deepcopy(el))
+            i += 1
+            continue
+        if tag == "note":
+            chord_group = [el]
+            j = i + 1
+            while j < len(elements) and _local(elements[j]) == "note" and elements[j].find(_q(ns, "chord")) is not None:
+                chord_group.append(elements[j])
+                j += 1
+            i = j
+            if len(chord_group) >= 2:
+                if voice_layer == 0:
+                    picked = copy.deepcopy(chord_group[0])
+                    v_el = picked.find(_q(ns, "voice"))
+                    if v_el is not None:
+                        v_el.text = "1"
+                    res.append(picked)
+                else:
+                    picked = copy.deepcopy(chord_group[-1])
+                    chord_tag = picked.find(_q(ns, "chord"))
+                    if chord_tag is not None:
+                        picked.remove(chord_tag)
+                    v_el = picked.find(_q(ns, "voice"))
+                    if v_el is not None:
+                        v_el.text = "1"
+                    res.append(picked)
+            else:
+                single = copy.deepcopy(chord_group[0])
+                v_el = single.find(_q(ns, "voice"))
+                v_text = v_el.text.strip() if v_el is not None and v_el.text else "1"
+                if voice_layer == 0:
+                    if v_text in ("1", ""):
+                        res.append(single)
+                elif voice_layer == 1:
+                    if v_text == "2":
+                        if v_el is not None:
+                            v_el.text = "1"
+                        res.append(single)
+                    elif v_text in ("1", ""):
+                        res.append(single)
+            continue
+        if tag in ("backup", "forward"):
+            pass
+        i += 1
+    return res
+
+
+def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
+    part_id = str(fix.get("partId") or "").strip()
+    measure_spec = str(fix.get("measureMxl") or "").strip()
+    clef_sign = str(fix.get("clefSign") or "G").strip().upper()
+    clef_line = int(fix.get("clefLine") or (2 if clef_sign == "G" else 4))
+    staff_n = int(fix.get("staff") or 1)
+    remove_subsequent = bool(fix.get("removeSubsequentClefs", True))
+
+    part = find_part(root, ns, part_id)
+    if part is None or not measure_spec:
+        return False
+
+    measures = part.findall(_q(ns, "measure"))
+    if not measures:
+        return False
+
+    if "-" in measure_spec:
+        parts = measure_spec.split("-", 1)
+        try:
+            start_n = int(parts[0].strip())
+            end_n = int(parts[1].strip())
+            target_measures = [
+                m for m in measures
+                if m.get("number") and m.get("number").isdigit() and start_n <= int(m.get("number")) <= end_n
+            ]
+        except ValueError:
+            target_measures = [m for m in measures if m.get("number") == measure_spec]
+    else:
+        target_measures = [m for m in measures if m.get("number") == measure_spec]
+
+    if not target_measures:
+        return False
+
+    first_target = target_measures[0]
+    attrs = first_target.find(_q(ns, "attributes"))
+    if attrs is None:
+        attrs = ET.Element(_q(ns, "attributes"))
+        first_target.insert(0, attrs)
+
+    found_clef = None
+    for c in attrs.findall(_q(ns, "clef")):
+        c_staff = c.get("number")
+        if c_staff is None or c_staff == str(staff_n) or staff_n == 1:
+            found_clef = c
+            break
+    if found_clef is None:
+        found_clef = ET.SubElement(attrs, _q(ns, "clef"))
+        if staff_n > 1 or len(attrs.findall(_q(ns, "clef"))) > 1:
+            found_clef.set("number", str(staff_n))
+
+    s_el = found_clef.find(_q(ns, "sign"))
+    if s_el is None:
+        s_el = ET.SubElement(found_clef, _q(ns, "sign"))
+    s_el.text = clef_sign
+
+    l_el = found_clef.find(_q(ns, "line"))
+    if l_el is None:
+        l_el = ET.SubElement(found_clef, _q(ns, "line"))
+    l_el.text = str(clef_line)
+
+    if remove_subsequent and len(target_measures) > 1:
+        for m in target_measures[1:]:
+            m_attrs = m.find(_q(ns, "attributes"))
+            if m_attrs is not None:
+                for c in list(m_attrs.findall(_q(ns, "clef"))):
+                    c_staff = c.get("number")
+                    if c_staff is None or c_staff == str(staff_n) or staff_n == 1:
+                        m_attrs.remove(c)
+                if len(list(m_attrs)) == 0:
+                    m.remove(m_attrs)
+
+    return True
+
+
+def _apply_copy_measure_content(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
+    from_part_id = str(fix.get("fromPartId") or fix.get("partId") or "").strip()
+    to_part_ids = list(fix.get("toPartIds") or ([fix["toPartId"]] if fix.get("toPartId") else []))
+    to_part_ids = [str(p).strip() for p in to_part_ids if str(p).strip()]
+    measure_spec = str(fix.get("measureMxl") or "").strip()
+    if not from_part_id or not to_part_ids or not measure_spec:
+        return False
+
+    from_part = find_part(root, ns, from_part_id)
+    if from_part is None:
+        return False
+
+    measures = from_part.findall(_q(ns, "measure"))
+    if "-" in measure_spec:
+        parts = measure_spec.split("-", 1)
+        try:
+            start_n = int(parts[0].strip())
+            end_n = int(parts[1].strip())
+            m_nums = [
+                m.get("number") for m in measures
+                if m.get("number") and m.get("number").isdigit() and start_n <= int(m.get("number")) <= end_n
+            ]
+        except ValueError:
+            m_nums = [measure_spec]
+    else:
+        m_nums = [measure_spec]
+
+    if not m_nums:
+        return False
+
+    clear_source = bool(fix.get("clearSource", False))
+    split_voices = bool(fix.get("splitVoices", True))
+
+    any_applied = False
+    for m_num in m_nums:
+        src_m = find_measure(from_part, ns, m_num)
+        if src_m is None:
+            continue
+
+        is_split_eligible = split_voices and len(to_part_ids) >= 2
+        music_tags = {"note", "backup", "forward", "direction"}
+        src_music_elements = [copy.deepcopy(c) for c in src_m if _local(c) in music_tags]
+        if not src_music_elements:
+            continue
+
+        src_notes = list_note_elements(src_m, ns)
+        measure_dur = 0
+        for n in src_notes:
+            if n.find(_q(ns, "chord")) is None:
+                d = n.find(_q(ns, "duration"))
+                if d is not None and d.text and d.text.strip().isdigit():
+                    measure_dur += int(d.text.strip())
+
+        for idx, to_pid in enumerate(to_part_ids):
+            to_part = find_part(root, ns, to_pid)
+            if to_part is None:
+                continue
+            dst_m = find_measure(to_part, ns, m_num)
+            if dst_m is None:
+                continue
+
+            cloned = [copy.deepcopy(c) for c in src_music_elements]
+            if is_split_eligible:
+                cloned = _filter_elements_for_split(cloned, ns, voice_layer=idx)
+
+            for el in cloned:
+                st = el.find(_q(ns, "staff"))
+                if st is not None:
+                    st.text = "1"
+
+            for c in list(dst_m):
+                if _local(c) in music_tags:
+                    dst_m.remove(c)
+
+            barline = dst_m.find(_q(ns, "barline"))
+            if barline is not None:
+                b_idx = list(dst_m).index(barline)
+                for el in cloned:
+                    dst_m.insert(b_idx, el)
+                    b_idx += 1
+            else:
+                for el in cloned:
+                    dst_m.append(el)
+
+            rebuild_measure_timeline_clean(dst_m, ns, to_part)
+            any_applied = True
+
+        if clear_source:
+            for c in list(src_m):
+                if _local(c) in music_tags:
+                    src_m.remove(c)
+            rest_note = ET.Element(_q(ns, "note"))
+            ET.SubElement(rest_note, _q(ns, "rest"), {"measure": "yes"})
+            if measure_dur > 0:
+                ET.SubElement(rest_note, _q(ns, "duration")).text = str(measure_dur)
+            ET.SubElement(rest_note, _q(ns, "voice")).text = "1"
+            ET.SubElement(rest_note, _q(ns, "type")).text = "whole"
+            ET.SubElement(rest_note, _q(ns, "staff")).text = "1"
+
+            barline = src_m.find(_q(ns, "barline"))
+            if barline is not None:
+                b_idx = list(src_m).index(barline)
+                src_m.insert(b_idx, rest_note)
+            else:
+                src_m.append(rest_note)
+            rebuild_measure_timeline_clean(src_m, ns, from_part)
+
+    return any_applied
+
+
 def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     kind = fix.get("kind")
     part_id = str(fix.get("partId") or "").strip()
     measure_mxl = str(fix.get("measureMxl") or "").strip()
     if not part_id or not measure_mxl:
         return False
+
+    if kind in ("copyMeasureContent", "copyMeasurePart"):
+        return _apply_copy_measure_content(root, ns, fix)
+
+    if kind in ("setMeasureClef", "setPartClef"):
+        return _apply_set_measure_clef(root, ns, fix)
 
     if kind in ("setMeasureTempo", "removeMeasureTempo"):
         return _apply_measure_tempo_fix(root, ns, fix)
@@ -4443,6 +5034,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 measure.remove(direction)
                 removed = True
         return removed
+
 
     notes = list_note_elements(measure, ns)
 
@@ -4966,52 +5558,145 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         )
 
     if kind == "insertGraceNote":
-        step = str(fix.get("pitchStep") or "").strip()
-        if not step:
-            return False
+        raw_grace_notes = fix.get("graceNotes")
+        if isinstance(raw_grace_notes, list) and len(raw_grace_notes) > 0:
+            grace_list = raw_grace_notes
+        else:
+            step = str(fix.get("pitchStep") or "").strip()
+            if not step:
+                return False
+            try:
+                octave = int(fix.get("pitchOctave"))
+            except (TypeError, ValueError):
+                return False
+            alter = fix.get("pitchAlter")
+            alter_n: int | None = None
+            if alter is not None and alter != "":
+                try:
+                    alter_n = int(alter)
+                except (TypeError, ValueError):
+                    alter_n = None
+            note_type = str(fix.get("noteType") or "eighth").strip()
+            slash = fix.get("graceSlash")
+            slash_b = True if slash is None else bool(slash)
+            grace_list = [
+                {
+                    "pitchStep": step,
+                    "pitchOctave": octave,
+                    "pitchAlter": alter_n,
+                    "noteType": note_type,
+                    "graceSlash": slash_b,
+                }
+            ]
+
         try:
             before_idx = int(fix.get("beforeNoteIndex", fix.get("noteIndex", -1)))
-            octave = int(fix.get("pitchOctave"))
         except (TypeError, ValueError):
             return False
         if before_idx < 0 or before_idx >= len(notes):
             return False
+
         before_idx = _chord_leader_index(notes, ns, before_idx)
-        principal = notes[before_idx]
-        if principal.find(_q(ns, "rest")) is not None or principal.find(_q(ns, "grace")) is not None:
+        target_note = notes[before_idx]
+        if target_note.find(_q(ns, "rest")) is not None:
             return False
-        staff_n = _note_staff_number(principal, ns) or int(fix.get("staff") or 1)
-        note_type = str(fix.get("noteType") or "eighth").strip()
-        if note_type not in ("eighth", "16th", "32nd", "64th"):
-            note_type = "eighth"
-        slash = fix.get("graceSlash")
-        slash_b = True if slash is None else bool(slash)
-        alter = fix.get("pitchAlter")
-        alter_n: int | None = None
-        if alter is not None and alter != "":
-            try:
-                alter_n = int(alter)
-            except (TypeError, ValueError):
-                alter_n = None
+
+        staff_n = _note_staff_number(target_note, ns) or int(fix.get("staff") or 1)
+        voice, stem = _infer_voice_stem_from_neighbors(notes, ns, before_idx, staff_n)
+        beam_grace = bool(fix.get("beamGraceNotes", fix.get("beam", len(grace_list) >= 2)))
+
         insert_after_idx = before_idx - 1
-        if insert_after_idx >= 0:
+        if insert_after_idx >= 0 and target_note.find(_q(ns, "grace")) is None:
             insert_after_idx, staff_n, _, _, _ = _resolve_insert_after_context(
                 notes, ns, insert_after_idx, staff_n
             )
-        voice, stem = _infer_voice_stem_from_neighbors(notes, ns, before_idx, staff_n)
-        new_note = _build_grace_note(
-            ns,
-            step=step,
-            octave=octave,
-            alter=alter_n,
-            note_type=note_type,
-            staff_n=staff_n,
-            voice=voice,
-            stem=stem,
-            slash=slash_b,
+
+        target_po = _read_play_order(target_note)
+        has_staff_po = any(
+            _read_play_order(n) is not None
+            for n in notes
+            if (_note_staff_number(n, ns) or 1) == staff_n
         )
-        _assign_grace_layout(new_note, principal)
-        _insert_note_element(measure, ns, new_note, insert_after_idx, staff_n=staff_n)
+
+        insert_po: int | None = None
+        if target_po is not None or has_staff_po:
+            if target_po is not None:
+                insert_po = target_po
+            else:
+                defaults = _default_play_orders_for_staff(measure, ns, str(staff_n))
+                insert_po = defaults.get(before_idx, 1)
+
+            shift_count = len(grace_list)
+            for n in notes:
+                if n.find(_q(ns, "chord")) is not None:
+                    continue
+                if (_note_staff_number(n, ns) or 1) != staff_n:
+                    continue
+                cur_po = _read_play_order(n)
+                if cur_po is not None and cur_po >= insert_po:
+                    _set_play_order_on_leader(notes, ns, notes.index(n), cur_po + shift_count)
+
+        created_notes: list[ET.Element] = []
+        fx = _parse_default_x(target_note) or 50.0
+        total_k = len(grace_list)
+        group_stem = stem if stem in ("up", "down") else "up"
+
+        for k, g_spec in enumerate(grace_list):
+            g_step = str(g_spec.get("pitchStep") or "C").strip().upper()
+            try:
+                g_oct = int(g_spec.get("pitchOctave") or 4)
+            except (TypeError, ValueError):
+                g_oct = 4
+            g_alt = g_spec.get("pitchAlter")
+            g_alt_n = int(g_alt) if g_alt is not None and g_alt != "" else None
+            g_type = str(g_spec.get("noteType") or "eighth").strip()
+            if g_type not in ("eighth", "16th", "32nd", "64th"):
+                g_type = "eighth"
+            g_slash = g_spec.get("graceSlash")
+            if g_slash is None:
+                g_slash_b = False if (beam_grace and total_k >= 2) else True
+            else:
+                g_slash_b = bool(g_slash)
+
+            new_note = _build_grace_note(
+                ns,
+                step=g_step,
+                octave=g_oct,
+                alter=g_alt_n,
+                note_type=g_type,
+                staff_n=staff_n,
+                voice=voice,
+                stem=group_stem,
+                slash=g_slash_b,
+            )
+
+            x_offset = (total_k - k) * 12.0
+            new_note.set("default-x", f"{max(fx - x_offset, 1.0):.2f}")
+
+            if insert_po is not None:
+                new_note.set(PLAY_ORDER_ATTR, str(insert_po + k))
+
+            created_notes.append(new_note)
+
+        if beam_grace and len(created_notes) >= 2:
+            _apply_grace_beams(created_notes, ns)
+
+        if insert_after_idx < 0:
+            target_pos = list(measure).index(target_note)
+            for idx_offset, gn in enumerate(created_notes):
+                measure.insert(target_pos + idx_offset, gn)
+        else:
+            anchor_child = notes[insert_after_idx]
+            pos = list(measure).index(anchor_child) + 1
+            while pos < len(measure):
+                nxt = list(measure)[pos]
+                if _local(nxt) == "note" and nxt.find(_q(ns, "chord")) is not None:
+                    pos += 1
+                else:
+                    break
+            for idx_offset, gn in enumerate(created_notes):
+                measure.insert(pos + idx_offset, gn)
+
         return True
 
     if kind == "removeGraceBeforeNote":
@@ -6635,12 +7320,14 @@ def _sort_notes_by_default_x(notes: list[ET.Element], ns: str) -> list[ET.Elemen
     groups = _chord_groups_in_order(notes, ns)
     has_po = any(_read_play_order(grp[0]) is not None for grp in groups)
     if has_po:
-        groups.sort(
-            key=lambda grp: (
-                _read_play_order(grp[0]) if _read_play_order(grp[0]) is not None else 999_999,
-                list(notes).index(grp[0]) if grp[0] in notes else 0,
-            )
-        )
+        def _grp_po(grp: list[ET.Element]) -> tuple[int, float, int]:
+            po = _read_play_order(grp[0])
+            if po is not None:
+                return (po, 0.0, list(notes).index(grp[0]) if grp[0] in notes else 0)
+            dx = _parse_default_x(grp[0]) or 999_999.0
+            return (999_999, dx, list(notes).index(grp[0]) if grp[0] in notes else 0)
+
+        groups.sort(key=_grp_po)
     out: list[ET.Element] = []
     for grp in groups:
         out.extend(grp)
@@ -6966,45 +7653,35 @@ def _rebuild_staff_voice_block(
 
 
 def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
-    """backup·다중 voice가 있는 마디 — voice별로만 default-x 정렬, 구조 유지."""
+    """backup·다중 voice가 있는 마디 — 같은 (voice, staff) 음표들을 연속된 타임라인 스트림으로 통합 및 정렬."""
     start_elements: list[ET.Element] = []
     end_elements: list[ET.Element] = []
     note_attachments: dict[ET.Element, list[ET.Element]] = {}
     note_preamble: dict[ET.Element, list[ET.Element]] = {}
     staff_preamble: dict[int, list[ET.Element]] = {}
-    blocks: list[tuple[str, Any]] = []
-    current_voice: tuple[str, str] | None = None
-    current_notes: list[ET.Element] = []
+
+    voice_notes: dict[tuple[str, str], list[ET.Element]] = {}
+    staff_voices: dict[str, list[str]] = {}
     last_seen_note: ET.Element | None = None
 
-    for el in measure:
+    for el in list(measure):
         tag = _local(el)
         if tag == "note":
-            voice_staff = _note_voice_staff(el, ns)
-            if current_notes and voice_staff != current_voice:
-                blocks.append(("notes", current_voice, current_notes))
-                current_notes = []
-            current_voice = voice_staff
-            current_notes.append(el)
+            voice, staff = _note_voice_staff(el, ns)
+            key = (voice, staff)
+            if key not in voice_notes:
+                voice_notes[key] = []
+                if staff not in staff_voices:
+                    staff_voices[staff] = []
+                if voice not in staff_voices[staff]:
+                    staff_voices[staff].append(voice)
+            voice_notes[key].append(el)
             last_seen_note = el
         elif tag in ("backup", "forward"):
-            if current_notes:
-                blocks.append(("notes", current_voice, current_notes))
-                current_notes = []
-                current_voice = None
-            blocks.append((tag, el))
             last_seen_note = None
         elif tag in ("print", "attributes"):
-            if current_notes:
-                blocks.append(("notes", current_voice, current_notes))
-                current_notes = []
-                current_voice = None
             start_elements.append(el)
         elif tag == "barline":
-            if current_notes:
-                blocks.append(("notes", current_voice, current_notes))
-                current_notes = []
-                current_voice = None
             end_elements.append(el)
         else:
             if _local(el) == "direction" and _try_preamble_direction_before_following_note(
@@ -7014,43 +7691,75 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
             _assign_timeline_attachment(
                 measure, el, ns, last_seen_note, note_attachments, staff_preamble, start_elements
             )
-    if current_notes:
-        blocks.append(("notes", current_voice, current_notes))
 
-    new_blocks: list[tuple[str, Any]] = []
-    for block in blocks:
-        if block[0] == "notes":
-            _, _voice_staff, notes = block
-            new_blocks.append(("notes", _sort_notes_by_default_x(notes, ns)))
-        else:
-            new_blocks.append(block)
+    if not voice_notes:
+        return
+
+    # 성부별 음표 정렬 (play order, default-x, onset 순)
+    for key in voice_notes:
+        voice_notes[key] = _sort_notes_by_default_x(voice_notes[key], ns)
 
     staff_preamble_emitted: set[int] = set()
     for el in list(measure):
         measure.remove(el)
     for el in start_elements:
         measure.append(el)
-    for block in new_blocks:
-        if block[0] == "notes":
-            notes = block[1]
-            if notes:
-                _, st = _note_voice_staff(notes[0], ns)
-                try:
-                    st_n = int(st)
-                except ValueError:
-                    st_n = 1
-                if st_n not in staff_preamble_emitted:
-                    for pre in staff_preamble.get(st_n, []):
-                        measure.append(pre)
-                    staff_preamble_emitted.add(st_n)
+
+    sorted_staves = sorted(staff_voices.keys(), key=lambda s: int(s) if s.isdigit() else 999)
+    first_staff = True
+    prev_staff_dur = 0
+
+    for st in sorted_staves:
+        try:
+            st_n = int(st)
+        except ValueError:
+            st_n = 1
+        if st_n not in staff_preamble_emitted:
+            for pre in staff_preamble.get(st_n, []):
+                measure.append(pre)
+            staff_preamble_emitted.add(st_n)
+
+        v_list = sorted(staff_voices[st], key=lambda v: int(v) if v.isdigit() else 999)
+        first_voice = True
+        prev_voice_dur = 0
+        staff_dur = 0
+
+        for v in v_list:
+            notes = voice_notes.get((v, st), [])
+            if not notes:
+                continue
+            v_dur = 0
+            for n in notes:
+                if n.find(_q(ns, "chord")) is None and n.find(_q(ns, "grace")) is None:
+                    d_el = n.find(_q(ns, "duration"))
+                    if d_el is not None and d_el.text and d_el.text.strip().isdigit():
+                        v_dur += int(d_el.text.strip())
+
+            if not first_voice:
+                b_el = ET.Element(_q(ns, "backup"))
+                d_el = ET.SubElement(b_el, _q(ns, "duration"))
+                d_el.text = str(prev_voice_dur)
+                measure.append(b_el)
+            elif not first_staff:
+                b_el = ET.Element(_q(ns, "backup"))
+                d_el = ET.SubElement(b_el, _q(ns, "duration"))
+                d_el.text = str(prev_staff_dur)
+                measure.append(b_el)
+
             for note in notes:
                 for pre in note_preamble.get(note, []):
                     measure.append(pre)
                 measure.append(note)
                 for att in note_attachments.get(note, []):
                     measure.append(att)
-        else:
-            measure.append(block[1])
+
+            prev_voice_dur = v_dur
+            staff_dur = max(staff_dur, v_dur)
+            first_voice = False
+
+        prev_staff_dur = staff_dur
+        first_staff = False
+
     for el in end_elements:
         measure.append(el)
 
@@ -7271,15 +7980,18 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
     groups = _chord_groups_in_order(notes_only, ns)
     has_po = any(_read_play_order(g[0]) is not None for g in groups)
     if has_po:
+        def _grp_sort_key(grp: list[ET.Element]) -> tuple[int, float, int]:
+            po = _read_play_order(grp[0])
+            if po is not None:
+                return (po, 0.0, notes.index(grp[0]))
+            dx = _parse_default_x(grp[0]) or 999_999.0
+            return (999_999, dx, notes.index(grp[0]))
+
         indexed = [
-            (
-                grp,
-                _read_play_order(grp[0]) if _read_play_order(grp[0]) is not None else 999_999,
-                notes.index(grp[0]),
-            )
+            (grp, _grp_sort_key(grp), notes.index(grp[0]))
             for grp in groups
         ]
-        indexed.sort(key=lambda t: (t[1], t[2]))
+        indexed.sort(key=lambda t: t[1])
     else:
         return False
     voices = {_note_voice_staff(g[0], ns)[0] for g, _, _ in indexed}
@@ -7433,6 +8145,10 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "removeOrnament",
         "insertWedge",
         "moveWedgeStop",
+        "setMeasureClef",
+        "setPartClef",
+        "copyMeasureContent",
+        "copyMeasurePart",
     }
     measure_structure_kinds = {"insertEmptyMeasureBefore", "insertEmptyMeasureAfter"}
     pending = list(fixes)
@@ -7516,6 +8232,10 @@ def apply_fixes_file(mxl_path: Path, fixes: list[dict[str, Any]]) -> dict[str, A
     chord_beam_measures = cleanup_chord_beams_in_root(root)
     rest_play_order_measures = normalize_play_orders_including_rests_in_root(root)
     coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root)
+    timeline_measures = normalize_measure_timelines_in_root(root)
+    dynamics_normalized = normalize_dynamics_in_root(root)
+    slurs_normalized = normalize_slurs_in_root(root)
+    wedges_normalized = normalize_wedges_in_root(root)
     chord_pitch_dupes = dedupe_identical_chord_pitches_in_root(root)
     write_mxl_root(mxl_path, files, root_path, root)
     return {
@@ -7524,7 +8244,10 @@ def apply_fixes_file(mxl_path: Path, fixes: list[dict[str, Any]]) -> dict[str, A
         "fixCount": len(fixes),
         "chordBeamMeasuresCleaned": chord_beam_measures,
         "restPlayOrderMeasuresNormalized": rest_play_order_measures,
-        "coalesceVoiceMeasures": coalesce_voice_measures,
+        "coalesceVoiceMeasures": max(coalesce_voice_measures, timeline_measures),
+        "dynamicsNormalizedMeasures": dynamics_normalized,
+        "slursNormalizedMeasures": slurs_normalized,
+        "wedgesNormalizedMeasures": wedges_normalized,
         "chordPitchDedupeMeasures": chord_pitch_dupes,
     }
 

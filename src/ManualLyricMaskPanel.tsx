@@ -382,12 +382,12 @@ export function ManualLyricMaskPanel(props: Props) {
       se: [bx1, by1],
     };
     let best: { k: CornerKey; d: number } | null = null;
-    (Object.keys(corners) as CornerKey[]).forEach((k) => {
+    for (const k of Object.keys(corners) as CornerKey[]) {
       const [cx, cy] = corners[k];
       const d = Math.hypot(xPt - cx, yPt - cy);
       if (d <= tol && (!best || d < best.d)) best = { k, d };
-    });
-    return best?.k ?? null;
+    }
+    return best ? best.k : null;
   };
 
   const insideRectTol = (

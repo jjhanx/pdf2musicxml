@@ -56,6 +56,26 @@ const PATCHES = [
     from: 'h||(h=r.KeyInstruction.copy(this.activeKeys[i]))',
     to: 'h||(this.activeKeys[i]&&(h=r.KeyInstruction.copy(this.activeKeys[i])))',
   },
+  {
+    name: 'Dynamic expression above vertical spacing',
+    from: 'else a=i-t.PositionAndShape.BorderMarginBottom;t.PositionAndShape.RelativePosition=new f.PointF2D(e.x,a)}',
+    to: 'else a=i-t.PositionAndShape.BorderMarginBottom-3.8;t.PositionAndShape.RelativePosition=new f.PointF2D(e.x,a)}',
+  },
+  {
+    name: 'Dynamic expression multi-staff above vertical spacing',
+    from: 'a=i>-n/2?-n/2:i-t.PositionAndShape.BorderMarginBottom',
+    to: 'a=i>-n/2?-n/2:i-t.PositionAndShape.BorderMarginBottom-3.8',
+  },
+  {
+    name: 'Dynamic expression below vertical spacing',
+    from: 'else a=i-t.PositionAndShape.BorderMarginTop;t.PositionAndShape.RelativePosition=new f.PointF2D(e.x,a)}',
+    to: 'else a=i-t.PositionAndShape.BorderMarginTop+2.5;t.PositionAndShape.RelativePosition=new f.PointF2D(e.x,a)}',
+  },
+  {
+    name: 'Wedge deduplication measure comparison fix',
+    from: 'this.lastWedge.parentMeasure.MeasureNumberXML===i.MeasureNumberXML',
+    to: 'this.lastWedge.parentMeasure===i',
+  },
 ];
 
 if (!fs.existsSync(target)) {
@@ -66,7 +86,7 @@ if (!fs.existsSync(target)) {
 let src = fs.readFileSync(target, 'utf8');
 let changed = 0;
 for (const p of PATCHES) {
-  if (src.includes(p.to) && !src.includes(p.from)) {
+  if (src.includes(p.to)) {
     console.log(`[patch_osmd_navigation_labels] ${p.name}: already patched`);
     continue;
   }
@@ -83,5 +103,5 @@ if (changed > 0) {
   fs.writeFileSync(target, src, 'utf8');
   console.log(`[patch_osmd_navigation_labels] wrote ${changed} patch(es)`);
 } else {
-  console.log('[patch_osmd_navigation_labels] nothing to write');
+  console.log('[patch_osmd_navigation_labels] all patches up to date');
 }

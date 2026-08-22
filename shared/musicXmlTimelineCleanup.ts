@@ -317,7 +317,7 @@ export function stripDefaultXyKeepLayoutAttrsForOsmdPreview(xml: string): string
     });
     doc.querySelectorAll('direction, *|direction').forEach((el) => {
       el.removeAttribute('default-x');
-      el.removeAttribute('default-y');
+      // default-y는 셈여림(p, f) 및 쐐기(crescendo, diminuendo)의 오선 이격 거리를 결정하므로 보존
     });
     return serializeMusicXmlDocument(doc);
   } catch {
@@ -753,7 +753,11 @@ export function reanchorWedgeStopsForOsmdPreview(measure: Element, staffN: numbe
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'direction') continue;
     if (directionWedgeType(child) !== 'stop') continue;
-    if (directionStaffNumber(child) !== staffN) continue;
+    const sNum = directionStaffNumber(child);
+    if (sNum !== null && sNum !== staffN) {
+      child.remove();
+      continue;
+    }
     const children = [...measure.children];
     const idx = children.indexOf(child);
     if (idx < 0) continue;
@@ -953,7 +957,7 @@ export function mergeSameOnsetVoicesForOsmdPreview(measure: Element): boolean {
 
     const insertBefore = insertRef ? insertRef.nextSibling : measure.firstChild;
     measure.insertBefore(leaderNote, insertBefore);
-    let anchor: Element | null = leaderNote.nextSibling;
+    let anchor: ChildNode | null = leaderNote.nextSibling;
     for (const n of chordMembers) {
       measure.insertBefore(n, anchor);
     }

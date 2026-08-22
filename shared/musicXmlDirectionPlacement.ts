@@ -119,3 +119,105 @@ export function repositionDirectionsBeforeAttributesForOsmdPreview(
     return xml;
   }
 }
+
+const DYNAMICS_TAG_NAMES = new Set([
+  'p', 'pp', 'ppp', 'pppp', 'ppppp', 'pppppp',
+  'f', 'ff', 'fff', 'ffff', 'fffff', 'ffffff',
+  'mp', 'mf', 'sf', 'sfp', 'sfpp', 'fp', 'rf', 'rfz', 'sfz', 'sffz', 'fz', 'n', 'pf'
+]);
+
+/**
+ * OSMD 미리보기 전용:
+ * 1. note/notations 안의 dynamics를 독립 <direction>으로 마이그레이션하여
+ *    동일 onset에서 wedge가 누락되는 OSMD 충돌 버그 방지.
+ * 2. dynamics 및 wedge에 default-y 여백(above: 25, below: -65) 보장.
+ * 3. 동일 onset에서 dynamics가 wedge start보다 앞에 오도록 순서 정돈 (p > 순서).
+ */
+export function normalizeDynamicsAndWedgesForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    const ns = doc.documentElement.namespaceURI;
+    const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
+
+    for (const part of findXmlParts(doc)) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+
+        // 1. 음표의 notations/dynamics를 <direction>으로 변환
+        for (const note of [...meas.children].filter((c) => xmlLocalName(c) === 'note')) {
+          const notations = [...note.children].find((c) => xmlLocalName(c) === 'notations');
+          if (!notations) continue;
+          for (const dyn of [...notations.children].filter((c) => xmlLocalName(c) === 'dynamics')) {
+            const pl = dyn.getAttribute('placement') || 'above';
+            const staffEl = [...note.children].find((c) => xmlLocalName(c) === 'staff');
+            const staffNum = staffEl?.textContent?.trim() || '1';
+
+            const dynChildren = [...dyn.children].filter((c) => DYNAMICS_TAG_NAMES.has(xmlLocalName(c)));
+            for (const dc of dynChildren) {
+              const dir = mk('direction');
+              dir.setAttribute('placement', pl);
+              dir.setAttribute('default-y', pl === 'above' ? '45' : '-65');
+              const dt = mk('direction-type');
+              const dynNew = mk('dynamics');
+              dynNew.setAttribute('placement', pl);
+              dynNew.setAttribute('default-y', pl === 'above' ? '45' : '-65');
+              dynNew.appendChild(mk(xmlLocalName(dc)));
+              dt.appendChild(dynNew);
+              dir.appendChild(dt);
+
+              const stNew = mk('staff');
+              stNew.textContent = staffNum;
+              dir.appendChild(stNew);
+
+              meas.insertBefore(dir, note);
+            }
+            dyn.remove();
+          }
+          if (notations.childElementCount === 0) {
+            notations.remove();
+          }
+        }
+
+        // 2. 모든 direction dynamics / wedge에 default-y 부여
+        for (const dir of [...meas.children].filter((c) => xmlLocalName(c) === 'direction')) {
+          const pl = dir.getAttribute('placement') || 'below';
+          for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+            for (const child of [...dt.children]) {
+              const cName = xmlLocalName(child);
+              if (cName === 'dynamics' || cName === 'wedge') {
+                if (pl === 'above') {
+                  if (!dir.getAttribute('default-y')) dir.setAttribute('default-y', '45');
+                  if (!child.getAttribute('default-y')) child.setAttribute('default-y', '45');
+                } else if (pl === 'below') {
+                  if (!dir.getAttribute('default-y')) dir.setAttribute('default-y', '-65');
+                  if (!child.getAttribute('default-y')) child.setAttribute('default-y', '-65');
+                }
+              }
+            }
+          }
+        }
+
+        // 3. 동일 onset에서 dynamics가 wedge start보다 앞에 오도록 순서 정돈 (p > 순서)
+        const children = [...meas.children];
+        for (let i = 0; i < children.length - 1; i++) {
+          const c1 = children[i]!;
+          const c2 = children[i + 1]!;
+          if (xmlLocalName(c1) === 'direction' && xmlLocalName(c2) === 'direction') {
+            const hasWedgeStart = [...c1.querySelectorAll('wedge')].some((w) =>
+              ['crescendo', 'diminuendo'].includes(w.getAttribute('type') || '')
+            );
+            const hasDyn = c2.querySelector('dynamics') !== null;
+            if (hasWedgeStart && hasDyn) {
+              meas.insertBefore(c2, c1);
+            }
+          }
+        }
+      }
+    }
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+

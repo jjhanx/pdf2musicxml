@@ -703,8 +703,8 @@ function alignMeasureNotesByPlayOrderGrid(
   staffIndex: number,
   targets: readonly PreviewNoteLayoutTarget[],
 ): void {
-  const partId = partIdFromGraphic(gmRaw);
-  const measureNumber = measureMxlFromGraphic(gmRaw);
+  const partId = partIdFromGraphic(gmRaw as any);
+  const measureNumber = measureMxlFromGraphic(gmRaw as any);
   if (!partId || measureNumber == null) return;
 
   const staff = staffIndex + 1;
@@ -832,8 +832,8 @@ function alignExplicitPlayOrderColumnsRelative(
   staffIndex: number,
   targets: readonly PreviewNoteLayoutTarget[],
 ): void {
-  const partId = partIdFromGraphic(gmRaw);
-  const measureNumber = measureMxlFromGraphic(gmRaw);
+  const partId = partIdFromGraphic(gmRaw as any);
+  const measureNumber = measureMxlFromGraphic(gmRaw as any);
   if (!partId || measureNumber == null) return;
 
   const staff = staffIndex + 1;
@@ -1056,22 +1056,18 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   previewXml?: string | null,
 ): void {
   const xml = resolvePreviewXml(osmd, previewXml);
-  const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
 
-  // 명시 연주순번 column만 SVG 보정(동시 column snap). 일반 박자 배치는 default-x로 OSMD에 전달.
-  forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
-    alignMeasureNotesByPlayOrderGrid(osmd, gmRaw, staffIndex, targets);
-  });
-
-  alignLinkedParallelHintGroups(osmd, hints);
-
-  // stavenote만 밀면 VexFlow 형제 stem/beam이 남아 빔이 앞쪽으로 끊겨 보임
-  const host =
-    (osmd as unknown as { container?: ParentNode | null }).container ??
-    (osmd as unknown as { root?: ParentNode | null }).root ??
-    null;
-  if (host) syncVfStemsAndBeamsAfterStavenoteAlign(host);
+  // 명시적 다단 수직 정렬 hint(linked parallel)가 있을 때만 최소한으로 보정.
+  // 일반 마디는 MusicXML 마디 편집기 데이터 그대로 OSMD가 자연스럽게 음표·줄기·빔·이음줄을 렌더링하도록 둠.
+  if (hints.length > 0) {
+    alignLinkedParallelHintGroups(osmd, hints);
+    const host =
+      (osmd as unknown as { container?: ParentNode | null }).container ??
+      (osmd as unknown as { root?: ParentNode | null }).root ??
+      null;
+    if (host) syncVfStemsAndBeamsAfterStavenoteAlign(host);
+  }
 }
 
 export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHint): number {

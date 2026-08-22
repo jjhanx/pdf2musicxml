@@ -1147,7 +1147,9 @@ export function collectVoiceParallelNoteOnsets(measure: Element): Map<Element, n
       lastNoteVoice = voice;
       const start = voiceCursor.get(voice) ?? 0;
       out.set(el, start);
-      voiceCursor.set(voice, start + noteDurationValue(el));
+      if (el.querySelector('grace, *|grace') === null) {
+        voiceCursor.set(voice, start + noteDurationValue(el));
+      }
     }
   }
   return out;

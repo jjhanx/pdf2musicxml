@@ -579,7 +579,7 @@ def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> 
     음표·쉼표 leader 모두 포함. 꾸밈음은 본음보다 앞선 별도 순번을 부여.
     """
     notes = list_note_elements(measure, ns)
-    leaders: list[tuple[int, int]] = []
+    leaders: list[tuple[int, int, int]] = []
     for i, note in enumerate(notes):
         if note.find(_q(ns, "chord")) is not None:
             continue
@@ -587,19 +587,19 @@ def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> 
         if st != staff:
             continue
         onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, i)
-        leaders.append((onset, i))
+        is_grace = note.find(_q(ns, "grace")) is not None
+        leaders.append((onset, 0 if is_grace else 1, i))
     leaders.sort()
     out: dict[int, int] = {}
     order = 0
-    prev_onset: int | None = None
-    prev_was_grace = False
-    for onset, i in leaders:
-        is_grace = notes[i].find(_q(ns, "grace")) is not None
-        if prev_onset is None or onset != prev_onset or is_grace or prev_was_grace:
+    prev_key: tuple[int, int] | None = None
+    for onset, is_reg, i in leaders:
+        cur_key = (onset, is_reg)
+        is_grace = (is_reg == 0)
+        if prev_key is None or cur_key != prev_key or is_grace:
             order += 1
-            prev_onset = onset
+            prev_key = cur_key
         out[i] = order
-        prev_was_grace = is_grace
     return out
 
 
@@ -3163,6 +3163,8 @@ def _compact_default_x_by_staff(
         if not timed:
             continue
         for ni, start in timed:
+            if _is_grace_or_cue(notes[ni], ns):
+                continue
             x = base_x + (min(start, measure_len) / measure_len * span)
             new_x = f"{x:.2f}"
             group = [notes[ni], *[notes[j] for j in _chord_follower_indices(notes, ns, ni)]]
@@ -6910,7 +6912,7 @@ def _staff_timed_leader_starts(
             if el.find(_q(ns, "chord")) is not None:
                 continue
             voice, st = _note_voice_staff(el, ns)
-            if st != staff or _is_grace_or_cue(el, ns):
+            if st != staff:
                 continue
             last_note_voice = voice
             try:
@@ -6919,7 +6921,8 @@ def _staff_timed_leader_starts(
                 continue
             start = voice_cursor.get(voice, 0)
             out.append((ni, start))
-            voice_cursor[voice] = start + _note_duration(el, ns)
+            if not _is_grace_or_cue(el, ns):
+                voice_cursor[voice] = start + _note_duration(el, ns)
     return out
 
 

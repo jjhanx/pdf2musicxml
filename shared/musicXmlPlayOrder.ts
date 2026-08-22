@@ -95,28 +95,32 @@ export function defaultPlayOrdersFromDocumentOrder(measure: Element, staffN?: nu
  */
 export function defaultPlayOrdersFromTimeline(measure: Element, staffN?: number): Map<Element, number> {
   const onsets = collectVoiceParallelNoteOnsets(measure);
-  const leaders: { el: Element; onset: number; idx: number }[] = [];
+  const leaders: { el: Element; onset: number; isGrace: boolean; idx: number }[] = [];
   let idx = 0;
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'note') continue;
     if (isChordMember(child)) continue;
     const currentIdx = idx++;
     if (staffN != null && noteStaffNumber(child) !== staffN) continue;
+    const isGrace = isGraceNote(child);
     leaders.push({
       el: child,
       onset: onsets.get(child) ?? 0,
+      isGrace,
       idx: currentIdx,
     });
   }
-  leaders.sort((a, b) => a.onset - b.onset || a.idx - b.idx);
+  leaders.sort((a, b) => a.onset - b.onset || (a.isGrace === b.isGrace ? 0 : a.isGrace ? -1 : 1) || a.idx - b.idx);
   const out = new Map<Element, number>();
   let order = 0;
   let prevOnset: number | null = null;
+  let prevWasGrace = false;
   for (const row of leaders) {
-    if (prevOnset === null || row.onset !== prevOnset) {
+    if (prevOnset === null || row.onset !== prevOnset || row.isGrace || prevWasGrace) {
       order += 1;
       prevOnset = row.onset;
     }
+    prevWasGrace = row.isGrace;
     out.set(row.el, order);
   }
   return out;

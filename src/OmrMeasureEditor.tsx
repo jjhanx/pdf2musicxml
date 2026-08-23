@@ -108,12 +108,17 @@ const ARTICULATION_ADD_OPTIONS: { id: string; label: string }[] = [
   { id: 'strong-accent', label: 'Strong accent (^)' },
   { id: 'staccato', label: 'Staccato (.)' },
   { id: 'tenuto', label: 'Tenuto (-)' },
-  { id: 'marcato', label: 'Marcato' },
-  { id: 'staccatissimo', label: 'Staccatissimo' },
+  { id: 'marcato', label: 'Marcato (^)' },
+  { id: 'staccatissimo', label: 'Staccatissimo (▾)' },
+  { id: 'breath-mark', label: '숨표 (쉼표 모양 , / Breath mark)' },
+  { id: 'caesura', label: '카에수라 (// / Caesura)' },
+  { id: 'detached-legato', label: 'Detached legato' },
+  { id: 'spiccato', label: 'Spiccato' },
 ];
 
 function articulationOptionLabel(id: string): string {
-  return ARTICULATION_ADD_OPTIONS.find((o) => o.id === id)?.label ?? id;
+  const base = id.split('(')[0].trim().toLowerCase();
+  return ARTICULATION_ADD_OPTIONS.find((o) => o.id === base)?.label ?? id;
 }
 
 const ORNAMENT_ADD_OPTIONS: { id: string; label: string }[] = [
@@ -1256,11 +1261,16 @@ function elementTitle(
   const tuplet = el.timeMod
     ? ` ${el.timeMod === '3:2' ? '세잇단' : `잇단 ${el.timeMod}`}${el.tuplet === 'start' ? '▸' : el.tuplet === 'stop' ? '◂' : ''}`
     : '';
-  const artSource =
-    el.chord && _noteEls.length
-      ? _noteEls.find((n) => n.index === chordLeaderIndex(el, _noteEls)) ?? el
-      : el;
-  const arts = artSource.articulations?.length ? ` [${artSource.articulations.join(', ')}]` : '';
+  const arts = artSource.articulations?.length
+    ? ` [${artSource.articulations
+        .map((a) => {
+          const name = a.split('(')[0];
+          const pl = markPlacementOf(a);
+          const plStr = pl === 'above' ? '↑' : pl === 'below' ? '↓' : '';
+          return `${articulationOptionLabel(name)}${plStr}`;
+        })
+        .join(', ')}]`
+    : '';
   const orns = artSource.ornaments?.length ? ` orn=[${artSource.ornaments.join(', ')}]` : '';
   const ferms = el.fermatas?.length ? ` fermata=${el.fermatas.join(',')}` : '';
   const beam = el.beams?.length ? ` beam=[${el.beams.join(',')}]` : '';
@@ -1503,6 +1513,12 @@ export function OmrMeasureEditor({
     () => elements.filter((e): e is MeasureNoteEl => e.elementKind === 'note'),
     [elements],
   );
+
+  const breathMarkNotes = useMemo(() => {
+    return displayElements.filter((n) =>
+      (n.articulations ?? []).some((a) => a.split('(')[0].toLowerCase() === 'breath-mark'),
+    );
+  }, [displayElements]);
 
   const measureDirections = snapshot?.measureDirections ?? [];
   const navigationDirections = useMemo(
@@ -1979,6 +1995,52 @@ export function OmrMeasureEditor({
           />
         </>
       ) : null}
+
+      {breathMarkNotes.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+            margin: '10px 0',
+            padding: '10px 14px',
+            background: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: 6,
+            fontSize: '0.86rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#92400e' }}>
+            <span style={{ fontSize: '1.1rem' }}>⚠️</span>
+            <span>
+              이 마디에 <strong>숨표(콤마 , 모양 기호) {breathMarkNotes.length}건</strong>이 감지되었습니다.
+              <br />
+              <span style={{ fontSize: '0.8rem', color: '#b45309' }}>
+                (OMR이 악센트 <code>&gt;</code>나 이음줄을 쉼표 모양 숨표(breath-mark)로 오인식한 경우 아래 버튼으로 일괄 제거할 수 있습니다)
+              </span>
+            </span>
+          </div>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+            style={{ fontWeight: 600, fontSize: '0.84rem', padding: '5px 12px' }}
+            onClick={() => {
+              for (const bNote of breathMarkNotes) {
+                pushFix({
+                  kind: 'removeArticulation',
+                  noteIndex: bNote.index,
+                  articulation: 'breath-mark',
+                });
+              }
+              setFixMsg(`마디 내 숨표(,) ${breathMarkNotes.length}건 제거 대기 등록 → 아래 「MXL에 반영·미리보기」를 누르세요.`);
+            }}
+          >
+            마디 내 숨표(,) 일괄 제거 ({breathMarkNotes.length}건)
+          </button>
+        </div>
+      )}
 
       {displayElements.length > 0 && (
         <ol className="omr-measure-element-list">
@@ -2700,19 +2762,25 @@ function MeasureNoteEditor({
           name === 'staccato' &&
           beamSide != null &&
           art.includes(beamSide);
+        const isBreathMark = name === 'breath-mark';
+        const artLabel = articulationOptionLabel(name);
         return (
           <span key={art} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
             <button
               type="button"
-              className={`omr-hitl-fix-btn${likelyTupletDigit ? ' omr-hitl-fix-btn--primary' : ''}`}
+              className={`omr-hitl-fix-btn${likelyTupletDigit || isBreathMark ? ' omr-hitl-fix-btn--primary' : ''}`}
               title={
                 likelyTupletDigit
                   ? '잇단 숫자(3)를 가리는 점 — OMR이 숫자를 스타카토로 오인한 것일 가능성이 높습니다'
-                  : `이 음표의 ${name} 표를 제거합니다`
+                  : isBreathMark
+                    ? '악센트(>)나 이음줄을 쉼표 모양 숨표(,)로 오인한 것일 수 있습니다 — 클릭하여 제거합니다'
+                    : `이 음표의 ${artLabel} 표를 제거합니다`
               }
               onClick={() => onFix({ kind: 'removeArticulation', noteIndex: chordLeaderIdx, articulation: name })}
             >
-              {likelyTupletDigit ? `세잇단 숫자 가린 점(${name}) 제거` : `${name} 제거`}
+              {likelyTupletDigit
+                ? `세잇단 숫자 가린 점(${name}) 제거`
+                : `${artLabel} 제거`}
             </button>
             <label className="omr-measure-inline-field">
               위치

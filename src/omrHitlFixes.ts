@@ -292,7 +292,7 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     fix.kind === 'addSlur' ||
     fix.kind === 'setSlurPlacement'
   ) {
-    if (fix.articulation) parts.push(fix.articulation);
+    if (fix.articulation) parts.push(articulationDisplayName(fix.articulation));
     if (fix.directionType) parts.push(fix.directionType);
     if (fix.directionValue) parts.push(fix.directionValue);
     if (fix.placement === 'above') parts.push('위');
@@ -305,6 +305,24 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);
   }
   return parts.join(' · ');
+}
+
+export const ARTICULATION_DISPLAY_NAMES: Record<string, string> = {
+  accent: 'Accent (>)',
+  'strong-accent': 'Strong accent (^)',
+  staccato: 'Staccato (.)',
+  tenuto: 'Tenuto (-)',
+  marcato: 'Marcato (^)',
+  staccatissimo: 'Staccatissimo (▾)',
+  'breath-mark': '숨표 (쉼표 모양 , / Breath mark)',
+  caesura: '카에수라 (// / Caesura)',
+  'detached-legato': 'Detached legato',
+  spiccato: 'Spiccato',
+};
+
+export function articulationDisplayName(id: string): string {
+  const base = id.split('(')[0].trim().toLowerCase();
+  return ARTICULATION_DISPLAY_NAMES[base] ?? id;
 }
 
 const NAVIGATION_TAG_LABELS: Record<string, string> = {

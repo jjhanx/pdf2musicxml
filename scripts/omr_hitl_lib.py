@@ -5180,12 +5180,14 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         note = notes[idx]
         # articulation 이름이 주어지면 그것만, 없으면 articulations 전부 제거
-        target = str(fix.get("articulation") or "").strip().split("(")[0] or None
+        raw_target = str(fix.get("articulation") or "").strip().lower().split("(")[0].replace("_", "-")
+        target = raw_target or None
         removed = False
         for notations in list(note.findall(_q(ns, "notations"))):
             for arts in list(notations.findall(_q(ns, "articulations"))):
                 for art in list(arts):
-                    if target is None or _local(art) == target:
+                    art_name = _local(art).lower().replace("_", "-")
+                    if target is None or art_name == target:
                         arts.remove(art)
                         removed = True
                 if len(arts) == 0:
@@ -5794,7 +5796,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         if idx < 0 or idx >= len(notes):
             return False
-        art = str(fix.get("articulation") or "accent").strip().lower()
+        art = str(fix.get("articulation") or "accent").strip().lower().replace("_", "-")
         if art not in _ARTICULATION_TAGS:
             return False
         note = notes[idx]
@@ -5805,7 +5807,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if arts is None:
             arts = ET.SubElement(notations, _q(ns, "articulations"))
         for existing in arts:
-            if _local(existing) == art:
+            if _local(existing).lower().replace("_", "-") == art:
                 return False
         art_el = ET.SubElement(arts, _q(ns, art))
         placement = str(fix.get("placement") or "").strip().lower()
@@ -5824,7 +5826,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         if idx < 0 or idx >= len(notes):
             return False
-        art = str(fix.get("articulation") or "").strip().lower().split("(")[0]
+        art = str(fix.get("articulation") or "").strip().lower().split("(")[0].replace("_", "-")
         placement = str(fix.get("placement") or "").strip().lower()
         if art not in _ARTICULATION_TAGS or placement not in ("above", "below"):
             return False
@@ -5833,7 +5835,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         for notations in note.findall(_q(ns, "notations")):
             for arts in notations.findall(_q(ns, "articulations")):
                 for el in arts:
-                    if _local(el) != art:
+                    if _local(el).lower().replace("_", "-") != art:
                         continue
                     if el.get("placement") == placement:
                         continue

@@ -31,6 +31,7 @@ import {
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
+import { applyOsmdArticulationOffsets } from './osmdArticulationOffsetFix';
 import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
@@ -108,6 +109,10 @@ export function applyOsmdPreviewEngravingRules(
   rules.WedgePlacementAboveY = -5.5;
   rules.WedgePlacementBelowY = 3.5;
   rules.WedgeVerticalMargin = 2.5;
+  // 슬러 끝점 아티큘레이션 및 이음줄 간격 여백 확보
+  rules.SlurEndArticulationYOffset = 1.2;
+  rules.SlurStartArticulationYOffsetOfArticulation = 1.2;
+  rules.SlurNoteHeadYOffset = 0.2;
   // OSMD 기본 0.4는 줄 끝 마디의 D.S./Fine를 오른쪽으로 밀어 다음 마디 앞으로 보이게 함
   if (typeof r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth === 'number') {
     r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth = 0;
@@ -2120,6 +2125,7 @@ export function OsmdBlock({
         const osmd = osmdRef.current;
         if (host && osmd?.IsReadyToRender()) {
           syncOnsetColumnAlign(host, osmd);
+          applyOsmdArticulationOffsets(host, osmd);
           finalizeOsmdMeasureNumberPreview(host, osmd, printedMeasureMarkersRef.current);
         }
         const trigger = scrollToMeasureTriggerRef.current;
@@ -2207,6 +2213,7 @@ export function OsmdBlock({
             finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
             // render 직후 동기 align — rAF만 기다리면 autoResize/후속 paint가 transform을 덮어쓸 수 있음
             syncOnsetColumnAlign(h, o);
+            applyOsmdArticulationOffsets(h, o);
           },
         });
       })

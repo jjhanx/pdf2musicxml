@@ -3189,14 +3189,13 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       if (job.resumeLyricManifestPath && fsSync.existsSync(job.resumeLyricManifestPath)) {
         await fs.copyFile(job.resumeLyricManifestPath, lyricManifestPath);
       }
-      if (!lyricManifestHasItems(lyricManifestPath)) {
-        await fail({
-          status: 400,
-          error: 'ZIP에 분리된 가사가 없습니다',
-          detail:
-            '3단계 omr-work.zip에는 lyric_manifest.json(또는 ocr_data_pymupdf.json)이 포함되어야 합니다. 1단계에서 저장한 ZIP을 쓰거나 가사 JSON을 함께 업로드하세요.',
-        });
-        return;
+      if (!fsSync.existsSync(lyricManifestPath)) {
+        // 기악곡 또는 가사가 없는 악보를 위한 기본 빈 manifest 생성
+        await fs.writeFile(
+          lyricManifestPath,
+          JSON.stringify({ v: 3, pipeline: 'font_separator', items: [] }, null, 2),
+          'utf8',
+        );
       }
       if (
         !fsSync.existsSync(cleanScorePath) &&
@@ -3208,17 +3207,25 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       } else if (!job.inputPdfPath && fsSync.existsSync(cleanScorePath)) {
         job.inputPdfPath = cleanScorePath;
       }
-      await bootstrapLyricReviewAfterOmrZipImport(
-        job,
-        pythonBin,
-        scriptExtract,
-        scriptMergeLyrics,
-      );
-      await ensureExtractedMusicTextJson(sessionRoot, {
-        inputPdfPath: resolveLyricReviewPdfPath(job),
-        pythonBin,
-        scriptSeparator,
-      });
+      try {
+        await bootstrapLyricReviewAfterOmrZipImport(
+          job,
+          pythonBin,
+          scriptExtract,
+          scriptMergeLyrics,
+        );
+      } catch (e) {
+        console.warn(`[job ${jobId}] lyric review bootstrap warning (continuing OMR HITL):`, e);
+      }
+      try {
+        await ensureExtractedMusicTextJson(sessionRoot, {
+          inputPdfPath: resolveLyricReviewPdfPath(job),
+          pythonBin,
+          scriptSeparator,
+        });
+      } catch (e) {
+        console.warn(`[job ${jobId}] extracted music text warning (continuing OMR HITL):`, e);
+      }
     }
 
     if (startStage === 'lyric_inject') {

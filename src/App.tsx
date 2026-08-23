@@ -1104,19 +1104,21 @@ export default function App() {
         setStatus('서버 상태를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
         return;
       }
-      if (!healthArg.omrEngineReady) {
-        setStatus(
-          healthArg.omrEngine === 'pdftomusic'
-            ? `PDFtoMusic Pro(p2mp)가 준비되지 않았습니다. ${healthArg.pdftomusicDepsHint ?? 'P2MP_BIN을 설정하세요.'}`
-            : 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.',
-        );
-        return;
-      }
-      if (pipelineMode === 'font_separator' && healthArg.fontSeparatorDepsOk === false) {
-        setStatus(
-          `폰트 분리용 Python 패키지(pikepdf, pdfplumber)가 없습니다. 서버에서: ${healthArg.fontSeparatorDepsHint ?? 'pip install -r requirements.txt'}`,
-        );
-        return;
+      if (startStage === 'full' || startStage === 'clean_score') {
+        if (!healthArg.omrEngineReady) {
+          setStatus(
+            healthArg.omrEngine === 'pdftomusic'
+              ? `PDFtoMusic Pro(p2mp)가 준비되지 않았습니다. ${healthArg.pdftomusicDepsHint ?? 'P2MP_BIN을 설정하세요.'}`
+              : 'Audiveris 경로(AUDIVERIS_BIN)가 서버에 설정되어 있지 않습니다.',
+          );
+          return;
+        }
+        if (pipelineMode === 'font_separator' && healthArg.fontSeparatorDepsOk === false) {
+          setStatus(
+            `폰트 분리용 Python 패키지(pikepdf, pdfplumber)가 없습니다. 서버에서: ${healthArg.fontSeparatorDepsHint ?? 'pip install -r requirements.txt'}`,
+          );
+          return;
+        }
       }
 
       revokeTaskUrls(tasksRef.current);
@@ -2086,12 +2088,6 @@ export default function App() {
                       <button type="button" className="btn-link" style={{ padding: 0, fontSize: '0.85rem', color: '#ef4444' }} onClick={() => setResumeOmrWorkFile(null)}>✖ 취소</button>
                     )}
                   </div>
-                  {resumeOmrWorkFile && resumeOmrWorkFile.size > 8 * 1024 * 1024 && (
-                    <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', lineHeight: 1.45, color: '#fbbf24' }}>
-                      이 ZIP은 {(resumeOmrWorkFile.size / (1024 * 1024)).toFixed(0)}MB입니다. nginx 기본 한도(1MB)면
-                      413이 납니다. 서버에 <code>client_max_body_size 256m;</code> 후 <code>sudo nginx -s reload</code> 하세요.
-                    </p>
-                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: '#222', padding: '0.75rem', borderRadius: 6, border: '1px solid #333' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#fff' }}>lyric_manifest.json (ZIP에 없을 때 · 선택)</span>
@@ -2206,9 +2202,9 @@ export default function App() {
               (startStage === 'clean_score' && (!resumeCleanScoreFile || !resumeLyricManifestFile)) ||
               (startStage === 'omr_hitl' && !resumeOmrWorkFile) ||
               (startStage === 'lyric_inject' && (!resumeOmrWorkFile || !resumeLyricManifestFile)) ||
-              !health?.omrEngineReady ||
+              ((startStage === 'full' || startStage === 'clean_score') && !health?.omrEngineReady) ||
               busy ||
-              (pipelineMode === 'font_separator' && health?.fontSeparatorDepsOk === false)
+              ((startStage === 'full' || startStage === 'clean_score') && pipelineMode === 'font_separator' && health?.fontSeparatorDepsOk === false)
             }
             onClick={() =>
               void runBatchWith(files, health, autoSave).catch((err: unknown) => {

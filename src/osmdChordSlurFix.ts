@@ -103,9 +103,13 @@ export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): 
           if (!startNote || !endNote) continue;
 
           const voiceEntry = startNote.ParentVoiceEntry;
-          const pitched = voiceEntry.Notes.filter((n) => !n.isRest());
-          if (pitched.length < 2) continue;
-          if (voiceEntry.StemDirection !== STEM_UP) continue;
+          const pitched = voiceEntry?.Notes ? voiceEntry.Notes.filter((n) => !n.isRest()) : [];
+          const isChord = pitched.length >= 2 && voiceEntry.StemDirection === STEM_UP;
+          const endArts = (endNote as unknown as { Articulations?: unknown[] }).Articulations ?? [];
+          const startArts = (startNote as unknown as { Articulations?: unknown[] }).Articulations ?? [];
+          const hasArticulationConflict = endArts.length > 0 || startArts.length > 0;
+
+          if (!isChord && !hasArticulationConflict) continue;
 
           const placement = slur.PlacementXml ?? gSlur.placement ?? PLACEMENT_BELOW;
           if (placement !== PLACEMENT_ABOVE && placement !== PLACEMENT_BELOW) continue;

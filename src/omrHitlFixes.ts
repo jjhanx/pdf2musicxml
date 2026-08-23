@@ -48,6 +48,8 @@ export type OmrHitlFix = {
   directionType?: 'dynamics' | 'words' | 'rehearsal' | 'segno' | 'coda' | 'fine' | 'dacapo' | 'dalsegno' | 'tocoda' | 'wedge';
   directionValue?: string;
   placement?: 'above' | 'below';
+  defaultY?: number;
+  distance?: string;
   ornament?: string;
   /** 진행 제어 — 마디 처음(start) / 마디 끝(end). above/below보다 우선. */
   measureAnchor?: 'start' | 'end';
@@ -181,6 +183,8 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.tieEnd ?? '',
     fix.slurEnd ?? '',
     fix.articulation ?? '',
+    fix.defaultY ?? '',
+    fix.distance ?? '',
     fix.ornament ?? '',
     fix.fermataType ?? '',
     fix.actualNotes ?? '',
@@ -297,6 +301,8 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     if (fix.directionValue) parts.push(fix.directionValue);
     if (fix.placement === 'above') parts.push('위');
     if (fix.placement === 'below') parts.push('아래');
+    if (fix.distance) parts.push(`거리: ${fix.distance}`);
+    else if (fix.defaultY != null) parts.push(`y=${fix.defaultY}`);
   }
   if (fix.kind === 'addOrnament' || fix.kind === 'removeOrnament') {
     if (fix.ornament) parts.push(fix.ornament);

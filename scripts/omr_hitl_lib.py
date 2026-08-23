@@ -723,7 +723,15 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
             for art in arts:
                 name = _local(art)
                 placement = art.get("placement")
-                articulations.append(f"{name}({placement})" if placement else name)
+                dy = art.get("default-y")
+                if placement and dy:
+                    articulations.append(f"{name}({placement},y={dy})")
+                elif placement:
+                    articulations.append(f"{name}({placement})")
+                elif dy:
+                    articulations.append(f"{name}(y={dy})")
+                else:
+                    articulations.append(name)
         for orns in notations.findall(_q(ns, "ornaments")):
             for orn in orns:
                 name = _local(orn)
@@ -2004,6 +2012,78 @@ def _default_articulation_placement(note: ET.Element, ns: str) -> str | None:
         return "below"
     if stem_dir == "down":
         return "above"
+    return None
+
+
+def _calc_safe_articulation_default_y(
+    note: ET.Element,
+    ns: str,
+    placement: str,
+    distance: str | None = None,
+    custom_dy: int | float | None = None,
+) -> int | None:
+    """오선 및 이음줄(slur)과의 겹침을 방지하는 안전한 default-y 좌표 산출."""
+    if custom_dy is not None:
+        try:
+            return int(round(float(custom_dy)))
+        except (ValueError, TypeError):
+            pass
+
+    staff_n = _note_staff_number(note, ns) or 1
+    has_below_slur = False
+    has_above_slur = False
+    for nots in note.findall(_q(ns, "notations")):
+        for slur in nots.findall(_q(ns, "slur")):
+            spl = (slur.get("placement") or "").strip().lower()
+            if spl == "below":
+                has_below_slur = True
+            elif spl == "above":
+                has_above_slur = True
+
+    stem_el = note.find(_q(ns, "stem"))
+    stem_dir = (stem_el.text or "").strip().lower() if stem_el is not None and stem_el.text else ""
+
+    dist = (distance or "").strip().lower()
+
+    if placement == "below":
+        if staff_n == 2:
+            # 2스태프 아래쪽 (보통 -90 ~ -125)
+            if dist == "very-far":
+                return -125
+            elif dist == "far" or has_below_slur:
+                return -105
+            elif dist == "close":
+                return -80
+            return -95
+        else:
+            # 1스태프 아래쪽 (보통 -25 ~ -65)
+            if dist == "very-far":
+                return -65
+            elif dist == "far" or has_below_slur:
+                return -45
+            elif dist == "close":
+                return -25
+            return -45 if has_below_slur else -35
+    elif placement == "above":
+        if staff_n == 2:
+            # 2스태프 위쪽 (보통 -35 ~ 0)
+            if dist == "very-far":
+                return 0
+            elif dist == "far" or has_above_slur or stem_dir == "up":
+                return -10
+            elif dist == "close":
+                return -35
+            return -15 if has_above_slur else -25
+        else:
+            # 1스태프 위쪽 (보통 25 ~ 65)
+            if dist == "very-far":
+                return 65
+            elif dist == "far" or has_above_slur or stem_dir == "up":
+                return 45
+            elif dist == "close":
+                return 25
+            return 45 if has_above_slur else 35
+
     return None
 
 
@@ -5811,12 +5891,16 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 return False
         art_el = ET.SubElement(arts, _q(ns, art))
         placement = str(fix.get("placement") or "").strip().lower()
-        if placement in ("above", "below"):
-            art_el.set("placement", placement)
-        else:
+        if placement not in ("above", "below"):
             auto = _default_articulation_placement(note, ns)
-            if auto:
-                art_el.set("placement", auto)
+            placement = auto or "below"
+        art_el.set("placement", placement)
+
+        custom_dy = fix.get("defaultY")
+        dist = fix.get("distance")
+        dy = _calc_safe_articulation_default_y(note, ns, placement, distance=dist, custom_dy=custom_dy)
+        if dy is not None:
+            art_el.set("default-y", str(dy))
         return True
 
     if kind == "setArticulationPlacement":
@@ -5828,7 +5912,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         art = str(fix.get("articulation") or "").strip().lower().split("(")[0].replace("_", "-")
         placement = str(fix.get("placement") or "").strip().lower()
-        if art not in _ARTICULATION_TAGS or placement not in ("above", "below"):
+        custom_dy = fix.get("defaultY")
+        dist = fix.get("distance")
+        if art not in _ARTICULATION_TAGS:
             return False
         note = notes[idx]
         changed = False
@@ -5837,10 +5923,19 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 for el in arts:
                     if _local(el).lower().replace("_", "-") != art:
                         continue
-                    if el.get("placement") == placement:
-                        continue
-                    el.set("placement", placement)
-                    changed = True
+                    effective_placement = placement if placement in ("above", "below") else (el.get("placement") or "below")
+                    if el.get("placement") != effective_placement:
+                        el.set("placement", effective_placement)
+                        changed = True
+                    dy = _calc_safe_articulation_default_y(note, ns, effective_placement, distance=dist, custom_dy=custom_dy)
+                    if dy is not None:
+                        if el.get("default-y") != str(dy):
+                            el.set("default-y", str(dy))
+                            changed = True
+                    elif custom_dy is not None:
+                        if el.get("default-y") != str(custom_dy):
+                            el.set("default-y", str(custom_dy))
+                            changed = True
         return changed
 
     if kind == "addOrnament":

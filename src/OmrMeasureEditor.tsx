@@ -145,9 +145,23 @@ function articulationIdsFromEl(arts: string[] | undefined): string[] {
 }
 
 function markPlacementOf(raw: string): 'above' | 'below' | null {
-  if (/\(above\)/.test(raw)) return 'above';
-  if (/\(below\)/.test(raw)) return 'below';
+  if (/\(above/.test(raw)) return 'above';
+  if (/\(below/.test(raw)) return 'below';
   return null;
+}
+
+function markDefaultYOf(raw: string): number | null {
+  const m = raw.match(/y=(-?\d+(?:\.\d+)?)/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function markDistanceLevelOf(raw: string): string {
+  const dy = markDefaultYOf(raw);
+  if (dy == null) return 'auto';
+  if (dy <= -55 || dy >= 55) return 'very-far';
+  if (dy <= -40 || dy >= 40) return 'far';
+  if (dy >= -30 && dy <= 30) return 'close';
+  return 'auto';
 }
 
 function defaultArticulationPlacement(stem?: string | null): 'above' | 'below' {
@@ -2594,6 +2608,7 @@ function MeasureNoteEditor({
   const [artPlacement, setArtPlacement] = useState<'above' | 'below'>(() =>
     defaultArticulationPlacement(el.stem),
   );
+  const [artDistance, setArtDistance] = useState<'auto' | 'far' | 'very-far' | 'close'>('auto');
   const [pendingOrnamentIds, setPendingOrnamentIds] = useState<string[]>([]);
   type GraceDraftItem = {
     step: string;
@@ -2612,6 +2627,7 @@ function MeasureNoteEditor({
     setPendingArtIds([]);
     setPendingArtPlacement({});
     setArtPlacement(defaultArticulationPlacement(el.stem));
+    setArtDistance('auto');
     setPendingOrnamentIds([]);
     const p = parsePitch(el.pitch);
     setPitchStep(p.step);
@@ -2759,6 +2775,7 @@ function MeasureNoteEditor({
       {(chordLeaderEl?.articulations ?? []).map((art) => {
         const name = art.split('(')[0];
         const currentPl = markPlacementOf(art);
+        const currentDist = markDistanceLevelOf(art);
         const selectPl = currentPl ?? defaultArticulationPlacement(chordLeaderEl?.stem ?? el.stem);
         const beamSide = (chordLeaderEl?.stem ?? el.stem) === 'up' ? 'above' : (chordLeaderEl?.stem ?? el.stem) === 'down' ? 'below' : null;
         const likelyTupletDigit =
@@ -2798,12 +2815,36 @@ function MeasureNoteEditor({
                     noteIndex: chordLeaderIdx,
                     articulation: name,
                     placement: next,
+                    distance: currentDist !== 'auto' ? currentDist : undefined,
                   });
                 }}
                 style={{ marginLeft: 4 }}
               >
                 <option value="above">위</option>
                 <option value="below">아래</option>
+              </select>
+            </label>
+            <label className="omr-measure-inline-field">
+              거리
+              <select
+                value={currentDist}
+                onChange={(e) => {
+                  const nextDist = e.target.value;
+                  onFix({
+                    kind: 'setArticulationPlacement',
+                    noteIndex: chordLeaderIdx,
+                    articulation: name,
+                    placement: selectPl,
+                    distance: nextDist,
+                  });
+                }}
+                style={{ marginLeft: 4 }}
+                title="오선 및 이음줄(Slur)과의 수직 거리"
+              >
+                <option value="auto">자동 (기본)</option>
+                <option value="far">멀리 (이음줄 피함)</option>
+                <option value="very-far">더 멀리</option>
+                <option value="close">가까이</option>
               </select>
             </label>
           </span>
@@ -2842,6 +2883,20 @@ function MeasureNoteEditor({
                   <option value="below">아래</option>
                 </select>
               </label>
+              <label className="omr-measure-inline-field">
+                거리
+                <select
+                  value={artDistance}
+                  onChange={(e) => setArtDistance(e.target.value as 'auto' | 'far' | 'very-far' | 'close')}
+                  style={{ marginLeft: 4 }}
+                  title="오선 및 이음줄(Slur)과의 수직 거리"
+                >
+                  <option value="auto">자동 (기본)</option>
+                  <option value="far">멀리 (이음줄 피함)</option>
+                  <option value="very-far">더 멀리</option>
+                  <option value="close">가까이</option>
+                </select>
+              </label>
               <label className="omr-measure-inline-field omr-measure-articulation-add">
                 표 더 추가
                 <select
@@ -2856,6 +2911,7 @@ function MeasureNoteEditor({
                       noteIndex: chordLeaderIdx,
                       articulation: art,
                       placement: artPlacement,
+                      distance: artDistance !== 'auto' ? artDistance : undefined,
                     });
                   }}
                 >

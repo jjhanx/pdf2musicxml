@@ -1261,6 +1261,10 @@ function elementTitle(
   const tuplet = el.timeMod
     ? ` ${el.timeMod === '3:2' ? '세잇단' : `잇단 ${el.timeMod}`}${el.tuplet === 'start' ? '▸' : el.tuplet === 'stop' ? '◂' : ''}`
     : '';
+  const artSource =
+    el.chord && _noteEls.length
+      ? _noteEls.find((n) => n.index === chordLeaderIndex(el, _noteEls)) ?? el
+      : el;
   const arts = artSource.articulations?.length
     ? ` [${artSource.articulations
         .map((a) => {

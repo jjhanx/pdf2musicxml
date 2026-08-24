@@ -212,17 +212,32 @@ function noteHasArticulation(note: Element, articulation: string): boolean {
 function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFix): Element | null {
   const notes = [...measure.children].filter((c) => xmlLocalName(c) === 'note');
   if (!notes.length) return null;
+
+  // 1) 정확한 noteIndex 매칭
   if (fix.noteIndex != null && notes[fix.noteIndex]) {
     const target = notes[fix.noteIndex]!;
     if (!fix.articulation || noteHasArticulation(target, fix.articulation)) {
       return target;
     }
   }
+
+  // 2) staffWithinPart가 있으면 해당 staff의 note 중 articulation 보유 음표 매칭
   if (fix.articulation) {
+    if (fix.staffWithinPart != null) {
+      const staffNotes = notes.filter((n) => {
+        const s = n.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
+        return s ? parseInt(s, 10) === fix.staffWithinPart : fix.staffWithinPart === 1;
+      });
+      for (const note of staffNotes) {
+        if (noteHasArticulation(note, fix.articulation)) return note;
+      }
+    }
+
     for (const note of notes) {
       if (noteHasArticulation(note, fix.articulation)) return note;
     }
   }
+
   if (fix.noteIndex != null && notes[fix.noteIndex]) return notes[fix.noteIndex]!;
   return null;
 }
@@ -288,8 +303,9 @@ export function applyArticulationPlacementFixesToPreviewXml(
   for (const fix of artFixes) {
     const part = parts.find((p) => previewPartIdsMatch(p.getAttribute('id')?.trim() ?? '', fix.partId));
     if (!part) continue;
+    const targetMxl = String(fix.measureMxl ?? (fix as { measure?: unknown }).measure ?? '').trim();
     const measure = [...part.children].find(
-      (c) => xmlLocalName(c) === 'measure' && c.getAttribute('number')?.trim() === String(fix.measureMxl),
+      (c) => xmlLocalName(c) === 'measure' && (c.getAttribute('number')?.trim() === targetMxl || targetMxl === ''),
     );
     if (!measure) continue;
     const note = findNoteForArticulationFix(measure, fix);

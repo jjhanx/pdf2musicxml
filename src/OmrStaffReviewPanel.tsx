@@ -650,8 +650,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const filteredXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
-    return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
-  }, [rawXml, scoreParts, activeStaffFilter]);
+    const base = buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
+    if (!pendingFixes.length) return base;
+    return applyArticulationPlacementFixesToPreviewXml(base, pendingFixes);
+  }, [rawXml, scoreParts, activeStaffFilter, pendingFixes]);
   const selectedPrinted = selectedMeasure
     ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
     : null;

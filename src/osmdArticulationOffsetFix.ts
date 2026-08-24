@@ -347,14 +347,19 @@ function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
 /** StaveNote SVG 내부에서 실제 Articulation Glyph (path, text, use) 요소 추출 (덧줄·타이·그레이스노트 제외). */
 export function findArticulationElementsInStavenote(stavenote: Element): Element[] {
   const out: Element[] = [];
-  const mods = stavenote.querySelectorAll(':scope > .vf-modifiers, :scope .vf-modifiers');
+  const mods = stavenote.querySelectorAll(':scope > .vf-modifiers');
   for (const mod of mods) {
-    if (mod.closest('.vf-ledgers, .vf-stavetie')) continue;
-    // 만약 mod 안에 다른 그룹(ledgers, stavetie 등)이 전혀 없다면, mod 자체 또는 path 추출
     const paths = [...mod.querySelectorAll('path')].filter((p) => {
+      // 자식 stavenote(그레이스노트), 음표머리, 타이, 덧줄 내부의 path는 무조건 제외
+      if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam')) return false;
+      const parentStavenote = p.closest('.vf-stavenote');
+      if (parentStavenote && parentStavenote !== stavenote) return false;
       const d = p.getAttribute('d') ?? '';
       // 덧줄(단순 가로 직선 L x y) 제외
-      return !( /L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) && !/[Cc]/.test(d) && (d.match(/M/g) ?? []).length < 2 );
+      if (/L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) && !/[Cc]/.test(d) && (d.match(/M/g) ?? []).length < 2) {
+        return false;
+      }
+      return true;
     });
     if (paths.length > 0) {
       out.push(...paths);

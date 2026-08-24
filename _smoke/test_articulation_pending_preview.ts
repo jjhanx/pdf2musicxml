@@ -9,6 +9,7 @@ import { mergeFix, newFixId, type OmrHitlFix } from '../src/omrHitlFixes';
 import { registerOsmdPreviewXmlForAlign } from '../src/osmdOnsetColumnAlignFix';
 import {
   applyOsmdArticulationOffsetsDetailed,
+  graphicNotePitchLabel,
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
   staffSpacePxFromHost,
@@ -16,6 +17,7 @@ import {
 import {
   applyArticulationPlacementFixesToPreviewXml,
   HITL_ART_DISTANCE_ATTR,
+  pitchLabelsMatch,
 } from '../shared/musicXmlArticulationDistance';
 import {
   prepareArticulationDefaultYForOsmdPreview,
@@ -304,6 +306,73 @@ async function main() {
     console.log('overlay fixes without xml patch', { yAuto, yFive });
     if (yFive <= yAuto) {
       throw new Error(`overlay 5칸(${yFive}) should exceed auto(${yAuto})`);
+    }
+  }
+
+  // 6) 조표 F♯: vfpitch=F4 여도 halfTone으로 pending F#4와 매칭
+  {
+    const fromKeySig = graphicNotePitchLabel({
+      vfpitch: ['fn/4', 'n'],
+      sourceNote: { halfTone: 66 },
+    });
+    if (!fromKeySig || !pitchLabelsMatch(fromKeySig, 'F#4')) {
+      throw new Error(`key-sig F# must match via halfTone, got ${fromKeySig}`);
+    }
+    if (graphicNotePitchLabel({ vfpitch: ['fn/4'] }) !== 'F4') {
+      throw new Error('vfpitch-only F4 fallback');
+    }
+  }
+
+  // 7) PR/PL 분할 XML + pending(P5, F#4) — 실제 미리보기 파트 id
+  {
+    const prOnly = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P5__PR"><part-name>PR</part-name></score-part></part-list><part id="P5__PR"><measure number="19"><attributes><divisions>1</divisions><key><fifths>1</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><notations><articulations><accent placement="below"/></articulations></notations></note><note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><type>quarter</type><notations><articulations><accent placement="below"/></articulations></notations></note></measure></part></score-partwise>`;
+    const dom = setupDom();
+    const host = dom.window.document.createElement('div');
+    host.style.width = '900px';
+    host.style.height = '400px';
+    dom.window.document.body.appendChild(host);
+    const osmd = new OSMD(host, { autoResize: false, backend: 'svg', drawTitle: false });
+    registerOsmdPreviewXmlForAlign(osmd, prOnly);
+    registerOsmdPreviewXmlForArticulation(osmd, prOnly);
+    await osmd.load(prepareArticulationDefaultYForOsmdPreview(prOnly));
+    await osmd.render();
+    registerOsmdArticulationFixes(osmd, []);
+    applyOsmdArticulationOffsetsDetailed(host, osmd);
+    const yAuto = Math.max(
+      0,
+      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
+        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
+      ),
+    );
+    registerOsmdArticulationFixes(osmd, [
+      {
+        kind: 'setArticulationPlacement',
+        partId: 'P5',
+        measureMxl: '19',
+        noteIndex: 2,
+        articulation: 'accent',
+        placement: 'below',
+        distance: '5',
+        pitchStep: 'F',
+        pitchOctave: 4,
+        pitchAlter: 1,
+      },
+    ]);
+    applyOsmdArticulationOffsetsDetailed(host, osmd);
+    const mods = host.querySelectorAll('.vf-modifiers');
+    const yFive = Math.max(
+      0,
+      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
+        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
+      ),
+    );
+    host.remove();
+    console.log('PR-split overlay F#4', { yAuto, yFive, modifiers: mods.length });
+    if (mods.length === 0) {
+      throw new Error('PR-split OSMD produced no .vf-modifiers');
+    }
+    if (yFive <= yAuto) {
+      throw new Error(`PR-split overlay 5칸(${yFive}) should exceed auto(${yAuto})`);
     }
   }
 

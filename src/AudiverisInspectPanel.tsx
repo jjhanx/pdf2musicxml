@@ -2363,14 +2363,27 @@ export function OsmdBlock({
     if (!host || !osmd?.IsReadyToRender()) return;
     registerOsmdPreviewXmlForArticulation(osmd, hint);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
-    // 동기 적용 + 다음 프레임(OSMD autoResize가 transform을 덮어쓴 뒤) 한 번 더
-    applyOsmdArticulationOffsets(host, osmd);
-    const t = requestAnimationFrame(() => {
-      if (!hostRef.current || !osmdRef.current?.IsReadyToRender()) return;
-      registerOsmdArticulationFixes(osmdRef.current, articulationFixesRef.current);
-      applyOsmdArticulationOffsets(hostRef.current, osmdRef.current);
+    const reapply = () => {
+      const h = hostRef.current;
+      const o = osmdRef.current;
+      if (!h || !o?.IsReadyToRender()) return;
+      registerOsmdArticulationFixes(o, articulationFixesRef.current);
+      applyOsmdArticulationOffsets(h, o);
+    };
+    reapply();
+    let innerRaf = 0;
+    const t1 = requestAnimationFrame(() => {
+      reapply();
+      innerRaf = requestAnimationFrame(reapply);
     });
-    return () => cancelAnimationFrame(t);
+    const t2 = window.setTimeout(reapply, 80);
+    const t3 = window.setTimeout(reapply, 240);
+    return () => {
+      cancelAnimationFrame(t1);
+      cancelAnimationFrame(innerRaf);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+    };
   }, [articulationHintXml, xml, articulationFixes, articulationFixesKey]);
 
   useEffect(() => {

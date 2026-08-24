@@ -164,14 +164,14 @@ function markDistanceLevelOf(raw: string): string {
 }
 
 const ARTICULATION_DISTANCE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'auto', label: '보통 (기본 2.5칸)' },
-  { value: 'close', label: '가까이 (1칸)' },
-  { value: 'far', label: '멀리 (4칸)' },
-  { value: 'very-far', label: '매우 멀리 (6칸 / mf 수준)' },
+  { value: 'auto', label: '보통 (기본 4칸)' },
+  { value: 'close', label: '가까이 (2칸)' },
+  { value: 'far', label: '멀리 (5칸)' },
+  { value: 'very-far', label: '매우 멀리 (6.5칸 / mf 수준)' },
   { value: '3', label: '3칸' },
   { value: '4', label: '4칸' },
   { value: '5', label: '5칸' },
-  { value: '6', label: '6칸 (mf 수준)' },
+  { value: '6', label: '6칸' },
   { value: '7', label: '7칸' },
   { value: '8', label: '8칸' },
 ];

@@ -15,12 +15,19 @@ export function normalizeArticulationDistanceTier(raw: string | null | undefined
 }
 
 /** preset tier → staff-space 배수 (mf Direction default-y=-65 / 6.5칸 참조). */
-export function articulationTierMultiplier(tier: ArticulationDistanceTier | null): number {
-  const t = tier ?? 'auto';
-  if (t === 'very-far') return 6; // mf Direction(-65 tenths = 6.5칸) 수준으로 시원하게 띄움
-  if (t === 'far') return 4;
-  if (t === 'close') return 1;
-  return 2.5; // 기본 auto: 2.5칸 (이음줄/오선 충돌 완전 방지)
+export function articulationTierMultiplier(tier: ArticulationDistanceTier | string | null | undefined): number {
+  const t = (tier || '').trim().toLowerCase();
+  switch (t) {
+    case 'close':
+      return 2.0;
+    case 'far':
+      return 5.0;
+    case 'very-far':
+      return 6.5; // mf Direction(-65 tenths = 6.5칸) 수준으로 시원하게 띄움
+    case 'auto':
+    default:
+      return 4.0; // 기본 auto: 4.0칸 (이음줄 곡선 두께 24px + 여백 완전 회피)
+  }
 }
 
 /**
@@ -93,86 +100,74 @@ export function articulationDistanceSelectValue(
   const d = (distance || '').trim();
   if (d) return d.toLowerCase();
   const spaces = articulationStaffSpacesFromHint(null, defaultY);
-  if (Math.abs(spaces - 1) < 0.01) return 'close';
-  if (Math.abs(spaces - 2.5) < 0.01) return 'auto';
-  if (Math.abs(spaces - 4) < 0.01) return 'far';
-  if (Math.abs(spaces - 6) < 0.01 || Math.abs(spaces - 6.5) < 0.01) return 'very-far';
+  if (Math.abs(spaces - 2) < 0.01) return 'close';
+  if (Math.abs(spaces - 4) < 0.01) return 'auto';
+  if (Math.abs(spaces - 5) < 0.01) return 'far';
+  if (Math.abs(spaces - 6.5) < 0.01 || Math.abs(spaces - 6) < 0.01) return 'very-far';
   if (Number.isFinite(spaces) && spaces > 0) {
-    if (spaces >= 5.5 && spaces <= 6.5) return '6';
+    if (spaces >= 6 && spaces <= 7) return '6';
     return String(Math.round(spaces));
   }
   return 'auto';
 }
 
-const STEP_SEMITONE: Record<string, number> = {
-  C: 0,
-  D: 2,
-  E: 4,
-  F: 5,
-  G: 7,
-  A: 9,
-  B: 11,
-};
-
-export function midiFromPitchLabel(pitch: string): number | null {
-  const m = /^([A-Ga-g])([#b]?)(\d+)$/.exec(pitch.trim());
-  if (!m) return null;
-  const step = m[1]!.toUpperCase();
-  const acc = m[2] ?? '';
-  const oct = parseInt(m[3]!, 10);
-  if (!Number.isFinite(oct) || !(step in STEP_SEMITONE)) return null;
-  const alter = acc === '#' ? 1 : acc === 'b' ? -1 : 0;
-  return (oct + 1) * 12 + STEP_SEMITONE[step]! + alter;
-}
-
-export function pitchLabelsMatch(a: string, b: string): boolean {
-  if (a === b) return true;
-  const softB = (p: string) => p.replace(/^Bb(\d+)$/i, 'B$1');
-  if (softB(a) === softB(b)) return true;
-  const ma = midiFromPitchLabel(a);
-  const mb = midiFromPitchLabel(b);
-  return ma != null && mb != null && ma === mb;
-}
-
-/** @deprecated articulationStaffSpacesFromHint 사용 */
-export function articulationTierFromDefaultY(defaultY: number | null | undefined): ArticulationDistanceTier | null {
-  const spaces = articulationStaffSpacesFromHint(null, defaultY);
-  if (spaces === 0.5) return 'close';
-  if (spaces === 1) return 'auto';
-  if (spaces === 2) return 'far';
-  if (spaces === 3) return 'very-far';
-  return null;
-}
-
-type ArticulationPreviewFix = {
-  kind: string;
-  partId: string;
-  measureMxl: string;
-  noteIndex?: number;
-  articulation?: string;
-  placement?: string;
-  distance?: string;
-};
-
 function xmlLocalName(el: Element): string {
   return typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
 }
 
-export function hitlPreviewPartIdsMatch(xmlPartId: string, fixPartId: string): boolean {
-  return previewPartIdsMatch(xmlPartId, fixPartId);
+export type ArticulationPreviewFix = {
+  kind: string;
+  partId: string;
+  measureMxl: string | number;
+  noteIndex?: number;
+  articulation?: string;
+  placement?: 'above' | 'below' | null;
+  distance?: string | null;
+};
+
+/**
+ * 피치 라벨 비교 (예: "F#4" vs "F#4", "Db4" vs "C#4" 이명동음).
+ */
+export function pitchLabelsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return true;
+  const na = a.trim().toUpperCase().replace(/♯/g, '#').replace(/♭/g, 'B');
+  const nb = b.trim().toUpperCase().replace(/♯/g, '#').replace(/♭/g, 'B');
+  if (na === nb) return true;
+
+  const parse = (s: string) => {
+    const m = /^([A-G])([#B]*)(\d+)$/.exec(s);
+    if (!m) return null;
+    const step = m[1]!;
+    const acc = m[2]!;
+    const oct = parseInt(m[3]!, 10);
+    const stepOffset: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+    let semi = (oct + 1) * 12 + (stepOffset[step] ?? 0);
+    for (const ch of acc) {
+      if (ch === '#') semi += 1;
+      if (ch === 'B') semi -= 1;
+    }
+    return semi;
+  };
+
+  const sa = parse(na);
+  const sb = parse(nb);
+  if (sa != null && sb != null) return sa === sb;
+  return na.replace(/[#B]/g, '') === nb.replace(/[#B]/g, '');
 }
 
-function previewPartIdsMatch(xmlPartId: string, fixPartId: string): boolean {
-  const base = fixPartId.replace(/__PR$|__PL$/, '');
+export function previewPartIdsMatch(xmlPartId: string, fixPartId: string): boolean {
+  if (!xmlPartId || !fixPartId) return false;
   const xBase = xmlPartId.replace(/__PR$|__PL$/, '');
+  const fBase = fixPartId.replace(/__PR$|__PL$/, '');
   return (
     xmlPartId === fixPartId ||
-    xmlPartId === base ||
-    xBase === base ||
+    xBase === fBase ||
     fixPartId === `${xBase}__PR` ||
     fixPartId === `${xBase}__PL`
   );
 }
+
+export const hitlPreviewPartIdsMatch = previewPartIdsMatch;
 
 function defaultArticulationPlacementFromNote(note: Element): 'above' | 'below' {
   const stem = note.querySelector(':scope > stem, :scope > *|stem')?.textContent?.trim().toLowerCase();

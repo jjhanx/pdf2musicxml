@@ -51,6 +51,13 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
 }
 
+export function resetOsmdArticulationOffsets(host: HTMLElement): void {
+  for (const el of host.querySelectorAll('[data-art-base-transform]')) {
+    el.setAttribute('transform', el.getAttribute('data-art-base-transform') ?? '');
+    el.removeAttribute('data-art-shift-y');
+  }
+}
+
 export function applyArticulationShiftY(el: Element, deltaY: number): void {
   if (!el.hasAttribute('data-art-base-transform')) {
     el.setAttribute('data-art-base-transform', el.getAttribute('transform') ?? '');
@@ -356,12 +363,15 @@ export function findArticulationElementsInStavenote(stavenote: Element): Element
       if (parentStavenote && parentStavenote !== stavenote) return false;
       const d = p.getAttribute('d') ?? '';
       // 덧줄(단순 가로 직선 L x y) 제외
-      if (/L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) && !/[Cc]/.test(d) && (d.match(/M/g) ?? []).length < 2) {
+      if (/L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) && !/[CQcqs]/.test(d) && (d.match(/M/g) ?? []).length < 2) {
         return false;
       }
       return true;
     });
-    if (paths.length > 0) {
+    const curved = paths.filter((p) => /[CQcqsA]/.test(p.getAttribute('d') ?? ''));
+    if (curved.length > 0) {
+      out.push(...curved);
+    } else if (paths.length > 0) {
       out.push(...paths);
     } else if (mod.querySelector('text, use')) {
       out.push(mod);
@@ -454,6 +464,8 @@ export function applyOsmdArticulationOffsetsDetailed(
   const empty = { shifted: 0, modifierCount: 0, hintCount: 0, staffSpacePx: 0 };
   if (!host?.querySelector('svg')) return empty;
 
+  resetOsmdArticulationOffsets(host);
+
   const xml = resolveArticulationPreviewXml(osmd);
   if (!xml?.trim()) return empty;
 
@@ -490,12 +502,29 @@ export function applyOsmdArticulationOffsetsDetailed(
           const gves = se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? [];
           for (const gve of gves) {
             const staveNote = (gve as { mVexFlowStaveNote?: { modifiers?: unknown[]; attrs?: { el?: Element }; getAttribute?: (k: string) => unknown } }).mVexFlowStaveNote;
-            const mods = (staveNote?.modifiers ?? []) as Array<{
+            const rawMods = staveNote?.modifiers as unknown;
+            const mods = (Array.isArray(rawMods)
+              ? rawMods
+              : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
+                ? (rawMods as { list: unknown[] }).list
+                : []) as Array<{
               getCategory?: () => string;
+              category?: string;
               getPosition?: () => number;
               type?: string;
             }>;
-            const artMods = mods.filter((m) => m.getCategory?.() === 'articulations');
+            const artMods = mods.filter((m) => {
+              const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
+              const t = String(m.type ?? '').toLowerCase();
+              return (
+                cat.includes('articulation') ||
+                t.includes('accent') ||
+                t.includes('staccato') ||
+                t.includes('tenuto') ||
+                t.includes('marcato') ||
+                /^a[>.\-^@+]/.test(t)
+              );
+            });
             if (!artMods.length) continue;
 
             const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
@@ -525,7 +554,16 @@ export function applyOsmdArticulationOffsetsDetailed(
                 return true;
               });
 
-              const matchedHint = candidateHints[0] ?? (artMods.length === 1 && artEls.length === 1 ? hints.find((h) => !usedHints.has(h) && (!artMod?.type || articulationModTypeMatchesHint(artMod.type, h.tag))) : undefined);
+              // 1차: pitch+type 매칭
+            let matchedHint = candidateHints[0];
+            // 2차: type만 매칭 (pitch 불일치 — OSMD가 chord leader에 modifier 붙이는 경우)
+            if (!matchedHint) {
+              matchedHint = hints.find((h) => {
+                if (usedHints.has(h)) return false;
+                if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
+                return true;
+              });
+            }
               if (!matchedHint) continue;
 
               const isAbove = (artMod?.getPosition?.() === 3) || matchedHint.placement === 'above';

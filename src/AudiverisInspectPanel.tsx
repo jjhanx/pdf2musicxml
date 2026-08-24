@@ -2013,6 +2013,7 @@ function scheduleOsmdRender(opts: {
 
 export function OsmdBlock({
   xml,
+  articulationHintXml,
   zoom,
   onMeasureClick,
   highlightMeasureMxl,
@@ -2024,6 +2025,8 @@ export function OsmdBlock({
   printedMeasureMarkers,
 }: {
   xml: string;
+  /** pending articulation 거리 — OSMD 재로드 없이 SVG만 이동 */
+  articulationHintXml?: string;
   zoom: number;
   onMeasureClick?: (info: OsmdMeasureClickInfo) => void;
   highlightMeasureMxl?: number | null;
@@ -2041,6 +2044,7 @@ export function OsmdBlock({
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const xmlRef = useRef(xml);
+  const hintXmlRef = useRef(articulationHintXml ?? xml);
   const zoomRef = useRef(zoom);
   const xmlGenRef = useRef(0);
   /** Invalidates overlapping RAF/resize paint attempts (load-complete vs zoom). */
@@ -2085,7 +2089,8 @@ export function OsmdBlock({
   useEffect(() => {
     xmlRef.current = xml;
     zoomRef.current = zoom;
-  }, [xml, zoom]);
+    hintXmlRef.current = articulationHintXml ?? xml;
+  }, [xml, zoom, articulationHintXml]);
 
   const syncPartLabelOverlay = useCallback(() => {
     const host = hostRef.current;
@@ -2193,8 +2198,8 @@ export function OsmdBlock({
       verbatimPreview === true,
       printedMeasureMarkersRef.current,
     );
-    /** SVG hint(거리 tier)용 — sanitize 전 filteredXml(pending articulation attr 포함) */
-    registerOsmdPreviewXmlForArticulation(osmd, xml);
+    /** SVG 거리 hint — pending 보정은 OSMD load XML과 분리 */
+    registerOsmdPreviewXmlForArticulation(osmd, hintXmlRef.current);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
     const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(xmlForOsmd);
     void osmd
@@ -2331,6 +2336,16 @@ export function OsmdBlock({
       },
     });
   }, [zoom, afterOsmdRender]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    const osmd = osmdRef.current;
+    const hint = articulationHintXml ?? xml;
+    hintXmlRef.current = hint;
+    if (!host || !osmd?.IsReadyToRender()) return;
+    registerOsmdPreviewXmlForArticulation(osmd, hint);
+    applyOsmdArticulationOffsets(host, osmd);
+  }, [articulationHintXml, xml]);
 
   useEffect(() => {
     const host = hostRef.current;

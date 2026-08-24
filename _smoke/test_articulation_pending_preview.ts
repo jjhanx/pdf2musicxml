@@ -171,6 +171,41 @@ async function main() {
     throw new Error(`staffPx too small: ${auto.staffPx}`);
   }
 
+  // 4) OSMD 재로드 없이 hint XML만 바꿔 SVG shift (실제 UI 경로)
+  {
+    const dom = setupDom();
+    const host = dom.window.document.createElement('div');
+    host.style.width = '900px';
+    host.style.height = '600px';
+    dom.window.document.body.appendChild(host);
+    const repaired = repairTimelineForOsmdPreview(autoXml);
+    const osmd = new OSMD(host, { autoResize: false, backend: 'svg', drawTitle: false });
+    registerOsmdPreviewXmlForAlign(osmd, repaired);
+    registerOsmdPreviewXmlForArticulation(osmd, autoXml);
+    await osmd.load(prepareArticulationDefaultYForOsmdPreview(repaired));
+    await osmd.render();
+    applyOsmdArticulationOffsetsDetailed(host, osmd);
+    const yAuto = Math.max(
+      0,
+      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
+        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
+      ),
+    );
+    registerOsmdPreviewXmlForArticulation(osmd, fiveRaw);
+    applyOsmdArticulationOffsetsDetailed(host, osmd);
+    const yFive = Math.max(
+      0,
+      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
+        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
+      ),
+    );
+    host.remove();
+    console.log('reapply without reload', { yAuto, yFive });
+    if (yFive <= yAuto) {
+      throw new Error(`reapply 5칸(${yFive}) should exceed auto(${yAuto})`);
+    }
+  }
+
   console.log('articulation pending preview e2e ok');
 }
 

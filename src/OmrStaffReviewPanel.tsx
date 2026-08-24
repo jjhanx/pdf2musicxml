@@ -387,19 +387,31 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     }
   }, [staffFilter, partIdForStaff]);
 
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistFixesDebounced = useCallback(
+    (fixes: OmrHitlFix[]) => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = setTimeout(() => {
+        persistTimerRef.current = null;
+        void persistFixes(fixes).catch((e) => {
+          console.error(e);
+          alert(e instanceof Error ? e.message : String(e));
+        });
+      }, 400);
+    },
+    [persistFixes],
+  );
+
   const addFix = useCallback(
     (fix: OmrHitlFix) => {
       setPendingFixes((prev) => {
         const next = mergeFix(prev, fix);
         if (next === prev) return prev;
-        void persistFixes(next).catch((e) => {
-          console.error(e);
-          alert(e instanceof Error ? e.message : String(e));
-        });
+        persistFixesDebounced(next);
         return next;
       });
     },
-    [persistFixes],
+    [persistFixesDebounced],
   );
 
   const removeFix = useCallback(
@@ -648,12 +660,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     resolvePartIdForStaffIndex,
   ]);
 
-  const filteredXml = useMemo(() => {
+  const basePreviewXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
-    const base = buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
-    if (!pendingFixes.length) return base;
-    return applyArticulationPlacementFixesToPreviewXml(base, pendingFixes);
-  }, [rawXml, scoreParts, activeStaffFilter, pendingFixes]);
+    return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
+  }, [rawXml, scoreParts, activeStaffFilter]);
+  const articulationHintXml = useMemo(() => {
+    if (!basePreviewXml || !pendingFixes.length) return basePreviewXml;
+    return applyArticulationPlacementFixesToPreviewXml(basePreviewXml, pendingFixes);
+  }, [basePreviewXml, pendingFixes]);
   const selectedPrinted = selectedMeasure
     ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
     : null;
@@ -796,10 +810,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                     에러 복사
                   </button>
                 </div>
-              ) : filteredXml ? (
+              ) : basePreviewXml ? (
                 <OsmdBlock
                   key={`osmd-preview-${editorKey}`}
-                  xml={filteredXml}
+                  xml={basePreviewXml}
+                  articulationHintXml={articulationHintXml}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
                   verbatimPreview

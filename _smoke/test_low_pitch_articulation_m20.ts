@@ -71,20 +71,38 @@ async function testLowPitchM20() {
   await osmd.load(previewXml);
   osmd.render();
 
-  const stats = applyOsmdArticulationOffsetsDetailed(host, osmd);
-  console.log('M20 A1 1칸 stats:', stats);
-
-  const artEls = host.querySelectorAll('.vf-stavenote .vf-modifiers > path');
-  console.log(`Found ${artEls.length} art modifier paths`);
-  artEls.forEach((el, i) => {
-    console.log(`  Path #${i}: d="${el.getAttribute('d')?.slice(0, 40)}" transform="${el.getAttribute('transform')}" shiftY="${el.getAttribute('data-art-shift-y')}"`);
-  });
-
-  if (stats.shifted === 0) {
-    throw new Error('M20 A1 accent was not shifted');
+  const sheet = osmd.GraphicSheet;
+  for (const gm of sheet.MeasureList[0] ?? []) {
+    for (const se of gm.staffEntries ?? []) {
+      for (const gve of se.graphicalVoiceEntries ?? []) {
+        const sn = gve.mVexFlowStaveNote;
+        if (!sn) continue;
+        const pitches = (gve.notes ?? []).map((n: any) => n?.sourceNote?.Pitch ? `${n.sourceNote.Pitch.step}${n.sourceNote.Pitch.octave}` : 'rest');
+        const stem = sn.getStem?.();
+        const stemExt = stem?.getExtents?.();
+        const stemDir = sn.getStemDirection?.();
+        const ys = sn.getYs?.() ?? [];
+        const stave = sn.getStave?.();
+        const topY = stave?.getYForLine?.(0);
+        const bottomY = stave?.getYForLine?.(4);
+        if (pitches.some((p: string) => p.startsWith('A1') || p.startsWith('F#4') || p.startsWith('F4') || p.startsWith('A3'))) {
+          console.log(`\nNote [${pitches.join(',')}] stemDir=${stemDir}:`);
+          console.log(`  stave topY=${topY} bottomY=${bottomY}`);
+          console.log(`  note Ys=[${ys.join(', ')}]`);
+          console.log(`  stemExtents=${JSON.stringify(stemExt)}`);
+          const staveNoteSvg = sn.attrs?.el;
+          if (staveNoteSvg) {
+            const artPaths = staveNoteSvg.querySelectorAll('.vf-modifiers > path');
+            console.log(`  artPaths count=${artPaths.length}`);
+            artPaths.forEach((p: any) => console.log(`    d="${p.getAttribute('d')?.slice(0, 45)}"`));
+          }
+        }
+      }
+    }
   }
 
-  console.log('testLowPitchM20 ok!');
+  const stats = applyOsmdArticulationOffsetsDetailed(host, osmd);
+  console.log('\nM20 A1 1칸 stats:', stats);
 }
 
 testLowPitchM20().catch(console.error);

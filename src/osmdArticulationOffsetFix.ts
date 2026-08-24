@@ -420,6 +420,33 @@ function getSvgElementBaseY(el: Element): number | null {
   return null;
 }
 
+/** VexFlow StaveNote의 음표 머리 및 기둥 끝을 포함한 최상단/최하단 Y 경계선 추출 */
+function getStaveNoteExtentsY(staveNote: any): { topY: number | null; bottomY: number | null } {
+  if (!staveNote) return { topY: null, bottomY: null };
+  const ys = typeof staveNote.getYs === 'function' ? (staveNote.getYs() as number[]) : [];
+  if (!ys.length) return { topY: null, bottomY: null };
+
+  let minNoteY = Math.min(...ys) - 5;
+  let maxNoteY = Math.max(...ys) + 5;
+
+  const stem = typeof staveNote.getStem === 'function' ? staveNote.getStem() : staveNote.stem;
+  if (stem && typeof stem.getExtents === 'function') {
+    const ext = stem.getExtents();
+    if (ext && typeof ext.topY === 'number' && typeof ext.baseY === 'number') {
+      minNoteY = Math.min(minNoteY, ext.topY, ext.baseY);
+      maxNoteY = Math.max(maxNoteY, ext.topY, ext.baseY);
+    }
+  } else if (typeof staveNote.getStemExtents === 'function') {
+    const ext = staveNote.getStemExtents();
+    if (ext && typeof ext.topY === 'number' && typeof ext.baseY === 'number') {
+      minNoteY = Math.min(minNoteY, ext.topY, ext.baseY);
+      maxNoteY = Math.max(maxNoteY, ext.topY, ext.baseY);
+    }
+  }
+
+  return { topY: minNoteY, bottomY: maxNoteY };
+}
+
 export function applyOsmdArticulationOffsetsDetailed(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
@@ -503,7 +530,7 @@ export function applyOsmdArticulationOffsetsDetailed(
 
               const isAbove = (artMod?.getPosition?.() === 3) || matchedHint.placement === 'above';
 
-              // Stave 기준 절대 위치 계산 (오선 맨 윗줄 / 맨 아랫줄 기준)
+              // Stave 기준선 (오선 맨 윗줄 / 맨 아랫줄)
               const stave = (staveNote as { getStave?: () => any; stave?: any })?.getStave?.() ??
                             (staveNote as { stave?: any })?.stave ??
                             (gm as { getVFStave?: (n?: number) => any; stave?: any })?.getVFStave?.(staffWithinPart) ??
@@ -512,11 +539,33 @@ export function applyOsmdArticulationOffsetsDetailed(
               const bottomY = typeof stave?.getYForLine === 'function' ? stave.getYForLine(4) : null;
               const lineSpacing = (typeof stave?.getSpacingBetweenLines === 'function' ? stave.getSpacingBetweenLines() : null) || staffSpacePx || 10;
 
+              // 음표 머리 및 기둥 끝을 포함한 외곽 Y 경계선
+              const noteExtents = getStaveNoteExtentsY(staveNote);
+
+              let baseY: number | null = null;
+              if (isAbove) {
+                if (topY != null && noteExtents.topY != null) {
+                  baseY = Math.min(topY, noteExtents.topY);
+                } else if (topY != null) {
+                  baseY = topY;
+                } else if (noteExtents.topY != null) {
+                  baseY = noteExtents.topY;
+                }
+              } else {
+                if (bottomY != null && noteExtents.bottomY != null) {
+                  baseY = Math.max(bottomY, noteExtents.bottomY);
+                } else if (bottomY != null) {
+                  baseY = bottomY;
+                } else if (noteExtents.bottomY != null) {
+                  baseY = noteExtents.bottomY;
+                }
+              }
+
               const curY = getSvgElementBaseY(artEl);
-              if (curY != null && topY != null && bottomY != null) {
+              if (curY != null && baseY != null) {
                 const targetY = isAbove
-                  ? (topY - matchedHint.staffSpaces * lineSpacing)
-                  : (bottomY + matchedHint.staffSpaces * lineSpacing);
+                  ? (baseY - matchedHint.staffSpaces * lineSpacing)
+                  : (baseY + matchedHint.staffSpaces * lineSpacing);
                 const shiftY = Math.round(targetY - curY);
                 applyArticulationShiftY(artEl, shiftY);
                 shiftedCount += 1;
@@ -547,8 +596,6 @@ export function applyOsmdArticulationOffsetsDetailed(
     hintCount: totalHints,
     staffSpacePx,
   };
-
-  return stats;
 }
 
 /** @deprecated */

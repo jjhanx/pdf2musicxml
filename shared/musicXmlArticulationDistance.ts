@@ -10,7 +10,7 @@ export const ARTICULATION_STAFF_GAP_BASE = 10;
 export type ArticulationDistanceTier = 'auto' | 'close' | 'far' | 'very-far';
 
 export const COMMON_DISTANCE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'auto', label: '보통 (자동 / 2.5칸)' },
+  { value: 'auto', label: '보통 (자동 / 1칸)' },
   { value: '1', label: '1칸 (10px)' },
   { value: '2', label: '2칸 (20px)' },
   { value: '3', label: '3칸 (30px)' },
@@ -36,12 +36,12 @@ export function articulationTierMultiplier(tier: ArticulationDistanceTier | stri
     case 'close':
       return 1.0;
     case 'far':
-      return 4.0;
+      return 3.0;
     case 'very-far':
       return 5.0;
     case 'auto':
     default:
-      return 2.5; // 기본 auto: 2.5칸 (자연스럽고 이음줄도 회피하는 표준 거리)
+      return 1.0; // 기본 auto: 음표/기둥 외곽 기준 1칸 (약 10px) 띄움
   }
 }
 

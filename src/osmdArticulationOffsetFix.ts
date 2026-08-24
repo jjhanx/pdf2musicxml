@@ -552,12 +552,10 @@ export function applyOsmdArticulationOffsets(
 }
 
 /**
- * OSMD 미리보기 — pending 거리는 .vf-modifiers의 SVG transform 속성으로 이동.
- * CSS `translate`는 SVG `<g>`에서 무시되는 경우가 많음. Accent 글리프는 path 좌표로 그려져
- * 그룹에 transform이 없어도 `translate(0, dy)`면 반드시 움직인다.
+ * OSMD 미리보기 Accent 거리 — 호스트 `--hitl-art-dy` + index.css `transform:translateY`.
+ * SVG는 CSS `translate` 개별 속성을 무시하지만 `transform`은 적용되며,
+ * 스타일시트라 OSMD가 .vf-modifiers를 교체해도 다시 먹는다.
  */
-const HITL_OSMD_TF = 'data-hitl-osmd-tf';
-const HITL_LAST_TF = 'data-hitl-last-tf';
 
 export function normalizeSvgTransform(raw: string): string {
   return (raw ?? '')
@@ -583,24 +581,6 @@ export function composeSvgTranslateY(base: string, dy: number): string {
 export function applySvgDyToVfModifiers(host: HTMLElement, dy: number): number {
   let n = 0;
   for (const g of host.querySelectorAll('.vf-modifiers')) {
-    const cur = g.getAttribute('transform') ?? '';
-    const last = g.getAttribute(HITL_LAST_TF) ?? '';
-    const stillOurs = normalizeSvgTransform(cur) === normalizeSvgTransform(last);
-    const osmdBase = stillOurs ? (g.getAttribute(HITL_OSMD_TF) ?? '') : cur;
-    g.setAttribute(HITL_OSMD_TF, osmdBase);
-    const next = composeSvgTranslateY(osmdBase, dy);
-    g.setAttribute(HITL_LAST_TF, next);
-    if (normalizeSvgTransform(cur) !== normalizeSvgTransform(next)) {
-      if (next) g.setAttribute('transform', next);
-      else g.removeAttribute('transform');
-    }
-    const sty = (g as SVGElement).style;
-    // OSMD.render()는 g를 새로 만들며 attribute를 지움. 같은 노드면 CSS transform이 attribute보다 이김.
-    if (!osmdBase.trim() && dy) {
-      sty.setProperty('transform', `translate(0px, ${dy}px)`, 'important');
-    } else {
-      sty.removeProperty('transform');
-    }
     g.setAttribute('data-art-shift-y', String(dy));
     n += 1;
   }

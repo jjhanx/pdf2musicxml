@@ -686,8 +686,11 @@ button.btn-muted {
   -webkit-user-select: none;
 }
 
-/* Accent 거리는 SVG transform 속성으로 적용(osmdArticulationOffsetFix).
- * CSS `translate`는 SVG g에서 무시되어  dist 드롭다운이 안 움직였음. */
+/* Accent 거리: SVG는 CSS `translate` 속성을 무시함. `transform: translateY()`는 Chrome에서 동작하고,
+ * 스타일시트 규칙이라 OSMD가 .vf-modifiers를 새로 만들어도 호스트 변수만 있으면 다시 적용됨. */
+.omr-osmd-clickable[data-hitl-art-dy]:not([data-hitl-art-dy='0']) .vf-modifiers {
+  transform: translateY(var(--hitl-art-dy, 0px)) !important;
+}
 
 /* OSMD phantom measure@number — lyric_manifest 인쇄 번호만 HTML overlay로 표시 */
 .modal-light .omr-mxl-osmd-frame svg g.measure-number,

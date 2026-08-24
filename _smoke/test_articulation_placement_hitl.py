@@ -58,7 +58,7 @@ arts = snap["notes"][0]["articulations"]
 assert any(a.startswith("tenuto(above") for a in arts), arts
 assert any(a.startswith("staccato(below") for a in arts), arts
 
-# slur(below) + accent(below) — 오선 gap 30×1 (slur와 무관)
+# slur(below) + accent(below) — 오선 기본 gap 2.5칸
 slur_accent = ET.fromstring(
     """<score-partwise version="3.1">
 <part id="P1"><measure number="1">
@@ -73,9 +73,30 @@ ns_sa = _ns(slur_accent)
 m = slur_accent.find(".//{*}measure")
 note = list_note_elements(m, ns_sa)[0]
 dy = _calc_safe_articulation_default_y(note, ns_sa, "below")
-assert dy == int(round(-ARTICULATION_STAFF_GAP_BASE * 4.0)), dy
+assert dy == int(round(-ARTICULATION_STAFF_GAP_BASE * 2.5)), dy
 normalize_articulations_in_root(slur_accent)
 acc = slur_accent.find(".//{*}accent")
-assert acc is not None and int(acc.get("default-y")) == int(round(-ARTICULATION_STAFF_GAP_BASE * 4.0))
+assert acc is not None and int(acc.get("default-y")) == int(round(-ARTICULATION_STAFF_GAP_BASE * 2.5))
 
-print("articulation placement hitl ok")
+# Direction placement & distance test
+assert apply_fix(
+    slur_accent,
+    "",
+    {
+        "kind": "addNoteDirection",
+        "partId": "P1",
+        "measureMxl": "1",
+        "noteIndex": 0,
+        "directionType": "dynamics",
+        "directionValue": "mf",
+        "placement": "below",
+        "distance": "3",
+    },
+)
+dyn = slur_accent.find(".//{*}dynamics")
+assert dyn is not None
+assert dyn.get("placement") == "below"
+assert dyn.get("default-y") == "-30"
+assert dyn.get("data-hitl-dir-distance") == "3"
+
+print("articulation & direction placement hitl ok")

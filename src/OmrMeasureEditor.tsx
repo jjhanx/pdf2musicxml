@@ -164,16 +164,15 @@ function markDistanceLevelOf(raw: string): string {
 }
 
 const ARTICULATION_DISTANCE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'auto', label: '보통 (기본 4칸)' },
-  { value: 'close', label: '가까이 (2칸)' },
-  { value: 'far', label: '멀리 (5칸)' },
-  { value: 'very-far', label: '매우 멀리 (6.5칸 / mf 수준)' },
-  { value: '3', label: '3칸' },
-  { value: '4', label: '4칸' },
-  { value: '5', label: '5칸' },
-  { value: '6', label: '6칸' },
-  { value: '7', label: '7칸' },
-  { value: '8', label: '8칸' },
+  { value: 'auto', label: '보통 (자동 / 2.5칸)' },
+  { value: '1', label: '1칸 (10px)' },
+  { value: '2', label: '2칸 (20px)' },
+  { value: '3', label: '3칸 (30px)' },
+  { value: '4', label: '4칸 (40px)' },
+  { value: '5', label: '5칸 (50px)' },
+  { value: '6', label: '6칸 (60px)' },
+  { value: '7', label: '7칸 (70px)' },
+  { value: '8', label: '8칸 (80px)' },
 ];
 
 function defaultArticulationPlacement(stem?: string | null): 'above' | 'below' {
@@ -380,6 +379,8 @@ export type MeasureDirectionEl = {
   placement?: string | null;
   directionType?: string;
   directionValue?: string;
+  distance?: string | null;
+  defaultY?: number | null;
   /** `<notations><dynamics>` — 음표 #index에 붙음 */
   attachedToNoteIndex?: number;
   fromNoteDynamics?: boolean;
@@ -439,6 +440,8 @@ export type NoteDirectionInfo = {
   directionType: 'dynamics' | 'words' | 'rehearsal';
   directionValue: string;
   placement?: 'above' | 'below';
+  distance?: string | null;
+  defaultY?: number | null;
 };
 
 export type MeasureElement = MeasureNoteEl;
@@ -986,6 +989,7 @@ function MeasureDirectionsEditor({
                   kind: 'setDirectionPlacement',
                   directionIndex: d.directionIndex,
                   placement: e.target.value as 'above' | 'below',
+                  distance: d.distance ?? undefined,
                 })
               }
               style={{ fontSize: '0.82rem', padding: '0.35rem 0.4rem' }}
@@ -993,6 +997,25 @@ function MeasureDirectionsEditor({
             >
               <option value="above">위 (above)</option>
               <option value="below">아래 (below)</option>
+            </select>
+            <select
+              value={articulationDistanceSelectValue(d.distance, d.defaultY)}
+              onChange={(e) =>
+                onFix({
+                  kind: 'setDirectionPlacement',
+                  directionIndex: d.directionIndex,
+                  placement: (d.placement || 'above') as 'above' | 'below',
+                  distance: e.target.value,
+                })
+              }
+              style={{ fontSize: '0.82rem', padding: '0.35rem 0.4rem' }}
+              title="거리 (칸수)"
+            >
+              {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
             <button
               type="button"
@@ -2476,12 +2499,14 @@ function NoteDirectionEditor({
   const [mode, setMode] = useState<'none' | 'dynamics' | 'words' | 'rehearsal'>('none');
   const [dynValue, setDynValue] = useState('mf');
   const [dirPlacement, setDirPlacement] = useState<'above' | 'below'>('above');
+  const [dirDistance, setDirDistance] = useState('auto');
   const [textValue, setTextValue] = useState('');
 
   useEffect(() => {
     setMode('none');
     setDynValue('mf');
     setDirPlacement('above');
+    setDirDistance('auto');
     setTextValue('');
   }, [noteIndex]);
 
@@ -2493,6 +2518,7 @@ function NoteDirectionEditor({
       directionType: mode,
       directionValue: mode === 'dynamics' ? dynValue : textValue.trim() || (mode === 'rehearsal' ? 'A' : ' '),
       placement: dirPlacement,
+      distance: dirDistance,
     });
   };
 
@@ -2515,6 +2541,7 @@ function NoteDirectionEditor({
                     directionType: d.directionType,
                     directionValue: d.directionValue,
                     placement: e.target.value as 'above' | 'below',
+                    distance: d.distance ?? undefined,
                   })
                 }
                 style={{ marginLeft: 4, fontSize: '0.78rem', padding: '1px 2px' }}
@@ -2522,6 +2549,27 @@ function NoteDirectionEditor({
               >
                 <option value="above">위 (↑)</option>
                 <option value="below">아래 (↓)</option>
+              </select>
+              <select
+                value={articulationDistanceSelectValue(d.distance, d.defaultY)}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setNoteDirectionPlacement',
+                    noteIndex,
+                    directionType: d.directionType,
+                    directionValue: d.directionValue,
+                    placement: (d.placement || (d.directionType === 'dynamics' ? 'below' : 'above')) as 'above' | 'below',
+                    distance: e.target.value,
+                  })
+                }
+                style={{ marginLeft: 4, fontSize: '0.78rem', padding: '1px 2px' }}
+                title="거리 (칸수)"
+              >
+                {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <button
                 type="button"
@@ -2555,7 +2603,7 @@ function NoteDirectionEditor({
           onChange={(e) => {
             const v = e.target.value;
             setMode(v === '' ? 'none' : (v as 'dynamics' | 'words' | 'rehearsal'));
-            if (v === 'dynamics') setDirPlacement('above');
+            if (v === 'dynamics') setDirPlacement('below');
           }}
         >
           <option value="">종류 선택</option>
@@ -2582,17 +2630,33 @@ function NoteDirectionEditor({
         />
       ) : null}
       {mode !== 'none' ? (
-        <label className="omr-measure-inline-field">
-          위치
-          <select
-            value={dirPlacement}
-            onChange={(e) => setDirPlacement(e.target.value as 'above' | 'below')}
-            aria-label="direction placement"
-          >
-            <option value="above">음표 위</option>
-            <option value="below">음표 아래</option>
-          </select>
-        </label>
+        <>
+          <label className="omr-measure-inline-field">
+            위치
+            <select
+              value={dirPlacement}
+              onChange={(e) => setDirPlacement(e.target.value as 'above' | 'below')}
+              aria-label="direction placement"
+            >
+              <option value="above">음표 위</option>
+              <option value="below">음표 아래</option>
+            </select>
+          </label>
+          <label className="omr-measure-inline-field">
+            거리
+            <select
+              value={dirDistance}
+              onChange={(e) => setDirDistance(e.target.value)}
+              aria-label="direction distance"
+            >
+              {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
       ) : null}
       <button
         type="button"

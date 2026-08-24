@@ -1,12 +1,25 @@
-/** HITL articulation 거리 — MusicXML accent 등 (미리보기·MXL 공통). */
+/** HITL articulation & direction 거리 — MusicXML accent, dynamics, words 등 (미리보기·MXL 공통). */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 
 export const HITL_ART_DISTANCE_ATTR = 'data-hitl-art-distance';
+export const HITL_DIR_DISTANCE_ATTR = 'data-hitl-dir-distance';
 
-/** MusicXML articulation default-y: 오선 1칸(staff space) = 10 tenths. */
+/** MusicXML default-y 기본 단위: 오선 1칸(staff space) = 10 tenths = 약 10px. */
 export const ARTICULATION_STAFF_GAP_BASE = 10;
 
 export type ArticulationDistanceTier = 'auto' | 'close' | 'far' | 'very-far';
+
+export const COMMON_DISTANCE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'auto', label: '보통 (자동 / 2.5칸)' },
+  { value: '1', label: '1칸 (10px)' },
+  { value: '2', label: '2칸 (20px)' },
+  { value: '3', label: '3칸 (30px)' },
+  { value: '4', label: '4칸 (40px)' },
+  { value: '5', label: '5칸 (50px)' },
+  { value: '6', label: '6칸 (60px)' },
+  { value: '7', label: '7칸 (70px)' },
+  { value: '8', label: '8칸 (80px)' },
+];
 
 export function normalizeArticulationDistanceTier(raw: string | null | undefined): ArticulationDistanceTier | null {
   const d = (raw || '').trim().toLowerCase();
@@ -14,25 +27,25 @@ export function normalizeArticulationDistanceTier(raw: string | null | undefined
   return null;
 }
 
-/** preset tier → staff-space 배수 (mf Direction default-y=-65 / 6.5칸 참조). */
+/** preset tier → staff-space 배수 (1칸 = 10 tenths). */
 export function articulationTierMultiplier(tier: ArticulationDistanceTier | string | null | undefined): number {
   const t = (tier || '').trim().toLowerCase();
   switch (t) {
     case 'close':
-      return 2.0;
+      return 1.0;
     case 'far':
-      return 5.0;
+      return 4.0;
     case 'very-far':
-      return 6.5; // mf Direction(-65 tenths = 6.5칸) 수준으로 시원하게 띄움
+      return 5.0;
     case 'auto':
     default:
-      return 4.0; // 기본 auto: 4.0칸 (이음줄 곡선 두께 24px + 여백 완전 회피)
+      return 2.5; // 기본 auto: 2.5칸 (자연스럽고 이음줄도 회피하는 표준 거리)
   }
 }
 
 /**
  * distance attr → staff-space 배수.
- * preset(auto/close/far/very-far) 또는 숫자(`4`, `spaces:5`, `6x`) 지원.
+ * preset(auto/close/far/very-far) 또는 숫자(`1`, `2`, `3`, `4`, `5`, `spaces:5`, `6x`) 지원.
  */
 export function parseArticulationStaffSpaces(raw: string | null | undefined): number | null {
   const d = (raw || '').trim().toLowerCase();
@@ -100,12 +113,16 @@ export function articulationDistanceSelectValue(
   const d = (distance || '').trim();
   if (d) return d.toLowerCase();
   const spaces = articulationStaffSpacesFromHint(null, defaultY);
-  if (Math.abs(spaces - 2) < 0.01) return 'close';
-  if (Math.abs(spaces - 4) < 0.01) return 'auto';
-  if (Math.abs(spaces - 5) < 0.01) return 'far';
-  if (Math.abs(spaces - 6.5) < 0.01 || Math.abs(spaces - 6) < 0.01) return 'very-far';
+  if (Math.abs(spaces - 1) < 0.01) return '1';
+  if (Math.abs(spaces - 2) < 0.01) return '2';
+  if (Math.abs(spaces - 2.5) < 0.01) return 'auto';
+  if (Math.abs(spaces - 3) < 0.01) return '3';
+  if (Math.abs(spaces - 4) < 0.01) return '4';
+  if (Math.abs(spaces - 5) < 0.01) return '5';
+  if (Math.abs(spaces - 6) < 0.01) return '6';
+  if (Math.abs(spaces - 7) < 0.01) return '7';
+  if (Math.abs(spaces - 8) < 0.01) return '8';
   if (Number.isFinite(spaces) && spaces > 0) {
-    if (spaces >= 6 && spaces <= 7) return '6';
     return String(Math.round(spaces));
   }
   return 'auto';

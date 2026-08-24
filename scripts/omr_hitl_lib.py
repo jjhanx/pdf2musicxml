@@ -824,135 +824,121 @@ def _is_navigation_direction_type(kind: str) -> bool:
 
 
 def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    dist = direction.get(DIR_DISTANCE_ATTR) or direction.get("data-hitl-art-distance")
+    dy_str = direction.get("default-y")
+    pl = (direction.get("placement") or "").strip().lower()
+
     dtype = direction.find(_q(ns, "direction-type"))
     if dtype is None:
         text = _direction_text(direction)
-        return {"directionType": "words", "directionValue": text or ""}
-    dyn = dtype.find(_q(ns, "dynamics"))
-    if dyn is not None:
-        tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
-        if tags:
-            pl = (dyn.get("placement") or direction.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT).strip()
-            out: dict[str, Any] = {"directionType": "dynamics", "directionValue": tags[0]}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-    has_segno_tag = any(dt.find(_q(ns, "segno")) is not None for dt in direction.findall(_q(ns, "direction-type")))
-    has_coda_tag = any(dt.find(_q(ns, "coda")) is not None for dt in direction.findall(_q(ns, "direction-type")))
+        out = {"directionType": "words", "directionValue": text or ""}
+    else:
+        dyn = dtype.find(_q(ns, "dynamics"))
+        if dyn is not None:
+            tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
+            if tags:
+                pl = (dyn.get("placement") or direction.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT).strip().lower()
+                dist = dyn.get(DIR_DISTANCE_ATTR) or dist
+                dy_str = dyn.get("default-y") or dy_str
+                out = {"directionType": "dynamics", "directionValue": tags[0]}
+        
+        if not out:
+            has_segno_tag = any(dt.find(_q(ns, "segno")) is not None for dt in direction.findall(_q(ns, "direction-type")))
+            has_coda_tag = any(dt.find(_q(ns, "coda")) is not None for dt in direction.findall(_q(ns, "direction-type")))
 
-    # sound 속성 — MusicXML 표준 To Coda / Fine / D.C. / D.S.
-    for sound in direction.findall(_q(ns, "sound")):
-        if sound.get("tocoda"):
-            pl = (direction.get("placement") or "").strip()
-            val = "비표준 기호 혼합(Coda)" if has_coda_tag else "tocoda"
-            out = {"directionType": "tocoda", "directionValue": val}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-        if (sound.get("fine") or "").strip().lower() in ("yes", "true", "1"):
-            pl = (direction.get("placement") or "").strip()
-            out = {"directionType": "fine", "directionValue": "fine"}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-        if (sound.get("dacapo") or "").strip().lower() in ("yes", "true", "1"):
-            pl = (direction.get("placement") or "").strip()
-            out = {"directionType": "dacapo", "directionValue": "dacapo"}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-        if sound.get("dalsegno"):
-            pl = (direction.get("placement") or "").strip()
-            val = "비표준 기호 혼합(Segno)" if has_segno_tag else "dalsegno"
-            out = {"directionType": "dalsegno", "directionValue": val}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-    # 빈 <segno/> / <coda/> (To Coda의 뒤따르는 <coda/>는 sound/words로 이미 처리)
-    for tag in ("segno", "coda"):
-        if dtype.find(_q(ns, tag)) is not None:
-            words_txt = ""
-            for dt in direction.findall(_q(ns, "direction-type")):
-                w = dt.find(_q(ns, "words"))
-                if w is not None and w.text:
-                    words_txt += " " + w.text.strip()
-            words_txt = words_txt.strip()
-            
-            if tag == "coda" and re.search(r"to\s*coda", words_txt, re.I):
-                pl = (direction.get("placement") or "").strip()
-                out = {"directionType": "tocoda", "directionValue": "비표준 기호 혼합(To Coda+기호)"}
-                if pl in ("above", "below"):
-                    out["placement"] = pl
-                return out
-                
-            val = tag
-            if words_txt:
-                if re.search(r"d\.s\.", words_txt, re.I) and tag == "segno":
-                    val = "비표준 기호 혼합(D.S.+기호)"
-                    tag = "dalsegno"
-                else:
-                    val = f"{tag} + '{words_txt}'"
+            # sound 속성 — MusicXML 표준 To Coda / Fine / D.C. / D.S.
+            for sound in direction.findall(_q(ns, "sound")):
+                if sound.get("tocoda"):
+                    val = "비표준 기호 혼합(Coda)" if has_coda_tag else "tocoda"
+                    out = {"directionType": "tocoda", "directionValue": val}
+                    break
+                if (sound.get("fine") or "").strip().lower() in ("yes", "true", "1"):
+                    out = {"directionType": "fine", "directionValue": "fine"}
+                    break
+                if (sound.get("dacapo") or "").strip().lower() in ("yes", "true", "1"):
+                    out = {"directionType": "dacapo", "directionValue": "dacapo"}
+                    break
+                if sound.get("dalsegno"):
+                    val = "비표준 기호 혼합(Segno)" if has_segno_tag else "dalsegno"
+                    out = {"directionType": "dalsegno", "directionValue": val}
+                    break
+
+        if not out:
+            # 빈 <segno/> / <coda/> (To Coda의 뒤따르는 <coda/>는 sound/words로 이미 처리)
+            for tag in ("segno", "coda"):
+                if dtype.find(_q(ns, tag)) is not None:
+                    words_txt = ""
+                    for dt in direction.findall(_q(ns, "direction-type")):
+                        w = dt.find(_q(ns, "words"))
+                        if w is not None and w.text:
+                            words_txt += " " + w.text.strip()
+                    words_txt = words_txt.strip()
                     
-            pl = (direction.get("placement") or "").strip()
-            out = {"directionType": tag, "directionValue": val}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-    for tag in ("fine", "dacapo", "dalsegno", "tocoda"):
-        if dtype.find(_q(ns, tag)) is not None:
-            pl = (direction.get("placement") or "").strip()
-            out = {"directionType": tag, "directionValue": tag}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-    words = dtype.find(_q(ns, "words"))
-    if words is not None and words.text and words.text.strip():
-        txt = words.text.strip()
-        pl = (direction.get("placement") or "").strip()
-        low = txt.lower()
-        if re.search(r"to\s*coda", low):
-            out = {"directionType": "tocoda", "directionValue": "tocoda"}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-        if re.fullmatch(r"fine", low):
-            out = {"directionType": "fine", "directionValue": "fine"}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-        if re.fullmatch(r"d\.?\s*c\.?", low) or low.startswith("d.c"):
-            out = {"directionType": "dacapo", "directionValue": "dacapo"}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-        if re.fullmatch(r"d\.?\s*s\.?", low) or low.startswith("d.s"):
-            out = {"directionType": "dalsegno", "directionValue": "dalsegno"}
-            if pl in ("above", "below"):
-                out["placement"] = pl
-            return out
-        out = {"directionType": "words", "directionValue": txt}
-        if pl in ("above", "below"):
-            out["placement"] = pl
-        return out
-    reh = dtype.find(_q(ns, "rehearsal"))
-    if reh is not None:
-        pl = (direction.get("placement") or "").strip()
-        out = {"directionType": "rehearsal", "directionValue": (reh.text or "A").strip()}
-        if pl in ("above", "below"):
-            out["placement"] = pl
-        return out
-    wedge_type = _wedge_type_of(direction, ns)
-    if wedge_type:
-        pl = (direction.get("placement") or "").strip()
-        out = {"directionType": "wedge", "directionValue": wedge_type}
-        if pl in ("above", "below"):
-            out["placement"] = pl
-        return out
-    text = _direction_text(direction)
-    pl = (direction.get("placement") or "").strip()
-    out = {"directionType": "words", "directionValue": text or ""}
+                    if tag == "coda" and re.search(r"to\s*coda", words_txt, re.I):
+                        out = {"directionType": "tocoda", "directionValue": "비표준 기호 혼합(To Coda+기호)"}
+                        break
+                        
+                    val = tag
+                    if words_txt:
+                        if re.search(r"d\.s\.", words_txt, re.I) and tag == "segno":
+                            val = "비표준 기호 혼합(D.S.+기호)"
+                            tag = "dalsegno"
+                        else:
+                            val = f"{tag} + '{words_txt}'"
+                            
+                    out = {"directionType": tag, "directionValue": val}
+                    break
+
+        if not out:
+            for tag in ("fine", "dacapo", "dalsegno", "tocoda"):
+                if dtype.find(_q(ns, tag)) is not None:
+                    out = {"directionType": tag, "directionValue": tag}
+                    break
+
+        if not out:
+            words = dtype.find(_q(ns, "words"))
+            if words is not None and words.text and words.text.strip():
+                txt = words.text.strip()
+                dist = words.get(DIR_DISTANCE_ATTR) or dist
+                dy_str = words.get("default-y") or dy_str
+                low = txt.lower()
+                if re.search(r"to\s*coda", low):
+                    out = {"directionType": "tocoda", "directionValue": "tocoda"}
+                elif re.fullmatch(r"fine", low):
+                    out = {"directionType": "fine", "directionValue": "fine"}
+                elif re.fullmatch(r"d\.?\s*c\.?", low) or low.startswith("d.c"):
+                    out = {"directionType": "dacapo", "directionValue": "dacapo"}
+                elif re.fullmatch(r"d\.?\s*s\.?", low) or low.startswith("d.s"):
+                    out = {"directionType": "dalsegno", "directionValue": "dalsegno"}
+                else:
+                    out = {"directionType": "words", "directionValue": txt}
+
+        if not out:
+            reh = dtype.find(_q(ns, "rehearsal"))
+            if reh is not None:
+                dist = reh.get(DIR_DISTANCE_ATTR) or dist
+                dy_str = reh.get("default-y") or dy_str
+                out = {"directionType": "rehearsal", "directionValue": (reh.text or "A").strip()}
+
+        if not out:
+            wedge_type = _wedge_type_of(direction, ns)
+            if wedge_type:
+                out = {"directionType": "wedge", "directionValue": wedge_type}
+
+        if not out:
+            text = _direction_text(direction)
+            out = {"directionType": "words", "directionValue": text or ""}
+
     if pl in ("above", "below"):
         out["placement"] = pl
+    if dist:
+        out["distance"] = dist
+    if dy_str:
+        try:
+            out["defaultY"] = int(round(float(dy_str)))
+        except (ValueError, TypeError):
+            pass
     return out
 
 
@@ -964,9 +950,18 @@ def _read_note_direction_from_notations(note: ET.Element, ns: str) -> dict[str, 
         tags = [_local(c) for c in dyn if _local(c) in _DYNAMICS_TAGS]
         if tags:
             pl = (dyn.get("placement") or _DEFAULT_DYNAMICS_PLACEMENT).strip()
+            dist = dyn.get(DIR_DISTANCE_ATTR) or dyn.get("data-hitl-art-distance")
+            dy_str = dyn.get("default-y")
             out: dict[str, Any] = {"directionType": "dynamics", "directionValue": tags[0]}
             if pl in ("above", "below"):
                 out["placement"] = pl
+            if dist:
+                out["distance"] = dist
+            if dy_str:
+                try:
+                    out["defaultY"] = int(round(float(dy_str)))
+                except (ValueError, TypeError):
+                    pass
             return out
     return None
 
@@ -2057,30 +2052,43 @@ def _articulation_distance_from_el(el: ET.Element) -> str | None:
 def _set_articulation_distance_on_el(el: ET.Element, dist: str | None) -> None:
     if dist in (None, "", "auto"):
         el.attrib.pop(ART_DISTANCE_ATTR, None)
-    else:
-        el.set(ART_DISTANCE_ATTR, dist)
+DIR_DISTANCE_ATTR = "data-hitl-dir-distance"
 
 
 def _articulation_staff_spaces(dist: str | None) -> float:
     d = (dist or "").strip().lower()
     if d in (None, "", "auto"):
-        return 4.0
+        return 2.5
     if d == "very-far":
-        return 6.5
-    if d == "far":
         return 5.0
+    if d == "far":
+        return 4.0
     if d == "close":
-        return 2.0
+        return 1.0
     import re
 
     m = re.match(r"^(?:spaces?[:x])?(\d+(?:\.\d+)?)$", d.replace(" ", ""))
     if m:
         return float(m.group(1))
-    return 4.0
+    return 2.5
 
 
 def _articulation_tier_multiplier(dist: str | None) -> float:
     return _articulation_staff_spaces(dist)
+
+
+def _set_direction_distance_on_el(el: ET.Element, dist: str | None) -> None:
+    if dist in (None, "", "auto"):
+        if DIR_DISTANCE_ATTR in el.attrib:
+            del el.attrib[DIR_DISTANCE_ATTR]
+    else:
+        el.set(DIR_DISTANCE_ATTR, dist)
+
+
+def _calc_direction_default_y(placement: str, distance: str | None = None) -> int:
+    spaces = _articulation_staff_spaces(distance)
+    mag = int(round(ARTICULATION_STAFF_GAP_BASE * spaces))
+    return -mag if placement == "below" else mag
 
 
 def _calc_safe_articulation_default_y(
@@ -2599,18 +2607,24 @@ def _apply_note_direction(
     direction_type: str,
     direction_value: str,
     placement: str | None = None,
+    distance: str | None = None,
 ) -> bool:
     if note_idx < 0 or note_idx >= len(notes):
         return False
-    # _clear_note_direction(measure, notes, note_idx, ns)
     note = notes[note_idx]
     kind = (direction_type or "words").strip().lower()
     val = str(direction_value or "").strip()
+    pl = placement or ("below" if kind == "dynamics" else "above")
+    dy = _calc_direction_default_y(pl, distance)
     if kind == "dynamics":
         tag = val.lower() or "p"
-        if placement is None:
-            placement = _DEFAULT_DYNAMICS_PLACEMENT
-        _attach_dynamics_to_note(note, ns, tag, placement)
+        _attach_dynamics_to_note(note, ns, tag, pl)
+        # notations/dynamics에 default-y 및 distance 설정
+        for nots in note.findall(_q(ns, "notations")):
+            for dyn in nots.findall(_q(ns, "dynamics")):
+                dyn.set("placement", pl)
+                dyn.set("default-y", str(dy))
+                _set_direction_distance_on_el(dyn, distance)
         return True
     if not val and kind == "words":
         val = " "
@@ -2620,8 +2634,14 @@ def _apply_note_direction(
         kind,
         val,
         staff_n=staff_n,
-        placement=placement,
+        placement=pl,
     )
+    new_dir.set("default-y", str(dy))
+    _set_direction_distance_on_el(new_dir, distance)
+    dtype = new_dir.find(_q(ns, "direction-type"))
+    if dtype is not None:
+        for child in dtype:
+            child.set("default-y", str(dy))
     _insert_before_note_element(measure, ns, new_dir, note_idx)
     _attach_voice_to_direction_from_note(new_dir, ns, note)
     _copy_layout_from_note_to_direction(new_dir, note)
@@ -5496,6 +5516,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         placement = str(fix.get("placement") or "").strip().lower()
         if placement not in ("above", "below"):
             return False
+        dist_raw = fix.get("distance")
+        dist = None if dist_raw in (None, "", "auto") else str(dist_raw).strip().lower()
         try:
             direction_index = int(fix.get("directionIndex"))
         except (TypeError, ValueError):
@@ -5505,17 +5527,23 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         direction = directions[direction_index]
         direction.set("placement", placement)
+        dy = _calc_direction_default_y(placement, dist)
+        direction.set("default-y", str(dy))
+        _set_direction_distance_on_el(direction, dist)
         dtype = direction.find(_q(ns, "direction-type"))
         if dtype is not None:
-            dyn = dtype.find(_q(ns, "dynamics"))
-            if dyn is not None:
-                dyn.set("placement", placement)
+            for child in dtype:
+                child.set("placement", placement)
+                child.set("default-y", str(dy))
         return True
 
     if kind == "setNoteDirectionPlacement":
         placement = str(fix.get("placement") or "").strip().lower()
         if placement not in ("above", "below"):
             return False
+        dist_raw = fix.get("distance")
+        dist = None if dist_raw in (None, "", "auto") else str(dist_raw).strip().lower()
+        dy = _calc_direction_default_y(placement, dist)
         try:
             note_idx = int(fix.get("noteIndex"))
         except (TypeError, ValueError):
@@ -5530,6 +5558,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             for notations in note.findall(_q(ns, "notations")):
                 for dyn in notations.findall(_q(ns, "dynamics")):
                     dyn.set("placement", placement)
+                    dyn.set("default-y", str(dy))
+                    _set_direction_distance_on_el(dyn, dist)
                     changed = True
         children = list(measure)
         try:
@@ -5543,14 +5573,21 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 if dtype is not None:
                     if direction_type == "dynamics" and dtype.find(_q(ns, "dynamics")) is not None:
                         c.set("placement", placement)
+                        c.set("default-y", str(dy))
+                        _set_direction_distance_on_el(c, dist)
                         dyn = dtype.find(_q(ns, "dynamics"))
                         if dyn is not None:
                             dyn.set("placement", placement)
+                            dyn.set("default-y", str(dy))
+                            _set_direction_distance_on_el(dyn, dist)
                         changed = True
                     else:
                         mark = dtype.find(_q(ns, direction_type))
                         if mark is not None and (not direction_value or (mark.text or "").strip() == direction_value):
                             c.set("placement", placement)
+                            c.set("default-y", str(dy))
+                            _set_direction_distance_on_el(c, dist)
+                            mark.set("default-y", str(dy))
                             changed = True
             if _local(c) == "note":
                 break
@@ -5566,6 +5603,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     if kind in ("setNoteDirection", "addNoteDirection"):
         direction_type = str(fix.get("directionType") or "words").strip().lower()
         direction_value = str(fix.get("directionValue") or fix.get("detail") or "").strip()
+        dist_raw = fix.get("distance")
+        dist = None if dist_raw in (None, "", "auto") else str(dist_raw).strip().lower()
         try:
             note_idx = int(fix.get("noteIndex"))
         except (TypeError, ValueError):
@@ -5578,7 +5617,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if direction_type == "dynamics" and placement is None:
             placement = _DEFAULT_DYNAMICS_PLACEMENT
         return _apply_note_direction(
-            measure, notes, note_idx, ns, direction_type, direction_value, placement
+            measure, notes, note_idx, ns, direction_type, direction_value, placement, distance=dist
         )
 
     if kind == "removeNoteDirection":

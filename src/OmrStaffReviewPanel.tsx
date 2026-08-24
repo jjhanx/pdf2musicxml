@@ -398,9 +398,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         });
         return next;
       });
-      if (fix.kind === 'setArticulationPlacement' || fix.kind === 'addArticulation') {
-        setPreviewRevision((n) => n + 1);
-      }
     },
     [persistFixes],
   );
@@ -817,7 +814,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 </div>
               ) : filteredXml ? (
                 <OsmdBlock
-                  key={`osmd-preview-${previewRevision}-${articulationPreviewKey}`}
+                  key={`osmd-preview-${editorKey}`}
                   xml={filteredXml}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
@@ -909,7 +906,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           {editorPartId ? (
             <InspectPanelErrorBoundary>
               <OmrMeasureEditor
-                key={`${editorPartId}-${selectedMeasure.measureMxl}-${editorKey}-${previewRevision}`}
+                key={`${editorPartId}-${selectedMeasure.measureMxl}-${editorKey}`}
                 jobId={jobId}
                 partId={editorPartId}
                 measureMxl={selectedMeasure.measureMxl}

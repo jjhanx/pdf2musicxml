@@ -15,9 +15,6 @@ import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
-  applyArticulationPlacementFixesToPreviewXml,
-} from '../shared/musicXmlArticulationDistance';
-import {
   inferFirstMxlMeasureForPdfPage,
 } from '../shared/musicXmlTimelineCleanup';
 import {
@@ -387,17 +384,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     }
   }, [staffFilter, partIdForStaff]);
 
-  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistFixesDebounced = useCallback(
     (fixes: OmrHitlFix[]) => {
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = setTimeout(() => {
-        persistTimerRef.current = null;
-        void persistFixes(fixes).catch((e) => {
-          console.error(e);
-          alert(e instanceof Error ? e.message : String(e));
-        });
-      }, 400);
+      void persistFixes(fixes).catch((e) => {
+        console.error(e);
+        alert(e instanceof Error ? e.message : String(e));
+      });
     },
     [persistFixes],
   );
@@ -574,10 +566,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         setApplyMsg('반영할 보정이 없습니다. 마디 편집에서 삭제·추가 버튼을 먼저 누르세요.');
         return;
       }
-      if (persistTimerRef.current) {
-        clearTimeout(persistTimerRef.current);
-        persistTimerRef.current = null;
-      }
       await persistFixes(fixes);
       setPendingFixes(fixes);
       const r = await fetch(`/api/omr-hitl/${jobId}/apply`, { method: 'POST' });
@@ -668,15 +656,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     if (!rawXml || !scoreParts.length) return '';
     return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
   }, [rawXml, scoreParts, activeStaffFilter]);
-  const articulationHintXml = useMemo(() => {
-    if (!rawXml || !scoreParts.length) return '';
-    // 마디 편집 noteIndex는 분할 전 part 순번. PR/PL split·staff 필터 뒤에 패치하면 앞쪽 다른 악센트에 붙거나 유실됨.
-    const withPending = pendingFixes.length
-      ? applyArticulationPlacementFixesToPreviewXml(rawXml, pendingFixes)
-      : rawXml;
-    if (!pendingFixes.length) return basePreviewXml;
-    return buildOsmdPreviewXml(withPending, scoreParts, activeStaffFilter, { verbatim: true });
-  }, [rawXml, scoreParts, activeStaffFilter, pendingFixes, basePreviewXml]);
+  const articulationHintXml = basePreviewXml;
   const selectedPrinted = selectedMeasure
     ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
     : null;

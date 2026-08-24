@@ -79,23 +79,19 @@ export function resetOsmdArticulationOffsets(host: HTMLElement): void {
 }
 
 export function applyArticulationShiftY(el: Element, deltaY: number): void {
-  if (!el.hasAttribute('data-art-base-transform')) {
-    el.setAttribute('data-art-base-transform', el.getAttribute('transform') ?? '');
+  const target =
+    (typeof el.closest === 'function' ? el.closest('.vf-modifiers') : null) ?? el;
+  if (!target.hasAttribute('data-art-base-transform')) {
+    target.setAttribute('data-art-base-transform', target.getAttribute('transform') ?? '');
   }
-  const base = el.getAttribute('data-art-base-transform') ?? '';
+  const base = target.getAttribute('data-art-base-transform') ?? '';
   const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)/.exec(base);
   const ox = m ? parseFloat(m[1]!) : 0;
   const oy = m ? parseFloat(m[2] ?? '0') : 0;
   const rest = base.replace(/translate\(\s*[-\d.]+\s*(?:,\s*[-\d.]+)?\s*\)/, '').trim();
   const prefix = `translate(${ox}, ${oy + deltaY})`;
-  el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
-  el.setAttribute('data-art-shift-y', String(deltaY));
-
-  // 부모 .vf-modifiers에도 호환용 속성 설정
-  const parentMod = el.closest('.vf-modifiers');
-  if (parentMod && parentMod !== el) {
-    parentMod.setAttribute('data-art-shift-y', String(deltaY));
-  }
+  target.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
+  target.setAttribute('data-art-shift-y', String(deltaY));
 }
 
 function defaultArticulationPlacement(note: Element): 'above' | 'below' {
@@ -511,6 +507,73 @@ export function applyOsmdArticulationOffsets(
   return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
 }
 
+function isDomElement(v: unknown): v is Element {
+  return !!v && typeof v === 'object' && (v as { nodeType?: number }).nodeType === 1;
+}
+
+function vexModifierSvg(mod: {
+  attrs?: { el?: Element };
+  el?: Element;
+  getAttribute?: (k: string) => unknown;
+} | null | undefined): Element | null {
+  if (!mod) return null;
+  if (isDomElement(mod.attrs?.el)) return mod.attrs.el;
+  if (isDomElement(mod.el)) return mod.el;
+  if (typeof mod.getAttribute === 'function') {
+    const e = mod.getAttribute('el');
+    if (isDomElement(e)) return e;
+  }
+  return null;
+}
+
+function getStaveNoteExtentsY(staveNote: {
+  getYs?: () => number[];
+  getStem?: () => { getExtents?: () => { topY?: number; baseY?: number } };
+  stem?: { getExtents?: () => { topY?: number; baseY?: number } };
+  getStemExtents?: () => { topY?: number; baseY?: number };
+} | null): { topY: number | null; bottomY: number | null } {
+  if (!staveNote) return { topY: null, bottomY: null };
+  const ys = typeof staveNote.getYs === 'function' ? staveNote.getYs() : [];
+  if (!ys.length) return { topY: null, bottomY: null };
+  let minNoteY = Math.min(...ys) - 5;
+  let maxNoteY = Math.max(...ys) + 5;
+  const stem = typeof staveNote.getStem === 'function' ? staveNote.getStem() : staveNote.stem;
+  const ext =
+    stem && typeof stem.getExtents === 'function'
+      ? stem.getExtents()
+      : typeof staveNote.getStemExtents === 'function'
+        ? staveNote.getStemExtents()
+        : null;
+  if (ext && typeof ext.topY === 'number' && typeof ext.baseY === 'number') {
+    minNoteY = Math.min(minNoteY, ext.topY, ext.baseY);
+    maxNoteY = Math.max(maxNoteY, ext.topY, ext.baseY);
+  }
+  return { topY: minNoteY, bottomY: maxNoteY };
+}
+
+function getSvgElementBaseY(el: Element): number | null {
+  try {
+    if (typeof (el as SVGGraphicsElement).getBBox === 'function') {
+      const b = (el as SVGGraphicsElement).getBBox();
+      if (Number.isFinite(b.y) && (b.width > 0 || b.height > 0)) return b.y + b.height / 2;
+    }
+  } catch {
+    /* jsdom */
+  }
+  const d = el.getAttribute('d') ?? '';
+  const m = /^[Mm]\s*[-\d.eE+]+\s+([-\d.eE+]+)/.exec(d);
+  if (m) {
+    const y = parseFloat(m[1]!);
+    if (Number.isFinite(y)) return y;
+  }
+  const yAttr = el.getAttribute('y');
+  if (yAttr) {
+    const y = parseFloat(yAttr);
+    if (Number.isFinite(y)) return y;
+  }
+  return null;
+}
+
 function vexStaveNoteFromGve(gve: Record<string, unknown>): {
   modifiers?: unknown;
   attrs?: { el?: Element };
@@ -619,6 +682,9 @@ export function applyOsmdArticulationOffsetsDetailed(
             category?: string;
             getPosition?: () => number;
             type?: string;
+            attrs?: { el?: Element };
+            el?: Element;
+            getAttribute?: (k: string) => unknown;
           }>;
           const artMods = mods.filter((m) => {
             const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
@@ -637,16 +703,14 @@ export function applyOsmdArticulationOffsetsDetailed(
           const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
 
           const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
-          if (!staveNoteSvg) continue;
-          const artEls = findArticulationElementsInStavenote(staveNoteSvg);
-          if (!artEls.length) continue;
-
+          const artEls = staveNoteSvg ? findArticulationElementsInStavenote(staveNoteSvg) : [];
           const modsOrFake =
             artMods.length > 0 ? artMods : [{ type: undefined as string | undefined, getPosition: () => 0 }];
 
           for (let i = 0; i < Math.max(modsOrFake.length, 1); i++) {
             const artMod = modsOrFake[i] ?? modsOrFake[0];
-            const artEl = artEls[i] ?? artEls[0];
+            const artEl =
+              vexModifierSvg(artMod) ?? artEls[i] ?? artEls[0] ?? null;
             if (!artEl || usedElements.has(artEl)) continue;
 
             const candidateHints = hints.filter((h) => {
@@ -661,21 +725,50 @@ export function applyOsmdArticulationOffsetsDetailed(
             if (!matchedHint) continue;
 
             const isAbove = artMod?.getPosition?.() === 3 || matchedHint.placement === 'above';
-            const dir = isAbove ? -1 : 1;
             const stave =
               staveNote?.getStave?.() ??
               staveNote?.stave ??
               (gm as { getVFStave?: (n?: number) => unknown; stave?: unknown }).getVFStave?.(staffWithinPart) ??
               (gm as { stave?: unknown }).stave;
+            const topY =
+              typeof (stave as { getYForLine?: (n: number) => number })?.getYForLine === 'function'
+                ? (stave as { getYForLine: (n: number) => number }).getYForLine(0)
+                : null;
+            const bottomY =
+              typeof (stave as { getYForLine?: (n: number) => number })?.getYForLine === 'function'
+                ? (stave as { getYForLine: (n: number) => number }).getYForLine(4)
+                : null;
             const lineSpacing =
               (typeof (stave as { getSpacingBetweenLines?: () => number })?.getSpacingBetweenLines === 'function'
                 ? (stave as { getSpacingBetweenLines: () => number }).getSpacingBetweenLines()
                 : null) ||
               staffSpacePx ||
               10;
-
-            const shiftPx = articulationPreviewShiftPx(matchedHint.staffSpaces, lineSpacing);
-            applyArticulationShiftY(artEl, dir * shiftPx);
+            const noteExtents = getStaveNoteExtentsY(staveNote);
+            let baseY: number | null = null;
+            if (isAbove) {
+              baseY =
+                topY != null && noteExtents.topY != null
+                  ? Math.min(topY, noteExtents.topY)
+                  : (topY ?? noteExtents.topY);
+            } else {
+              baseY =
+                bottomY != null && noteExtents.bottomY != null
+                  ? Math.max(bottomY, noteExtents.bottomY)
+                  : (bottomY ?? noteExtents.bottomY);
+            }
+            const curY = getSvgElementBaseY(artEl);
+            let shiftPx: number;
+            if (curY != null && baseY != null) {
+              const targetY = isAbove
+                ? baseY - matchedHint.staffSpaces * lineSpacing
+                : baseY + matchedHint.staffSpaces * lineSpacing;
+              shiftPx = Math.round(targetY - curY);
+            } else {
+              const dir = isAbove ? -1 : 1;
+              shiftPx = dir * articulationPreviewShiftPx(matchedHint.staffSpaces, lineSpacing);
+            }
+            applyArticulationShiftY(artEl, shiftPx);
             shiftedCount += 1;
             usedElements.add(artEl);
             usedHints.add(matchedHint);

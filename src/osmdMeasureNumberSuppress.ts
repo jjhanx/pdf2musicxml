@@ -1,6 +1,7 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { forEachOsmdSystem } from './osmdMeasureClick';
 import { alignOsmdPreviewNotesByOnsetColumn } from './osmdOnsetColumnAlignFix';
+import { applyOsmdArticulationOffsetsDetailed } from './osmdArticulationOffsetFix';
 
 type RecordLike = Record<string, unknown>;
 
@@ -100,6 +101,11 @@ export function patchOsmdRenderForMeasureNumbers(
       console.warn('[osmd] onset column align skipped:', e);
     }
     finalizeOsmdMeasureNumberPreview(host, osmd, getAllowed());
+    try {
+      applyOsmdArticulationOffsetsDetailed(host, osmd);
+    } catch (e) {
+      console.warn('[osmd] articulation offset skipped:', e);
+    }
   };
 }
 

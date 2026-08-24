@@ -15,6 +15,9 @@ import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
+  applyArticulationPlacementFixesToPreviewXml,
+} from '../shared/musicXmlArticulationDistance';
+import {
   inferFirstMxlMeasureForPdfPage,
 } from '../shared/musicXmlTimelineCleanup';
 import {
@@ -388,17 +391,18 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     (fix: OmrHitlFix) => {
       setPendingFixes((prev) => {
         const next = mergeFix(prev, fix);
-        if (next.length === prev.length) return prev;
-        void persistFixes(next)
-          .then(() => loadFixesFromServer())
-          .catch((e) => {
-            console.error(e);
-            alert(e instanceof Error ? e.message : String(e));
-          });
+        if (next === prev) return prev;
+        void persistFixes(next).catch((e) => {
+          console.error(e);
+          alert(e instanceof Error ? e.message : String(e));
+        });
         return next;
       });
+      if (fix.kind === 'setArticulationPlacement' || fix.kind === 'addArticulation') {
+        setPreviewRevision((n) => n + 1);
+      }
     },
-    [persistFixes, loadFixesFromServer],
+    [persistFixes],
   );
 
   const removeFix = useCallback(
@@ -649,8 +653,26 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const filteredXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
-    return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
-  }, [rawXml, scoreParts, activeStaffFilter]);
+    let xml = rawXml;
+    // noteIndex는 measure API(원본 MXL) 기준 — buildOsmdPreviewXml 전에 패치해야 인덱스가 맞음
+    if (pendingFixes.length) {
+      xml = applyArticulationPlacementFixesToPreviewXml(xml, pendingFixes);
+    }
+    xml = buildOsmdPreviewXml(xml, scoreParts, activeStaffFilter, { verbatim: true });
+    return xml;
+  }, [rawXml, scoreParts, activeStaffFilter, pendingFixes]);
+
+  const articulationPreviewKey = useMemo(
+    () =>
+      pendingFixes
+        .filter((f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation')
+        .map(
+          (f) =>
+            `${f.partId}|${f.measureMxl}|${f.noteIndex}|${f.articulation}|${f.placement}|${f.distance ?? ''}`,
+        )
+        .join(';'),
+    [pendingFixes],
+  );
   const selectedPrinted = selectedMeasure
     ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
     : null;
@@ -795,7 +817,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 </div>
               ) : filteredXml ? (
                 <OsmdBlock
-                  key={`osmd-preview-${previewRevision}`}
+                  key={`osmd-preview-${previewRevision}-${articulationPreviewKey}`}
                   xml={filteredXml}
                   zoom={scoreZoom}
                   embeddedInOmrFrame

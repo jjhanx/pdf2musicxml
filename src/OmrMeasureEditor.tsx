@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { articulationDistanceSelectValue, hitlPreviewPartIdsMatch } from '../shared/musicXmlArticulationDistance';
 import { isNavigationDirectionType, navigationDirectionLabel, newFixId, type OmrHitlFix } from './omrHitlFixes';
 import {
   PitchAlterSelect,
@@ -156,13 +157,24 @@ function markDefaultYOf(raw: string): number | null {
 }
 
 function markDistanceLevelOf(raw: string): string {
+  const distM = raw.match(/dist=([a-z0-9.-]+)/i);
+  if (distM?.[1]) return distM[1]!.toLowerCase();
   const dy = markDefaultYOf(raw);
-  if (dy == null) return 'auto';
-  if (dy <= -55 || dy >= 55) return 'very-far';
-  if (dy <= -40 || dy >= 40) return 'far';
-  if (dy >= -30 && dy <= 30) return 'close';
-  return 'auto';
+  return articulationDistanceSelectValue(null, dy);
 }
+
+const ARTICULATION_DISTANCE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'auto', label: '보통 (기본 2.5칸)' },
+  { value: 'close', label: '가까이 (1칸)' },
+  { value: 'far', label: '멀리 (4칸)' },
+  { value: 'very-far', label: '매우 멀리 (6칸 / mf 수준)' },
+  { value: '3', label: '3칸' },
+  { value: '4', label: '4칸' },
+  { value: '5', label: '5칸' },
+  { value: '6', label: '6칸 (mf 수준)' },
+  { value: '7', label: '7칸' },
+  { value: '8', label: '8칸' },
+];
 
 function defaultArticulationPlacement(stem?: string | null): 'above' | 'below' {
   if (stem === 'up') return 'below';
@@ -1466,6 +1478,36 @@ export function OmrMeasureEditor({
     [pendingFixes, partId, measureMxlStr],
   );
 
+  const pendingArticulationForNote = useCallback(
+    (
+      noteIndex: number,
+      articulation: string,
+    ): { placement?: 'above' | 'below'; distance?: string | null } | undefined => {
+      const art = articulation.split('(')[0]!.trim().toLowerCase();
+      for (let i = pendingFixes.length - 1; i >= 0; i -= 1) {
+        const f = pendingFixes[i]!;
+        if (f.kind !== 'setArticulationPlacement' && f.kind !== 'addArticulation') continue;
+        if (!hitlPreviewPartIdsMatch(partId, f.partId)) continue;
+        if (String(f.measureMxl) !== measureMxlStr) continue;
+        if (f.noteIndex !== noteIndex) continue;
+        const fArt = (f.articulation ?? '').split('(')[0]!.trim().toLowerCase();
+        if (fArt !== art) continue;
+        return {
+          placement:
+            f.placement === 'above' || f.placement === 'below' ? f.placement : undefined,
+          ...(f.distance !== undefined
+            ? {
+                distance:
+                  f.distance == null || f.distance === '' || f.distance === 'auto' ? null : f.distance,
+              }
+            : {}),
+        };
+      }
+      return undefined;
+    },
+    [pendingFixes, partId, measureMxlStr],
+  );
+
   const playOrderInputValue = useCallback(
     (el: MeasureNoteEl): string => {
       if (Object.prototype.hasOwnProperty.call(playOrderDraft, el.index)) {
@@ -1575,7 +1617,7 @@ export function OmrMeasureEditor({
       source: 'manual',
       ...rest,
     });
-    setFixMsg('대기 목록에 추가됨 → 아래 「MXL에 반영·미리보기」로 오른쪽 악보를 확인하세요.');
+    setFixMsg('대기 목록에 반영됨 — 오른쪽 MXL 미리보기에 바로 반영됩니다. MXL 저장은 아래 「MXL에 반영·미리보기」를 누르세요.');
   };
 
   const commitPlayOrder = (el: MeasureNoteEl, raw: string) => {
@@ -2096,7 +2138,9 @@ export function OmrMeasureEditor({
                 jobId={jobId}
                 partId={partId}
                 measureMxl={measureMxl}
+                previewRevision={previewRevision}
                 onFix={pushFix}
+                pendingArticulationForNote={pendingArticulationForNote}
               />
               <div className="omr-measure-insert-row">
                 <span className="omr-measure-insert-label">이 위치 뒤에 추가:</span>
@@ -2562,20 +2606,46 @@ function NoteDirectionEditor({
   );
 }
 
+function effectiveArticulationDistance(
+  art: string,
+  pending?: { distance?: string | null },
+): string {
+  if (pending && pending.distance !== undefined) {
+    return pending.distance == null || pending.distance === '' ? 'auto' : pending.distance;
+  }
+  return markDistanceLevelOf(art);
+}
+
+function effectiveArticulationPlacement(
+  art: string,
+  fallback: 'above' | 'below',
+  pending?: { placement?: 'above' | 'below' },
+): 'above' | 'below' {
+  if (pending?.placement) return pending.placement;
+  return markPlacementOf(art) ?? fallback;
+}
+
 function MeasureNoteEditor({
   el,
   noteEls,
   jobId,
   partId,
   measureMxl,
+  previewRevision,
   onFix,
+  pendingArticulationForNote,
 }: {
   el: MeasureNoteEl;
   noteEls: MeasureNoteEl[];
   jobId: string;
   partId: string;
   measureMxl: number;
+  previewRevision: number;
   onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
+  pendingArticulationForNote: (
+    noteIndex: number,
+    articulation: string,
+  ) => { placement?: 'above' | 'below'; distance?: string | null } | undefined;
 }) {
   const parsed = parsePitch(el.pitch);
   const [pitchStep, setPitchStep] = useState(parsed.step);
@@ -2608,7 +2678,10 @@ function MeasureNoteEditor({
   const [artPlacement, setArtPlacement] = useState<'above' | 'below'>(() =>
     defaultArticulationPlacement(el.stem),
   );
-  const [artDistance, setArtDistance] = useState<'auto' | 'far' | 'very-far' | 'close'>('auto');
+  const [artDistance, setArtDistance] = useState<string>('auto');
+  const [artControlDraft, setArtControlDraft] = useState<
+    Record<string, { placement?: 'above' | 'below'; distance?: string }>
+  >({});
   const [pendingOrnamentIds, setPendingOrnamentIds] = useState<string[]>([]);
   type GraceDraftItem = {
     step: string;
@@ -2628,6 +2701,7 @@ function MeasureNoteEditor({
     setPendingArtPlacement({});
     setArtPlacement(defaultArticulationPlacement(el.stem));
     setArtDistance('auto');
+    setArtControlDraft({});
     setPendingOrnamentIds([]);
     const p = parsePitch(el.pitch);
     setPitchStep(p.step);
@@ -2685,6 +2759,10 @@ function MeasureNoteEditor({
     el.slurStopPlacement,
     noteEls,
   ]);
+
+  useEffect(() => {
+    setArtControlDraft({});
+  }, [previewRevision, partId, measureMxl, el.index]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
@@ -2774,9 +2852,19 @@ function MeasureNoteEditor({
       )}
       {(chordLeaderEl?.articulations ?? []).map((art) => {
         const name = art.split('(')[0];
-        const currentPl = markPlacementOf(art);
-        const currentDist = markDistanceLevelOf(art);
-        const selectPl = currentPl ?? defaultArticulationPlacement(chordLeaderEl?.stem ?? el.stem);
+        const pendingArt = pendingArticulationForNote(chordLeaderIdx, name);
+        const draft = artControlDraft[name];
+        const currentPl =
+          draft?.placement ??
+          effectiveArticulationPlacement(
+            art,
+            defaultArticulationPlacement(chordLeaderEl?.stem ?? el.stem),
+            pendingArt,
+          );
+        const currentDist =
+          draft?.distance ??
+          effectiveArticulationDistance(art, pendingArt);
+        const selectPl = currentPl;
         const beamSide = (chordLeaderEl?.stem ?? el.stem) === 'up' ? 'above' : (chordLeaderEl?.stem ?? el.stem) === 'down' ? 'below' : null;
         const likelyTupletDigit =
           (chordLeaderEl?.timeMod ?? el.timeMod) != null &&
@@ -2810,12 +2898,16 @@ function MeasureNoteEditor({
                 onChange={(e) => {
                   const next = e.target.value as 'above' | 'below';
                   if (next === currentPl) return;
+                  setArtControlDraft((prev) => ({
+                    ...prev,
+                    [name]: { ...prev[name], placement: next, distance: currentDist },
+                  }));
                   onFix({
                     kind: 'setArticulationPlacement',
                     noteIndex: chordLeaderIdx,
                     articulation: name,
                     placement: next,
-                    distance: currentDist !== 'auto' ? currentDist : undefined,
+                    distance: currentDist,
                   });
                 }}
                 style={{ marginLeft: 4 }}
@@ -2830,6 +2922,10 @@ function MeasureNoteEditor({
                 value={currentDist}
                 onChange={(e) => {
                   const nextDist = e.target.value;
+                  setArtControlDraft((prev) => ({
+                    ...prev,
+                    [name]: { ...prev[name], placement: selectPl, distance: nextDist },
+                  }));
                   onFix({
                     kind: 'setArticulationPlacement',
                     noteIndex: chordLeaderIdx,
@@ -2839,39 +2935,40 @@ function MeasureNoteEditor({
                   });
                 }}
                 style={{ marginLeft: 4 }}
-                title="오선 및 이음줄(Slur)과의 수직 거리"
+                title="오선에서 떨어진 칸 수 (1칸 = staff space)"
               >
-                <option value="auto">자동 (기본)</option>
-                <option value="far">멀리 (이음줄 피함)</option>
-                <option value="very-far">더 멀리</option>
-                <option value="close">가까이</option>
+                {ARTICULATION_DISTANCE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
             </label>
           </span>
         );
       })}
-      {el.kind === 'note' && (
+      {el.kind === 'note' && addableArtOptions.length > 0 && (
         <div className="omr-measure-articulation-row">
-          <span className="omr-measure-articulation-current">
-            현재 표:{' '}
-            {displayArtIds.length > 0
-              ? displayArtIds
-                  .map((id) => {
-                    const saved = (chordLeaderEl?.articulations ?? []).find((a) => a.split('(')[0] === id);
-                    const pl = saved
-                      ? markPlacementOf(saved)
-                      : pendingArtPlacement[id] ?? null;
-                    const side = placementKo(pl);
-                    return `${articulationOptionLabel(id)}${side ? ` (${side})` : ''}`;
-                  })
-                  .join(' · ')
-              : '없음'}
-            {pendingArtIds.length > 0 && savedArtIds.length < displayArtIds.length ? (
-              <span className="omr-measure-articulation-pending"> (반영 대기)</span>
-            ) : null}
-          </span>
-          {addableArtOptions.length > 0 ? (
+          {savedArtIds.length === 0 ? (
             <>
+              <span className="omr-measure-articulation-current">
+                현재 표:{' '}
+                {displayArtIds.length > 0
+                  ? displayArtIds
+                      .map((id) => {
+                        const saved = (chordLeaderEl?.articulations ?? []).find((a) => a.split('(')[0] === id);
+                        const pl = saved
+                          ? markPlacementOf(saved)
+                          : pendingArtPlacement[id] ?? null;
+                        const side = placementKo(pl);
+                        return `${articulationOptionLabel(id)}${side ? ` (${side})` : ''}`;
+                      })
+                      .join(' · ')
+                  : '없음'}
+                {pendingArtIds.length > 0 && savedArtIds.length < displayArtIds.length ? (
+                  <span className="omr-measure-articulation-pending"> (반영 대기)</span>
+                ) : null}
+              </span>
               <label className="omr-measure-inline-field">
                 위치
                 <select
@@ -2887,48 +2984,58 @@ function MeasureNoteEditor({
                 거리
                 <select
                   value={artDistance}
-                  onChange={(e) => setArtDistance(e.target.value as 'auto' | 'far' | 'very-far' | 'close')}
+                  onChange={(e) => setArtDistance(e.target.value)}
                   style={{ marginLeft: 4 }}
-                  title="오선 및 이음줄(Slur)과의 수직 거리"
+                  title="오선에서 떨어진 칸 수 (1칸 = staff space)"
                 >
-                  <option value="auto">자동 (기본)</option>
-                  <option value="far">멀리 (이음줄 피함)</option>
-                  <option value="very-far">더 멀리</option>
-                  <option value="close">가까이</option>
-                </select>
-              </label>
-              <label className="omr-measure-inline-field omr-measure-articulation-add">
-                표 더 추가
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const art = e.target.value;
-                    if (!art) return;
-                    setPendingArtIds((prev) => (prev.includes(art) ? prev : [...prev, art]));
-                    setPendingArtPlacement((prev) => ({ ...prev, [art]: artPlacement }));
-                    onFix({
-                      kind: 'addArticulation',
-                      noteIndex: chordLeaderIdx,
-                      articulation: art,
-                      placement: artPlacement,
-                      distance: artDistance !== 'auto' ? artDistance : undefined,
-                    });
-                  }}
-                >
-                  <option value="">— 종류 선택 —</option>
-                  {addableArtOptions.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
+                  {ARTICULATION_DISTANCE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
                     </option>
                   ))}
                 </select>
               </label>
             </>
-          ) : (
-            <span className="omr-measure-articulation-full">추가 가능한 표 없음</span>
-          )}
+          ) : null}
+          <label className="omr-measure-inline-field omr-measure-articulation-add">
+            표 더 추가
+            <select
+              value=""
+              onChange={(e) => {
+                const art = e.target.value;
+                if (!art) return;
+                setPendingArtIds((prev) => (prev.includes(art) ? prev : [...prev, art]));
+                setPendingArtPlacement((prev) => ({ ...prev, [art]: artPlacement }));
+                onFix({
+                  kind: 'addArticulation',
+                  noteIndex: chordLeaderIdx,
+                  articulation: art,
+                  placement: artPlacement,
+                  distance: artDistance !== 'auto' ? artDistance : undefined,
+                });
+              }}
+            >
+              <option value="">— 종류 선택 —</option>
+              {addableArtOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {savedArtIds.length > 0 ? (
+            <span className="omr-measure-articulation-add-hint" style={{ fontSize: '0.82rem', color: '#666' }}>
+              새 표 기본: {placementKo(artPlacement)} ·{' '}
+              {ARTICULATION_DISTANCE_OPTIONS.find((o) => o.value === artDistance)?.label ?? artDistance}
+            </span>
+          ) : null}
         </div>
       )}
+      {el.kind === 'note' && addableArtOptions.length === 0 && savedArtIds.length > 0 ? (
+        <span className="omr-measure-articulation-full" style={{ fontSize: '0.85rem', color: '#666' }}>
+          추가 가능한 표 없음
+        </span>
+      ) : null}
       {(chordLeaderEl?.ornaments ?? []).map((orn) => {
         const name = orn.split('(')[0];
         return (

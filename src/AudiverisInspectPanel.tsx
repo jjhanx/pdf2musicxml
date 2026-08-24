@@ -31,7 +31,10 @@ import {
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
-import { applyOsmdArticulationOffsets } from './osmdArticulationOffsetFix';
+import {
+  applyOsmdArticulationOffsets,
+  registerOsmdPreviewXmlForArticulation,
+} from './osmdArticulationOffsetFix';
 import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
@@ -42,6 +45,8 @@ import {
   repairTimelineForOsmdPreview,
   stripPageBreakPrintForOsmdPreview,
   stripDefaultXyKeepLayoutAttrsForOsmdPreview,
+  stripArticulationDefaultYForOsmdPreview,
+  prepareArticulationDefaultYForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup';
 import {
   repositionDirectionsBeforeAttributesForOsmdPreview,
@@ -110,8 +115,8 @@ export function applyOsmdPreviewEngravingRules(
   rules.WedgePlacementBelowY = 3.5;
   rules.WedgeVerticalMargin = 2.5;
   // 슬러 끝점 아티큘레이션 및 이음줄 간격 여백 확보
-  rules.SlurEndArticulationYOffset = 1.2;
-  rules.SlurStartArticulationYOffsetOfArticulation = 1.2;
+  rules.SlurEndArticulationYOffset = 2.4;
+  rules.SlurStartArticulationYOffsetOfArticulation = 2.4;
   rules.SlurNoteHeadYOffset = 0.2;
   // OSMD 기본 0.4는 줄 끝 마디의 D.S./Fine를 오른쪽으로 밀어 다음 마디 앞으로 보이게 함
   if (typeof r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth === 'number') {
@@ -1766,6 +1771,8 @@ export { repairRestDisplayForOsmdPreview, repairMissingNoteTypesForOsmdPreview, 
   stripMeasureWidthAttributesForOsmdPreview,
   stripDefaultXyForOsmdPreview,
   stripDefaultXyKeepLayoutAttrsForOsmdPreview,
+  stripArticulationDefaultYForOsmdPreview,
+  prepareArticulationDefaultYForOsmdPreview,
   stripNewSystemPrintForOsmdPreview,
   stripPageBreakPrintForOsmdPreview,
   inferFirstMxlMeasureForPdfPage,
@@ -2186,10 +2193,12 @@ export function OsmdBlock({
       verbatimPreview === true,
       printedMeasureMarkersRef.current,
     );
-    /** align 타깃은 OSMD가 실제로 load한 XML과 같아야 함(sanitize 전 XML이면 column 불일치). */
+    /** SVG hint(거리 tier)용 — sanitize 전 filteredXml(pending articulation attr 포함) */
+    registerOsmdPreviewXmlForArticulation(osmd, xml);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
+    const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(xmlForOsmd);
     void osmd
-      .load(xmlForOsmd)
+      .load(xmlForOsmdLoad)
       .then(() => {
         if (stale() || !host) return;
         applyOsmdPreviewEngravingRules(osmd.EngravingRules);
@@ -2318,6 +2327,7 @@ export function OsmdBlock({
       afterOsmdRenderSync: (h, o) => {
         finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
         syncOnsetColumnAlign(h, o);
+        applyOsmdArticulationOffsets(h, o);
       },
     });
   }, [zoom, afterOsmdRender]);

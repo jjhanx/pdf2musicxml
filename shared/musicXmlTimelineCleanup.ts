@@ -1,5 +1,12 @@
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import {
+  HITL_ART_DISTANCE_ATTR,
+  normalizeArticulationDistanceTier,
+  articulationDefaultYFromStaffSpaces,
+  articulationStaffSpacesFromHint,
+  parseArticulationStaffSpaces,
+} from './musicXmlArticulationDistance';
+import {
   applyPreviewOnsetSlotLayoutToMeasure,
   applyPreviewOnsetSlotLayoutToXml,
   OSMD_LAYOUT_X_ATTR,
@@ -67,7 +74,116 @@ export function repairTimelineForOsmdPreview(xml: string): string {
   out = stripChordBeamsForOsmdPreview(out);
   out = dedupeIdenticalChordPitchesForOsmdPreview(out);
   out = normalizeSlursForOsmdPreview(out);
+  out = repairArticulationDefaultYForOsmdPreview(out);
   return out;
+}
+
+const ARTICULATION_TAGS = new Set([
+  'accent',
+  'strong-accent',
+  'staccato',
+  'tenuto',
+  'staccatissimo',
+  'marcato',
+  'detached-legato',
+  'spiccato',
+  'breath-mark',
+  'caesura',
+]);
+
+function defaultArticulationPlacement(note: Element): 'above' | 'below' {
+  const stem = note.querySelector(':scope > stem, :scope > *|stem')?.textContent?.trim().toLowerCase();
+  if (stem === 'up') return 'below';
+  if (stem === 'down') return 'above';
+  return 'below';
+}
+
+function noteSlurPlacementFlags(note: Element): { below: boolean; above: boolean } {
+  let below = false;
+  let above = false;
+  const stem = note.querySelector(':scope > stem, :scope > *|stem')?.textContent?.trim().toLowerCase() ?? '';
+  for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+    for (const slur of [...nots.children].filter((c) => xmlLocalName(c) === 'slur')) {
+      const pl = (slur.getAttribute('placement') || '').trim().toLowerCase();
+      if (pl === 'below') below = true;
+      else if (pl === 'above') above = true;
+      else if (stem === 'up') below = true;
+      else if (stem === 'down') above = true;
+      else {
+        below = true;
+        above = true;
+      }
+    }
+  }
+  return { below, above };
+}
+
+/** Python `_calc_safe_articulation_default_y`와 동일 — staff-space×10 tenths. */
+function calcSafeArticulationDefaultY(
+  note: Element,
+  placement: 'above' | 'below',
+  distance?: string | null,
+): number {
+  const spaces = articulationStaffSpacesFromHint(distance, null);
+  return articulationDefaultYFromStaffSpaces(placement, spaces);
+}
+
+/**
+ * OSMD/HITL 미리보기 — HITL articulation에 default-y/placement가 없으면 slur·stem 기준으로 보강.
+ * OSMD는 articulation default-y를 종종 무시하므로 SVG 보정(`applyOsmdArticulationOffsets`)과 병행.
+ */
+export function repairArticulationDefaultYForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    let changed = false;
+    for (const part of findXmlParts(doc)) {
+      for (const measure of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
+        for (const note of [...measure.children].filter((c) => xmlLocalName(c) === 'note')) {
+          if (note.querySelector('rest, *|rest')) continue;
+          for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+            for (const arts of [...nots.children].filter((c) => xmlLocalName(c) === 'articulations')) {
+              for (const el of [...arts.children]) {
+                const tag = xmlLocalName(el);
+                if (!ARTICULATION_TAGS.has(tag)) continue;
+                let placement = (el.getAttribute('placement') || '').trim().toLowerCase();
+                if (placement !== 'above' && placement !== 'below') {
+                  placement = defaultArticulationPlacement(note);
+                  el.setAttribute('placement', placement);
+                  changed = true;
+                }
+                const dyRaw = el.getAttribute('default-y')?.trim();
+                const distRaw = el.getAttribute(HITL_ART_DISTANCE_ATTR);
+                const target = calcSafeArticulationDefaultY(
+                  note,
+                  placement as 'above' | 'below',
+                  distRaw,
+                );
+                if (target != null) {
+                  const currentRaw = el.getAttribute('default-y')?.trim();
+                  const current = currentRaw ? parseInt(currentRaw, 10) : NaN;
+                  const fromAttr = parseArticulationStaffSpaces(distRaw);
+                  const needsUpdate =
+                    fromAttr != null ||
+                    !currentRaw ||
+                    !Number.isFinite(current) ||
+                    current !== target ||
+                    Math.abs(current) > 120;
+                  if (needsUpdate) {
+                    el.setAttribute('default-y', String(target));
+                    changed = true;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return changed ? serializeMusicXmlDocument(doc) : xml;
+  } catch {
+    return xml;
+  }
 }
 
 /**
@@ -290,6 +406,50 @@ function stripEngravingChildDefaultXy(note: Element): void {
     }
   }
 }
+
+/**
+ * OSMD load 직전 — articulation `default-y`를 오선 gap 30×tier tenths로 통일.
+ */
+export function prepareArticulationDefaultYForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    let changed = false;
+    for (const part of findXmlParts(doc)) {
+      for (const measure of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
+        for (const note of [...measure.children].filter((c) => xmlLocalName(c) === 'note')) {
+          if (note.querySelector('rest, *|rest')) continue;
+          for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+            for (const arts of [...nots.children].filter((c) => xmlLocalName(c) === 'articulations')) {
+              for (const el of [...arts.children]) {
+                if (!ARTICULATION_TAGS.has(xmlLocalName(el))) continue;
+                let placement = (el.getAttribute('placement') || '').trim().toLowerCase();
+                if (placement !== 'above' && placement !== 'below') {
+                  placement = defaultArticulationPlacement(note);
+                }
+                const spaces = articulationStaffSpacesFromHint(
+                  el.getAttribute(HITL_ART_DISTANCE_ATTR),
+                  parseInt(el.getAttribute('default-y') ?? '', 10) || 0,
+                );
+                const target = String(articulationDefaultYFromStaffSpaces(placement as 'above' | 'below', spaces));
+                if (el.getAttribute('default-y') !== target) {
+                  el.setAttribute('default-y', target);
+                  changed = true;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return changed ? serializeMusicXmlDocument(doc) : xml;
+  } catch {
+    return xml;
+  }
+}
+
+/** @deprecated alias */
+export const stripArticulationDefaultYForOsmdPreview = prepareArticulationDefaultYForOsmdPreview;
 
 /**
  * OSMD load 직전 — 미리보기 layout이 다시 넣은 `default-x`를 제거하되

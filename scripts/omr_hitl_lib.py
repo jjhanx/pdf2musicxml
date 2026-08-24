@@ -724,7 +724,12 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
                 name = _local(art)
                 placement = art.get("placement")
                 dy = art.get("default-y")
-                if placement and dy:
+                dist = art.get(ART_DISTANCE_ATTR)
+                if placement and dist and dy:
+                    articulations.append(f"{name}({placement},dist={dist},y={dy})")
+                elif placement and dist:
+                    articulations.append(f"{name}({placement},dist={dist})")
+                elif placement and dy:
                     articulations.append(f"{name}({placement},y={dy})")
                 elif placement:
                     articulations.append(f"{name}({placement})")
@@ -2015,6 +2020,69 @@ def _default_articulation_placement(note: ET.Element, ns: str) -> str | None:
     return None
 
 
+def _note_slur_placement_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
+    """이 음표 notations slur — placement 없으면 줄기 반대(머리) 쪽으로 추정."""
+    has_below = False
+    has_above = False
+    stem_el = note.find(_q(ns, "stem"))
+    stem_dir = (stem_el.text or "").strip().lower() if stem_el is not None and stem_el.text else ""
+    for nots in note.findall(_q(ns, "notations")):
+        for slur in nots.findall(_q(ns, "slur")):
+            spl = (slur.get("placement") or "").strip().lower()
+            if spl == "below":
+                has_below = True
+            elif spl == "above":
+                has_above = True
+            elif stem_dir == "up":
+                has_below = True
+            elif stem_dir == "down":
+                has_above = True
+            else:
+                has_below = True
+                has_above = True
+    return has_below, has_above
+
+
+ART_DISTANCE_ATTR = "data-hitl-art-distance"
+ARTICULATION_STAFF_GAP_BASE = 10
+
+
+def _articulation_distance_from_el(el: ET.Element) -> str | None:
+    raw = el.get(ART_DISTANCE_ATTR)
+    if raw in (None, "", "auto"):
+        return None
+    return str(raw).strip().lower()
+
+
+def _set_articulation_distance_on_el(el: ET.Element, dist: str | None) -> None:
+    if dist in (None, "", "auto"):
+        el.attrib.pop(ART_DISTANCE_ATTR, None)
+    else:
+        el.set(ART_DISTANCE_ATTR, dist)
+
+
+def _articulation_staff_spaces(dist: str | None) -> float:
+    d = (dist or "").strip().lower()
+    if d in (None, "", "auto"):
+        return 1.0
+    if d == "very-far":
+        return 3.0
+    if d == "far":
+        return 2.0
+    if d == "close":
+        return 0.5
+    import re
+
+    m = re.match(r"^(?:spaces?[:x])?(\d+(?:\.\d+)?)$", d.replace(" ", ""))
+    if m:
+        return float(m.group(1))
+    return 1.0
+
+
+def _articulation_tier_multiplier(dist: str | None) -> float:
+    return _articulation_staff_spaces(dist)
+
+
 def _calc_safe_articulation_default_y(
     note: ET.Element,
     ns: str,
@@ -2022,69 +2090,73 @@ def _calc_safe_articulation_default_y(
     distance: str | None = None,
     custom_dy: int | float | None = None,
 ) -> int | None:
-    """오선 및 이음줄(slur)과의 겹침을 방지하는 안전한 default-y 좌표 산출."""
+    """오선 한 칸(10 tenths)×tier 배수 tenths."""
     if custom_dy is not None:
         try:
             return int(round(float(custom_dy)))
         except (ValueError, TypeError):
             pass
 
-    staff_n = _note_staff_number(note, ns) or 1
-    has_below_slur = False
-    has_above_slur = False
-    for nots in note.findall(_q(ns, "notations")):
-        for slur in nots.findall(_q(ns, "slur")):
-            spl = (slur.get("placement") or "").strip().lower()
-            if spl == "below":
-                has_below_slur = True
-            elif spl == "above":
-                has_above_slur = True
-
-    stem_el = note.find(_q(ns, "stem"))
-    stem_dir = (stem_el.text or "").strip().lower() if stem_el is not None and stem_el.text else ""
-
-    dist = (distance or "").strip().lower()
-
+    mag = int(round(ARTICULATION_STAFF_GAP_BASE * _articulation_staff_spaces(distance)))
     if placement == "below":
-        if staff_n == 2:
-            # 2스태프 아래쪽 (보통 -90 ~ -125)
-            if dist == "very-far":
-                return -125
-            elif dist == "far" or has_below_slur:
-                return -105
-            elif dist == "close":
-                return -80
-            return -95
-        else:
-            # 1스태프 아래쪽 (보통 -25 ~ -65)
-            if dist == "very-far":
-                return -65
-            elif dist == "far" or has_below_slur:
-                return -45
-            elif dist == "close":
-                return -25
-            return -45 if has_below_slur else -35
-    elif placement == "above":
-        if staff_n == 2:
-            # 2스태프 위쪽 (보통 -35 ~ 0)
-            if dist == "very-far":
-                return 0
-            elif dist == "far" or has_above_slur or stem_dir == "up":
-                return -10
-            elif dist == "close":
-                return -35
-            return -15 if has_above_slur else -25
-        else:
-            # 1스태프 위쪽 (보통 25 ~ 65)
-            if dist == "very-far":
-                return 65
-            elif dist == "far" or has_above_slur or stem_dir == "up":
-                return 45
-            elif dist == "close":
-                return 25
-            return 45 if has_above_slur else 35
-
+        return -mag
+    if placement == "above":
+        return mag
     return None
+
+
+def _normalize_articulation_engraving_on_note(note: ET.Element, ns: str) -> bool:
+    """HITL articulation — placement·default-y 누락 시 slur·stem 기준으로 보강."""
+    if note.find(_q(ns, "rest")) is not None:
+        return False
+    changed = False
+    for notations in note.findall(_q(ns, "notations")):
+        for arts in notations.findall(_q(ns, "articulations")):
+            for el in arts:
+                tag = _local(el).lower().replace("_", "-")
+                if tag not in _ARTICULATION_TAGS:
+                    continue
+                placement = (el.get("placement") or "").strip().lower()
+                if placement not in ("above", "below"):
+                    placement = _default_articulation_placement(note, ns) or "below"
+                    el.set("placement", placement)
+                    changed = True
+                dist = _articulation_distance_from_el(el)
+                dy_raw = el.get("default-y")
+                target = _calc_safe_articulation_default_y(note, ns, placement, distance=dist)
+                if target is not None:
+                    if dist and (dy_raw is None or not str(dy_raw).strip() or str(dy_raw).strip() != str(target)):
+                        el.set("default-y", str(target))
+                        changed = True
+                    elif dy_raw is None or not str(dy_raw).strip():
+                        el.set("default-y", str(target))
+                        changed = True
+                    else:
+                        try:
+                            current = int(float(str(dy_raw).strip()))
+                            has_below, has_above = _note_slur_placement_flags(note, ns)
+                            if placement == "below" and has_below and current > target:
+                                el.set("default-y", str(target))
+                                changed = True
+                            elif placement == "above" and has_above and current < target:
+                                el.set("default-y", str(target))
+                                changed = True
+                        except ValueError:
+                            el.set("default-y", str(target))
+                            changed = True
+    return changed
+
+
+def normalize_articulations_in_root(root: ET.Element) -> int:
+    """전 악보 — articulation default-y/placement 누락 보강. 변경 note 수 반환."""
+    ns = _ns(root)
+    changed_notes = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            for note in list_note_elements(measure, ns):
+                if _normalize_articulation_engraving_on_note(note, ns):
+                    changed_notes += 1
+    return changed_notes
 
 
 def _ensure_notations(note: ET.Element, ns: str) -> ET.Element:
@@ -5897,10 +5969,13 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         art_el.set("placement", placement)
 
         custom_dy = fix.get("defaultY")
-        dist = fix.get("distance")
+        dist_raw = fix.get("distance")
+        dist = None if dist_raw in (None, "", "auto") else str(dist_raw).strip().lower()
         dy = _calc_safe_articulation_default_y(note, ns, placement, distance=dist, custom_dy=custom_dy)
         if dy is not None:
             art_el.set("default-y", str(dy))
+        _set_articulation_distance_on_el(art_el, dist)
+        _normalize_articulation_engraving_on_note(note, ns)
         return True
 
     if kind == "setArticulationPlacement":
@@ -5913,7 +5988,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         art = str(fix.get("articulation") or "").strip().lower().split("(")[0].replace("_", "-")
         placement = str(fix.get("placement") or "").strip().lower()
         custom_dy = fix.get("defaultY")
-        dist = fix.get("distance")
+        dist_raw = fix.get("distance")
+        dist = None if dist_raw in (None, "", "auto") else str(dist_raw).strip().lower()
         if art not in _ARTICULATION_TAGS:
             return False
         note = notes[idx]
@@ -5936,6 +6012,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                         if el.get("default-y") != str(custom_dy):
                             el.set("default-y", str(custom_dy))
                             changed = True
+                    _set_articulation_distance_on_el(el, dist)
+        if _normalize_articulation_engraving_on_note(note, ns):
+            changed = True
         return changed
 
     if kind == "addOrnament":

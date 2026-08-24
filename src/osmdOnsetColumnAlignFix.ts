@@ -19,6 +19,10 @@ export function registerOsmdPreviewXmlForAlign(osmd: OpenSheetMusicDisplay, xml:
   previewXmlByOsmd.set(osmd, xml);
 }
 
+export function getOsmdPreviewXml(osmd: OpenSheetMusicDisplay): string | null {
+  return previewXmlByOsmd.get(osmd) ?? null;
+}
+
 function resolvePreviewXml(osmd: OpenSheetMusicDisplay, explicit?: string | null): string | null {
   if (explicit?.trim()) return explicit;
   return previewXmlByOsmd.get(osmd) ?? null;

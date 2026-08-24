@@ -22,6 +22,7 @@ from omr_hitl_lib import (  # noqa: E402
     normalize_dynamics_in_root,
     normalize_play_orders_including_rests_in_root,
     normalize_slurs_in_root,
+    normalize_articulations_in_root,
     normalize_wedges_in_root,
     rebuild_measure_timeline_clean,
     write_mxl_root,
@@ -44,6 +45,7 @@ def main() -> int:
         chord_dupes = dedupe_identical_chord_pitches_in_root(root)
         dyns_fixed = normalize_dynamics_in_root(root)
         slurs_fixed = normalize_slurs_in_root(root)
+        arts_fixed = normalize_articulations_in_root(root)
         wedges_fixed = normalize_wedges_in_root(root)
         part = find_part(root, ns, args.part_id)
         if part is not None:
@@ -54,7 +56,7 @@ def main() -> int:
         if snap is None:
             print(json.dumps({"error": "part or measure not found"}, ensure_ascii=False))
             return 1
-        if rest_po_fixed or coalesce_fixed or chord_dupes or dyns_fixed or slurs_fixed or wedges_fixed:
+        if rest_po_fixed or coalesce_fixed or chord_dupes or dyns_fixed or slurs_fixed or arts_fixed or wedges_fixed:
             write_mxl_root(args.mxl_path, files, root_path, root)
             if rest_po_fixed:
                 snap["restPlayOrderMeasuresNormalized"] = rest_po_fixed
@@ -64,6 +66,8 @@ def main() -> int:
                 snap["chordPitchDedupeMeasures"] = chord_dupes
             if slurs_fixed:
                 snap["slursNormalizedMeasures"] = slurs_fixed
+            if arts_fixed:
+                snap["articulationsNormalizedNotes"] = arts_fixed
             if wedges_fixed:
                 snap["wedgesNormalizedMeasures"] = wedges_fixed
         print(json.dumps(snap, ensure_ascii=False))

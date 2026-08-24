@@ -238,6 +238,21 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
     );
     return [...filtered, { ...next, id: next.id || newFixId() }];
   }
+  if (next.kind === 'setArticulationPlacement' && next.noteIndex != null && next.articulation) {
+    const mxl = String(next.measureMxl);
+    const art = next.articulation.split('(')[0]!.trim().toLowerCase();
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          f.kind === 'setArticulationPlacement' &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl &&
+          f.noteIndex === next.noteIndex &&
+          (f.articulation ?? '').split('(')[0]!.trim().toLowerCase() === art
+        ),
+    );
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
   const key = fixDedupeKey(next);
   if (fixes.some((f) => fixDedupeKey(f) === key)) return fixes;
   return [...fixes, { ...next, id: next.id || newFixId() }];

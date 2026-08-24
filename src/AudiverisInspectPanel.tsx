@@ -35,6 +35,7 @@ import {
   applyOsmdArticulationOffsets,
   applyHitlArticulationHostCss,
   extraYPxFromArticulationFixes,
+  installVfModifierDyGuard,
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
 } from './osmdArticulationOffsetFix';
@@ -2069,6 +2070,14 @@ export function OsmdBlock({
   useEffect(() => {
     printedMeasureMarkersRef.current = printedMeasureMarkers;
   }, [printedMeasureMarkers]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    return installVfModifierDyGuard(host, () =>
+      extraYPxFromArticulationFixes(articulationFixesRef.current, 10),
+    );
+  }, [xml]);
 
   useEffect(() => {
     scrollToMeasureRef.current = scrollToMeasure;

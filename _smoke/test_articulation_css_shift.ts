@@ -1,18 +1,17 @@
 /**
- * CSS Accent 거리 — :not([transform]) 허점 + host CSS 변수.
+ * Accent 거리 — CSS translate가 아니라 SVG transform 속성.
  * Run: npx tsx _smoke/test_articulation_css_shift.ts
  */
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { applyHitlArticulationHostCss, extraYPxFromArticulationFixes } from '../src/osmdArticulationOffsetFix';
+import {
+  applyHitlArticulationHostCss,
+  applySvgDyToVfModifiers,
+  composeSvgTranslateY,
+  extraYPxFromArticulationFixes,
+} from '../src/osmdArticulationOffsetFix';
 
-const dom = new JSDOM(`<!DOCTYPE html><html><head>
-<style>
-.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers {
-  translate: 0 var(--hitl-art-dy, 0px);
-}
-</style>
-</head><body>
+const dom = new JSDOM(`<!DOCTYPE html><html><body>
 <div class="omr-osmd-clickable" id="host">
   <svg><g class="vf-modifiers"><path transform="translate(1,2)" d="M0 0 L1 1"/></g></svg>
 </div>
@@ -26,15 +25,10 @@ Object.assign(globalThis, {
 });
 
 const host = dom.window.document.getElementById('host') as HTMLElement;
+const g = host.querySelector('.vf-modifiers')!;
 const path = host.querySelector('path')!;
-assert.ok(path.hasAttribute('transform'), 'Accent path has transform (regression case)');
-
-const brokenSel =
-  '.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers > path:not([transform])';
-assert.equal(host.querySelectorAll(brokenSel).length, 0, 'old CSS matched nothing');
-
-const okSel = '.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers';
-assert.equal(host.querySelectorAll(okSel).length, 0, 'before attr, no match');
+assert.ok(path.hasAttribute('transform'), 'Accent path has transform (glyph coords, not group)');
+assert.equal(g.getAttribute('transform'), null, 'VexFlow Accent group often has no transform');
 
 const five = extraYPxFromArticulationFixes(
   [{ kind: 'setArticulationPlacement', partId: 'P5', measureMxl: 19, articulation: 'accent', distance: '5', placement: 'below' }],
@@ -44,13 +38,25 @@ assert.equal(five, 40, `5칸 extraY=${five}`);
 
 applyHitlArticulationHostCss(host, five);
 assert.equal(host.getAttribute('data-hitl-art-dy'), '40');
-assert.equal(host.style.getPropertyValue('--hitl-art-dy').trim(), '40px');
-assert.equal(host.querySelectorAll(okSel).length, 1, 'new CSS matches vf-modifiers');
+
+assert.equal(composeSvgTranslateY('', 40), 'translate(0, 40)');
+assert.equal(applySvgDyToVfModifiers(host, five), 1);
+assert.equal(g.getAttribute('transform'), 'translate(0, 40)');
+assert.equal(g.getAttribute('data-art-shift-y'), '40');
+
+assert.equal(applySvgDyToVfModifiers(host, five), 1, 'idempotent — no double shift');
+assert.equal(g.getAttribute('transform'), 'translate(0, 40)');
+
+g.setAttribute('transform', '');
+assert.equal(applySvgDyToVfModifiers(host, five), 1, 'OSMD wipe then reapply');
+assert.equal(g.getAttribute('transform'), 'translate(0, 40)');
 
 const auto = extraYPxFromArticulationFixes(
   [{ kind: 'setArticulationPlacement', partId: 'P5', measureMxl: 19, articulation: 'accent', distance: 'auto', placement: 'below' }],
   10,
 );
 assert.equal(auto, 0);
+assert.equal(applySvgDyToVfModifiers(host, auto), 1);
+assert.equal(g.getAttribute('transform'), '');
 
-console.log('articulation css shift ok', { five, auto });
+console.log('articulation svg dy shift ok', { five, auto });

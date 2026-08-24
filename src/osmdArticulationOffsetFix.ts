@@ -551,6 +551,71 @@ export function applyOsmdArticulationOffsets(
   return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
 }
 
+/**
+ * OSMD 미리보기 — pending 거리는 .vf-modifiers의 SVG transform 속성으로 이동.
+ * CSS `translate`는 SVG `<g>`에서 무시되는 경우가 많음. Accent 글리프는 path 좌표로 그려져
+ * 그룹에 transform이 없어도 `translate(0, dy)`면 반드시 움직인다.
+ */
+const HITL_OSMD_TF = 'data-hitl-osmd-tf';
+const HITL_LAST_TF = 'data-hitl-last-tf';
+
+export function normalizeSvgTransform(raw: string): string {
+  return (raw ?? '')
+    .replace(/,/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function composeSvgTranslateY(base: string, dy: number): string {
+  const raw = (base ?? '').trim();
+  if (!dy) return raw;
+  const m = /translate\(\s*([-\d.eE]+)(?:[\s,]+([-\d.eE]+))?\s*\)/.exec(raw);
+  if (m) {
+    const x = parseFloat(m[1]!);
+    const y = parseFloat(m[2] ?? '0');
+    const rest = raw.replace(m[0], '').trim();
+    const t = `translate(${x}, ${y + dy})`;
+    return rest ? `${t} ${rest}` : t;
+  }
+  return raw ? `translate(0, ${dy}) ${raw}` : `translate(0, ${dy})`;
+}
+
+export function applySvgDyToVfModifiers(host: HTMLElement, dy: number): number {
+  let n = 0;
+  for (const g of host.querySelectorAll('.vf-modifiers')) {
+    const cur = g.getAttribute('transform') ?? '';
+    const last = g.getAttribute(HITL_LAST_TF) ?? '';
+    const stillOurs = normalizeSvgTransform(cur) === normalizeSvgTransform(last);
+    const osmdBase = stillOurs ? (g.getAttribute(HITL_OSMD_TF) ?? '') : cur;
+    g.setAttribute(HITL_OSMD_TF, osmdBase);
+    const next = composeSvgTranslateY(osmdBase, dy);
+    g.setAttribute(HITL_LAST_TF, next);
+    if (normalizeSvgTransform(cur) !== normalizeSvgTransform(next)) {
+      g.setAttribute('transform', next);
+    }
+    g.setAttribute('data-art-shift-y', String(dy));
+    n += 1;
+  }
+  return n;
+}
+
+export function installVfModifierDyGuard(host: HTMLElement, getDy: () => number): () => void {
+  let applying = false;
+  const run = () => {
+    if (applying || !host.isConnected) return;
+    applying = true;
+    try {
+      applySvgDyToVfModifiers(host, getDy());
+    } finally {
+      applying = false;
+    }
+  };
+  const mo = new MutationObserver(run);
+  mo.observe(host, { subtree: true, childList: true, attributes: true, attributeFilter: ['transform'] });
+  run();
+  return () => mo.disconnect();
+}
+
 export function extraYPxFromArticulationFixes(
   fixes: ReadonlyArray<ArticulationPreviewFix>,
   lineSpacing: number,
@@ -1062,21 +1127,25 @@ export function applyOsmdArticulationOffsetsDetailed(
 
   resetOsmdArticulationOffsets(host);
 
-  const xml = resolveArticulationPreviewXml(osmd);
-  const usedElements = new Set<Element>();
-  const fromPending = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
+  const extraY = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
+  applyHitlArticulationHostCss(host, extraY);
 
   const hasPendingArt = pendingFixes.some(
     (f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation',
   );
   if (hasPendingArt) {
+    const fromGroups = applySvgDyToVfModifiers(host, extraY);
     return {
-      shifted: Math.max(fromPending, 1),
+      shifted: Math.max(fromGroups, extraY !== 0 ? 1 : 0),
       modifierCount: countModifiers(host),
       hintCount: pendingFixes.length,
       staffSpacePx,
     };
   }
+
+  const xml = resolveArticulationPreviewXml(osmd);
+  const usedElements = new Set<Element>();
+  const fromPending = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
 
   if (!xml?.trim()) {
     return { shifted: fromPending, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };

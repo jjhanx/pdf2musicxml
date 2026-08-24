@@ -40,16 +40,19 @@ applyHitlArticulationHostCss(host, five);
 assert.equal(host.getAttribute('data-hitl-art-dy'), '40');
 
 assert.equal(composeSvgTranslateY('', 40), 'translate(0, 40)');
-assert.equal(applySvgDyToVfModifiers(host, five), 1);
 assert.equal(g.getAttribute('transform'), 'translate(0, 40)');
-assert.equal(g.getAttribute('data-art-shift-y'), '40');
+assert.equal((g as SVGElement).style.getPropertyValue('transform'), 'translate(0px, 40px)');
 
 assert.equal(applySvgDyToVfModifiers(host, five), 1, 'idempotent — no double shift');
 assert.equal(g.getAttribute('transform'), 'translate(0, 40)');
 
-g.setAttribute('transform', '');
-assert.equal(applySvgDyToVfModifiers(host, five), 1, 'OSMD wipe then reapply');
-assert.equal(g.getAttribute('transform'), 'translate(0, 40)');
+const fresh = host.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
+fresh.setAttribute('class', 'vf-modifiers');
+fresh.appendChild(path);
+g.replaceWith(fresh);
+applySvgDyToVfModifiers(host, five);
+assert.equal(fresh.getAttribute('transform'), 'translate(0, 40)', 'OSMD new node reapplied');
+assert.equal((fresh as SVGElement).style.getPropertyValue('transform'), 'translate(0px, 40px)');
 
 const auto = extraYPxFromArticulationFixes(
   [{ kind: 'setArticulationPlacement', partId: 'P5', measureMxl: 19, articulation: 'accent', distance: 'auto', placement: 'below' }],
@@ -57,6 +60,7 @@ const auto = extraYPxFromArticulationFixes(
 );
 assert.equal(auto, 0);
 assert.equal(applySvgDyToVfModifiers(host, auto), 1);
-assert.equal(g.getAttribute('transform'), '');
+assert.equal(fresh.getAttribute('transform') || '', '');
+assert.equal((fresh as SVGElement).style.getPropertyValue('transform'), '');
 
 console.log('articulation svg dy shift ok', { five, auto });

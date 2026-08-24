@@ -591,7 +591,15 @@ export function applySvgDyToVfModifiers(host: HTMLElement, dy: number): number {
     const next = composeSvgTranslateY(osmdBase, dy);
     g.setAttribute(HITL_LAST_TF, next);
     if (normalizeSvgTransform(cur) !== normalizeSvgTransform(next)) {
-      g.setAttribute('transform', next);
+      if (next) g.setAttribute('transform', next);
+      else g.removeAttribute('transform');
+    }
+    const sty = (g as SVGElement).style;
+    // OSMD.render()는 g를 새로 만들며 attribute를 지움. 같은 노드면 CSS transform이 attribute보다 이김.
+    if (!osmdBase.trim() && dy) {
+      sty.setProperty('transform', `translate(0px, ${dy}px)`, 'important');
+    } else {
+      sty.removeProperty('transform');
     }
     g.setAttribute('data-art-shift-y', String(dy));
     n += 1;
@@ -627,15 +635,17 @@ export function extraYPxFromArticulationFixes(
       parseArticulationStaffSpaces(
         f.distance === 'auto' || !f.distance ? 'auto' : String(f.distance),
       ) ?? 1;
-    extra = extraArticulationYPx(spaces, lineSpacing > 2 ? lineSpacing : 10, f.placement === 'above');
+    const y = extraArticulationYPx(spaces, lineSpacing > 2 ? lineSpacing : 10, f.placement === 'above');
+    if (Math.abs(y) >= Math.abs(extra)) extra = y;
   }
   return extra;
 }
 
-/** OSMD가 transform 속성을 덮어써도 CSS 변수는 남음 — 거리 드롭다운 즉시 반영. */
+/** OSMD가 transform 속성을 덮어써도 CSS 변수·노드 style은 남음. extraY=0이면 호스트 값을 지우지 않음(호출측). */
 export function applyHitlArticulationHostCss(host: HTMLElement, extraY: number): void {
   host.style.setProperty('--hitl-art-dy', `${extraY}px`);
   host.setAttribute('data-hitl-art-dy', String(extraY));
+  applySvgDyToVfModifiers(host, extraY);
 }
 
 function isDomElement(v: unknown): v is Element {
@@ -1121,18 +1131,21 @@ export function applyOsmdArticulationOffsetsDetailed(
   const empty = { shifted: 0, modifierCount: 0, hintCount: 0, staffSpacePx: 0 };
   const pendingFixes = articulationFixesByOsmd.get(osmd) ?? [];
   const staffSpacePx = host?.querySelector('svg') ? staffSpacePxFromHost(host, osmd) : 10;
-  applyHitlArticulationHostCss(host, extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10));
+  const hasPendingArt = pendingFixes.some(
+    (f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation',
+  );
+  const fromPending = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
+  // WeakMap이 비면 extraY=0으로 덮어 OSMD autoResize가 방금 적용한 거리를 지움. 호스트 값을 유지.
+  const extraY = hasPendingArt
+    ? fromPending
+    : parseFloat(host.getAttribute('data-hitl-art-dy') ?? '0') || 0;
+  applyHitlArticulationHostCss(host, extraY);
 
   if (!host?.querySelector('svg')) return { ...empty, staffSpacePx };
 
   resetOsmdArticulationOffsets(host);
-
-  const extraY = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
   applyHitlArticulationHostCss(host, extraY);
 
-  const hasPendingArt = pendingFixes.some(
-    (f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation',
-  );
   if (hasPendingArt) {
     const fromGroups = applySvgDyToVfModifiers(host, extraY);
     return {
@@ -1145,20 +1158,20 @@ export function applyOsmdArticulationOffsetsDetailed(
 
   const xml = resolveArticulationPreviewXml(osmd);
   const usedElements = new Set<Element>();
-  const fromPending = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
+  const fromDirect = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
 
   if (!xml?.trim()) {
-    return { shifted: fromPending, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
+    return { shifted: fromDirect, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
   }
 
   const hintsByMeasure = cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml));
   overlayFixesOnHints(xml, hintsByMeasure, pendingFixes);
   const totalHints = countHints(hintsByMeasure);
   if (totalHints === 0 && pendingFixes.length === 0) {
-    return { shifted: fromPending, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
+    return { shifted: fromDirect, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
   }
 
-  let shiftedCount = fromPending;
+  let shiftedCount = fromDirect;
   const usedHints = new Set<OrderedHint>();
 
   try {

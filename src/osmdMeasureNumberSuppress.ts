@@ -1,7 +1,7 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { forEachOsmdSystem } from './osmdMeasureClick';
 import { alignOsmdPreviewNotesByOnsetColumn } from './osmdOnsetColumnAlignFix';
-import { applyOsmdArticulationOffsetsDetailed } from './osmdArticulationOffsetFix';
+import { applyOsmdArticulationOffsetsDetailed, applySvgDyToVfModifiers } from './osmdArticulationOffsetFix';
 
 type RecordLike = Record<string, unknown>;
 
@@ -106,6 +106,8 @@ export function patchOsmdRenderForMeasureNumbers(
     } catch (e) {
       console.warn('[osmd] articulation offset skipped:', e);
     }
+    const dy = parseFloat(host.getAttribute('data-hitl-art-dy') ?? '0') || 0;
+    applySvgDyToVfModifiers(host, dy);
   };
 }
 

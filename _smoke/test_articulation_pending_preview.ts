@@ -145,6 +145,57 @@ async function main() {
   }
   console.log('pending fix merge ok');
 
+  // 0) noteIndex는 분할 전 part 순번. PR만 남은 XML에 그대로 쓰면 앞쪽 악센트에 붙음.
+  {
+    const twoStaff = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P5"><part-name>P</part-name></score-part></part-list><part id="P5"><measure number="19"><note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><staff>1</staff><notations><articulations><accent placement="below"/></articulations></notations></note><note><pitch><step>A</step><octave>1</octave></pitch><duration>1</duration><type>quarter</type><staff>2</staff><notations><articulations><accent placement="below"/></articulations></notations></note><note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><type>quarter</type><staff>1</staff><notations><articulations><accent placement="below"/></articulations></notations></note></measure></part></score-partwise>`;
+    const prOnly = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P5__PR"><part-name>PR</part-name></score-part></part-list><part id="P5__PR"><measure number="19"><note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><staff>1</staff><notations><articulations><accent placement="below"/></articulations></notations></note><note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><type>quarter</type><staff>1</staff><notations><articulations><accent placement="below"/></articulations></notations></note></measure></part></score-partwise>`;
+    const fixFs: OmrHitlFix = {
+      id: newFixId(),
+      kind: 'setArticulationPlacement',
+      partId: 'P5',
+      measureMxl: '19',
+      noteIndex: 2,
+      articulation: 'accent',
+      placement: 'below',
+      distance: '5',
+    };
+    const distOn = (xml: string, step: string, oct: string, alter: string | null) => {
+      const doc = parseMusicXmlDocument(xml);
+      if (!doc) return null;
+      for (const note of [...doc.querySelectorAll('note')]) {
+        const p = note.querySelector('pitch');
+        if (!p) continue;
+        if (p.querySelector('step')?.textContent !== step) continue;
+        if (p.querySelector('octave')?.textContent !== oct) continue;
+        const a = p.querySelector('alter')?.textContent ?? null;
+        if ((alter ?? null) !== a) continue;
+        return note.querySelector('accent')?.getAttribute(HITL_ART_DISTANCE_ATTR) ?? null;
+      }
+      return undefined;
+    };
+    const patchedRaw = applyArticulationPlacementFixesToPreviewXml(twoStaff, [fixFs]);
+    if (distOn(patchedRaw, 'F', '4', '1') !== '5') {
+      throw new Error(`raw noteIndex=2 should set F#4, got ${distOn(patchedRaw, 'F', '4', '1')}`);
+    }
+    if (distOn(patchedRaw, 'G', '4', null) === '5') {
+      throw new Error('raw patch must not set earlier G4 accent');
+    }
+    const patchedPr = applyArticulationPlacementFixesToPreviewXml(prOnly, [fixFs]);
+    if (distOn(patchedPr, 'G', '4', null) === '5' && distOn(patchedPr, 'F', '4', '1') !== '5') {
+      console.log('after-PR-split without pitch: noteIndex=2 wrongly hits first accent G4 (regression case)');
+    }
+    const withPitch = applyArticulationPlacementFixesToPreviewXml(prOnly, [
+      { ...fixFs, pitchStep: 'F', pitchOctave: 4, pitchAlter: 1 },
+    ]);
+    if (distOn(withPitch, 'F', '4', '1') !== '5') {
+      throw new Error(`pitch match on PR-only should set F#4, got ${distOn(withPitch, 'F', '4', '1')}`);
+    }
+    if (distOn(withPitch, 'G', '4', null) === '5') {
+      throw new Error('pitch match on PR-only must not set G4');
+    }
+    console.log('split-safe articulation distance patch ok');
+  }
+
   // 2) pending → raw MXL patch → buildOsmdPreviewXml (실제 UI 파이프라인)
   let raw = extractM19P5(fs.readFileSync('_smoke/_diag_p5_auto.xml', 'utf8'));
   const noteIdx = findAccentNoteIndex(raw);

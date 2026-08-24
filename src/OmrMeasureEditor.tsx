@@ -2680,7 +2680,7 @@ function pitchFieldsFromMeasureNote(el: MeasureNoteEl | undefined): {
 } {
   if (!el) return {};
   const staff = el.staff != null ? el.staff : undefined;
-  const raw = (el.pitch ?? '').trim();
+  const raw = (el.pitch ?? '').trim().replace(/♯/g, '#').replace(/♭/g, 'b');
   const m = /^([A-G])([#b]*)(\d+)$/i.exec(raw);
   if (!m) return staff != null ? { staff } : {};
   const acc = (m[2] ?? '').toLowerCase();

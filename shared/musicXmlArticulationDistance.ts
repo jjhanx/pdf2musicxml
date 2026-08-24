@@ -214,32 +214,64 @@ function noteHasArticulation(note: Element, articulation: string): boolean {
   return false;
 }
 
+function noteStaffNumber(note: Element): number {
+  const st = note.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
+  return st && /^\d+$/.test(st) ? parseInt(st, 10) : 1;
+}
+
+function notePitchLabel(note: Element): string | null {
+  const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
+  if (!pitch) return null;
+  const step = pitch.querySelector('step, *|step')?.textContent?.trim()?.toUpperCase();
+  const oct = pitch.querySelector('octave, *|octave')?.textContent?.trim();
+  if (!step || !oct) return null;
+  const alterRaw = pitch.querySelector('alter, *|alter')?.textContent?.trim();
+  const alter = alterRaw ? parseInt(alterRaw, 10) : 0;
+  const acc = alter === 1 ? '#' : alter === -1 ? 'b' : alter === 2 ? '##' : alter === -2 ? 'bb' : '';
+  return `${step}${acc}${oct}`;
+}
+
+export function pitchLabelFromArticulationFix(fix: ArticulationPreviewFix): string | null {
+  const step = fix.pitchStep?.trim().toUpperCase().replace(/♯/g, '#').replace(/♭/g, 'B');
+  if (!step || fix.pitchOctave == null) return null;
+  const alter = fix.pitchAlter ?? 0;
+  const acc = alter === 1 ? '#' : alter === -1 ? 'b' : alter === 2 ? '##' : alter === -2 ? 'bb' : '';
+  const stepLetter = step.charAt(0);
+  return `${stepLetter}${acc}${fix.pitchOctave}`;
+}
+
 function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFix): Element | null {
   const notes = [...measure.children].filter((c) => xmlLocalName(c) === 'note');
   if (!notes.length) return null;
+  const art = fix.articulation;
+  const wantPitch = pitchLabelFromArticulationFix(fix);
+  const staffW = fix.staffWithinPart ?? fix.staff ?? null;
+  const matchesArt = (n: Element) => !art || noteHasArticulation(n, art);
+  const matchesPitch = (n: Element) => !wantPitch || pitchLabelsMatch(notePitchLabel(n), wantPitch);
+  const matchesStaff = (n: Element) => staffW == null || noteStaffNumber(n) === staffW;
 
-  // 1) 정확한 noteIndex 매칭
-  if (fix.noteIndex != null && notes[fix.noteIndex]) {
-    const target = notes[fix.noteIndex]!;
-    if (!fix.articulation || noteHasArticulation(target, fix.articulation)) {
-      return target;
-    }
+  // 피치(+표) — PR/PL 분할·스태프 필터 후에도 편집기 noteIndex와 무관하게 같은 음표를 찾음
+  if (wantPitch && art) {
+    const hits = notes.filter((n) => matchesArt(n) && matchesPitch(n) && matchesStaff(n));
+    if (hits.length === 1) return hits[0]!;
+    if (hits.length > 1) return hits[0]!;
+    const anyPitch = notes.filter((n) => matchesArt(n) && matchesPitch(n));
+    if (anyPitch[0]) return anyPitch[0]!;
   }
 
-  // 2) staffWithinPart가 있으면 해당 staff의 note 중 articulation 보유 음표 매칭
-  if (fix.articulation) {
-    if (fix.staffWithinPart != null) {
-      const staffNotes = notes.filter((n) => {
-        const s = n.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
-        return s ? parseInt(s, 10) === fix.staffWithinPart : fix.staffWithinPart === 1;
-      });
-      for (const note of staffNotes) {
-        if (noteHasArticulation(note, fix.articulation)) return note;
-      }
-    }
+  // 분할 전 part의 document-order noteIndex (마디 편집기와 동일)
+  if (fix.noteIndex != null && notes[fix.noteIndex]) {
+    const target = notes[fix.noteIndex]!;
+    if (matchesArt(target) && matchesPitch(target)) return target;
+  }
 
+  if (art) {
+    const staffNotes = notes.filter(matchesStaff);
+    for (const note of staffNotes) {
+      if (noteHasArticulation(note, art) && matchesPitch(note)) return note;
+    }
     for (const note of notes) {
-      if (noteHasArticulation(note, fix.articulation)) return note;
+      if (noteHasArticulation(note, art) && matchesPitch(note)) return note;
     }
   }
 
@@ -331,16 +363,19 @@ export function applyArticulationPlacementFixesToPreviewXml(
   const parts = [...doc.documentElement.children].filter((el) => xmlLocalName(el) === 'part');
 
   for (const fix of artFixes) {
-    const part = parts.find((p) => previewPartIdsMatch(p.getAttribute('id')?.trim() ?? '', fix.partId));
-    if (!part) continue;
-    const targetMxl = String(fix.measureMxl ?? (fix as { measure?: unknown }).measure ?? '').trim();
-    const measure = [...part.children].find(
-      (c) => xmlLocalName(c) === 'measure' && (c.getAttribute('number')?.trim() === targetMxl || targetMxl === ''),
+    const matchingParts = parts.filter((p) =>
+      previewPartIdsMatch(p.getAttribute('id')?.trim() ?? '', fix.partId),
     );
-    if (!measure) continue;
-    const note = findNoteForArticulationFix(measure, fix);
-    if (!note) continue;
-    if (applyArticulationAttrsToNote(note, fix)) changed = true;
+    const targetMxl = String(fix.measureMxl ?? (fix as { measure?: unknown }).measure ?? '').trim();
+    for (const part of matchingParts) {
+      const measure = [...part.children].find(
+        (c) => xmlLocalName(c) === 'measure' && (c.getAttribute('number')?.trim() === targetMxl || targetMxl === ''),
+      );
+      if (!measure) continue;
+      const note = findNoteForArticulationFix(measure, fix);
+      if (!note) continue;
+      if (applyArticulationAttrsToNote(note, fix)) changed = true;
+    }
   }
 
   return changed ? serializeMusicXmlDocument(doc) : xml;

@@ -4,6 +4,7 @@ import {
   articulationStaffSpacesFromHint,
   HITL_ART_DISTANCE_ATTR,
   parseArticulationStaffSpaces,
+  pitchLabelFromArticulationFix,
   pitchLabelsMatch,
   previewPartIdsMatch,
   type ArticulationPreviewFix,
@@ -249,7 +250,7 @@ function overlayFixesOnHints(
       parseArticulationStaffSpaces(
         fix.distance === 'auto' || !fix.distance ? 'auto' : String(fix.distance),
       ) ?? 1;
-    let pitch = pitchLabelFromFix(fix);
+    let pitch = pitchLabelFromArticulationFix(fix);
     if (!pitch && doc) {
       for (const part of xmlParts) {
         const pid = part.getAttribute('id')?.trim() ?? '';

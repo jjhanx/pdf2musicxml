@@ -669,9 +669,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
   }, [rawXml, scoreParts, activeStaffFilter]);
   const articulationHintXml = useMemo(() => {
-    if (!basePreviewXml || !pendingFixes.length) return basePreviewXml;
-    return applyArticulationPlacementFixesToPreviewXml(basePreviewXml, pendingFixes);
-  }, [basePreviewXml, pendingFixes]);
+    if (!rawXml || !scoreParts.length) return '';
+    // 마디 편집 noteIndex는 분할 전 part 순번. PR/PL split·staff 필터 뒤에 패치하면 앞쪽 다른 악센트에 붙거나 유실됨.
+    const withPending = pendingFixes.length
+      ? applyArticulationPlacementFixesToPreviewXml(rawXml, pendingFixes)
+      : rawXml;
+    if (!pendingFixes.length) return basePreviewXml;
+    return buildOsmdPreviewXml(withPending, scoreParts, activeStaffFilter, { verbatim: true });
+  }, [rawXml, scoreParts, activeStaffFilter, pendingFixes, basePreviewXml]);
   const selectedPrinted = selectedMeasure
     ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
     : null;

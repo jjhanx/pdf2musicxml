@@ -173,6 +173,8 @@ const ARTICULATION_DISTANCE_OPTIONS: { value: string; label: string }[] = [
   { value: '6', label: '6칸 (60px)' },
   { value: '7', label: '7칸 (70px)' },
   { value: '8', label: '8칸 (80px)' },
+  { value: '9', label: '9칸 (90px)' },
+  { value: '10', label: '10칸 (100px)' },
 ];
 
 function defaultArticulationPlacement(stem?: string | null): 'above' | 'below' {

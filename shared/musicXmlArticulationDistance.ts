@@ -19,6 +19,8 @@ export const COMMON_DISTANCE_OPTIONS: { value: string; label: string }[] = [
   { value: '6', label: '6칸 (60px)' },
   { value: '7', label: '7칸 (70px)' },
   { value: '8', label: '8칸 (80px)' },
+  { value: '9', label: '9칸 (90px)' },
+  { value: '10', label: '10칸 (100px)' },
 ];
 
 export function normalizeArticulationDistanceTier(raw: string | null | undefined): ArticulationDistanceTier | null {
@@ -45,7 +47,7 @@ export function articulationTierMultiplier(tier: ArticulationDistanceTier | stri
 
 /**
  * distance attr → staff-space 배수.
- * preset(auto/close/far/very-far) 또는 숫자(`1`, `2`, `3`, `4`, `5`, `spaces:5`, `6x`) 지원.
+ * preset(auto/close/far/very-far) 또는 숫자(`1`~`10`, `spaces:5`, `6x`) 지원.
  */
 export function parseArticulationStaffSpaces(raw: string | null | undefined): number | null {
   const d = (raw || '').trim().toLowerCase();
@@ -69,7 +71,7 @@ export function articulationStaffSpacesFromHint(
   const fromAttr = parseArticulationStaffSpaces(distance);
   if (fromAttr != null) return fromAttr;
   const mag = Math.abs(defaultY ?? 0);
-  if (mag > 0 && mag <= 150) return mag / ARTICULATION_STAFF_GAP_BASE;
+  if (mag > 0 && mag <= 200) return mag / ARTICULATION_STAFF_GAP_BASE;
   return articulationTierMultiplier('auto');
 }
 
@@ -122,6 +124,8 @@ export function articulationDistanceSelectValue(
   if (Math.abs(spaces - 6) < 0.01) return '6';
   if (Math.abs(spaces - 7) < 0.01) return '7';
   if (Math.abs(spaces - 8) < 0.01) return '8';
+  if (Math.abs(spaces - 9) < 0.01) return '9';
+  if (Math.abs(spaces - 10) < 0.01) return '10';
   if (Number.isFinite(spaces) && spaces > 0) {
     return String(Math.round(spaces));
   }

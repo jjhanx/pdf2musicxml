@@ -405,6 +405,21 @@ export function applyOsmdArticulationOffsets(
   return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
 }
 
+function getSvgElementBaseY(el: Element): number | null {
+  const d = el.getAttribute('d') ?? '';
+  const m = /^[Mm]\s*[-\d.eE+]+\s+([-\d.eE+]+)/.exec(d);
+  if (m) {
+    const y = parseFloat(m[1]!);
+    if (Number.isFinite(y)) return y;
+  }
+  const yAttr = el.getAttribute('y');
+  if (yAttr) {
+    const y = parseFloat(yAttr);
+    if (Number.isFinite(y)) return y;
+  }
+  return null;
+}
+
 export function applyOsmdArticulationOffsetsDetailed(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
@@ -486,14 +501,36 @@ export function applyOsmdArticulationOffsetsDetailed(
               const matchedHint = candidateHints[0] ?? (artMods.length === 1 && artEls.length === 1 ? hints.find((h) => !usedHints.has(h) && (!artMod?.type || articulationModTypeMatchesHint(artMod.type, h.tag))) : undefined);
               if (!matchedHint) continue;
 
-              const shiftPx = articulationPreviewShiftPx(matchedHint.staffSpaces, staffSpacePx);
-              if (shiftPx > 0) {
-                const isAbove = (artMod?.getPosition?.() === 3) || matchedHint.placement === 'above';
-                const dir = isAbove ? -1 : 1;
-                applyArticulationShiftY(artEl, dir * shiftPx);
+              const isAbove = (artMod?.getPosition?.() === 3) || matchedHint.placement === 'above';
+
+              // Stave 기준 절대 위치 계산 (오선 맨 윗줄 / 맨 아랫줄 기준)
+              const stave = (staveNote as { getStave?: () => any; stave?: any })?.getStave?.() ??
+                            (staveNote as { stave?: any })?.stave ??
+                            (gm as { getVFStave?: (n?: number) => any; stave?: any })?.getVFStave?.(staffWithinPart) ??
+                            (gm as { stave?: any })?.stave;
+              const topY = typeof stave?.getYForLine === 'function' ? stave.getYForLine(0) : null;
+              const bottomY = typeof stave?.getYForLine === 'function' ? stave.getYForLine(4) : null;
+              const lineSpacing = (typeof stave?.getSpacingBetweenLines === 'function' ? stave.getSpacingBetweenLines() : null) || staffSpacePx || 10;
+
+              const curY = getSvgElementBaseY(artEl);
+              if (curY != null && topY != null && bottomY != null) {
+                const targetY = isAbove
+                  ? (topY - matchedHint.staffSpaces * lineSpacing)
+                  : (bottomY + matchedHint.staffSpaces * lineSpacing);
+                const shiftY = Math.round(targetY - curY);
+                applyArticulationShiftY(artEl, shiftY);
                 shiftedCount += 1;
                 usedElements.add(artEl);
                 usedHints.add(matchedHint);
+              } else {
+                const shiftPx = articulationPreviewShiftPx(matchedHint.staffSpaces, staffSpacePx);
+                if (shiftPx > 0) {
+                  const dir = isAbove ? -1 : 1;
+                  applyArticulationShiftY(artEl, dir * shiftPx);
+                  shiftedCount += 1;
+                  usedElements.add(artEl);
+                  usedHints.add(matchedHint);
+                }
               }
             }
           }

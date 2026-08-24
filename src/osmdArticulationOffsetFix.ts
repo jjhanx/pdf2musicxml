@@ -1,6 +1,5 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
-  articulationPreviewShiftPx,
   articulationStaffSpacesFromHint,
   HITL_ART_DISTANCE_ATTR,
   parseArticulationStaffSpaces,
@@ -574,6 +573,56 @@ function getSvgElementBaseY(el: Element): number | null {
   return null;
 }
 
+const HITL_Y_SHIFT_PATCH = '__hitlArtYShiftPatch';
+
+function extraArticulationYPx(staffSpaces: number, lineSpacing: number, isAbove: boolean): number {
+  const extraLines = Math.max(0, staffSpaces - 1);
+  const dir = isAbove ? -1 : 1;
+  return dir * extraLines * lineSpacing;
+}
+
+function ensureArticulationDrawUsesYShift(mod: { constructor?: { prototype?: Record<string, unknown> } }): void {
+  const proto = mod.constructor?.prototype;
+  if (!proto || typeof proto.draw !== 'function' || proto[HITL_Y_SHIFT_PATCH]) return;
+  const orig = proto.draw as (this: { glyph?: { render?: Function }; y_shift?: number }) => unknown;
+  proto.draw = function (this: { glyph?: { render?: (ctx: unknown, x: number, y: number) => void }; y_shift?: number }) {
+    const extra = Number(this.y_shift) || 0;
+    const glyph = this.glyph;
+    if (!extra || typeof glyph?.render !== 'function') return orig.apply(this, arguments as unknown as []);
+    const origRender = glyph.render.bind(glyph);
+    glyph.render = (ctx: unknown, x: number, y: number) => origRender(ctx, x, y + extra);
+    try {
+      return orig.apply(this, arguments as unknown as []);
+    } finally {
+      glyph.render = origRender;
+    }
+  };
+  proto[HITL_Y_SHIFT_PATCH] = true;
+}
+
+function setArticulationYShift(
+  mod: {
+    setYShift?: (y: number) => void;
+    y_shift?: number;
+    constructor?: { prototype?: Record<string, unknown> };
+    draw?: () => void;
+  },
+  extraY: number,
+): boolean {
+  ensureArticulationDrawUsesYShift(mod);
+  if (typeof mod.setYShift === 'function') mod.setYShift(extraY);
+  else mod.y_shift = extraY;
+  const el = vexModifierSvg(mod);
+  try {
+    el?.remove();
+    if (typeof mod.draw === 'function') mod.draw();
+    return true;
+  } catch {
+    if (el) applyArticulationShiftY(el, extraY);
+    return Boolean(el);
+  }
+}
+
 function vexStaveNoteFromGve(gve: Record<string, unknown>): {
   modifiers?: unknown;
   attrs?: { el?: Element };
@@ -707,11 +756,9 @@ export function applyOsmdArticulationOffsetsDetailed(
           const modsOrFake =
             artMods.length > 0 ? artMods : [{ type: undefined as string | undefined, getPosition: () => 0 }];
 
-          for (let i = 0; i < Math.max(modsOrFake.length, 1); i++) {
+          for (let i = 0; i < Math.max(modsOrFake.length, artEls.length, 1); i++) {
             const artMod = modsOrFake[i] ?? modsOrFake[0];
-            const artEl =
-              vexModifierSvg(artMod) ?? artEls[i] ?? artEls[0] ?? null;
-            if (!artEl || usedElements.has(artEl)) continue;
+            const artEl = vexModifierSvg(artMod) ?? artEls[i] ?? artEls[0] ?? null;
 
             const candidateHints = hints.filter((h) => {
               if (usedHints.has(h)) return false;
@@ -730,48 +777,32 @@ export function applyOsmdArticulationOffsetsDetailed(
               staveNote?.stave ??
               (gm as { getVFStave?: (n?: number) => unknown; stave?: unknown }).getVFStave?.(staffWithinPart) ??
               (gm as { stave?: unknown }).stave;
-            const topY =
-              typeof (stave as { getYForLine?: (n: number) => number })?.getYForLine === 'function'
-                ? (stave as { getYForLine: (n: number) => number }).getYForLine(0)
-                : null;
-            const bottomY =
-              typeof (stave as { getYForLine?: (n: number) => number })?.getYForLine === 'function'
-                ? (stave as { getYForLine: (n: number) => number }).getYForLine(4)
-                : null;
             const lineSpacing =
               (typeof (stave as { getSpacingBetweenLines?: () => number })?.getSpacingBetweenLines === 'function'
                 ? (stave as { getSpacingBetweenLines: () => number }).getSpacingBetweenLines()
                 : null) ||
               staffSpacePx ||
               10;
-            const noteExtents = getStaveNoteExtentsY(staveNote);
-            let baseY: number | null = null;
-            if (isAbove) {
-              baseY =
-                topY != null && noteExtents.topY != null
-                  ? Math.min(topY, noteExtents.topY)
-                  : (topY ?? noteExtents.topY);
-            } else {
-              baseY =
-                bottomY != null && noteExtents.bottomY != null
-                  ? Math.max(bottomY, noteExtents.bottomY)
-                  : (bottomY ?? noteExtents.bottomY);
+            const extraY = extraArticulationYPx(matchedHint.staffSpaces, lineSpacing, isAbove);
+            let moved = false;
+            if (artMod && typeof (artMod as { draw?: unknown }).draw === 'function') {
+              moved = setArticulationYShift(artMod, extraY);
             }
-            const curY = getSvgElementBaseY(artEl);
-            let shiftPx: number;
-            if (curY != null && baseY != null) {
-              const targetY = isAbove
-                ? baseY - matchedHint.staffSpaces * lineSpacing
-                : baseY + matchedHint.staffSpaces * lineSpacing;
-              shiftPx = Math.round(targetY - curY);
-            } else {
-              const dir = isAbove ? -1 : 1;
-              shiftPx = dir * articulationPreviewShiftPx(matchedHint.staffSpaces, lineSpacing);
+            const painted = vexModifierSvg(artMod) ?? artEl;
+            if (!moved && painted) {
+              applyArticulationShiftY(painted, extraY);
+              moved = true;
             }
-            applyArticulationShiftY(artEl, shiftPx);
-            shiftedCount += 1;
-            usedElements.add(artEl);
-            usedHints.add(matchedHint);
+            if (painted && Math.abs(extraY) >= 0.05) {
+              painted.setAttribute('data-art-shift-y', String(extraY));
+              const grp = painted.closest?.('.vf-modifiers');
+              if (grp && grp !== painted) grp.setAttribute('data-art-shift-y', String(extraY));
+            }
+            if (moved || painted) {
+              shiftedCount += 1;
+              if (painted) usedElements.add(painted);
+              usedHints.add(matchedHint);
+            }
           }
         }
       }

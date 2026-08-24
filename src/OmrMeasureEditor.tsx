@@ -2672,6 +2672,33 @@ function NoteDirectionEditor({
   );
 }
 
+function pitchFieldsFromMeasureNote(el: MeasureNoteEl | undefined): {
+  pitchStep?: string;
+  pitchOctave?: number;
+  pitchAlter?: number;
+  staff?: number;
+} {
+  if (!el) return {};
+  const staff = el.staff != null ? el.staff : undefined;
+  const raw = (el.pitch ?? '').trim();
+  const m = /^([A-G])([#b]*)(\d+)$/i.exec(raw);
+  if (!m) return staff != null ? { staff } : {};
+  const acc = (m[2] ?? '').toLowerCase();
+  let alter = el.pitchAlter ?? 0;
+  if (el.pitchAlter == null) {
+    if (acc.includes('##')) alter = 2;
+    else if (acc.includes('#')) alter = 1;
+    else if (acc.includes('bb')) alter = -2;
+    else if (acc.includes('b')) alter = -1;
+  }
+  return {
+    pitchStep: m[1]!.toUpperCase(),
+    pitchOctave: parseInt(m[3]!, 10),
+    pitchAlter: alter,
+    ...(staff != null ? { staff } : {}),
+  };
+}
+
 function effectiveArticulationDistance(
   art: string,
   pending?: { distance?: string | null },
@@ -2974,6 +3001,7 @@ function MeasureNoteEditor({
                     articulation: name,
                     placement: next,
                     distance: currentDist,
+                    ...pitchFieldsFromMeasureNote(chordLeaderEl),
                   });
                 }}
                 style={{ marginLeft: 4 }}
@@ -2998,6 +3026,7 @@ function MeasureNoteEditor({
                     articulation: name,
                     placement: selectPl,
                     distance: nextDist,
+                    ...pitchFieldsFromMeasureNote(chordLeaderEl),
                   });
                 }}
                 style={{ marginLeft: 4 }}
@@ -3078,6 +3107,7 @@ function MeasureNoteEditor({
                   articulation: art,
                   placement: artPlacement,
                   distance: artDistance !== 'auto' ? artDistance : undefined,
+                  ...pitchFieldsFromMeasureNote(chordLeaderEl),
                 });
               }}
             >

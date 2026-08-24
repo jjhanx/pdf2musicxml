@@ -9,6 +9,7 @@ import { mergeFix, newFixId, type OmrHitlFix } from '../src/omrHitlFixes';
 import { registerOsmdPreviewXmlForAlign } from '../src/osmdOnsetColumnAlignFix';
 import {
   applyOsmdArticulationOffsetsDetailed,
+  registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
   staffSpacePxFromHost,
 } from '../src/osmdArticulationOffsetFix';
@@ -203,6 +204,55 @@ async function main() {
     console.log('reapply without reload', { yAuto, yFive });
     if (yFive <= yAuto) {
       throw new Error(`reapply 5칸(${yFive}) should exceed auto(${yAuto})`);
+    }
+  }
+
+  // 5) XML은 auto 그대로, pending fix overlay만으로 5칸 이동 (스태프 필터 빗나감 대비)
+  {
+    const dom = setupDom();
+    const host = dom.window.document.createElement('div');
+    host.style.width = '900px';
+    host.style.height = '600px';
+    dom.window.document.body.appendChild(host);
+    const repaired = repairTimelineForOsmdPreview(autoXml);
+    const osmd = new OSMD(host, { autoResize: false, backend: 'svg', drawTitle: false });
+    registerOsmdPreviewXmlForAlign(osmd, repaired);
+    registerOsmdPreviewXmlForArticulation(osmd, autoXml);
+    registerOsmdArticulationFixes(osmd, []);
+    await osmd.load(prepareArticulationDefaultYForOsmdPreview(repaired));
+    await osmd.render();
+    applyOsmdArticulationOffsetsDetailed(host, osmd);
+    const yAuto = Math.max(
+      0,
+      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
+        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
+      ),
+    );
+    registerOsmdArticulationFixes(osmd, [
+      {
+        kind: 'setArticulationPlacement',
+        partId: 'P5',
+        measureMxl: '19',
+        noteIndex: noteIdx,
+        articulation: 'accent',
+        placement: 'below',
+        distance: '5',
+        pitchStep: 'F',
+        pitchOctave: 4,
+        pitchAlter: 1,
+      },
+    ]);
+    applyOsmdArticulationOffsetsDetailed(host, osmd);
+    const yFive = Math.max(
+      0,
+      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
+        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
+      ),
+    );
+    host.remove();
+    console.log('overlay fixes without xml patch', { yAuto, yFive });
+    if (yFive <= yAuto) {
+      throw new Error(`overlay 5칸(${yFive}) should exceed auto(${yAuto})`);
     }
   }
 

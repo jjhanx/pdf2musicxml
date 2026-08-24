@@ -819,6 +819,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   key={`osmd-preview-${editorKey}`}
                   xml={basePreviewXml}
                   articulationHintXml={articulationHintXml}
+                  articulationFixes={pendingFixes}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
                   verbatimPreview

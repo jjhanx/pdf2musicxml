@@ -141,9 +141,14 @@ export type ArticulationPreviewFix = {
   partId: string;
   measureMxl: string | number;
   noteIndex?: number;
+  staffWithinPart?: number | null;
+  staff?: number | null;
   articulation?: string;
   placement?: 'above' | 'below' | null;
   distance?: string | null;
+  pitchStep?: string;
+  pitchOctave?: number;
+  pitchAlter?: number;
 };
 
 /**
@@ -247,40 +252,63 @@ function applyArticulationAttrsToNote(
   fix: ArticulationPreviewFix,
 ): boolean {
   if (!fix.articulation) return false;
+  const doc = note.ownerDocument;
   const artName = fix.articulation.split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
+
+  // notations 및 articulations 태그 찾기 또는 생성
+  let nots = [...note.children].find((c) => xmlLocalName(c) === 'notations');
+  if (!nots && doc) {
+    nots = doc.createElement('notations');
+    note.appendChild(nots);
+  }
+  if (!nots) return false;
+
+  let arts = [...nots.children].find((c) => xmlLocalName(c) === 'articulations');
+  if (!arts && doc) {
+    arts = doc.createElement('articulations');
+    nots.appendChild(arts);
+  }
+  if (!arts) return false;
+
+  let artEl = [...arts.children].find((c) => xmlLocalName(c).replace(/_/g, '-') === artName);
+  if (!artEl && doc) {
+    artEl = doc.createElement(artName);
+    arts.appendChild(artEl);
+  }
+  if (!artEl) return false;
+
   let changed = false;
-  for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
-    for (const arts of [...nots.children].filter((c) => xmlLocalName(c) === 'articulations')) {
-      for (const el of [...arts.children]) {
-        if (xmlLocalName(el).replace(/_/g, '-') !== artName) continue;
-        if (fix.placement === 'above' || fix.placement === 'below') {
-          el.setAttribute('placement', fix.placement);
-          changed = true;
-        }
-        if (fix.distance !== undefined) {
-          const dist =
-            fix.distance == null || fix.distance === '' || fix.distance === 'auto'
-              ? null
-              : fix.distance.trim().toLowerCase();
-          if (dist) el.setAttribute(HITL_ART_DISTANCE_ATTR, dist);
-          else el.removeAttribute(HITL_ART_DISTANCE_ATTR);
-          changed = true;
-        }
-        let placement = (el.getAttribute('placement') || '').trim().toLowerCase();
-        if (placement !== 'above' && placement !== 'below') {
-          placement = defaultArticulationPlacementFromNote(note);
-        }
-        const effectiveDist = fix.distance !== undefined ? fix.distance : el.getAttribute(HITL_ART_DISTANCE_ATTR);
-        const effectiveOldDy = fix.distance !== undefined ? null : (parseInt(el.getAttribute('default-y') ?? '', 10) || null);
-        const spaces = articulationStaffSpacesFromHint(effectiveDist, effectiveOldDy);
-        const target = String(articulationDefaultYFromStaffSpaces(placement as 'above' | 'below', spaces));
-        if (el.getAttribute('default-y') !== target) {
-          el.setAttribute('default-y', target);
-          changed = true;
-        }
-      }
+  let placement = fix.placement || artEl.getAttribute('placement') || defaultArticulationPlacementFromNote(note);
+  if (artEl.getAttribute('placement') !== placement) {
+    artEl.setAttribute('placement', placement);
+    changed = true;
+  }
+
+  const dist = fix.distance == null || fix.distance === '' || fix.distance === 'auto'
+    ? null
+    : fix.distance.trim().toLowerCase();
+
+  if (dist) {
+    if (artEl.getAttribute(HITL_ART_DISTANCE_ATTR) !== dist) {
+      artEl.setAttribute(HITL_ART_DISTANCE_ATTR, dist);
+      changed = true;
+    }
+  } else {
+    if (artEl.hasAttribute(HITL_ART_DISTANCE_ATTR)) {
+      artEl.removeAttribute(HITL_ART_DISTANCE_ATTR);
+      changed = true;
     }
   }
+
+  const effectiveDist = dist ?? artEl.getAttribute(HITL_ART_DISTANCE_ATTR);
+  const effectiveOldDy = dist ? null : (parseInt(artEl.getAttribute('default-y') ?? '', 10) || null);
+  const spaces = articulationStaffSpacesFromHint(effectiveDist, effectiveOldDy);
+  const targetDy = String(articulationDefaultYFromStaffSpaces(placement as 'above' | 'below', spaces));
+  if (artEl.getAttribute('default-y') !== targetDy) {
+    artEl.setAttribute('default-y', targetDy);
+    changed = true;
+  }
+
   return changed;
 }
 
@@ -290,7 +318,9 @@ export function applyArticulationPlacementFixesToPreviewXml(
   fixes: ReadonlyArray<ArticulationPreviewFix>,
 ): string {
   const artFixes = fixes.filter(
-    (f) => f.kind === 'setArticulationPlacement' && f.noteIndex != null && f.articulation,
+    (f) =>
+      (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') &&
+      Boolean(f.articulation),
   );
   if (!artFixes.length) return xml;
 

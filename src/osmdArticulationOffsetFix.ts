@@ -3,7 +3,10 @@ import {
   articulationPreviewShiftPx,
   articulationStaffSpacesFromHint,
   HITL_ART_DISTANCE_ATTR,
+  parseArticulationStaffSpaces,
   pitchLabelsMatch,
+  previewPartIdsMatch,
+  type ArticulationPreviewFix,
 } from '../shared/musicXmlArticulationDistance';
 import { OSMD_LAYOUT_X_ATTR } from '../shared/musicXmlPreviewOnsetLayout';
 import { parseMusicXmlDocument } from '../shared/musicXmlParse';
@@ -15,6 +18,22 @@ const articulationPreviewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>(
 
 export function registerOsmdPreviewXmlForArticulation(osmd: OpenSheetMusicDisplay, xml: string): void {
   articulationPreviewXmlByOsmd.set(osmd, xml);
+}
+
+const articulationFixesByOsmd = new WeakMap<OpenSheetMusicDisplay, ArticulationPreviewFix[]>();
+
+export function registerOsmdArticulationFixes(
+  osmd: OpenSheetMusicDisplay,
+  fixes: ReadonlyArray<ArticulationPreviewFix>,
+): void {
+  articulationFixesByOsmd.set(
+    osmd,
+    fixes.filter(
+      (f) =>
+        (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') &&
+        Boolean(f.articulation),
+    ),
+  );
 }
 
 function resolveArticulationPreviewXml(osmd: OpenSheetMusicDisplay): string | null {
@@ -183,6 +202,88 @@ export function orderedHintsByMeasureFromXml(xml: string): Map<string, OrderedHi
   return map;
 }
 
+function cloneHintsByMeasure(src: Map<string, OrderedHint[]>): Map<string, OrderedHint[]> {
+  const out = new Map<string, OrderedHint[]>();
+  for (const [key, list] of src) {
+    out.set(
+      key,
+      list.map((h) => ({ ...h })),
+    );
+  }
+  return out;
+}
+
+function noteHasArticulation(note: Element, articulation: string): boolean {
+  const artName = articulation.split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
+  for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+    for (const arts of [...nots.children].filter((c) => xmlLocalName(c) === 'articulations')) {
+      for (const el of [...arts.children]) {
+        if (xmlLocalName(el).replace(/_/g, '-') === artName) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function pitchLabelFromFix(fix: ArticulationPreviewFix): string | null {
+  const step = fix.pitchStep?.trim().toUpperCase();
+  if (!step || fix.pitchOctave == null) return null;
+  const alter = fix.pitchAlter ?? 0;
+  const acc = alter === 1 ? '#' : alter === -1 ? 'b' : alter === 2 ? '##' : alter === -2 ? 'bb' : '';
+  return `${step}${acc}${fix.pitchOctave}`;
+}
+
+function overlayFixesOnHints(
+  xml: string,
+  hintsByMeasure: Map<string, OrderedHint[]>,
+  fixes: ArticulationPreviewFix[],
+): void {
+  if (!fixes.length) return;
+  const doc = parseMusicXmlDocument(xml);
+  const xmlParts = doc ? findXmlParts(doc) : [];
+
+  for (const fix of fixes) {
+    const artName = (fix.articulation ?? '').split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
+    if (!artName) continue;
+    const spaces =
+      parseArticulationStaffSpaces(
+        fix.distance === 'auto' || !fix.distance ? 'auto' : String(fix.distance),
+      ) ?? 1;
+    let pitch = pitchLabelFromFix(fix);
+    if (!pitch && doc) {
+      for (const part of xmlParts) {
+        const pid = part.getAttribute('id')?.trim() ?? '';
+        if (fix.partId && pid && !previewPartIdsMatch(pid, fix.partId)) continue;
+        for (const measure of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
+          if ((measure.getAttribute('number') ?? '') !== String(fix.measureMxl)) continue;
+          const notes = [...measure.children].filter((c) => xmlLocalName(c) === 'note');
+          const byIndex = fix.noteIndex != null ? notes[fix.noteIndex] : undefined;
+          const note =
+            byIndex && (!artName || noteHasArticulation(byIndex, artName))
+              ? byIndex
+              : notes.find((n) => noteHasArticulation(n, artName)) ?? null;
+          if (note) pitch = notePitchLabel(note);
+          break;
+        }
+      }
+    }
+    for (const [key, list] of hintsByMeasure) {
+      const [p, m, s] = key.split('|');
+      if (m !== String(fix.measureMxl)) continue;
+      if (p && fix.partId && !previewPartIdsMatch(p, fix.partId) && !partIdsMatch(p, fix.partId)) continue;
+      const staffW = fix.staffWithinPart ?? fix.staff;
+      if (staffW != null && s && s !== String(staffW)) continue;
+      for (const h of list) {
+        if (h.tag.replace(/_/g, '-') !== artName) continue;
+        if (pitch && h.pitch && !pitchLabelsMatch(pitch, h.pitch)) continue;
+        h.staffSpaces = spaces;
+        h.distance = fix.distance ?? h.distance;
+        if (fix.placement === 'above' || fix.placement === 'below') h.placement = fix.placement;
+      }
+    }
+  }
+}
+
 function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
   const base = targetPartId.replace(/__PR$|__PL$/, '');
   const gBase = graphicPartId.replace(/__PR$|__PL$/, '');
@@ -346,15 +447,17 @@ function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
   const fn = coordNum(pitch.FundamentalNote ?? pitch.fundamentalNote);
   const oct = coordNum(pitch.Octave ?? pitch.octave);
   if (fn == null || oct == null || fn < 0 || fn > 6) return null;
+  /** OSMD AccidentalEnum: NONE=0 SHARP=1 FLAT=2 DOUBLESHARP=4 DOUBLEFLAT=5 */
   const accRaw = coordNum(pitch.Accidental ?? pitch.accidental);
-  const acc = accRaw === 1 ? 'b' : accRaw === 0 ? '#' : '';
+  const acc =
+    accRaw === 1 ? '#' : accRaw === 2 ? 'b' : accRaw === 4 ? '##' : accRaw === 5 ? 'bb' : '';
   return `${STEP_NAMES[fn] ?? 'C'}${acc}${oct}`;
 }
 
 /** StaveNote SVG 내부에서 실제 Articulation Glyph (path, text, use) 요소 추출 (덧줄·타이·그레이스노트·임시표 제외). */
 export function findArticulationElementsInStavenote(stavenote: Element): Element[] {
   const out: Element[] = [];
-  const mods = stavenote.querySelectorAll(':scope > .vf-modifiers');
+  const mods = stavenote.querySelectorAll('.vf-modifiers');
   for (const mod of mods) {
     const paths = [...mod.querySelectorAll('path')].filter((p) => {
       // 자식 stavenote(그레이스노트), 음표머리, 타이, 덧줄, 임시표 내부의 path는 무조건 제외
@@ -481,120 +584,112 @@ export function applyOsmdArticulationOffsetsDetailed(
   const xml = resolveArticulationPreviewXml(osmd);
   if (!xml?.trim()) return empty;
 
-  const hintsByMeasure = orderedHintsByMeasureFromXml(xml);
+  const hintsByMeasure = cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml));
+  overlayFixesOnHints(xml, hintsByMeasure, articulationFixesByOsmd.get(osmd) ?? []);
   const totalHints = countHints(hintsByMeasure);
   if (totalHints === 0) return { ...empty, modifierCount: countModifiers(host) };
 
   const staffSpacePx = staffSpacePxFromHost(host, osmd);
-  const sheet = osmd.GraphicSheet;
-  if (!sheet?.MeasureList?.length) return { ...empty, modifierCount: countModifiers(host), hintCount: totalHints, staffSpacePx };
 
   let shiftedCount = 0;
   const usedElements = new Set<Element>();
   const usedHints = new Set<OrderedHint>();
 
   try {
-    for (let mIdx = 0; mIdx < sheet.MeasureList.length; mIdx++) {
-      const partMeasures = sheet.MeasureList[mIdx];
-      if (!partMeasures?.length) continue;
+    forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
+      const measureMxl = measureMxlFromGraphic(gm);
+      if (measureMxl == null) return;
+      const partId = partIdFromGraphic(gm) ?? '';
+      const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);
+      const hints =
+        lookupHints(hintsByMeasure, partId, measureMxl, staffWithinPart) ??
+        lookupHints(hintsByMeasure, partId, measureMxl) ??
+        [];
+      if (!hints.length) return;
 
-      for (let pIdx = 0; pIdx < partMeasures.length; pIdx++) {
-        const gm = partMeasures[pIdx];
-        if (!gm) continue;
-        const measureMxl = measureMxlFromGraphic(gm);
-        if (measureMxl == null) continue;
-        const partId = partIdFromGraphic(gm) ?? '';
-        const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, pIdx);
-        const hints = lookupHints(hintsByMeasure, partId, measureMxl, staffWithinPart) ??
-                      lookupHints(hintsByMeasure, partId, measureMxl) ?? [];
-        if (!hints.length) continue;
+      const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
+      for (const seRaw of staffEntries) {
+        const se = asRecord(seRaw);
+        if (!se) continue;
+        const gves = (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[];
+        for (const gveRaw of gves) {
+          const gve = asRecord(gveRaw);
+          if (!gve) continue;
+          const staveNote = vexStaveNoteFromGve(gve);
+          const rawMods = staveNote?.modifiers as unknown;
+          const mods = (Array.isArray(rawMods)
+            ? rawMods
+            : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
+              ? (rawMods as { list: unknown[] }).list
+              : []) as Array<{
+            getCategory?: () => string;
+            category?: string;
+            getPosition?: () => number;
+            type?: string;
+          }>;
+          const artMods = mods.filter((m) => {
+            const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
+            const t = String(m.type ?? '').toLowerCase();
+            return (
+              cat.includes('articulation') ||
+              t.includes('accent') ||
+              t.includes('staccato') ||
+              t.includes('tenuto') ||
+              t.includes('marcato') ||
+              /^a[>.\-^@+]/.test(t)
+            );
+          });
 
-        const staffEntries = gm.staffEntries ?? gm.StaffEntries ?? [];
-        for (const se of staffEntries) {
-          const gves = se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? [];
-          for (const gveRaw of gves) {
-            const gve = asRecord(gveRaw);
-            if (!gve) continue;
-            const staveNote = vexStaveNoteFromGve(gve);
-            const rawMods = staveNote?.modifiers as unknown;
-            const mods = (Array.isArray(rawMods)
-              ? rawMods
-              : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
-                ? (rawMods as { list: unknown[] }).list
-                : []) as Array<{
-              getCategory?: () => string;
-              category?: string;
-              getPosition?: () => number;
-              type?: string;
-            }>;
-            const artMods = mods.filter((m) => {
-              const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
-              const t = String(m.type ?? '').toLowerCase();
-              return (
-                cat.includes('articulation') ||
-                t.includes('accent') ||
-                t.includes('staccato') ||
-                t.includes('tenuto') ||
-                t.includes('marcato') ||
-                /^a[>.\-^@+]/.test(t)
-              );
-            });
+          const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
+          const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
 
-            const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
-            const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
+          const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
+          if (!staveNoteSvg) continue;
+          const artEls = findArticulationElementsInStavenote(staveNoteSvg);
+          if (!artEls.length) continue;
 
-            const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
-            if (!staveNoteSvg) continue;
-            const artEls = findArticulationElementsInStavenote(staveNoteSvg);
-            if (!artEls.length) continue;
+          const modsOrFake =
+            artMods.length > 0 ? artMods : [{ type: undefined as string | undefined, getPosition: () => 0 }];
 
-            const modsOrFake =
-              artMods.length > 0 ? artMods : [{ type: undefined as string | undefined, getPosition: () => 0 }];
+          for (let i = 0; i < Math.max(modsOrFake.length, 1); i++) {
+            const artMod = modsOrFake[i] ?? modsOrFake[0];
+            const artEl = artEls[i] ?? artEls[0];
+            if (!artEl || usedElements.has(artEl)) continue;
 
-            for (let i = 0; i < Math.max(modsOrFake.length, 1); i++) {
-              const artMod = modsOrFake[i] ?? modsOrFake[0];
-              const artEl = artEls[i] ?? artEls[0];
-              if (!artEl || usedElements.has(artEl)) continue;
-
-              const candidateHints = hints.filter((h) => {
-                if (usedHints.has(h)) return false;
-                if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
-                if (h.pitch && notePitches.length && !notePitches.some((p) => pitchLabelsMatch(p, h.pitch!))) return false;
-                return true;
-              });
-
-              let matchedHint = candidateHints[0];
-              if (!matchedHint) {
-                matchedHint = hints.find((h) => {
-                  if (usedHints.has(h)) return false;
-                  if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
-                  return true;
-                });
+            const candidateHints = hints.filter((h) => {
+              if (usedHints.has(h)) return false;
+              if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
+              if (h.pitch && notePitches.length && !notePitches.some((p) => pitchLabelsMatch(p, h.pitch!))) {
+                return false;
               }
-              if (!matchedHint) continue;
+              return true;
+            });
+            const matchedHint = candidateHints[0];
+            if (!matchedHint) continue;
 
-              const isAbove = artMod?.getPosition?.() === 3 || matchedHint.placement === 'above';
-              const dir = isAbove ? -1 : 1;
-              const stave =
-                staveNote?.getStave?.() ??
-                staveNote?.stave ??
-                (gm as { getVFStave?: (n?: number) => unknown; stave?: unknown }).getVFStave?.(staffWithinPart) ??
-                (gm as { stave?: unknown }).stave;
-              const lineSpacing =
-                (typeof (stave as { getSpacingBetweenLines?: () => number })?.getSpacingBetweenLines === 'function'
-                  ? (stave as { getSpacingBetweenLines: () => number }).getSpacingBetweenLines()
-                  : null) || staffSpacePx || 10;
+            const isAbove = artMod?.getPosition?.() === 3 || matchedHint.placement === 'above';
+            const dir = isAbove ? -1 : 1;
+            const stave =
+              staveNote?.getStave?.() ??
+              staveNote?.stave ??
+              (gm as { getVFStave?: (n?: number) => unknown; stave?: unknown }).getVFStave?.(staffWithinPart) ??
+              (gm as { stave?: unknown }).stave;
+            const lineSpacing =
+              (typeof (stave as { getSpacingBetweenLines?: () => number })?.getSpacingBetweenLines === 'function'
+                ? (stave as { getSpacingBetweenLines: () => number }).getSpacingBetweenLines()
+                : null) ||
+              staffSpacePx ||
+              10;
 
-              const shiftPx = articulationPreviewShiftPx(matchedHint.staffSpaces, lineSpacing);
-              applyArticulationShiftY(artEl, dir * shiftPx);
-              shiftedCount += 1;
-              usedElements.add(artEl);
-              usedHints.add(matchedHint);
-            }
+            const shiftPx = articulationPreviewShiftPx(matchedHint.staffSpaces, lineSpacing);
+            applyArticulationShiftY(artEl, dir * shiftPx);
+            shiftedCount += 1;
+            usedElements.add(artEl);
+            usedHints.add(matchedHint);
           }
         }
       }
-    }
+    });
   } catch (err) {
     console.warn('[osmdArticulationOffsetFix] error applying offsets:', err);
   }

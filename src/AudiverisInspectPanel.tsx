@@ -33,10 +33,12 @@ import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdP
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
+  registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
 } from './osmdArticulationOffsetFix';
 import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
+import type { ArticulationPreviewFix } from '../shared/musicXmlArticulationDistance';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
 import { normalizeTiePlacementsForOsmdPreview } from '../shared/musicXmlTiePlacement';
@@ -2014,6 +2016,7 @@ function scheduleOsmdRender(opts: {
 export function OsmdBlock({
   xml,
   articulationHintXml,
+  articulationFixes,
   zoom,
   onMeasureClick,
   highlightMeasureMxl,
@@ -2027,6 +2030,8 @@ export function OsmdBlock({
   xml: string;
   /** pending articulation 거리 — OSMD 재로드 없이 SVG만 이동 */
   articulationHintXml?: string;
+  /** 대기 보정 — XML 패치가 스태프 필터로 빗나가도 피치·표 종류로 거리를 덮어씀 */
+  articulationFixes?: ReadonlyArray<ArticulationPreviewFix>;
   zoom: number;
   onMeasureClick?: (info: OsmdMeasureClickInfo) => void;
   highlightMeasureMxl?: number | null;
@@ -2045,6 +2050,7 @@ export function OsmdBlock({
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const xmlRef = useRef(xml);
   const hintXmlRef = useRef(articulationHintXml ?? xml);
+  const articulationFixesRef = useRef(articulationFixes ?? []);
   const zoomRef = useRef(zoom);
   const xmlGenRef = useRef(0);
   /** Invalidates overlapping RAF/resize paint attempts (load-complete vs zoom). */
@@ -2090,7 +2096,8 @@ export function OsmdBlock({
     xmlRef.current = xml;
     zoomRef.current = zoom;
     hintXmlRef.current = articulationHintXml ?? xml;
-  }, [xml, zoom, articulationHintXml]);
+    articulationFixesRef.current = articulationFixes ?? [];
+  }, [xml, zoom, articulationHintXml, articulationFixes]);
 
   const syncPartLabelOverlay = useCallback(() => {
     const host = hostRef.current;
@@ -2200,6 +2207,7 @@ export function OsmdBlock({
     );
     /** SVG 거리 hint — pending 보정은 OSMD load XML과 분리 */
     registerOsmdPreviewXmlForArticulation(osmd, hintXmlRef.current);
+    registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
     const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(xmlForOsmd);
     void osmd
@@ -2342,10 +2350,12 @@ export function OsmdBlock({
     const osmd = osmdRef.current;
     const hint = articulationHintXml ?? xml;
     hintXmlRef.current = hint;
+    articulationFixesRef.current = articulationFixes ?? [];
     if (!host || !osmd?.IsReadyToRender()) return;
     registerOsmdPreviewXmlForArticulation(osmd, hint);
+    registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
     applyOsmdArticulationOffsets(host, osmd);
-  }, [articulationHintXml, xml]);
+  }, [articulationHintXml, xml, articulationFixes]);
 
   useEffect(() => {
     const host = hostRef.current;

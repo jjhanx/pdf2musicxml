@@ -648,6 +648,120 @@ function extraLiftedDirectionYPx(staffSpaces: number, lineSpacing: number, isAbo
   return dir * extraLiftedArticulationStaffSpaces(staffSpaces) * lineSpacing;
 }
 
+function artNameFromFix(fix: ArticulationPreviewFix): string {
+  return (fix.articulation ?? '').split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
+}
+
+/** pending 거리 — 피치 재매칭 없이 해당 마디·파트의 같은 표(accent 등) 글리프에 모두 적용. */
+function applyPendingDistanceDirect(
+  osmd: OpenSheetMusicDisplay,
+  pendingFixes: ArticulationPreviewFix[],
+  staffSpacePx: number,
+  usedElements: Set<Element>,
+): number {
+  if (!pendingFixes.length) return 0;
+  let shifted = 0;
+  forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
+    const measureMxl = measureMxlFromGraphic(gm);
+    if (measureMxl == null) return;
+    const partId = partIdFromGraphic(gm) ?? '';
+    const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);
+    const fixesHere = pendingFixes.filter((fix) => {
+      if (String(fix.measureMxl) !== String(measureMxl)) return false;
+      if (fix.partId && partId && !previewPartIdsMatch(partId, fix.partId) && !partIdsMatch(partId, fix.partId)) {
+        return false;
+      }
+      return true;
+    });
+    if (!fixesHere.length) return;
+
+    const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
+    for (const seRaw of staffEntries) {
+      const se = asRecord(seRaw);
+      if (!se) continue;
+      const gves = (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[];
+      for (const gveRaw of gves) {
+        const gve = asRecord(gveRaw);
+        if (!gve) continue;
+        const staveNote = vexStaveNoteFromGve(gve);
+        const rawMods = staveNote?.modifiers as unknown;
+        const mods = (Array.isArray(rawMods)
+          ? rawMods
+          : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
+            ? (rawMods as { list: unknown[] }).list
+            : []) as Array<{
+          getCategory?: () => string;
+          category?: string;
+          getPosition?: () => number;
+          type?: string;
+          attrs?: { el?: Element };
+          el?: Element;
+          getAttribute?: (k: string) => unknown;
+        }>;
+        const artMods = mods.filter((m) => {
+          const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
+          const t = String(m.type ?? '').toLowerCase();
+          return (
+            cat.includes('articulation') ||
+            t.includes('accent') ||
+            t.includes('staccato') ||
+            t.includes('tenuto') ||
+            t.includes('marcato') ||
+            /^a[>.\-^@+]/.test(t)
+          );
+        });
+        const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
+        const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
+        const artEls = staveNoteSvg ? findArticulationElementsInStavenote(staveNoteSvg) : [];
+        if (!artMods.length && !artEls.length) continue;
+
+        const stave =
+          staveNote?.getStave?.() ??
+          staveNote?.stave ??
+          (gm as { getVFStave?: (n?: number) => unknown }).getVFStave?.(staffWithinPart) ??
+          (gm as { stave?: unknown }).stave;
+        const lineSpacing =
+          (typeof (stave as { getSpacingBetweenLines?: () => number })?.getSpacingBetweenLines === 'function'
+            ? (stave as { getSpacingBetweenLines: () => number }).getSpacingBetweenLines()
+            : null) ||
+          staffSpacePx ||
+          10;
+
+        for (const fix of fixesHere) {
+          const artName = artNameFromFix(fix);
+          const typeOk = artMods.some((m) => !m.type || articulationModTypeMatchesHint(m.type, artName || 'accent'));
+          if (artName && artMods.length && !typeOk) continue;
+          const spaces =
+            parseArticulationStaffSpaces(
+              fix.distance === 'auto' || !fix.distance ? 'auto' : String(fix.distance),
+            ) ?? 1;
+          const isAbove = fix.placement === 'above' || artMods[0]?.getPosition?.() === 3;
+          const extraY = extraArticulationYPx(spaces, lineSpacing, isAbove);
+          const targets: Element[] = [];
+          for (const m of artMods) {
+            const el = vexModifierSvg(m);
+            if (el && !usedElements.has(el)) targets.push(el);
+          }
+          for (const el of artEls) {
+            if (!usedElements.has(el)) targets.push(el);
+          }
+          if (!targets.length && staveNoteSvg) {
+            for (const g of staveNoteSvg.querySelectorAll('.vf-modifiers')) {
+              if (!usedElements.has(g)) targets.push(g);
+            }
+          }
+          for (const t of targets) {
+            applyArticulationShiftY(t, extraY);
+            usedElements.add(t);
+            shifted += 1;
+          }
+        }
+      }
+    }
+  });
+  return shifted;
+}
+
 function staffSpacesFromPendingFix(
   fixes: ArticulationPreviewFix[],
   opts: {
@@ -908,33 +1022,27 @@ export function applyOsmdArticulationOffsetsDetailed(
 
   const staffSpacePx = staffSpacePxFromHost(host, osmd);
   const xml = resolveArticulationPreviewXml(osmd);
+  const pendingFixes = articulationFixesByOsmd.get(osmd) ?? [];
+  const usedElements = new Set<Element>();
+  const fromPending = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
 
-  const fromExpr = shiftLiftedOsmdExpressions(osmd, staffSpacePx);
-  let fromText = 0;
-  if (xml?.trim()) {
-    fromText = shiftLiftedDirectionTexts(host, xml, staffSpacePx);
-  }
-  if (fromExpr > 0 || fromText > 0) {
+  if (!xml?.trim()) {
     return {
-      shifted: fromExpr + fromText,
+      shifted: fromPending,
       modifierCount: countModifiers(host),
-      hintCount: fromExpr + fromText,
+      hintCount: 0,
       staffSpacePx,
     };
   }
 
-  if (!xml?.trim()) return { shifted: 0, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
-
   const hintsByMeasure = cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml));
-  const pendingFixes = articulationFixesByOsmd.get(osmd) ?? [];
   overlayFixesOnHints(xml, hintsByMeasure, pendingFixes);
   const totalHints = countHints(hintsByMeasure);
   if (totalHints === 0 && pendingFixes.length === 0) {
-    return { ...empty, modifierCount: countModifiers(host), staffSpacePx };
+    return { shifted: fromPending, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
   }
 
-  let shiftedCount = 0;
-  const usedElements = new Set<Element>();
+  let shiftedCount = fromPending;
   const usedHints = new Set<OrderedHint>();
 
   try {

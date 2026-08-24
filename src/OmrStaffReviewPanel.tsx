@@ -23,8 +23,6 @@ import {
   printedSidebarNumberToMxlMeasure,
   type PrintedMeasureMarker,
 } from '../shared/printedMeasureNumbers';
-import { applyArticulationPlacementFixesToPreviewXml, liftArticulationsToDirectionsForOsmdPreview } from '../shared/musicXmlArticulationDistance';
-
 type ScorePartRow = ScorePartForPreview & {
   index: number;
 };
@@ -653,32 +651,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     resolvePartIdForStaffIndex,
   ]);
 
-  const articulationPreviewKey = useMemo(
-    () =>
-      pendingFixes
-        .filter((f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation')
-        .map(
-          (f) =>
-            `${f.partId}|${f.measureMxl}|${f.noteIndex}|${f.articulation}|${f.distance ?? ''}|${f.placement ?? ''}|${f.pitchStep ?? ''}${f.pitchAlter ?? ''}${f.pitchOctave ?? ''}`,
-        )
-        .join(';'),
-    [pendingFixes],
-  );
-
-  /** Accent 등은 VexFlow가 default-y를 무시하므로, 편집기 거리를 raw에 쓴 뒤 Direction으로 올려 OSMD(mf와 동일)가 그린다. */
+  /** 거리 드롭다운은 OSMD 재로드 없이 pending extraY만 적용. Accent는 음표에 남겨 VexFlow가 오선 옆에 그림(mf Direction과 섞지 않음). */
   const previewXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
-    const artFixes = pendingFixes.filter(
-      (f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation',
-    );
-    const patchedRaw = artFixes.length
-      ? applyArticulationPlacementFixesToPreviewXml(rawXml, artFixes)
-      : rawXml;
-    const built = buildOsmdPreviewXml(patchedRaw, scoreParts, activeStaffFilter, { verbatim: true });
-    return liftArticulationsToDirectionsForOsmdPreview(built);
-    // articulationPreviewKey로 거리·위치만 반영 (다른 pending은 MXL 반영 전까지 미리보기 XML 불변)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pendingFixes 전체 대신 key
-  }, [rawXml, scoreParts, activeStaffFilter, articulationPreviewKey]);
+    return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
+  }, [rawXml, scoreParts, activeStaffFilter]);
   const selectedPrinted = selectedMeasure
     ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
     : null;
@@ -825,6 +802,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 <OsmdBlock
                   key={`osmd-preview-${editorKey}`}
                   xml={previewXml}
+                  articulationHintXml={previewXml}
+                  articulationFixes={pendingFixes}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
                   verbatimPreview

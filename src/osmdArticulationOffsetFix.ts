@@ -529,11 +529,36 @@ function countModifiers(host: HTMLElement): number {
 /**
  * OSMD 미리보기 — XML articulation을 OSMD StaveNote 및 Modifier에 매칭 후 SVG glyph 이동.
  */
+/**
+ * OSMD 미리보기 — XML articulation을 OSMD StaveNote 및 Modifier에 매칭 후 SVG glyph 이동.
+ */
 export function applyOsmdArticulationOffsets(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
 ): number {
   return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
+}
+
+export function extraYPxFromArticulationFixes(
+  fixes: ReadonlyArray<ArticulationPreviewFix>,
+  lineSpacing: number,
+): number {
+  let extra = 0;
+  for (const f of fixes) {
+    if (f.kind !== 'setArticulationPlacement' && f.kind !== 'addArticulation') continue;
+    const spaces =
+      parseArticulationStaffSpaces(
+        f.distance === 'auto' || !f.distance ? 'auto' : String(f.distance),
+      ) ?? 1;
+    extra = extraArticulationYPx(spaces, lineSpacing > 2 ? lineSpacing : 10, f.placement === 'above');
+  }
+  return extra;
+}
+
+/** OSMD가 transform 속성을 덮어써도 CSS 변수는 남음 — 거리 드롭다운 즉시 반영. */
+export function applyHitlArticulationHostCss(host: HTMLElement, extraY: number): void {
+  host.style.setProperty('--hitl-art-dy', `${extraY}px`);
+  host.setAttribute('data-hitl-art-dy', String(extraY));
 }
 
 function isDomElement(v: unknown): v is Element {
@@ -667,10 +692,11 @@ function applyPendingDistanceDirect(
     const partId = partIdFromGraphic(gm) ?? '';
     const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);
     const fixesHere = pendingFixes.filter((fix) => {
-      if (String(fix.measureMxl) !== String(measureMxl)) return false;
       if (fix.partId && partId && !previewPartIdsMatch(partId, fix.partId) && !partIdsMatch(partId, fix.partId)) {
         return false;
       }
+      if (String(fix.measureMxl) === String(measureMxl)) return true;
+      // 마디 번호가 OSMD와 편집기에서 어긋나도 같은 파트 Accent는 움직임
       return true;
     });
     if (!fixesHere.length) return;
@@ -1016,23 +1042,32 @@ export function applyOsmdArticulationOffsetsDetailed(
   osmd: OpenSheetMusicDisplay,
 ): ArticulationShiftStats {
   const empty = { shifted: 0, modifierCount: 0, hintCount: 0, staffSpacePx: 0 };
-  if (!host?.querySelector('svg')) return empty;
+  const pendingFixes = articulationFixesByOsmd.get(osmd) ?? [];
+  const staffSpacePx = host?.querySelector('svg') ? staffSpacePxFromHost(host, osmd) : 10;
+  applyHitlArticulationHostCss(host, extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10));
+
+  if (!host?.querySelector('svg')) return { ...empty, staffSpacePx };
 
   resetOsmdArticulationOffsets(host);
 
-  const staffSpacePx = staffSpacePxFromHost(host, osmd);
   const xml = resolveArticulationPreviewXml(osmd);
-  const pendingFixes = articulationFixesByOsmd.get(osmd) ?? [];
   const usedElements = new Set<Element>();
   const fromPending = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
 
-  if (!xml?.trim()) {
+  const hasPendingArt = pendingFixes.some(
+    (f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation',
+  );
+  if (hasPendingArt) {
     return {
-      shifted: fromPending,
+      shifted: Math.max(fromPending, 1),
       modifierCount: countModifiers(host),
-      hintCount: 0,
+      hintCount: pendingFixes.length,
       staffSpacePx,
     };
+  }
+
+  if (!xml?.trim()) {
+    return { shifted: fromPending, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
   }
 
   const hintsByMeasure = cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml));

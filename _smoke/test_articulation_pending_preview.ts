@@ -70,6 +70,14 @@ function extractM19P5(full: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P5"><part-name/></score-part></part-list><part id="P5">${measure}</part></score-partwise>`;
 }
 
+function hostShiftY(host: HTMLElement): number {
+  const cssY = parseFloat(host.getAttribute('data-hitl-art-dy') ?? '0');
+  const attrYs = [...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
+    parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
+  );
+  return Math.max(Number.isFinite(cssY) ? cssY : 0, ...(attrYs.length ? attrYs : [0]));
+}
+
 function findAccentNoteIndex(xml: string): number {
   const doc = parseMusicXmlDocument(xml);
   if (!doc) throw new Error('xml parse failed');
@@ -112,9 +120,10 @@ async function osmdShiftY(xml: string): Promise<{ shiftY: number; shifted: numbe
   await osmd.render();
 
   const stats = applyOsmdArticulationOffsetsDetailed(host, osmd);
-  const mods = [...host.querySelectorAll('.vf-modifiers[data-art-shift-y]')];
+  const cssY = parseFloat(host.getAttribute('data-hitl-art-dy') ?? '0');
+  const mods = [...host.querySelectorAll('[data-art-shift-y]')];
   const shiftYs = mods.map((m) => parseFloat(m.getAttribute('data-art-shift-y') ?? '0'));
-  const maxShift = shiftYs.length ? Math.max(...shiftYs) : 0;
+  const maxShift = Math.max(Number.isFinite(cssY) ? cssY : 0, ...(shiftYs.length ? shiftYs : [0]));
   host.remove();
   return { shiftY: maxShift, shifted: stats.shifted, staffPx: stats.staffSpacePx };
 }
@@ -239,20 +248,10 @@ async function main() {
     await osmd.load(prepareArticulationDefaultYForOsmdPreview(repaired));
     await osmd.render();
     applyOsmdArticulationOffsetsDetailed(host, osmd);
-    const yAuto = Math.max(
-      0,
-      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
-        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
-      ),
-    );
+    const yAuto = hostShiftY(host);
     registerOsmdPreviewXmlForArticulation(osmd, fiveRaw);
     applyOsmdArticulationOffsetsDetailed(host, osmd);
-    const yFive = Math.max(
-      0,
-      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
-        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
-      ),
-    );
+    const yFive = hostShiftY(host);
     host.remove();
     console.log('reapply without reload', { yAuto, yFive });
     if (yFive <= yAuto) {
@@ -275,12 +274,7 @@ async function main() {
     await osmd.load(prepareArticulationDefaultYForOsmdPreview(repaired));
     await osmd.render();
     applyOsmdArticulationOffsetsDetailed(host, osmd);
-    const yAuto = Math.max(
-      0,
-      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
-        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
-      ),
-    );
+    const yAuto = hostShiftY(host);
     registerOsmdArticulationFixes(osmd, [
       {
         kind: 'setArticulationPlacement',
@@ -296,12 +290,7 @@ async function main() {
       },
     ]);
     applyOsmdArticulationOffsetsDetailed(host, osmd);
-    const yFive = Math.max(
-      0,
-      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
-        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
-      ),
-    );
+    const yFive = hostShiftY(host);
     host.remove();
     console.log('overlay fixes without xml patch', { yAuto, yFive });
     if (yFive <= yAuto) {
@@ -338,12 +327,7 @@ async function main() {
     await osmd.render();
     registerOsmdArticulationFixes(osmd, []);
     applyOsmdArticulationOffsetsDetailed(host, osmd);
-    const yAuto = Math.max(
-      0,
-      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
-        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
-      ),
-    );
+    const yAuto = hostShiftY(host);
     registerOsmdArticulationFixes(osmd, [
       {
         kind: 'setArticulationPlacement',
@@ -360,12 +344,7 @@ async function main() {
     ]);
     applyOsmdArticulationOffsetsDetailed(host, osmd);
     const mods = host.querySelectorAll('.vf-modifiers');
-    const yFive = Math.max(
-      0,
-      ...[...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
-        parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
-      ),
-    );
+    const yFive = hostShiftY(host);
     host.remove();
     console.log('PR-split overlay F#4', { yAuto, yFive, modifiers: mods.length });
     if (mods.length === 0) {

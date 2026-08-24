@@ -33,6 +33,8 @@ import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdP
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
+  applyHitlArticulationHostCss,
+  extraYPxFromArticulationFixes,
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
 } from './osmdArticulationOffsetFix';
@@ -2359,6 +2361,12 @@ export function OsmdBlock({
     const hint = articulationHintXml ?? xml;
     hintXmlRef.current = hint;
     articulationFixesRef.current = articulationFixes ?? [];
+    if (host) {
+      applyHitlArticulationHostCss(
+        host,
+        extraYPxFromArticulationFixes(articulationFixesRef.current, 10),
+      );
+    }
     if (!host || !osmd?.IsReadyToRender()) return;
     registerOsmdPreviewXmlForArticulation(osmd, hint);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);

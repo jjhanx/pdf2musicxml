@@ -686,9 +686,11 @@ button.btn-muted {
   -webkit-user-select: none;
 }
 
-.modal-light .omr-mxl-osmd-frame svg {
-  user-select: none;
-  -webkit-user-select: none;
+/* HITL Accent 거리 — OSMD가 vf-modifiers transform을 덮어써도 자식 글리프는 CSS로 이동 */
+.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers > path:not([transform]),
+.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers > use:not([transform]),
+.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers > text:not([transform]) {
+  transform: translateY(var(--hitl-art-dy, 0px));
 }
 
 /* OSMD phantom measure@number — lyric_manifest 인쇄 번호만 HTML overlay로 표시 */

@@ -77,6 +77,13 @@ export function resetOsmdArticulationOffsets(host: HTMLElement): void {
   for (const el of host.querySelectorAll('[data-art-base-transform]')) {
     el.setAttribute('transform', el.getAttribute('data-art-base-transform') ?? '');
     el.removeAttribute('data-art-shift-y');
+    const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
+    if (sty?.removeProperty) sty.removeProperty('translate');
+  }
+  for (const el of host.querySelectorAll('[data-art-shift-y]')) {
+    el.removeAttribute('data-art-shift-y');
+    const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
+    if (sty?.removeProperty) sty.removeProperty('translate');
   }
 }
 
@@ -93,9 +100,14 @@ export function applyArticulationShiftY(el: Element, deltaY: number): void {
   const prefix = `translate(${ox}, ${oy + deltaY})`;
   el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
   el.setAttribute('data-art-shift-y', String(deltaY));
+  // SVG transform 속성과 별개 — OSMD가 attribute를 덮어써도 CSS translate는 남음
+  const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
+  if (sty?.setProperty) sty.setProperty('translate', `0px ${deltaY}px`);
   const parentMod = typeof el.closest === 'function' ? el.closest('.vf-modifiers') : null;
   if (parentMod && parentMod !== el) {
     parentMod.setAttribute('data-art-shift-y', String(deltaY));
+    const psty = (parentMod as SVGElement & { style?: CSSStyleDeclaration }).style;
+    if (psty?.setProperty) psty.setProperty('translate', `0px ${deltaY}px`);
   }
 }
 

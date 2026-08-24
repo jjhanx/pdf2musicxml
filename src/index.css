@@ -686,11 +686,10 @@ button.btn-muted {
   -webkit-user-select: none;
 }
 
-/* HITL Accent 거리 — OSMD가 vf-modifiers transform을 덮어써도 자식 글리프는 CSS로 이동 */
-.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers > path:not([transform]),
-.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers > use:not([transform]),
-.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers > text:not([transform]) {
-  transform: translateY(var(--hitl-art-dy, 0px));
+/* HITL Accent 거리 — SVG transform 속성과 별개인 CSS translate (자식이 아니라 그룹에만)
+ * 예전 :not([transform])는 VexFlow Accent path에 transform이 있어 거리 조절이 전부 무시됐음 */
+.omr-osmd-clickable[data-hitl-art-dy] .vf-modifiers {
+  translate: 0 var(--hitl-art-dy, 0px);
 }
 
 /* OSMD phantom measure@number — lyric_manifest 인쇄 번호만 HTML overlay로 표시 */

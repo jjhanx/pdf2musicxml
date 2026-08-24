@@ -2,6 +2,8 @@ import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
   articulationStaffSpacesFromHint,
   HITL_ART_DISTANCE_ATTR,
+  HITL_LIFTED_ART_ATTR,
+  isLiftedArticulationGlyph,
   parseArticulationStaffSpaces,
   pitchLabelFromArticulationFix,
   pitchLabelsMatch,
@@ -763,6 +765,129 @@ function stavenoteSvgFromGraphic(
   return null;
 }
 
+function labelTextFromExpression(expr: Record<string, unknown>): string {
+  const label = asRecord(expr.Label ?? expr.label);
+  if (label) {
+    const inner = asRecord(label.Label ?? label.label);
+    const t =
+      (typeof label.text === 'string' && label.text) ||
+      (typeof label.Text === 'string' && label.Text) ||
+      (typeof inner?.text === 'string' && inner.text) ||
+      (typeof inner?.Text === 'string' && inner.Text) ||
+      '';
+    if (t) return t.trim();
+  }
+  const multi = asRecord(expr.sourceMultiExpression ?? expr.SourceMultiExpression);
+  const unknown = (multi?.UnknownList ?? multi?.unknownList ?? []) as Array<Record<string, unknown>>;
+  const first = unknown[0];
+  const lab = first && (first.Label ?? first.label);
+  return typeof lab === 'string' ? lab.trim() : '';
+}
+
+function labelSvgFromExpression(expr: Record<string, unknown>): Element | null {
+  const label = asRecord(expr.Label ?? expr.label);
+  const node = label?.SVGNode ?? label?.svgNode;
+  if (isDomElement(node)) return node;
+  if (node && typeof node === 'object' && isDomElement((node as { parentElement?: unknown }).parentElement)) {
+    return (node as { parentElement: Element }).parentElement;
+  }
+  return null;
+}
+
+function defaultYXmlFromExpression(expr: Record<string, unknown>): number | null {
+  const multi = asRecord(expr.sourceMultiExpression ?? expr.SourceMultiExpression);
+  const unknown = (multi?.UnknownList ?? multi?.unknownList ?? []) as Array<Record<string, unknown>>;
+  const first = unknown[0];
+  const dy = first?.defaultYXml ?? first?.DefaultYXml;
+  return typeof dy === 'number' && Number.isFinite(dy) ? dy : null;
+}
+
+function placementAboveFromExpression(expr: Record<string, unknown>, defaultY: number | null): boolean {
+  const p = expr.Placement ?? expr.placement;
+  if (p === 1 || p === 'above' || p === 'Above') return true;
+  if (p === 2 || p === 'below' || p === 'Below') return false;
+  return (defaultY ?? 0) > 0;
+}
+
+function staffSpaceFromStaffLine(sl: Record<string, unknown> | null, fallback: number): number {
+  const stave = asRecord(sl?.stave ?? sl?.Stave ?? sl?.vfStave);
+  const gap =
+    typeof stave?.getSpacingBetweenLines === 'function'
+      ? Number((stave.getSpacingBetweenLines as () => number)())
+      : NaN;
+  return Number.isFinite(gap) && gap > 2 ? gap : fallback;
+}
+
+function shiftLiftedOsmdExpressions(osmd: OpenSheetMusicDisplay, staffSpacePx: number): number {
+  const rec = osmd as unknown as Record<string, unknown>;
+  const sheet = asRecord(rec.GraphicSheet ?? rec.graphicSheet ?? rec.graphic);
+  if (!sheet) return 0;
+  const pages = (sheet.MusicPages ?? sheet.musicPages ?? []) as unknown[];
+  let shifted = 0;
+  for (const pageRaw of pages) {
+    const page = asRecord(pageRaw);
+    const systems = (page?.MusicSystems ?? page?.musicSystems ?? []) as unknown[];
+    for (const sysRaw of systems) {
+      const sys = asRecord(sysRaw);
+      const lines = (sys?.StaffLines ?? sys?.staffLines ?? []) as unknown[];
+      for (const slRaw of lines) {
+        const sl = asRecord(slRaw);
+        const exprs = (sl?.AbstractExpressions ?? sl?.abstractExpressions ?? []) as unknown[];
+        const linePx = staffSpaceFromStaffLine(sl, staffSpacePx);
+        for (const exprRaw of exprs) {
+          const expr = asRecord(exprRaw);
+          if (!expr) continue;
+          const text = labelTextFromExpression(expr);
+          if (!isLiftedArticulationGlyph(text)) continue;
+          const dy = defaultYXmlFromExpression(expr);
+          const spaces = dy != null ? Math.abs(dy) / 10 : 1;
+          const extraY = extraArticulationYPx(spaces, linePx, placementAboveFromExpression(expr, dy));
+          const svg = labelSvgFromExpression(expr);
+          if (!svg) continue;
+          applyArticulationShiftY(svg, extraY);
+          shifted += 1;
+        }
+      }
+    }
+  }
+  return shifted;
+}
+
+function shiftLiftedDirectionTexts(host: HTMLElement, xml: string, staffSpacePx: number): number {
+  const doc = parseMusicXmlDocument(xml);
+  if (!doc) return 0;
+  const dirs = [...doc.querySelectorAll('direction')].filter((d) => d.getAttribute(HITL_LIFTED_ART_ATTR));
+  if (!dirs.length) return 0;
+  const texts = [...host.querySelectorAll('text')].filter((t) => isLiftedArticulationGlyph(t.textContent));
+  let shifted = 0;
+  if (dirs.length === 1) {
+    const dir = dirs[0]!;
+    const dy = parseInt(dir.getAttribute('default-y') ?? dir.querySelector('words')?.getAttribute('default-y') ?? '', 10);
+    const spaces = Number.isFinite(dy) && dy !== 0 ? Math.abs(dy) / 10 : 1;
+    const above = (dir.getAttribute('placement') || '').toLowerCase() === 'above' || dy > 0;
+    const extraY = extraArticulationYPx(spaces, staffSpacePx || 10, above);
+    for (const el of texts) {
+      if (el.textContent?.trim() !== (dir.querySelector('words')?.textContent?.trim() ?? '>')) continue;
+      applyArticulationShiftY(el, extraY);
+      shifted += 1;
+    }
+    return shifted;
+  }
+  const glyphs = dirs.map((d) => d.querySelector('words')?.textContent?.trim() ?? '>');
+  const n = Math.min(dirs.length, texts.length);
+  for (let i = 0; i < n; i++) {
+    const dir = dirs[i]!;
+    const el = texts[i]!;
+    if (el.textContent?.trim() !== glyphs[i]) continue;
+    const dy = parseInt(dir.getAttribute('default-y') ?? dir.querySelector('words')?.getAttribute('default-y') ?? '', 10);
+    const spaces = Number.isFinite(dy) && dy !== 0 ? Math.abs(dy) / 10 : 1;
+    const above = (dir.getAttribute('placement') || '').toLowerCase() === 'above' || dy > 0;
+    applyArticulationShiftY(el, extraArticulationYPx(spaces, staffSpacePx || 10, above));
+    shifted += 1;
+  }
+  return shifted;
+}
+
 export function applyOsmdArticulationOffsetsDetailed(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
@@ -772,18 +897,32 @@ export function applyOsmdArticulationOffsetsDetailed(
 
   resetOsmdArticulationOffsets(host);
 
+  const staffSpacePx = staffSpacePxFromHost(host, osmd);
   const xml = resolveArticulationPreviewXml(osmd);
-  if (!xml?.trim()) return empty;
+
+  const fromExpr = shiftLiftedOsmdExpressions(osmd, staffSpacePx);
+  let fromText = 0;
+  if (xml?.trim()) {
+    fromText = shiftLiftedDirectionTexts(host, xml, staffSpacePx);
+  }
+  if (fromExpr > 0 || fromText > 0) {
+    return {
+      shifted: fromExpr + fromText,
+      modifierCount: countModifiers(host),
+      hintCount: fromExpr + fromText,
+      staffSpacePx,
+    };
+  }
+
+  if (!xml?.trim()) return { shifted: 0, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
 
   const hintsByMeasure = cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml));
   const pendingFixes = articulationFixesByOsmd.get(osmd) ?? [];
   overlayFixesOnHints(xml, hintsByMeasure, pendingFixes);
   const totalHints = countHints(hintsByMeasure);
   if (totalHints === 0 && pendingFixes.length === 0) {
-    return { ...empty, modifierCount: countModifiers(host) };
+    return { ...empty, modifierCount: countModifiers(host), staffSpacePx };
   }
-
-  const staffSpacePx = staffSpacePxFromHost(host, osmd);
 
   let shiftedCount = 0;
   const usedElements = new Set<Element>();

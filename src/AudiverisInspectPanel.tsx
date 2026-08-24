@@ -39,6 +39,7 @@ import {
 import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import type { ArticulationPreviewFix } from '../shared/musicXmlArticulationDistance';
+import { liftArticulationsToDirectionsForOsmdPreview } from '../shared/musicXmlArticulationDistance';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
 import { normalizeTiePlacementsForOsmdPreview } from '../shared/musicXmlTiePlacement';
@@ -2205,11 +2206,12 @@ export function OsmdBlock({
       verbatimPreview === true,
       printedMeasureMarkersRef.current,
     );
-    /** SVG 거리 hint — pending 보정은 OSMD load XML과 분리 */
-    registerOsmdPreviewXmlForArticulation(osmd, hintXmlRef.current);
+    const xmlForOsmdLoad = liftArticulationsToDirectionsForOsmdPreview(
+      prepareArticulationDefaultYForOsmdPreview(xmlForOsmd),
+    );
+    registerOsmdPreviewXmlForArticulation(osmd, xmlForOsmdLoad);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
-    const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(xmlForOsmd);
     void osmd
       .load(xmlForOsmdLoad)
       .then(() => {

@@ -1,6 +1,7 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
   articulationStaffSpacesFromHint,
+  extraLiftedArticulationStaffSpaces,
   HITL_ART_DISTANCE_ATTR,
   HITL_LIFTED_ART_ATTR,
   isLiftedArticulationGlyph,
@@ -641,6 +642,12 @@ function extraArticulationYPx(staffSpaces: number, lineSpacing: number, isAbove:
   return dir * extraLines * lineSpacing;
 }
 
+/** OSMD Direction(words) Accent — 1칸은 오선 쪽, 4칸≈mf, 그 이상은 mf보다 밖. */
+function extraLiftedDirectionYPx(staffSpaces: number, lineSpacing: number, isAbove: boolean): number {
+  const dir = isAbove ? -1 : 1;
+  return dir * extraLiftedArticulationStaffSpaces(staffSpaces) * lineSpacing;
+}
+
 function staffSpacesFromPendingFix(
   fixes: ArticulationPreviewFix[],
   opts: {
@@ -795,17 +802,19 @@ function labelSvgFromExpression(expr: Record<string, unknown>): Element | null {
 }
 
 function defaultYXmlFromExpression(expr: Record<string, unknown>): number | null {
+  const direct = coordNum(expr.defaultYXml ?? expr.DefaultYXml);
+  if (direct != null) return direct;
   const multi = asRecord(expr.sourceMultiExpression ?? expr.SourceMultiExpression);
   const unknown = (multi?.UnknownList ?? multi?.unknownList ?? []) as Array<Record<string, unknown>>;
   const first = unknown[0];
-  const dy = first?.defaultYXml ?? first?.DefaultYXml;
-  return typeof dy === 'number' && Number.isFinite(dy) ? dy : null;
+  return first ? coordNum(first.defaultYXml ?? first.DefaultYXml) : null;
 }
 
 function placementAboveFromExpression(expr: Record<string, unknown>, defaultY: number | null): boolean {
   const p = expr.Placement ?? expr.placement;
-  if (p === 1 || p === 'above' || p === 'Above') return true;
-  if (p === 2 || p === 'below' || p === 'Below') return false;
+  // OSMD PlacementEnum: Above=0 Below=1 Left=2 Right=3 NotYetDefined=4
+  if (p === 0 || p === 'above' || p === 'Above') return true;
+  if (p === 1 || p === 'below' || p === 'Below') return false;
   return (defaultY ?? 0) > 0;
 }
 
@@ -841,7 +850,7 @@ function shiftLiftedOsmdExpressions(osmd: OpenSheetMusicDisplay, staffSpacePx: n
           if (!isLiftedArticulationGlyph(text)) continue;
           const dy = defaultYXmlFromExpression(expr);
           const spaces = dy != null ? Math.abs(dy) / 10 : 1;
-          const extraY = extraArticulationYPx(spaces, linePx, placementAboveFromExpression(expr, dy));
+          const extraY = extraLiftedDirectionYPx(spaces, linePx, placementAboveFromExpression(expr, dy));
           const svg = labelSvgFromExpression(expr);
           if (!svg) continue;
           applyArticulationShiftY(svg, extraY);
@@ -865,7 +874,7 @@ function shiftLiftedDirectionTexts(host: HTMLElement, xml: string, staffSpacePx:
     const dy = parseInt(dir.getAttribute('default-y') ?? dir.querySelector('words')?.getAttribute('default-y') ?? '', 10);
     const spaces = Number.isFinite(dy) && dy !== 0 ? Math.abs(dy) / 10 : 1;
     const above = (dir.getAttribute('placement') || '').toLowerCase() === 'above' || dy > 0;
-    const extraY = extraArticulationYPx(spaces, staffSpacePx || 10, above);
+    const extraY = extraLiftedDirectionYPx(spaces, staffSpacePx || 10, above);
     for (const el of texts) {
       if (el.textContent?.trim() !== (dir.querySelector('words')?.textContent?.trim() ?? '>')) continue;
       applyArticulationShiftY(el, extraY);
@@ -882,7 +891,7 @@ function shiftLiftedDirectionTexts(host: HTMLElement, xml: string, staffSpacePx:
     const dy = parseInt(dir.getAttribute('default-y') ?? dir.querySelector('words')?.getAttribute('default-y') ?? '', 10);
     const spaces = Number.isFinite(dy) && dy !== 0 ? Math.abs(dy) / 10 : 1;
     const above = (dir.getAttribute('placement') || '').toLowerCase() === 'above' || dy > 0;
-    applyArticulationShiftY(el, extraArticulationYPx(spaces, staffSpacePx || 10, above));
+    applyArticulationShiftY(el, extraLiftedDirectionYPx(spaces, staffSpacePx || 10, above));
     shifted += 1;
   }
   return shifted;

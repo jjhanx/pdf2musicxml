@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import * as osmdLib from 'opensheetmusicdisplay';
 import {
   applyArticulationPlacementFixesToPreviewXml,
+  extraLiftedArticulationStaffSpaces,
   HITL_ART_DISTANCE_ATTR,
   HITL_LIFTED_ART_ATTR,
   liftArticulationsToDirectionsForOsmdPreview,
@@ -79,13 +80,20 @@ async function appliedShiftY(xml: string): Promise<{ shiftY: number; texts: stri
   const shiftYs = [...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
     parseFloat(el.getAttribute('data-art-shift-y') ?? '0'),
   );
-  const shiftY = shiftYs.length ? Math.max(...shiftYs.map((n) => Math.abs(n))) : 0;
+  const shiftY = shiftYs.length ? Math.max(...shiftYs) : 0;
   host.remove();
   return { shiftY, texts };
 }
 
 async function main() {
   setupDom();
+
+  if (extraLiftedArticulationStaffSpaces(1) !== -3) {
+    throw new Error(`1칸 should pull 3 spaces toward staff, got ${extraLiftedArticulationStaffSpaces(1)}`);
+  }
+  if (extraLiftedArticulationStaffSpaces(5) !== 1) {
+    throw new Error(`5칸 should be 1 space past OSMD words baseline, got ${extraLiftedArticulationStaffSpaces(5)}`);
+  }
 
   const autoXml = liftArticulationsToDirectionsForOsmdPreview(
     prepareArticulationDefaultYForOsmdPreview(sample),
@@ -126,8 +134,8 @@ async function main() {
   if (!auto.texts.some((t) => t.includes('>'))) {
     throw new Error(`OSMD did not draw lifted accent words: ${auto.texts.join(',')}`);
   }
-  if (five.shiftY <= auto.shiftY) {
-    throw new Error(`5칸 shift(${five.shiftY}) should exceed auto(${auto.shiftY})`);
+  if (!(five.shiftY > auto.shiftY + 5)) {
+    throw new Error(`5칸 signed Y(${five.shiftY}) should be below auto(${auto.shiftY})`);
   }
   console.log('articulation-as-direction ok');
 }

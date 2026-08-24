@@ -7,6 +7,18 @@ export const HITL_DIR_DISTANCE_ATTR = 'data-hitl-dir-distance';
 /** MusicXML default-y 기본 단위: 오선 1칸(staff space) = 10 tenths = 약 10px. */
 export const ARTICULATION_STAFF_GAP_BASE = 10;
 
+/**
+ * OSMD UnknownExpression(words) 기본 Y — 셈여림(mf)과 같이 오선에서 약 4칸 밖.
+ * 들어 올린 Accent의 1칸(보통)은 오선/음표 근처이므로, SVG extraY는 이 기준에서 (칸−4)만큼 당기거나 민다.
+ */
+export const OSMD_WORDS_EXPRESSION_BASELINE_SPACES = 4;
+
+/** 들어 올린 Accent — OSMD 기본 위치 대비 추가 칸(음수면 오선 쪽). */
+export function extraLiftedArticulationStaffSpaces(staffSpaces: number): number {
+  const n = Number.isFinite(staffSpaces) && staffSpaces > 0 ? staffSpaces : 1;
+  return n - OSMD_WORDS_EXPRESSION_BASELINE_SPACES;
+}
+
 export type ArticulationDistanceTier = 'auto' | 'close' | 'far' | 'very-far';
 
 export const COMMON_DISTANCE_OPTIONS: { value: string; label: string }[] = [

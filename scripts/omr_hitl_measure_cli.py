@@ -35,28 +35,49 @@ def main() -> int:
     ap.add_argument("mxl_path", type=Path)
     ap.add_argument("--part-id", required=True)
     ap.add_argument("--measure", required=True)
+    ap.add_argument(
+        "--read-only",
+        action="store_true",
+        help="정규화·MXL 저장 없이 스냅샷만 (이웃 마디 조회)",
+    )
     args = ap.parse_args()
     try:
         files, root_path, root = load_mxl_root(args.mxl_path)
         ns = _ns(root)
-        # 전 악보 정규화 — 다른 마디에 남은 옛 순번 및 이음줄도 함께 고침
-        rest_po_fixed = normalize_play_orders_including_rests_in_root(root)
-        coalesce_fixed = coalesce_spurious_parallel_voices_in_root(root)
-        chord_dupes = dedupe_identical_chord_pitches_in_root(root)
-        dyns_fixed = normalize_dynamics_in_root(root)
-        slurs_fixed = normalize_slurs_in_root(root)
-        arts_fixed = normalize_articulations_in_root(root)
-        wedges_fixed = normalize_wedges_in_root(root)
-        part = find_part(root, ns, args.part_id)
-        if part is not None:
-            measure = find_measure(part, ns, args.measure)
-            if measure is not None:
-                rebuild_measure_timeline_clean(measure, ns, part)
+        rest_po_fixed = 0
+        coalesce_fixed = 0
+        chord_dupes = 0
+        dyns_fixed = 0
+        slurs_fixed = 0
+        arts_fixed = 0
+        wedges_fixed = 0
+        if not args.read_only:
+            # 전 악보 정규화 — 다른 마디에 남은 옛 순번 및 이음줄도 함께 고침
+            rest_po_fixed = normalize_play_orders_including_rests_in_root(root)
+            coalesce_fixed = coalesce_spurious_parallel_voices_in_root(root)
+            chord_dupes = dedupe_identical_chord_pitches_in_root(root)
+            dyns_fixed = normalize_dynamics_in_root(root)
+            slurs_fixed = normalize_slurs_in_root(root)
+            arts_fixed = normalize_articulations_in_root(root)
+            wedges_fixed = normalize_wedges_in_root(root)
+            part = find_part(root, ns, args.part_id)
+            if part is not None:
+                measure = find_measure(part, ns, args.measure)
+                if measure is not None:
+                    rebuild_measure_timeline_clean(measure, ns, part)
         snap = measure_snapshot(root, ns, args.part_id, args.measure)
         if snap is None:
             print(json.dumps({"error": "part or measure not found"}, ensure_ascii=False))
             return 1
-        if rest_po_fixed or coalesce_fixed or chord_dupes or dyns_fixed or slurs_fixed or arts_fixed or wedges_fixed:
+        if (not args.read_only) and (
+            rest_po_fixed
+            or coalesce_fixed
+            or chord_dupes
+            or dyns_fixed
+            or slurs_fixed
+            or arts_fixed
+            or wedges_fixed
+        ):
             write_mxl_root(args.mxl_path, files, root_path, root)
             if rest_po_fixed:
                 snap["restPlayOrderMeasuresNormalized"] = rest_po_fixed
@@ -73,6 +94,9 @@ def main() -> int:
         print(json.dumps(snap, ensure_ascii=False))
         return 0
     except (OSError, ValueError) as e:
+        print(json.dumps({"error": str(e)}, ensure_ascii=False))
+        return 2
+    except Exception as e:
         print(json.dumps({"error": str(e)}, ensure_ascii=False))
         return 2
 

@@ -268,7 +268,7 @@ npm run convert -- "/path/to/score.pdf" -o "/path/to/out/"
 | `GET /api/omr-hitl/:jobId/export-work/status` | 작업 저장 진행률 `{ percent, detail, done, error }` |
 | `GET /api/omr-hitl/:jobId/export-work/file` | 준비된 omr-work ZIP 다운로드 |
 | `POST /api/omr-hitl/:jobId/import-work` | 위 ZIP 업로드로 검토 진행 복원 |
-| `GET /api/omr-hitl/:jobId/measure` | 마디별 음·쉼 목록 (`partId`, `measureMxl`) |
+| `GET /api/omr-hitl/:jobId/measure` | 마디별 음·쉼 목록 (`partId`, `measureMxl`; 이웃 마디는 `readOnly=1`) |
 | `POST /api/continue-omr-staff-review/:jobId` | **`omr_staff_review_needed`** 일 때 OMR HITL 이어하기(보정 자동 적용 후 inject) |
 | `GET /api/diagnostic/:jobId/page/:pageNum/png` | 쿼리 `source=original` 또는 `masked`, 선택 `dpi`(72–240, 기본 132). PyMuPDF로 해당 페이지 PNG |
 | `GET /api/diagnostic/:jobId/score-musicxml` | Audiveris MXL → MusicXML(미리보기). **OMR 품질 검토·진단 OSMD**용 — 요청마다 `fix_audiveris_mxl.py` 적용 후 추출 |

@@ -2308,7 +2308,7 @@ function CrossMeasureTieForm({
     async (mxl: string, setter: (notes: MeasureNoteEl[]) => void) => {
       try {
         const r = await fetch(
-          `/api/omr-hitl/${jobId}/measure?partId=${encodeURIComponent(partId)}&measureMxl=${encodeURIComponent(mxl)}`,
+          `/api/omr-hitl/${jobId}/measure?partId=${encodeURIComponent(partId)}&measureMxl=${encodeURIComponent(mxl)}&readOnly=1`,
           { cache: 'no-store' },
         );
         const j = (await r.json()) as MeasureSnapshot & { error?: string };

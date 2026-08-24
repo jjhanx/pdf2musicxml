@@ -147,7 +147,7 @@ python _smoke/test_printed_measure_numbers_circled.py  # 원문자·줄머리 OC
 | GET | `/api/omr-hitl/:jobId/export-work/status` | 작업 저장 진행률 % |
 | GET | `/api/omr-hitl/:jobId/export-work/file` | 준비된 ZIP 다운로드 |
 | POST | `/api/omr-hitl/:jobId/import-work` | OMR 검토 진행 ZIP 불러오기 |
-| GET | `/api/omr-hitl/:jobId/measure?partId=&measureMxl=` | 마디 내 음·쉼 목록 |
+| GET | `/api/omr-hitl/:jobId/measure?partId=&measureMxl=` | 마디 내 음·쉼 목록 (`readOnly=1`이면 MXL 저장 없음) |
 | POST | `/api/continue-omr-staff-review/:jobId` | OMR HITL 이어하기(보정 자동 적용) |
 | GET | `/api/raw-mxl/:jobId` | `omr_staff_review_needed`·`audiveris_review_needed` 시 원본 MXL |
 

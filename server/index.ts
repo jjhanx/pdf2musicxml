@@ -711,6 +711,36 @@ async function readOmrHitlFixes(sessionRoot: string): Promise<unknown[]> {
   }
 }
 
+/** 같은 job의 MXL을 동시에 다시 쓰면 Windows에서 zip 잠금 → 500. 조회·정규화는 job마다 직렬화. */
+const hitlMeasureCliTail = new Map<string, Promise<unknown>>();
+
+function enqueueHitlMeasureCli<T>(jobId: string, run: () => Promise<T>): Promise<T> {
+  const prev = hitlMeasureCliTail.get(jobId) ?? Promise.resolve();
+  const next = prev.then(run, run);
+  hitlMeasureCliTail.set(
+    jobId,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return next;
+}
+
+function parsePythonCliJson(stdout: string): Record<string, unknown> | null {
+  const t = String(stdout ?? '').trim();
+  if (!t) return null;
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const v = JSON.parse(t.slice(start, end + 1)) as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function writeOmrHitlFixes(sessionRoot: string, fixes: unknown[]): Promise<void> {
   await fs.writeFile(
     sessionOmrHitlFixesPath(sessionRoot),
@@ -6258,13 +6288,35 @@ app.get('/api/omr-hitl/:jobId/measure', async (req, res) => {
   }
   const script = path.join(__dirname, '..', 'scripts', 'omr_hitl_measure_cli.py');
   const pythonBin = resolvePythonBin();
+  const readOnly =
+    req.query.readOnly === '1' ||
+    req.query.readOnly === 'true' ||
+    req.query.peek === '1';
   try {
-    const { stdout } = await exec(
-      `"${pythonBin}" "${script}" "${mxlPath}" --part-id "${partId}" --measure "${measureMxl}"`,
-      { maxBuffer: 4 * 1024 * 1024 },
-    );
-    res.json(JSON.parse(String(stdout).trim()));
+    const parsed = await enqueueHitlMeasureCli(req.params.jobId, async () => {
+      const { stdout } = await exec(
+        `"${pythonBin}" "${script}" "${mxlPath}" --part-id "${partId}" --measure "${measureMxl}"${
+          readOnly ? ' --read-only' : ''
+        }`,
+        { maxBuffer: 8 * 1024 * 1024 },
+      );
+      return parsePythonCliJson(String(stdout)) ?? JSON.parse(String(stdout).trim());
+    });
+    if (parsed && typeof parsed === 'object' && parsed.error) {
+      const notFound = /not found/i.test(String(parsed.error));
+      res.status(notFound ? 404 : 500).json(parsed);
+      return;
+    }
+    res.json(parsed);
   } catch (e) {
+    const stdout =
+      e && typeof e === 'object' && 'stdout' in e ? String((e as { stdout?: unknown }).stdout ?? '') : '';
+    const parsed = parsePythonCliJson(stdout);
+    if (parsed?.error) {
+      const notFound = /not found/i.test(String(parsed.error));
+      if (!res.headersSent) res.status(notFound ? 404 : 500).json(parsed);
+      return;
+    }
     const msg = e instanceof Error ? e.message : String(e);
     if (!res.headersSent) res.status(500).json({ error: msg });
   }

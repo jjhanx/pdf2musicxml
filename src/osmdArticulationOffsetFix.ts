@@ -171,6 +171,7 @@ export function orderedHintsByMeasureFromXml(xml: string): Map<string, OrderedHi
   for (const list of map.values()) {
     list.sort((a, b) => a.layoutX - b.layoutX);
   }
+  if (hintsCacheByXml.size > 20) hintsCacheByXml.clear();
   hintsCacheByXml.set(xml, map);
   return map;
 }
@@ -346,31 +347,19 @@ function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
 /** StaveNote SVG 내부에서 실제 Articulation Glyph (path, text, use) 요소 추출 (덧줄·타이·그레이스노트 제외). */
 export function findArticulationElementsInStavenote(stavenote: Element): Element[] {
   const out: Element[] = [];
-  for (const mod of stavenote.querySelectorAll(':scope > .vf-modifiers, :scope .vf-modifiers')) {
-    for (const child of mod.children) {
-      const tag = child.tagName.toLowerCase();
-      if (tag === 'path') {
-        const d = child.getAttribute('d') ?? '';
-        // 덧줄(단순 가로 직선 L x y) 제외
-        if (/L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) && !/[Cc]/.test(d) && (d.match(/M/g) ?? []).length < 2) continue;
-        out.push(child);
-      } else if (tag === 'text' || tag === 'use') {
-        out.push(child);
-      }
-    }
-  }
-  // 만약 직접 자식에서 못 찾았으면 vf-modifiers 전체 검사
-  if (!out.length) {
-    for (const mod of stavenote.querySelectorAll(':scope > .vf-modifiers')) {
-      if (!mod.closest('.vf-ledgers, .vf-stavetie')) {
-        const path = mod.querySelector('path');
-        const d = path?.getAttribute('d') ?? '';
-        if (path && (!/L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) || /[Cc]/.test(d))) {
-          out.push(path);
-        } else if (mod.querySelector('text, use')) {
-          out.push(mod);
-        }
-      }
+  const mods = stavenote.querySelectorAll(':scope > .vf-modifiers, :scope .vf-modifiers');
+  for (const mod of mods) {
+    if (mod.closest('.vf-ledgers, .vf-stavetie')) continue;
+    // 만약 mod 안에 다른 그룹(ledgers, stavetie 등)이 전혀 없다면, mod 자체 또는 path 추출
+    const paths = [...mod.querySelectorAll('path')].filter((p) => {
+      const d = p.getAttribute('d') ?? '';
+      // 덧줄(단순 가로 직선 L x y) 제외
+      return !( /L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) && !/[Cc]/.test(d) && (d.match(/M/g) ?? []).length < 2 );
+    });
+    if (paths.length > 0) {
+      out.push(...paths);
+    } else if (mod.querySelector('text, use')) {
+      out.push(mod);
     }
   }
   return out;

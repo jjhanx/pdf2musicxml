@@ -73,9 +73,9 @@ ns_sa = _ns(slur_accent)
 m = slur_accent.find(".//{*}measure")
 note = list_note_elements(m, ns_sa)[0]
 dy = _calc_safe_articulation_default_y(note, ns_sa, "below")
-assert dy == -ARTICULATION_STAFF_GAP_BASE, dy
+assert dy == int(round(-ARTICULATION_STAFF_GAP_BASE * 2.5)), dy
 normalize_articulations_in_root(slur_accent)
 acc = slur_accent.find(".//{*}accent")
-assert acc is not None and int(acc.get("default-y")) == -ARTICULATION_STAFF_GAP_BASE
+assert acc is not None and int(acc.get("default-y")) == int(round(-ARTICULATION_STAFF_GAP_BASE * 2.5))
 
 print("articulation placement hitl ok")

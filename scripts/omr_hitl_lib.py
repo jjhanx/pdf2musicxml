@@ -2064,19 +2064,19 @@ def _set_articulation_distance_on_el(el: ET.Element, dist: str | None) -> None:
 def _articulation_staff_spaces(dist: str | None) -> float:
     d = (dist or "").strip().lower()
     if d in (None, "", "auto"):
-        return 1.0
+        return 2.5
     if d == "very-far":
-        return 3.0
+        return 6.0
     if d == "far":
-        return 2.0
+        return 4.0
     if d == "close":
-        return 0.5
+        return 1.0
     import re
 
     m = re.match(r"^(?:spaces?[:x])?(\d+(?:\.\d+)?)$", d.replace(" ", ""))
     if m:
         return float(m.group(1))
-    return 1.0
+    return 2.5
 
 
 def _articulation_tier_multiplier(dist: str | None) -> float:

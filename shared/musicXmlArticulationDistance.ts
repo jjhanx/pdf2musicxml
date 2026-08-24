@@ -93,11 +93,14 @@ export function articulationDistanceSelectValue(
   const d = (distance || '').trim();
   if (d) return d.toLowerCase();
   const spaces = articulationStaffSpacesFromHint(null, defaultY);
-  if (spaces === 0.5) return 'close';
-  if (spaces === 1) return 'auto';
-  if (spaces === 2) return 'far';
-  if (spaces === 3) return 'very-far';
-  if (Number.isFinite(spaces)) return String(spaces);
+  if (Math.abs(spaces - 1) < 0.01) return 'close';
+  if (Math.abs(spaces - 2.5) < 0.01) return 'auto';
+  if (Math.abs(spaces - 4) < 0.01) return 'far';
+  if (Math.abs(spaces - 6) < 0.01 || Math.abs(spaces - 6.5) < 0.01) return 'very-far';
+  if (Number.isFinite(spaces) && spaces > 0) {
+    if (spaces >= 5.5 && spaces <= 6.5) return '6';
+    return String(Math.round(spaces));
+  }
   return 'auto';
 }
 
@@ -236,10 +239,9 @@ function applyArticulationAttrsToNote(
         if (placement !== 'above' && placement !== 'below') {
           placement = defaultArticulationPlacementFromNote(note);
         }
-        const spaces = articulationStaffSpacesFromHint(
-          el.getAttribute(HITL_ART_DISTANCE_ATTR),
-          parseInt(el.getAttribute('default-y') ?? '', 10) || 0,
-        );
+        const effectiveDist = fix.distance !== undefined ? fix.distance : el.getAttribute(HITL_ART_DISTANCE_ATTR);
+        const effectiveOldDy = fix.distance !== undefined ? null : (parseInt(el.getAttribute('default-y') ?? '', 10) || null);
+        const spaces = articulationStaffSpacesFromHint(effectiveDist, effectiveOldDy);
         const target = String(articulationDefaultYFromStaffSpaces(placement as 'above' | 'below', spaces));
         if (el.getAttribute('default-y') !== target) {
           el.setAttribute('default-y', target);

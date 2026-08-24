@@ -5992,7 +5992,29 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         dist = None if dist_raw in (None, "", "auto") else str(dist_raw).strip().lower()
         if art not in _ARTICULATION_TAGS:
             return False
-        note = notes[idx]
+
+        def _note_has_target_art(n: ET.Element) -> bool:
+            for nots in n.findall(_q(ns, "notations")):
+                for arts in nots.findall(_q(ns, "articulations")):
+                    for el in arts:
+                        if _local(el).lower().replace("_", "-") == art:
+                            return True
+            return False
+
+        target_note = notes[idx]
+        if not _note_has_target_art(target_note):
+            # 1. chord leader fallback
+            leader_i = _chord_leader_index(notes, ns, idx)
+            if leader_i < len(notes) and _note_has_target_art(notes[leader_i]):
+                target_note = notes[leader_i]
+            else:
+                # 2. measure-wide fallback
+                for n in notes:
+                    if _note_has_target_art(n):
+                        target_note = n
+                        break
+
+        note = target_note
         changed = False
         for notations in note.findall(_q(ns, "notations")):
             for arts in notations.findall(_q(ns, "articulations")):
@@ -6013,6 +6035,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                             el.set("default-y", str(custom_dy))
                             changed = True
                     _set_articulation_distance_on_el(el, dist)
+                    changed = True
         if _normalize_articulation_engraving_on_note(note, ns):
             changed = True
         return changed

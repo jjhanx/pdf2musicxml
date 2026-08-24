@@ -344,14 +344,14 @@ function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
   return `${STEP_NAMES[fn] ?? 'C'}${acc}${oct}`;
 }
 
-/** StaveNote SVG 내부에서 실제 Articulation Glyph (path, text, use) 요소 추출 (덧줄·타이·그레이스노트 제외). */
+/** StaveNote SVG 내부에서 실제 Articulation Glyph (path, text, use) 요소 추출 (덧줄·타이·그레이스노트·임시표 제외). */
 export function findArticulationElementsInStavenote(stavenote: Element): Element[] {
   const out: Element[] = [];
   const mods = stavenote.querySelectorAll(':scope > .vf-modifiers');
   for (const mod of mods) {
     const paths = [...mod.querySelectorAll('path')].filter((p) => {
-      // 자식 stavenote(그레이스노트), 음표머리, 타이, 덧줄 내부의 path는 무조건 제외
-      if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam')) return false;
+      // 자식 stavenote(그레이스노트), 음표머리, 타이, 덧줄, 임시표 내부의 path는 무조건 제외
+      if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental')) return false;
       const parentStavenote = p.closest('.vf-stavenote');
       if (parentStavenote && parentStavenote !== stavenote) return false;
       const d = p.getAttribute('d') ?? '';
@@ -383,7 +383,7 @@ function articulationModTypeMatchesHint(artModType: string | undefined, hintTag:
 
 function countHints(map: Map<string, OrderedHint[]>): number {
   let n = 0;
-  for (const list of map.values()) n += list.length;
+  for (const v of map.values()) n += v.length;
   return n;
 }
 
@@ -416,16 +416,18 @@ export function applyOsmdArticulationOffsetsDetailed(
   if (!xml?.trim()) return empty;
 
   const hintsByMeasure = orderedHintsByMeasureFromXml(xml);
-  if (!hintsByMeasure.size) return { ...empty, modifierCount: countModifiers(host) };
+  const totalHints = countHints(hintsByMeasure);
+  if (totalHints === 0) return { ...empty, modifierCount: countModifiers(host) };
 
   const staffSpacePx = staffSpacePxFromHost(host, osmd);
+  const sheet = osmd.GraphicSheet;
+  if (!sheet?.MeasureList?.length) return { ...empty, modifierCount: countModifiers(host), hintCount: totalHints, staffSpacePx };
+
   let shiftedCount = 0;
   const usedElements = new Set<Element>();
   const usedHints = new Set<OrderedHint>();
 
-  // 1) OSMD GraphicSheet 모델 기반 정밀 탐색 및 이동 (최우선)
-  const sheet = osmd?.GraphicSheet;
-  if (sheet?.MeasureList?.length) {
+  try {
     for (let mIdx = 0; mIdx < sheet.MeasureList.length; mIdx++) {
       const partMeasures = sheet.MeasureList[mIdx];
       if (!partMeasures?.length) continue;
@@ -438,8 +440,8 @@ export function applyOsmdArticulationOffsetsDetailed(
         const partId = partIdFromGraphic(gm) ?? '';
         const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, pIdx);
         const hints = lookupHints(hintsByMeasure, partId, measureMxl, staffWithinPart) ??
-                      lookupHints(hintsByMeasure, partId, measureMxl);
-        if (!hints?.length) continue;
+                      lookupHints(hintsByMeasure, partId, measureMxl) ?? [];
+        if (!hints.length) continue;
 
         const staffEntries = gm.staffEntries ?? gm.StaffEntries ?? [];
         for (const se of staffEntries) {
@@ -452,6 +454,8 @@ export function applyOsmdArticulationOffsetsDetailed(
               type?: string;
             }>;
             const artMods = mods.filter((m) => m.getCategory?.() === 'articulations');
+            if (!artMods.length) continue;
+
             const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
             const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
 
@@ -464,14 +468,14 @@ export function applyOsmdArticulationOffsetsDetailed(
 
             if (!staveNoteSvg) continue;
             const artEls = findArticulationElementsInStavenote(staveNoteSvg);
-            if (!artEls.length && !artMods.length) continue;
+            if (!artEls.length) continue;
 
-            for (let i = 0; i < Math.max(artMods.length, artEls.length); i++) {
+            for (let i = 0; i < artMods.length; i++) {
               const artMod = artMods[i];
               const artEl = artEls[i] ?? artEls[0];
               if (!artEl || usedElements.has(artEl)) continue;
 
-              // Hint 매칭
+              // Hint 매칭: tag 및 pitch 검사
               const candidateHints = hints.filter((h) => {
                 if (usedHints.has(h)) return false;
                 if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
@@ -479,7 +483,7 @@ export function applyOsmdArticulationOffsetsDetailed(
                 return true;
               });
 
-              const matchedHint = candidateHints[0] ?? hints.find((h) => !usedHints.has(h));
+              const matchedHint = candidateHints[0] ?? (artMods.length === 1 && artEls.length === 1 ? hints.find((h) => !usedHints.has(h) && (!artMod?.type || articulationModTypeMatchesHint(artMod.type, h.tag))) : undefined);
               if (!matchedHint) continue;
 
               const shiftPx = articulationPreviewShiftPx(matchedHint.staffSpaces, staffSpacePx);
@@ -496,12 +500,14 @@ export function applyOsmdArticulationOffsetsDetailed(
         }
       }
     }
+  } catch (err) {
+    console.warn('[osmdArticulationOffsetFix] error applying offsets:', err);
   }
 
-  const stats: ArticulationShiftStats = {
+  return {
     shifted: shiftedCount,
     modifierCount: countModifiers(host),
-    hintCount: countHints(hintsByMeasure),
+    hintCount: totalHints,
     staffSpacePx,
   };
 

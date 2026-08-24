@@ -226,14 +226,6 @@ function noteHasArticulation(note: Element, articulation: string): boolean {
   return false;
 }
 
-function pitchLabelFromFix(fix: ArticulationPreviewFix): string | null {
-  const step = fix.pitchStep?.trim().toUpperCase();
-  if (!step || fix.pitchOctave == null) return null;
-  const alter = fix.pitchAlter ?? 0;
-  const acc = alter === 1 ? '#' : alter === -1 ? 'b' : alter === 2 ? '##' : alter === -2 ? 'bb' : '';
-  return `${step}${acc}${fix.pitchOctave}`;
-}
-
 function overlayFixesOnHints(
   xml: string,
   hintsByMeasure: Map<string, OrderedHint[]>,

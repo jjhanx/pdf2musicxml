@@ -574,6 +574,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         setApplyMsg('반영할 보정이 없습니다. 마디 편집에서 삭제·추가 버튼을 먼저 누르세요.');
         return;
       }
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
       await persistFixes(fixes);
       setPendingFixes(fixes);
       const r = await fetch(`/api/omr-hitl/${jobId}/apply`, { method: 'POST' });

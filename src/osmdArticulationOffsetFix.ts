@@ -415,46 +415,58 @@ export function applyOsmdArticulationOffsets(
   return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
 }
 
-function getSvgElementBaseY(el: Element): number | null {
-  const d = el.getAttribute('d') ?? '';
-  const m = /^[Mm]\s*[-\d.eE+]+\s+([-\d.eE+]+)/.exec(d);
-  if (m) {
-    const y = parseFloat(m[1]!);
-    if (Number.isFinite(y)) return y;
-  }
-  const yAttr = el.getAttribute('y');
-  if (yAttr) {
-    const y = parseFloat(yAttr);
-    if (Number.isFinite(y)) return y;
-  }
-  return null;
+function vexStaveNoteFromGve(gve: Record<string, unknown>): {
+  modifiers?: unknown;
+  attrs?: { el?: Element };
+  getAttribute?: (k: string) => unknown;
+  getStave?: () => unknown;
+  stave?: unknown;
+  getYs?: () => number[];
+  getStem?: () => unknown;
+  stem?: unknown;
+  getStemExtents?: () => { topY?: number; baseY?: number };
+} | null {
+  const raw =
+    gve.mVexFlowStaveNote ??
+    gve.vfStaveNote ??
+    gve.vexflowStaffNote ??
+    gve.staveNote;
+  return raw && typeof raw === 'object' ? (raw as ReturnType<typeof vexStaveNoteFromGve>) : null;
 }
 
-/** VexFlow StaveNote의 음표 머리 및 기둥 끝을 포함한 최상단/최하단 Y 경계선 추출 */
-function getStaveNoteExtentsY(staveNote: any): { topY: number | null; bottomY: number | null } {
-  if (!staveNote) return { topY: null, bottomY: null };
-  const ys = typeof staveNote.getYs === 'function' ? (staveNote.getYs() as number[]) : [];
-  if (!ys.length) return { topY: null, bottomY: null };
-
-  let minNoteY = Math.min(...ys) - 5;
-  let maxNoteY = Math.max(...ys) + 5;
-
-  const stem = typeof staveNote.getStem === 'function' ? staveNote.getStem() : staveNote.stem;
-  if (stem && typeof stem.getExtents === 'function') {
-    const ext = stem.getExtents();
-    if (ext && typeof ext.topY === 'number' && typeof ext.baseY === 'number') {
-      minNoteY = Math.min(minNoteY, ext.topY, ext.baseY);
-      maxNoteY = Math.max(maxNoteY, ext.topY, ext.baseY);
+function stavenoteSvgFromGraphic(
+  osmd: OpenSheetMusicDisplay,
+  gNotes: Array<Record<string, unknown>>,
+  vf: { attrs?: { el?: Element }; getAttribute?: (k: string) => unknown } | null,
+): Element | null {
+  const fromVf =
+    vf?.attrs?.el ??
+    (typeof vf?.getAttribute === 'function' ? (vf.getAttribute('el') as Element | null) : null);
+  if (fromVf) {
+    const sn = fromVf.closest?.('.vf-stavenote, .vf-staveNote') ?? fromVf;
+    if (sn) return sn;
+  }
+  const rules = (osmd as unknown as { EngravingRules?: { GNote?: (n: unknown) => unknown } }).EngravingRules;
+  for (const gn of gNotes) {
+    const src = gn.sourceNote ?? gn.SourceNote;
+    const candidates: unknown[] = [];
+    if (rules?.GNote && src) {
+      try {
+        candidates.push(rules.GNote(src));
+      } catch {
+        /* */
+      }
     }
-  } else if (typeof staveNote.getStemExtents === 'function') {
-    const ext = staveNote.getStemExtents();
-    if (ext && typeof ext.topY === 'number' && typeof ext.baseY === 'number') {
-      minNoteY = Math.min(minNoteY, ext.topY, ext.baseY);
-      maxNoteY = Math.max(maxNoteY, ext.topY, ext.baseY);
+    candidates.push(gn);
+    for (const cand of candidates) {
+      const rec = asRecord(cand);
+      const el = rec && typeof rec.getSVGGElement === 'function' ? (rec.getSVGGElement as () => Element | null)() : null;
+      if (!el) continue;
+      const sn = (el as Element).closest?.('.vf-stavenote, .vf-staveNote') ?? el;
+      if (sn) return sn;
     }
   }
-
-  return { topY: minNoteY, bottomY: maxNoteY };
+  return null;
 }
 
 export function applyOsmdArticulationOffsetsDetailed(
@@ -500,8 +512,10 @@ export function applyOsmdArticulationOffsetsDetailed(
         const staffEntries = gm.staffEntries ?? gm.StaffEntries ?? [];
         for (const se of staffEntries) {
           const gves = se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? [];
-          for (const gve of gves) {
-            const staveNote = (gve as { mVexFlowStaveNote?: { modifiers?: unknown[]; attrs?: { el?: Element }; getAttribute?: (k: string) => unknown } }).mVexFlowStaveNote;
+          for (const gveRaw of gves) {
+            const gve = asRecord(gveRaw);
+            if (!gve) continue;
+            const staveNote = vexStaveNoteFromGve(gve);
             const rawMods = staveNote?.modifiers as unknown;
             const mods = (Array.isArray(rawMods)
               ? rawMods
@@ -525,28 +539,23 @@ export function applyOsmdArticulationOffsetsDetailed(
                 /^a[>.\-^@+]/.test(t)
               );
             });
-            if (!artMods.length) continue;
 
             const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
             const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
 
-            const staveNoteSvg =
-              staveNote?.attrs?.el ??
-              (typeof staveNote?.getAttribute === 'function' ? (staveNote.getAttribute('el') as Element | null) : null) ??
-              (gNotes[0] && typeof (gNotes[0] as { getSVGGElement?: () => Element | null }).getSVGGElement === 'function'
-                ? (gNotes[0] as { getSVGGElement: () => Element | null }).getSVGGElement()
-                : null);
-
+            const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
             if (!staveNoteSvg) continue;
             const artEls = findArticulationElementsInStavenote(staveNoteSvg);
             if (!artEls.length) continue;
 
-            for (let i = 0; i < artMods.length; i++) {
-              const artMod = artMods[i];
+            const modsOrFake =
+              artMods.length > 0 ? artMods : [{ type: undefined as string | undefined, getPosition: () => 0 }];
+
+            for (let i = 0; i < Math.max(modsOrFake.length, 1); i++) {
+              const artMod = modsOrFake[i] ?? modsOrFake[0];
               const artEl = artEls[i] ?? artEls[0];
               if (!artEl || usedElements.has(artEl)) continue;
 
-              // Hint 매칭: tag 및 pitch 검사
               const candidateHints = hints.filter((h) => {
                 if (usedHints.has(h)) return false;
                 if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
@@ -554,71 +563,33 @@ export function applyOsmdArticulationOffsetsDetailed(
                 return true;
               });
 
-              // 1차: pitch+type 매칭
-            let matchedHint = candidateHints[0];
-            // 2차: type만 매칭 (pitch 불일치 — OSMD가 chord leader에 modifier 붙이는 경우)
-            if (!matchedHint) {
-              matchedHint = hints.find((h) => {
-                if (usedHints.has(h)) return false;
-                if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
-                return true;
-              });
-            }
+              let matchedHint = candidateHints[0];
+              if (!matchedHint) {
+                matchedHint = hints.find((h) => {
+                  if (usedHints.has(h)) return false;
+                  if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
+                  return true;
+                });
+              }
               if (!matchedHint) continue;
 
-              const isAbove = (artMod?.getPosition?.() === 3) || matchedHint.placement === 'above';
+              const isAbove = artMod?.getPosition?.() === 3 || matchedHint.placement === 'above';
+              const dir = isAbove ? -1 : 1;
+              const stave =
+                staveNote?.getStave?.() ??
+                staveNote?.stave ??
+                (gm as { getVFStave?: (n?: number) => unknown; stave?: unknown }).getVFStave?.(staffWithinPart) ??
+                (gm as { stave?: unknown }).stave;
+              const lineSpacing =
+                (typeof (stave as { getSpacingBetweenLines?: () => number })?.getSpacingBetweenLines === 'function'
+                  ? (stave as { getSpacingBetweenLines: () => number }).getSpacingBetweenLines()
+                  : null) || staffSpacePx || 10;
 
-              // Stave 기준선 (오선 맨 윗줄 / 맨 아랫줄)
-              const stave = (staveNote as { getStave?: () => any; stave?: any })?.getStave?.() ??
-                            (staveNote as { stave?: any })?.stave ??
-                            (gm as { getVFStave?: (n?: number) => any; stave?: any })?.getVFStave?.(staffWithinPart) ??
-                            (gm as { stave?: any })?.stave;
-              const topY = typeof stave?.getYForLine === 'function' ? stave.getYForLine(0) : null;
-              const bottomY = typeof stave?.getYForLine === 'function' ? stave.getYForLine(4) : null;
-              const lineSpacing = (typeof stave?.getSpacingBetweenLines === 'function' ? stave.getSpacingBetweenLines() : null) || staffSpacePx || 10;
-
-              // 음표 머리 및 기둥 끝을 포함한 외곽 Y 경계선
-              const noteExtents = getStaveNoteExtentsY(staveNote);
-
-              let baseY: number | null = null;
-              if (isAbove) {
-                if (topY != null && noteExtents.topY != null) {
-                  baseY = Math.min(topY, noteExtents.topY);
-                } else if (topY != null) {
-                  baseY = topY;
-                } else if (noteExtents.topY != null) {
-                  baseY = noteExtents.topY;
-                }
-              } else {
-                if (bottomY != null && noteExtents.bottomY != null) {
-                  baseY = Math.max(bottomY, noteExtents.bottomY);
-                } else if (bottomY != null) {
-                  baseY = bottomY;
-                } else if (noteExtents.bottomY != null) {
-                  baseY = noteExtents.bottomY;
-                }
-              }
-
-              const curY = getSvgElementBaseY(artEl);
-              if (curY != null && baseY != null) {
-                const targetY = isAbove
-                  ? (baseY - matchedHint.staffSpaces * lineSpacing)
-                  : (baseY + matchedHint.staffSpaces * lineSpacing);
-                const shiftY = Math.round(targetY - curY);
-                applyArticulationShiftY(artEl, shiftY);
-                shiftedCount += 1;
-                usedElements.add(artEl);
-                usedHints.add(matchedHint);
-              } else {
-                const shiftPx = articulationPreviewShiftPx(matchedHint.staffSpaces, staffSpacePx);
-                if (shiftPx > 0) {
-                  const dir = isAbove ? -1 : 1;
-                  applyArticulationShiftY(artEl, dir * shiftPx);
-                  shiftedCount += 1;
-                  usedElements.add(artEl);
-                  usedHints.add(matchedHint);
-                }
-              }
+              const shiftPx = articulationPreviewShiftPx(matchedHint.staffSpaces, lineSpacing);
+              applyArticulationShiftY(artEl, dir * shiftPx);
+              shiftedCount += 1;
+              usedElements.add(artEl);
+              usedHints.add(matchedHint);
             }
           }
         }

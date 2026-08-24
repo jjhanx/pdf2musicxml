@@ -2039,6 +2039,7 @@ def _note_slur_placement_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
 
 
 ART_DISTANCE_ATTR = "data-hitl-art-distance"
+DIR_DISTANCE_ATTR = "data-hitl-dir-distance"
 ARTICULATION_STAFF_GAP_BASE = 10
 
 
@@ -2052,13 +2053,14 @@ def _articulation_distance_from_el(el: ET.Element) -> str | None:
 def _set_articulation_distance_on_el(el: ET.Element, dist: str | None) -> None:
     if dist in (None, "", "auto"):
         el.attrib.pop(ART_DISTANCE_ATTR, None)
-DIR_DISTANCE_ATTR = "data-hitl-dir-distance"
+        return
+    el.set(ART_DISTANCE_ATTR, str(dist).strip().lower())
 
 
 def _articulation_staff_spaces(dist: str | None) -> float:
     d = (dist or "").strip().lower()
     if d in (None, "", "auto"):
-        return 2.5
+        return 1.0
     if d == "very-far":
         return 5.0
     if d == "far":
@@ -2070,7 +2072,7 @@ def _articulation_staff_spaces(dist: str | None) -> float:
     m = re.match(r"^(?:spaces?[:x])?(\d+(?:\.\d+)?)$", d.replace(" ", ""))
     if m:
         return float(m.group(1))
-    return 2.5
+    return 1.0
 
 
 def _articulation_tier_multiplier(dist: str | None) -> float:
@@ -2133,25 +2135,9 @@ def _normalize_articulation_engraving_on_note(note: ET.Element, ns: str) -> bool
                 dy_raw = el.get("default-y")
                 target = _calc_safe_articulation_default_y(note, ns, placement, distance=dist)
                 if target is not None:
-                    if dist and (dy_raw is None or not str(dy_raw).strip() or str(dy_raw).strip() != str(target)):
+                    if str(dy_raw or "").strip() != str(target):
                         el.set("default-y", str(target))
                         changed = True
-                    elif dy_raw is None or not str(dy_raw).strip():
-                        el.set("default-y", str(target))
-                        changed = True
-                    else:
-                        try:
-                            current = int(float(str(dy_raw).strip()))
-                            has_below, has_above = _note_slur_placement_flags(note, ns)
-                            if placement == "below" and has_below and current > target:
-                                el.set("default-y", str(target))
-                                changed = True
-                            elif placement == "above" and has_above and current < target:
-                                el.set("default-y", str(target))
-                                changed = True
-                        except ValueError:
-                            el.set("default-y", str(target))
-                            changed = True
     return changed
 
 

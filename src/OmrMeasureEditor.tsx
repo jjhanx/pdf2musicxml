@@ -164,7 +164,7 @@ function markDistanceLevelOf(raw: string): string {
 }
 
 const ARTICULATION_DISTANCE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'auto', label: '보통 (자동 / 2.5칸)' },
+  { value: 'auto', label: '보통 (자동 / 1칸)' },
   { value: '1', label: '1칸 (10px)' },
   { value: '2', label: '2칸 (20px)' },
   { value: '3', label: '3칸 (30px)' },

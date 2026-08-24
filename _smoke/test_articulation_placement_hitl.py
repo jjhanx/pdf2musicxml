@@ -58,7 +58,7 @@ arts = snap["notes"][0]["articulations"]
 assert any(a.startswith("tenuto(above") for a in arts), arts
 assert any(a.startswith("staccato(below") for a in arts), arts
 
-# slur(below) + accent(below) — 오선 기본 gap 2.5칸
+# slur(below) + accent(below) — 오선 기본 gap 1칸
 slur_accent = ET.fromstring(
     """<score-partwise version="3.1">
 <part id="P1"><measure number="1">
@@ -73,10 +73,10 @@ ns_sa = _ns(slur_accent)
 m = slur_accent.find(".//{*}measure")
 note = list_note_elements(m, ns_sa)[0]
 dy = _calc_safe_articulation_default_y(note, ns_sa, "below")
-assert dy == int(round(-ARTICULATION_STAFF_GAP_BASE * 2.5)), dy
+assert dy == int(round(-ARTICULATION_STAFF_GAP_BASE * 1.0)), dy
 normalize_articulations_in_root(slur_accent)
 acc = slur_accent.find(".//{*}accent")
-assert acc is not None and int(acc.get("default-y")) == int(round(-ARTICULATION_STAFF_GAP_BASE * 2.5))
+assert acc is not None and int(acc.get("default-y")) == int(round(-ARTICULATION_STAFF_GAP_BASE * 1.0))
 
 # Direction placement & distance test
 assert apply_fix(

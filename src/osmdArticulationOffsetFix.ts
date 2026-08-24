@@ -600,27 +600,18 @@ function ensureArticulationDrawUsesYShift(mod: { constructor?: { prototype?: Rec
   proto[HITL_Y_SHIFT_PATCH] = true;
 }
 
-function setArticulationYShift(
+/** 다음 전체 render용 y_shift만 설정. 즉시 화면 반영은 SVG transform이 담당. */
+function rememberArticulationYShift(
   mod: {
     setYShift?: (y: number) => void;
     y_shift?: number;
     constructor?: { prototype?: Record<string, unknown> };
-    draw?: () => void;
   },
   extraY: number,
-): boolean {
+): void {
   ensureArticulationDrawUsesYShift(mod);
   if (typeof mod.setYShift === 'function') mod.setYShift(extraY);
   else mod.y_shift = extraY;
-  const el = vexModifierSvg(mod);
-  try {
-    el?.remove();
-    if (typeof mod.draw === 'function') mod.draw();
-    return true;
-  } catch {
-    if (el) applyArticulationShiftY(el, extraY);
-    return Boolean(el);
-  }
 }
 
 function vexStaveNoteFromGve(gve: Record<string, unknown>): {
@@ -784,25 +775,19 @@ export function applyOsmdArticulationOffsetsDetailed(
               staffSpacePx ||
               10;
             const extraY = extraArticulationYPx(matchedHint.staffSpaces, lineSpacing, isAbove);
-            let moved = false;
-            if (artMod && typeof (artMod as { draw?: unknown }).draw === 'function') {
-              moved = setArticulationYShift(artMod, extraY);
+            // VexFlow Articulation.draw는 y_shift를 무시하는 빌드가 많음. draw() 성공만으로
+            // SVG 폴백을 건너뛰면 브라우저에서 거리가 안 움직이고 헤드리스만 통과한다.
+            if (artMod && typeof (artMod as { setYShift?: unknown }).setYShift === 'function') {
+              rememberArticulationYShift(artMod, extraY);
+            } else if (artMod) {
+              rememberArticulationYShift(artMod, extraY);
             }
             const painted = vexModifierSvg(artMod) ?? artEl;
-            if (!moved && painted) {
-              applyArticulationShiftY(painted, extraY);
-              moved = true;
-            }
-            if (painted && Math.abs(extraY) >= 0.05) {
-              painted.setAttribute('data-art-shift-y', String(extraY));
-              const grp = painted.closest?.('.vf-modifiers');
-              if (grp && grp !== painted) grp.setAttribute('data-art-shift-y', String(extraY));
-            }
-            if (moved || painted) {
-              shiftedCount += 1;
-              if (painted) usedElements.add(painted);
-              usedHints.add(matchedHint);
-            }
+            if (!painted || usedElements.has(painted)) continue;
+            applyArticulationShiftY(painted, extraY);
+            shiftedCount += 1;
+            usedElements.add(painted);
+            usedHints.add(matchedHint);
           }
         }
       }

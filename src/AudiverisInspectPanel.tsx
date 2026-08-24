@@ -2345,6 +2345,15 @@ export function OsmdBlock({
     });
   }, [zoom, afterOsmdRender]);
 
+  /** 배열 참조가 아니라 거리·위치 문자열로 의존 — 같은 length면 React가 스킵하지 않음 */
+  const articulationFixesKey = (articulationFixes ?? [])
+    .filter((f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation')
+    .map(
+      (f) =>
+        `${f.partId}|${f.measureMxl}|${f.noteIndex}|${f.articulation}|${f.distance ?? ''}|${f.placement ?? ''}|${f.pitchStep ?? ''}${f.pitchAlter ?? ''}${f.pitchOctave ?? ''}`,
+    )
+    .join(';');
+
   useEffect(() => {
     const host = hostRef.current;
     const osmd = osmdRef.current;
@@ -2354,8 +2363,15 @@ export function OsmdBlock({
     if (!host || !osmd?.IsReadyToRender()) return;
     registerOsmdPreviewXmlForArticulation(osmd, hint);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
+    // 동기 적용 + 다음 프레임(OSMD autoResize가 transform을 덮어쓴 뒤) 한 번 더
     applyOsmdArticulationOffsets(host, osmd);
-  }, [articulationHintXml, xml, articulationFixes]);
+    const t = requestAnimationFrame(() => {
+      if (!hostRef.current || !osmdRef.current?.IsReadyToRender()) return;
+      registerOsmdArticulationFixes(osmdRef.current, articulationFixesRef.current);
+      applyOsmdArticulationOffsets(hostRef.current, osmdRef.current);
+    });
+    return () => cancelAnimationFrame(t);
+  }, [articulationHintXml, xml, articulationFixes, articulationFixesKey]);
 
   useEffect(() => {
     const host = hostRef.current;

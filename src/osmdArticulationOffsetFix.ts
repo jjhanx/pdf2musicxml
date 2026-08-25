@@ -1,5 +1,6 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
+  ARTICULATION_STAFF_GAP_BASE,
   articulationStaffSpacesFromHint,
   extraLiftedArticulationStaffSpaces,
   HITL_ART_DISTANCE_ATTR,
@@ -289,6 +290,24 @@ function articulationHintOnEl(el: Element, note: Element, staff: number): Ordere
     layoutX: noteLayoutX(note),
     staff,
   };
+}
+
+/**
+ * OSMD 미리보기 SVG 추가 이동이 필요한 HITL 거리인지.
+ * Audiveris 절대 default-y(-78 등)는 |dy|/10으로 칸 수가 커져도 미리보기 Δ로 쓰지 않음.
+ * HITL은 data-hitl-art-distance 또는 default-y = ±(N×10) (N=2..10).
+ */
+export function hintNeedsOsmdPreviewShift(h: {
+  staffSpaces: number;
+  distance?: string | null;
+  defaultY?: number;
+}): boolean {
+  if (!(h.staffSpaces > 1.01)) return false;
+  if (h.distance != null && String(h.distance).trim() !== '' && String(h.distance).trim().toLowerCase() !== 'auto') {
+    return true;
+  }
+  const mag = Math.abs(h.defaultY ?? 0);
+  return mag >= 20 && mag <= 100 && mag % ARTICULATION_STAFF_GAP_BASE === 0;
 }
 
 function findXmlParts(doc: Document): Element[] {
@@ -745,9 +764,12 @@ export function applyPendingArticulationOffsetsOnly(
   );
   if (osmd) registerOsmdArticulationFixes(osmd, pending);
   const yHost = extraYPxFromArticulationFixes(pending, 10);
-  // pending이 있을 때만 호스트 배너용 dy 표시. 없으면 detailed가 XML 기준으로 설정.
-  if (pending.length) applyHitlArticulationHostCss(host, yHost);
-  setHitlArticulationExtraYPx(yHost);
+  // pending이 있을 때만 즉시 호스트 dy. 없으면 detailed가 XML 힌트로 설정 (여기서 0으로 지우면
+  // MXL 반영 직후·render 전에 Accent가 한 프레임 원위치로 돌아감).
+  if (pending.length) {
+    applyHitlArticulationHostCss(host, yHost);
+    setHitlArticulationExtraYPx(yHost);
+  }
   if (!osmd?.IsReadyToRender?.()) return pending.length ? 1 : 0;
   return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
 }
@@ -1479,20 +1501,31 @@ function applyOsmdArticulationOffsetsDetailedInner(
             const artMod = modsOrFake[i] ?? modsOrFake[0];
             const artEl = vexModifierSvg(artMod) ?? artEls[i] ?? artEls[0] ?? null;
 
-            const candidateHints = hints.filter((h) => {
+            // pending과 동일: 그래픽 피치가 있을 때만 피치 필터. 없으면 표 종류·순서로 매칭
+            // (MXL 반영 후 pending 비울 때 피치 미추출이면 전부 탈락 → 원래 위치로 되돌아가던 버그)
+            const typeOkHints = hints.filter((h) => {
               if (usedHints.has(h)) return false;
               if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
-              if (h.pitch && !notePitches.length) return false;
-              if (
-                h.pitch &&
-                notePitches.length &&
-                !graphicPitchesMatchFix(notePitches, h.pitch)
-              ) {
+              return true;
+            });
+            const pitchMatched = typeOkHints.filter((h) => {
+              if (!h.pitch || !notePitches.length) return false;
+              return graphicPitchesMatchFix(notePitches, h.pitch);
+            });
+            const orderMatched = typeOkHints.filter((h) => {
+              if (h.pitch && notePitches.length && !graphicPitchesMatchFix(notePitches, h.pitch)) {
                 return false;
               }
               return true;
             });
-            const matchedHint = candidateHints[0];
+            const matchedHint =
+              pitchMatched.find((h) => hintNeedsOsmdPreviewShift(h)) ??
+              pitchMatched[0] ??
+              orderMatched.find((h) => hintNeedsOsmdPreviewShift(h)) ??
+              orderMatched[0] ??
+              (!pendingFixes.length
+                ? typeOkHints.find((h) => hintNeedsOsmdPreviewShift(h)) ?? typeOkHints[0]
+                : undefined);
             const pending = staffSpacesFromPendingFix(pendingFixes, {
               partId,
               measureMxl,
@@ -1502,6 +1535,8 @@ function applyOsmdArticulationOffsetsDetailedInner(
             });
             const staffSpaces = pending?.staffSpaces ?? matchedHint?.staffSpaces;
             if (staffSpaces == null) continue;
+            // pending 없을 때 Audiveris 절대 default-y만으로 전 악보 Accent를 밀지 않음
+            if (!pending && matchedHint && !hintNeedsOsmdPreviewShift(matchedHint)) continue;
 
             const isAbove =
               artMod?.getPosition?.() === 3 ||

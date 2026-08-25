@@ -2212,7 +2212,8 @@ export function OsmdBlock({
       verbatimPreview === true,
       printedMeasureMarkersRef.current,
     );
-    registerOsmdPreviewXmlForArticulation(osmd, xmlForOsmd);
+    // articulation 거리는 sanitize 전 hint XML 기준 — strip/serialize 후에도 attr이 있어야 함
+    registerOsmdPreviewXmlForArticulation(osmd, hintXmlRef.current || xml);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
     const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(xmlForOsmd);

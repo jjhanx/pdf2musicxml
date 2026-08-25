@@ -283,18 +283,45 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   const layoutLen = Math.max(1, previewLayoutLengthUnits(measure));
   const onsets = collectVoiceParallelNoteOnsets(measure);
 
+  const staves = new Set<number>();
+  for (const leader of allLeadersInMeasure(measure)) {
+    staves.add(noteStaffNumber(leader));
+  }
+  const timelineDefaults = buildMeasureDefaultPlayOrders(measure, staves);
+
+  /** 명시 숫자 또는 timeline 기본 — UI에 보이는 순번과 동일하게 참조(5-6)를 해석 */
+  const effectiveOrder = (leader: Element): number | null => {
+    const explicit = readPlayOrder(leader);
+    if (explicit != null) return explicit;
+    return timelineDefaults.get(leader) ?? null;
+  };
+
+  const staffsWithRefs = new Set<number>();
+  for (const leader of allLeadersInMeasure(measure)) {
+    if (readPlayOrderRef(leader)) staffsWithRefs.add(noteStaffNumber(leader));
+  }
+
   const poColumnOnset = new Map<string, number>();
   for (const leader of allLeadersInMeasure(measure)) {
-    const po = readPlayOrder(leader);
-    if (po == null) continue;
     const staff = noteStaffNumber(leader);
+    // 참조가 있는 staff만 timeline 기본 순번도 열로 포함(5-6 → 6열 확보). 그 외는 명시 숫자만.
+    const po = staffsWithRefs.has(staff) ? effectiveOrder(leader) : readPlayOrder(leader);
+    if (po == null) continue;
     const key = `${staff}:${po}`;
     const onset = onsets.get(leader) ?? 0;
     const prev = poColumnOnset.get(key);
     poColumnOnset.set(key, prev == null ? onset : Math.min(prev, onset));
   }
+  // 참조 대상 순번 열이 비어 있지 않게
+  for (const leader of allLeadersInMeasure(measure)) {
+    const ref = readPlayOrderRef(leader);
+    if (!ref) continue;
+    const staff = noteStaffNumber(leader);
+    const key = `${staff}:${ref.order}`;
+    if (!poColumnOnset.has(key)) poColumnOnset.set(key, 0);
+  }
 
-  // staff별 숫자 순번 오름차순 → 균등 column (`5-6` 참조는 열을 만들지 않음)
+  // staff별 순번 오름차순 → 균등 column
   const rankOnsetByStaffPo = new Map<string, number>();
   const byStaff = new Map<number, number[]>();
   for (const key of poColumnOnset.keys()) {
@@ -315,10 +342,10 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     });
   }
 
-  // voice별 숫자 순번 → layout onset (참조 `5-6` 해석용)
+  // voice별 유효 순번 → layout onset (참조 `5-6` 해석용)
   const voicePoOnset = new Map<string, number>();
   for (const leader of allLeadersInMeasure(measure)) {
-    const po = readPlayOrder(leader);
+    const po = effectiveOrder(leader);
     if (po == null) continue;
     const staff = noteStaffNumber(leader);
     const voice = noteVoiceNumber(leader);
@@ -331,13 +358,13 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
 
   for (const leader of allLeadersInMeasure(measure)) {
     const musicalOnset = onsets.get(leader) ?? 0;
+    const staff = noteStaffNumber(leader);
     const spec = readPlayOrderSpec(leader);
     let layoutOnset = musicalOnset;
     if (spec?.kind === 'order') {
-      const key = `${noteStaffNumber(leader)}:${spec.order}`;
+      const key = `${staff}:${spec.order}`;
       layoutOnset = rankOnsetByStaffPo.get(key) ?? poColumnOnset.get(key) ?? musicalOnset;
     } else if (spec?.kind === 'ref') {
-      const staff = noteStaffNumber(leader);
       const refKey = `${staff}:${spec.voice}:${spec.order}`;
       const staffPoKey = `${staff}:${spec.order}`;
       layoutOnset =
@@ -345,8 +372,14 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
         rankOnsetByStaffPo.get(staffPoKey) ??
         poColumnOnset.get(staffPoKey) ??
         musicalOnset;
+    } else if (staffsWithRefs.has(staff)) {
+      // 참조가 있는 staff: 앵커 voice도 같은 순번 그리드에 놓아 5-6이 6열과 일치
+      const eff = effectiveOrder(leader);
+      if (eff != null) {
+        const key = `${staff}:${eff}`;
+        layoutOnset = rankOnsetByStaffPo.get(key) ?? poColumnOnset.get(key) ?? musicalOnset;
+      }
     }
-    // 참조·숫자 속성값은 유지(layout만 맞춤). setLayoutAttrsOnGroup가 숫자를 다시 쓰지 않게 null.
     setLayoutAttrsOnGroup(measure, leader, layoutOnset, layoutLen, null);
   }
 }

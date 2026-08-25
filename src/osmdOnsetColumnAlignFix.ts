@@ -5,6 +5,7 @@ import {
 } from '../shared/musicXmlTimelineCleanup';
 import {
   collectPreviewNoteLayoutTargetsFromXml,
+  parsePlayOrderSpec,
   type PreviewNoteLayoutTarget,
 } from '../shared/musicXmlPlayOrder';
 import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
@@ -1059,6 +1060,118 @@ function alignLinkedParallelHintGroups(
   }
 }
 
+/**
+ * `5-6` 참조 — voice5 순번6 음표 SVG x에 맞춤.
+ * layout tenths만으로는 OSMD가 backup voice를 마디 앞에 남겨 순번1과 포개질 수 있음.
+ */
+function alignPlayOrderAlignRefsToAnchorVoice(
+  osmd: OpenSheetMusicDisplay,
+  gmRaw: unknown,
+  staffIndex: number,
+  targets: readonly PreviewNoteLayoutTarget[],
+): void {
+  const partId = partIdFromGraphic(gmRaw as any);
+  const measureNumber = measureMxlFromGraphic(gmRaw as any);
+  if (!partId || measureNumber == null) return;
+
+  const staff = staffIndex + 1;
+  const measureTargets = targets.filter((t) => {
+    if (t.measureNumber !== measureNumber) return false;
+    if (!partIdsMatch(partId, t.partId)) return false;
+    if (t.staff !== 1 && t.staff !== staff) return false;
+    return true;
+  });
+  const alignTargets = measureTargets.filter((t) => t.playOrderAlign != null && t.playOrderAlign !== '');
+  if (!alignTargets.length) return;
+
+  for (const h of collectMeasureNoteHits(osmd, gmRaw)) clearStavenoteTranslateX(h.stavenote);
+  const hits = collectMeasureNoteHits(osmd, gmRaw);
+  if (!hits.length) return;
+  const distinctCols = new Set(
+    measureTargets.map((t) => t.playOrderAlign ?? (t.playOrder != null ? String(t.playOrder) : '')).filter(Boolean),
+  );
+  const measureSpan = playOrderPlacementSpan(hits, Math.max(2, distinctCols.size));
+  if (!measureSpan) return;
+
+  const usedHits = new Set<SVGGraphicsElement>();
+  const groups = new Map<string, PreviewNoteLayoutTarget[]>();
+  for (const t of alignTargets) {
+    const key = `${t.voice}|${t.playOrderAlign}`;
+    const list = groups.get(key) ?? [];
+    list.push(t);
+    groups.set(key, list);
+  }
+
+  for (const [, group] of groups) {
+    const alignSpec = parsePlayOrderSpec(group[0]!.playOrderAlign ?? '');
+    if (!alignSpec || alignSpec.kind !== 'ref') continue;
+    const anchorVoice = String(alignSpec.voice);
+    const anchorOrder = alignSpec.order;
+
+    const anchors = measureTargets.filter(
+      (t) => t.voice === anchorVoice && t.playOrder === anchorOrder,
+    );
+    let anchorX: number | null = null;
+    if (anchors.length) {
+      const anchorPitches = [...new Set(anchors.map((a) => a.pitch))];
+      const expectHeads = new Set(anchors.map((a) => a.pitch)).size;
+      const candidates = hits
+        .filter((h) => !usedHits.has(h.stavenote))
+        .filter((h) => anchorPitches.some((p) => hitHasPitch(h, p)))
+        .sort((a, b) => {
+          const va = a.voice === anchorVoice ? 0 : 1;
+          const vb = b.voice === anchorVoice ? 0 : 1;
+          if (va !== vb) return va - vb;
+          if (expectHeads > 1) {
+            const da = Math.abs(a.heads - expectHeads);
+            const db = Math.abs(b.heads - expectHeads);
+            if (da !== db) return da - db;
+          }
+          // 동일 pitch가 여러 열에 있으면 layout-x에 가까운 쪽
+          const layoutAnchor = anchors[0]!.defaultXTenths;
+          const wantApprox = wantXFromLayoutGrid(measureSpan, layoutAnchor);
+          return Math.abs(a.centerX - wantApprox) - Math.abs(b.centerX - wantApprox);
+        });
+      if (candidates.length) {
+        anchorX = candidates[0]!.centerX;
+      }
+    }
+
+    const layoutX = anchors[0]?.defaultXTenths ?? group[0]!.defaultXTenths;
+    const wantX = anchorX != null ? anchorX : wantXFromLayoutGrid(measureSpan, layoutX);
+
+    const byVoice = new Map<string, PreviewNoteLayoutTarget[]>();
+    for (const t of group) {
+      const list = byVoice.get(t.voice) ?? [];
+      list.push(t);
+      byVoice.set(t.voice, list);
+    }
+    for (const [voice, voiceTargets] of byVoice) {
+      const pitchSet = [...new Set(voiceTargets.map((t) => t.pitch))];
+      const expectHeads = pitchSet.length;
+      const candidates = hits
+        .filter((h) => !usedHits.has(h.stavenote))
+        .filter((h) => pitchSet.some((p) => hitHasPitch(h, p)))
+        .sort((a, b) => {
+          const va = a.voice === voice ? 0 : 1;
+          const vb = b.voice === voice ? 0 : 1;
+          if (va !== vb) return va - vb;
+          const da = Math.abs(a.heads - expectHeads);
+          const db = Math.abs(b.heads - expectHeads);
+          if (da !== db) return da - db;
+          return a.centerX - b.centerX;
+        });
+      if (!candidates.length) continue;
+      const hit = candidates[0]!;
+      if (expectHeads > 1 && Math.abs(hit.heads - expectHeads) > 0) continue;
+      usedHits.add(hit.stavenote);
+      const dx = wantX - hit.centerX;
+      const cap = Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2);
+      applySvgTranslateX(hit.stavenote, dx, cap);
+    }
+  }
+}
+
 export function alignOsmdPreviewNotesByOnsetColumn(
   osmd: OpenSheetMusicDisplay,
   previewXml?: string | null,
@@ -1068,18 +1181,16 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
   const hasAlignRef = targets.some((t) => t.playOrderAlign != null && t.playOrderAlign !== '');
 
-  // linkParallel 힌트 + (있을 때만) voice-순번 참조(5-6) 그리드 배치.
-  // 일반 숫자 순번 cross-voice SVG snap은 빔이 앞 마디로 삐져나오는 회귀가 있어 쓰지 않음.
+  // linkParallel 힌트 + voice-순번 참조(5-6)만 SVG 보정.
+  // 일반 숫자 순번 전역 snap은 빔이 앞 마디로 삐져나오는 회귀가 있어 쓰지 않음.
   let didAlign = false;
   if (hints.length > 0) {
     alignLinkedParallelHintGroups(osmd, hints);
     didAlign = true;
   }
   if (hasAlignRef) {
-    const alignTargets = targets.filter((t) => t.playOrderAlign != null && t.playOrderAlign !== '');
-    // 참조(5-6)가 있는 음만 그리드 배치 — 숫자 순번 전역 snap은 빔 회귀 있음
     forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
-      alignMeasureNotesByPlayOrderGrid(osmd, gmRaw, staffIndex, alignTargets);
+      alignPlayOrderAlignRefsToAnchorVoice(osmd, gmRaw, staffIndex, targets);
     });
     didAlign = true;
   }

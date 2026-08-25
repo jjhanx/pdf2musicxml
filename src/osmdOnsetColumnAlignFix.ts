@@ -1061,11 +1061,33 @@ export function alignOsmdPreviewNotesByOnsetColumn(
 ): void {
   const xml = resolvePreviewXml(osmd, previewXml);
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
+  const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
+  const hasExplicitCrossVoicePo = (() => {
+    const byKey = new Map<string, Set<string>>();
+    for (const t of targets) {
+      if (t.playOrder == null) continue;
+      const key = `${t.partId}|${t.measureNumber}|${t.staff}|${t.playOrder}`;
+      const voices = byKey.get(key) ?? new Set<string>();
+      voices.add(t.voice);
+      byKey.set(key, voices);
+    }
+    return [...byKey.values()].some((v) => v.size >= 2);
+  })();
 
-  // 명시적 다단 수직 정렬 hint(linked parallel)가 있을 때만 최소한으로 보정.
-  // 일반 마디는 MusicXML 마디 편집기 데이터 그대로 OSMD가 자연스럽게 음표·줄기·빔·이음줄을 렌더링하도록 둠.
+  // 1) linkParallel 힌트(동일 default-x·forward) — 강제 cluster
   if (hints.length > 0) {
     alignLinkedParallelHintGroups(osmd, hints);
+  }
+
+  // 2) 명시 연주순번이 서로 다른 voice에 같게 있으면 상대 snap만
+  //    (전 마디 play-order grid 절대 배치는 이음줄 파편을 만들므로 쓰지 않음)
+  if (hasExplicitCrossVoicePo) {
+    forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
+      alignExplicitPlayOrderColumnsRelative(osmd, gm, staffIndex, targets);
+    });
+  }
+
+  if (hints.length > 0 || hasExplicitCrossVoicePo) {
     const host =
       (osmd as unknown as { container?: ParentNode | null }).container ??
       (osmd as unknown as { root?: ParentNode | null }).root ??

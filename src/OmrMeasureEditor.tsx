@@ -2041,9 +2041,10 @@ export function OmrMeasureEditor({
         줄에서 위·아래로 겹치는 동시 연주를 가르는 값이 <strong>아닙니다</strong>.{' '}
         <strong>voice</strong> — 같은 staff 위의 다른 성부 줄(겹침·다른 줄기).{' '}
         <strong>연주순번</strong> — 왼쪽→오른쪽 열; <strong>같은 번호 = 동시 시작</strong>. 같은 오선에서
-        박자가 다른 음을 위아래로 겹치려면 <strong>같은 staff + 다른 voice + 같은 순번</strong>
-        (예: voice5의 1과 voice6도 1). voice만 바꾸면 backup 뒤 음이 마디 앞으로 올 수 있으니, 동시에 칠
-        음은 순번을 같게 맞추세요. staff만 바꾸면 PR/PL로 갈라집니다. 빈 칸·0이면 자동 순번입니다.
+        다른 voice 음을 특정 열에 두려면 <strong>같은 staff + 다른 voice + 그 열 순번</strong>
+        (예: voice5의 6번째와 맞추려면 voice6도 6). 지정한 순번은 MXL에 그대로 남습니다. voice만
+        바꾸면 backup 뒤 음이 마디 앞으로 올 수 있습니다. staff만 바꾸면 PR/PL로 갈라집니다. 빈
+        칸·0이면 자동 순번입니다.
       </p>
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}

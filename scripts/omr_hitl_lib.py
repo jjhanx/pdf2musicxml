@@ -516,13 +516,14 @@ def _set_play_order_same_pitch_staff_leaders(
 
 
 def _sanitize_conflicting_play_orders(measure: ET.Element, ns: str) -> bool:
-    """같은 staff·같은 명시 연주순번이 서로 다른 musical onset에 있으면 속성 제거.
+    """같은 staff·같은 pitch·같은 명시 연주순번이 서로 다른 musical onset에 있으면 속성 제거.
 
-    같은 순번 = 동시 column. 옛 same-pitch 전 staff 전파로 F4 화음 여러 개가
-    모두 같은 po를 갖게 된 MXL은 미리보기·SVG 매칭을 망가뜨리므로 비운다.
+    옛 same-pitch 전 staff 전파 잔여(여러 시점 F4가 모두 po=4)만 정리한다.
+    **다른 pitch**가 같은 순번을 쓰는 것(voice6을 voice5 6번째 열에 맞춤)은 허용.
     """
     notes = list_note_elements(measure, ns)
-    by_staff: dict[str, dict[str, list[tuple[int, int]]]] = {}
+    # staff → po → pitch → [(leader_i, onset)]
+    by: dict[str, dict[str, dict[str, list[tuple[int, int]]]]] = {}
     for i, note in enumerate(notes):
         if note.find(_q(ns, "chord")) is not None:
             continue
@@ -530,91 +531,19 @@ def _sanitize_conflicting_play_orders(measure: ET.Element, ns: str) -> bool:
         if not po:
             continue
         _, st = _note_voice_staff(note, ns)
+        pitch = _note_pitch_label(note, ns) or f"__idx{i}"
         onset = _parallel_onset_time_for_note_index(measure, ns, st, notes, i)
-        by_staff.setdefault(st, {}).setdefault(po, []).append((i, onset))
+        by.setdefault(st, {}).setdefault(po, {}).setdefault(pitch, []).append((i, onset))
     changed = False
-    for po_map in by_staff.values():
-        for entries in po_map.values():
-            onsets = {o for _, o in entries}
-            if len(onsets) <= 1:
-                continue
-            for leader_i, _ in entries:
-                if _set_play_order_on_leader(notes, ns, leader_i, 0):
-                    changed = True
-    return changed
-
-
-def _unify_play_orders_on_same_onset(measure: ET.Element, ns: str) -> bool:
-    """같은 staff·같은 musical onset의 leader는 같은 연주순번을 갖도록 맞춤.
-
-    다성(다른 voice)이 backup 뒤 같은 박에 있어도 문서순으로 6,7…이 붙으면
-    미리보기 column이 갈라진다. timeline 기본 순번(같은 onset=같은 번호)으로 통일.
-    """
-    notes = list_note_elements(measure, ns)
-    staffs = {_note_voice_staff(n, ns)[1] for n in notes if n.find(_q(ns, "chord")) is None}
-    changed = False
-    for st in staffs:
-        defaults = _default_play_orders_for_staff(measure, ns, st)
-        by_onset: dict[int, list[int]] = {}
-        for i, note in enumerate(notes):
-            if note.find(_q(ns, "chord")) is not None:
-                continue
-            if _note_voice_staff(note, ns)[1] != st:
-                continue
-            onset = _parallel_onset_time_for_note_index(measure, ns, st, notes, i)
-            by_onset.setdefault(onset, []).append(i)
-        for onset, leaders in by_onset.items():
-            if len(leaders) < 2:
-                continue
-            target = defaults.get(leaders[0])
-            if target is None or target < 1:
-                explicits = []
-                for i in leaders:
-                    raw = notes[i].get(PLAY_ORDER_ATTR)
-                    if raw and str(raw).strip().isdigit():
-                        explicits.append(int(str(raw).strip()))
-                if not explicits:
+    for po_map in by.values():
+        for pitch_map in po_map.values():
+            for entries in pitch_map.values():
+                onsets = {o for _, o in entries}
+                if len(onsets) <= 1:
                     continue
-                target = min(explicits)
-            explicits_now = []
-            for i in leaders:
-                raw = notes[i].get(PLAY_ORDER_ATTR)
-                if raw and str(raw).strip().isdigit():
-                    explicits_now.append(int(str(raw).strip()))
-                else:
-                    explicits_now.append(None)
-            # 이미 모두 target이면 스킵; 서로 다르거나 일부만 명시면 통일
-            if all(v == target for v in explicits_now):
-                continue
-            for i in leaders:
-                if _set_play_order_on_leader(notes, ns, i, target):
-                    changed = True
-    return changed
-
-
-def _set_play_order_same_onset_staff_leaders(
-    notes: list[ET.Element],
-    ns: str,
-    leader_i: int,
-    order: int,
-    measure: ET.Element,
-) -> bool:
-    """같은 staff·동일 musical onset의 모든 voice leader에 연주순번을 맞춤 (피치 무관)."""
-    _, target_staff = _note_voice_staff(notes[leader_i], ns)
-    target_onset = _parallel_onset_time_for_note_index(
-        measure, ns, target_staff, notes, leader_i
-    )
-    changed = False
-    for i, note in enumerate(notes):
-        if note.find(_q(ns, "chord")) is not None:
-            continue
-        if _note_voice_staff(note, ns)[1] != target_staff:
-            continue
-        onset = _parallel_onset_time_for_note_index(measure, ns, target_staff, notes, i)
-        if onset != target_onset:
-            continue
-        if _set_play_order_on_leader(notes, ns, i, order):
-            changed = True
+                for leader_i, _ in entries:
+                    if _set_play_order_on_leader(notes, ns, leader_i, 0):
+                        changed = True
     return changed
 
 
@@ -626,10 +555,14 @@ def _clear_play_order_on_other_onsets(
     keep_leader_i: int,
     order: int,
 ) -> bool:
-    """연주순번 N을 이 onset column에만 남기고, 같은 staff의 다른 onset에서 N 제거."""
+    """연주순번 N을 이 onset의 **같은 pitch**에만 남기고, 다른 onset의 동일 pitch N 제거.
+
+    다른 pitch가 같은 순번(다성 column 공유)인 경우는 지우지 않음.
+    """
     if order < 1:
         return False
     keep_onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, keep_leader_i)
+    keep_pitch = _note_pitch_label(notes[keep_leader_i], ns)
     order_s = str(int(order))
     changed = False
     for i, note in enumerate(notes):
@@ -638,6 +571,8 @@ def _clear_play_order_on_other_onsets(
         if _note_voice_staff(note, ns)[1] != staff:
             continue
         if note.get(PLAY_ORDER_ATTR) != order_s:
+            continue
+        if keep_pitch and _note_pitch_label(note, ns) != keep_pitch:
             continue
         onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, i)
         if onset == keep_onset:
@@ -721,14 +656,12 @@ def normalize_play_orders_including_rests_in_measure(measure: ET.Element, ns: st
 
 
 def normalize_play_orders_including_rests_in_root(root: ET.Element) -> int:
-    """전 악보 — 같은 onset 순번 통일 + 쉼표 미포함 연주순번 재배열. 변경 마디 수."""
+    """전 악보 — 쉼표 미포함 연주순번 마디를 timeline으로 재배열. 변경 마디 수."""
     ns = _ns(root)
     n = 0
     for part in root.findall(_q(ns, "part")):
         for measure in part.findall(_q(ns, "measure")):
-            unified = _unify_play_orders_on_same_onset(measure, ns)
-            rested = normalize_play_orders_including_rests_in_measure(measure, ns)
-            if unified or rested:
+            if normalize_play_orders_including_rests_in_measure(measure, ns):
                 n += 1
     return n
 
@@ -1427,10 +1360,8 @@ def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> lis
 
 
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
-    # 옛 전파로 같은 po가 여러 onset에 남은 MXL을 편집 UI·미리보기 전에 정리
+    # 옛 same-pitch 전파로 같은 po가 여러 onset에 남은 MXL을 편집 UI·미리보기 전에 정리
     _sanitize_conflicting_play_orders(measure, ns)
-    # 같은 onset·다른 voice에 서로 다른 순번(예: po1과 po6) → timeline 기본으로 통일
-    _unify_play_orders_on_same_onset(measure, ns)
     # 음표만 순번이 있고 쉼표는 빠진 옛 MXL → timeline 기준으로 재배열
     normalize_play_orders_including_rests_in_measure(measure, ns)
     elements: list[dict[str, Any]] = []
@@ -6033,15 +5964,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if idx < 0 or idx >= len(notes):
             return False
         leader_i = _chord_leader_index(notes, ns, idx)
-        # 같은 pitch 중복 voice + 같은 onset의 다른 pitch(다성 동시) 모두 맞춤
         changed = _set_play_order_same_pitch_staff_leaders(
             notes, ns, leader_i, order, measure=measure
         )
-        if measure is not None:
-            if _set_play_order_same_onset_staff_leaders(
-                notes, ns, leader_i, order, measure
-            ):
-                changed = True
         if order >= 1:
             _, staff = _note_voice_staff(notes[leader_i], ns)
             if _clear_play_order_on_other_onsets(

@@ -432,10 +432,12 @@ export type MeasureNoteEl = {
   noteDirections?: NoteDirectionInfo[] | null;
   /** HITL 명시 연주순번 (1-based). 없으면 자동. */
   playOrder?: number | null;
+  /** 교차 voice 열 맞춤 — 예: "5-6" */
+  playOrderAlign?: string | null;
   /** voice timeline 기본 연주순번 — UI에는 document order만 표시 */
   defaultPlayOrder?: number | null;
-  /** UI 표시용 — playOrder ?? defaultPlayOrder */
-  displayPlayOrder?: number | null;
+  /** UI 표시용 — playOrderAlign ?? playOrder ?? defaultPlayOrder */
+  displayPlayOrder?: number | string | null;
 };
 
 export type NoteDirectionInfo = {
@@ -1488,15 +1490,16 @@ export function OmrMeasureEditor({
   const measureMxlStr = String(measureMxl);
 
   const pendingPlayOrderForNote = useCallback(
-    (noteIndex: number): number | null | undefined => {
+    (noteIndex: number): string | null | undefined => {
       for (let i = pendingFixes.length - 1; i >= 0; i -= 1) {
         const f = pendingFixes[i]!;
         if (f.kind !== 'setPlayOrder') continue;
         if (f.partId !== partId) continue;
         if (String(f.measureMxl) !== measureMxlStr) continue;
         if (f.noteIndex !== noteIndex) continue;
+        if (f.playOrderAlign) return f.playOrderAlign;
         if (f.playOrder == null || f.playOrder < 1) return null;
-        return f.playOrder;
+        return String(f.playOrder);
       }
       return undefined;
     },
@@ -1539,7 +1542,8 @@ export function OmrMeasureEditor({
         return playOrderDraft[el.index]!;
       }
       const pending = pendingPlayOrderForNote(el.index);
-      if (pending !== undefined) return pending == null ? '' : String(pending);
+      if (pending !== undefined) return pending == null ? '' : pending;
+      if (el.playOrderAlign) return el.playOrderAlign;
       if (el.playOrder != null) return String(el.playOrder);
       if (el.displayPlayOrder != null) return String(el.displayPlayOrder);
       return '';
@@ -1647,6 +1651,26 @@ export function OmrMeasureEditor({
 
   const commitPlayOrder = (el: MeasureNoteEl, raw: string) => {
     const trimmed = raw.trim();
+    const refMatch = /^(\d+)\s*[-–]\s*(\d+)$/.exec(trimmed);
+    if (refMatch) {
+      const voice = parseInt(refMatch[1]!, 10);
+      const order = parseInt(refMatch[2]!, 10);
+      if (!(voice >= 1 && order >= 1)) return;
+      const align = `${voice}-${order}`;
+      pushFix({
+        kind: 'setPlayOrder',
+        noteIndex: el.index,
+        playOrderAlign: align,
+        staff: el.staff ?? repairStaff,
+      });
+      setFixMsg(`#${el.index} 연주순번 ${align} (voice${voice}의 ${order}열 · 반영 대기)`);
+      setPlayOrderDraft((prev) => {
+        const next = { ...prev };
+        delete next[el.index];
+        return next;
+      });
+      return;
+    }
     const order = trimmed === '' || trimmed === '0' ? 0 : parseInt(trimmed, 10);
     if (trimmed !== '' && trimmed !== '0' && !Number.isFinite(order)) return;
     pushFix({
@@ -2040,11 +2064,11 @@ export function OmrMeasureEditor({
         <strong>staff</strong> — 한 파트 안 <em>어느 오선 줄</em>인지입니다(피아노 2단이면 보통 1=PR·오른손, 2=PL·왼손). 같은
         줄에서 위·아래로 겹치는 동시 연주를 가르는 값이 <strong>아닙니다</strong>.{' '}
         <strong>voice</strong> — 같은 staff 위의 다른 성부 줄(겹침·다른 줄기).{' '}
-        <strong>연주순번</strong> — 왼쪽→오른쪽 열; <strong>같은 번호 = 동시 시작</strong>. 같은 오선에서
-        다른 voice 음을 특정 열에 두려면 <strong>같은 staff + 다른 voice + 그 열 순번</strong>
-        (예: voice5의 6번째와 맞추려면 voice6도 6). 지정한 순번은 MXL에 그대로 남습니다. voice만
-        바꾸면 backup 뒤 음이 마디 앞으로 올 수 있습니다. staff만 바꾸면 PR/PL로 갈라집니다. 빈
-        칸·0이면 자동 순번입니다.
+        <strong>연주순번</strong> — 왼쪽→오른쪽 열. 숫자(<code>1</code>, <code>6</code>)는 이 마디의 순번
+        열. 다른 voice의 특정 열에만 맞추려면 <code>5-6</code>처럼{' '}
+        <strong>voice-순번</strong>(voice5의 6열). 같은 오선에서 박자가 다른 성부는 voice를 나누고, 겹칠
+        때만 참조 표기를 쓰세요. voice만 바꾸면 backup 뒤 음이 마디 앞으로 올 수 있습니다. staff만
+        바꾸면 PR/PL로 갈라집니다. 빈 칸·0이면 자동 순번입니다.
       </p>
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
@@ -2138,9 +2162,10 @@ export function OmrMeasureEditor({
                     순번{' '}
                     <input
                       type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      style={{ width: 48, marginLeft: 2 }}
+                      inputMode="text"
+                      pattern="[0-9]+(-[0-9]+)?"
+                      title="숫자 순번 또는 voice-순번(예: 5-6)"
+                      style={{ width: 56, marginLeft: 2 }}
                       value={playOrderInputValue(el)}
                       onChange={(e) => {
                         setPlayOrderDraft((prev) => ({ ...prev, [el.index]: e.target.value }));

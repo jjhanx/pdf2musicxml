@@ -13,6 +13,7 @@ from typing import Any
 
 _STEPS = ("C", "D", "E", "F", "G", "A", "B")
 PLAY_ORDER_ATTR = "data-hitl-play-order"
+_PLAY_ORDER_REF_RE = re.compile(r"^(\d+)\s*[-–]\s*(\d+)$")
 _DYNAMICS_TAGS = frozenset(
     {
         "p",
@@ -425,12 +426,46 @@ def _note_beams(note: ET.Element, ns: str) -> list[str]:
     return out
 
 
-def _read_play_order(note: ET.Element) -> int | None:
-    raw = note.get(PLAY_ORDER_ATTR)
-    if raw is None or not str(raw).strip().isdigit():
+def _parse_play_order_spec(raw: str | None) -> tuple[str, int] | tuple[str, int, int] | None:
+    """('order', n) | ('ref', voice, order) | None. 예: '6' / '5-6'."""
+    if raw is None:
         return None
-    n = int(str(raw).strip())
-    return n if n > 0 else None
+    s = str(raw).strip()
+    if not s or s == "0":
+        return None
+    m = _PLAY_ORDER_REF_RE.match(s)
+    if m:
+        voice, order = int(m.group(1)), int(m.group(2))
+        if voice >= 1 and order >= 1:
+            return ("ref", voice, order)
+        return None
+    if not s.isdigit():
+        return None
+    n = int(s)
+    return ("order", n) if n > 0 else None
+
+
+def _read_play_order(note: ET.Element) -> int | None:
+    """숫자 연주순번만. `5-6` 참조는 None."""
+    spec = _parse_play_order_spec(note.get(PLAY_ORDER_ATTR))
+    if spec is None or spec[0] != "order":
+        return None
+    return spec[1]
+
+
+def _read_play_order_ref(note: ET.Element) -> tuple[int, int] | None:
+    """`5-6` → (5, 6)."""
+    spec = _parse_play_order_spec(note.get(PLAY_ORDER_ATTR))
+    if spec is None or spec[0] != "ref":
+        return None
+    return (spec[1], spec[2])
+
+
+def _play_order_attr_raw(note: ET.Element) -> str | None:
+    raw = note.get(PLAY_ORDER_ATTR)
+    if raw is None or not str(raw).strip():
+        return None
+    return str(raw).strip()
 
 
 def _note_pitch_label(note: ET.Element, ns: str) -> str | None:
@@ -452,22 +487,31 @@ def _note_pitch_label(note: ET.Element, ns: str) -> str | None:
     return f"{step.text.strip()}{acc}{oct_el.text.strip()}"
 
 
-def _set_play_order_on_leader(notes: list[ET.Element], ns: str, leader_i: int, order: int) -> bool:
-    if order < 1:
-        changed = False
-        for j in range(leader_i, len(notes)):
-            if j > leader_i and notes[j].find(_q(ns, "chord")) is None:
-                break
-            if notes[j].get(PLAY_ORDER_ATTR) is not None:
-                del notes[j].attrib[PLAY_ORDER_ATTR]
-                changed = True
-        return changed
-    order_s = str(int(order))
+def _set_play_order_on_leader(
+    notes: list[ET.Element], ns: str, leader_i: int, order: int | str
+) -> bool:
+    """order: 양수 숫자, '5-6' 참조 문자열, 또는 0/음수면 속성 제거."""
+    if isinstance(order, str):
+        spec = _parse_play_order_spec(order)
+        if spec is None:
+            order_s: str | None = None
+        elif spec[0] == "ref":
+            order_s = f"{spec[1]}-{spec[2]}"
+        else:
+            order_s = str(spec[1])
+    elif order < 1:
+        order_s = None
+    else:
+        order_s = str(int(order))
     changed = False
     for j in range(leader_i, len(notes)):
         if j > leader_i and notes[j].find(_q(ns, "chord")) is None:
             break
-        if notes[j].get(PLAY_ORDER_ATTR) != order_s:
+        if order_s is None:
+            if notes[j].get(PLAY_ORDER_ATTR) is not None:
+                del notes[j].attrib[PLAY_ORDER_ATTR]
+                changed = True
+        elif notes[j].get(PLAY_ORDER_ATTR) != order_s:
             notes[j].set(PLAY_ORDER_ATTR, order_s)
             changed = True
     return changed
@@ -516,10 +560,10 @@ def _set_play_order_same_pitch_staff_leaders(
 
 
 def _sanitize_conflicting_play_orders(measure: ET.Element, ns: str) -> bool:
-    """같은 staff·같은 pitch·같은 명시 연주순번이 서로 다른 musical onset에 있으면 속성 제거.
+    """같은 staff·같은 pitch·같은 명시 숫자 연주순번이 서로 다른 musical onset에 있으면 속성 제거.
 
     옛 same-pitch 전 staff 전파 잔여(여러 시점 F4가 모두 po=4)만 정리한다.
-    **다른 pitch**가 같은 순번을 쓰는 것(voice6을 voice5 6번째 열에 맞춤)은 허용.
+    **다른 pitch**가 같은 순번을 쓰는 것·`5-6` 교차 참조는 허용.
     """
     notes = list_note_elements(measure, ns)
     # staff → po → pitch → [(leader_i, onset)]
@@ -527,13 +571,13 @@ def _sanitize_conflicting_play_orders(measure: ET.Element, ns: str) -> bool:
     for i, note in enumerate(notes):
         if note.find(_q(ns, "chord")) is not None:
             continue
-        po = note.get(PLAY_ORDER_ATTR)
-        if not po:
+        po = _read_play_order(note)  # 숫자만; 참조는 스킵
+        if po is None:
             continue
         _, st = _note_voice_staff(note, ns)
         pitch = _note_pitch_label(note, ns) or f"__idx{i}"
         onset = _parallel_onset_time_for_note_index(measure, ns, st, notes, i)
-        by.setdefault(st, {}).setdefault(po, {}).setdefault(pitch, []).append((i, onset))
+        by.setdefault(st, {}).setdefault(str(po), {}).setdefault(pitch, []).append((i, onset))
     changed = False
     for po_map in by.values():
         for pitch_map in po_map.values():
@@ -570,7 +614,7 @@ def _clear_play_order_on_other_onsets(
             continue
         if _note_voice_staff(note, ns)[1] != staff:
             continue
-        if note.get(PLAY_ORDER_ATTR) != order_s:
+        if _read_play_order(note) != order:  # 숫자만; 참조는 지우지 않음
             continue
         if keep_pitch and _note_pitch_label(note, ns) != keep_pitch:
             continue
@@ -624,7 +668,7 @@ def _staff_needs_rest_play_order_rebuild(measure: ET.Element, ns: str, staff: st
             continue
         po = _read_play_order(note)
         if note.find(_q(ns, "rest")) is not None:
-            if po is None:
+            if po is None and _read_play_order_ref(note) is None:
                 has_rest_without_po = True
         elif po is not None:
             has_pitched_with_po = True
@@ -632,11 +676,13 @@ def _staff_needs_rest_play_order_rebuild(measure: ET.Element, ns: str, staff: st
 
 
 def _apply_timeline_play_orders_to_staff(measure: ET.Element, ns: str, staff: str) -> bool:
-    """타임라인 기본 순번을 staff의 모든 leader(음·쉼)에 기록."""
+    """타임라인 기본 순번을 staff의 모든 leader(음·쉼)에 기록. 교차 참조(5-6)는 유지."""
     defaults = _default_play_orders_for_staff(measure, ns, staff)
     notes = list_note_elements(measure, ns)
     changed = False
     for i, order in defaults.items():
+        if _read_play_order_ref(notes[i]):
+            continue
         if _set_play_order_on_leader(notes, ns, i, order):
             changed = True
     return changed
@@ -794,6 +840,7 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "fermatas": fermatas,
         "defaultX": round(dx, 2) if dx is not None else None,
         "playOrder": _read_play_order(note),
+        "playOrderAlign": (lambda r: f"{r[0]}-{r[1]}" if r else None)(_read_play_order_ref(note)),
         "noteDirection": None,
         "noteDirections": None,
     }
@@ -1409,7 +1456,10 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
                 continue
             idx = int(snap["index"])
             snap["defaultPlayOrder"] = defaults.get(idx)
-            if snap.get("playOrder") is None:
+            align = snap.get("playOrderAlign")
+            if align:
+                snap["displayPlayOrder"] = align
+            elif snap.get("playOrder") is None:
                 snap["displayPlayOrder"] = defaults.get(idx)
             else:
                 snap["displayPlayOrder"] = snap.get("playOrder")
@@ -5957,13 +6007,24 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             idx = int(fix.get("noteIndex"))
         except (TypeError, ValueError):
             return False
-        try:
-            order = int(fix.get("playOrder"))
-        except (TypeError, ValueError):
-            return False
         if idx < 0 or idx >= len(notes):
             return False
         leader_i = _chord_leader_index(notes, ns, idx)
+        align_raw = fix.get("playOrderAlign") or fix.get("playOrderRef")
+        if align_raw is not None and str(align_raw).strip():
+            spec = _parse_play_order_spec(str(align_raw).strip())
+            if spec is None or spec[0] != "ref":
+                return False
+            order_s = f"{spec[1]}-{spec[2]}"
+            return _set_play_order_on_leader(notes, ns, leader_i, order_s)
+        try:
+            order = int(fix.get("playOrder"))
+        except (TypeError, ValueError):
+            # playOrder가 "5-6" 문자열로 올 수도 있음
+            raw_po = fix.get("playOrder")
+            if raw_po is not None and _parse_play_order_spec(str(raw_po)) is not None:
+                return _set_play_order_on_leader(notes, ns, leader_i, str(raw_po).strip())
+            return False
         changed = _set_play_order_same_pitch_staff_leaders(
             notes, ns, leader_i, order, measure=measure
         )

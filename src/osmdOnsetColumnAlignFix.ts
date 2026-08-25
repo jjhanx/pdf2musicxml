@@ -721,24 +721,28 @@ function alignMeasureNotesByPlayOrderGrid(
     if (t.measureNumber !== measureNumber) return false;
     if (!partIdsMatch(partId, t.partId)) return false;
     if (t.staff !== 1 && t.staff !== staff) return false;
-    return t.playOrder != null;
+    return t.playOrder != null || (t.playOrderAlign != null && t.playOrderAlign !== '');
   });
   if (!explicitTargets.length) return;
 
-  const byPo = new Map<number, PreviewNoteLayoutTarget[]>();
+  // 숫자 순번 column + 참조(5-6)는 대상 순번 열의 default-x를 이미 layout에서 받음
+  const byColumnKey = new Map<string, PreviewNoteLayoutTarget[]>();
   for (const t of explicitTargets) {
-    const po = t.playOrder!;
-    const list = byPo.get(po) ?? [];
+    const colKey =
+      t.playOrderAlign && t.playOrderAlign.trim()
+        ? `align:${t.playOrderAlign}`
+        : `po:${t.playOrder}`;
+    const list = byColumnKey.get(colKey) ?? [];
     list.push(t);
-    byPo.set(po, list);
+    byColumnKey.set(colKey, list);
   }
 
-  const measureSpan = playOrderPlacementSpan(hits, byPo.size);
+  const measureSpan = playOrderPlacementSpan(hits, byColumnKey.size);
   if (!measureSpan) return;
 
   const usedHits = new Set<SVGGraphicsElement>();
-  for (const po of [...byPo.keys()].sort((a, b) => a - b)) {
-    const group = byPo.get(po)!;
+  for (const colKey of [...byColumnKey.keys()].sort()) {
+    const group = byColumnKey.get(colKey)!;
     const layoutX = group[0]!.defaultXTenths;
     // voice별 한 stavenote만 이동 — pitch마다 매칭하면 po2 Bb4가 tetra(B4)까지 끌어 po4가 po2 열에 붙음
     const byVoice = new Map<string, PreviewNoteLayoutTarget[]>();
@@ -1061,12 +1065,25 @@ export function alignOsmdPreviewNotesByOnsetColumn(
 ): void {
   const xml = resolvePreviewXml(osmd, previewXml);
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
+  const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
+  const hasAlignRef = targets.some((t) => t.playOrderAlign != null && t.playOrderAlign !== '');
 
-  // linkParallel 힌트만 SVG 보정. 명시 연주순번 cross-voice 상대 snap은
-  // 음머리를 앞으로 당겨 빔이 앞 마디로 삐져나오는 회귀가 있어 쓰지 않음.
-  // 같은 onset 순번 통일은 MusicXML applyPlayOrderLayout에 맡김.
+  // linkParallel 힌트 + (있을 때만) voice-순번 참조(5-6) 그리드 배치.
+  // 일반 숫자 순번 cross-voice SVG snap은 빔이 앞 마디로 삐져나오는 회귀가 있어 쓰지 않음.
+  let didAlign = false;
   if (hints.length > 0) {
     alignLinkedParallelHintGroups(osmd, hints);
+    didAlign = true;
+  }
+  if (hasAlignRef) {
+    const alignTargets = targets.filter((t) => t.playOrderAlign != null && t.playOrderAlign !== '');
+    // 참조(5-6)가 있는 음만 그리드 배치 — 숫자 순번 전역 snap은 빔 회귀 있음
+    forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
+      alignMeasureNotesByPlayOrderGrid(osmd, gmRaw, staffIndex, alignTargets);
+    });
+    didAlign = true;
+  }
+  if (didAlign) {
     const host =
       (osmd as unknown as { container?: ParentNode | null }).container ??
       (osmd as unknown as { root?: ParentNode | null }).root ??

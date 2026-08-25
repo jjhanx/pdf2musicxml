@@ -80,6 +80,8 @@ export type OmrHitlFix = {
   toStaff?: number;
   parallelNoteIndices?: number[];
   playOrder?: number;
+  /** 교차 voice 열 맞춤 — 예: "5-6" (voice5 순번6). setPlayOrder 전용 */
+  playOrderAlign?: string;
   source?: string;
   lintCode?: string;
   fromPartId?: string;
@@ -197,6 +199,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.graceSlash === undefined ? '' : fix.graceSlash ? '1' : '0',
     fix.parallelNoteIndices?.join(',') ?? '',
     fix.playOrder ?? '',
+    fix.playOrderAlign ?? '',
     fix.fromPitch ?? '',
     fix.toPitch ?? '',
     fix.fromStaff ?? '',
@@ -289,8 +292,9 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   if (fix.kind === 'linkParallelOnsets' && fix.parallelNoteIndices?.length) {
     parts.push(`#${fix.parallelNoteIndices.join(',#')}`);
   }
-  if (fix.kind === 'setPlayOrder' && fix.playOrder != null) {
-    parts.push(`순번 ${fix.playOrder}`);
+  if (fix.kind === 'setPlayOrder') {
+    if (fix.playOrderAlign) parts.push(`순번 ${fix.playOrderAlign}`);
+    else if (fix.playOrder != null) parts.push(`순번 ${fix.playOrder}`);
   }
   if (fix.kind === 'setNoteVoice' && fix.voice != null) {
     parts.push(`voice ${fix.voice}`);

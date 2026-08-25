@@ -13,6 +13,37 @@ const xmlLocalName = (el: Element) =>
 
 export const HITL_PLAY_ORDER_ATTR = 'data-hitl-play-order';
 
+/** 숫자 순번 또는 `voice-order`(예: 5-6 = voice5의 순번6 열에 맞춤). */
+export type PlayOrderSpec =
+  | { kind: 'order'; order: number }
+  | { kind: 'ref'; voice: number; order: number };
+
+const PLAY_ORDER_REF_RE = /^(\d+)\s*[-–]\s*(\d+)$/;
+
+export function parsePlayOrderSpec(raw: string | null | undefined): PlayOrderSpec | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s || s === '0') return null;
+  const ref = PLAY_ORDER_REF_RE.exec(s);
+  if (ref) {
+    const voice = parseInt(ref[1]!, 10);
+    const order = parseInt(ref[2]!, 10);
+    if (voice >= 1 && order >= 1) return { kind: 'ref', voice, order };
+    return null;
+  }
+  if (!/^\d+$/.test(s)) return null;
+  const order = parseInt(s, 10);
+  return Number.isFinite(order) && order > 0 ? { kind: 'order', order } : null;
+}
+
+export function formatPlayOrderSpec(spec: PlayOrderSpec): string {
+  return spec.kind === 'ref' ? `${spec.voice}-${spec.order}` : String(spec.order);
+}
+
+export function readPlayOrderSpec(note: Element): PlayOrderSpec | null {
+  return parsePlayOrderSpec(note.getAttribute(HITL_PLAY_ORDER_ATTR));
+}
+
 function findXmlParts(doc: Document): Element[] {
   const out: Element[] = [];
   const root = doc.documentElement;
@@ -68,11 +99,16 @@ export function xmlPitchLabel(note: Element): string {
   return `${step}${acc}${oct}`;
 }
 
+/** 숫자 연주순번만. `5-6` 같은 교차 voice 참조는 null. */
 export function readPlayOrder(note: Element): number | null {
-  const raw = note.getAttribute(HITL_PLAY_ORDER_ATTR)?.trim();
-  if (!raw) return null;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  const spec = readPlayOrderSpec(note);
+  return spec?.kind === 'order' ? spec.order : null;
+}
+
+/** `5-6` → { voice: 5, order: 6 }. */
+export function readPlayOrderRef(note: Element): { voice: number; order: number } | null {
+  const spec = readPlayOrderSpec(note);
+  return spec?.kind === 'ref' ? { voice: spec.voice, order: spec.order } : null;
 }
 
 /** staff 문서 순서 → 기본 연주순번(1-based). voice 블록 순이라 미리보기 column과 어긋날 수 있음. */
@@ -228,6 +264,7 @@ export function ensureRestPlayOrdersInMeasure(measure: Element): boolean {
     if (!hasRestWithout || !hasPitchedWith) continue;
     const defaults = defaultPlayOrdersFromTimeline(measure, staffN);
     for (const [leader, order] of defaults) {
+      if (readPlayOrderRef(leader)) continue; // 교차 voice 참조(5-6) 유지
       const orderS = String(order);
       for (const note of noteGroupWithChords(measure, leader)) {
         if (note.getAttribute(HITL_PLAY_ORDER_ATTR) !== orderS) {
@@ -247,7 +284,6 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   const onsets = collectVoiceParallelNoteOnsets(measure);
 
   const poColumnOnset = new Map<string, number>();
-  const poRank = new Map<string, number>();
   for (const leader of allLeadersInMeasure(measure)) {
     const po = readPlayOrder(leader);
     if (po == null) continue;
@@ -256,10 +292,9 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     const onset = onsets.get(leader) ?? 0;
     const prev = poColumnOnset.get(key);
     poColumnOnset.set(key, prev == null ? onset : Math.min(prev, onset));
-    if (!poRank.has(key)) poRank.set(key, po);
   }
 
-  // staff별 순번 오름차순 → 균등 column (timeline이 틀려도 순번1이 맨 왼쪽)
+  // staff별 숫자 순번 오름차순 → 균등 column (`5-6` 참조는 열을 만들지 않음)
   const rankOnsetByStaffPo = new Map<string, number>();
   const byStaff = new Map<number, number[]>();
   for (const key of poColumnOnset.keys()) {
@@ -280,15 +315,39 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     });
   }
 
+  // voice별 숫자 순번 → layout onset (참조 `5-6` 해석용)
+  const voicePoOnset = new Map<string, number>();
+  for (const leader of allLeadersInMeasure(measure)) {
+    const po = readPlayOrder(leader);
+    if (po == null) continue;
+    const staff = noteStaffNumber(leader);
+    const voice = noteVoiceNumber(leader);
+    const key = `${staff}:${voice}:${po}`;
+    const layoutOnset =
+      rankOnsetByStaffPo.get(`${staff}:${po}`) ?? poColumnOnset.get(`${staff}:${po}`) ?? 0;
+    const prev = voicePoOnset.get(key);
+    voicePoOnset.set(key, prev == null ? layoutOnset : Math.min(prev, layoutOnset));
+  }
+
   for (const leader of allLeadersInMeasure(measure)) {
     const musicalOnset = onsets.get(leader) ?? 0;
-    const po = readPlayOrder(leader);
+    const spec = readPlayOrderSpec(leader);
     let layoutOnset = musicalOnset;
-    if (po != null) {
-      const key = `${noteStaffNumber(leader)}:${po}`;
+    if (spec?.kind === 'order') {
+      const key = `${noteStaffNumber(leader)}:${spec.order}`;
       layoutOnset = rankOnsetByStaffPo.get(key) ?? poColumnOnset.get(key) ?? musicalOnset;
+    } else if (spec?.kind === 'ref') {
+      const staff = noteStaffNumber(leader);
+      const refKey = `${staff}:${spec.voice}:${spec.order}`;
+      const staffPoKey = `${staff}:${spec.order}`;
+      layoutOnset =
+        voicePoOnset.get(refKey) ??
+        rankOnsetByStaffPo.get(staffPoKey) ??
+        poColumnOnset.get(staffPoKey) ??
+        musicalOnset;
     }
-    setLayoutAttrsOnGroup(measure, leader, layoutOnset, layoutLen, po);
+    // 참조·숫자 속성값은 유지(layout만 맞춤). setLayoutAttrsOnGroup가 숫자를 다시 쓰지 않게 null.
+    setLayoutAttrsOnGroup(measure, leader, layoutOnset, layoutLen, null);
   }
 }
 
@@ -321,6 +380,8 @@ export type PreviewNoteLayoutTarget = {
   pitch: string;
   defaultXTenths: number;
   playOrder: number | null;
+  /** `5-6` — voice5 순번6 열에 맞춤 */
+  playOrderAlign?: string | null;
 };
 
 /** OSMD SVG 정렬용 — leader·화음 member 포함, 문서 순. */
@@ -344,6 +405,8 @@ export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNote
           const defaultXTenths = parseFloat(rawX);
           if (!Number.isFinite(defaultXTenths)) continue;
           const playOrder = readPlayOrder(leader);
+          const ref = readPlayOrderRef(leader);
+          const playOrderAlign = ref ? formatPlayOrderSpec({ kind: 'ref', ...ref }) : null;
           const voice = noteVoiceNumber(leader);
           if (isRestNote(leader)) {
             out.push({
@@ -354,6 +417,7 @@ export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNote
               pitch: 'REST',
               defaultXTenths,
               playOrder,
+              playOrderAlign,
             });
             continue;
           }
@@ -367,6 +431,7 @@ export function collectPreviewNoteLayoutTargetsFromXml(xml: string): PreviewNote
               pitch: xmlPitchLabel(note),
               defaultXTenths,
               playOrder,
+              playOrderAlign,
             });
           }
         }

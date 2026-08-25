@@ -686,8 +686,8 @@ button.btn-muted {
   -webkit-user-select: none;
 }
 
-/* Accent 거리: SVG는 CSS `translate` 속성을 무시함. `transform: translateY()`는 Chrome에서 동작하고,
- * 스타일시트 규칙이라 OSMD가 .vf-modifiers를 새로 만들어도 호스트 변수만 있으면 다시 적용됨. */
+/* Accent 거리 보조: SVG는 CSS `translate` 속성을 무시. `transform:translateY`는 동작.
+ * 실제 이동은 osmdArticulationOffsetFix의 .vf-modifiers 래퍼 SVG transform이 담당. */
 .omr-osmd-clickable[data-hitl-art-dy]:not([data-hitl-art-dy='0']) .vf-modifiers {
   transform: translateY(var(--hitl-art-dy, 0px)) !important;
 }

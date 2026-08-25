@@ -34,10 +34,12 @@ import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
   applyHitlArticulationHostCss,
+  ensureArticulationDrawPatch,
   extraYPxFromArticulationFixes,
   installVfModifierDyGuard,
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
+  setHitlArticulationExtraYPx,
 } from './osmdArticulationOffsetFix';
 import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
@@ -2370,35 +2372,32 @@ export function OsmdBlock({
     const hint = articulationHintXml ?? xml;
     hintXmlRef.current = hint;
     articulationFixesRef.current = articulationFixes ?? [];
-    if (host) {
-      applyHitlArticulationHostCss(
-        host,
-        extraYPxFromArticulationFixes(articulationFixesRef.current, 10),
-      );
-    }
+    const extra = extraYPxFromArticulationFixes(articulationFixesRef.current, 10);
+    setHitlArticulationExtraYPx(extra);
+    if (host) applyHitlArticulationHostCss(host, extra);
     if (!host || !osmd?.IsReadyToRender()) return;
+
     registerOsmdPreviewXmlForArticulation(osmd, hint);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
+    ensureArticulationDrawPatch(osmd);
+
     const reapply = () => {
       const h = hostRef.current;
       const o = osmdRef.current;
       if (!h || !o?.IsReadyToRender()) return;
       registerOsmdArticulationFixes(o, articulationFixesRef.current);
+      const y = extraYPxFromArticulationFixes(articulationFixesRef.current, 10);
+      setHitlArticulationExtraYPx(y);
+      // Accent path는 between_lines 스냅으로 y_shift가 무시됨 → .vf-modifiers 래퍼 transform
+      applyHitlArticulationHostCss(h, y);
       applyOsmdArticulationOffsets(h, o);
     };
     reapply();
-    let innerRaf = 0;
-    const t1 = requestAnimationFrame(() => {
-      reapply();
-      innerRaf = requestAnimationFrame(reapply);
-    });
-    const t2 = window.setTimeout(reapply, 80);
-    const t3 = window.setTimeout(reapply, 240);
+    const t1 = requestAnimationFrame(reapply);
+    const t2 = window.setTimeout(reapply, 100);
     return () => {
       cancelAnimationFrame(t1);
-      cancelAnimationFrame(innerRaf);
       window.clearTimeout(t2);
-      window.clearTimeout(t3);
     };
   }, [articulationHintXml, xml, articulationFixes, articulationFixesKey]);
 

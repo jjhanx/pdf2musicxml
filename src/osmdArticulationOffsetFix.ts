@@ -25,6 +25,125 @@ export function registerOsmdPreviewXmlForArticulation(osmd: OpenSheetMusicDispla
 
 const articulationFixesByOsmd = new WeakMap<OpenSheetMusicDisplay, ArticulationPreviewFix[]>();
 
+/**
+ * VexFlow Articulation.draw()는 path를 절대 좌표로 그리며 `this.y_shift`만 반영한다.
+ * OSMD는 slur 시작음에만 setYShift하고 MusicXML default-y는 무시한다.
+ * 거리 드롭다운 → 이 값 → draw() 중 y에 더함 (CSS/transform 우회 없음).
+ */
+let hitlArticulationExtraYPx = 0;
+let articulationDrawPatched = false;
+
+export function setHitlArticulationExtraYPx(y: number): void {
+  hitlArticulationExtraYPx = Number.isFinite(y) ? y : 0;
+}
+
+export function getHitlArticulationExtraYPx(): number {
+  return hitlArticulationExtraYPx;
+}
+
+type VfArticulationLike = {
+  type?: string;
+  y_shift?: number;
+  setYShift?: (n: number) => unknown;
+  getCategory?: () => string;
+  category?: string;
+  draw?: (...a: unknown[]) => unknown;
+  constructor?: { prototype: { draw: (...a: unknown[]) => unknown }; __hitlArtDrawPatched?: boolean };
+};
+
+function isVfArticulationMod(m: VfArticulationLike | null | undefined): boolean {
+  if (!m) return false;
+  const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
+  if (cat.includes('articulation')) return true;
+  const t = String(m.type ?? '').toLowerCase();
+  // VexFlow articulation codes: a> a- a. a^ a@a abr am …
+  return /^a[>.\-^@|,]/.test(t) || t === 'av' || t === 'ao' || t === 'ah' || t === 'abr' || t === 'am';
+}
+
+/** VexFlow Articulation.prototype.draw에 HITL extraY를 주입. 한 번만. */
+export function ensureArticulationDrawPatch(osmd: OpenSheetMusicDisplay): boolean {
+  if (articulationDrawPatched) return true;
+  let ctor: VfArticulationLike['constructor'] | null = null;
+  forEachGraphicalMeasure(osmd, (gm) => {
+    if (ctor) return;
+    const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
+    for (const seRaw of staffEntries) {
+      if (ctor) break;
+      const se = asRecord(seRaw);
+      if (!se) continue;
+      const gves = (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[];
+      for (const gveRaw of gves) {
+        if (ctor) break;
+        const gve = asRecord(gveRaw);
+        if (!gve) continue;
+        const staveNote = vexStaveNoteFromGve(gve);
+        const rawMods = staveNote?.modifiers as unknown;
+        const mods = (Array.isArray(rawMods)
+          ? rawMods
+          : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
+            ? (rawMods as { list: unknown[] }).list
+            : []) as VfArticulationLike[];
+        for (const m of mods) {
+          if (isVfArticulationMod(m) && m.constructor?.prototype?.draw) {
+            ctor = m.constructor;
+            break;
+          }
+        }
+      }
+    }
+  });
+  if (!ctor?.prototype?.draw || ctor.__hitlArtDrawPatched) {
+    if (ctor?.__hitlArtDrawPatched) articulationDrawPatched = true;
+    return articulationDrawPatched;
+  }
+  const orig = ctor.prototype.draw;
+  ctor.prototype.draw = function hitlArticulationDraw(this: VfArticulationLike, ...args: unknown[]) {
+    const saved = this.y_shift;
+    const extra = hitlArticulationExtraYPx;
+    (ctor as { __hitlDrawCount?: number }).__hitlDrawCount =
+      ((ctor as { __hitlDrawCount?: number }).__hitlDrawCount ?? 0) + 1;
+    if (extra) this.y_shift = (typeof saved === 'number' && Number.isFinite(saved) ? saved : 0) + extra;
+    try {
+      return orig.apply(this, args);
+    } finally {
+      this.y_shift = saved;
+    }
+  };
+  ctor.__hitlArtDrawPatched = true;
+  articulationDrawPatched = true;
+  return true;
+}
+
+/** 테스트용 — 패치된 Articulation.draw 호출 횟수 */
+export function getArticulationDrawPatchHitCount(osmd: OpenSheetMusicDisplay): number {
+  let count = 0;
+  forEachGraphicalMeasure(osmd, (gm) => {
+    const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
+    for (const seRaw of staffEntries) {
+      const se = asRecord(seRaw);
+      if (!se) continue;
+      const gves = (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[];
+      for (const gveRaw of gves) {
+        const gve = asRecord(gveRaw);
+        if (!gve) continue;
+        const staveNote = vexStaveNoteFromGve(gve);
+        const rawMods = staveNote?.modifiers as unknown;
+        const mods = (Array.isArray(rawMods)
+          ? rawMods
+          : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
+            ? (rawMods as { list: unknown[] }).list
+            : []) as VfArticulationLike[];
+        for (const m of mods) {
+          if (isVfArticulationMod(m) && m.constructor) {
+            count = Math.max(count, (m.constructor as { __hitlDrawCount?: number }).__hitlDrawCount ?? 0);
+          }
+        }
+      }
+    }
+  });
+  return count;
+}
+
 export function registerOsmdArticulationFixes(
   osmd: OpenSheetMusicDisplay,
   fixes: ReadonlyArray<ArticulationPreviewFix>,
@@ -548,7 +667,28 @@ export function applyOsmdArticulationOffsets(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
 ): number {
-  return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
+  const wasPatched = articulationDrawPatched;
+  const shifted = applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
+  // 첫 render 뒤에야 Articulation ctor를 패치할 수 있음 → extraY≠0이면 한 번 더 그려 y_shift 반영
+  if (!wasPatched && articulationDrawPatched && hitlArticulationExtraYPx !== 0) {
+    scheduleArticulationYShiftRedraw(osmd);
+  }
+  return shifted;
+}
+
+function scheduleArticulationYShiftRedraw(osmd: OpenSheetMusicDisplay): void {
+  const rec = osmd as unknown as { __hitlArtRedrawScheduled?: boolean };
+  if (rec.__hitlArtRedrawScheduled) return;
+  rec.__hitlArtRedrawScheduled = true;
+  queueMicrotask(() => {
+    rec.__hitlArtRedrawScheduled = false;
+    if (!osmd.IsReadyToRender()) return;
+    try {
+      osmd.render();
+    } catch (e) {
+      console.warn('[osmd] articulation y_shift redraw skipped:', e);
+    }
+  });
 }
 
 /**
@@ -579,8 +719,18 @@ export function composeSvgTranslateY(base: string, dy: number): string {
 }
 
 export function applySvgDyToVfModifiers(host: HTMLElement, dy: number): number {
+  const doc = host.ownerDocument;
   let n = 0;
   for (const g of host.querySelectorAll('.vf-modifiers')) {
+    let wrap = g.querySelector(':scope > g[data-hitl-art-wrap]') as SVGGElement | null;
+    if (!wrap) {
+      wrap = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+      wrap.setAttribute('data-hitl-art-wrap', '1');
+      while (g.firstChild) wrap.appendChild(g.firstChild);
+      g.appendChild(wrap);
+    }
+    if (dy) wrap.setAttribute('transform', `translate(0, ${dy})`);
+    else wrap.removeAttribute('transform');
     g.setAttribute('data-art-shift-y', String(dy));
     n += 1;
   }
@@ -1119,6 +1269,8 @@ export function applyOsmdArticulationOffsetsDetailed(
   const extraY = hasPendingArt
     ? fromPending
     : parseFloat(host.getAttribute('data-hitl-art-dy') ?? '0') || 0;
+  setHitlArticulationExtraYPx(extraY);
+  ensureArticulationDrawPatch(osmd);
   applyHitlArticulationHostCss(host, extraY);
 
   if (!host?.querySelector('svg')) return { ...empty, staffSpacePx };

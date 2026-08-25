@@ -686,9 +686,10 @@ button.btn-muted {
   -webkit-user-select: none;
 }
 
-/* Accent 거리 보조: SVG는 CSS `translate` 속성을 무시. `transform:translateY`는 동작.
- * 실제 이동은 osmdArticulationOffsetFix의 .vf-modifiers 래퍼 SVG transform이 담당. */
-.omr-osmd-clickable[data-hitl-art-dy]:not([data-hitl-art-dy='0']) .vf-modifiers {
+/* Accent 거리: VexFlow `.vf-modifiers`는 transform *속성*을 쓰므로 CSS transform은
+ * Chrome에서 무시됨. 실제 이동은 osmdArticulationOffsetFix 래퍼 g[data-hitl-art-wrap].
+ * 아래 규칙은 속성 transform이 없을 때만 보조. */
+.omr-osmd-clickable[data-hitl-art-dy]:not([data-hitl-art-dy='0']) .vf-modifiers:not([transform]) {
   transform: translateY(var(--hitl-art-dy, 0px)) !important;
 }
 

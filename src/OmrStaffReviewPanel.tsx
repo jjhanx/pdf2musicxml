@@ -12,6 +12,7 @@ import {
 } from './AudiverisInspectPanel';
 import { OmrMeasureEditor } from './OmrMeasureEditor';
 import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
+import { extraYPxFromArticulationFixes } from './osmdArticulationOffsetFix';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
@@ -656,6 +657,21 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     if (!rawXml || !scoreParts.length) return '';
     return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
   }, [rawXml, scoreParts, activeStaffFilter]);
+
+  const artPreviewStatus = useMemo(() => {
+    const arts = pendingFixes.filter(
+      (f) =>
+        (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') &&
+        Boolean(f.articulation),
+    );
+    const dy = extraYPxFromArticulationFixes(arts, 10);
+    const dists = arts
+      .map((f) => f.distance || 'auto')
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .join(',');
+    return { count: arts.length, dy, dists };
+  }, [pendingFixes]);
+
   const selectedPrinted = selectedMeasure
     ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
     : null;
@@ -770,6 +786,23 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               MusicXML (OMR MXL)
               {activeStaffFilter ? ` · ${activeStaffFilter.label}` : staffFilter ? ` · ${staffFilter}` : ' · 전체 파트'}
             </span>
+            <div
+              data-hitl-art-status="1"
+              style={{
+                fontSize: 12,
+                fontFamily: 'ui-monospace, Consolas, monospace',
+                padding: '3px 8px',
+                borderRadius: 4,
+                background: artPreviewStatus.dy !== 0 ? '#0b7285' : artPreviewStatus.count ? '#868e96' : '#e9ecef',
+                color: artPreviewStatus.count || artPreviewStatus.dy ? '#fff' : '#495057',
+                fontWeight: 600,
+              }}
+              title="Accent 거리 드롭다운 → pendingFixes → OSMD 미리보기 dy. 스크롤과 무관하게 항상 표시."
+            >
+              {artPreviewStatus.count === 0
+                ? 'Accent dy: — (표 거리 대기 없음)'
+                : `Accent dy=${artPreviewStatus.dy}px · ${artPreviewStatus.count}건 · dist=${artPreviewStatus.dists || '?'}`}
+            </div>
             <div className="omr-mxl-preview-controls">
               <label className="omr-zoom-label">
                 확대

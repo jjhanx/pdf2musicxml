@@ -1,16 +1,14 @@
 /**
  * Accent 거리 — VexFlow Articulation.draw는 between_lines 스냅으로 y_shift를 무력화함.
- * 실제 Accent path는 .vf-modifiers 래퍼 transform으로 옮긴다.
+ * 실제 Accent는 .vf-modifiers 래퍼 g[data-hitl-art-wrap] transform으로 옮긴다.
  * Run: npx tsx _smoke/test_articulation_yshift_draw.ts
  */
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import * as osmdLib from 'opensheetmusicdisplay';
 import {
-  applyHitlArticulationHostCss,
   applyOsmdArticulationOffsets,
-  applySvgDyToVfModifiers,
-  ensureArticulationDrawPatch,
+  applyPendingArticulationOffsetsOnly,
   extraYPxFromArticulationFixes,
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
@@ -55,13 +53,6 @@ function wrapTransform(host: HTMLElement): string | null {
   return host.querySelector('.vf-modifiers > g[data-hitl-art-wrap]')?.getAttribute('transform') ?? null;
 }
 
-function accentPath0Y(host: HTMLElement): number {
-  const d = host.querySelector('.vf-modifiers path')?.getAttribute('d') ?? '';
-  const m = /M\s*([-\d.]+)\s+([-\d.]+)/.exec(d);
-  if (!m) throw new Error('no path');
-  return parseFloat(m[2]!);
-}
-
 async function main() {
   setupDom();
   const xml = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name/></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><type>quarter</type><stem>up</stem><notations><articulations><accent placement="below"/></articulations></notations></note></measure></part></score-partwise>`;
@@ -79,16 +70,7 @@ async function main() {
   await osmd.load(xml);
   osmd.zoom = 1;
   osmd.render();
-  ensureArticulationDrawPatch(osmd);
 
-  const yPathBefore = accentPath0Y(host);
-
-  // Prove: y_shift alone does NOT move Accent path0 (between_lines snap)
-  setHitlArticulationExtraYPx(40);
-  osmd.render();
-  assert.equal(accentPath0Y(host), yPathBefore, 'y_shift must NOT move Accent path0 (between_lines)');
-
-  // Real fix: wrapper transform on .vf-modifiers
   const fixes = [
     {
       kind: 'setArticulationPlacement' as const,
@@ -102,27 +84,26 @@ async function main() {
   ];
   const extra = extraYPxFromArticulationFixes(fixes, 10);
   assert.equal(extra, 40);
-  registerOsmdArticulationFixes(osmd, fixes);
-  setHitlArticulationExtraYPx(extra);
-  applyHitlArticulationHostCss(host, extra);
+  for (const g of host.querySelectorAll('.vf-modifiers')) {
+    g.setAttribute('transform', 'translate(10, 20)');
+  }
+  const softN = applyPendingArticulationOffsetsOnly(host, osmd, fixes);
+  assert.ok(softN >= 1, `expected soft shift, got ${softN}`);
+  assert.equal(host.getAttribute('data-hitl-art-dy'), '40');
   assert.equal(wrapTransform(host), 'translate(0, 40)');
 
-  // OSMD render wipes nodes — re-apply like render patch
   osmd.render();
   applyOsmdArticulationOffsets(host, osmd);
-  assert.equal(wrapTransform(host), 'translate(0, 40)', 're-applied after OSMD.render');
   assert.equal(host.getAttribute('data-hitl-art-dy'), '40');
+  assert.equal(wrapTransform(host), 'translate(0, 40)', 're-applied after render');
 
-  // Idempotent
-  assert.equal(applySvgDyToVfModifiers(host, 40), 1);
-  assert.equal(wrapTransform(host), 'translate(0, 40)');
+  applyPendingArticulationOffsetsOnly(host, osmd, []);
+  assert.equal(host.getAttribute('data-hitl-art-dy'), '0');
+  assert.equal(wrapTransform(host), null);
 
   setHitlArticulationExtraYPx(0);
   registerOsmdArticulationFixes(osmd, []);
-  applyHitlArticulationHostCss(host, 0);
-  assert.equal(wrapTransform(host), null);
-
-  console.log('articulation vf-modifiers wrap transform ok', { yPathBefore, extra });
+  console.log('articulation wrap transform dy ok', { extra });
 }
 
 main().catch((e) => {

@@ -193,6 +193,22 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 export function resetOsmdArticulationOffsets(host: HTMLElement): void {
+  for (const wrap of [...host.querySelectorAll('g[data-hitl-art-wrap]')]) {
+    const g = wrap.parentElement;
+    if (!g) {
+      wrap.remove();
+      continue;
+    }
+    while (wrap.firstChild) g.insertBefore(wrap.firstChild, wrap);
+    wrap.remove();
+  }
+  for (const el of host.querySelectorAll('[data-hitl-base-tf]')) {
+    const base = el.getAttribute('data-hitl-base-tf') ?? '';
+    if (base) el.setAttribute('transform', base);
+    else el.removeAttribute('transform');
+    el.removeAttribute('data-hitl-base-tf');
+    el.removeAttribute('data-art-shift-y');
+  }
   for (const el of host.querySelectorAll('[data-art-base-transform]')) {
     el.setAttribute('transform', el.getAttribute('data-art-base-transform') ?? '');
     el.removeAttribute('data-art-shift-y');
@@ -204,6 +220,7 @@ export function resetOsmdArticulationOffsets(host: HTMLElement): void {
     const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
     if (sty?.removeProperty) sty.removeProperty('translate');
   }
+  host.removeAttribute('data-hitl-art-shifted');
 }
 
 export function applyArticulationShiftY(el: Element, deltaY: number): void {
@@ -667,28 +684,50 @@ export function applyOsmdArticulationOffsets(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
 ): number {
-  const wasPatched = articulationDrawPatched;
-  const shifted = applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
-  // 첫 render 뒤에야 Articulation ctor를 패치할 수 있음 → extraY≠0이면 한 번 더 그려 y_shift 반영
-  if (!wasPatched && articulationDrawPatched && hitlArticulationExtraYPx !== 0) {
-    scheduleArticulationYShiftRedraw(osmd);
-  }
-  return shifted;
+  return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
 }
 
-function scheduleArticulationYShiftRedraw(osmd: OpenSheetMusicDisplay): void {
-  const rec = osmd as unknown as { __hitlArtRedrawScheduled?: boolean };
-  if (rec.__hitlArtRedrawScheduled) return;
-  rec.__hitlArtRedrawScheduled = true;
-  queueMicrotask(() => {
-    rec.__hitlArtRedrawScheduled = false;
-    if (!osmd.IsReadyToRender()) return;
-    try {
-      osmd.render();
-    } catch (e) {
-      console.warn('[osmd] articulation y_shift redraw skipped:', e);
-    }
-  });
+/**
+ * Accent 글리프 이동 — `.vf-modifiers` 자식을 `g[data-hitl-art-wrap]`로 감싸
+ * `transform=translate(0,dy)` (VexFlow path의 transform 속성·CSS 무시 문제 회피).
+ */
+export function applyDyToVfModifiersAttr(host: HTMLElement, dy: number): number {
+  if (!dy) {
+    resetOsmdArticulationOffsets(host);
+    applyHitlArticulationHostCss(host, 0);
+    host.setAttribute('data-hitl-art-shifted', '0');
+    host.title = '[HITL Accent] dy=0';
+    return 0;
+  }
+  const n = applySvgDyToVfModifiers(host, dy);
+  applyHitlArticulationHostCss(host, dy);
+  host.setAttribute('data-hitl-art-shifted', String(n));
+  host.title = `[HITL Accent] dy=${dy}px, wraps=${n}`;
+  return n;
+}
+
+/**
+ * 거리 드롭다운용 — 인자 fixes만 사용(WeakMap 빈 배열에 가로채이지 않음).
+ */
+export function applyPendingArticulationOffsetsOnly(
+  host: HTMLElement,
+  osmd: OpenSheetMusicDisplay | null | undefined,
+  fixes: ReadonlyArray<ArticulationPreviewFix>,
+): number {
+  if (!host) return 0;
+  const pending = fixes.filter(
+    (f) =>
+      (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') &&
+      Boolean(f.articulation),
+  );
+  if (osmd) registerOsmdArticulationFixes(osmd, pending);
+  const staffSpacePx =
+    host.querySelector('svg') && osmd?.IsReadyToRender?.()
+      ? staffSpacePxFromHost(host, osmd) || 10
+      : 10;
+  const y = extraYPxFromArticulationFixes(pending, staffSpacePx);
+  setHitlArticulationExtraYPx(y);
+  return applyDyToVfModifiersAttr(host, y);
 }
 
 /**
@@ -718,40 +757,35 @@ export function composeSvgTranslateY(base: string, dy: number): string {
   return raw ? `translate(0, ${dy}) ${raw}` : `translate(0, ${dy})`;
 }
 
+/** Accent 등 VexFlow articulation — .vf-modifiers 자식을 래퍼 g로 감싸 translate(0,dy) 적용 */
+export function applySvgDyToModifier(modifierEl: Element, dy: number): void {
+  const doc = modifierEl.ownerDocument;
+  let wrap = modifierEl.querySelector(':scope > g[data-hitl-art-wrap]') as SVGGElement | null;
+  if (!wrap) {
+    wrap = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+    wrap.setAttribute('data-hitl-art-wrap', '1');
+    while (modifierEl.firstChild) wrap.appendChild(modifierEl.firstChild);
+    modifierEl.appendChild(wrap);
+  }
+  if (dy) wrap.setAttribute('transform', `translate(0, ${dy})`);
+  else wrap.removeAttribute('transform');
+  modifierEl.setAttribute('data-art-shift-y', String(dy));
+}
+
+/** @deprecated 테스트·레거시 — 프로덕션은 applySvgDyToModifier(타깃) 사용 */
 export function applySvgDyToVfModifiers(host: HTMLElement, dy: number): number {
-  const doc = host.ownerDocument;
   let n = 0;
   for (const g of host.querySelectorAll('.vf-modifiers')) {
-    let wrap = g.querySelector(':scope > g[data-hitl-art-wrap]') as SVGGElement | null;
-    if (!wrap) {
-      wrap = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
-      wrap.setAttribute('data-hitl-art-wrap', '1');
-      while (g.firstChild) wrap.appendChild(g.firstChild);
-      g.appendChild(wrap);
-    }
-    if (dy) wrap.setAttribute('transform', `translate(0, ${dy})`);
-    else wrap.removeAttribute('transform');
-    g.setAttribute('data-art-shift-y', String(dy));
+    applySvgDyToModifier(g, dy);
     n += 1;
   }
   return n;
 }
 
-export function installVfModifierDyGuard(host: HTMLElement, getDy: () => number): () => void {
-  let applying = false;
-  const run = () => {
-    if (applying || !host.isConnected) return;
-    applying = true;
-    try {
-      applySvgDyToVfModifiers(host, getDy());
-    } finally {
-      applying = false;
-    }
-  };
-  const mo = new MutationObserver(run);
-  mo.observe(host, { subtree: true, childList: true, attributes: true, attributeFilter: ['transform'] });
-  run();
-  return () => mo.disconnect();
+function applyArticulationOffsetToTarget(el: Element, dy: number): void {
+  const modGroup = el.classList.contains('vf-modifiers') ? el : el.closest('.vf-modifiers');
+  if (modGroup) applySvgDyToModifier(modGroup, dy);
+  else applyArticulationShiftY(el, dy);
 }
 
 export function extraYPxFromArticulationFixes(
@@ -771,11 +805,10 @@ export function extraYPxFromArticulationFixes(
   return extra;
 }
 
-/** OSMD가 transform 속성을 덮어써도 CSS 변수·노드 style은 남음. extraY=0이면 호스트 값을 지우지 않음(호출측). */
+/** 호스트 CSS 변수(디버그·회귀). 실제 이동은 applyOsmdArticulationOffsetsDetailed의 노드별 래퍼 transform. */
 export function applyHitlArticulationHostCss(host: HTMLElement, extraY: number): void {
   host.style.setProperty('--hitl-art-dy', `${extraY}px`);
   host.setAttribute('data-hitl-art-dy', String(extraY));
-  applySvgDyToVfModifiers(host, extraY);
 }
 
 function isDomElement(v: unknown): v is Element {
@@ -894,7 +927,7 @@ function artNameFromFix(fix: ArticulationPreviewFix): string {
   return (fix.articulation ?? '').split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
 }
 
-/** pending 거리 — 피치 재매칭 없이 해당 마디·파트의 같은 표(accent 등) 글리프에 모두 적용. */
+/** pending 거리 — 해당 마디·파트·피치(또는 staff)에 맞는 articulation만 이동 */
 function applyPendingDistanceDirect(
   osmd: OpenSheetMusicDisplay,
   pendingFixes: ArticulationPreviewFix[],
@@ -902,21 +935,14 @@ function applyPendingDistanceDirect(
   usedElements: Set<Element>,
 ): number {
   if (!pendingFixes.length) return 0;
+  const measureKeys = new Set(pendingFixes.map((f) => String(f.measureMxl)));
   let shifted = 0;
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
     const measureMxl = measureMxlFromGraphic(gm);
     if (measureMxl == null) return;
+    if (!measureKeys.has(String(measureMxl))) return;
     const partId = partIdFromGraphic(gm) ?? '';
     const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);
-    const fixesHere = pendingFixes.filter((fix) => {
-      if (fix.partId && partId && !previewPartIdsMatch(partId, fix.partId) && !partIdsMatch(partId, fix.partId)) {
-        return false;
-      }
-      if (String(fix.measureMxl) === String(measureMxl)) return true;
-      // 마디 번호가 OSMD와 편집기에서 어긋나도 같은 파트 Accent는 움직임
-      return true;
-    });
-    if (!fixesHere.length) return;
 
     const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
     for (const seRaw of staffEntries) {
@@ -954,9 +980,13 @@ function applyPendingDistanceDirect(
           );
         });
         const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
+        const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
         const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
         const artEls = staveNoteSvg ? findArticulationElementsInStavenote(staveNoteSvg) : [];
-        if (!artMods.length && !artEls.length) continue;
+        const modGroups = staveNoteSvg
+          ? ([...staveNoteSvg.querySelectorAll('.vf-modifiers')] as Element[])
+          : [];
+        if (!artMods.length && !artEls.length && !modGroups.length) continue;
 
         const stave =
           staveNote?.getStave?.() ??
@@ -970,31 +1000,40 @@ function applyPendingDistanceDirect(
           staffSpacePx ||
           10;
 
-        for (const fix of fixesHere) {
-          const artName = artNameFromFix(fix);
-          const typeOk = artMods.some((m) => !m.type || articulationModTypeMatchesHint(m.type, artName || 'accent'));
-          if (artName && artMods.length && !typeOk) continue;
-          const spaces =
-            parseArticulationStaffSpaces(
-              fix.distance === 'auto' || !fix.distance ? 'auto' : String(fix.distance),
-            ) ?? 1;
-          const isAbove = fix.placement === 'above' || artMods[0]?.getPosition?.() === 3;
-          const extraY = extraArticulationYPx(spaces, lineSpacing, isAbove);
+        for (let i = 0; i < Math.max(artMods.length, artEls.length, modGroups.length, 1); i++) {
+          const artMod = artMods[i] ?? artMods[0];
+          // artTag는 fix 쪽 이름 기준 (Vex type "a>" → ">"로 잘못 줄어 accent 매칭 실패 방지)
+          const pending = staffSpacesFromPendingFix(pendingFixes, {
+            partId,
+            measureMxl,
+            pitches: notePitches,
+            artTag: undefined,
+            staffWithinPart,
+          });
+          if (!pending) continue;
+
+          const artName = artNameFromFix(
+            pendingFixes.find((f) => String(f.measureMxl) === String(measureMxl)) ?? pendingFixes[0]!,
+          );
+          const typeOk =
+            !artMod?.type ||
+            !artName ||
+            articulationModTypeMatchesHint(artMod.type, artName) ||
+            articulationModTypeMatchesHint(artMod.type, 'accent');
+          if (artMod && artMods.length && !typeOk) continue;
+
+          const isAbove = artMod?.getPosition?.() === 3 || pending.placement === 'above';
+          const extraY = extraArticulationYPx(pending.staffSpaces, lineSpacing, isAbove);
           const targets: Element[] = [];
-          for (const m of artMods) {
-            const el = vexModifierSvg(m);
-            if (el && !usedElements.has(el)) targets.push(el);
-          }
-          for (const el of artEls) {
-            if (!usedElements.has(el)) targets.push(el);
-          }
-          if (!targets.length && staveNoteSvg) {
-            for (const g of staveNoteSvg.querySelectorAll('.vf-modifiers')) {
-              if (!usedElements.has(g)) targets.push(g);
-            }
+          const modEl = vexModifierSvg(artMod);
+          if (modEl && !usedElements.has(modEl)) targets.push(modEl);
+          const artEl = artEls[i] ?? artEls[0];
+          if (artEl && !usedElements.has(artEl)) targets.push(artEl);
+          for (const g of modGroups) {
+            if (!usedElements.has(g)) targets.push(g);
           }
           for (const t of targets) {
-            applyArticulationShiftY(t, extraY);
+            applyArticulationOffsetToTarget(t, extraY);
             usedElements.add(t);
             shifted += 1;
           }
@@ -1254,43 +1293,51 @@ function shiftLiftedDirectionTexts(host: HTMLElement, xml: string, staffSpacePx:
   return shifted;
 }
 
+let articulationApplyDepth = 0;
+
 export function applyOsmdArticulationOffsetsDetailed(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
 ): ArticulationShiftStats {
   const empty = { shifted: 0, modifierCount: 0, hintCount: 0, staffSpacePx: 0 };
+  // render → apply → SVG 크기 변화 → autoResize/render 재진입 방지
+  if (articulationApplyDepth > 0) return empty;
+  articulationApplyDepth += 1;
+  try {
+    return applyOsmdArticulationOffsetsDetailedInner(host, osmd, empty);
+  } finally {
+    articulationApplyDepth -= 1;
+  }
+}
+
+function applyOsmdArticulationOffsetsDetailedInner(
+  host: HTMLElement,
+  osmd: OpenSheetMusicDisplay,
+  empty: ArticulationShiftStats,
+): ArticulationShiftStats {
   const pendingFixes = articulationFixesByOsmd.get(osmd) ?? [];
   const staffSpacePx = host?.querySelector('svg') ? staffSpacePxFromHost(host, osmd) : 10;
-  const hasPendingArt = pendingFixes.some(
-    (f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation',
-  );
-  const fromPending = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
-  // WeakMap이 비면 extraY=0으로 덮어 OSMD autoResize가 방금 적용한 거리를 지움. 호스트 값을 유지.
-  const extraY = hasPendingArt
-    ? fromPending
-    : parseFloat(host.getAttribute('data-hitl-art-dy') ?? '0') || 0;
-  setHitlArticulationExtraYPx(extraY);
-  ensureArticulationDrawPatch(osmd);
-  applyHitlArticulationHostCss(host, extraY);
 
   if (!host?.querySelector('svg')) return { ...empty, staffSpacePx };
 
-  resetOsmdArticulationOffsets(host);
-  applyHitlArticulationHostCss(host, extraY);
-
-  if (hasPendingArt) {
-    const fromGroups = applySvgDyToVfModifiers(host, extraY);
+  // pending 거리 미리보기: CSS는 VexFlow transform 속성에 막힘 → 래퍼 SVG만
+  if (pendingFixes.length > 0) {
     return {
-      shifted: Math.max(fromGroups, extraY !== 0 ? 1 : 0),
+      shifted: applyPendingArticulationOffsetsOnly(host, osmd, pendingFixes),
       modifierCount: countModifiers(host),
       hintCount: pendingFixes.length,
       staffSpacePx,
     };
   }
 
-  const xml = resolveArticulationPreviewXml(osmd);
+  setHitlArticulationExtraYPx(0);
+  applyHitlArticulationHostCss(host, 0);
+  resetOsmdArticulationOffsets(host);
+
   const usedElements = new Set<Element>();
   const fromDirect = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
+
+  const xml = resolveArticulationPreviewXml(osmd);
 
   if (!xml?.trim()) {
     return { shifted: fromDirect, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
@@ -1316,7 +1363,8 @@ export function applyOsmdArticulationOffsetsDetailed(
         lookupHints(hintsByMeasure, partId, measureMxl, staffWithinPart) ??
         lookupHints(hintsByMeasure, partId, measureMxl) ??
         [];
-      if (!hints.length && !pendingFixes.length) return;
+      // pending이 있어도 힌트 없는 마디는 건너뜀 (예전: pending만으로 전 악보 순회 → 멈춤)
+      if (!hints.length) return;
 
       const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
       for (const seRaw of staffEntries) {
@@ -1406,7 +1454,6 @@ export function applyOsmdArticulationOffsetsDetailed(
               staffSpacePx ||
               10;
             const extraY = extraArticulationYPx(staffSpaces, lineSpacing, isAbove);
-            rememberArticulationYShift(artMod, extraY);
             const paintTargets: Element[] = [];
             for (const t of [artEl, ...artEls]) {
               if (t && !paintTargets.includes(t) && !usedElements.has(t)) paintTargets.push(t);
@@ -1418,7 +1465,7 @@ export function applyOsmdArticulationOffsetsDetailed(
             }
             if (!paintTargets.length) continue;
             for (const t of paintTargets) {
-              applyArticulationShiftY(t, extraY);
+              applyArticulationOffsetToTarget(t, extraY);
               usedElements.add(t);
             }
             shiftedCount += 1;
@@ -1444,7 +1491,7 @@ export function applyOsmdArticulationOffsetsDetailed(
           for (const g of measureSvg.querySelectorAll('.vf-modifiers')) {
             if (usedElements.has(g) || g.hasAttribute('data-art-shift-y')) continue;
             if (!g.querySelector('path, text, use')) continue;
-            applyArticulationShiftY(g, extraY);
+            applyArticulationOffsetToTarget(g, extraY);
             usedElements.add(g);
             shiftedCount += 1;
           }
@@ -1470,7 +1517,7 @@ export function applyOsmdArticulationOffsetsDetailed(
       const extraY = extraArticulationYPx(spaces, staffSpacePx || 10, above);
       for (const g of host.querySelectorAll('.vf-modifiers')) {
         if (!g.querySelector('path, text, use')) continue;
-        applyArticulationShiftY(g, extraY);
+        applyArticulationOffsetToTarget(g, extraY);
         shiftedCount += 1;
       }
     }

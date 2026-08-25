@@ -33,10 +33,9 @@ import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdP
 import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
+  applyPendingArticulationOffsetsOnly,
   applyHitlArticulationHostCss,
-  ensureArticulationDrawPatch,
   extraYPxFromArticulationFixes,
-  installVfModifierDyGuard,
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
   setHitlArticulationExtraYPx,
@@ -2074,14 +2073,6 @@ export function OsmdBlock({
   }, [printedMeasureMarkers]);
 
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    return installVfModifierDyGuard(host, () =>
-      extraYPxFromArticulationFixes(articulationFixesRef.current, 10),
-    );
-  }, [xml]);
-
-  useEffect(() => {
     scrollToMeasureRef.current = scrollToMeasure;
     scrollToMeasureTriggerRef.current = scrollToMeasureTrigger;
   }, [scrollToMeasure, scrollToMeasureTrigger]);
@@ -2190,8 +2181,10 @@ export function OsmdBlock({
     host.innerHTML = '';
     let osmd: OpenSheetMusicDisplay;
     try {
+      // autoResize:true 이면 Accent 래퍼 transform으로 SVG 높이가 변할 때마다
+      // ResizeObserver → render → 오프셋 재적용이 무한 반복되어 페이지가 멈춘다.
       osmd = new OpenSheetMusicDisplay(host, {
-        autoResize: true,
+        autoResize: false,
         backend: 'svg',
         drawMeasureNumbers: false,
         useXMLMeasureNumbers: false,
@@ -2327,6 +2320,52 @@ export function OsmdBlock({
     };
   }, [xml, printedMeasureMarkers]);
 
+  /** 너비 변경만 재렌더 — 높이만 바뀌는 Accent dy는 무시(autoResize 루프 방지) */
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    let lastW = host.getBoundingClientRect().width;
+    let timer: number | null = null;
+    const ro = new ResizeObserver(() => {
+      const w = host.getBoundingClientRect().width;
+      if (Math.abs(w - lastW) < 2) return;
+      lastW = w;
+      if (timer != null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        const osmd = osmdRef.current;
+        if (!host.isConnected || !osmd?.IsReadyToRender()) return;
+        const gen = xmlGenRef.current;
+        const seq = ++paintSeqRef.current;
+        scheduleOsmdRender({
+          host,
+          osmd,
+          zoom: zoomRef.current,
+          isStale: () =>
+            gen !== xmlGenRef.current ||
+            seq !== paintSeqRef.current ||
+            !host.isConnected ||
+            !osmdRef.current?.IsReadyToRender(),
+          onPaintFailure: () => {
+            osmdRef.current = null;
+          },
+          roRef,
+          onAfterRender: afterOsmdRender,
+          afterOsmdRenderSync: (h, o) => {
+            finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
+            syncOnsetColumnAlign(h, o);
+            applyOsmdArticulationOffsets(h, o);
+          },
+        });
+      }, 100);
+    });
+    ro.observe(host);
+    return () => {
+      ro.disconnect();
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [xml, afterOsmdRender, syncOnsetColumnAlign]);
+
   useEffect(() => {
     const host = hostRef.current;
     const osmd = osmdRef.current;
@@ -2372,31 +2411,34 @@ export function OsmdBlock({
     const hint = articulationHintXml ?? xml;
     hintXmlRef.current = hint;
     articulationFixesRef.current = articulationFixes ?? [];
-    const extra = extraYPxFromArticulationFixes(articulationFixesRef.current, 10);
-    setHitlArticulationExtraYPx(extra);
-    if (host) applyHitlArticulationHostCss(host, extra);
-    if (!host || !osmd?.IsReadyToRender()) return;
-
-    registerOsmdPreviewXmlForArticulation(osmd, hint);
-    registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
-    ensureArticulationDrawPatch(osmd);
-
-    const reapply = () => {
+    if (!host) return;
+    if (osmd) {
+      registerOsmdPreviewXmlForArticulation(osmd, hint);
+      registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
+    }
+    const apply = () => {
       const h = hostRef.current;
       const o = osmdRef.current;
-      if (!h || !o?.IsReadyToRender()) return;
-      registerOsmdArticulationFixes(o, articulationFixesRef.current);
-      const y = extraYPxFromArticulationFixes(articulationFixesRef.current, 10);
-      setHitlArticulationExtraYPx(y);
-      // Accent path는 between_lines 스냅으로 y_shift가 무시됨 → .vf-modifiers 래퍼 transform
-      applyHitlArticulationHostCss(h, y);
-      applyOsmdArticulationOffsets(h, o);
+      if (!h) return;
+      applyPendingArticulationOffsetsOnly(h, o, articulationFixesRef.current);
     };
-    reapply();
-    const t1 = requestAnimationFrame(reapply);
-    const t2 = window.setTimeout(reapply, 100);
+    apply();
+    // OSMD/align이 SVG를 교체하면 transform 속성이 사라짐 → childList만 감시해 재적용 (attribute 감시 금지=루프 방지)
+    let debounce: number | null = null;
+    const mo = new MutationObserver(() => {
+      if (debounce != null) return;
+      debounce = window.setTimeout(() => {
+        debounce = null;
+        apply();
+      }, 16);
+    });
+    mo.observe(host, { childList: true, subtree: true });
+    const t1 = window.setTimeout(apply, 0);
+    const t2 = window.setTimeout(apply, 100);
     return () => {
-      cancelAnimationFrame(t1);
+      mo.disconnect();
+      if (debounce != null) window.clearTimeout(debounce);
+      window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
   }, [articulationHintXml, xml, articulationFixes, articulationFixesKey]);
@@ -2453,21 +2495,55 @@ export function OsmdBlock({
     };
   }, [xml, onMeasureClick, zoom, syncMeasureClickUi]);
 
+  const artPreviewFixes = (articulationFixes ?? []).filter(
+    (f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation',
+  );
+  const artPreviewDy = extraYPxFromArticulationFixes(artPreviewFixes, 10);
+  /** articulationFixes prop이 넘어오는 HITL 미리보기에서만 — sticky라 스크롤해도 보임 */
+  const showArtBanner = articulationFixes !== undefined;
+
   return (
-    <div
-      ref={hostRef}
-      className="audiveris-inspect-osmd omr-osmd-clickable"
-      data-omr-suppress-measure-numbers="1"
-      style={{
-        minHeight: 160,
-        minWidth: 'min(100%, 260px)',
-        overflow: embeddedInOmrFrame ? 'visible' : 'auto',
-        border: embeddedInOmrFrame ? 'none' : '1px solid #ddd',
-        borderRadius: embeddedInOmrFrame ? 0 : 6,
-        background: '#fff',
-        cursor: onMeasureClick ? 'pointer' : undefined,
-      }}
-    />
+    <div style={{ position: 'relative', minWidth: 'min(100%, 260px)' }}>
+      {showArtBanner ? (
+        <div
+          data-hitl-art-banner="1"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 6,
+            alignSelf: 'stretch',
+            fontSize: 12,
+            lineHeight: 1.35,
+            padding: '5px 10px',
+            marginBottom: 2,
+            borderRadius: 4,
+            background: artPreviewDy !== 0 ? '#0b7285' : artPreviewFixes.length ? '#868e96' : '#495057',
+            color: '#fff',
+            pointerEvents: 'none',
+            fontFamily: 'ui-monospace, Consolas, monospace',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+          }}
+        >
+          {artPreviewFixes.length === 0
+            ? 'Accent 미리보기: 대기 보정 없음 (거리 바꾸면 여기·위 상태줄에 dy 표시)'
+            : `Accent 미리보기 dy=${artPreviewDy}px · 표 ${artPreviewFixes.length}건`}
+        </div>
+      ) : null}
+      <div
+        ref={hostRef}
+        className="audiveris-inspect-osmd omr-osmd-clickable"
+        data-omr-suppress-measure-numbers="1"
+        style={{
+          minHeight: 160,
+          minWidth: 'min(100%, 260px)',
+          overflow: embeddedInOmrFrame ? 'visible' : 'auto',
+          border: embeddedInOmrFrame ? 'none' : '1px solid #ddd',
+          borderRadius: embeddedInOmrFrame ? 0 : 6,
+          background: '#fff',
+          cursor: onMeasureClick ? 'pointer' : undefined,
+        }}
+      />
+    </div>
   );
 }
 

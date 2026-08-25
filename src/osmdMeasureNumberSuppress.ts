@@ -1,7 +1,7 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { forEachOsmdSystem } from './osmdMeasureClick';
 import { alignOsmdPreviewNotesByOnsetColumn } from './osmdOnsetColumnAlignFix';
-import { applyOsmdArticulationOffsetsDetailed, applySvgDyToVfModifiers } from './osmdArticulationOffsetFix';
+import { applyOsmdArticulationOffsetsDetailed } from './osmdArticulationOffsetFix';
 
 type RecordLike = Record<string, unknown>;
 
@@ -93,21 +93,26 @@ export function patchOsmdRenderForMeasureNumbers(
 
   const original = osmd.render.bind(osmd);
   osmd.render = () => {
-    enforceOsmdPreviewMeasureNumberRules(osmd);
-    original();
+    const rec = raw as { __omrRenderDepth?: number };
+    if ((rec.__omrRenderDepth ?? 0) > 0) return;
+    rec.__omrRenderDepth = (rec.__omrRenderDepth ?? 0) + 1;
     try {
-      alignOsmdPreviewNotesByOnsetColumn(osmd);
-    } catch (e) {
-      console.warn('[osmd] onset column align skipped:', e);
+      enforceOsmdPreviewMeasureNumberRules(osmd);
+      original();
+      try {
+        alignOsmdPreviewNotesByOnsetColumn(osmd);
+      } catch (e) {
+        console.warn('[osmd] onset column align skipped:', e);
+      }
+      finalizeOsmdMeasureNumberPreview(host, osmd, getAllowed());
+      try {
+        applyOsmdArticulationOffsetsDetailed(host, osmd);
+      } catch (e) {
+        console.warn('[osmd] articulation offset skipped:', e);
+      }
+    } finally {
+      rec.__omrRenderDepth = Math.max(0, (rec.__omrRenderDepth ?? 1) - 1);
     }
-    finalizeOsmdMeasureNumberPreview(host, osmd, getAllowed());
-    try {
-      applyOsmdArticulationOffsetsDetailed(host, osmd);
-    } catch (e) {
-      console.warn('[osmd] articulation offset skipped:', e);
-    }
-    const dy = parseFloat(host.getAttribute('data-hitl-art-dy') ?? '0') || 0;
-    applySvgDyToVfModifiers(host, dy);
   };
 }
 

@@ -14,7 +14,7 @@ import {
 const css = fs.readFileSync(path.join('src', 'index.css'), 'utf8');
 assert.match(
   css,
-  /\.omr-osmd-clickable\[data-hitl-art-dy\]:not\(\[data-hitl-art-dy='0'\]\) \.vf-modifiers/,
+  /\.omr-osmd-clickable\[data-hitl-art-dy\]:not\(\[data-hitl-art-dy='0'\]\) \.vf-modifiers:not\(\[transform\]\)/,
 );
 assert.match(css, /transform:\s*translateY\(var\(--hitl-art-dy/);
 assert.doesNotMatch(css, /translate:\s*0 var\(--hitl-art-dy/);

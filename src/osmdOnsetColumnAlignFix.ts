@@ -1061,33 +1061,12 @@ export function alignOsmdPreviewNotesByOnsetColumn(
 ): void {
   const xml = resolvePreviewXml(osmd, previewXml);
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
-  const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
-  const hasExplicitCrossVoicePo = (() => {
-    const byKey = new Map<string, Set<string>>();
-    for (const t of targets) {
-      if (t.playOrder == null) continue;
-      const key = `${t.partId}|${t.measureNumber}|${t.staff}|${t.playOrder}`;
-      const voices = byKey.get(key) ?? new Set<string>();
-      voices.add(t.voice);
-      byKey.set(key, voices);
-    }
-    return [...byKey.values()].some((v) => v.size >= 2);
-  })();
 
-  // 1) linkParallel 힌트(동일 default-x·forward) — 강제 cluster
+  // linkParallel 힌트만 SVG 보정. 명시 연주순번 cross-voice 상대 snap은
+  // 음머리를 앞으로 당겨 빔이 앞 마디로 삐져나오는 회귀가 있어 쓰지 않음.
+  // 같은 onset 순번 통일은 MusicXML applyPlayOrderLayout에 맡김.
   if (hints.length > 0) {
     alignLinkedParallelHintGroups(osmd, hints);
-  }
-
-  // 2) 명시 연주순번이 서로 다른 voice에 같게 있으면 상대 snap만
-  //    (전 마디 play-order grid 절대 배치는 이음줄 파편을 만들므로 쓰지 않음)
-  if (hasExplicitCrossVoicePo) {
-    forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
-      alignExplicitPlayOrderColumnsRelative(osmd, gm, staffIndex, targets);
-    });
-  }
-
-  if (hints.length > 0 || hasExplicitCrossVoicePo) {
     const host =
       (osmd as unknown as { container?: ParentNode | null }).container ??
       (osmd as unknown as { root?: ParentNode | null }).root ??

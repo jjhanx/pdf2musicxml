@@ -165,16 +165,16 @@ function markDistanceLevelOf(raw: string): string {
 
 const ARTICULATION_DISTANCE_OPTIONS: { value: string; label: string }[] = [
   { value: 'auto', label: '보통 (자동 / 1칸)' },
-  { value: '1', label: '1칸 (10px)' },
-  { value: '2', label: '2칸 (20px)' },
-  { value: '3', label: '3칸 (30px)' },
-  { value: '4', label: '4칸 (40px)' },
-  { value: '5', label: '5칸 (50px)' },
-  { value: '6', label: '6칸 (60px)' },
-  { value: '7', label: '7칸 (70px)' },
-  { value: '8', label: '8칸 (80px)' },
-  { value: '9', label: '9칸 (90px)' },
-  { value: '10', label: '10칸 (100px)' },
+  { value: '1', label: '1칸 (기준)' },
+  { value: '2', label: '2칸' },
+  { value: '3', label: '3칸' },
+  { value: '4', label: '4칸' },
+  { value: '5', label: '5칸' },
+  { value: '6', label: '6칸' },
+  { value: '7', label: '7칸' },
+  { value: '8', label: '8칸' },
+  { value: '9', label: '9칸' },
+  { value: '10', label: '10칸' },
 ];
 
 function defaultArticulationPlacement(stem?: string | null): 'above' | 'below' {

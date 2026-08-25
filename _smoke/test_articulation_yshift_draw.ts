@@ -1,6 +1,5 @@
 /**
- * Accent 거리 — VexFlow Articulation.draw는 between_lines 스냅으로 y_shift를 무력화함.
- * 실제 Accent는 .vf-modifiers 래퍼 g[data-hitl-art-wrap] transform으로 옮긴다.
+ * Accent 거리 — 해당 글리프 transform만 이동 (전역 .vf-modifiers 래핑 금지).
  * Run: npx tsx _smoke/test_articulation_yshift_draw.ts
  */
 import assert from 'node:assert/strict';
@@ -12,7 +11,6 @@ import {
   extraYPxFromArticulationFixes,
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
-  setHitlArticulationExtraYPx,
 } from '../src/osmdArticulationOffsetFix';
 import { registerOsmdPreviewXmlForAlign } from '../src/osmdOnsetColumnAlignFix';
 import { patchOsmdRenderForMeasureNumbers } from '../src/osmdMeasureNumberSuppress';
@@ -49,8 +47,10 @@ function setupDom() {
   return dom;
 }
 
-function wrapTransform(host: HTMLElement): string | null {
-  return host.querySelector('.vf-modifiers > g[data-hitl-art-wrap]')?.getAttribute('transform') ?? null;
+function accentShiftY(host: HTMLElement): number | null {
+  const el = host.querySelector('.vf-modifiers [data-art-shift-y], .vf-modifiers[data-art-shift-y]');
+  if (!el) return null;
+  return parseFloat(el.getAttribute('data-art-shift-y') ?? '');
 }
 
 async function main() {
@@ -80,30 +80,51 @@ async function main() {
       articulation: 'accent',
       placement: 'below' as const,
       distance: '5',
+      pitchStep: 'F',
+      pitchAlter: 1,
+      pitchOctave: 4,
     },
   ];
   const extra = extraYPxFromArticulationFixes(fixes, 10);
-  assert.equal(extra, 40);
-  for (const g of host.querySelectorAll('.vf-modifiers')) {
-    g.setAttribute('transform', 'translate(10, 20)');
-  }
+  assert.equal(extra, 40, '5칸 = OSMD 1칸 대비 +40px (라벨 50px는 MXL default-y 절대값)');
+  assert.equal(host.querySelectorAll('g[data-hitl-art-wrap]').length, 0, 'no global wraps');
+
   const softN = applyPendingArticulationOffsetsOnly(host, osmd, fixes);
   assert.ok(softN >= 1, `expected soft shift, got ${softN}`);
   assert.equal(host.getAttribute('data-hitl-art-dy'), '40');
-  assert.equal(wrapTransform(host), 'translate(0, 40)');
+  assert.equal(accentShiftY(host), 40);
+
+  // 전역 래퍼가 생기면 안 됨
+  assert.equal(host.querySelectorAll('g[data-hitl-art-wrap]').length, 0);
 
   osmd.render();
   applyOsmdArticulationOffsets(host, osmd);
   assert.equal(host.getAttribute('data-hitl-art-dy'), '40');
-  assert.equal(wrapTransform(host), 'translate(0, 40)', 're-applied after render');
+  assert.equal(accentShiftY(host), 40, 're-applied after render');
 
+  // pending 비움 → XML 힌트만 (이 XML은 distance attr 없음 → dy 0)
   applyPendingArticulationOffsetsOnly(host, osmd, []);
+  assert.ok(
+    accentShiftY(host) == null || accentShiftY(host) === 0,
+    'cleared pending should not keep non-zero shift',
+  );
+  // dy=0 attrs may remain; host dy must be 0
   assert.equal(host.getAttribute('data-hitl-art-dy'), '0');
-  assert.equal(wrapTransform(host), null);
 
-  setHitlArticulationExtraYPx(0);
+  // XML에 distance=5 반영된 경우 MXL 반영 후에도 이동
+  const xml5 = xml.replace(
+    '<accent placement="below"/>',
+    '<accent placement="below" default-y="-50" data-hitl-art-distance="5"/>',
+  );
+  registerOsmdPreviewXmlForArticulation(osmd, xml5);
   registerOsmdArticulationFixes(osmd, []);
-  console.log('articulation wrap transform dy ok', { extra });
+  await osmd.load(xml5);
+  osmd.render();
+  applyOsmdArticulationOffsets(host, osmd);
+  assert.equal(accentShiftY(host), 40, 'XML distance=5 must shift without pending');
+  assert.equal(host.getAttribute('data-hitl-art-dy'), '40');
+
+  console.log('articulation glyph-targeted dy ok', { extra });
 }
 
 main().catch((e) => {

@@ -686,12 +686,8 @@ button.btn-muted {
   -webkit-user-select: none;
 }
 
-/* Accent 거리: VexFlow `.vf-modifiers`는 transform *속성*을 쓰므로 CSS transform은
- * Chrome에서 무시됨. 실제 이동은 osmdArticulationOffsetFix 래퍼 g[data-hitl-art-wrap].
- * 아래 규칙은 속성 transform이 없을 때만 보조. */
-.omr-osmd-clickable[data-hitl-art-dy]:not([data-hitl-art-dy='0']) .vf-modifiers:not([transform]) {
-  transform: translateY(var(--hitl-art-dy, 0px)) !important;
-}
+/* Accent 거리: 전역 CSS로 .vf-modifiers를 밀지 않음(꾸밈음·임시표 손상).
+ * osmdArticulationOffsetFix가 해당 Accent 글리프에만 SVG transform 적용. */
 
 /* OSMD phantom measure@number — lyric_manifest 인쇄 번호만 HTML overlay로 표시 */
 .modal-light .omr-mxl-osmd-frame svg g.measure-number,

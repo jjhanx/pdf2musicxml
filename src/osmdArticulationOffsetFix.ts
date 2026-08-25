@@ -224,7 +224,7 @@ export function resetOsmdArticulationOffsets(host: HTMLElement): void {
 }
 
 export function applyArticulationShiftY(el: Element, deltaY: number): void {
-  // 글리프(path/use) 자체를 옮김. 부모 .vf-modifiers는 VexFlow가 매 레이아웃마다 transform을 덮어씀.
+  // 글리프(path/use/text)만 옮김. 부모 .vf-modifiers에는 CSS/transform을 걸지 않음(꾸밈음 보호).
   if (!el.hasAttribute('data-art-base-transform')) {
     el.setAttribute('data-art-base-transform', el.getAttribute('transform') ?? '');
   }
@@ -236,15 +236,6 @@ export function applyArticulationShiftY(el: Element, deltaY: number): void {
   const prefix = `translate(${ox}, ${oy + deltaY})`;
   el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
   el.setAttribute('data-art-shift-y', String(deltaY));
-  // SVG transform 속성과 별개 — OSMD가 attribute를 덮어써도 CSS translate는 남음
-  const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
-  if (sty?.setProperty) sty.setProperty('translate', `0px ${deltaY}px`);
-  const parentMod = typeof el.closest === 'function' ? el.closest('.vf-modifiers') : null;
-  if (parentMod && parentMod !== el) {
-    parentMod.setAttribute('data-art-shift-y', String(deltaY));
-    const psty = (parentMod as SVGElement & { style?: CSSStyleDeclaration }).style;
-    if (psty?.setProperty) psty.setProperty('translate', `0px ${deltaY}px`);
-  }
 }
 
 function defaultArticulationPlacement(note: Element): 'above' | 'below' {
@@ -475,16 +466,22 @@ function lookupHints(
   measureMxl: string | number,
   staffWithinPart?: number,
 ): OrderedHint[] | undefined {
+  const mxlCandidates = [String(measureMxl)];
+  if (String(measureMxl) === '0') mxlCandidates.push('1');
+  if (String(measureMxl) === '1') mxlCandidates.push('0');
+
   if (staffWithinPart != null) {
-    const key = `${partId}|${measureMxl}|${staffWithinPart}`;
-    const direct = hintsByMeasure.get(key);
-    if (direct?.length) return direct;
+    for (const m of mxlCandidates) {
+      const key = `${partId}|${m}|${staffWithinPart}`;
+      const direct = hintsByMeasure.get(key);
+      if (direct?.length) return direct;
+    }
   }
 
   const merged: OrderedHint[] = [];
   for (const [k, hints] of hintsByMeasure) {
     const [p, m, s] = k.split('|');
-    if (m !== String(measureMxl)) continue;
+    if (!mxlCandidates.includes(m ?? '')) continue;
     if (staffWithinPart != null && s !== String(staffWithinPart)) continue;
     if (partIdsMatch(partId, p ?? '')) merged.push(...hints);
   }
@@ -495,7 +492,7 @@ function lookupHints(
 
   for (const [k, hints] of hintsByMeasure) {
     const [, m, s] = k.split('|');
-    if (m === String(measureMxl) && (staffWithinPart == null || s === String(staffWithinPart))) return hints;
+    if (mxlCandidates.includes(m ?? '') && (staffWithinPart == null || s === String(staffWithinPart))) return hints;
   }
   return undefined;
 }
@@ -587,24 +584,32 @@ export function graphicNotePitchLabel(gn: Record<string, unknown>): string | nul
 }
 
 function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
+  const vf = pitchFromVfPitch(gn.vfpitch ?? gn.vfPitch);
+  // 임시표가 vfpitch에 있으면 표기 우선
+  if (vf && /[#b♯♭]/.test(vf)) return vf;
+
   const src = asRecord(gn.sourceNote ?? gn.SourceNote);
   if (src) {
-    const ht = coordNum(src.halfTone ?? src.HalfTone);
-    if (ht != null) return pitchLabelFromHalfTone(ht);
     const pitch = asRecord(src.Pitch ?? src.pitch);
-    if (pitch) {
-      const fn = coordNum(pitch.FundamentalNote ?? pitch.fundamentalNote);
-      const oct = coordNum(pitch.Octave ?? pitch.octave);
-      if (fn != null && oct != null && fn >= 0 && fn <= 6) {
-        /** OSMD AccidentalEnum: NONE=0 SHARP=1 FLAT=2 DOUBLESHARP=4 DOUBLEFLAT=5 */
-        const accRaw = coordNum(pitch.Accidental ?? pitch.accidental);
-        const acc =
-          accRaw === 1 ? '#' : accRaw === 2 ? 'b' : accRaw === 4 ? '##' : accRaw === 5 ? 'bb' : '';
-        return `${STEP_NAMES[fn] ?? 'C'}${acc}${oct}`;
-      }
+    const freq = coordNum(
+      pitch?.frequency ?? pitch?.Frequency ?? src.frequency ?? src.Frequency,
+    );
+    if (freq != null && freq > 20) {
+      const midi = Math.round(69 + 12 * Math.log2(freq / 440));
+      if (Number.isFinite(midi)) return pitchLabelFromHalfTone(midi);
+    }
+    const ht = coordNum(src.halfTone ?? src.HalfTone);
+    // OSMD halfTone ≈ MIDI−12 (C4=48). 단위 테스트 등 MIDI 값을 넣는 경우는 60+도 허용.
+    if (ht != null) {
+      const asOsmd = pitchLabelFromHalfTone(ht + 12);
+      const asMidi = pitchLabelFromHalfTone(ht);
+      // 옥타브 4 근처를 선호
+      if (asOsmd && /[3-5]$/.test(asOsmd)) return asOsmd;
+      if (asMidi && /[3-5]$/.test(asMidi)) return asMidi;
+      return asOsmd ?? asMidi;
     }
   }
-  return pitchFromVfPitch(gn.vfpitch ?? gn.vfPitch);
+  return vf;
 }
 
 /** F#4 vs F4 — 조표로 VexFlow가 임시표를 생략한 경우 */
@@ -615,9 +620,32 @@ function pitchLetterOctaveMatch(a: string, b: string): boolean {
   return Boolean(pa && pb && pa[1] === pb[1] && pa[2] === pb[2]);
 }
 
+/** F#4 ↔ Gb4 (halfTone 표기가 플랫 쪽일 때 HITL F#과 불일치 방지) */
+function pitchLabelToMidi(label: string): number | null {
+  const s = label.trim().replace(/♯/g, '#').replace(/♭/g, 'b');
+  const m = /^([A-Ga-g])([#b]*)(\d+)$/.exec(s);
+  if (!m) return null;
+  const step = m[1]!.toUpperCase();
+  const accRaw = (m[2] ?? '').toLowerCase();
+  let alter = 0;
+  if (accRaw.startsWith('##')) alter = 2;
+  else if (accRaw.startsWith('#')) alter = 1;
+  else if (accRaw.startsWith('bb')) alter = -2;
+  else if (accRaw.startsWith('b')) alter = -1;
+  const stepSemitone: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  const base = stepSemitone[step];
+  if (base == null) return null;
+  const oct = parseInt(m[3]!, 10);
+  if (!Number.isFinite(oct)) return null;
+  return (oct + 1) * 12 + base + alter;
+}
+
 function graphicPitchesMatchFix(notePitches: string[], fixPitch: string): boolean {
   if (notePitches.some((p) => pitchLabelsMatch(p, fixPitch))) return true;
-  return notePitches.some((p) => pitchLetterOctaveMatch(p, fixPitch));
+  if (notePitches.some((p) => pitchLetterOctaveMatch(p, fixPitch))) return true;
+  const fixMidi = pitchLabelToMidi(fixPitch);
+  if (fixMidi == null) return false;
+  return notePitches.some((p) => pitchLabelToMidi(p) === fixMidi);
 }
 
 /** StaveNote SVG 내부에서 실제 Articulation Glyph (path, text, use) 요소 추출 (덧줄·타이·그레이스노트·임시표 제외). */
@@ -688,26 +716,21 @@ export function applyOsmdArticulationOffsets(
 }
 
 /**
- * Accent 글리프 이동 — `.vf-modifiers` 자식을 `g[data-hitl-art-wrap]`로 감싸
- * `transform=translate(0,dy)` (VexFlow path의 transform 속성·CSS 무시 문제 회피).
+ * Accent 글리프만 이동 — `.vf-modifiers` 전체 래핑/전역 CSS 금지
+ * (꾸밈음 머리·이음줄 등이 같은 트리에 있으면 깨짐).
  */
 export function applyDyToVfModifiersAttr(host: HTMLElement, dy: number): number {
-  if (!dy) {
-    resetOsmdArticulationOffsets(host);
-    applyHitlArticulationHostCss(host, 0);
-    host.setAttribute('data-hitl-art-shifted', '0');
-    host.title = '[HITL Accent] dy=0';
-    return 0;
-  }
-  const n = applySvgDyToVfModifiers(host, dy);
+  // 레거시 이름 유지 — 전역 일괄 이동은 하지 않음. detailed/ pending-direct 경로 사용.
   applyHitlArticulationHostCss(host, dy);
-  host.setAttribute('data-hitl-art-shifted', String(n));
-  host.title = `[HITL Accent] dy=${dy}px, wraps=${n}`;
-  return n;
+  host.setAttribute('data-hitl-art-shifted', dy ? '1' : '0');
+  host.title = dy ? `[HITL Accent] host-dy=${dy}px (glyph-targeted)` : '[HITL Accent] dy=0';
+  return dy ? 1 : 0;
 }
 
 /**
- * 거리 드롭다운용 — 인자 fixes만 사용(WeakMap 빈 배열에 가로채이지 않음).
+ * 거리 드롭다운·render 후 공통 진입점.
+ * pending이 비어도 XML default-y / data-hitl-art-distance 힌트로 이동 (MXL 반영 후).
+ * pending이 비었을 때 dy=0으로 reset 하면 반영 직후 Accent가 제자리로 돌아가는 버그가 난다.
  */
 export function applyPendingArticulationOffsetsOnly(
   host: HTMLElement,
@@ -721,13 +744,12 @@ export function applyPendingArticulationOffsetsOnly(
       Boolean(f.articulation),
   );
   if (osmd) registerOsmdArticulationFixes(osmd, pending);
-  const staffSpacePx =
-    host.querySelector('svg') && osmd?.IsReadyToRender?.()
-      ? staffSpacePxFromHost(host, osmd) || 10
-      : 10;
-  const y = extraYPxFromArticulationFixes(pending, staffSpacePx);
-  setHitlArticulationExtraYPx(y);
-  return applyDyToVfModifiersAttr(host, y);
+  const yHost = extraYPxFromArticulationFixes(pending, 10);
+  // pending이 있을 때만 호스트 배너용 dy 표시. 없으면 detailed가 XML 기준으로 설정.
+  if (pending.length) applyHitlArticulationHostCss(host, yHost);
+  setHitlArticulationExtraYPx(yHost);
+  if (!osmd?.IsReadyToRender?.()) return pending.length ? 1 : 0;
+  return applyOsmdArticulationOffsetsDetailed(host, osmd).shifted;
 }
 
 /**
@@ -757,22 +779,38 @@ export function composeSvgTranslateY(base: string, dy: number): string {
   return raw ? `translate(0, ${dy}) ${raw}` : `translate(0, ${dy})`;
 }
 
-/** Accent 등 VexFlow articulation — .vf-modifiers 자식을 래퍼 g로 감싸 translate(0,dy) 적용 */
+/** Accent 등 — 해당 `.vf-modifiers` 안의 articulation 글리프만 이동 (그룹 전체 래핑 금지). */
 export function applySvgDyToModifier(modifierEl: Element, dy: number): void {
-  const doc = modifierEl.ownerDocument;
-  let wrap = modifierEl.querySelector(':scope > g[data-hitl-art-wrap]') as SVGGElement | null;
-  if (!wrap) {
-    wrap = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
-    wrap.setAttribute('data-hitl-art-wrap', '1');
-    while (modifierEl.firstChild) wrap.appendChild(modifierEl.firstChild);
-    modifierEl.appendChild(wrap);
+  const glyphs = articulationGlyphsInModifierGroup(modifierEl);
+  if (glyphs.length) {
+    for (const g of glyphs) applyArticulationShiftY(g, dy);
+  } else {
+    // path가 그룹 자체에 붙은 경우
+    applyArticulationShiftY(modifierEl, dy);
   }
-  if (dy) wrap.setAttribute('transform', `translate(0, ${dy})`);
-  else wrap.removeAttribute('transform');
   modifierEl.setAttribute('data-art-shift-y', String(dy));
 }
 
-/** @deprecated 테스트·레거시 — 프로덕션은 applySvgDyToModifier(타깃) 사용 */
+function articulationGlyphsInModifierGroup(mod: Element): Element[] {
+  const out: Element[] = [];
+  for (const p of mod.querySelectorAll(':scope > path, :scope > text, :scope > use')) {
+    if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental')) continue;
+    const parentSn = p.closest('.vf-stavenote');
+    const modSn = mod.closest('.vf-stavenote');
+    if (parentSn && modSn && parentSn !== modSn) continue;
+    const d = p.getAttribute('d') ?? '';
+    if (p.tagName.toLowerCase() === 'path') {
+      // 단순 가로선(덧줄) 제외
+      if (/L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) && !/[CQcqs]/.test(d) && (d.match(/M/g) ?? []).length < 2) {
+        continue;
+      }
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+/** @deprecated 전역 일괄 이동 — 꾸밈음 손상 위험. 테스트 호환용으로만 유지. */
 export function applySvgDyToVfModifiers(host: HTMLElement, dy: number): number {
   let n = 0;
   for (const g of host.querySelectorAll('.vf-modifiers')) {
@@ -783,9 +821,18 @@ export function applySvgDyToVfModifiers(host: HTMLElement, dy: number): number {
 }
 
 function applyArticulationOffsetToTarget(el: Element, dy: number): void {
-  const modGroup = el.classList.contains('vf-modifiers') ? el : el.closest('.vf-modifiers');
-  if (modGroup) applySvgDyToModifier(modGroup, dy);
-  else applyArticulationShiftY(el, dy);
+  // 글리프만 이동. 부모 .vf-modifiers 전체를 감싸면 꾸밈음·임시표 기하가 깨질 수 있음.
+  if (el.classList?.contains?.('vf-modifiers')) {
+    applySvgDyToModifier(el, dy);
+    return;
+  }
+  const modGroup = typeof el.closest === 'function' ? el.closest('.vf-modifiers') : null;
+  if (modGroup && el !== modGroup) {
+    applyArticulationShiftY(el, dy);
+    modGroup.setAttribute('data-art-shift-y', String(dy));
+    return;
+  }
+  applyArticulationShiftY(el, dy);
 }
 
 export function extraYPxFromArticulationFixes(
@@ -923,6 +970,15 @@ function extraLiftedDirectionYPx(staffSpaces: number, lineSpacing: number, isAbo
   return dir * extraLiftedArticulationStaffSpaces(staffSpaces) * lineSpacing;
 }
 
+function pendingMeasureKeysMatch(graphicMxl: number | null | undefined, pendingKeys: Set<string>): boolean {
+  if (graphicMxl == null) return false;
+  if (pendingKeys.has(String(graphicMxl))) return true;
+  // OSMD MeasureNumberXML=0 ↔ MusicXML/HITL 1
+  if (graphicMxl === 0 && pendingKeys.has('1')) return true;
+  if (graphicMxl === 1 && pendingKeys.has('0')) return true;
+  return false;
+}
+
 function artNameFromFix(fix: ArticulationPreviewFix): string {
   return (fix.articulation ?? '').split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
 }
@@ -940,7 +996,7 @@ function applyPendingDistanceDirect(
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
     const measureMxl = measureMxlFromGraphic(gm);
     if (measureMxl == null) return;
-    if (!measureKeys.has(String(measureMxl))) return;
+    if (!pendingMeasureKeysMatch(measureMxl, measureKeys)) return;
     const partId = partIdFromGraphic(gm) ?? '';
     const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);
 
@@ -1024,6 +1080,7 @@ function applyPendingDistanceDirect(
 
           const isAbove = artMod?.getPosition?.() === 3 || pending.placement === 'above';
           const extraY = extraArticulationYPx(pending.staffSpaces, lineSpacing, isAbove);
+          if (!extraY) continue;
           const targets: Element[] = [];
           const modEl = vexModifierSvg(artMod);
           if (modEl && !usedElements.has(modEl)) targets.push(modEl);
@@ -1056,7 +1113,13 @@ function staffSpacesFromPendingFix(
 ): { staffSpaces: number; placement?: 'above' | 'below' } | null {
   let found: { staffSpaces: number; placement?: 'above' | 'below' } | null = null;
   for (const fix of fixes) {
-    if (String(fix.measureMxl) !== String(opts.measureMxl)) continue;
+    const g = Number(opts.measureMxl);
+    const f = Number(fix.measureMxl);
+    const measureOk =
+      String(fix.measureMxl) === String(opts.measureMxl) ||
+      (g === 0 && f === 1) ||
+      (g === 1 && f === 0);
+    if (!measureOk) continue;
     if (fix.partId && opts.partId && !previewPartIdsMatch(opts.partId, fix.partId) && !partIdsMatch(opts.partId, fix.partId)) {
       continue;
     }
@@ -1125,11 +1188,13 @@ function vexStaveNoteFromGve(gve: Record<string, unknown>): {
   stem?: unknown;
   getStemExtents?: () => { topY?: number; baseY?: number };
 } | null {
+  const vfNotes = gve.vfNotes ?? gve.VFNotes;
   const raw =
     gve.mVexFlowStaveNote ??
     gve.vfStaveNote ??
     gve.vexflowStaffNote ??
-    gve.staveNote;
+    gve.staveNote ??
+    (Array.isArray(vfNotes) ? vfNotes[0] : null);
   return raw && typeof raw === 'object' ? (raw as ReturnType<typeof vexStaveNoteFromGve>) : null;
 }
 
@@ -1159,9 +1224,15 @@ function stavenoteSvgFromGraphic(
     candidates.push(gn);
     for (const cand of candidates) {
       const rec = asRecord(cand);
-      const el = rec && typeof rec.getSVGGElement === 'function' ? (rec.getSVGGElement as () => Element | null)() : null;
+      if (!rec) continue;
+      let el: Element | null = null;
+      if (typeof rec.getSVGGElement === 'function') {
+        el = (rec.getSVGGElement as () => Element | null)();
+      } else if (typeof rec.getSVGElement === 'function') {
+        el = (rec.getSVGElement as () => Element | null)();
+      }
       if (!el) continue;
-      const sn = (el as Element).closest?.('.vf-stavenote, .vf-staveNote') ?? el;
+      const sn = el.closest?.('.vf-stavenote, .vf-staveNote') ?? el;
       if (sn) return sn;
     }
   }
@@ -1320,26 +1391,18 @@ function applyOsmdArticulationOffsetsDetailedInner(
 
   if (!host?.querySelector('svg')) return { ...empty, staffSpacePx };
 
-  // pending 거리 미리보기: CSS는 VexFlow transform 속성에 막힘 → 래퍼 SVG만
-  if (pendingFixes.length > 0) {
-    return {
-      shifted: applyPendingArticulationOffsetsOnly(host, osmd, pendingFixes),
-      modifierCount: countModifiers(host),
-      hintCount: pendingFixes.length,
-      staffSpacePx,
-    };
-  }
-
-  setHitlArticulationExtraYPx(0);
-  applyHitlArticulationHostCss(host, 0);
+  // 전역 래핑 경로 제거 — 음표별 글리프만 이동 (꾸밈음 보호 + MXL 반영 후 XML 힌트 유지)
   resetOsmdArticulationOffsets(host);
 
   const usedElements = new Set<Element>();
   const fromDirect = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
 
   const xml = resolveArticulationPreviewXml(osmd);
+  const hostDy = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
 
   if (!xml?.trim()) {
+    applyHitlArticulationHostCss(host, hostDy);
+    setHitlArticulationExtraYPx(hostDy);
     return { shifted: fromDirect, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
   }
 
@@ -1347,6 +1410,8 @@ function applyOsmdArticulationOffsetsDetailedInner(
   overlayFixesOnHints(xml, hintsByMeasure, pendingFixes);
   const totalHints = countHints(hintsByMeasure);
   if (totalHints === 0 && pendingFixes.length === 0) {
+    applyHitlArticulationHostCss(host, 0);
+    setHitlArticulationExtraYPx(0);
     return { shifted: fromDirect, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
   }
 
@@ -1454,6 +1519,7 @@ function applyOsmdArticulationOffsetsDetailedInner(
               staffSpacePx ||
               10;
             const extraY = extraArticulationYPx(staffSpaces, lineSpacing, isAbove);
+            if (!extraY) continue;
             const paintTargets: Element[] = [];
             for (const t of [artEl, ...artEls]) {
               if (t && !paintTargets.includes(t) && !usedElements.has(t)) paintTargets.push(t);
@@ -1474,54 +1540,32 @@ function applyOsmdArticulationOffsetsDetailedInner(
         }
       }
 
-      const measureSvg = measureSvgFromGraphic(gm);
-      if (measureSvg) {
-        const pendingHere = staffSpacesFromPendingFix(pendingFixes, {
-          partId,
-          measureMxl,
-          pitches: [],
-          staffWithinPart,
-        });
-        if (pendingHere) {
-          const extraY = extraArticulationYPx(
-            pendingHere.staffSpaces,
-            staffSpacePx || 10,
-            pendingHere.placement === 'above',
-          );
-          for (const g of measureSvg.querySelectorAll('.vf-modifiers')) {
-            if (usedElements.has(g) || g.hasAttribute('data-art-shift-y')) continue;
-            if (!g.querySelector('path, text, use')) continue;
-            applyArticulationOffsetToTarget(g, extraY);
-            usedElements.add(g);
-            shiftedCount += 1;
-          }
-        }
-      }
+
+
     });
   } catch (err) {
     console.warn('[osmdArticulationOffsetFix] error applying offsets:', err);
   }
 
-  if (shiftedCount === 0 && pendingFixes.length) {
-    const measureCount = host.querySelectorAll('.vf-measure').length;
-    if (measureCount <= 2) {
-      let spaces = 1;
-      let above = false;
-      for (const f of pendingFixes) {
-        spaces =
-          parseArticulationStaffSpaces(
-            f.distance === 'auto' || !f.distance ? 'auto' : String(f.distance),
-          ) ?? 1;
-        above = f.placement === 'above';
+  // 배너 dy는 실제 글리프 이동이 있을 때만 (pending만으로 허위 표시 금지)
+  let appliedDy = 0;
+  if (shiftedCount > 0) {
+    if (pendingFixes.length) appliedDy = hostDy;
+    else {
+      let maxAbs = 0;
+      for (const el of host.querySelectorAll('[data-art-shift-y]')) {
+        const v = Math.abs(parseFloat(el.getAttribute('data-art-shift-y') ?? '0') || 0);
+        if (v > maxAbs) maxAbs = v;
       }
-      const extraY = extraArticulationYPx(spaces, staffSpacePx || 10, above);
-      for (const g of host.querySelectorAll('.vf-modifiers')) {
-        if (!g.querySelector('path, text, use')) continue;
-        applyArticulationOffsetToTarget(g, extraY);
-        shiftedCount += 1;
-      }
+      appliedDy = maxAbs;
     }
   }
+  applyHitlArticulationHostCss(host, appliedDy);
+  setHitlArticulationExtraYPx(appliedDy);
+  host.setAttribute('data-hitl-art-shifted', String(shiftedCount));
+  host.title = appliedDy
+    ? `[HITL Accent] dy=${appliedDy}px, shifted=${shiftedCount}`
+    : '[HITL Accent] dy=0';
 
   return {
     shifted: shiftedCount,

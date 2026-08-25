@@ -119,21 +119,18 @@ function readNumberField(obj: Record<string, unknown> | null, keys: string[]): n
 /** MusicXML measure@number. null이면 미확정(0은 pickup 등 유효 번호). */
 export function measureMxlFromGraphic(gm: GraphicalMeasureLike): number | null {
   const sm = readSourceMeasure(gm);
-  if (sm) {
-    for (const keys of [
-      ['MeasureNumberXML', 'measureNumberXML'],
-      ['MeasureNumber', 'measureNumber'],
-    ]) {
-      const v = readNumberField(sm, keys);
-      if (v != null) return v;
-    }
-  }
-  for (const keys of [
-    ['MeasureNumberXML', 'measureNumberXML'],
-    ['MeasureNumber', 'measureNumber'],
-    ['absoluteMeasureNumber', 'AbsoluteMeasureNumber'],
-  ]) {
-    const v = readNumberField(gm, keys);
+  const xmlN = sm
+    ? readNumberField(sm, ['MeasureNumberXML', 'measureNumberXML'])
+    : readNumberField(gm as unknown as Record<string, unknown>, ['MeasureNumberXML', 'measureNumberXML']);
+  const printN = sm
+    ? readNumberField(sm, ['MeasureNumber', 'measureNumber'])
+    : readNumberField(gm as unknown as Record<string, unknown>, ['MeasureNumber', 'measureNumber']);
+  // 짧은 스코어에서 OSMD가 MeasureNumberXML=0으로 두고 MeasureNumber=1인 경우가 있음
+  // (MusicXML @number="1"과 HITL pending measureMxl이 안 맞아 Accent 거리가 0으로 떨어짐)
+  if (xmlN != null && !(xmlN === 0 && printN != null && printN >= 1)) return xmlN;
+  if (printN != null) return printN;
+  for (const keys of [['absoluteMeasureNumber', 'AbsoluteMeasureNumber']]) {
+    const v = readNumberField(gm as unknown as Record<string, unknown>, keys);
     if (v != null) return v;
   }
   return null;

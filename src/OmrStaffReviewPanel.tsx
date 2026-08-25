@@ -800,8 +800,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               title="Accent 거리 드롭다운 → pendingFixes → OSMD 미리보기 dy. 스크롤과 무관하게 항상 표시."
             >
               {artPreviewStatus.count === 0
-                ? 'Accent dy: — (표 거리 대기 없음)'
-                : `Accent dy=${artPreviewStatus.dy}px · ${artPreviewStatus.count}건 · dist=${artPreviewStatus.dists || '?'}`}
+                ? 'Accent: 대기 없음 (반영분은 악보 글리프 오프셋)'
+                : `Accent ${artPreviewStatus.dists || '?'}칸 · Δ=${artPreviewStatus.dy}px (1칸 대비)`}
             </div>
             <div className="omr-mxl-preview-controls">
               <label className="omr-zoom-label">

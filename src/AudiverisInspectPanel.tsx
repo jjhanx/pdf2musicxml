@@ -43,6 +43,7 @@ import {
 import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import type { ArticulationPreviewFix } from '../shared/musicXmlArticulationDistance';
+import { parseArticulationStaffSpaces } from '../shared/musicXmlArticulationDistance';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
 import { normalizeTiePlacementsForOsmdPreview } from '../shared/musicXmlTiePlacement';
@@ -2525,8 +2526,19 @@ export function OsmdBlock({
           }}
         >
           {artPreviewFixes.length === 0
-            ? 'Accent 미리보기: 대기 보정 없음 (거리 바꾸면 여기·위 상태줄에 dy 표시)'
-            : `Accent 미리보기 dy=${artPreviewDy}px · 표 ${artPreviewFixes.length}건`}
+            ? 'Accent 미리보기: 대기 보정 없음 (MXL에 반영된 거리는 글리프 오프셋으로 표시)'
+            : (() => {
+                const dist =
+                  artPreviewFixes.map((f) => f.distance || 'auto').filter((v, i, a) => a.indexOf(v) === i).join(',') ||
+                  '?';
+                const spaces =
+                  parseArticulationStaffSpaces(
+                    artPreviewFixes[0]?.distance === 'auto' || !artPreviewFixes[0]?.distance
+                      ? 'auto'
+                      : String(artPreviewFixes[0]?.distance),
+                  ) ?? 1;
+                return `Accent ${dist}칸 · Δ=${artPreviewDy}px (OSMD 1칸 대비 · MXL default-y≈${Math.round(spaces * 10)})`;
+              })()}
         </div>
       ) : null}
       <div

@@ -28,6 +28,23 @@ type ScorePartRow = ScorePartForPreview & {
   index: number;
 };
 
+/** Accent 거리 등 — OSMD 미리보기용 (MXL 반영 후에도 pending이 비워져도 유지). */
+function isArticulationPreviewFix(f: OmrHitlFix): boolean {
+  return (
+    (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') &&
+    Boolean(f.articulation)
+  );
+}
+
+function mergeArticulationPreviewFixes(prev: OmrHitlFix[], incoming: OmrHitlFix[]): OmrHitlFix[] {
+  let next = prev;
+  for (const f of incoming) {
+    if (!isArticulationPreviewFix(f)) continue;
+    next = mergeFix(next, f);
+  }
+  return next;
+}
+
 type OmrPolicy = {
   audiverisOcrLangEffective?: string | null;
   measureOffsetPrinted?: number;
@@ -58,6 +75,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [loadErr, setLoadErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [pendingFixes, setPendingFixes] = useState<OmrHitlFix[]>([]);
+  /** MXL 반영 후 대기 목록은 비우지만, Accent 거리 OSMD 미리보기는 이 목록으로 유지(XML 힌트 매칭 실패 대비). */
+  const [artPreviewFixes, setArtPreviewFixes] = useState<OmrHitlFix[]>([]);
   const [scoreParts, setScoreParts] = useState<ScorePartRow[]>([]);
   const [applyBusy, setApplyBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
@@ -192,6 +211,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     }
     if (sumRes.ok) setSummary((await sumRes.json()) as InspectSummary);
     await refreshScoreXml();
+    setArtPreviewFixes([]);
     setPreviewRevision((n) => n + 1);
     setEditorKey((k) => k + 1);
   }, [jobId, refreshScoreXml, applyScorePartsResponse]);
@@ -199,6 +219,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   useEffect(() => {
     pendingFixesRef.current = pendingFixes;
   }, [pendingFixes]);
+
+  useEffect(() => {
+    setArtPreviewFixes([]);
+  }, [jobId]);
 
   const loadFixesFromServer = useCallback(async (): Promise<OmrHitlFix[]> => {
     const r = await fetch(`/api/omr-hitl/${jobId}/fixes`, { cache: 'no-store' });
@@ -578,6 +602,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       };
       await refreshScoreXml();
       setPreviewRevision((n) => n + 1);
+      // Accent 거리 미리보기는 pending 경로로만 안정적으로 동작 — 반영 후에도 OSMD에 넘김
+      setArtPreviewFixes((prev) => mergeArticulationPreviewFixes(prev, fixes));
       setEditorKey((k) => k + 1);
       setPendingFixes([]);
       pendingFixesRef.current = [];
@@ -658,19 +684,21 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
   }, [rawXml, scoreParts, activeStaffFilter]);
 
+  /** MXL 반영분(artPreviewFixes) + 대기분 — 대기가 같은 음표를 덮어씀 */
+  const osmdArticulationFixes = useMemo(
+    () => mergeArticulationPreviewFixes(artPreviewFixes, pendingFixes.filter(isArticulationPreviewFix)),
+    [artPreviewFixes, pendingFixes],
+  );
+
   const artPreviewStatus = useMemo(() => {
-    const arts = pendingFixes.filter(
-      (f) =>
-        (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') &&
-        Boolean(f.articulation),
-    );
+    const arts = osmdArticulationFixes;
     const dy = extraYPxFromArticulationFixes(arts, 10);
     const dists = arts
       .map((f) => f.distance || 'auto')
       .filter((v, i, a) => a.indexOf(v) === i)
       .join(',');
     return { count: arts.length, dy, dists };
-  }, [pendingFixes]);
+  }, [osmdArticulationFixes]);
 
   const selectedPrinted = selectedMeasure
     ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
@@ -797,10 +825,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 color: artPreviewStatus.count || artPreviewStatus.dy ? '#fff' : '#495057',
                 fontWeight: 600,
               }}
-              title="Accent 거리 드롭다운 → pendingFixes → OSMD 미리보기 dy. 스크롤과 무관하게 항상 표시."
+              title="Accent 거리 — 대기 보정 + MXL 반영분(artPreviewFixes) → OSMD Δ. 반영 후에도 유지."
             >
               {artPreviewStatus.count === 0
-                ? 'Accent: 대기 없음 (반영분은 악보 글리프 오프셋)'
+                ? 'Accent 거리: 대기/반영 없음'
                 : `Accent ${artPreviewStatus.dists || '?'}칸 · Δ=${artPreviewStatus.dy}px (1칸 대비)`}
             </div>
             <div className="omr-mxl-preview-controls">
@@ -836,7 +864,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   key={`osmd-preview-${editorKey}`}
                   xml={previewXml}
                   articulationHintXml={previewXml}
-                  articulationFixes={pendingFixes}
+                  articulationFixes={osmdArticulationFixes}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
                   verbatimPreview

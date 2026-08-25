@@ -124,7 +124,7 @@ async function main() {
   assert.equal(accentShiftY(host), 40, 'XML distance=5 must shift without pending');
   assert.equal(host.getAttribute('data-hitl-art-dy'), '40');
 
-  // distance=3 (사용자 재현) — pending 없이 유지
+  // XML에 distance=3 (사용자 재현) — pending 없이 유지
   const xml3 = xml.replace(
     '<accent placement="below"/>',
     '<accent placement="below" default-y="-30" data-hitl-art-distance="3"/>',
@@ -136,6 +136,13 @@ async function main() {
   applyOsmdArticulationOffsets(host, osmd);
   assert.equal(accentShiftY(host), 20, 'XML distance=3 must shift without pending');
   assert.equal(host.getAttribute('data-hitl-art-dy'), '20');
+
+  // UI: MXL 반영 후 pending 비움 + artPreviewFixes(같은 fixes) 유지 → 원위치 복귀 방지
+  await osmd.load(xml3);
+  osmd.render();
+  const committed = applyPendingArticulationOffsetsOnly(host, osmd, fixes);
+  assert.ok(committed >= 1, 'committed artPreviewFixes must shift after apply');
+  assert.equal(accentShiftY(host), 40);
 
   // Audiveris 절대 default-y만 있으면 미리보기 Δ 금지 (전 악보 점프 방지)
   const xmlAud = xml.replace(

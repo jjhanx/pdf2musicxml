@@ -1061,6 +1061,79 @@ function alignLinkedParallelHintGroups(
 }
 
 /**
+ * `1-6` 등 참조의 앵커 SVG hit.
+ * 같은 voice에 동일 pitch가 여러 열(예: A4 순번5·16분 vs 순번6·4분)이면
+ * pitch+layout 근접만으로는 5번째를 고르기 쉬움 → voice 열을 timestamp/default-x로 짝지은 뒤 순번 매칭.
+ */
+export function resolvePlayOrderRefAnchorHit(
+  hits: readonly NoteHit[],
+  measureTargets: readonly PreviewNoteLayoutTarget[],
+  anchorVoice: string,
+  anchorOrder: number,
+  usedHits?: ReadonlySet<SVGGraphicsElement>,
+  measureSpan?: { originX: number; spanPx: number } | null,
+): NoteHit | null {
+  const used = usedHits ?? new Set<SVGGraphicsElement>();
+  const byOrder = new Map<number, PreviewNoteLayoutTarget[]>();
+  for (const t of measureTargets) {
+    if (t.voice !== anchorVoice || t.playOrderAlign) continue;
+    const po = t.effectivePlayOrder ?? t.playOrder;
+    if (po == null) continue;
+    const list = byOrder.get(po) ?? [];
+    list.push(t);
+    byOrder.set(po, list);
+  }
+  const columnTargets = [...byOrder.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([po, list]) => {
+      const lead = [...list].sort((a, b) => a.defaultXTenths - b.defaultXTenths)[0]!;
+      return { ...lead, effectivePlayOrder: po, playOrder: lead.playOrder ?? po };
+    });
+  const anchors = byOrder.get(anchorOrder) ?? [];
+  if (!columnTargets.length || !anchors.length) return null;
+
+  const voiceHits = hits
+    .filter((h) => h.voice === anchorVoice && !used.has(h.stavenote))
+    .sort((a, b) => {
+      const ta = a.timestamp;
+      const tb = b.timestamp;
+      if (ta != null && tb != null && Math.abs(ta - tb) > 1e-6) return ta - tb;
+      return a.centerX - b.centerX;
+    });
+
+  if (voiceHits.length > 0 && columnTargets.length > 0) {
+    const n = Math.min(voiceHits.length, columnTargets.length);
+    const pairs = pairHitsWithLayoutTargetsByBestMatch(voiceHits.slice(0, n), columnTargets.slice(0, n));
+    const matched = pairs.find(
+      (p) => (p.target.effectivePlayOrder ?? p.target.playOrder) === anchorOrder,
+    );
+    if (matched) return matched.hit;
+  }
+
+  // fallback: pitch + (가능하면) 머리 수 + layout 근접 — 동일 pitch 다열일 때 최후 수단
+  const anchorPitches = [...new Set(anchors.map((a) => a.pitch))];
+  const expectHeads = new Set(anchors.map((a) => a.pitch)).size;
+  const layoutAnchor = anchors[0]!.defaultXTenths;
+  const wantApprox =
+    measureSpan != null ? wantXFromLayoutGrid(measureSpan, layoutAnchor) : layoutAnchor;
+  const candidates = hits
+    .filter((h) => !used.has(h.stavenote))
+    .filter((h) => anchorPitches.some((p) => hitHasPitch(h, p)))
+    .sort((a, b) => {
+      const va = a.voice === anchorVoice ? 0 : 1;
+      const vb = b.voice === anchorVoice ? 0 : 1;
+      if (va !== vb) return va - vb;
+      if (expectHeads > 1) {
+        const da = Math.abs(a.heads - expectHeads);
+        const db = Math.abs(b.heads - expectHeads);
+        if (da !== db) return da - db;
+      }
+      return Math.abs(a.centerX - wantApprox) - Math.abs(b.centerX - wantApprox);
+    });
+  return candidates[0] ?? null;
+}
+
+/**
  * `5-6` 참조 — voice5 순번6 음표 SVG x에 맞춤.
  * layout tenths만으로는 OSMD가 backup voice를 마디 앞에 남겨 순번1과 포개질 수 있음.
  */
@@ -1114,31 +1187,15 @@ function alignPlayOrderAlignRefsToAnchorVoice(
         (t.effectivePlayOrder ?? t.playOrder) === anchorOrder &&
         !t.playOrderAlign,
     );
-    let anchorX: number | null = null;
-    if (anchors.length) {
-      const anchorPitches = [...new Set(anchors.map((a) => a.pitch))];
-      const expectHeads = new Set(anchors.map((a) => a.pitch)).size;
-      const candidates = hits
-        .filter((h) => !usedHits.has(h.stavenote))
-        .filter((h) => anchorPitches.some((p) => hitHasPitch(h, p)))
-        .sort((a, b) => {
-          const va = a.voice === anchorVoice ? 0 : 1;
-          const vb = b.voice === anchorVoice ? 0 : 1;
-          if (va !== vb) return va - vb;
-          if (expectHeads > 1) {
-            const da = Math.abs(a.heads - expectHeads);
-            const db = Math.abs(b.heads - expectHeads);
-            if (da !== db) return da - db;
-          }
-          // 동일 pitch가 여러 열에 있으면 layout-x에 가까운 쪽
-          const layoutAnchor = anchors[0]!.defaultXTenths;
-          const wantApprox = wantXFromLayoutGrid(measureSpan, layoutAnchor);
-          return Math.abs(a.centerX - wantApprox) - Math.abs(b.centerX - wantApprox);
-        });
-      if (candidates.length) {
-        anchorX = candidates[0]!.centerX;
-      }
-    }
+    const anchorHit = resolvePlayOrderRefAnchorHit(
+      hits,
+      measureTargets,
+      anchorVoice,
+      anchorOrder,
+      usedHits,
+      measureSpan,
+    );
+    const anchorX = anchorHit?.centerX ?? null;
 
     const layoutX = anchors[0]?.defaultXTenths ?? group[0]!.defaultXTenths;
     const wantX = anchorX != null ? anchorX : wantXFromLayoutGrid(measureSpan, layoutX);

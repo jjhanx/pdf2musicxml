@@ -9,8 +9,8 @@ const nginx413 = `<html>
 </html>`;
 
 const msg = formatConvertHttpError(413, 'text/html', nginx413);
-if (!msg.includes('client_max_body_size 256m')) {
-  console.error(msg);
+if (!msg.includes('413') || msg.includes('client_max_body_size') || msg.includes('sudo nginx')) {
+  console.error('unexpected 413 message:', msg);
   process.exit(1);
 }
 const jsonMsg = formatConvertHttpError(400, 'application/json', '{"error":"ZIP 필요","detail":"3단계"}');

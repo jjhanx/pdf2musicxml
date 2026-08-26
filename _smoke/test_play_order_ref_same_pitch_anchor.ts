@@ -56,14 +56,14 @@ const targets: PreviewNoteLayoutTarget[] = [
   target('G4', 7, 332),
 ];
 
-// layout 그리드 want가 5번째(160)에 더 가깝게 잡히는 span — 근접만 쓰면 오매칭
-const spanTrap = { originX: 40, spanPx: 266 };
+// layout 그리드 want≈160 → pitch 근접만 쓰면 5번째 A4를 고름
+const spanTrap = { originX: 40, spanPx: 240 };
 const wantTrap = 40 + ((232 - 32) / 400) * spanTrap.spanPx;
 const proxPick = hits
   .filter((h) => h.pitch === 'A4' && h.heads === 1)
   .sort((a, b) => Math.abs(a.centerX - wantTrap) - Math.abs(b.centerX - wantTrap))[0]!;
 if ((proxPick.stavenote as { id: string }).id !== 'a4-16-5') {
-  throw new Error(`test setup: proximity should prefer 5th, got ${(proxPick.stavenote as { id: string }).id}`);
+  throw new Error(`test setup: proximity should prefer 5th, got ${(proxPick.stavenote as { id: string }).id} want=${wantTrap}`);
 }
 
 const resolved = resolvePlayOrderRefAnchorHit(hits, targets, '1', 6, undefined, spanTrap);

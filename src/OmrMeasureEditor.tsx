@@ -2267,6 +2267,29 @@ export function OmrMeasureEditor({
             );
           }
         }}
+        onInsertNoteSequence={(notes, afterNoteIndex, staff, voice) => {
+          setPendingInsertLeader(null);
+          let after = afterNoteIndex;
+          const labels: string[] = [];
+          for (const n of notes) {
+            pushFix({
+              kind: 'insertNote',
+              afterNoteIndex: after,
+              pitchStep: n.step,
+              pitchOctave: n.octave,
+              pitchAlter: n.pitchAlter,
+              noteType: n.type,
+              dotCount: n.dotCount,
+              staff,
+              voice,
+            });
+            labels.push(formatPitchLabel(n.step, n.octave, n.pitchAlter));
+            after = after < 0 ? 0 : after + 1;
+          }
+          setFixMsg(
+            `음표 ${notes.length}개 연속 추가 대기 (${labels.join(' → ')}) → 「MXL에 반영·미리보기」`,
+          );
+        }}
         onInsertChordMember={(leaderNoteIndex, pitchStep, pitchOctave, pitchAlter) => {
           pushFix({
             kind: 'insertChordMember',
@@ -3919,6 +3942,13 @@ function MeasureNoteEditor({
 }
 
 type ChordMemberDraft = { step: string; octave: number; alter: PitchAlterOption };
+type SequenceNoteDraft = {
+  step: string;
+  octave: number;
+  alter: PitchAlterOption;
+  /** NOTE_TYPE_OPTIONS value — 비우면 리더와 동일 박자 */
+  typeValue: string;
+};
 
 function InsertElementForm({
   afterNoteIndex,
@@ -3928,6 +3958,7 @@ function InsertElementForm({
   onClearPendingLeader,
   onInsertRest,
   onInsertNote,
+  onInsertNoteSequence,
   onInsertChordMember,
 }: {
   afterNoteIndex: number;
@@ -3935,7 +3966,7 @@ function InsertElementForm({
   noteEls: MeasureNoteEl[];
   pendingLeader: PendingInsertLeader | null;
   onClearPendingLeader: () => void;
-  onInsertRest: (after: number, type: string, dotCount: number, staff: number, voice?: string) => void;
+  onInsertRest: (after: number, type: string, dots: number, staff: number, voice?: string) => void;
   onInsertNote: (
     after: number,
     step: string,
@@ -3945,6 +3976,18 @@ function InsertElementForm({
     staff: number,
     pitchAlter: number | undefined,
     extraChordMembers: Array<{ step: string; octave: number; alter?: number }>,
+    voice?: string,
+  ) => void;
+  onInsertNoteSequence: (
+    notes: Array<{
+      step: string;
+      octave: number;
+      type: string;
+      dotCount: number;
+      pitchAlter: number | undefined;
+    }>,
+    after: number,
+    staff: number,
     voice?: string,
   ) => void;
   onInsertChordMember: (
@@ -3962,6 +4005,7 @@ function InsertElementForm({
   const [octave, setOctave] = useState(4);
   const [insertAlter, setInsertAlter] = useState<PitchAlterOption>('0');
   const [extraChords, setExtraChords] = useState<ChordMemberDraft[]>([]);
+  const [extraNotes, setExtraNotes] = useState<SequenceNoteDraft[]>([]);
   const [attachStep, setAttachStep] = useState('E');
   const [attachOctave, setAttachOctave] = useState(4);
   const [attachAlter, setAttachAlter] = useState<PitchAlterOption>('0');
@@ -3972,8 +4016,10 @@ function InsertElementForm({
 
   const afterLabel = afterNoteIndex < 0 ? '마디 맨 앞' : `음·쉼표 #${afterNoteIndex} 뒤 (staff ${staff})`;
   const predictedLeader = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
+  const sequenceMode = extraNotes.length > 0;
 
   const addExtraChordRow = () => {
+    setExtraNotes([]);
     setExtraChords((prev) => [...prev, { step: 'G', octave: 4, alter: '0' }]);
   };
 
@@ -3985,8 +4031,48 @@ function InsertElementForm({
     setExtraChords((prev) => prev.filter((_, j) => j !== i));
   };
 
+  const addExtraNoteRow = () => {
+    setExtraChords([]);
+    setExtraNotes((prev) => [
+      ...prev,
+      { step: 'D', octave: 4, alter: '0', typeValue: noteTypeValueSel },
+    ]);
+  };
+
+  const updateExtraNote = (i: number, patch: Partial<SequenceNoteDraft>) => {
+    setExtraNotes((prev) => prev.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  };
+
+  const removeExtraNote = (i: number) => {
+    setExtraNotes((prev) => prev.filter((_, j) => j !== i));
+  };
+
   const submitNote = () => {
     const { type, dots } = parseNoteTypeValue(noteTypeValueSel);
+    if (extraNotes.length > 0) {
+      const seq = [
+        {
+          step,
+          octave,
+          type,
+          dotCount: dots,
+          pitchAlter: pitchAlterFromOption(insertAlter),
+        },
+        ...extraNotes.map((n) => {
+          const parsed = parseNoteTypeValue(n.typeValue || noteTypeValueSel);
+          return {
+            step: n.step,
+            octave: n.octave,
+            type: parsed.type,
+            dotCount: parsed.dots,
+            pitchAlter: pitchAlterFromOption(n.alter),
+          };
+        }),
+      ];
+      onInsertNoteSequence(seq, afterNoteIndex, staff, voice);
+      setExtraNotes([]);
+      return;
+    }
     const extras = extraChords.map((c) => ({
       step: c.step,
       octave: c.octave,
@@ -3995,6 +4081,12 @@ function InsertElementForm({
     onInsertNote(afterNoteIndex, step, octave, type, dots, staff, pitchAlterFromOption(insertAlter), extras, voice);
     setExtraChords([]);
   };
+
+  const submitLabel = sequenceMode
+    ? `음표 ${1 + extraNotes.length}개 추가`
+    : extraChords.length > 0
+      ? `음표+화음 추가 (1+${extraChords.length})`
+      : '음표 추가';
 
   return (
     <div className="omr-measure-insert-form">
@@ -4087,7 +4179,7 @@ function InsertElementForm({
           <input type="text" inputMode="numeric" pattern="[0-9]*" value={voice} onChange={(e) => setVoice(e.target.value)} style={{ width: 40 }} />
         </label>
         <label>
-          리더 음높이
+          {sequenceMode ? '1번 음높이' : '리더 음높이'}
           <select value={step} onChange={(e) => setStep(e.target.value)}>
             {PITCH_STEPS.map((s) => (
               <option key={s} value={s}>
@@ -4099,7 +4191,7 @@ function InsertElementForm({
           <PitchAlterSelect value={insertAlter} onChange={setInsertAlter} />
         </label>
         <label>
-          박자
+          {sequenceMode ? '1번 박자' : '박자'}
           <select value={noteTypeValueSel} onChange={(e) => setNoteTypeValueSel(e.target.value)}>
             {NOTE_TYPE_OPTIONS.map((opt) => (
               <option key={`note-${opt.value}`} value={opt.value}>
@@ -4111,13 +4203,70 @@ function InsertElementForm({
       </div>
       <div className="omr-measure-insert-chord-extras">
         <div className="omr-measure-insert-chord-extras-head">
-          <span>화음 추가 음 (선택 · 반영 후 리더 #{predictedLeader} 예정)</span>
-          <button type="button" className="btn-muted" onClick={addExtraChordRow}>
+          <span>이어지는 음표 (선택 · 시간 순으로 연속 삽입)</span>
+          <button type="button" className="btn-muted" onClick={addExtraNoteRow} disabled={extraChords.length > 0}>
+            + 음표 줄
+          </button>
+        </div>
+        {extraNotes.length === 0 ? (
+          <p className="omr-measure-insert-chord-hint">
+            네 음을 한 번에 넣으려면 「+ 음표 줄」 3번 → 아래 「음표 N개 추가」. 화음 줄과 함께 쓸 수 없습니다.
+          </p>
+        ) : (
+          extraNotes.map((row, i) => (
+            <div key={i} className="omr-measure-insert-form-row">
+              <label>
+                {i + 2}번 음
+                <select value={row.step} onChange={(e) => updateExtraNote(i, { step: e.target.value })}>
+                  {PITCH_STEPS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={9}
+                  value={row.octave}
+                  onChange={(e) => updateExtraNote(i, { octave: Number(e.target.value) })}
+                  style={{ width: 48 }}
+                />
+                <PitchAlterSelect value={row.alter} onChange={(v) => updateExtraNote(i, { alter: v })} />
+              </label>
+              <label>
+                박자
+                <select
+                  value={row.typeValue}
+                  onChange={(e) => updateExtraNote(i, { typeValue: e.target.value })}
+                >
+                  {NOTE_TYPE_OPTIONS.map((opt) => (
+                    <option key={`seq-${i}-${opt.value}`} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="btn-muted" onClick={() => removeExtraNote(i)}>
+                제거
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="omr-measure-insert-chord-extras">
+        <div className="omr-measure-insert-chord-extras-head">
+          <span>
+            화음 추가 음 (선택 · 반영 후 리더 #{predictedLeader} 예정)
+          </span>
+          <button type="button" className="btn-muted" onClick={addExtraChordRow} disabled={sequenceMode}>
             + 화음 줄
           </button>
         </div>
         {extraChords.length === 0 ? (
-          <p className="omr-measure-insert-chord-hint">3화음이면 「+ 화음 줄」 2번 → 아래 「음표+화음 추가」</p>
+          <p className="omr-measure-insert-chord-hint">
+            3화음이면 「+ 화음 줄」 2번 → 아래 「음표+화음 추가」. 음표 줄과 함께 쓸 수 없습니다.
+          </p>
         ) : (
           extraChords.map((row, i) => (
             <div key={i} className="omr-measure-insert-form-row">
@@ -4149,7 +4298,7 @@ function InsertElementForm({
       </div>
       <div className="omr-measure-insert-form-row">
         <button type="button" className="omr-hitl-fix-btn omr-hitl-fix-btn--primary" onClick={submitNote}>
-          {extraChords.length > 0 ? `음표+화음 추가 (1+${extraChords.length})` : '음표 추가'}
+          {submitLabel}
         </button>
       </div>
     </div>

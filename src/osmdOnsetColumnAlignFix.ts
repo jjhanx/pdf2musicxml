@@ -1109,7 +1109,10 @@ function alignPlayOrderAlignRefsToAnchorVoice(
     const anchorOrder = alignSpec.order;
 
     const anchors = measureTargets.filter(
-      (t) => t.voice === anchorVoice && t.playOrder === anchorOrder,
+      (t) =>
+        t.voice === anchorVoice &&
+        (t.effectivePlayOrder ?? t.playOrder) === anchorOrder &&
+        !t.playOrderAlign,
     );
     let anchorX: number | null = null;
     if (anchors.length) {

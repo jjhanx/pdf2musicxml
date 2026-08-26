@@ -106,6 +106,45 @@ function main() {
     }
   }
 
+  // Case C: 1748c0c9 m26 — voice1 혼합 박자·순번 없음 + voice2 `1-6`
+  // 균등 그리드(6/7열)면 6·7 사이에 붙음 → 앵커 musical onset(=6번째 4분)에 맞춰야 함
+  {
+    const SAMPLE = `<?xml version="1.0"?>
+<score-partwise version="3.1">
+  <part id="P5">
+    <measure number="26">
+      <attributes><divisions>16</divisions></attributes>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>16</duration><type>quarter</type><voice>1</voice><staff>1</staff></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><type>16th</type><voice>1</voice><staff>1</staff></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>16th</type><voice>1</voice><staff>1</staff></note>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><type>16th</type><voice>1</voice><staff>1</staff></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><type>16th</type><voice>1</voice><staff>1</staff></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>16</duration><type>quarter</type><voice>1</voice><staff>1</staff></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>16</duration><type>quarter</type><voice>1</voice><staff>1</staff></note>
+      <backup><duration>64</duration></backup>
+      <note data-hitl-play-order="1-6"><pitch><step>B</step><octave>3</octave></pitch><duration>32</duration><type>half</type><voice>2</voice><staff>1</staff></note>
+      <note><chord/><pitch><step>D</step><octave>4</octave></pitch><duration>32</duration><type>half</type><voice>2</voice><staff>1</staff></note>
+    </measure>
+  </part>
+</score-partwise>`;
+    const doc = parseMusicXmlDocument(SAMPLE)!;
+    const measure = doc.querySelector('measure')!;
+    applyPlayOrderLayoutToMeasure(measure);
+    const notes = [...measure.querySelectorAll('note')].filter((el) => !el.querySelector(':scope > chord'));
+    const v1 = notes.filter((el) => el.querySelector('voice')?.textContent === '1');
+    const a4q = v1[5]!; // 6번째 = A4 quarter
+    const g4q = v1[6]!; // 7번째
+    const half = notes.find((el) => el.querySelector('voice')?.textContent === '2')!;
+    assertSameX(a4q, half, '1748-like-1-6');
+    const x6 = parseFloat(a4q.getAttribute('default-x')!);
+    const x7 = parseFloat(g4q.getAttribute('default-x')!);
+    const xref = parseFloat(half.getAttribute('default-x')!);
+    if (Math.abs(xref - x6) > 0.01) throw new Error(`ref not on 6th: ${xref} vs ${x6}`);
+    if (xref > x6 + (x7 - x6) * 0.25) {
+      throw new Error(`ref drifted toward 7th: ref=${xref} 6=${x6} 7=${x7}`);
+    }
+  }
+
   console.log('play_order_voice_ref_layout ok');
 }
 

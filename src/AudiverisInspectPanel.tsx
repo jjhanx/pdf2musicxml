@@ -619,21 +619,44 @@ function stripForeignStaffKeysInAttributes(attrs: Element, staffN: number): void
   }
 }
 
-/** 단일 staff part로 쪼갠 뒤 OSMD가 1줄로 그리도록 attributes 정리(staves·clef number). */
-function normalizeAttributesForSingleStaffPart(attrs: Element, staffN: number): void {
-  let stavesEl = [...attrs.children].find((c) => xmlLocalName(c) === 'staves');
-  if (!stavesEl) {
-    stavesEl = attrs.ownerDocument!.createElementNS(
-      attrs.namespaceURI || 'http://www.musicxml.org/xsd/MusicXML',
-      'staves',
-    );
-    attrs.insertBefore(stavesEl, attrs.firstChild);
+/** 단일 staff part로 쪼갠 뒤 OSMD가 1줄로 그리도록 attributes 정리(staves·clef number).
+ * mid-measure attributes에는 staves를 넣지 않음 — 잘못된 xmlns/staves가 OSMD in-staff clef를 깨뜨림.
+ */
+function normalizeAttributesForSingleStaffPart(
+  attrs: Element,
+  staffN: number,
+  opts?: { injectStaves?: boolean },
+): void {
+  const injectStaves = opts?.injectStaves !== false;
+  if (injectStaves) {
+    let stavesEl = [...attrs.children].find((c) => xmlLocalName(c) === 'staves');
+    if (!stavesEl) {
+      const doc = attrs.ownerDocument!;
+      const ns = attrs.namespaceURI;
+      // 부모와 같은 NS(또는 null). XSD URL fallback은 mid/header 모두 OSMD를 깨뜨릴 수 있음.
+      stavesEl = ns ? doc.createElementNS(ns, 'staves') : doc.createElement('staves');
+      attrs.insertBefore(stavesEl, attrs.firstChild);
+    }
+    stavesEl.textContent = '1';
   }
-  stavesEl.textContent = '1';
   stripForeignStaffClefsInAttributes(attrs, staffN);
   stripForeignStaffKeysInAttributes(attrs, staffN);
   for (const clef of [...attrs.children].filter((c) => xmlLocalName(c) === 'clef')) {
     if (clef.getAttribute('number')) clef.setAttribute('number', '1');
+  }
+}
+
+/** 마디 머리 attributes만 staves 주입, mid clef attributes는 clef number만 정리. */
+function normalizeAllAttributesForSingleStaffPart(measure: Element, staffN: number): void {
+  let seenNote = false;
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'note') {
+      seenNote = true;
+      continue;
+    }
+    if (tag !== 'attributes') continue;
+    normalizeAttributesForSingleStaffPart(child, staffN, { injectStaves: !seenNote });
   }
 }
 
@@ -922,9 +945,7 @@ function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
 }
 
 function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number): void {
-  for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
-    normalizeAttributesForSingleStaffPart(attrs, staffN);
-  }
+  normalizeAllAttributesForSingleStaffPart(measure, staffN);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {
       child.remove();
@@ -945,9 +966,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
 }
 
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
-  for (const attrs of [...measure.children].filter((c) => xmlLocalName(c) === 'attributes')) {
-    normalizeAttributesForSingleStaffPart(attrs, staffN);
-  }
+  normalizeAllAttributesForSingleStaffPart(measure, staffN);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {
       child.remove();

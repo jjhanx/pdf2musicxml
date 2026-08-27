@@ -68,6 +68,27 @@ async function probe(label: string, xml: string) {
   return n;
 }
 
+/** Mid G before backup; notes after backup are another layer — still needs anchor. */
+const BEFORE_BACKUP = `<?xml version="1.0"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name/></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>F</sign><line>4</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>2</duration><type>half</type><voice>1</voice></note>
+      <note><pitch><step>E</step><octave>3</octave></pitch><duration>2</duration><type>half</type><voice>1</voice></note>
+      <attributes><clef number="1"><sign>G</sign><line>2</line></clef></attributes>
+      <backup><duration>4</duration></backup>
+      <note><pitch><step>A</step><octave>2</octave></pitch><duration>4</duration><type>whole</type><voice>2</voice></note>
+    </measure>
+  </part>
+</score-partwise>`;
+
 async function main() {
   const before = await probe('trailing-raw', TRAILING);
   const anchored = anchorTrailingMidClefsForOsmdPreview(TRAILING);
@@ -80,6 +101,17 @@ async function main() {
     console.log('note: raw trailing already had vfClefBefore (unexpected)');
   }
   if (after < 1) throw new Error('anchored trailing mid clef still not drawn by OSMD');
+
+  const beforeBu = await probe('before-backup-raw', BEFORE_BACKUP);
+  const anchoredBu = anchorTrailingMidClefsForOsmdPreview(BEFORE_BACKUP);
+  if (!/<attributes>[\s\S]*?print-object="no"[\s\S]*?<backup/i.test(anchoredBu)) {
+    throw new Error('expected invisible rest between mid clef and backup');
+  }
+  const afterBu = await probe('before-backup-anchored', anchoredBu);
+  if (beforeBu >= 1) {
+    console.log('note: raw before-backup already had vfClefBefore (unexpected)');
+  }
+  if (afterBu < 1) throw new Error('anchored mid clef before backup still not drawn by OSMD');
   console.log('mid_clef_trailing_osmd_anchor ok');
 }
 

@@ -1,8 +1,13 @@
 /**
- * OSMD preview: trailing mid-measure `<clef>` (no following note) is treated as
- * end-of-measure courtesy and often drawn off-canvas (x≈-75). Append a tiny
- * invisible rest after the clef so OSMD builds in-staff `vfClefBefore`.
- * Preview-only — does not change saved MXL.
+ * OSMD preview: trailing mid-measure `<clef>` (no following note in the same
+ * layer) is treated as end-of-measure courtesy and often drawn off-canvas
+ * (x≈-75). Append a tiny invisible rest after the clef so OSMD builds in-staff
+ * `vfClefBefore`.
+ *
+ * Same-layer trailing includes: measure end with no later note, and mid clef
+ * immediately before `<backup>`/`<forward>` (notes after backup are another
+ * layer — e.g. piano PL voice then bass layer). Preview-only — saved MXL
+ * unchanged.
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import { measureTimelineEndDivisions } from './musicXmlUnderfullMeasureForOsmd';
@@ -61,10 +66,20 @@ function scaleAllDurations(measure: Element, factor: number): void {
   }
 }
 
-function lastRhythmicNote(measure: Element): Element | null {
+/** Last rhythmic note before `beforeEl` (same layer — ignore notes after backup). */
+function lastRhythmicNoteBefore(measure: Element, beforeEl: Element): Element | null {
+  const children = [...measure.children];
+  const end = children.indexOf(beforeEl);
+  if (end < 0) return null;
   let last: Element | null = null;
-  for (const child of [...measure.children]) {
-    if (xmlLocalName(child) !== 'note') continue;
+  for (let i = 0; i < end; i += 1) {
+    const child = children[i]!;
+    const tag = xmlLocalName(child);
+    if (tag === 'backup' || tag === 'forward') {
+      last = null;
+      continue;
+    }
+    if (tag !== 'note') continue;
     if (child.querySelector(':scope > chord, :scope > *|chord')) continue;
     if (child.querySelector(':scope > grace, :scope > *|grace')) continue;
     last = child;
@@ -72,12 +87,18 @@ function lastRhythmicNote(measure: Element): Element | null {
   return last;
 }
 
-function hasFollowingNote(measure: Element, afterEl: Element): boolean {
+/**
+ * True if a note follows in the same MusicXML layer (before next backup/forward).
+ * Notes after backup belong to another voice/layer and do not “own” this clef.
+ */
+function hasFollowingNoteInSameLayer(measure: Element, afterEl: Element): boolean {
   const children = [...measure.children];
   const idx = children.indexOf(afterEl);
   if (idx < 0) return false;
   for (let j = idx + 1; j < children.length; j += 1) {
-    if (xmlLocalName(children[j]!) === 'note') return true;
+    const tag = xmlLocalName(children[j]!);
+    if (tag === 'backup' || tag === 'forward') return false;
+    if (tag === 'note') return true;
   }
   return false;
 }
@@ -92,7 +113,21 @@ function isAlreadyAnchored(measure: Element, attrs: Element): boolean {
   return (next.getAttribute('print-object') || '').toLowerCase() === 'no';
 }
 
-function appendInvisibleRestAfter(attrs: Element, duration: number, voice: string): void {
+function clefStaffNumber(attrs: Element): string | null {
+  for (const c of [...attrs.children]) {
+    if (xmlLocalName(c) !== 'clef') continue;
+    const n = c.getAttribute('number')?.trim();
+    if (n) return n;
+  }
+  return null;
+}
+
+function appendInvisibleRestAfter(
+  attrs: Element,
+  duration: number,
+  voice: string,
+  staff: string | null,
+): void {
   const doc = attrs.ownerDocument!;
   const measure = attrs.parentElement!;
   const note = mk(doc, measure, 'note');
@@ -107,12 +142,17 @@ function appendInvisibleRestAfter(attrs: Element, duration: number, voice: strin
   const type = mk(doc, note, 'type');
   type.textContent = '16th';
   note.appendChild(type);
+  if (staff) {
+    const st = mk(doc, note, 'staff');
+    st.textContent = staff;
+    note.appendChild(st);
+  }
   const next = attrs.nextSibling;
   if (next) measure.insertBefore(note, next);
   else measure.appendChild(note);
 }
 
-/** Mid clef with no following note → invisible rest after clef (OSMD in-staff). */
+/** Mid clef with no following same-layer note → invisible rest after clef (OSMD in-staff). */
 export function anchorTrailingMidClefsInMeasure(measure: Element): boolean {
   const children = [...measure.children];
   let seenNote = false;
@@ -125,24 +165,27 @@ export function anchorTrailingMidClefsInMeasure(measure: Element): boolean {
     }
     if (!seenNote || tag !== 'attributes') continue;
     if (![...el.children].some((c) => xmlLocalName(c) === 'clef')) continue;
-    if (!hasFollowingNote(measure, el)) trailing.push(el);
+    if (!hasFollowingNoteInSameLayer(measure, el)) trailing.push(el);
   }
   if (!trailing.length) return false;
 
   const attrs = trailing[trailing.length - 1]!;
   if (isAlreadyAnchored(measure, attrs)) return false;
 
-  const lastNote = lastRhythmicNote(measure);
+  const lastNote = lastRhythmicNoteBefore(measure, attrs);
   if (!lastNote) return false;
   const voice =
     lastNote.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim() || '1';
+  const staffFromNote =
+    lastNote.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim() || null;
+  const staff = staffFromNote || clefStaffNumber(attrs);
   const durEl = lastNote.querySelector(':scope > duration, :scope > *|duration');
   if (!durEl?.textContent) return false;
   let dur = parseInt(durEl.textContent.trim(), 10);
   if (!Number.isFinite(dur) || dur < 1) return false;
 
   const timelineEnd = measureTimelineEndDivisions(measure);
-  // Prefer peeling from last note when full so attributes stay before measure end timestamp
+  // Prefer peeling from same-layer last note so attributes stay before measure end
   if (dur <= 1) {
     const div = readDivisions(measure);
     setDivisions(measure, div * 2);
@@ -151,13 +194,13 @@ export function anchorTrailingMidClefsInMeasure(measure: Element): boolean {
   }
   if (dur > 1) {
     durEl.textContent = String(dur - 1);
-    appendInvisibleRestAfter(attrs, 1, voice);
+    appendInvisibleRestAfter(attrs, 1, voice, staff);
     return true;
   }
 
   // Fallback: underfull — just append rest
   if (timelineEnd >= 0) {
-    appendInvisibleRestAfter(attrs, 1, voice);
+    appendInvisibleRestAfter(attrs, 1, voice, staff);
     return true;
   }
   return false;

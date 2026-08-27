@@ -846,6 +846,28 @@ export function trailingDirectionsAfterNoteGroup(measure: Element, leader: Eleme
   return out;
 }
 
+/** 화음 그룹 뒤 mid-measure `<attributes>`(clef) — voice-layer normalize가 머리로 올리지 않게 직전 음에 붙임. */
+export function midClefAttributesAfterNoteGroup(measure: Element, leader: Element): Element[] {
+  const group = noteGroupWithChords(measure, leader);
+  const last = group[group.length - 1];
+  if (!last) return [];
+  const children = [...measure.children];
+  const idx = children.indexOf(last);
+  if (idx < 0) return [];
+  const out: Element[] = [];
+  for (let i = idx + 1; i < children.length; i += 1) {
+    const el = children[i]!;
+    const tag = xmlLocalName(el);
+    if (tag === 'direction') continue;
+    if (tag === 'attributes') {
+      if ([...el.children].some((c) => xmlLocalName(c) === 'clef')) out.push(el);
+      continue;
+    }
+    break;
+  }
+  return out;
+}
+
 export function lastRhythmicNoteInMeasure(measure: Element): Element | null {
   let last: Element | null = null;
   for (const child of [...measure.children]) {
@@ -1427,8 +1449,10 @@ function collectVoiceLayerBlocks(measure: Element): Map<string, VoiceLayerBlock[
         return !wt || wt === 'stop';
       });
     }
-    trailingByLeader.set(el, trailing);
+    const midClefs = midClefAttributesAfterNoteGroup(measure, el);
+    trailingByLeader.set(el, [...trailing, ...midClefs]);
     for (const d of trailing) claimedTrailing.add(d);
+    for (const a of midClefs) claimedTrailing.add(a);
   }
 
   const beforeBackup = new Map<string, VoiceLayerBlock[]>();
@@ -1567,11 +1591,12 @@ export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boole
   const voices = [...byVoice.keys()].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99));
   if (voices.length < 2) return false;
 
-  const gluedDirs = new Set<Element>();
+  const gluedExtras = new Set<Element>();
   for (const blocks of byVoice.values()) {
     for (const block of blocks) {
       for (const node of block.nodes) {
-        if (xmlLocalName(node) === 'direction') gluedDirs.add(node);
+        const tag = xmlLocalName(node);
+        if (tag === 'direction' || tag === 'attributes') gluedExtras.add(node);
       }
     }
   }
@@ -1580,7 +1605,7 @@ export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boole
   const detached: Element[] = [];
   for (const child of [...measure.children]) {
     const tag = xmlLocalName(child);
-    if (!timelineTags.has(tag) && !gluedDirs.has(child)) continue;
+    if (!timelineTags.has(tag) && !gluedExtras.has(child)) continue;
     measure.removeChild(child);
     detached.push(child);
   }
@@ -1589,6 +1614,7 @@ export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boole
   let insertAt = 0;
   while (insertAt < measure.children.length) {
     const tag = xmlLocalName(measure.children[insertAt]!);
+    // mid attributes는 gluedExtras로 이미 detach됨 — 남은 attributes는 머리만
     if (tag === 'attributes' || tag === 'print' || tag === 'direction') insertAt += 1;
     else break;
   }

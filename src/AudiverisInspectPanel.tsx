@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
+import { removeRedundantCourtesyClefsForOsmd } from '../shared/musicXmlCourtesyClef';
 import {
   realignMeasureDefaultXFromTimelineForOsmd,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
@@ -1802,34 +1803,8 @@ export function injectPrintedMeasureNumberDirectionsForOsmd(
   }
 }
 
-/** 줄바꿈 등에서 이전과 동일한 `<clef>` courtesy 반복 제거 — OSMD 미리보기 전용. */
-export function removeRedundantCourtesyClefsForOsmd(xml: string): string {
-  try {
-    const doc = new DOMParser().parseFromString(xml, 'text/xml');
-    if (doc.querySelector('parsererror')) return xml;
-
-    for (const part of findXmlParts(doc)) {
-      for (const meas of [...part.children]) {
-        if (xmlLocalName(meas) !== 'measure') continue;
-        const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
-        for (const attr of [...meas.children].filter((c) => xmlLocalName(c) === 'attributes')) {
-          for (const clef of [...attr.children].filter((c) => xmlLocalName(c) === 'clef')) {
-            const numAttr = clef.getAttribute('number');
-            const staff = numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
-            const sign = previewClefSign(clef);
-            if (!sign) continue;
-            if (sign === previewClefSignBefore(part, mnum, staff)) clef.remove();
-          }
-          if (!attr.children.length) attr.remove();
-        }
-      }
-    }
-
-    return new XMLSerializer().serializeToString(doc);
-  } catch {
-    return xml;
-  }
-}
+/** @deprecated import from shared/musicXmlCourtesyClef — re-export for existing callers */
+export { removeRedundantCourtesyClefsForOsmd } from '../shared/musicXmlCourtesyClef';
 
 export type OsmdPreviewOptions = {
   /** true: part/성부 필터·PR·PL split만, clef/key/pitch/direction 변환 없음 (HITL 대조용) */

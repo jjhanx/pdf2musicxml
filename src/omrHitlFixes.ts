@@ -98,6 +98,7 @@ export type OmrHitlFix = {
 export const FIX_KIND_LABEL: Record<string, string> = {
   setMeasureClef: '음자리표 변경',
   setPartClef: '음자리표 변경',
+  insertClef: '마디 중간 음자리표',
   copyMeasureContent: '마디 파트 복사/이동',
   copyMeasurePart: '마디 파트 복사/이동',
   removeSpuriousDirection: 'P·9 direction 제거',
@@ -209,6 +210,8 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.placement ?? '',
     fix.tempoBpm ?? '',
     fix.beatUnit ?? '',
+    fix.clefSign ?? '',
+    fix.clefLine ?? '',
   ].join('|');
 }
 
@@ -325,6 +328,13 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   }
   if (fix.kind === 'addOrnament' || fix.kind === 'removeOrnament') {
     if (fix.ornament) parts.push(fix.ornament);
+  }
+  if (fix.kind === 'insertClef' || fix.kind === 'setMeasureClef' || fix.kind === 'setPartClef') {
+    if (fix.afterNoteIndex != null) {
+      parts.push(fix.afterNoteIndex < 0 ? '마디 앞' : `#${fix.afterNoteIndex} 뒤`);
+    }
+    if (fix.clefSign) parts.push(fix.clefSign === 'F' ? '𝄢 F' : fix.clefSign === 'G' ? '𝄞 G' : fix.clefSign);
+    if (fix.staff != null) parts.push(`staff ${fix.staff}`);
   }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);

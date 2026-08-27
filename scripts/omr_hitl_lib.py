@@ -2803,6 +2803,53 @@ def _try_preamble_direction_before_following_note(
     return False
 
 
+def _try_preamble_attributes_before_following_note(
+    measure: ET.Element,
+    attrs: ET.Element,
+    note_preamble: dict[ET.Element, list[ET.Element]],
+) -> bool:
+    """마디 중간 `<attributes>`(음자리표 등) — 바로 다음 `<note>` 앞 preamble로 보존."""
+    children = list(measure)
+    try:
+        idx = children.index(attrs)
+    except ValueError:
+        return False
+    for j in range(idx + 1, len(children)):
+        if _local(children[j]) == "note":
+            note_preamble.setdefault(children[j], []).append(attrs)
+            return True
+    return False
+
+
+def _collect_rebuild_attributes(
+    measure: ET.Element,
+    el: ET.Element,
+    last_seen_note: ET.Element | None,
+    note_preamble: dict[ET.Element, list[ET.Element]],
+    note_attachments: dict[ET.Element, list[ET.Element]],
+    start_elements: list[ET.Element],
+) -> None:
+    """헤더 attributes는 마디 앞, 중간 음자리표 등은 다음 음 앞(또는 직전 음 뒤)에 유지."""
+    if last_seen_note is None:
+        start_elements.append(el)
+        return
+    if _try_preamble_attributes_before_following_note(measure, el, note_preamble):
+        return
+    note_attachments.setdefault(last_seen_note, []).append(el)
+
+
+def _build_clef_attributes(ns: str, clef_sign: str, clef_line: int, staff_n: int) -> ET.Element:
+    attrs = ET.Element(_q(ns, "attributes"))
+    clef = ET.SubElement(attrs, _q(ns, "clef"))
+    if staff_n > 1:
+        clef.set("number", str(staff_n))
+    s_el = ET.SubElement(clef, _q(ns, "sign"))
+    s_el.text = clef_sign
+    l_el = ET.SubElement(clef, _q(ns, "line"))
+    l_el.text = str(clef_line)
+    return attrs
+
+
 def _find_note_by_pitch(
     notes: list[ET.Element],
     ns: str,
@@ -5117,6 +5164,37 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
     return True
 
 
+def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
+    """마디 중간(또는 지정 음 뒤)에 `<attributes><clef/></attributes>` 삽입."""
+    part_id = str(fix.get("partId") or "").strip()
+    measure_mxl = str(fix.get("measureMxl") or "").strip()
+    clef_sign = str(fix.get("clefSign") or "G").strip().upper()
+    if clef_sign not in ("G", "F", "C"):
+        clef_sign = "G"
+    default_line = 2 if clef_sign == "G" else (4 if clef_sign == "F" else 3)
+    try:
+        clef_line = int(fix.get("clefLine") or default_line)
+        staff_n = int(fix.get("staff") or 1)
+        after_idx = int(fix.get("afterNoteIndex", -1))
+    except (TypeError, ValueError):
+        return False
+
+    part = find_part(root, ns, part_id)
+    if part is None or not measure_mxl:
+        return False
+    measure = find_measure(part, ns, measure_mxl)
+    if measure is None:
+        return False
+
+    notes = list_note_elements(measure, ns)
+    insert_after_idx, staff_n, _anchor, _following, _staff_notes = _resolve_insert_after_context(
+        notes, ns, after_idx, staff_n
+    )
+    attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n)
+    _insert_note_element(measure, ns, attrs, insert_after_idx, staff_n=staff_n)
+    return True
+
+
 def _apply_copy_measure_content(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     from_part_id = str(fix.get("fromPartId") or fix.get("partId") or "").strip()
     to_part_ids = list(fix.get("toPartIds") or ([fix["toPartId"]] if fix.get("toPartId") else []))
@@ -5239,6 +5317,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
     if kind in ("setMeasureClef", "setPartClef"):
         return _apply_set_measure_clef(root, ns, fix)
+
+    if kind == "insertClef":
+        return _apply_insert_clef(root, ns, fix)
 
     if kind in ("setMeasureTempo", "removeMeasureTempo"):
         return _apply_measure_tempo_fix(root, ns, fix)
@@ -7986,8 +8067,12 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
             last_seen_note = el
         elif tag in ("backup", "forward"):
             last_seen_note = None
-        elif tag in ("print", "attributes"):
+        elif tag == "print":
             start_elements.append(el)
+        elif tag == "attributes":
+            _collect_rebuild_attributes(
+                measure, el, last_seen_note, note_preamble, note_attachments, start_elements
+            )
         elif tag == "barline":
             end_elements.append(el)
         else:
@@ -8088,8 +8173,12 @@ def _rebuild_measure_flat_staffs(measure: ET.Element, ns: str) -> None:
             last_seen_note = el
         elif tag in ("backup", "forward"):
             last_seen_note = None
-        elif tag in ("print", "attributes"):
+        elif tag == "print":
             start_elements.append(el)
+        elif tag == "attributes":
+            _collect_rebuild_attributes(
+                measure, el, last_seen_note, note_preamble, note_attachments, start_elements
+            )
         elif tag == "barline":
             end_elements.append(el)
         else:
@@ -8454,6 +8543,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "moveWedgeStop",
         "setMeasureClef",
         "setPartClef",
+        "insertClef",
         "copyMeasureContent",
         "copyMeasurePart",
     }

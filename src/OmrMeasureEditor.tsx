@@ -2302,6 +2302,20 @@ export function OmrMeasureEditor({
             `화음 음 ${formatPitchLabel(pitchStep, pitchOctave, pitchAlter)} 대기 (리더 #${leaderNoteIndex} 예정) → 「MXL에 반영·미리보기」`,
           );
         }}
+        onInsertClef={(afterNoteIndex, clefSign, staff) => {
+          setPendingInsertLeader(null);
+          const clefName = clefSign === 'G' ? '높은음자리표(𝄞)' : '낮은음자리표(𝄢)';
+          const where = afterNoteIndex < 0 ? '마디 앞' : `#${afterNoteIndex} 뒤`;
+          pushFix({
+            kind: 'insertClef',
+            afterNoteIndex,
+            clefSign,
+            clefLine: clefSign === 'G' ? 2 : 4,
+            staff,
+            detail: `${where} ${clefName}`,
+          });
+          setFixMsg(`✅ ${where}에 ${clefName} 삽입 대기 → 「MXL에 반영·미리보기」`);
+        }}
         onClearPendingLeader={() => setPendingInsertLeader(null)}
       />
 
@@ -3960,6 +3974,7 @@ function InsertElementForm({
   onInsertNote,
   onInsertNoteSequence,
   onInsertChordMember,
+  onInsertClef,
 }: {
   afterNoteIndex: number;
   staffDefault: number;
@@ -3996,6 +4011,7 @@ function InsertElementForm({
     octave: number,
     pitchAlter: number | undefined,
   ) => void;
+  onInsertClef: (after: number, sign: 'G' | 'F', staff: number) => void;
 }) {
   const [restTypeValueSel, setRestTypeValueSel] = useState(noteTypeValue('quarter', 0));
   const [noteTypeValueSel, setNoteTypeValueSel] = useState(noteTypeValue('eighth', 0));
@@ -4143,6 +4159,23 @@ function InsertElementForm({
           </div>
         </div>
       ) : null}
+      <div className="omr-measure-insert-form-row">
+        <span className="omr-measure-insert-label">음자리표 삽입 ({afterLabel})</span>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() => onInsertClef(afterNoteIndex, 'G', staff)}
+        >
+          𝄞 높은음자리표
+        </button>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() => onInsertClef(afterNoteIndex, 'F', staff)}
+        >
+          𝄢 낮은음자리표
+        </button>
+      </div>
       <div className="omr-measure-insert-form-row">
         <label>
           스태프

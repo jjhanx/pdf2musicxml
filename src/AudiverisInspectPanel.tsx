@@ -47,6 +47,10 @@ import type { ArticulationPreviewFix } from '../shared/musicXmlArticulationDista
 import { parseArticulationStaffSpaces } from '../shared/musicXmlArticulationDistance';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
+import {
+  anchorTrailingMidClefsForOsmdPreview,
+  anchorTrailingMidClefsInMeasure,
+} from '../shared/musicXmlMidClefOsmdAnchor';
 import { normalizeTiePlacementsForOsmdPreview } from '../shared/musicXmlTiePlacement';
 import {
   removeDanglingTimelineElementsForOsmdPreview,
@@ -963,6 +967,8 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
   });
+  // PR/PL 분리 후 후속 음이 없어진 mid clef → OSMD in-staff 앵커
+  anchorTrailingMidClefsInMeasure(measure);
 }
 
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
@@ -982,6 +988,7 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   measure.querySelectorAll('note staff, note *|staff').forEach((el) => {
     el.textContent = '1';
   });
+  anchorTrailingMidClefsInMeasure(measure);
 }
 
 function transformPartToSingleStaff(part: Element, staffN: number, verbatim = false): void {
@@ -1877,6 +1884,7 @@ export function buildOsmdPreviewXml(
   xml = normalizeTiePlacementsForOsmdPreview(xml);
   xml = repairTimelineForOsmdPreview(xml);
   xml = repairUnderfullMeasuresForOsmdPreview(xml);
+  xml = anchorTrailingMidClefsForOsmdPreview(xml);
   return xml;
 }
 
@@ -1902,6 +1910,7 @@ function sanitizeMusicXmlForOsmd(
     out = repairMissingNoteTypesForOsmdPreview(out);
     out = repairTimelineForOsmdPreview(out);
     out = repairUnderfullMeasuresForOsmdPreview(out);
+    out = anchorTrailingMidClefsForOsmdPreview(out);
     out = normalizeTiePlacementsForOsmdPreview(out);
     out = normalizeDynamicsAndWedgesForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);

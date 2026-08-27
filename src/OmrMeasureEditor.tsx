@@ -1218,8 +1218,31 @@ function chordLeaderIndex(el: MeasureNoteEl, noteEls: MeasureNoteEl[]): number {
   return sorted[pos]?.index ?? el.index;
 }
 
-/** insertNote 직후 리더가 될 #index (서버 `_resolve_insert_after_context`와 동일). */
-function predictLeaderIndexAfterInsert(noteEls: MeasureNoteEl[], afterNoteIndex: number): number {
+/** insertNote 직후 리더가 될 #index (서버 `_resolve_insert_after_context`와 동일).
+ * afterClefIndex가 있으면 해당 음자리표 뒤에 꽂히는 새 음의 인덱스를 예측한다.
+ */
+function predictLeaderIndexAfterInsert(
+  noteEls: MeasureNoteEl[],
+  afterNoteIndex: number,
+  afterClefIndex?: number | null,
+  elements?: MeasureElement[],
+): number {
+  if (afterClefIndex != null && elements?.length) {
+    const clef = elements.find(
+      (e): e is MeasureClefEl => e.elementKind === 'clef' && e.clefIndex === afterClefIndex,
+    );
+    if (clef) {
+      const clefPos = elements.indexOf(clef);
+      for (let i = clefPos + 1; i < elements.length; i += 1) {
+        const el = elements[i]!;
+        if (el.elementKind === 'note' && !el.chord) {
+          // clef 직후 기존 음 앞에 삽입 → 그 음 index를 차지
+          return el.index;
+        }
+      }
+      return clef.afterNoteIndex + 1;
+    }
+  }
   if (afterNoteIndex < 0) return 0;
   if (afterNoteIndex >= noteEls.length) return noteEls.length;
   const anchor = noteEls.find((n) => n.index === afterNoteIndex);
@@ -2297,6 +2320,7 @@ export function OmrMeasureEditor({
         afterClefIndex={insertAfterClef}
         staffDefault={insertStaff}
         noteEls={noteEls}
+        elements={elements}
         pendingLeader={pendingInsertLeader}
         onInsertRest={(afterNoteIndex, noteType, dotCount, staff, voice, afterClefIndex) => {
           setPendingInsertLeader(null);
@@ -2322,7 +2346,12 @@ export function OmrMeasureEditor({
           voice,
           afterClefIndex,
         ) => {
-          const leaderIdx = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
+          const leaderIdx = predictLeaderIndexAfterInsert(
+            noteEls,
+            afterNoteIndex,
+            afterClefIndex,
+            elements,
+          );
           const leaderLabel = formatPitchLabel(pitchStep, pitchOctave, pitchAlter);
           pushFix({
             kind: 'insertNote',
@@ -4073,6 +4102,7 @@ function InsertElementForm({
   afterClefIndex = null,
   staffDefault,
   noteEls,
+  elements = [],
   pendingLeader,
   onClearPendingLeader,
   onInsertRest,
@@ -4085,6 +4115,7 @@ function InsertElementForm({
   afterClefIndex?: number | null;
   staffDefault: number;
   noteEls: MeasureNoteEl[];
+  elements?: MeasureElement[];
   pendingLeader: PendingInsertLeader | null;
   onClearPendingLeader: () => void;
   onInsertRest: (
@@ -4151,7 +4182,12 @@ function InsertElementForm({
       : afterNoteIndex < 0
         ? '마디 맨 앞'
         : `음·쉼표 #${afterNoteIndex} 뒤 (staff ${staff})`;
-  const predictedLeader = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
+  const predictedLeader = predictLeaderIndexAfterInsert(
+    noteEls,
+    afterNoteIndex,
+    afterClefIndex,
+    elements,
+  );
   const sequenceMode = extraNotes.length > 0;
 
   const addExtraChordRow = () => {

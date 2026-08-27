@@ -2006,7 +2006,9 @@ def _insert_note_element(
     expand_chord_group: bool = True,
     after_clef_index: int | None = None,
 ) -> None:
-    """after_note_index=-1 이면 첫 note 앞; after_clef_index 있으면 해당 중간 음자리표 뒤."""
+    """after_note_index=-1 이면 첫 note 앞; after_clef_index 있으면 해당 중간 음자리표 뒤.
+    after_clef_index가 있으면(미스해도) 앵커 뒤 attributes(음자리표)를 건너뛰어 clef 앞에 꽂히지 않게 한다.
+    """
     if after_clef_index is not None:
         clefs = _list_mid_measure_clef_attrs(measure, ns)
         if 0 <= after_clef_index < len(clefs):
@@ -2043,9 +2045,43 @@ def _insert_note_element(
                         pos += 1
                     else:
                         break
+            # 음자리표 뒤 삽입 의도 — 앵커 직후 attributes를 건너뜀 (clef 앞에 음이 끼는 회귀 방지)
+            if after_clef_index is not None:
+                while pos < len(children) and _local(children[pos]) == "attributes":
+                    pos += 1
             measure.insert(pos, new_el)
             return
     measure.append(new_el)
+
+
+def _move_attributes_out_of_chord_groups(measure: ET.Element, ns: str) -> bool:
+    """화음 리더와 `<chord/>` 멤버 사이에 끼어 든 중간 attributes(음자리표)를 리더 앞으로 옮김.
+    그렇지 않으면 OSMD·normalize가 clef를 화음 뒤로 밀어 안 보이게 됨.
+    """
+    changed = False
+    notes = list_note_elements(measure, ns)
+    for i, leader in enumerate(notes):
+        if leader.find(_q(ns, "chord")) is not None:
+            continue
+        followers = _chord_follower_indices(notes, ns, i)
+        if not followers:
+            continue
+        children = list(measure)
+        try:
+            li = children.index(leader)
+            last_f = children.index(notes[followers[-1]])
+        except ValueError:
+            continue
+        if last_f <= li:
+            continue
+        between = [children[j] for j in range(li + 1, last_f) if _local(children[j]) == "attributes"]
+        if not between:
+            continue
+        for attrs in between:
+            measure.remove(attrs)
+            measure.insert(list(measure).index(leader), attrs)
+            changed = True
+    return changed
 
 
 def _insert_direction_at_staff_measure_start(
@@ -7033,6 +7069,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         end_idx = _chord_group_end_index(notes, ns, leader_idx)
         leader_staff = _note_staff_number(leader, ns) or 1
         _insert_note_element(measure, ns, new_note, end_idx, staff_n=leader_staff)
+        _move_attributes_out_of_chord_groups(measure, ns)
         notes_after = list_note_elements(measure, ns)
         _strip_chord_member_beams(notes_after, ns)
         _normalize_measure_note_engraving(part, ns, measure)
@@ -8571,12 +8608,18 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
             pending_preamble.append(el)
             extract.append(el)
         elif loc == "note" and _note_voice_staff(el, ns)[1] == staff:
-            if pending_preamble and el.find(_q(ns, "chord")) is None:
-                note_preamble[el] = list(pending_preamble)
+            if pending_preamble:
+                target = el
+                if el.find(_q(ns, "chord")) is not None:
+                    # 리더를 notes_only에서 찾기는 아직 미완 — 직전 extract note 리더 사용
+                    for prev in reversed(extract):
+                        if _local(prev) == "note" and prev.find(_q(ns, "chord")) is None:
+                            if _note_voice_staff(prev, ns)[1] == staff:
+                                target = prev
+                                break
+                note_preamble.setdefault(target, [])
+                note_preamble[target].extend(pending_preamble)
                 pending_preamble.clear()
-            elif pending_preamble:
-                # 화음 멤버 앞 — 리더에 이미 붙였거나, 리더를 찾아 부착
-                pass
             extract.append(el)
         elif loc in ("backup", "forward"):
             pending_preamble.clear()
@@ -8654,6 +8697,7 @@ def rebuild_measure_timeline_clean(
     _fix_chord_tag_consistency(notes, ns)
     _sync_all_chord_groups(notes, ns)
     _dedupe_identical_pitches_in_chord_groups(measure, ns)
+    _move_attributes_out_of_chord_groups(measure, ns)
     coalesce_spurious_parallel_voices_in_measure(measure, ns, part)
     for staff in ("1", "2"):
         _merge_staff_voices_if_non_overlapping(measure, ns, staff)
@@ -8670,6 +8714,7 @@ def rebuild_measure_timeline_clean(
     _fix_chord_tag_consistency(notes_after, ns)
     _sync_all_chord_groups(notes_after, ns)
     _dedupe_identical_pitches_in_chord_groups(measure, ns)
+    _move_attributes_out_of_chord_groups(measure, ns)
     for staff in ("1", "2"):
         _merge_staff_voices_if_non_overlapping(measure, ns, staff)
     for staff in ("1", "2"):

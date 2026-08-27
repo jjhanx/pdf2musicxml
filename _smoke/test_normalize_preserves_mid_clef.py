@@ -1,4 +1,4 @@
-"""_normalize_staff_note_order must keep mid-measure clef before its following note."""
+"""_normalize_staff_note_order must keep mid-measure clef after its preceding note."""
 from __future__ import annotations
 
 import sys
@@ -60,8 +60,14 @@ def main() -> None:
     t = tags(m)
     assert "attrs:G" in t, t
     gi = t.index("attrs:G")
-    # 원래 G 다음 음이었던 D(po=2) 앞에 유지
-    assert gi + 1 < len(t) and t[gi + 1].startswith("note:D"), t
+    # G는 직전 음 E 뒤에 고정 — 다음 음 D preamble로 붙이면 D와 함께 앞으로 끌림
+    assert gi > 0 and t[gi - 1].startswith("note:E"), t
+    assert [x for x in t if x.startswith("note:")] == [
+        "note:Cpo=1",
+        "note:Dpo=2",
+        "note:Epo=3",
+        "note:Apo=4",
+    ], t
     print("normalize_preserves_mid_clef ok")
 
 

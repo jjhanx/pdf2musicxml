@@ -169,7 +169,8 @@ def main() -> None:
     )
     assert _move_attributes_out_of_chord_groups(m3, "") is True
     t3 = tags(m3)
-    assert t3.index("@G") < t3.index("C4l") < t3.index("E4c"), t3
+    # 화음 그룹 끝(멤버 뒤)으로 — 리더 앞(마디 앞쪽)으로 올리지 않음
+    assert t3.index("C4l") < t3.index("E4c") < t3.index("@G"), t3
 
     print("clef_chord_keeps_clef ok")
 

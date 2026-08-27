@@ -800,7 +800,8 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   const claimedTrailing = new Set<Element>();
   const midAttrs = new Set<Element>();
   const orphanMidAfter = new Map<Element, Element[]>();
-  // 중간 attributes(음자리표) — 같은 staff 다음 음 앞에 붙임 (flatten 시 헤더로 빨려가지 않게)
+  // 중간 attributes(음자리표) — **직전 같은 staff 음 뒤**에 고정 (다음 음 앞에 붙이면
+  // 재정렬·flatten 시 마디 앞쪽으로 끌려감)
   {
     let seenNote = false;
     const childrenNow = [...measure.children];
@@ -823,23 +824,6 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
       if (!seenNote || tag !== 'attributes') continue;
       if (![...el.children].some((c) => xmlLocalName(c) === 'clef')) continue;
       const preferStaff = clefStaffOf(el);
-      let follow: Element | null = null;
-      for (let j = i + 1; j < childrenNow.length; j += 1) {
-        const n = childrenNow[j]!;
-        if (xmlLocalName(n) !== 'note') continue;
-        if (isChordNote(n)) continue;
-        if (preferStaff != null && noteStaffN(n) !== preferStaff) continue;
-        follow = n;
-        break;
-      }
-      if (follow) {
-        midAttrs.add(el);
-        const list = gluedBefore.get(follow) ?? [];
-        list.push(el);
-        gluedBefore.set(follow, list);
-        continue;
-      }
-      // 후속 같은 staff 음 없음 — 직전 같은 staff 음 뒤 (backup 직후 mid clef가 헤더로 가지 않게)
       let prev: Element | null = null;
       for (let j = i - 1; j >= 0; j -= 1) {
         const n = childrenNow[j]!;
@@ -849,7 +833,24 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
         prev = n;
         break;
       }
-      if (!prev) continue;
+      if (!prev) {
+        // backup 직후 등 직전 음 없음 — 같은 staff 다음 음 앞만 예외
+        let follow: Element | null = null;
+        for (let j = i + 1; j < childrenNow.length; j += 1) {
+          const n = childrenNow[j]!;
+          if (xmlLocalName(n) !== 'note') continue;
+          if (isChordNote(n)) continue;
+          if (preferStaff != null && noteStaffN(n) !== preferStaff) continue;
+          follow = n;
+          break;
+        }
+        if (!follow) continue;
+        midAttrs.add(el);
+        const list = gluedBefore.get(follow) ?? [];
+        list.push(el);
+        gluedBefore.set(follow, list);
+        continue;
+      }
       midAttrs.add(el);
       const list = orphanMidAfter.get(prev) ?? [];
       list.push(el);

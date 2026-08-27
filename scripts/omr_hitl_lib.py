@@ -2055,8 +2055,9 @@ def _insert_note_element(
 
 
 def _move_attributes_out_of_chord_groups(measure: ET.Element, ns: str) -> bool:
-    """화음 리더와 `<chord/>` 멤버 사이에 끼어 든 중간 attributes(음자리표)를 리더 앞으로 옮김.
-    그렇지 않으면 OSMD·normalize가 clef를 화음 뒤로 밀어 안 보이게 됨.
+    """화음 리더와 `<chord/>` 멤버 사이에 끼어 든 중간 attributes(음자리표)를
+    **화음 그룹 끝(마지막 멤버 뒤)** 로 옮김. 리더 앞으로 올리면 마디 앞쪽으로
+    끌려가 사용자가 지정한 ‘그 자리부터’ 전환이 깨진다.
     """
     changed = False
     notes = list_note_elements(measure, ns)
@@ -2079,7 +2080,9 @@ def _move_attributes_out_of_chord_groups(measure: ET.Element, ns: str) -> bool:
             continue
         for attrs in between:
             measure.remove(attrs)
-            measure.insert(list(measure).index(leader), attrs)
+            # remove 후 인덱스 갱신
+            last_el = notes[followers[-1]]
+            measure.insert(list(measure).index(last_el) + 1, attrs)
             changed = True
     return changed
 
@@ -3001,10 +3004,11 @@ def _collect_rebuild_attributes(
     note_attachments: dict[ET.Element, list[ET.Element]],
     start_elements: list[ET.Element],
 ) -> None:
-    """헤더 attributes는 마디 앞, 중간 음자리표 등은 같은 staff 다음 음 앞(없으면 직전 음 뒤).
+    """헤더 attributes는 마디 앞, mid 음자리표는 **직전 음 뒤**에 고정.
 
-    backup/forward 직후(last_seen_note=None) mid clef를 start_elements로 올리면
-    OSMD가 앞 마디 끝 예고 음자리표로 그리고 해당 마디 전체에 적용한다 — 금지.
+    다음 음 preamble로 붙이면 연주순번/default-x 재정렬 시 그 음이 앞으로 갈 때
+    clef도 마디 앞쪽으로 끌려간다. 사용자가 넣은 위치(그 음 뒤부터 전환)를 유지하려면
+    직전 음 attachment만 쓴다. backup 직후·같은 staff 후속 음만 preamble 예외.
     """
     ns = _ns(measure)
     preferred = _attrs_clef_preferred_staff(el, ns, fallback=1)
@@ -3018,6 +3022,7 @@ def _collect_rebuild_attributes(
         if not _has_note_before_element(measure, el):
             start_elements.append(el)
             return
+        # PL 블록 시작 clef 등: 같은 staff 다음 음 앞. 없으면 직전 staff 음 뒤.
         if _try_preamble_attributes_before_following_note(
             measure, el, note_preamble, preferred_staff=preferred
         ):
@@ -3031,11 +3036,13 @@ def _collect_rebuild_attributes(
         start_elements.append(el)
         return
 
-    if _try_preamble_attributes_before_following_note(
-        measure, el, note_preamble, preferred_staff=preferred
-    ):
-        return
-    note_attachments.setdefault(last_seen_note, []).append(el)
+    # mid: 절대 다음 음 preamble 금지 — 직전(같은 staff) 음 뒤에만 고정
+    anchor = last_seen_note
+    if (_note_staff_number(anchor, ns) or 1) != preferred:
+        same = _previous_note_on_staff(measure, el, preferred)
+        if same is not None:
+            anchor = same
+    note_attachments.setdefault(anchor, []).append(el)
 
 
 def _build_clef_attributes(ns: str, clef_sign: str, clef_line: int, staff_n: int) -> ET.Element:
@@ -8639,7 +8646,8 @@ def _align_staves_timeline(measure: ET.Element, ns: str) -> None:
 
 def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> bool:
     """Staff note를 default-x 타임라인 순으로 XML 재배열 — voice 블록·편집기·OSMD 순서 일치.
-    중간 `<attributes>`(음자리표)는 직후 음 preamble로 함께 옮겨 뒤로 밀리지 않게 한다.
+    중간 `<attributes>`(음자리표)는 **직전 음 뒤**에 고정(다음 음 preamble 금지 —
+    재정렬 시 앞쪽 음과 함께 마디 앞으로 끌려가지 않게).
     """
     children = list(measure)
     span_start: int | None = None
@@ -8656,32 +8664,41 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
 
     extract: list[ET.Element] = []
     note_preamble: dict[ET.Element, list[ET.Element]] = {}
-    pending_preamble: list[ET.Element] = []
+    note_trailing: dict[ET.Element, list[ET.Element]] = {}
+    pending_attrs: list[ET.Element] = []
+    last_staff_leader: ET.Element | None = None
     for i in range(span_start, span_end + 1):
         el = children[i]
         loc = _local(el)
         if loc == "attributes":
-            pending_preamble.append(el)
+            pending_attrs.append(el)
             extract.append(el)
         elif loc == "note" and _note_voice_staff(el, ns)[1] == staff:
-            if pending_preamble:
-                target = el
-                if el.find(_q(ns, "chord")) is not None:
-                    # 리더를 notes_only에서 찾기는 아직 미완 — 직전 extract note 리더 사용
-                    for prev in reversed(extract):
-                        if _local(prev) == "note" and prev.find(_q(ns, "chord")) is None:
-                            if _note_voice_staff(prev, ns)[1] == staff:
-                                target = prev
-                                break
-                note_preamble.setdefault(target, [])
-                note_preamble[target].extend(pending_preamble)
-                pending_preamble.clear()
+            if pending_attrs:
+                if last_staff_leader is not None:
+                    note_trailing.setdefault(last_staff_leader, []).extend(pending_attrs)
+                else:
+                    target = el
+                    if el.find(_q(ns, "chord")) is not None:
+                        for prev in reversed(extract):
+                            if _local(prev) == "note" and prev.find(_q(ns, "chord")) is None:
+                                if _note_voice_staff(prev, ns)[1] == staff:
+                                    target = prev
+                                    break
+                    note_preamble.setdefault(target, []).extend(pending_attrs)
+                pending_attrs.clear()
             extract.append(el)
+            if el.find(_q(ns, "chord")) is None and not _is_grace_or_cue(el, ns):
+                last_staff_leader = el
         elif loc in ("backup", "forward"):
-            pending_preamble.clear()
+            if pending_attrs and last_staff_leader is not None:
+                note_trailing.setdefault(last_staff_leader, []).extend(pending_attrs)
+                pending_attrs.clear()
+            else:
+                pending_attrs.clear()
             extract.append(el)
 
-    trailing_attrs = list(pending_preamble)
+    trailing_attrs = list(pending_attrs)
 
     notes_only = [el for el in extract if _local(el) == "note"]
     if len(notes_only) < 2:
@@ -8721,12 +8738,7 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
     ]
     new_leader_order = [g[0] for g, _, _ in indexed]
     order_unchanged = [id(n) for n in current_leaders] == [id(n) for n in new_leader_order]
-    if order_unchanged and len(voices) <= 1 and not note_preamble and not trailing_attrs:
-        return False
-    if order_unchanged and not note_preamble and not trailing_attrs:
-        return False
-    # 순서가 같아도 preamble을 다시 심을 필요는 없음
-    if order_unchanged:
+    if order_unchanged and not note_preamble and not note_trailing and not trailing_attrs:
         return False
 
     for el in extract:
@@ -8739,10 +8751,15 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
                 insert_at += 1
         measure.insert(insert_at, note)
         insert_at += 1
+        if note.find(_q(ns, "chord")) is None:
+            for trail in note_trailing.get(note, []):
+                measure.insert(insert_at, trail)
+                insert_at += 1
     for pre in trailing_attrs:
         measure.insert(insert_at, pre)
         insert_at += 1
     return True
+
 
 
 def rebuild_measure_timeline_clean(

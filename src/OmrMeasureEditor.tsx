@@ -4343,6 +4343,10 @@ function InsertElementForm({
           𝄢 낮은음자리표
         </button>
       </div>
+      <p className="omr-measure-hint" style={{ margin: '0 0 0.5rem', fontSize: '0.85em', opacity: 0.85 }}>
+        마디 <strong>안에서</strong> 바꾸려면: 낮은음자리표로 둘 마지막 음의 「여기 뒤」에 넣고, 그 다음에 올 음표만 새 음자리표를 씁니다.
+        마디 맨 끝(마지막 음 뒤·뒤따를 음 없음)에 넣으면 다음 마디용 예고로만 쓰입니다.
+      </p>
       <div className="omr-measure-insert-form-row">
         <label>
           스태프

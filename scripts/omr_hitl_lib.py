@@ -2955,6 +2955,44 @@ def _try_preamble_attributes_before_following_note(
     return False
 
 
+def _attrs_clef_preferred_staff(attrs: ET.Element, ns: str, fallback: int = 1) -> int:
+    for clef in attrs.findall(_q(ns, "clef")):
+        num = clef.get("number")
+        if num and str(num).isdigit():
+            return int(num)
+    return fallback
+
+
+def _has_note_before_element(measure: ET.Element, el: ET.Element) -> bool:
+    for child in measure:
+        if child is el:
+            return False
+        if _local(child) == "note":
+            return True
+    return False
+
+
+def _previous_note_on_staff(
+    measure: ET.Element,
+    before_el: ET.Element,
+    preferred_staff: int | None,
+) -> ET.Element | None:
+    ns = _ns(measure)
+    children = list(measure)
+    try:
+        idx = children.index(before_el)
+    except ValueError:
+        return None
+    for j in range(idx - 1, -1, -1):
+        if _local(children[j]) != "note":
+            continue
+        note = children[j]
+        if preferred_staff is not None and (_note_staff_number(note, ns) or 1) != preferred_staff:
+            continue
+        return note
+    return None
+
+
 def _collect_rebuild_attributes(
     measure: ET.Element,
     el: ET.Element,
@@ -2963,18 +3001,36 @@ def _collect_rebuild_attributes(
     note_attachments: dict[ET.Element, list[ET.Element]],
     start_elements: list[ET.Element],
 ) -> None:
-    """헤더 attributes는 마디 앞, 중간 음자리표 등은 같은 staff 다음 음 앞(없으면 직전 음 뒤)."""
+    """헤더 attributes는 마디 앞, 중간 음자리표 등은 같은 staff 다음 음 앞(없으면 직전 음 뒤).
+
+    backup/forward 직후(last_seen_note=None) mid clef를 start_elements로 올리면
+    OSMD가 앞 마디 끝 예고 음자리표로 그리고 해당 마디 전체에 적용한다 — 금지.
+    """
+    ns = _ns(measure)
+    preferred = _attrs_clef_preferred_staff(el, ns, fallback=1)
+    if last_seen_note is not None:
+        preferred = _attrs_clef_preferred_staff(
+            el, ns, fallback=_note_staff_number(last_seen_note, ns) or 1
+        )
+
     if last_seen_note is None:
+        # 진짜 마디 머리만 start_elements. 이미 음이 나온 뒤(backup 직후 등)는 mid.
+        if not _has_note_before_element(measure, el):
+            start_elements.append(el)
+            return
+        if _try_preamble_attributes_before_following_note(
+            measure, el, note_preamble, preferred_staff=preferred
+        ):
+            return
+        prev = _previous_note_on_staff(measure, el, preferred)
+        if prev is None:
+            prev = _previous_note_on_staff(measure, el, None)
+        if prev is not None:
+            note_attachments.setdefault(prev, []).append(el)
+            return
         start_elements.append(el)
         return
-    ns = _ns(measure)
-    preferred = _note_staff_number(last_seen_note, ns) or 1
-    # attributes 안 clef@number가 있으면 그 staff 우선
-    for clef in el.findall(_q(ns, "clef")):
-        num = clef.get("number")
-        if num and str(num).isdigit():
-            preferred = int(num)
-            break
+
     if _try_preamble_attributes_before_following_note(
         measure, el, note_preamble, preferred_staff=preferred
     ):
@@ -2985,8 +3041,8 @@ def _collect_rebuild_attributes(
 def _build_clef_attributes(ns: str, clef_sign: str, clef_line: int, staff_n: int) -> ET.Element:
     attrs = ET.Element(_q(ns, "attributes"))
     clef = ET.SubElement(attrs, _q(ns, "clef"))
-    if staff_n > 1:
-        clef.set("number", str(staff_n))
+    # staff 1도 number를 두어 rebuild·OSMD가 mid clef staff를 혼동하지 않게 함
+    clef.set("number", str(staff_n))
     s_el = ET.SubElement(clef, _q(ns, "sign"))
     s_el.text = clef_sign
     l_el = ET.SubElement(clef, _q(ns, "line"))

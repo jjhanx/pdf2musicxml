@@ -798,6 +798,35 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   const gluedAfter = new Map<Element, Element[]>();
   const extraDirs = new Set<Element>();
   const claimedTrailing = new Set<Element>();
+  const midAttrs = new Set<Element>();
+  // 중간 attributes(음자리표) — 같은 staff 다음 음 앞에 붙임 (flatten 시 헤더로 빨려가지 않게)
+  {
+    let seenNote = false;
+    const childrenNow = [...measure.children];
+    for (let i = 0; i < childrenNow.length; i += 1) {
+      const el = childrenNow[i]!;
+      const tag = xmlLocalName(el);
+      if (tag === 'note') {
+        seenNote = true;
+        continue;
+      }
+      if (!seenNote || tag !== 'attributes') continue;
+      if (![...el.children].some((c) => xmlLocalName(c) === 'clef')) continue;
+      let follow: Element | null = null;
+      for (let j = i + 1; j < childrenNow.length; j += 1) {
+        const n = childrenNow[j]!;
+        if (xmlLocalName(n) !== 'note') continue;
+        if (isChordNote(n)) continue;
+        follow = n;
+        break;
+      }
+      if (!follow) continue;
+      midAttrs.add(el);
+      const list = gluedBefore.get(follow) ?? [];
+      list.push(el);
+      gluedBefore.set(follow, list);
+    }
+  }
   for (const { note } of timed) {
     const after = trailingDirectionsAfterNoteGroup(measure, note);
     gluedAfter.set(note, after);
@@ -808,13 +837,20 @@ function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   }
   for (const { note } of timed) {
     const before = leadingDirectionsBeforeNote(measure, note).filter((d) => !claimedTrailing.has(d));
-    gluedBefore.set(note, before);
+    const existing = gluedBefore.get(note) ?? [];
+    gluedBefore.set(note, [...existing, ...before]);
     for (const d of before) extraDirs.add(d);
   }
 
   const toRemove = [...measure.children].filter((c) => {
     const tag = xmlLocalName(c);
-    return tag === 'note' || tag === 'backup' || tag === 'forward' || extraDirs.has(c);
+    return (
+      tag === 'note' ||
+      tag === 'backup' ||
+      tag === 'forward' ||
+      extraDirs.has(c) ||
+      midAttrs.has(c)
+    );
   });
   for (const el of toRemove) measure.removeChild(el);
 

@@ -2896,17 +2896,26 @@ def _try_preamble_attributes_before_following_note(
     measure: ET.Element,
     attrs: ET.Element,
     note_preamble: dict[ET.Element, list[ET.Element]],
+    *,
+    preferred_staff: int | None = None,
 ) -> bool:
-    """마디 중간 `<attributes>`(음자리표 등) — 바로 다음 `<note>` 앞 preamble로 보존."""
+    """마디 중간 `<attributes>` — 같은 staff의 다음 `<note>` 앞 preamble.
+    같은 staff 후속 음이 없으면 False(직전 음 attachment로 보존). 다른 staff로 넘기지 않음.
+    """
+    ns = _ns(measure)
     children = list(measure)
     try:
         idx = children.index(attrs)
     except ValueError:
         return False
     for j in range(idx + 1, len(children)):
-        if _local(children[j]) == "note":
-            note_preamble.setdefault(children[j], []).append(attrs)
-            return True
+        if _local(children[j]) != "note":
+            continue
+        note = children[j]
+        if preferred_staff is not None and (_note_staff_number(note, ns) or 1) != preferred_staff:
+            continue
+        note_preamble.setdefault(note, []).append(attrs)
+        return True
     return False
 
 
@@ -2918,11 +2927,21 @@ def _collect_rebuild_attributes(
     note_attachments: dict[ET.Element, list[ET.Element]],
     start_elements: list[ET.Element],
 ) -> None:
-    """헤더 attributes는 마디 앞, 중간 음자리표 등은 다음 음 앞(또는 직전 음 뒤)에 유지."""
+    """헤더 attributes는 마디 앞, 중간 음자리표 등은 같은 staff 다음 음 앞(없으면 직전 음 뒤)."""
     if last_seen_note is None:
         start_elements.append(el)
         return
-    if _try_preamble_attributes_before_following_note(measure, el, note_preamble):
+    ns = _ns(measure)
+    preferred = _note_staff_number(last_seen_note, ns) or 1
+    # attributes 안 clef@number가 있으면 그 staff 우선
+    for clef in el.findall(_q(ns, "clef")):
+        num = clef.get("number")
+        if num and str(num).isdigit():
+            preferred = int(num)
+            break
+    if _try_preamble_attributes_before_following_note(
+        measure, el, note_preamble, preferred_staff=preferred
+    ):
         return
     note_attachments.setdefault(last_seen_note, []).append(el)
 
@@ -6917,7 +6936,30 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
-        if anchor is not None:
+        if after_clef_index is not None:
+            # 음자리표 뒤 — 기존 순번을 밀어 올리지 않고 staff 최대+1 (중간 삽입처럼 앞당기지 않음)
+            max_po = 0
+            has_po = False
+            for n in notes:
+                if n.find(_q(ns, "chord")) is not None:
+                    continue
+                if (_note_staff_number(n, ns) or 1) != staff_n:
+                    continue
+                cur_po = _read_play_order(n)
+                if cur_po is not None:
+                    has_po = True
+                    max_po = max(max_po, cur_po)
+            if has_po:
+                new_note.set(PLAY_ORDER_ATTR, str(max_po + 1))
+            # default-x: 같은 staff 맨 오른쪽 뒤로
+            best_x: float | None = None
+            for n in staff_notes:
+                dx = _parse_default_x(n)
+                if dx is not None:
+                    best_x = dx if best_x is None else max(best_x, dx)
+            if best_x is not None:
+                new_note.set("default-x", f"{best_x + 100.0:.2f}")
+        elif anchor is not None:
             anchor_po = _read_play_order(anchor)
             if anchor_po is not None:
                 new_po = anchor_po + 1
@@ -8503,7 +8545,9 @@ def _align_staves_timeline(measure: ET.Element, ns: str) -> None:
 
 
 def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> bool:
-    """Staff note를 default-x 타임라인 순으로 XML 재배열 — voice 블록·편집기·OSMD 순서 일치."""
+    """Staff note를 default-x 타임라인 순으로 XML 재배열 — voice 블록·편집기·OSMD 순서 일치.
+    중간 `<attributes>`(음자리표)는 직후 음 preamble로 함께 옮겨 뒤로 밀리지 않게 한다.
+    """
     children = list(measure)
     span_start: int | None = None
     span_end: int | None = None
@@ -8518,13 +8562,27 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
         return False
 
     extract: list[ET.Element] = []
+    note_preamble: dict[ET.Element, list[ET.Element]] = {}
+    pending_preamble: list[ET.Element] = []
     for i in range(span_start, span_end + 1):
         el = children[i]
         loc = _local(el)
-        if loc == "note" and _note_voice_staff(el, ns)[1] == staff:
+        if loc == "attributes":
+            pending_preamble.append(el)
+            extract.append(el)
+        elif loc == "note" and _note_voice_staff(el, ns)[1] == staff:
+            if pending_preamble and el.find(_q(ns, "chord")) is None:
+                note_preamble[el] = list(pending_preamble)
+                pending_preamble.clear()
+            elif pending_preamble:
+                # 화음 멤버 앞 — 리더에 이미 붙였거나, 리더를 찾아 부착
+                pass
             extract.append(el)
         elif loc in ("backup", "forward"):
+            pending_preamble.clear()
             extract.append(el)
+
+    trailing_attrs = list(pending_preamble)
 
     notes_only = [el for el in extract if _local(el) == "note"]
     if len(notes_only) < 2:
@@ -8563,14 +8621,27 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
         if n.find(_q(ns, "chord")) is None and not _is_grace_or_cue(n, ns)
     ]
     new_leader_order = [g[0] for g, _, _ in indexed]
-    if [id(n) for n in current_leaders] == [id(n) for n in new_leader_order] and len(voices) <= 1:
+    order_unchanged = [id(n) for n in current_leaders] == [id(n) for n in new_leader_order]
+    if order_unchanged and len(voices) <= 1 and not note_preamble and not trailing_attrs:
+        return False
+    if order_unchanged and not note_preamble and not trailing_attrs:
+        return False
+    # 순서가 같아도 preamble을 다시 심을 필요는 없음
+    if order_unchanged:
         return False
 
     for el in extract:
         measure.remove(el)
     insert_at = span_start
-    for el in sorted_notes:
-        measure.insert(insert_at, el)
+    for note in sorted_notes:
+        if note.find(_q(ns, "chord")) is None:
+            for pre in note_preamble.get(note, []):
+                measure.insert(insert_at, pre)
+                insert_at += 1
+        measure.insert(insert_at, note)
+        insert_at += 1
+    for pre in trailing_attrs:
+        measure.insert(insert_at, pre)
         insert_at += 1
     return True
 

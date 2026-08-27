@@ -118,6 +118,60 @@ def main() -> None:
     tags2 = _tags(measure)
     assert tags2.index("attrs:F") == tags2.index("note:C") + 1, tags2
 
+    # 마디 끝 음자리표 + 그 뒤 음표 + 삭제
+    root2 = ET.fromstring(SAMPLE)
+    apply_fixes_to_root(
+        root2,
+        [
+            {
+                "kind": "insertClef",
+                "partId": "P1",
+                "measureMxl": "1",
+                "afterNoteIndex": 2,
+                "clefSign": "F",
+                "clefLine": 4,
+                "staff": 1,
+            }
+        ],
+    )
+    m2 = root2.find("part").find("measure")  # type: ignore[union-attr]
+    assert _tags(m2)[-1] == "attrs:F", _tags(m2)
+
+    from omr_hitl_lib import measure_elements_snapshot  # noqa: E402
+
+    snaps = measure_elements_snapshot(m2, "")
+    kinds = [(s.get("elementKind"), s.get("clefSign") or s.get("pitch") or s.get("kind")) for s in snaps]
+    assert any(s.get("elementKind") == "clef" for s in snaps), snaps
+    clef_snap = next(s for s in snaps if s.get("elementKind") == "clef")
+    assert clef_snap["afterNoteIndex"] == 2, clef_snap
+
+    apply_fixes_to_root(
+        root2,
+        [
+            {
+                "kind": "insertNote",
+                "partId": "P1",
+                "measureMxl": "1",
+                "afterNoteIndex": 2,
+                "afterClefIndex": 0,
+                "pitchStep": "A",
+                "pitchOctave": 3,
+                "noteType": "quarter",
+                "staff": 1,
+                "voice": "1",
+            }
+        ],
+    )
+    tags3 = _tags(m2)
+    assert tags3.index("attrs:F") < tags3.index("note:A"), tags3
+    assert tags3[-1] == "note:A", tags3
+
+    apply_fixes_to_root(
+        root2,
+        [{"kind": "removeClef", "partId": "P1", "measureMxl": "1", "clefIndex": 0}],
+    )
+    assert "attrs:F" not in _tags(m2), _tags(m2)
+
     print("insert_clef_mid_measure ok")
 
 

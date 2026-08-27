@@ -35,6 +35,10 @@ export type OmrHitlFix = {
   fromNoteIndex?: number;
   toNoteIndex?: number;
   afterNoteIndex?: number;
+  /** 중간 음자리표 뒤 삽입 — mid-measure clef 블록 순번 */
+  afterClefIndex?: number;
+  /** removeClef — mid-measure clef 블록 순번 */
+  clefIndex?: number;
   leaderNoteIndex?: number;
   toMeasureMxl?: string;
   fromMeasureMxl?: string;
@@ -99,6 +103,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   setMeasureClef: '음자리표 변경',
   setPartClef: '음자리표 변경',
   insertClef: '마디 중간 음자리표',
+  removeClef: '마디 중간 음자리표 삭제',
   copyMeasureContent: '마디 파트 복사/이동',
   copyMeasurePart: '마디 파트 복사/이동',
   removeSpuriousDirection: 'P·9 direction 제거',
@@ -182,6 +187,8 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.fromPitchOctave ?? '',
     fix.fromPitchAlter ?? '',
     fix.afterNoteIndex ?? '',
+    fix.afterClefIndex ?? '',
+    fix.clefIndex ?? '',
     fix.leaderNoteIndex ?? '',
     fix.tieEnd ?? '',
     fix.slurEnd ?? '',
@@ -330,11 +337,15 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     if (fix.ornament) parts.push(fix.ornament);
   }
   if (fix.kind === 'insertClef' || fix.kind === 'setMeasureClef' || fix.kind === 'setPartClef') {
-    if (fix.afterNoteIndex != null) {
+    if (fix.afterClefIndex != null) parts.push(`clef#${fix.afterClefIndex} 뒤`);
+    else if (fix.afterNoteIndex != null) {
       parts.push(fix.afterNoteIndex < 0 ? '마디 앞' : `#${fix.afterNoteIndex} 뒤`);
     }
     if (fix.clefSign) parts.push(fix.clefSign === 'F' ? '𝄢 F' : fix.clefSign === 'G' ? '𝄞 G' : fix.clefSign);
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+  }
+  if (fix.kind === 'removeClef' && fix.clefIndex != null) {
+    parts.push(`clef#${fix.clefIndex}`);
   }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
     parts.push(`${fix.fromNoteIndex}→${fix.toNoteIndex}`);

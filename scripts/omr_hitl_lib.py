@@ -1377,6 +1377,51 @@ def _snapshot_timeline_sort_key(snap: dict[str, Any]) -> tuple[Any, ...]:
     return (staff_n, voice_n, po_val, idx, 0 if not snap.get("chord") else 1)
 
 
+def _list_mid_measure_clef_attrs(measure: ET.Element, ns: str) -> list[ET.Element]:
+    """첫 note 이후의 `<attributes>` 중 `<clef>`가 있는 블록(마디 중간·끝 음자리표)."""
+    out: list[ET.Element] = []
+    seen_note = False
+    for child in measure:
+        tag = _local(child)
+        if tag == "note":
+            seen_note = True
+            continue
+        if not seen_note or tag != "attributes":
+            continue
+        if child.find(_q(ns, "clef")) is not None:
+            out.append(child)
+    return out
+
+
+def _mid_measure_clef_snap(attrs: ET.Element, ns: str, clef_index: int, after_note_index: int) -> dict[str, Any]:
+    clef = attrs.find(_q(ns, "clef"))
+    sign = "G"
+    line = 2
+    staff_n = 1
+    if clef is not None:
+        s_el = clef.find(_q(ns, "sign"))
+        if s_el is not None and s_el.text and s_el.text.strip():
+            sign = s_el.text.strip().upper()
+        l_el = clef.find(_q(ns, "line"))
+        if l_el is not None and l_el.text and l_el.text.strip().isdigit():
+            line = int(l_el.text.strip())
+        else:
+            line = 2 if sign == "G" else (4 if sign == "F" else 3)
+        c_staff = clef.get("number")
+        if c_staff and str(c_staff).isdigit():
+            staff_n = int(c_staff)
+    return {
+        "elementKind": "clef",
+        "kind": "clef",
+        "clefIndex": clef_index,
+        "index": clef_index,
+        "afterNoteIndex": after_note_index,
+        "clefSign": sign,
+        "clefLine": line,
+        "staff": staff_n,
+    }
+
+
 def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     """마디 `<direction>` (템포 제외) — OCR 제목·마디번호 words 등 HITL 편집용."""
     out: list[dict[str, Any]] = []
@@ -1464,7 +1509,43 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
             else:
                 snap["displayPlayOrder"] = snap.get("playOrder")
     elements.sort(key=_snapshot_timeline_sort_key)
-    return elements
+
+    # 마디 중간·끝 음자리표 — 직전 note index 뒤에 끼워 UI에서 선택·삭제 가능하게
+    clef_by_after: dict[int, list[dict[str, Any]]] = {}
+    note_i = 0
+    seen_note = False
+    last_note_idx = -1
+    clef_i = 0
+    for child in measure:
+        tag = _local(child)
+        if tag == "note":
+            last_note_idx = note_i
+            note_i += 1
+            seen_note = True
+            continue
+        if not seen_note or tag != "attributes":
+            continue
+        if child.find(_q(ns, "clef")) is None:
+            continue
+        snap = _mid_measure_clef_snap(child, ns, clef_i, last_note_idx)
+        clef_by_after.setdefault(last_note_idx, []).append(snap)
+        clef_i += 1
+
+    if not clef_by_after:
+        return elements
+
+    interleaved: list[dict[str, Any]] = []
+    for snap in elements:
+        interleaved.append(snap)
+        for csnap in clef_by_after.get(int(snap["index"]), []):
+            interleaved.append(csnap)
+    # 정렬에서 빠진 afterNoteIndex(이론상 없음) — 남은 clef append
+    emitted = {int(c["clefIndex"]) for c in interleaved if c.get("elementKind") == "clef"}
+    for _after, clist in sorted(clef_by_after.items()):
+        for csnap in clist:
+            if int(csnap["clefIndex"]) not in emitted:
+                interleaved.append(csnap)
+    return interleaved
 
 
 def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, staff_n: int = 1) -> dict[str, Any] | None:
@@ -1519,7 +1600,7 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
     out: dict[str, Any] = {
         "partId": part_id,
         "measureMxl": str(measure_mxl),
-        "notes": elements,
+        "notes": [e for e in elements if e.get("elementKind") == "note"],
         "elements": elements,
         "tempos": tempos,
         "measureDirections": measure_directions,
@@ -1923,8 +2004,16 @@ def _insert_note_element(
     staff_n: int | None = None,
     *,
     expand_chord_group: bool = True,
+    after_clef_index: int | None = None,
 ) -> None:
-    """after_note_index=-1 이면 첫 note 앞; staff_n 지정 시 해당 staff 첫 note 앞."""
+    """after_note_index=-1 이면 첫 note 앞; after_clef_index 있으면 해당 중간 음자리표 뒤."""
+    if after_clef_index is not None:
+        clefs = _list_mid_measure_clef_attrs(measure, ns)
+        if 0 <= after_clef_index < len(clefs):
+            children = list(measure)
+            pos = children.index(clefs[after_clef_index]) + 1
+            measure.insert(pos, new_el)
+            return
     children = list(measure)
     if after_note_index < 0:
         if staff_n is not None:
@@ -5178,6 +5267,12 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         after_idx = int(fix.get("afterNoteIndex", -1))
     except (TypeError, ValueError):
         return False
+    after_clef_index: int | None = None
+    if fix.get("afterClefIndex") is not None and fix.get("afterClefIndex") != "":
+        try:
+            after_clef_index = int(fix.get("afterClefIndex"))
+        except (TypeError, ValueError):
+            after_clef_index = None
 
     part = find_part(root, ns, part_id)
     if part is None or not measure_mxl:
@@ -5191,7 +5286,40 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         notes, ns, after_idx, staff_n
     )
     attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n)
-    _insert_note_element(measure, ns, attrs, insert_after_idx, staff_n=staff_n)
+    _insert_note_element(
+        measure,
+        ns,
+        attrs,
+        insert_after_idx,
+        staff_n=staff_n,
+        after_clef_index=after_clef_index,
+    )
+    return True
+
+
+def _apply_remove_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
+    """마디 중간·끝 음자리표 attributes 블록 제거."""
+    part_id = str(fix.get("partId") or "").strip()
+    measure_mxl = str(fix.get("measureMxl") or "").strip()
+    try:
+        clef_index = int(fix.get("clefIndex"))
+    except (TypeError, ValueError):
+        return False
+    part = find_part(root, ns, part_id)
+    if part is None or not measure_mxl:
+        return False
+    measure = find_measure(part, ns, measure_mxl)
+    if measure is None:
+        return False
+    clefs = _list_mid_measure_clef_attrs(measure, ns)
+    if clef_index < 0 or clef_index >= len(clefs):
+        return False
+    attrs = clefs[clef_index]
+    # clef만 지우고 다른 attributes(조표 등)가 남으면 블록 유지
+    for c in list(attrs.findall(_q(ns, "clef"))):
+        attrs.remove(c)
+    if len(list(attrs)) == 0:
+        measure.remove(attrs)
     return True
 
 
@@ -5320,6 +5448,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
     if kind == "insertClef":
         return _apply_insert_clef(root, ns, fix)
+
+    if kind == "removeClef":
+        return _apply_remove_clef(root, ns, fix)
 
     if kind in ("setMeasureTempo", "removeMeasureTempo"):
         return _apply_measure_tempo_fix(root, ns, fix)
@@ -6665,6 +6796,12 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         insert_after_idx, staff_n, anchor, following, staff_notes = _resolve_insert_after_context(
             notes, ns, after_idx, staff_n
         )
+        after_clef_index: int | None = None
+        if fix.get("afterClefIndex") is not None and fix.get("afterClefIndex") != "":
+            try:
+                after_clef_index = int(fix.get("afterClefIndex"))
+            except (TypeError, ValueError):
+                after_clef_index = None
         voice_override = str(fix.get("voice") or "").strip()
         voice, _stem = _infer_voice_stem_from_neighbors(notes, ns, insert_after_idx, staff_n)
         if voice_override:
@@ -6716,7 +6853,14 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                     cur_po = _read_play_order(n)
                     if cur_po is not None:
                         _set_play_order_on_leader(notes, ns, notes.index(n), cur_po + 1)
-        _insert_note_element(measure, ns, new_note, insert_after_idx, staff_n=staff_n)
+        _insert_note_element(
+            measure,
+            ns,
+            new_note,
+            insert_after_idx,
+            staff_n=staff_n,
+            after_clef_index=after_clef_index,
+        )
         _normalize_measure_note_engraving(part, ns, measure)
         return True
 
@@ -6741,6 +6885,12 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         insert_after_idx, staff_n, anchor, following, staff_notes = _resolve_insert_after_context(
             notes, ns, after_idx, staff_n
         )
+        after_clef_index = None
+        if fix.get("afterClefIndex") is not None and fix.get("afterClefIndex") != "":
+            try:
+                after_clef_index = int(fix.get("afterClefIndex"))
+            except (TypeError, ValueError):
+                after_clef_index = None
         voice_override = str(fix.get("voice") or "").strip()
         voice, stem = _infer_voice_stem_from_neighbors(notes, ns, insert_after_idx, staff_n)
         if voice_override:
@@ -6796,7 +6946,14 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                     cur_po = _read_play_order(n)
                     if cur_po is not None:
                         _set_play_order_on_leader(notes, ns, notes.index(n), cur_po + 1)
-        _insert_note_element(measure, ns, new_note, insert_after_idx, staff_n=staff_n)
+        _insert_note_element(
+            measure,
+            ns,
+            new_note,
+            insert_after_idx,
+            staff_n=staff_n,
+            after_clef_index=after_clef_index,
+        )
         _normalize_measure_note_engraving(part, ns, measure)
         return True
 
@@ -8544,6 +8701,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "setMeasureClef",
         "setPartClef",
         "insertClef",
+        "removeClef",
         "copyMeasureContent",
         "copyMeasurePart",
     }

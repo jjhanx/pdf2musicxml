@@ -388,6 +388,18 @@ export type MeasureDirectionEl = {
   fromNoteDynamics?: boolean;
 };
 
+export type MeasureClefEl = {
+  elementKind: 'clef';
+  /** mid-measure clef 블록 순번 (0-based) */
+  clefIndex: number;
+  index: number;
+  kind: 'clef';
+  afterNoteIndex: number;
+  clefSign?: string;
+  clefLine?: number;
+  staff?: number | null;
+};
+
 export type MeasureNoteEl = {
   elementKind: 'note';
   index: number;
@@ -448,7 +460,7 @@ export type NoteDirectionInfo = {
   defaultY?: number | null;
 };
 
-export type MeasureElement = MeasureNoteEl;
+export type MeasureElement = MeasureNoteEl | MeasureClefEl;
 
 type MeasureSnapshot = {
   partId: string;
@@ -1247,7 +1259,16 @@ function graceNotesBefore(index: number, noteEls: MeasureNoteEl[]): MeasureNoteE
 }
 
 function resolveAfterNoteIndex(el: MeasureElement, _elements: MeasureElement[]): number {
+  if (el.elementKind === 'clef') return el.afterNoteIndex;
   return el.index;
+}
+
+function isMeasureNoteEl(el: MeasureElement): el is MeasureNoteEl {
+  return el.elementKind === 'note';
+}
+
+function isMeasureClefEl(el: MeasureElement): el is MeasureClefEl {
+  return el.elementKind === 'clef';
 }
 
 function noteDirectionsOf(el: MeasureNoteEl): NoteDirectionInfo[] {
@@ -1278,6 +1299,13 @@ function elementTitle(
   _noteEls: MeasureNoteEl[],
   ctx?: { partId?: string; staffLabel?: string | null; editStaffWithinPart?: number | null },
 ): string {
+  if (el.elementKind === 'clef') {
+    const sign = (el.clefSign ?? 'G').toUpperCase();
+    const name = sign === 'F' ? '낮은음자리표(𝄢)' : sign === 'C' ? '가온음자리표(𝄡)' : '높은음자리표(𝄞)';
+    const after =
+      el.afterNoteIndex < 0 ? '마디 앞' : `#${el.afterNoteIndex} 뒤`;
+    return `음자리표 clef#${el.clefIndex} ${name} · ${after}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+  }
   const idx = el.index;
   const dirSuffix = noteDirectionsSummary(el) ? ` · ${noteDirectionsSummary(el)}` : '';
   const staffVoice =
@@ -1366,6 +1394,7 @@ export function OmrMeasureEditor({
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState('');
   const [insertAfter, setInsertAfter] = useState(-1);
+  const [insertAfterClef, setInsertAfterClef] = useState<number | null>(null);
   const [insertStaff, setInsertStaff] = useState(editStaffWithinPart ?? 1);
   const [fixMsg, setFixMsg] = useState('');
   const [pendingInsertLeader, setPendingInsertLeader] = useState<PendingInsertLeader | null>(null);
@@ -1590,12 +1619,14 @@ export function OmrMeasureEditor({
 
   useEffect(() => {
     setPendingInsertLeader(null);
-  }, [previewRevision, insertAfter, partId, measureMxl]);
+  }, [previewRevision, insertAfter, insertAfterClef, partId, measureMxl]);
 
   const displayElements = useMemo(() => {
-    const notes = elements.filter((el): el is MeasureNoteEl => el.elementKind === 'note');
-    if (editStaffWithinPart == null) return notes;
-    return notes.filter((el) => (el.staff ?? 1) === editStaffWithinPart);
+    const list = elements.filter(
+      (el): el is MeasureElement => el.elementKind === 'note' || el.elementKind === 'clef',
+    );
+    if (editStaffWithinPart == null) return list;
+    return list.filter((el) => (el.staff ?? 1) === editStaffWithinPart);
   }, [elements, editStaffWithinPart]);
 
   const noteEls = useMemo(
@@ -1604,7 +1635,7 @@ export function OmrMeasureEditor({
   );
 
   const breathMarkNotes = useMemo(() => {
-    return displayElements.filter((n) =>
+    return displayElements.filter(isMeasureNoteEl).filter((n) =>
       (n.articulations ?? []).some((a) => a.split('(')[0].toLowerCase() === 'breath-mark'),
     );
   }, [displayElements]);
@@ -2154,85 +2185,149 @@ export function OmrMeasureEditor({
 
       {displayElements.length > 0 && (
         <ol className="omr-measure-element-list">
-          {displayElements.map((el) => (
-            <li key={`note-${el.index}`}>
-              <div className="omr-measure-element-title">
-                {!el.chord ? (
-                  <label style={{ marginRight: 10, fontWeight: 400, fontSize: '0.86rem' }}>
-                    순번{' '}
-                    <input
-                      type="text"
-                      inputMode="text"
-                      pattern="[0-9]+(-[0-9]+)?"
-                      title="숫자 순번 또는 voice-순번(예: 5-6)"
-                      style={{ width: 56, marginLeft: 2 }}
-                      value={playOrderInputValue(el)}
-                      onChange={(e) => {
-                        setPlayOrderDraft((prev) => ({ ...prev, [el.index]: e.target.value }));
-                      }}
-                      onBlur={(e) => commitPlayOrder(el, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          commitPlayOrder(el, (e.target as HTMLInputElement).value);
-                          (e.target as HTMLInputElement).blur();
-                        }
-                      }}
-                    />
-                  </label>
-                ) : null}
-                {elementTitle(el, noteEls, { partId, staffLabel, editStaffWithinPart })}
-              </div>
-              <MeasureNoteEditor
-                el={el}
-                noteEls={noteEls}
-                jobId={jobId}
-                partId={partId}
-                measureMxl={measureMxl}
-                previewRevision={previewRevision}
-                onFix={pushFix}
-                pendingArticulationForNote={pendingArticulationForNote}
-              />
-              <div className="omr-measure-insert-row">
-                <span className="omr-measure-insert-label">이 위치 뒤에 추가:</span>
-                <button
-                  type="button"
-                  className="btn-muted omr-measure-insert-btn"
-                  onClick={() => {
-                    const anchor = resolveAfterNoteIndex(el, elements);
-                    setInsertAfter(anchor);
-                    setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
-                    const anchorNote = anchor >= 0 ? noteEls.find((n) => n.index === anchor) : null;
-                    setFixMsg(
-                      anchor < 0
-                        ? '삽입 위치: 마디 앞 — 아래 삽입 폼에서 확인하세요.'
-                        : `삽입 위치: #${anchor} ${anchorNote ? noteAnchorLabel(anchorNote) : ''} 뒤`,
-                    );
-                  }}
-                >
-                  여기 뒤
-                </button>
-              </div>
-            </li>
-          ))}
+          {displayElements.map((el) =>
+            isMeasureClefEl(el) ? (
+              <li key={`clef-${el.clefIndex}`}>
+                <div className="omr-measure-element-title">
+                  {elementTitle(el, noteEls, { partId, staffLabel, editStaffWithinPart })}
+                </div>
+                <div className="omr-measure-insert-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="omr-hitl-fix-btn"
+                    onClick={() => {
+                      pushFix({
+                        kind: 'removeClef',
+                        clefIndex: el.clefIndex,
+                        staff: el.staff ?? editStaffWithinPart ?? 1,
+                        detail: `clef#${el.clefIndex} 삭제`,
+                      });
+                      setFixMsg(
+                        `음자리표 clef#${el.clefIndex} 삭제 대기 → 「MXL에 반영·미리보기」`,
+                      );
+                    }}
+                  >
+                    음자리표 삭제
+                  </button>
+                  <span className="omr-measure-insert-label">이 위치 뒤에 추가:</span>
+                  <button
+                    type="button"
+                    className="btn-muted omr-measure-insert-btn"
+                    onClick={() => {
+                      setInsertAfter(el.afterNoteIndex);
+                      setInsertAfterClef(el.clefIndex);
+                      setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
+                      setFixMsg(
+                        `삽입 위치: 음자리표 clef#${el.clefIndex} 뒤 — 아래 폼에서 음표·쉼표를 넣으세요.`,
+                      );
+                    }}
+                  >
+                    여기 뒤
+                  </button>
+                </div>
+              </li>
+            ) : (
+              <li key={`note-${el.index}`}>
+                <div className="omr-measure-element-title">
+                  {!el.chord ? (
+                    <label style={{ marginRight: 10, fontWeight: 400, fontSize: '0.86rem' }}>
+                      순번{' '}
+                      <input
+                        type="text"
+                        inputMode="text"
+                        pattern="[0-9]+(-[0-9]+)?"
+                        title="숫자 순번 또는 voice-순번(예: 5-6)"
+                        style={{ width: 56, marginLeft: 2 }}
+                        value={playOrderInputValue(el)}
+                        onChange={(e) => {
+                          setPlayOrderDraft((prev) => ({ ...prev, [el.index]: e.target.value }));
+                        }}
+                        onBlur={(e) => commitPlayOrder(el, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitPlayOrder(el, (e.target as HTMLInputElement).value);
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                  {elementTitle(el, noteEls, { partId, staffLabel, editStaffWithinPart })}
+                </div>
+                <MeasureNoteEditor
+                  el={el}
+                  noteEls={noteEls}
+                  jobId={jobId}
+                  partId={partId}
+                  measureMxl={measureMxl}
+                  previewRevision={previewRevision}
+                  onFix={pushFix}
+                  pendingArticulationForNote={pendingArticulationForNote}
+                />
+                <div className="omr-measure-insert-row">
+                  <span className="omr-measure-insert-label">이 위치 뒤에 추가:</span>
+                  <button
+                    type="button"
+                    className="btn-muted omr-measure-insert-btn"
+                    onClick={() => {
+                      const anchor = resolveAfterNoteIndex(el, elements);
+                      setInsertAfter(anchor);
+                      setInsertAfterClef(null);
+                      setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
+                      const anchorNote = anchor >= 0 ? noteEls.find((n) => n.index === anchor) : null;
+                      setFixMsg(
+                        anchor < 0
+                          ? '삽입 위치: 마디 앞 — 아래 삽입 폼에서 확인하세요.'
+                          : `삽입 위치: #${anchor} ${anchorNote ? noteAnchorLabel(anchorNote) : ''} 뒤`,
+                      );
+                    }}
+                  >
+                    여기 뒤
+                  </button>
+                </div>
+              </li>
+            ),
+          )}
         </ol>
       )}
 
       <InsertElementForm
         afterNoteIndex={insertAfter}
+        afterClefIndex={insertAfterClef}
         staffDefault={insertStaff}
         noteEls={noteEls}
         pendingLeader={pendingInsertLeader}
-        onInsertRest={(afterNoteIndex, noteType, dotCount, staff, voice) => {
+        onInsertRest={(afterNoteIndex, noteType, dotCount, staff, voice, afterClefIndex) => {
           setPendingInsertLeader(null);
-          pushFix({ kind: 'insertRest', afterNoteIndex, noteType, dotCount, staff, voice });
+          pushFix({
+            kind: 'insertRest',
+            afterNoteIndex,
+            afterClefIndex: afterClefIndex ?? undefined,
+            noteType,
+            dotCount,
+            staff,
+            voice,
+          });
         }}
-        onInsertNote={(afterNoteIndex, pitchStep, pitchOctave, noteType, dotCount, staff, pitchAlter, extraChordMembers, voice) => {
+        onInsertNote={(
+          afterNoteIndex,
+          pitchStep,
+          pitchOctave,
+          noteType,
+          dotCount,
+          staff,
+          pitchAlter,
+          extraChordMembers,
+          voice,
+          afterClefIndex,
+        ) => {
           const leaderIdx = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
           const leaderLabel = formatPitchLabel(pitchStep, pitchOctave, pitchAlter);
           pushFix({
             kind: 'insertNote',
             afterNoteIndex,
+            afterClefIndex: afterClefIndex ?? undefined,
             pitchStep,
             pitchOctave,
             pitchAlter,
@@ -2267,14 +2362,16 @@ export function OmrMeasureEditor({
             );
           }
         }}
-        onInsertNoteSequence={(notes, afterNoteIndex, staff, voice) => {
+        onInsertNoteSequence={(notes, afterNoteIndex, staff, voice, afterClefIndex) => {
           setPendingInsertLeader(null);
           let after = afterNoteIndex;
+          let clefAfter: number | null | undefined = afterClefIndex;
           const labels: string[] = [];
           for (const n of notes) {
             pushFix({
               kind: 'insertNote',
               afterNoteIndex: after,
+              afterClefIndex: clefAfter ?? undefined,
               pitchStep: n.step,
               pitchOctave: n.octave,
               pitchAlter: n.pitchAlter,
@@ -2285,6 +2382,7 @@ export function OmrMeasureEditor({
             });
             labels.push(formatPitchLabel(n.step, n.octave, n.pitchAlter));
             after = after < 0 ? 0 : after + 1;
+            clefAfter = null; // 이후 음은 직전 삽입 음 뒤
           }
           setFixMsg(
             `음표 ${notes.length}개 연속 추가 대기 (${labels.join(' → ')}) → 「MXL에 반영·미리보기」`,
@@ -2302,13 +2400,19 @@ export function OmrMeasureEditor({
             `화음 음 ${formatPitchLabel(pitchStep, pitchOctave, pitchAlter)} 대기 (리더 #${leaderNoteIndex} 예정) → 「MXL에 반영·미리보기」`,
           );
         }}
-        onInsertClef={(afterNoteIndex, clefSign, staff) => {
+        onInsertClef={(afterNoteIndex, clefSign, staff, afterClefIndex) => {
           setPendingInsertLeader(null);
           const clefName = clefSign === 'G' ? '높은음자리표(𝄞)' : '낮은음자리표(𝄢)';
-          const where = afterNoteIndex < 0 ? '마디 앞' : `#${afterNoteIndex} 뒤`;
+          const where =
+            afterClefIndex != null
+              ? `clef#${afterClefIndex} 뒤`
+              : afterNoteIndex < 0
+                ? '마디 앞'
+                : `#${afterNoteIndex} 뒤`;
           pushFix({
             kind: 'insertClef',
             afterNoteIndex,
+            afterClefIndex: afterClefIndex ?? undefined,
             clefSign,
             clefLine: clefSign === 'G' ? 2 : 4,
             staff,
@@ -3966,6 +4070,7 @@ type SequenceNoteDraft = {
 
 function InsertElementForm({
   afterNoteIndex,
+  afterClefIndex = null,
   staffDefault,
   noteEls,
   pendingLeader,
@@ -3977,11 +4082,19 @@ function InsertElementForm({
   onInsertClef,
 }: {
   afterNoteIndex: number;
+  afterClefIndex?: number | null;
   staffDefault: number;
   noteEls: MeasureNoteEl[];
   pendingLeader: PendingInsertLeader | null;
   onClearPendingLeader: () => void;
-  onInsertRest: (after: number, type: string, dots: number, staff: number, voice?: string) => void;
+  onInsertRest: (
+    after: number,
+    type: string,
+    dots: number,
+    staff: number,
+    voice?: string,
+    afterClef?: number | null,
+  ) => void;
   onInsertNote: (
     after: number,
     step: string,
@@ -3992,6 +4105,7 @@ function InsertElementForm({
     pitchAlter: number | undefined,
     extraChordMembers: Array<{ step: string; octave: number; alter?: number }>,
     voice?: string,
+    afterClef?: number | null,
   ) => void;
   onInsertNoteSequence: (
     notes: Array<{
@@ -4004,6 +4118,7 @@ function InsertElementForm({
     after: number,
     staff: number,
     voice?: string,
+    afterClef?: number | null,
   ) => void;
   onInsertChordMember: (
     leaderNoteIndex: number,
@@ -4011,7 +4126,7 @@ function InsertElementForm({
     octave: number,
     pitchAlter: number | undefined,
   ) => void;
-  onInsertClef: (after: number, sign: 'G' | 'F', staff: number) => void;
+  onInsertClef: (after: number, sign: 'G' | 'F', staff: number, afterClef?: number | null) => void;
 }) {
   const [restTypeValueSel, setRestTypeValueSel] = useState(noteTypeValue('quarter', 0));
   const [noteTypeValueSel, setNoteTypeValueSel] = useState(noteTypeValue('eighth', 0));
@@ -4030,7 +4145,12 @@ function InsertElementForm({
     setStaff(staffDefault);
   }, [staffDefault]);
 
-  const afterLabel = afterNoteIndex < 0 ? '마디 맨 앞' : `음·쉼표 #${afterNoteIndex} 뒤 (staff ${staff})`;
+  const afterLabel =
+    afterClefIndex != null
+      ? `음자리표 clef#${afterClefIndex} 뒤 (staff ${staff})`
+      : afterNoteIndex < 0
+        ? '마디 맨 앞'
+        : `음·쉼표 #${afterNoteIndex} 뒤 (staff ${staff})`;
   const predictedLeader = predictLeaderIndexAfterInsert(noteEls, afterNoteIndex);
   const sequenceMode = extraNotes.length > 0;
 
@@ -4085,7 +4205,7 @@ function InsertElementForm({
           };
         }),
       ];
-      onInsertNoteSequence(seq, afterNoteIndex, staff, voice);
+      onInsertNoteSequence(seq, afterNoteIndex, staff, voice, afterClefIndex);
       setExtraNotes([]);
       return;
     }
@@ -4094,7 +4214,18 @@ function InsertElementForm({
       octave: c.octave,
       alter: pitchAlterFromOption(c.alter),
     }));
-    onInsertNote(afterNoteIndex, step, octave, type, dots, staff, pitchAlterFromOption(insertAlter), extras, voice);
+    onInsertNote(
+      afterNoteIndex,
+      step,
+      octave,
+      type,
+      dots,
+      staff,
+      pitchAlterFromOption(insertAlter),
+      extras,
+      voice,
+      afterClefIndex,
+    );
     setExtraChords([]);
   };
 
@@ -4164,14 +4295,14 @@ function InsertElementForm({
         <button
           type="button"
           className="omr-hitl-fix-btn"
-          onClick={() => onInsertClef(afterNoteIndex, 'G', staff)}
+          onClick={() => onInsertClef(afterNoteIndex, 'G', staff, afterClefIndex)}
         >
           𝄞 높은음자리표
         </button>
         <button
           type="button"
           className="omr-hitl-fix-btn"
-          onClick={() => onInsertClef(afterNoteIndex, 'F', staff)}
+          onClick={() => onInsertClef(afterNoteIndex, 'F', staff, afterClefIndex)}
         >
           𝄢 낮은음자리표
         </button>
@@ -4200,7 +4331,7 @@ function InsertElementForm({
           className="omr-hitl-fix-btn"
           onClick={() => {
             const { type, dots } = parseNoteTypeValue(restTypeValueSel);
-            onInsertRest(afterNoteIndex, type, dots, staff, voice);
+            onInsertRest(afterNoteIndex, type, dots, staff, voice, afterClefIndex);
           }}
         >
           쉼표 추가

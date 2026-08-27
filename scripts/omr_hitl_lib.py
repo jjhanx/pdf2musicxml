@@ -1687,10 +1687,32 @@ def _middle_line_diatonic(clef_sign: str, clef_line: int = 2) -> int:
     return 4 * 7 + 6  # B4 treble
 
 
+def _apply_clef_from_attributes(
+    attrs: ET.Element, ns: str, staff_n: int, clef_sign: str, clef_line: int
+) -> tuple[str, int]:
+    for clef in attrs.findall(_q(ns, "clef")):
+        num = clef.get("number")
+        if num and num.isdigit() and int(num) != staff_n:
+            continue
+        if num is None and staff_n != 1:
+            continue
+        sign_el = clef.find(_q(ns, "sign"))
+        line_el = clef.find(_q(ns, "line"))
+        if sign_el is not None and sign_el.text:
+            clef_sign = sign_el.text.strip()
+        if line_el is not None and line_el.text and line_el.text.strip().isdigit():
+            clef_line = int(line_el.text.strip())
+    return clef_sign, clef_line
+
+
 def _clef_for_note_in_part(
     part: ET.Element | None, measure: ET.Element | None, note: ET.Element, ns: str
 ) -> tuple[str, int]:
-    """직전 attributes clef — staff number에 맞추고 없으면 G/2."""
+    """음표 직전까지의 attributes clef — staff number에 맞추고 없으면 G/2.
+
+    같은 마디 뒤쪽 mid clef(F→G 등)를 쓰면 앞쪽 짧은 쉼표가 잘못된 중선(B4)에
+    고정되어 오선 밖으로 밀린다.
+    """
     staff_n = _note_staff_number(note, ns) or 1
     clef_sign, clef_line = "G", 2
     measures: list[ET.Element] = []
@@ -1702,19 +1724,21 @@ def _clef_for_note_in_part(
     elif measure is not None:
         measures = [measure]
     for m in measures:
+        is_current = measure is not None and m is measure
+        if is_current:
+            for child in list(m):
+                if child is note:
+                    break
+                if _local(child) != "attributes":
+                    continue
+                clef_sign, clef_line = _apply_clef_from_attributes(
+                    child, ns, staff_n, clef_sign, clef_line
+                )
+            continue
         for attrs in m.findall(_q(ns, "attributes")):
-            for clef in attrs.findall(_q(ns, "clef")):
-                num = clef.get("number")
-                if num and num.isdigit() and int(num) != staff_n:
-                    continue
-                if num is None and staff_n != 1:
-                    continue
-                sign_el = clef.find(_q(ns, "sign"))
-                line_el = clef.find(_q(ns, "line"))
-                if sign_el is not None and sign_el.text:
-                    clef_sign = sign_el.text.strip()
-                if line_el is not None and line_el.text and line_el.text.strip().isdigit():
-                    clef_line = int(line_el.text.strip())
+            clef_sign, clef_line = _apply_clef_from_attributes(
+                attrs, ns, staff_n, clef_sign, clef_line
+            )
     return clef_sign, clef_line
 
 

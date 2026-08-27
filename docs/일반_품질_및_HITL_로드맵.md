@@ -46,7 +46,7 @@ pm2 logs pdf2mxl --lines 200 --nostream | grep -E "Part labels saved|inject_ocr|
 
 3단계 `omr-work.zip` 업로드가 **413 Request Entity Too Large**(nginx HTML)면 Node가 아니라 **앞단 nginx 1MB 한도**입니다. `client_max_body_size 256m;` 후 `sudo nginx -s reload`. ZIP이 ~100MB인 이유는 `input.pdf`와 같은 `deskewed.pdf`가 중복 포함된 경우가 많습니다.
 
-피아노 PL처럼 같은 오선에 voice가 둘이면, 미리보기에서 짧은 쉼표는 음자리표 중선에 걸칩니다(F=D3). 강력 새로고침 후 해당 마디를 다시 보면 됩니다.
+피아노 PL처럼 같은 오선에 voice가 둘이면, 미리보기에서 짧은 쉼표는 **그 쉼표 시점**의 음자리표 중선에 걸칩니다(F=D3). 같은 마디 뒤 mid G가 있어도 앞쪽 쉼표는 F 중선 유지. 강력 새로고침 후 해당 마디를 다시 보면 됩니다.
 
 ### B. 1단계 — clean_score 만들 때 (폰트 strip)
 

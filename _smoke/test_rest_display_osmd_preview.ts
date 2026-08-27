@@ -61,6 +61,31 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
         <duration>32</duration><voice>6</voice><type>whole</type><staff>2</staff>
       </note>
     </measure>
+    <measure number="5">
+      <attributes>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+        <clef number="2"><sign>F</sign><line>4</line></clef>
+        <staves>2</staves>
+      </attributes>
+      <note>
+        <rest><display-step>F</display-step><display-octave>3</display-octave></rest>
+        <duration>4</duration><voice>5</voice><type>eighth</type><staff>2</staff>
+      </note>
+      <note>
+        <pitch><step>E</step><octave>3</octave></pitch>
+        <duration>4</duration><voice>5</voice><type>eighth</type><staff>2</staff>
+      </note>
+      <attributes><clef number="2"><sign>G</sign><line>2</line></clef></attributes>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <duration>8</duration><voice>5</voice><type>quarter</type><staff>2</staff>
+      </note>
+      <backup><duration>16</duration></backup>
+      <note>
+        <pitch><step>A</step><octave>2</octave></pitch>
+        <duration>16</duration><voice>6</voice><type>half</type><staff>2</staff>
+      </note>
+    </measure>
   </part>
 </score-partwise>`;
 
@@ -79,12 +104,25 @@ if (m2.length !== 1 || m2[0].step != null) {
 }
 
 const m4 = restDisplay(fixed, (n) => {
+  if (n.parentElement?.getAttribute('number') !== '4') return false;
   const staff = [...n.children].find((c) => c.localName === 'staff')?.textContent?.trim();
   const type = [...n.children].find((c) => c.localName === 'type')?.textContent?.trim();
   return staff === '2' && type === 'eighth' && [...n.children].some((c) => c.localName === 'rest');
 });
 if (m4.length !== 1 || m4[0].step !== 'D' || m4[0].oct !== '3') {
   console.error('polyphonic PL eighth rest should pin to bass middle D3', m4);
+  process.exit(1);
+}
+
+const m5 = restDisplay(fixed, (n) => {
+  const measure = n.parentElement;
+  if (measure?.getAttribute('number') !== '5') return false;
+  const staff = [...n.children].find((c) => c.localName === 'staff')?.textContent?.trim();
+  const type = [...n.children].find((c) => c.localName === 'type')?.textContent?.trim();
+  return staff === '2' && type === 'eighth' && [...n.children].some((c) => c.localName === 'rest');
+});
+if (m5.length !== 1 || m5[0].step !== 'D' || m5[0].oct !== '3') {
+  console.error('opening PL eighth rest before mid G must stay on F middle D3 (not B4)', m5);
   process.exit(1);
 }
 

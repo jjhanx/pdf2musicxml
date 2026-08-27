@@ -121,22 +121,26 @@ function repairMissingNoteTypesInPart(part: Element): void {
   }
 }
 
+function applyClefFromAttributes(
+  attrs: Element,
+  clefByStaff: Map<number, { sign: string; line: number }>,
+): void {
+  for (const clef of [...attrs.children]) {
+    if (xmlLocalName(clef) !== 'clef') continue;
+    const numRaw = clef.getAttribute('number');
+    const staffN = numRaw && /^\d+$/.test(numRaw) ? parseInt(numRaw, 10) : 1;
+    const sign = childByLocal(clef, 'sign')?.textContent?.trim() || 'G';
+    const lineRaw = childByLocal(clef, 'line')?.textContent?.trim() || '';
+    const line = /^\d+$/.test(lineRaw) ? parseInt(lineRaw, 10) : sign.toUpperCase() === 'F' ? 4 : 2;
+    clefByStaff.set(staffN, { sign, line });
+  }
+}
+
 function repairRestDisplayInPart(part: Element): void {
+  // Persist across measures so mid-measure clefs do not leak backward onto earlier rests.
   const clefByStaff = new Map<number, { sign: string; line: number }>();
   for (const measure of [...part.children]) {
     if (xmlLocalName(measure) !== 'measure') continue;
-    for (const child of [...measure.children]) {
-      if (xmlLocalName(child) !== 'attributes') continue;
-      for (const clef of [...child.children]) {
-        if (xmlLocalName(clef) !== 'clef') continue;
-        const numRaw = clef.getAttribute('number');
-        const staffN = numRaw && /^\d+$/.test(numRaw) ? parseInt(numRaw, 10) : 1;
-        const sign = childByLocal(clef, 'sign')?.textContent?.trim() || 'G';
-        const lineRaw = childByLocal(clef, 'line')?.textContent?.trim() || '';
-        const line = /^\d+$/.test(lineRaw) ? parseInt(lineRaw, 10) : sign.toUpperCase() === 'F' ? 4 : 2;
-        clefByStaff.set(staffN, { sign, line });
-      }
-    }
 
     const voicesByStaff = new Map<number, Set<string>>();
     for (const note of [...measure.children]) {
@@ -148,13 +152,20 @@ function repairRestDisplayInPart(part: Element): void {
       voicesByStaff.set(staffN, set);
     }
 
-    for (const note of [...measure.children]) {
-      if (xmlLocalName(note) !== 'note') continue;
-      const restEl = childByLocal(note, 'rest');
+    // Document order: apply clef only when reached, so a later mid clef (e.g. F→G)
+    // does not pin an opening short rest to the wrong staff middle (B4 on bass).
+    for (const child of [...measure.children]) {
+      const tag = xmlLocalName(child);
+      if (tag === 'attributes') {
+        applyClefFromAttributes(child, clefByStaff);
+        continue;
+      }
+      if (tag !== 'note') continue;
+      const restEl = childByLocal(child, 'rest');
       if (!restEl) continue;
-      const typeName = childByLocal(note, 'type')?.textContent?.trim() || '';
+      const typeName = childByLocal(child, 'type')?.textContent?.trim() || '';
       const measureRest = restEl.getAttribute('measure') === 'yes';
-      const staffN = noteStaffN(note);
+      const staffN = noteStaffN(child);
       const polyphonic = (voicesByStaff.get(staffN)?.size ?? 0) >= 2;
       if (SHORT_REST_TYPES.has(typeName) && polyphonic) {
         const clef = clefByStaff.get(staffN) ?? { sign: 'G', line: 2 };
@@ -172,8 +183,9 @@ function repairRestDisplayInPart(part: Element): void {
 /**
  * OSMD/HITL 미리보기 전용.
  * 온·2분·마디전체 쉼의 과대 display-step은 지운다.
- * 같은 오선에 voice가 둘 이상인 짧은 쉼은 중선(G=B4, F=D3)에 고정한다.
- * (힌트를 지우면 OSMD가 윗성부 쉼표를 오선 밖으로 밀어 올린다.)
+ * 같은 오선에 voice가 둘 이상인 짧은 쉼은 **쉼표 시점** 음자리표 중선(G=B4, F=D3)에 고정한다.
+ * (힌트를 지우면 OSMD가 윗성부 쉼표를 오선 밖으로 밀어 올린다.
+ *  마디 뒤 mid clef를 쓰면 앞쪽 쉼표가 잘못된 중선으로 고정되므로 document order로 clef 적용.)
  */
 export function repairRestDisplayForOsmdPreview(xml: string): string {
   try {

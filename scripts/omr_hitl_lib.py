@@ -3646,29 +3646,160 @@ def dedupe_identical_chord_pitches_in_root(root: ET.Element) -> int:
     return n
 
 
+def _collect_voice_forward_prefix(measure: ET.Element, ns: str) -> dict[str, int]:
+    """voice → `<forward>` 누적 duration (backup 뒤 이어지는 층)."""
+    out: dict[str, int] = {}
+    last_voice = "1"
+    for el in list(measure):
+        loc = _local(el)
+        if loc == "forward":
+            v = _timeline_voice(el, last_voice)
+            out[v] = out.get(v, 0) + _timeline_el_duration(el, ns)
+        elif loc == "note":
+            last_voice = _note_voice_staff(el, ns)[0]
+    return out
+
+
+def _staff_has_forward_for_voice(measure: ET.Element, ns: str, voice: str) -> bool:
+    last_voice = "1"
+    for el in list(measure):
+        loc = _local(el)
+        if loc == "forward" and _timeline_voice(el, last_voice) == voice:
+            return True
+        if loc == "note":
+            last_voice = _note_voice_staff(el, ns)[0]
+    return False
+
+
+def _halve_note_duration_and_type(note: ET.Element, ns: str, divisions: int) -> bool:
+    """eighth→16th 등 duration·type을 절반으로(OMR 2배 박자 오인 보정)."""
+    if note.find(_q(ns, "rest")) is not None:
+        return False
+    dur = _note_duration(note, ns)
+    if dur <= 1 or dur % 2 != 0:
+        return False
+    new_dur = dur // 2
+    type_el = note.find(_q(ns, "type"))
+    note_type = (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+    halve_map = {
+        "whole": "half",
+        "half": "quarter",
+        "quarter": "eighth",
+        "eighth": "16th",
+        "16th": "32nd",
+        "32nd": "64th",
+    }
+    new_type = halve_map.get(note_type) or _guess_type_for_duration(new_dur, divisions)
+    if not new_type:
+        return False
+    dur_el = note.find(_q(ns, "duration"))
+    if dur_el is not None:
+        dur_el.text = str(new_dur)
+    if type_el is None:
+        type_el = ET.SubElement(note, _q(ns, "type"))
+    type_el.text = new_type
+    dot_count = len(note.findall(_q(ns, "dot")))
+    if dot_count:
+        exact = _duration_for_type_dots(new_type, divisions, dot_count)
+        if exact != new_dur:
+            for dot in note.findall(_q(ns, "dot")):
+                note.remove(dot)
+    return True
+
+
+def _merge_forward_coarse_layer_on_staff(
+    measure: ET.Element, ns: str, staff: str, part: ET.Element | None = None
+) -> bool:
+    """backup+forward 뒤 16분 층 + 앞쪽 8분 층(2배 박자 OMR 오인) → 단일 16분 voice.
+
+    예: PR m28 — v1 eighth run + v2 forward 뒤 16th run을 한 voice로.
+    """
+    meta = _staff_voice_layer_meta(measure, ns, staff)
+    if len(meta) != 2:
+        return False
+    voice_list = sorted(meta.keys(), key=lambda v: int(v) if v.isdigit() else 999)
+    primary, secondary = voice_list[0], voice_list[1]
+    p_start, _p_dur, p_leaders = meta[primary]
+    s_start, s_dur, s_leaders = meta[secondary]
+    if p_start != 0 or s_start <= 0 or s_dur <= 0:
+        return False
+    if not _staff_has_forward_for_voice(measure, ns, secondary):
+        return False
+    if not p_leaders or not s_leaders:
+        return False
+
+    divisions, _beats, _beat_type = _measure_divisions_beats(measure, ns, part)
+    sixteenth_dur = max(1, _duration_for_type_dots("16th", divisions, 0))
+    eighth_dur = max(1, _duration_for_type_dots("eighth", divisions, 0))
+
+    def _note_type_name(note: ET.Element) -> str:
+        type_el = note.find(_q(ns, "type"))
+        return (type_el.text or "").strip() if type_el is not None and type_el.text else ""
+
+    if not any(_note_type_name(n) == "16th" for n in s_leaders):
+        return False
+    quarter_dur = max(1, _duration_for_type_dots("quarter", divisions, 0))
+    if any(_note_duration(n, ns) > quarter_dur for n in s_leaders):
+        return False
+
+    onsets = _musicxml_leader_onsets(measure, ns)
+    changed = False
+    for note in list(p_leaders):
+        onset = onsets.get(note, 0)
+        if onset >= s_start:
+            if note in list(measure):
+                measure.remove(note)
+                changed = True
+            continue
+        if _halve_note_duration_and_type(note, ns, divisions):
+            changed = True
+        else:
+            return False
+
+    notes = list_note_elements(measure, ns)
+    for note in notes:
+        v, st = _note_voice_staff(note, ns)
+        if st != staff or v != secondary:
+            continue
+        _set_note_voice_staff(note, ns, primary, staff)
+        changed = True
+
+    if changed:
+        _rebuild_staff_voice_block(measure, ns, staff, primary_voice=primary)
+    return changed
+
+
 def _compact_default_x_by_staff(
     measure: ET.Element, ns: str, part: ET.Element | None = None
 ) -> bool:
-    """voice timeline 시작이 같은 음은 같은 default-x — 동시 시작(다른 박자·줄기) 정렬."""
+    """Musical onset(backup/forward 포함 전역 cursor) → default-x.
+
+    per-voice local onset(backup 직후 0)을 쓰면 다른 voice 층이 같은 x(32)에
+    겹쳐 그려져 OSMD·연주순번·parallel repair가 연쇄 오류를 낸다.
+    """
     notes = list_note_elements(measure, ns)
+    onsets = _musicxml_leader_onsets(measure, ns)
     divisions, beats, beat_type = _measure_divisions_beats(measure, ns, part)
     measure_len = max(1, _measure_length_units(divisions, beats, beat_type))
     changed = False
     base_x = 32.0
     span = 400.0
     for staff in ("1", "2"):
-        timed = _staff_timed_leader_starts(measure, ns, staff)
-        if not timed:
-            continue
-        for ni, start in timed:
-            if _is_grace_or_cue(notes[ni], ns):
+        staff_n = int(staff)
+        for note in notes:
+            if (_note_staff_number(note, ns) or 1) != staff_n:
                 continue
-            x = base_x + (min(start, measure_len) / measure_len * span)
+            if note.find(_q(ns, "chord")) is not None or _is_grace_or_cue(note, ns):
+                continue
+            start = onsets.get(note)
+            if start is None:
+                continue
+            x = base_x + (min(max(0, start), measure_len) / measure_len * span)
             new_x = f"{x:.2f}"
-            group = [notes[ni], *[notes[j] for j in _chord_follower_indices(notes, ns, ni)]]
-            for note in group:
-                if note.get("default-x") != new_x:
-                    note.set("default-x", new_x)
+            group = [note, *[notes[j] for j in _chord_follower_indices(notes, ns, notes.index(note))]]
+            for n in group:
+                if n.get("default-x") != new_x:
+                    n.set("default-x", new_x)
                     changed = True
     return changed
 
@@ -6327,7 +6458,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             staff = str(int(fix.get("staff", 1)))
         except (TypeError, ValueError):
             staff = "1"
-        return _repair_parallel_onsets_on_staff(measure, ns, str(staff))
+        return _repair_parallel_onsets_on_staff(measure, ns, str(staff), allow_chord_merge=True)
 
     if kind == "linkParallelOnsets":
         try:
@@ -7649,6 +7780,7 @@ def _apply_parallel_groups_to_staff(
     notes: list[ET.Element],
     *,
     keeper_by_doc_index: bool = False,
+    allow_chord_merge: bool = False,
 ) -> bool:
     if len(groups) < 2:
         return False
@@ -7661,7 +7793,7 @@ def _apply_parallel_groups_to_staff(
         keeper_i = _pick_parallel_keeper_by_doc_index(groups, notes)
     else:
         keeper_i = _pick_parallel_keeper_index(groups, notes, ns, staff, x_val)
-    if len(set(durs)) == 1:
+    if len(set(durs)) == 1 and allow_chord_merge:
         keeper_pitches: set[tuple[str, int, int]] = set()
         for note in groups[keeper_i]:
             key = _note_pitch_key(note, ns)
@@ -8244,8 +8376,13 @@ def _note_onset_in_voice_layer(
     return 0
 
 
-def _repair_parallel_onsets_on_staff(measure: ET.Element, ns: str, staff: str) -> bool:
-    """같은 staff·voice·default-x에서 박자만 다른 음 → 보조 voice, 같으면 `<chord/>`."""
+def _repair_parallel_onsets_on_staff(
+    measure: ET.Element, ns: str, staff: str, *, allow_chord_merge: bool = False
+) -> bool:
+    """같은 staff·voice·default-x에서 박자만 다른 음 → 보조 voice.
+
+    같은 박자 병합(`<chord/>`)은 linkParallelOnsets(allow_chord_merge=True)에서만.
+    """
     notes = [
         n
         for n in list_note_elements(measure, ns)
@@ -8271,7 +8408,9 @@ def _repair_parallel_onsets_on_staff(measure: ET.Element, ns: str, staff: str) -
     for _x_val, grps in clusters:
         if len(grps) < 2:
             continue
-        if _apply_parallel_groups_to_staff(measure, ns, staff, grps, notes):
+        if _apply_parallel_groups_to_staff(
+            measure, ns, staff, grps, notes, allow_chord_merge=allow_chord_merge
+        ):
             changed = True
     return changed
 
@@ -8365,6 +8504,7 @@ def _rebuild_staff_voice_block(
 
 def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
     """backup·다중 voice가 있는 마디 — 같은 (voice, staff) 음표들을 연속된 타임라인 스트림으로 통합 및 정렬."""
+    voice_forward = _collect_voice_forward_prefix(measure, ns)
     start_elements: list[ET.Element] = []
     end_elements: list[ET.Element] = []
     note_attachments: dict[ET.Element, list[ET.Element]] = {}
@@ -8455,6 +8595,12 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
                 d_el = ET.SubElement(b_el, _q(ns, "duration"))
                 d_el.text = str(prev_voice_dur)
                 measure.append(b_el)
+                fwd_dur = voice_forward.get(v, 0)
+                if fwd_dur > 0:
+                    fwd_el = ET.Element(_q(ns, "forward"))
+                    ET.SubElement(fwd_el, _q(ns, "duration")).text = str(fwd_dur)
+                    ET.SubElement(fwd_el, _q(ns, "voice")).text = v
+                    measure.append(fwd_el)
             elif not first_staff:
                 b_el = ET.Element(_q(ns, "backup"))
                 d_el = ET.SubElement(b_el, _q(ns, "duration"))
@@ -8796,6 +8942,8 @@ def rebuild_measure_timeline_clean(
     _dedupe_identical_pitches_in_chord_groups(measure, ns)
     _move_attributes_out_of_chord_groups(measure, ns)
     coalesce_spurious_parallel_voices_in_measure(measure, ns, part)
+    for staff in ("1", "2"):
+        _merge_forward_coarse_layer_on_staff(measure, ns, staff, part)
     for staff in ("1", "2"):
         _merge_staff_voices_if_non_overlapping(measure, ns, staff)
     for staff in ("1", "2"):

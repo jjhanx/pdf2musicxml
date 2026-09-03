@@ -1723,7 +1723,12 @@ function predictLeaderIndexAfterInsert(
   afterNoteIndex: number,
   afterClefIndex?: number | null,
   elements?: MeasureElement[],
+  staffN?: number,
 ): number {
+  const staffNotes =
+    staffN != null
+      ? noteEls.filter((n) => (n.staff ?? 1) === staffN)
+      : noteEls;
   if (afterClefIndex != null && elements?.length) {
     const clef = elements.find(
       (e): e is MeasureClefEl => e.elementKind === 'clef' && e.clefIndex === afterClefIndex,
@@ -1733,17 +1738,34 @@ function predictLeaderIndexAfterInsert(
       for (let i = clefPos + 1; i < elements.length; i += 1) {
         const el = elements[i]!;
         if (el.elementKind === 'note' && !el.chord) {
-          // clef 직후 기존 음 앞에 삽입 → 그 음 index를 차지
+          if (staffN != null && (el.staff ?? 1) !== staffN) continue;
           return el.index;
         }
       }
-      return clef.afterNoteIndex + 1;
+      const firstAfter = staffNotes
+        .filter((n) => n.index > clef.afterNoteIndex)
+        .sort((a, b) => a.index - b.index)[0];
+      return firstAfter?.index ?? clef.afterNoteIndex + 1;
     }
   }
-  if (afterNoteIndex < 0) return 0;
+  if (afterNoteIndex < 0) {
+    const first = [...staffNotes].sort((a, b) => a.index - b.index)[0];
+    return first?.index ?? noteEls.length;
+  }
   if (afterNoteIndex >= noteEls.length) return noteEls.length;
   const anchor = noteEls.find((n) => n.index === afterNoteIndex);
-  if (!anchor) return afterNoteIndex + 1;
+  if (!anchor) {
+    const lastOnStaff = [...staffNotes]
+      .filter((n) => n.index <= afterNoteIndex)
+      .sort((a, b) => b.index - a.index)[0];
+    return lastOnStaff ? lastOnStaff.index + 1 : (staffNotes[0]?.index ?? afterNoteIndex + 1);
+  }
+  if (staffN != null && (anchor.staff ?? 1) !== staffN) {
+    const lastOnStaff = [...staffNotes]
+      .filter((n) => n.index <= afterNoteIndex)
+      .sort((a, b) => b.index - a.index)[0];
+    return lastOnStaff ? lastOnStaff.index + 1 : (staffNotes[0]?.index ?? 0);
+  }
   const leaderIdx = chordLeaderIndex(anchor, noteEls);
   const sorted = [...noteEls].sort((a, b) => a.index - b.index);
   let endIdx = leaderIdx;
@@ -3318,6 +3340,7 @@ export function OmrMeasureEditor({
             afterNoteIndex,
             afterClefIndex,
             elements,
+            staff,
           );
           const leaderLabel = formatPitchLabel(pitchStep, pitchOctave, pitchAlter);
           pushFix({
@@ -3381,7 +3404,7 @@ export function OmrMeasureEditor({
               voice,
             });
             labels.push(formatPitchLabel(n.step, n.octave, n.pitchAlter));
-            after = after < 0 ? 0 : after + 1;
+            after = predictLeaderIndexAfterInsert(noteEls, after, clefAfter, elements, staff);
             clefAfter = null; // 이후 음은 직전 삽입 음 뒤
           }
           setFixMsg(
@@ -4378,7 +4401,7 @@ function MeasureNoteEditor({
         <button
           type="button"
           className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
-          onClick={() => onFix({ kind: 'removeNote', noteIndex: nextNote.index })}
+          onClick={() => onFix({ kind: 'removeNote', noteIndex: nextNote.index, staff: nextNote.staff ?? undefined })}
         >
           쉼표 뒤 잘못된 음표 #{nextNote.index} 삭제
         </button>
@@ -5118,7 +5141,9 @@ function MeasureNoteEditor({
       <button
         type="button"
         className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
-        onClick={() => onFix({ kind: 'removeNote', noteIndex: el.index })}
+        onClick={() =>
+          onFix({ kind: 'removeNote', noteIndex: el.index, staff: el.staff ?? undefined })
+        }
       >
         {el.hasGrace ? '꾸밈음 삭제' : el.chord ? '이 화음 음만 삭제' : '이 요소 삭제'}
       </button>
@@ -5203,7 +5228,7 @@ function InsertElementForm({
   const [restTypeValueSel, setRestTypeValueSel] = useState(noteTypeValue('quarter', 0));
   const [noteTypeValueSel, setNoteTypeValueSel] = useState(noteTypeValue('eighth', 0));
   const [staff, setStaff] = useState(staffDefault);
-  const [voice, setVoice] = useState('1');
+  const [voice, setVoice] = useState(staffDefault >= 2 ? '5' : '1');
   const [step, setStep] = useState('C');
   const [octave, setOctave] = useState(4);
   const [insertAlter, setInsertAlter] = useState<PitchAlterOption>('0');
@@ -5215,6 +5240,7 @@ function InsertElementForm({
 
   useEffect(() => {
     setStaff(staffDefault);
+    setVoice(staffDefault >= 2 ? '5' : '1');
   }, [staffDefault]);
 
   useEffect(() => {
@@ -5234,6 +5260,7 @@ function InsertElementForm({
     afterNoteIndex,
     afterClefIndex,
     elements,
+    staff,
   );
   const sequenceMode = extraNotes.length > 0;
 

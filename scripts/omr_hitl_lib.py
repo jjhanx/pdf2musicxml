@@ -1955,7 +1955,7 @@ def _infer_voice_stem_from_neighbors(
         candidates.append(notes[after_idx + 1])
     if after_idx - 1 >= 0:
         candidates.append(notes[after_idx - 1])
-    voice = "1"
+    voice = _voice_default_for_staff(notes, ns, staff_n)
     stem: str | None = None
     for note in candidates:
         st = _note_staff_number(note, ns)
@@ -2226,6 +2226,21 @@ def _insert_note_element(
                 if (_note_staff_number(child, ns) or 1) == staff_n:
                     measure.insert(children.index(child), new_el)
                     return
+            # 이 staff에 음이 아직 없음 — 다른 staff 앞에 꽂지 않고 마디 뒤(오른쪽 barline 앞)
+            insert_at = len(children)
+            last_note_i: int | None = None
+            for i, child in enumerate(children):
+                if _local(child) == "note":
+                    last_note_i = i
+                if _local(child) == "barline":
+                    loc = (child.get("location") or "right").strip().lower()
+                    if loc in ("right", ""):
+                        insert_at = i
+                        break
+            else:
+                insert_at = (last_note_i + 1) if last_note_i is not None else len(children)
+            measure.insert(insert_at, new_el)
+            return
         for child in children:
             if _local(child) == "note":
                 measure.insert(children.index(child), new_el)
@@ -2356,24 +2371,51 @@ def _insert_context_notes(
     ]
     anchor: ET.Element | None = None
     following: ET.Element | None = None
-    if 0 <= after_idx < len(notes):
+    if 0 <= after_idx < len(notes) and (_note_staff_number(notes[after_idx], ns) or 1) == staff_n:
         anchor = notes[after_idx]
-    if after_idx + 1 < len(notes):
-        following = notes[after_idx + 1]
+    for n in staff_notes:
+        try:
+            ni = notes.index(n)
+        except ValueError:
+            continue
+        if after_idx < 0 or ni > after_idx:
+            following = n
+            break
     return anchor, following, staff_notes
+
+
+def _remap_after_note_index_for_staff(
+    notes: list[ET.Element], ns: str, after_idx: int, staff_n: int
+) -> int:
+    """after_idx가 다른 staff 음(예: PL 편집인데 전역 #0=PR)이면 요청 staff의 삽입 앵커로."""
+    if after_idx < 0:
+        return -1
+    last_on_staff = -1
+    for i, n in enumerate(notes):
+        if (_note_staff_number(n, ns) or 1) != staff_n:
+            continue
+        if i <= after_idx:
+            last_on_staff = i
+        else:
+            break
+    if after_idx >= len(notes):
+        return last_on_staff
+    if (_note_staff_number(notes[after_idx], ns) or 1) == staff_n:
+        return after_idx
+    return last_on_staff
 
 
 def _resolve_insert_after_context(
     notes: list[ET.Element], ns: str, after_idx: int, staff_n: int
 ) -> tuple[int, int, ET.Element | None, ET.Element | None, list[ET.Element]]:
-    """「#n 뒤」삽입 — anchor staff·voice 상속, 화음 멤버면 그룹 끝 뒤, 다음 slice default-x."""
+    """「#n 뒤」삽입 — 요청 staff를 유지. 화음 멤버면 그룹 끝 뒤, 다음 slice default-x.
+
+    after_idx가 다른 staff(피아노 PR/PL 공유 마디)를 가리켜도 staff를 가로채지 않는다.
+    """
+    after_idx = _remap_after_note_index_for_staff(notes, ns, after_idx, staff_n)
     if after_idx < 0 or after_idx >= len(notes):
         anchor, following, staff_notes = _insert_context_notes(notes, ns, after_idx, staff_n)
         return after_idx, staff_n, anchor, following, staff_notes
-    anchor_note = notes[after_idx]
-    staff_from = _note_staff_number(anchor_note, ns)
-    if staff_from is not None:
-        staff_n = staff_from
     leader_idx = _chord_leader_index(notes, ns, after_idx)
     insert_after_idx = _chord_group_end_index(notes, ns, leader_idx)
     anchor = notes[insert_after_idx]
@@ -3792,29 +3834,38 @@ def _insert_chord_members_on_leader(
 
 
 def _order_fixes_for_stable_apply(fixes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """같은 마디 insertChordMember는 큰 leaderNoteIndex부터 — 앞쪽 삽입으로 인덱스가 밀리지 않게."""
-    chord_idxs = [i for i, f in enumerate(fixes) if f.get("kind") == "insertChordMember"]
-    if len(chord_idxs) < 2:
-        return fixes
-    by_measure: dict[tuple[str, str], list[tuple[int, dict[str, Any]]]] = {}
-    for i in chord_idxs:
-        f = fixes[i]
-        key = (str(f.get("partId") or ""), str(f.get("measureMxl") or ""))
-        by_measure.setdefault(key, []).append((i, f))
+    """같은 마디에서 인덱스 밀림을 줄이도록 재배치.
+
+    - insertChordMember: 큰 leaderNoteIndex부터 (앞쪽 삽입이 뒤 리더 인덱스를 밀지 않게)
+    - removeNote: 큰 noteIndex부터 (앞쪽 삭제가 뒤 인덱스·다른 staff 음을 삼키지 않게)
+    """
     out = list(fixes)
-    for group in by_measure.values():
-        if len(group) < 2:
-            continue
-        sorted_group = sorted(
-            group,
-            key=lambda t: (
-                -int(t[1].get("leaderNoteIndex", t[1].get("noteIndex", -1)) or -1),
-                t[0],
-            ),
-        )
-        positions = sorted(i for i, _ in group)
-        for pos, (_orig_i, fix) in zip(positions, sorted_group):
-            out[pos] = fix
+
+    def _reorder_kind(kind: str, index_key: str) -> None:
+        idxs = [i for i, f in enumerate(out) if f.get("kind") == kind]
+        if len(idxs) < 2:
+            return
+        by_measure: dict[tuple[str, str], list[tuple[int, dict[str, Any]]]] = {}
+        for i in idxs:
+            f = out[i]
+            key = (str(f.get("partId") or ""), str(f.get("measureMxl") or ""))
+            by_measure.setdefault(key, []).append((i, f))
+        for group in by_measure.values():
+            if len(group) < 2:
+                continue
+            sorted_group = sorted(
+                group,
+                key=lambda t: (
+                    -int(t[1].get(index_key, t[1].get("noteIndex", -1)) or -1),
+                    t[0],
+                ),
+            )
+            positions = sorted(i for i, _ in group)
+            for pos, (_orig_i, fix) in zip(positions, sorted_group):
+                out[pos] = fix
+
+    _reorder_kind("insertChordMember", "leaderNoteIndex")
+    _reorder_kind("removeNote", "noteIndex")
     return out
 
 
@@ -4081,12 +4132,17 @@ def _merge_forward_coarse_layer_on_staff(
 
 
 def _compact_default_x_by_staff(
-    measure: ET.Element, ns: str, part: ET.Element | None = None
+    measure: ET.Element,
+    ns: str,
+    part: ET.Element | None = None,
+    *,
+    staff: str | None = None,
 ) -> bool:
     """Musical onset(backup/forward 포함 전역 cursor) → default-x.
 
     per-voice local onset(backup 직후 0)을 쓰면 다른 voice 층이 같은 x(32)에
     겹쳐 그려져 OSMD·연주순번·parallel repair가 연쇄 오류를 낸다.
+    staff가 주어지면 그 오선만 갱신(PR 편집이 PL default-x를 다시 쓰지 않게).
     """
     notes = list_note_elements(measure, ns)
     onsets = _musicxml_leader_onsets(measure, ns)
@@ -4095,8 +4151,9 @@ def _compact_default_x_by_staff(
     changed = False
     base_x = 32.0
     span = 400.0
-    for staff in ("1", "2"):
-        staff_n = int(staff)
+    staffs = (staff,) if staff in ("1", "2") else ("1", "2")
+    for st in staffs:
+        staff_n = int(st)
         for note in notes:
             if (_note_staff_number(note, ns) or 1) != staff_n:
                 continue
@@ -7201,6 +7258,14 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if not (0 <= idx < len(notes)):
             return False
         note = notes[idx]
+        want_staff = fix.get("staff")
+        if want_staff not in (None, ""):
+            try:
+                want_n = int(want_staff)
+            except (TypeError, ValueError):
+                want_n = None
+            if want_n is not None and (_note_staff_number(note, ns) or 1) != want_n:
+                return False
         is_member = note.find(_q(ns, "chord")) is not None
         if not is_member:
             followers = [notes[j] for j in _chord_follower_indices(notes, ns, idx)]
@@ -10528,9 +10593,22 @@ def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> boo
 
 
 def rebuild_measure_timeline_clean(
-    measure: ET.Element, ns: str, part: ET.Element | None = None
+    measure: ET.Element,
+    ns: str,
+    part: ET.Element | None = None,
+    *,
+    staff: str | None = None,
 ) -> None:
-    """HITL 삽입 후 마디 timeline 정렬. 다중 voice·동시 시작(다른 박자) 보존."""
+    """HITL 삽입 후 마디 timeline 정렬. 다중 voice·동시 시작(다른 박자) 보존.
+
+    staff='1'|'2'이면 그 오선 블록만 재구성 — 피아노 PR 편집이 PL XML을 다시 쓰지 않게.
+    """
+    target = str(staff).strip() if staff not in (None, "") else None
+    if target not in ("1", "2"):
+        target = None
+    if target is not None:
+        _rebuild_one_staff_timeline(measure, ns, part, target)
+        return
     _strip_orphan_timeline_if_single_voice_per_staff(measure, ns)
     notes = list_note_elements(measure, ns)
     _fix_chord_tag_consistency(notes, ns)
@@ -10538,10 +10616,10 @@ def rebuild_measure_timeline_clean(
     _dedupe_identical_pitches_in_chord_groups(measure, ns)
     _move_attributes_out_of_chord_groups(measure, ns)
     coalesce_spurious_parallel_voices_in_measure(measure, ns, part)
-    for staff in ("1", "2"):
-        _merge_forward_coarse_layer_on_staff(measure, ns, staff, part)
-    for staff in ("1", "2"):
-        _merge_staff_voices_if_non_overlapping(measure, ns, staff)
+    for st in ("1", "2"):
+        _merge_forward_coarse_layer_on_staff(measure, ns, st, part)
+    for st in ("1", "2"):
+        _merge_staff_voices_if_non_overlapping(measure, ns, st)
     # 자동 parallel onset → 보조 voice 분리 금지.
     # 박자 초과·같은 x 겹침은 HITL 경고만. 분리는 repairParallelOnsets / linkParallelOnsets 만.
     if _measure_has_multivoice_layers(measure, ns):
@@ -10555,11 +10633,42 @@ def rebuild_measure_timeline_clean(
     _sync_all_chord_groups(notes_after, ns)
     _dedupe_identical_pitches_in_chord_groups(measure, ns)
     _move_attributes_out_of_chord_groups(measure, ns)
-    for staff in ("1", "2"):
-        _merge_staff_voices_if_non_overlapping(measure, ns, staff)
-    for staff in ("1", "2"):
-        _normalize_staff_note_order(measure, ns, staff)
+    for st in ("1", "2"):
+        _merge_staff_voices_if_non_overlapping(measure, ns, st)
+    for st in ("1", "2"):
+        _normalize_staff_note_order(measure, ns, st)
     _compact_default_x_by_staff(measure, ns, part)
+    _repair_tuplet_brackets_in_measure(measure, ns)
+    _clean_orphan_beams_in_measure(measure, ns)
+
+
+def _rebuild_one_staff_timeline(
+    measure: ET.Element, ns: str, part: ET.Element | None, staff: str
+) -> None:
+    """한 오선만 타임라인 정리. 다른 오선 음표·순번·default-x는 유지."""
+    notes = list_note_elements(measure, ns)
+    _fix_chord_tag_consistency(notes, ns)
+    _sync_all_chord_groups(notes, ns)
+    _dedupe_identical_pitches_in_chord_groups(measure, ns)
+    _move_attributes_out_of_chord_groups(measure, ns)
+    divisions, beats, beat_type = _measure_divisions_beats(measure, ns, part)
+    measure_len = _measure_length_units(divisions, beats, beat_type)
+    _coalesce_spurious_parallel_voices_on_staff(
+        measure, ns, staff, divisions=divisions, measure_len=measure_len
+    )
+    _merge_forward_coarse_layer_on_staff(measure, ns, staff, part)
+    _merge_staff_voices_if_non_overlapping(measure, ns, staff)
+    _rebuild_staff_voice_block(measure, ns, staff)
+    _repair_same_staff_backup_before_forward(measure, ns)
+    _align_staves_timeline(measure, ns)
+    notes_after = list_note_elements(measure, ns)
+    _fix_chord_tag_consistency(notes_after, ns)
+    _sync_all_chord_groups(notes_after, ns)
+    _dedupe_identical_pitches_in_chord_groups(measure, ns)
+    _move_attributes_out_of_chord_groups(measure, ns)
+    _merge_staff_voices_if_non_overlapping(measure, ns, staff)
+    _normalize_staff_note_order(measure, ns, staff)
+    _compact_default_x_by_staff(measure, ns, part, staff=staff)
     _repair_tuplet_brackets_in_measure(measure, ns)
     _clean_orphan_beams_in_measure(measure, ns)
 
@@ -10620,6 +10729,38 @@ def _strip_all_direction_staff_tags(root: ET.Element, ns: str) -> int:
     return n
 
 
+def _staff_hint_from_fix(
+    fix: dict[str, Any], notes: list[ET.Element] | None, ns: str
+) -> str | None:
+    """fix.staff 또는 대상 음의 staff. 모르면 None(마디 전체 rebuild)."""
+    raw = fix.get("staff")
+    if raw not in (None, ""):
+        try:
+            n = int(raw)
+            if n >= 1:
+                return str(n)
+        except (TypeError, ValueError):
+            pass
+    if not notes:
+        return None
+    idx_raw = fix.get("noteIndex", fix.get("leaderNoteIndex"))
+    if idx_raw in (None, ""):
+        idx_raw = fix.get("afterNoteIndex")
+        try:
+            after = int(idx_raw)
+        except (TypeError, ValueError):
+            after = -1
+        if after < 0:
+            return None
+    try:
+        i = int(idx_raw)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= i < len(notes):
+        return str(_note_staff_number(notes[i], ns) or 1)
+    return None
+
+
 def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[str, int]:
     ns = _ns(root)
     stats = {"applied": 0, "skipped": 0}
@@ -10674,7 +10815,15 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         [f for f in pending if f.get("kind") not in measure_structure_kinds]
     )
     deferred: list[dict[str, Any]] = []
-    rebuild_touched: set[tuple[str, str]] = set()
+    rebuild_staffs: dict[tuple[str, str], set[str]] = {}
+
+    def _mark_rebuild(part_id: str, measure_mxl: str, staff_hint: str | None) -> None:
+        key = (part_id, measure_mxl)
+        bucket = rebuild_staffs.setdefault(key, set())
+        if staff_hint in ("1", "2"):
+            bucket.add(staff_hint)
+        else:
+            bucket.add("*")
 
     for fix in structure_fixes:
         anchor = _parse_measure_number(str(fix.get("measureMxl") or ""))
@@ -10697,15 +10846,18 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         kind = str(fix.get("kind") or "")
         if part_id and measure_mxl:
             if kind not in skip_rebuild_kinds:
-                rebuild_touched.add((part_id, measure_mxl))
+                part_el = find_part(root, ns, part_id)
+                meas_el = find_measure(part_el, ns, measure_mxl) if part_el is not None else None
+                notes_now = list_note_elements(meas_el, ns) if meas_el is not None else []
+                _mark_rebuild(part_id, measure_mxl, _staff_hint_from_fix(fix, notes_now, ns))
         if fix.get("kind") in deferred_kinds:
             deferred.append(fix)
             to_m = str(fix.get("toMeasureMxl") or "").strip()
             if to_m and part_id and to_m != measure_mxl:
-                rebuild_touched.add((part_id, to_m))
+                _mark_rebuild(part_id, to_m, None)
             from_m = str(fix.get("fromMeasureMxl") or "").strip()
             if from_m and part_id and from_m != measure_mxl:
-                rebuild_touched.add((part_id, from_m))
+                _mark_rebuild(part_id, from_m, None)
             continue
         if apply_fix(root, ns, fix):
             stats["applied"] += 1
@@ -10716,7 +10868,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             stats["applied"] += 1
         else:
             stats["skipped"] += 1
-    for part_id, measure_mxl in rebuild_touched:
+    for (part_id, measure_mxl), staffs in rebuild_staffs.items():
         part = find_part(root, ns, part_id)
         if part is None:
             continue
@@ -10725,7 +10877,8 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             _normalize_measure_note_engraving(part, ns, measure)
             notes = list_note_elements(measure, ns)
             _strip_chord_member_beams(notes, ns)
-            rebuild_measure_timeline_clean(measure, ns, part)
+            only_staff = next(iter(staffs)) if staffs in ({"1"}, {"2"}) else None
+            rebuild_measure_timeline_clean(measure, ns, part, staff=only_staff)
             _migrate_directions_to_notes(measure, ns)
     return stats
 

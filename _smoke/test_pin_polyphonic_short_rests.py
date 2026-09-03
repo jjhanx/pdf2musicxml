@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""다성부 짧은 쉼표를 오선 중선에 고정 (F=D3)."""
+"""다성부 짧은 쉼표 — 동시 다른 voice 음의 반대편(오선 안)에 배치."""
 from __future__ import annotations
 
 import sys
@@ -62,6 +62,25 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
         <duration>48</duration><voice>6</voice><type>half</type><staff>2</staff>
       </note>
     </measure>
+    <measure number="6">
+      <attributes>
+        <divisions>2</divisions>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note>
+        <rest/>
+        <duration>1</duration><voice>1</voice><type>eighth</type>
+      </note>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <duration>1</duration><voice>1</voice><type>eighth</type>
+      </note>
+      <backup><duration>2</duration></backup>
+      <note>
+        <pitch><step>E</step><octave>5</octave></pitch>
+        <duration>2</duration><voice>2</voice><type>quarter</type>
+      </note>
+    </measure>
   </part>
 </score-partwise>
 """
@@ -79,6 +98,16 @@ def rest_display(note: ET.Element, ns: str) -> tuple[str | None, str | None]:
     )
 
 
+def first_eighth_rest(measure: ET.Element, ns: str) -> ET.Element:
+    for note in list_note_elements(measure, ns):
+        if note.find(f"{ns}rest") is None:
+            continue
+        type_el = note.find(f"{ns}type")
+        if type_el is not None and (type_el.text or "").strip() == "eighth":
+            return note
+    raise AssertionError("eighth rest missing")
+
+
 def main() -> None:
     root = ET.fromstring(XML)
     stats = normalize_rest_durations_root(root)
@@ -86,32 +115,20 @@ def main() -> None:
     part = root.find(f"{ns}part")
     assert part is not None
     measures = list(part.findall(f"{ns}measure"))
-    m4 = measures[0]
-    eighth = None
-    for note in list_note_elements(m4, ns):
-        if note.find(f"{ns}rest") is None:
-            continue
-        type_el = note.find(f"{ns}type")
-        if type_el is not None and (type_el.text or "").strip() == "eighth":
-            eighth = note
-            break
-    assert eighth is not None
-    step, octv = rest_display(eighth, ns)
-    assert (step, octv) == ("D", "3"), (step, octv, stats)
-    assert stats["restDisplayPinned"] >= 1, stats
 
-    m5 = measures[1]
-    eighth5 = None
-    for note in list_note_elements(m5, ns):
-        if note.find(f"{ns}rest") is None:
-            continue
-        type_el = note.find(f"{ns}type")
-        if type_el is not None and (type_el.text or "").strip() == "eighth":
-            eighth5 = note
-            break
-    assert eighth5 is not None
-    step5, octv5 = rest_display(eighth5, ns)
-    assert (step5, octv5) == ("D", "3"), (step5, octv5, "mid G must not pin opening rest to B4")
+    # m4: 다른 voice C3(중선 D3 아래) → 쉼표는 위쪽 F3, 포개지지 않음
+    step, octv = rest_display(first_eighth_rest(measures[0], ns), ns)
+    assert (step, octv) == ("F", "3"), (step, octv, stats)
+
+    # m5: 앞쪽 mid F 유지. 다른 voice A2 → 위쪽 F3 (mid G로 B4에 안 감)
+    step5, octv5 = rest_display(first_eighth_rest(measures[1], ns), ns)
+    assert (step5, octv5) == ("F", "3"), (step5, octv5, "mid G must not pin opening rest to B4")
+
+    # m6: 다른 voice E5(중선 위) → 쉼표는 아래 G4
+    step6, octv6 = rest_display(first_eighth_rest(measures[2], ns), ns)
+    assert (step6, octv6) == ("G", "4"), (step6, octv6)
+
+    assert stats["restDisplayPinned"] >= 1, stats
     print("ok", stats)
 
 

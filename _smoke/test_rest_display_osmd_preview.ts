@@ -1,6 +1,8 @@
 /**
  * HITL 미리보기 rest display-step 정리 검증.
  * Run: npx tsx _smoke/test_rest_display_osmd_preview.ts
+ *
+ * 다성부 짧은 쉼: 동시 다른 voice 음의 반대편(오선 안). 예: 아래쪽 C3와 겹치면 F3.
  */
 import { JSDOM } from 'jsdom';
 import { repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
@@ -109,8 +111,8 @@ const m4 = restDisplay(fixed, (n) => {
   const type = [...n.children].find((c) => c.localName === 'type')?.textContent?.trim();
   return staff === '2' && type === 'eighth' && [...n.children].some((c) => c.localName === 'rest');
 });
-if (m4.length !== 1 || m4[0].step !== 'D' || m4[0].oct !== '3') {
-  console.error('polyphonic PL eighth rest should pin to bass middle D3', m4);
+if (m4.length !== 1 || m4[0].step !== 'F' || m4[0].oct !== '3') {
+  console.error('polyphonic PL eighth rest should sit above low C3 (F3), in staff', m4);
   process.exit(1);
 }
 
@@ -121,8 +123,8 @@ const m5 = restDisplay(fixed, (n) => {
   const type = [...n.children].find((c) => c.localName === 'type')?.textContent?.trim();
   return staff === '2' && type === 'eighth' && [...n.children].some((c) => c.localName === 'rest');
 });
-if (m5.length !== 1 || m5[0].step !== 'D' || m5[0].oct !== '3') {
-  console.error('opening PL eighth rest before mid G must stay on F middle D3 (not B4)', m5);
+if (m5.length !== 1 || m5[0].step !== 'F' || m5[0].oct !== '3') {
+  console.error('opening PL eighth rest before mid G must stay on F-staff side (F3, not B4)', m5);
   process.exit(1);
 }
 

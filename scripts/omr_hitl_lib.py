@@ -1825,6 +1825,97 @@ def _set_rest_display_step_octave(
     return changed
 
 
+def _staff_interior_diatonic_range(mid: int) -> tuple[int, int]:
+    """오선 안쪽(대략 아래줄~위줄, 중선±4)."""
+    return mid - 4, mid + 4
+
+
+def _choose_rest_display_diatonic(
+    mid: int, other_pitches: list[int], blocked: set[int]
+) -> int:
+    """다른 voice 음이 주로 있는 쪽의 반대편·오선 안·동시 음과 포개지지 않는 display 위치."""
+    lo, hi = _staff_interior_diatonic_range(mid)
+    if not other_pitches:
+        if mid not in blocked and lo <= mid <= hi:
+            return mid
+        for cand in (mid + 1, mid - 1, mid + 2, mid - 2):
+            if lo <= cand <= hi and cand not in blocked:
+                return cand
+        return mid
+
+    avg = sorted(other_pitches)[len(other_pitches) // 2]
+    want_above = avg < mid
+    preferred: list[int] = []
+    for off in (2, 3, 1, 4):
+        cand = mid + off if want_above else mid - off
+        if lo <= cand <= hi:
+            preferred.append(cand)
+    preferred.append(mid)
+    for d in range(lo, hi + 1):
+        if d not in preferred:
+            preferred.append(d)
+    for cand in preferred:
+        if cand not in blocked:
+            return cand
+    target = mid + 2 if want_above else mid - 2
+    return max(lo, min(hi, target))
+
+
+def _polyphonic_short_rest_display(
+    measure: ET.Element,
+    ns: str,
+    part: ET.Element | None,
+    rest_note: ET.Element,
+    notes: list[ET.Element],
+    staff_starts: dict[int, int],
+) -> tuple[str, int]:
+    """다성부 짧은 쉼 — 동시 다른 voice 음의 반대편(오선 안) display-step/octave."""
+    sign, line = _clef_for_note_in_part(part, measure, rest_note, ns)
+    mid = _middle_line_diatonic(sign, line)
+    try:
+        rest_i = notes.index(rest_note)
+    except ValueError:
+        return _from_diatonic_index(mid)
+    rest_voice, staff = _note_voice_staff(rest_note, ns)
+    rest_start = staff_starts.get(rest_i, 0)
+    rest_dur = max(1, _note_duration(rest_note, ns))
+    rest_end = rest_start + rest_dur
+
+    other_pitches: list[int] = []
+    blocked: set[int] = set()
+    for i, note in enumerate(notes):
+        if note.find(_q(ns, "rest")) is not None or _is_grace_or_cue(note, ns):
+            continue
+        voice, st = _note_voice_staff(note, ns)
+        if st != staff or voice == rest_voice:
+            continue
+        leader_i = _chord_leader_index(notes, ns, i)
+        other_start = staff_starts.get(leader_i, 0)
+        other_dur = max(1, _note_duration(notes[leader_i], ns))
+        if other_start >= rest_end or other_start + other_dur <= rest_start:
+            continue
+        dia = _pitch_diatonic(note, ns)
+        if dia is None:
+            continue
+        other_pitches.append(dia)
+        blocked.add(dia)
+
+    # 동시 음이 없으면 같은 오선 다른 voice의 전체 음으로 ‘주로 있는 쪽’만 추정
+    if not other_pitches:
+        for note in notes:
+            if note.find(_q(ns, "rest")) is not None or _is_grace_or_cue(note, ns):
+                continue
+            voice, st = _note_voice_staff(note, ns)
+            if st != staff or voice == rest_voice:
+                continue
+            dia = _pitch_diatonic(note, ns)
+            if dia is not None:
+                other_pitches.append(dia)
+
+    chosen = _choose_rest_display_diatonic(mid, other_pitches, blocked)
+    return _from_diatonic_index(chosen)
+
+
 def _note_staff_number(note: ET.Element, ns: str) -> int | None:
     staff_el = note.find(_q(ns, "staff"))
     if staff_el is None or staff_el.text is None or not staff_el.text.strip().isdigit():
@@ -9209,7 +9300,9 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                 stats["restDisplayCleared"] += 1
                 measure_changed = True
 
-            # 다성부 짧은 쉼: 오선 중선에 고정. 단성부는 힌트 제거(OSMD 기본 위치).
+            # 다성부 짧은 쉼: 동시 다른 voice 음의 반대편(오선 안)·포개짐 회피.
+            # 단성부는 display 힌트 제거(OSMD 기본 위치).
+            staff_starts_cache: dict[str, dict[int, int]] = {}
             for note in list_note_elements(measure, ns):
                 rest_el = note.find(_q(ns, "rest"))
                 if rest_el is None:
@@ -9222,8 +9315,20 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                     continue
                 staff_n = _note_staff_number(note, ns) or 1
                 if len(staff_voices.get(staff_n, ())) >= 2:
-                    sign, line = _clef_for_note_in_part(part, measure, note, ns)
-                    step, octave = _from_diatonic_index(_middle_line_diatonic(sign, line))
+                    staff_key = str(staff_n)
+                    if staff_key not in staff_starts_cache:
+                        staff_starts_cache[staff_key] = dict(
+                            _staff_timed_leader_starts(measure, ns, staff_key)
+                        )
+                    notes_all = list_note_elements(measure, ns)
+                    step, octave = _polyphonic_short_rest_display(
+                        measure,
+                        ns,
+                        part,
+                        note,
+                        notes_all,
+                        staff_starts_cache[staff_key],
+                    )
                     if _set_rest_display_step_octave(rest_el, ns, step, octave):
                         stats["restDisplayPinned"] += 1
                         measure_changed = True

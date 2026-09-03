@@ -45,6 +45,7 @@ function setRestDisplay(restEl: Element, step: string, octave: number): void {
 }
 
 const SHORT_REST_TYPES = new Set(['quarter', 'eighth', '16th', '32nd', '64th', '128th']);
+const STEP_DIATONIC: Record<string, number> = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
 
 /** 음자리표 중선 — G/2=B4, F/4=D3, C/3=C4, C/4=A3. */
 function staffMiddleDisplay(sign: string, line: number): { step: string; octave: number } {
@@ -52,6 +53,18 @@ function staffMiddleDisplay(sign: string, line: number): { step: string; octave:
   if (s === 'F') return { step: 'D', octave: 3 };
   if (s === 'C') return line === 4 ? { step: 'A', octave: 3 } : { step: 'C', octave: 4 };
   return { step: 'B', octave: 4 };
+}
+
+function middleLineDiatonic(sign: string, line: number): number {
+  const mid = staffMiddleDisplay(sign, line);
+  return mid.octave * 7 + (STEP_DIATONIC[mid.step] ?? 0);
+}
+
+function fromDiatonicIndex(idx: number): { step: string; octave: number } {
+  const steps = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const octave = Math.floor(idx / 7);
+  const step = steps[((idx % 7) + 7) % 7]!;
+  return { step, octave };
 }
 
 function noteStaffN(note: Element): number {
@@ -63,6 +76,51 @@ function noteStaffN(note: Element): number {
 function noteVoiceN(note: Element): string {
   const el = childByLocal(note, 'voice');
   return el?.textContent?.trim() || '1';
+}
+
+function noteDuration(note: Element): number {
+  const el = childByLocal(note, 'duration');
+  const n = parseInt(el?.textContent?.trim() ?? '0', 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function pitchDiatonic(note: Element): number | null {
+  const pitch = childByLocal(note, 'pitch');
+  if (!pitch) return null;
+  const step = childByLocal(pitch, 'step')?.textContent?.trim().toUpperCase() ?? '';
+  const octRaw = childByLocal(pitch, 'octave')?.textContent?.trim() ?? '';
+  const oct = parseInt(octRaw, 10);
+  if (!(step in STEP_DIATONIC) || !Number.isFinite(oct)) return null;
+  return oct * 7 + STEP_DIATONIC[step]!;
+}
+
+function chooseRestDisplayDiatonic(mid: number, otherPitches: number[], blocked: Set<number>): number {
+  const lo = mid - 4;
+  const hi = mid + 4;
+  if (otherPitches.length === 0) {
+    if (!blocked.has(mid) && mid >= lo && mid <= hi) return mid;
+    for (const cand of [mid + 1, mid - 1, mid + 2, mid - 2]) {
+      if (cand >= lo && cand <= hi && !blocked.has(cand)) return cand;
+    }
+    return mid;
+  }
+  const sorted = [...otherPitches].sort((a, b) => a - b);
+  const avg = sorted[Math.floor(sorted.length / 2)]!;
+  const wantAbove = avg < mid;
+  const preferred: number[] = [];
+  for (const off of [2, 3, 1, 4]) {
+    const cand = wantAbove ? mid + off : mid - off;
+    if (cand >= lo && cand <= hi) preferred.push(cand);
+  }
+  preferred.push(mid);
+  for (let d = lo; d <= hi; d += 1) {
+    if (!preferred.includes(d)) preferred.push(d);
+  }
+  for (const cand of preferred) {
+    if (!blocked.has(cand)) return cand;
+  }
+  const target = wantAbove ? mid + 2 : mid - 2;
+  return Math.max(lo, Math.min(hi, target));
 }
 
 const NOTE_TYPE_MULTIPLIERS: Array<{ name: string; mult: number }> = [
@@ -136,6 +194,96 @@ function applyClefFromAttributes(
   }
 }
 
+type NoteEvent = {
+  note: Element;
+  staff: number;
+  voice: string;
+  start: number;
+  dur: number;
+  isRest: boolean;
+  isChord: boolean;
+  dia: number | null;
+};
+
+function collectStaffNoteEvents(measure: Element): NoteEvent[] {
+  const voiceCursor = new Map<string, number>();
+  let lastVoice = '1';
+  const out: NoteEvent[] = [];
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'backup') {
+      const dur = noteDuration(child);
+      const v =
+        childByLocal(child, 'voice')?.textContent?.trim() || lastVoice;
+      voiceCursor.set(v, Math.max(0, (voiceCursor.get(v) ?? 0) - dur));
+      continue;
+    }
+    if (tag === 'forward') {
+      const dur = noteDuration(child);
+      const v =
+        childByLocal(child, 'voice')?.textContent?.trim() || lastVoice;
+      voiceCursor.set(v, (voiceCursor.get(v) ?? 0) + dur);
+      continue;
+    }
+    if (tag !== 'note') continue;
+    if (childByLocal(child, 'grace')) continue;
+    const isChord = !!childByLocal(child, 'chord');
+    const staff = noteStaffN(child);
+    const voice = noteVoiceN(child);
+    const isRest = !!childByLocal(child, 'rest');
+    const dia = isRest ? null : pitchDiatonic(child);
+    if (isChord) {
+      const leader = [...out].reverse().find((e) => !e.isChord && e.staff === staff && e.voice === voice);
+      out.push({
+        note: child,
+        staff,
+        voice,
+        start: leader?.start ?? voiceCursor.get(voice) ?? 0,
+        dur: leader?.dur ?? Math.max(1, noteDuration(child)),
+        isRest,
+        isChord: true,
+        dia,
+      });
+      continue;
+    }
+    lastVoice = voice;
+    const start = voiceCursor.get(voice) ?? 0;
+    const dur = Math.max(1, noteDuration(child));
+    out.push({ note: child, staff, voice, start, dur, isRest, isChord: false, dia });
+    voiceCursor.set(voice, start + dur);
+  }
+  return out;
+}
+
+function polyphonicShortRestDisplay(
+  restEvent: NoteEvent,
+  events: NoteEvent[],
+  clef: { sign: string; line: number },
+): { step: string; octave: number } {
+  const mid = middleLineDiatonic(clef.sign, clef.line);
+  const restStart = restEvent.start;
+  const restEnd = restStart + restEvent.dur;
+  const otherPitches: number[] = [];
+  const blocked = new Set<number>();
+
+  for (const ev of events) {
+    if (ev.isRest || ev.dia == null) continue;
+    if (ev.staff !== restEvent.staff || ev.voice === restEvent.voice) continue;
+    if (ev.start >= restEnd || ev.start + ev.dur <= restStart) continue;
+    otherPitches.push(ev.dia);
+    blocked.add(ev.dia);
+  }
+  if (otherPitches.length === 0) {
+    for (const ev of events) {
+      if (ev.isRest || ev.dia == null) continue;
+      if (ev.staff !== restEvent.staff || ev.voice === restEvent.voice) continue;
+      otherPitches.push(ev.dia);
+    }
+  }
+  const chosen = chooseRestDisplayDiatonic(mid, otherPitches, blocked);
+  return fromDiatonicIndex(chosen);
+}
+
 function repairRestDisplayInPart(part: Element): void {
   // Persist across measures so mid-measure clefs do not leak backward onto earlier rests.
   const clefByStaff = new Map<number, { sign: string; line: number }>();
@@ -151,6 +299,10 @@ function repairRestDisplayInPart(part: Element): void {
       set.add(noteVoiceN(note));
       voicesByStaff.set(staffN, set);
     }
+
+    const events = collectStaffNoteEvents(measure);
+    const eventByNote = new Map<Element, NoteEvent>();
+    for (const ev of events) eventByNote.set(ev.note, ev);
 
     // Document order: apply clef only when reached, so a later mid clef (e.g. F→G)
     // does not pin an opening short rest to the wrong staff middle (B4 on bass).
@@ -169,8 +321,11 @@ function repairRestDisplayInPart(part: Element): void {
       const polyphonic = (voicesByStaff.get(staffN)?.size ?? 0) >= 2;
       if (SHORT_REST_TYPES.has(typeName) && polyphonic) {
         const clef = clefByStaff.get(staffN) ?? { sign: 'G', line: 2 };
-        const mid = staffMiddleDisplay(clef.sign, clef.line);
-        setRestDisplay(restEl, mid.step, mid.octave);
+        const restEvent = eventByNote.get(child);
+        const place = restEvent
+          ? polyphonicShortRestDisplay(restEvent, events, clef)
+          : staffMiddleDisplay(clef.sign, clef.line);
+        setRestDisplay(restEl, place.step, place.octave);
         continue;
       }
       if (measureRest || typeName === 'whole' || typeName === 'half' || SHORT_REST_TYPES.has(typeName)) {
@@ -183,7 +338,7 @@ function repairRestDisplayInPart(part: Element): void {
 /**
  * OSMD/HITL 미리보기 전용.
  * 온·2분·마디전체 쉼의 과대 display-step은 지운다.
- * 같은 오선에 voice가 둘 이상인 짧은 쉼은 **쉼표 시점** 음자리표 중선(G=B4, F=D3)에 고정한다.
+ * 같은 오선에 voice가 둘 이상인 짧은 쉼은 **동시 다른 voice 음의 반대편**(오선 안)에 둔다.
  * (힌트를 지우면 OSMD가 윗성부 쉼표를 오선 밖으로 밀어 올린다.
  *  마디 뒤 mid clef를 쓰면 앞쪽 쉼표가 잘못된 중선으로 고정되므로 document order로 clef 적용.)
  */

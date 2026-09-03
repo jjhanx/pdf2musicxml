@@ -118,17 +118,17 @@ def main() -> None:
 
     # m4: 다른 voice C3(중선 D3 아래) → 쉼표는 위쪽 F3, 포개지지 않음
     step, octv = rest_display(first_eighth_rest(measures[0], ns), ns)
-    assert (step, octv) == ("F", "3"), (step, octv, stats)
+    assert (step, octv) == ("A", "3"), (step, octv, stats)
 
-    # m5: 앞쪽 mid F 유지. 다른 voice A2 → 위쪽 F3 (mid G로 B4에 안 감)
+    # m5: 앞쪽 mid F 유지. 다른 voice A2 → 위쪽 A3 (mid G로 B4에 안 감)
     step5, octv5 = rest_display(first_eighth_rest(measures[1], ns), ns)
-    assert (step5, octv5) == ("F", "3"), (step5, octv5, "mid G must not pin opening rest to B4")
+    assert (step5, octv5) == ("A", "3"), (step5, octv5, "mid G must not pin opening rest to B4")
 
-    # m6: 다른 voice E5(중선 위) → 쉼표는 아래 G4
+    # m6: 다른 voice E5(중선 위) → 쉼표는 아래 E4
     step6, octv6 = rest_display(first_eighth_rest(measures[2], ns), ns)
-    assert (step6, octv6) == ("G", "4"), (step6, octv6)
+    assert (step6, octv6) == ("E", "4"), (step6, octv6)
 
-    # m7: 성부1 F1+F2 화음(중선 아래) → 성부2 쉼표는 중선 위 D5
+    # m7: 성부1 F1+F2 화음(중선 아래) → 성부2 쉼표는 중선 위 F5(오선 윗줄)
     m7 = """<?xml version="1.0"?>
 <score-partwise version="3.1"><part id="P1"><measure number="7">
   <attributes><divisions>2</divisions><clef><sign>G</sign><line>2</line></clef></attributes>
@@ -143,7 +143,7 @@ def main() -> None:
         n for n in list_note_elements(root7.find(".//measure"), ns) if n.find(f"{ns}rest") is not None
     )
     step7, octv7 = rest_display(rest7, ns)
-    assert (step7, octv7) == ("D", "5"), (step7, octv7, "F1+F2 chord → rest above middle")
+    assert (step7, octv7) == ("F", "5"), (step7, octv7, "F1+F2 chord → rest above at F5")
 
     # m8: 베이스 F2+F3 화음(중선 걸침) — 평균은 아래 → 쉼표는 위(화음 F3 피해 G3)
     m8 = """<?xml version="1.0"?>
@@ -160,7 +160,7 @@ def main() -> None:
         n for n in list_note_elements(root8.find(".//measure"), ns) if n.find(f"{ns}rest") is not None
     )
     step8, octv8 = rest_display(rest8, ns)
-    assert (step8, octv8) == ("G", "3"), (step8, octv8, "F2+F3 straddling mid → rest above (avoid F3)")
+    assert (step8, octv8) == ("A", "3"), (step8, octv8, "F2+F3 straddling mid → rest above at A3")
 
     assert stats["restDisplayPinned"] >= 1, stats
     print("ok", stats)

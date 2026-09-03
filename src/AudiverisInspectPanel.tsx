@@ -42,9 +42,27 @@ import {
   setHitlArticulationExtraYPx,
 } from './osmdArticulationOffsetFix';
 import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
+import { applyOsmdDynamicsOffsets, applyPendingDynamicsOffsetsOnly, registerOsmdPreviewXmlForDynamics } from './osmdDynamicsOffsetFix';
+import {
+  applyOsmdPolyphonicRestOffsets,
+  patchOsmdPolyphonicRestVfpitch,
+} from './osmdRestPlacementFix';
+import { applyMeasureTimingWarningsToOsmdHost } from './osmdMeasureTimingWarning';
+import { collectMeasureTimingIssuesFromXml } from '../shared/musicXmlMeasureTiming';
+import type { MxlMeasureRange } from '../shared/musicXmlMeasureRange';
+import {
+  measureHasExplicitPlayOrder,
+  measureHasMidClefAttributes,
+  reorderMeasureNotesByPlayOrderForOsmdPreview,
+} from '../shared/musicXmlPlayOrder';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import type { ArticulationPreviewFix } from '../shared/musicXmlArticulationDistance';
-import { parseArticulationStaffSpaces } from '../shared/musicXmlArticulationDistance';
+import {
+  articulationDefaultYFromStaffSpaces,
+  articulationStaffSpacesFromHint,
+  HITL_DIR_DISTANCE_ATTR,
+  parseArticulationStaffSpaces,
+} from '../shared/musicXmlArticulationDistance';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
 import {
@@ -64,6 +82,7 @@ import {
   repositionDirectionsBeforeAttributesForOsmdPreview,
   ensureMetronomeOnSoundTempoDirectionsForOsmdPreview,
   normalizeDynamicsAndWedgesForOsmdPreview,
+  applyWedgeEngravingRulesFromXml,
   measureHeaderInsertIndex,
   directionHasTempo,
 } from '../shared/musicXmlDirectionPlacement';
@@ -87,6 +106,7 @@ type InspectErrorBoundaryState = {
 /** OMR·HITL 미리보기 — 이음줄·성부 라벨 등 OSMD 규칙 조정 */
 export function applyOsmdPreviewEngravingRules(
   rules: OpenSheetMusicDisplay['EngravingRules'],
+  wedgeRulesXml?: string,
 ): void {
   rules.TupletNumberLimitConsecutiveRepetitions = false;
   rules.TupletNumberAlwaysDisableAfterFirstMax = false;
@@ -116,16 +136,20 @@ export function applyOsmdPreviewEngravingRules(
     RepetitionEndInstructionXShiftAsPercentOfStaveWidth?: number;
     RenderMultipleRestMeasures?: boolean;
     AutoGenerateMultipleRestMeasuresFromRestMeasures?: boolean;
+    AlignRests?: number;
   };
   r.RenderMultipleRestMeasures = false;
   r.AutoGenerateMultipleRestMeasuresFromRestMeasures = false;
+  // VexFlow align_rests는 다성부 쉼표를 동시 화음 쪽으로 끌어내려 display-step을 무시함
+  r.AlignRests = 0;
   if (typeof r.DisplacedNoteMargin === 'number') r.DisplacedNoteMargin = 0.05;
   if (typeof r.VoiceSpacingAddendVexflow === 'number') r.VoiceSpacingAddendVexflow = 2.0;
-  // 셈여림표(p, f, mf 등) 및 쐐기형 기호(crescendo, diminuendo)의 오선 이격 거리 충분히 확보
+  // 셈여림표(p, f, mf 등) 여백 — wedge 거리는 WedgePlacement* + XML distance
   rules.DynamicExpressionSpacer = 3.0;
-  rules.WedgePlacementAboveY = -5.5;
-  rules.WedgePlacementBelowY = 3.5;
-  rules.WedgeVerticalMargin = 2.5;
+  // 쐐기형 셈여림 — OSMD 기본(±1.5칸)에 맞추고 XML distance로 덮어씀(다성부는 patch로 inter-staff 중앙 배치 방지)
+  rules.WedgePlacementAboveY = -1.0;
+  rules.WedgePlacementBelowY = 1.0;
+  rules.WedgeVerticalMargin = 0.5;
   // 슬러 끝점 아티큘레이션 및 이음줄 간격 여백 확보
   rules.SlurEndArticulationYOffset = 2.4;
   rules.SlurStartArticulationYOffsetOfArticulation = 2.4;
@@ -133,6 +157,9 @@ export function applyOsmdPreviewEngravingRules(
   // OSMD 기본 0.4는 줄 끝 마디의 D.S./Fine를 오른쪽으로 밀어 다음 마디 앞으로 보이게 함
   if (typeof r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth === 'number') {
     r.RepetitionEndInstructionXShiftAsPercentOfStaveWidth = 0;
+  }
+  if (wedgeRulesXml) {
+    applyWedgeEngravingRulesFromXml(rules, wedgeRulesXml);
   }
 }
 
@@ -806,6 +833,7 @@ function measureHasSharedPlayOrderAcrossVoices(measure: Element): boolean {
  * OSMD split 미리보기: backup(voice 없음)+forward(voice 지정) 등 다중 voice를
  * 순차(비겹침) 단일 voice + forward로 평탄화 — PL·PR 박자 정렬 유지.
  * 같은 연주순번이 서로 다른 voice에 있으면(동시 column) 평탄화하지 않음.
+ * REGRESSION: test_partial_voice_regression.ts — 이 가드 제거 시 partial voice column 붕괴.
  */
 function flattenNonOverlappingStaffVoicesForOsmd(measure: Element): void {
   const timed = staffTimedNotesInMeasure(measure);
@@ -959,7 +987,13 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
   /** verbatim HITL도 OSMD split part는 voice 타임라인 평탄화 — PL 박자 부족·음수 폭 skip 방지 */
   flattenNonOverlappingStaffVoicesForOsmd(measure);
   snapshotNoteDefaultXForOsmdPreview(measure);
-  reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
+  reorderMeasureNotesByPlayOrderForOsmdPreview(measure);
+  if (
+    !measureHasExplicitPlayOrder(measure, staffN) &&
+    !measureHasMidClefAttributes(measure, staffN)
+  ) {
+    reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
+  }
   normalizeMultiVoiceLayersForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   /** staff→1 변환 전에 direction 재부착 — 순서 바뀌면 PL ritard. 등이 삭제됨 */
@@ -981,7 +1015,13 @@ function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
   pruneCrossStaffTimeline(measure, staffN);
   flattenNonOverlappingStaffVoicesForOsmd(measure);
   snapshotNoteDefaultXForOsmdPreview(measure);
-  reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
+  reorderMeasureNotesByPlayOrderForOsmdPreview(measure);
+  if (
+    !measureHasExplicitPlayOrder(measure, staffN) &&
+    !measureHasMidClefAttributes(measure, staffN)
+  ) {
+    reorderSingleStaffTimelineByOnsetForOsmdPreview(measure);
+  }
   normalizeMultiVoiceLayersForOsmdPreview(measure);
   realignMeasureDefaultXFromTimelineForOsmd(measure);
   reattachDirectionsForSingleStaffOsmdPreview(measure, staffN);
@@ -1221,7 +1261,12 @@ function attachDynamicsToNote(note: Element, dynTag: string, placement: string |
 /** 음표 `<notations><dynamics>` — OSMD 미리보기용으로 `<direction>` 승격 후 notations에서 제거. */
 function extractAndRemoveDynamicsFromNote(
   note: Element,
-): { tag: string; placement: 'above' | 'below' } | null {
+): {
+  tag: string;
+  placement: 'above' | 'below';
+  distance: string | null;
+  defaultY: number | null;
+} | null {
   for (const notations of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
     for (const dyn of [...notations.children].filter((c) => xmlLocalName(c) === 'dynamics')) {
       const tags = [...dyn.children]
@@ -1230,9 +1275,19 @@ function extractAndRemoveDynamicsFromNote(
       if (!tags.length) continue;
       const pl = dyn.getAttribute('placement');
       const placement: 'above' | 'below' = pl === 'below' ? 'below' : 'above';
+      const distance =
+        dyn.getAttribute(HITL_DIR_DISTANCE_ATTR)?.trim() ||
+        dyn.getAttribute('data-hitl-art-distance')?.trim() ||
+        null;
+      const dyRaw = dyn.getAttribute('default-y');
+      let defaultY: number | null = null;
+      if (dyRaw) {
+        const n = parseInt(dyRaw, 10);
+        if (Number.isFinite(n)) defaultY = n;
+      }
       dyn.remove();
       if (!notations.children.length) note.removeChild(notations);
-      return { tag: tags[0], placement };
+      return { tag: tags[0], placement, distance, defaultY };
     }
   }
   return null;
@@ -1242,15 +1297,28 @@ function buildDynamicsDirectionElement(
   note: Element,
   tag: string,
   placement: 'above' | 'below',
+  distance?: string | null,
+  defaultY?: number | null,
 ): Element {
   const ns = note.namespaceURI;
   const mk = (local: string) =>
     ns ? note.ownerDocument!.createElementNS(ns, local) : note.ownerDocument!.createElement(local);
+  const spaces = articulationStaffSpacesFromHint(distance, defaultY ?? null);
+  const dy = String(articulationDefaultYFromStaffSpaces(placement, spaces));
   const direction = mk('direction');
   direction.setAttribute('placement', placement);
+  direction.setAttribute('default-y', dy);
   const dtype = mk('direction-type');
   const dyn = mk('dynamics');
   dyn.setAttribute('placement', placement);
+  dyn.setAttribute('default-y', dy);
+  if (distance) {
+    direction.setAttribute(HITL_DIR_DISTANCE_ATTR, distance);
+    dyn.setAttribute(HITL_DIR_DISTANCE_ATTR, distance);
+  } else if (spaces <= 1.01) {
+    direction.setAttribute(HITL_DIR_DISTANCE_ATTR, '1');
+    dyn.setAttribute(HITL_DIR_DISTANCE_ATTR, '1');
+  }
   dyn.appendChild(mk(tag));
   dtype.appendChild(dyn);
   direction.appendChild(dtype);
@@ -1282,7 +1350,13 @@ export function promoteNoteDynamicsForOsmdPreview(xml: string): string {
         for (const note of [...measure.children].filter((c) => xmlLocalName(c) === 'note')) {
           const info = extractAndRemoveDynamicsFromNote(note);
           if (!info) continue;
-          const dir = buildDynamicsDirectionElement(note, info.tag, info.placement);
+          const dir = buildDynamicsDirectionElement(
+            note,
+            info.tag,
+            info.placement,
+            info.distance,
+            info.defaultY,
+          );
           measure.insertBefore(dir, note);
         }
       }
@@ -1752,7 +1826,7 @@ function directionWordsText(dir: Element): string | null {
 
 /**
  * Audiveris OCR·`<measure-numbering>` 잔여가 아닌, 마디마다 생긴 `<words>` 숫자(1,2,3…) 제거.
- * lyric_manifest에 있는 인쇄 마디만 injectPrintedMeasureNumberDirectionsForOsmd에서 다시 넣습니다.
+ * HITL 미리보기는 injectMxlMeasureNumberDirectionsForOsmd에서 MusicXML `measure@number`만 다시 넣습니다.
  */
 export function stripSpuriousMeasureNumberWordsForOsmd(
   xml: string,
@@ -1788,7 +1862,7 @@ export function stripSpuriousMeasureNumberWordsForOsmd(
 
 /**
  * lyric_manifest 인쇄 마디 번호만 OSMD `<words>` direction으로 표시 (첫 part만).
- * OSMD 자동 measure@number 라벨은 applyOsmdPreviewEngravingRules에서 끔.
+ * @deprecated HITL 미리보기는 injectMxlMeasureNumberDirectionsForOsmd 사용
  */
 export function injectPrintedMeasureNumberDirectionsForOsmd(
   xml: string,
@@ -1829,12 +1903,74 @@ export function injectPrintedMeasureNumberDirectionsForOsmd(
   }
 }
 
+function buildMxlMeasureNumberAllowedMap(xml: string): Map<number, string> {
+  const allowed = new Map<number, string>();
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return allowed;
+    for (const part of findXmlParts(doc)) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+        const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
+        if (Number.isFinite(mnum) && mnum >= 1) allowed.set(mnum, String(mnum));
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return allowed;
+}
+
+/**
+ * HITL·OSMD 미리보기 — MusicXML `measure@number`(전곡 마디 번호)만 `<words>`로 표시 (첫 part만).
+ * PDF 줄머리 인쇄 번호와 offset이 달라도 편집·음자리표 범위와 동일한 번호체계를 씁니다.
+ */
+export function injectMxlMeasureNumberDirectionsForOsmd(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    const ns = doc.documentElement.namespaceURI;
+    const mk = (local: string) => (ns ? doc.createElementNS(ns, local) : doc.createElement(local));
+    const parts = findXmlParts(doc);
+    if (!parts.length) return xml;
+    const part = parts[0]!;
+
+    for (const meas of [...part.children]) {
+      if (xmlLocalName(meas) !== 'measure') continue;
+      const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
+      if (!Number.isFinite(mnum) || mnum < 2) continue;
+      const label = String(mnum);
+      if (measureHasPrintedNumberWords(meas, label)) continue;
+
+      const dir = mk('direction');
+      dir.setAttribute('placement', 'above');
+      const dt = mk('direction-type');
+      const words = mk('words');
+      words.setAttribute('font-weight', 'bold');
+      words.textContent = label;
+      dt.appendChild(words);
+      dir.appendChild(dt);
+      const idx = insertIndexForMeasureHeader(meas);
+      if (idx >= meas.childElementCount) meas.appendChild(dir);
+      else meas.insertBefore(dir, meas.children[idx] ?? null);
+    }
+
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
 /** @deprecated import from shared/musicXmlCourtesyClef — re-export for existing callers */
 export { removeRedundantCourtesyClefsForOsmd } from '../shared/musicXmlCourtesyClef';
 
 export type OsmdPreviewOptions = {
   /** true: part/성부 필터·PR·PL split만, clef/key/pitch/direction 변환 없음 (HITL 대조용) */
   verbatim?: boolean;
+  /** true: 편집기 voice·연주순번·박자 그대로 — underfull forward·duration clamp 없음 */
+  faithfulEditorLayout?: boolean;
+  /** 겹친 multi-voice 마디 — OSMD 미리보기에서 staff 내 순차 펼침(저장 MXL 불변) */
+  voiceSequentialMeasures?: VoiceSequentialPreviewTarget[];
 };
 
 export { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
@@ -1852,6 +1988,10 @@ export { repairRestDisplayForOsmdPreview, repairMissingNoteTypesForOsmdPreview, 
   stripPageBreakPrintForOsmdPreview,
   inferFirstMxlMeasureForPdfPage,
 } from '../shared/musicXmlTimelineCleanup';
+import {
+  applyVoiceSequentialPreviewToXml,
+  type VoiceSequentialPreviewTarget,
+} from '../shared/musicXmlVoiceSequentialPreview';
 
 /** part 추출 + (선택) staff 필터 + 표시 라벨을 한 번에 적용. */
 export function buildOsmdPreviewXml(
@@ -1861,12 +2001,14 @@ export function buildOsmdPreviewXml(
   options?: OsmdPreviewOptions,
 ): string {
   const verbatim = options?.verbatim === true;
+  const faithful = options?.faithfulEditorLayout === true;
+  const timelineOpts = { faithfulEditorLayout: faithful };
   let xml = applyPartLabelsToMusicXml(rawXml, scoreParts);
   /** sound-only tempo는 OSMD가 첫 마디 음표를 버림 — metronome 보충 후 attributes 뒤로 */
   xml = ensureMetronomeOnSoundTempoDirectionsForOsmdPreview(xml);
   xml = repositionDirectionsBeforeAttributesForOsmdPreview(xml, { tempoOnly: true });
   /** split·dynamics 변환 전에 timeline 정리 — orphan backup이 clone/part split에 복제되기 전 제거 */
-  xml = repairTimelineForOsmdPreview(xml);
+  xml = repairTimelineForOsmdPreview(xml, timelineOpts);
   if (!verbatim) {
     xml = migrateDirectionsToNotes(xml);
   }
@@ -1882,9 +2024,14 @@ export function buildOsmdPreviewXml(
   /** 셈여림 승격은 PR/PL·staff 분리 **후** — 분리 전이면 direction이 양쪽 줄에 복제되어 다음 마디 PR에 mf가 붙음 */
   xml = promoteNoteDynamicsForOsmdPreview(xml);
   xml = normalizeTiePlacementsForOsmdPreview(xml);
-  xml = repairTimelineForOsmdPreview(xml);
-  xml = repairUnderfullMeasuresForOsmdPreview(xml);
+  xml = repairTimelineForOsmdPreview(xml, timelineOpts);
+  if (!faithful) {
+    xml = repairUnderfullMeasuresForOsmdPreview(xml);
+  }
   xml = anchorTrailingMidClefsForOsmdPreview(xml);
+  if (options?.voiceSequentialMeasures?.length) {
+    xml = applyVoiceSequentialPreviewToXml(xml, options.voiceSequentialMeasures);
+  }
   return xml;
 }
 
@@ -1896,28 +2043,31 @@ export function buildOsmdPreviewXml(
 function sanitizeMusicXmlForOsmd(
   xml: string,
   verbatim = false,
-  printedMeasureMarkers?: ReadonlyMap<number, string>,
+  faithfulEditorLayout = false,
 ): string {
   try {
     let out = xml;
+    const timelineOpts = { faithfulEditorLayout };
     if (!verbatim) {
       out = repairKeyChangeClefMisreadForOsmd(out);
       out = removeRedundantCourtesyClefsForOsmd(out);
     }
     out = ensureMetronomeOnSoundTempoDirectionsForOsmdPreview(out);
     out = repositionDirectionsBeforeAttributesForOsmdPreview(out, { tempoOnly: true });
-    out = repairRestDisplayForOsmdPreview(out);
+    // type 추론 후 다성부 쉼 display — type 없으면 short-rest 판정이 건너뛰어짐
     out = repairMissingNoteTypesForOsmdPreview(out);
-    out = repairTimelineForOsmdPreview(out);
-    out = repairUnderfullMeasuresForOsmdPreview(out);
+    out = repairRestDisplayForOsmdPreview(out);
+    out = repairTimelineForOsmdPreview(out, timelineOpts);
+    if (!faithfulEditorLayout) {
+      out = repairUnderfullMeasuresForOsmdPreview(out);
+    }
     out = anchorTrailingMidClefsForOsmdPreview(out);
     out = normalizeTiePlacementsForOsmdPreview(out);
     out = normalizeDynamicsAndWedgesForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
-    out = stripSpuriousMeasureNumberWordsForOsmd(out, new Map());
-    if (printedMeasureMarkers?.size) {
-      out = injectPrintedMeasureNumberDirectionsForOsmd(out, printedMeasureMarkers);
-    }
+    const mxlMeasureLabels = buildMxlMeasureNumberAllowedMap(out);
+    out = stripSpuriousMeasureNumberWordsForOsmd(out, mxlMeasureLabels);
+    out = injectMxlMeasureNumberDirectionsForOsmd(out);
     const doc = parseMusicXmlDocument(out);
     if (!doc) return xml;
 
@@ -2008,6 +2158,7 @@ function scheduleOsmdRender(opts: {
   isStale: () => boolean;
   onPaintFailure: () => void;
   roRef: MutableRefObject<ResizeObserver | null>;
+  wedgeRulesXml?: string;
   onAfterRender?: () => void;
   afterOsmdRenderSync?: (host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => void;
 }) {
@@ -2018,6 +2169,7 @@ function scheduleOsmdRender(opts: {
     isStale,
     onPaintFailure,
     roRef,
+    wedgeRulesXml,
     onAfterRender,
     afterOsmdRenderSync,
   } = opts;
@@ -2031,8 +2183,10 @@ function scheduleOsmdRender(opts: {
     if (isStale()) return;
     try {
       osmd.zoom = zoom;
-      applyOsmdPreviewEngravingRules(osmd.EngravingRules);
+      applyOsmdPreviewEngravingRules(osmd.EngravingRules, wedgeRulesXml);
       enforceOsmdPreviewMeasureNumberRules(osmd);
+      // OSMD는 voice≠1 쉼표를 아래로 밀거나 align_rests로 화음에 붙임 — render 전 vfpitch 고정
+      patchOsmdPolyphonicRestVfpitch(osmd);
       osmd.render();
       afterOsmdRenderSync?.(host, osmd);
       host.querySelector('[data-osmd-warn="width"]')?.remove();
@@ -2100,7 +2254,8 @@ export function OsmdBlock({
   scrollToMeasureTrigger = 0,
   embeddedInOmrFrame,
   verbatimPreview,
-  printedMeasureMarkers,
+  faithfulEditorLayout,
+  previewMeasureRange,
 }: {
   xml: string;
   /** pending articulation 거리 — OSMD 재로드 없이 SVG만 이동 */
@@ -2118,13 +2273,16 @@ export function OsmdBlock({
   embeddedInOmrFrame?: boolean;
   /** HITL: clef/key/pitch 등 MXL 그대로 — OSMD 크래시 방지(octave-shift 등)만 */
   verbatimPreview?: boolean;
-  /** lyric_manifest 인쇄 마디 번호만 미리보기에 표시 */
-  printedMeasureMarkers?: ReadonlyMap<number, string>;
+  /** HITL 마디 편집기 순서·박자 그대로 — underfull/overfull 자동 보정 없음 */
+  faithfulEditorLayout?: boolean;
+  /** PDF 페이지 구간 미리보기 — OSMD 로컬 마디 번호 → MusicXML measure@number */
+  previewMeasureRange?: MxlMeasureRange | null;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const xmlRef = useRef(xml);
   const hintXmlRef = useRef(articulationHintXml ?? xml);
+  const osmdWedgeRulesXmlRef = useRef('');
   const articulationFixesRef = useRef(articulationFixes ?? []);
   const zoomRef = useRef(zoom);
   const xmlGenRef = useRef(0);
@@ -2137,11 +2295,16 @@ export function OsmdBlock({
   const scrollToMeasureRef = useRef(scrollToMeasure);
   const scrollToMeasureTriggerRef = useRef(scrollToMeasureTrigger);
   const lastHandledScrollTriggerRef = useRef(0);
-  const printedMeasureMarkersRef = useRef(printedMeasureMarkers);
+  const previewMeasureRangeRef = useRef(previewMeasureRange ?? null);
+  const faithfulEditorLayoutRef = useRef(faithfulEditorLayout === true);
 
   useEffect(() => {
-    printedMeasureMarkersRef.current = printedMeasureMarkers;
-  }, [printedMeasureMarkers]);
+    faithfulEditorLayoutRef.current = faithfulEditorLayout === true;
+  }, [faithfulEditorLayout]);
+
+  useEffect(() => {
+    previewMeasureRangeRef.current = previewMeasureRange ?? null;
+  }, [previewMeasureRange]);
 
   useEffect(() => {
     scrollToMeasureRef.current = scrollToMeasure;
@@ -2163,6 +2326,7 @@ export function OsmdBlock({
         osmd,
         highlightMeasureMxl ?? null,
         highlightMeasureStaffIndex ?? null,
+        previewMeasureRangeRef.current,
       );
     }
   }, [highlightMeasureMxl, highlightMeasureStaffIndex, xml, zoom]);
@@ -2197,6 +2361,7 @@ export function OsmdBlock({
       osmd,
       highlightMeasureMxlRef.current ?? null,
       highlightMeasureStaffIndexRef.current ?? null,
+      previewMeasureRangeRef.current,
     );
   }, [syncPartLabelOverlay]);
 
@@ -2220,7 +2385,15 @@ export function OsmdBlock({
         if (host && osmd?.IsReadyToRender()) {
           syncOnsetColumnAlign(host, osmd);
           applyOsmdArticulationOffsets(host, osmd);
-          finalizeOsmdMeasureNumberPreview(host, osmd, printedMeasureMarkersRef.current);
+          finalizeOsmdMeasureNumberPreview(host, osmd, undefined);
+          if (faithfulEditorLayoutRef.current) {
+            const issues = collectMeasureTimingIssuesFromXml(xmlRef.current);
+            applyMeasureTimingWarningsToOsmdHost(host, osmd, issues);
+          } else {
+            host.querySelectorAll('.hitl-measure-timing-warning, .osmd-measure-timing-layer').forEach((el) =>
+              el.remove(),
+            );
+          }
         }
         const trigger = scrollToMeasureTriggerRef.current;
         const target = scrollToMeasureRef.current;
@@ -2231,7 +2404,7 @@ export function OsmdBlock({
           trigger > 0 &&
           trigger !== lastHandledScrollTriggerRef.current
         ) {
-          scrollOsmdMeasureIntoView(host, osmd, target);
+          scrollOsmdMeasureIntoView(host, osmd, target, previewMeasureRangeRef.current);
           lastHandledScrollTriggerRef.current = trigger;
         }
       });
@@ -2250,6 +2423,15 @@ export function OsmdBlock({
     disconnectRo();
     const gen = ++xmlGenRef.current;
     host.innerHTML = '';
+
+    const xmlForOsmd = sanitizeMusicXmlForOsmd(
+      xml,
+      verbatimPreview === true,
+      faithfulEditorLayoutRef.current,
+    );
+    const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(xmlForOsmd);
+    osmdWedgeRulesXmlRef.current = xmlForOsmdLoad;
+
     let osmd: OpenSheetMusicDisplay;
     try {
       // autoResize:true 이면 Accent 래퍼 transform으로 SVG 높이가 변할 때마다
@@ -2260,9 +2442,10 @@ export function OsmdBlock({
         drawMeasureNumbers: false,
         useXMLMeasureNumbers: false,
         autoGenerateMultipleRestMeasuresFromRestMeasures: false,
+        alignRests: 0,
       } as ConstructorParameters<typeof OpenSheetMusicDisplay>[1]);
-      applyOsmdPreviewEngravingRules(osmd.EngravingRules);
-      patchOsmdRenderForMeasureNumbers(osmd, host, () => printedMeasureMarkersRef.current);
+      applyOsmdPreviewEngravingRules(osmd.EngravingRules, osmdWedgeRulesXmlRef.current);
+      patchOsmdRenderForMeasureNumbers(osmd, host, () => undefined);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const d = document.createElement('div');
@@ -2277,21 +2460,16 @@ export function OsmdBlock({
 
     let cancelled = false;
     const stale = () => cancelled || gen !== xmlGenRef.current;
-    const xmlForOsmd = sanitizeMusicXmlForOsmd(
-      xml,
-      verbatimPreview === true,
-      printedMeasureMarkersRef.current,
-    );
     // articulation 거리는 sanitize 전 hint XML 기준 — strip/serialize 후에도 attr이 있어야 함
     registerOsmdPreviewXmlForArticulation(osmd, hintXmlRef.current || xml);
+    registerOsmdPreviewXmlForDynamics(osmd, hintXmlRef.current || xml);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
-    const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(xmlForOsmd);
     void osmd
       .load(xmlForOsmdLoad)
       .then(() => {
         if (stale() || !host) return;
-        applyOsmdPreviewEngravingRules(osmd.EngravingRules);
+        applyOsmdPreviewEngravingRules(osmd.EngravingRules, osmdWedgeRulesXmlRef.current);
         try {
           retargetGraphicalChordSlurBeziers(osmd);
         } catch (e) {
@@ -2307,12 +2485,15 @@ export function OsmdBlock({
             osmdRef.current = null;
           },
           roRef,
+          wedgeRulesXml: osmdWedgeRulesXmlRef.current,
           onAfterRender: afterOsmdRender,
           afterOsmdRenderSync: (h, o) => {
-            finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
+            finalizeOsmdMeasureNumberPreview(h, o, undefined);
             // render 직후 동기 align — rAF만 기다리면 autoResize/후속 paint가 transform을 덮어쓸 수 있음
             syncOnsetColumnAlign(h, o);
             applyOsmdArticulationOffsets(h, o);
+            applyOsmdPolyphonicRestOffsets(h, o);
+            applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
           },
         });
       })
@@ -2390,7 +2571,7 @@ export function OsmdBlock({
       }
       osmdRef.current = null;
     };
-  }, [xml, printedMeasureMarkers]);
+  }, [xml]);
 
   /** 너비 변경만 재렌더 — 높이만 바뀌는 Accent dy는 무시(autoResize 루프 방지) */
   useEffect(() => {
@@ -2422,11 +2603,14 @@ export function OsmdBlock({
             osmdRef.current = null;
           },
           roRef,
+          wedgeRulesXml: osmdWedgeRulesXmlRef.current,
           onAfterRender: afterOsmdRender,
           afterOsmdRenderSync: (h, o) => {
-            finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
+            finalizeOsmdMeasureNumberPreview(h, o, undefined);
             syncOnsetColumnAlign(h, o);
             applyOsmdArticulationOffsets(h, o);
+            applyOsmdPolyphonicRestOffsets(h, o);
+            applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
           },
         });
       }, 100);
@@ -2459,11 +2643,14 @@ export function OsmdBlock({
         osmdRef.current = null;
       },
       roRef,
+      wedgeRulesXml: osmdWedgeRulesXmlRef.current,
       onAfterRender: afterOsmdRender,
       afterOsmdRenderSync: (h, o) => {
-        finalizeOsmdMeasureNumberPreview(h, o, printedMeasureMarkersRef.current);
+        finalizeOsmdMeasureNumberPreview(h, o, undefined);
         syncOnsetColumnAlign(h, o);
         applyOsmdArticulationOffsets(h, o);
+        applyOsmdPolyphonicRestOffsets(h, o);
+        applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
       },
     });
   }, [zoom, afterOsmdRender]);
@@ -2486,6 +2673,7 @@ export function OsmdBlock({
     if (!host) return;
     if (osmd) {
       registerOsmdPreviewXmlForArticulation(osmd, hint);
+      registerOsmdPreviewXmlForDynamics(osmd, hint);
       registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
     }
     const apply = () => {
@@ -2493,6 +2681,7 @@ export function OsmdBlock({
       const o = osmdRef.current;
       if (!h) return;
       applyPendingArticulationOffsetsOnly(h, o, articulationFixesRef.current);
+      applyPendingDynamicsOffsetsOnly(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
     };
     apply();
     // OSMD/align이 SVG를 교체하면 transform 속성이 사라짐 → childList만 감시해 재적용 (attribute 감시 금지=루프 방지)
@@ -2523,7 +2712,7 @@ export function OsmdBlock({
       if (evt.button !== 0 || !onMeasureClickRef.current) return;
       const osmd = osmdRef.current;
       if (!osmd?.IsReadyToRender()) return;
-      const hit = hitTestOsmdMeasure(osmd, host, evt);
+      const hit = hitTestOsmdMeasure(osmd, host, evt, previewMeasureRangeRef.current);
       if (!hit) return;
       evt.preventDefault();
       evt.stopPropagation();
@@ -2534,8 +2723,8 @@ export function OsmdBlock({
       if (!onMeasureClickRef.current) return;
       const osmd = osmdRef.current;
       if (!osmd?.IsReadyToRender()) return;
-      const hit = hitTestOsmdMeasure(osmd, host, evt);
-      drawOsmdMeasureHover(host, osmd, hit, evt);
+      const hit = hitTestOsmdMeasure(osmd, host, evt, previewMeasureRangeRef.current);
+      drawOsmdMeasureHover(host, osmd, hit, evt, previewMeasureRangeRef.current);
     };
 
     const onHostLeave = () => {

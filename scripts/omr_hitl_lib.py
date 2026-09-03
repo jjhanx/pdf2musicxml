@@ -1852,7 +1852,8 @@ def _choose_rest_display_diatonic(
     else:
         want_above = (sum(other_pitches) / len(other_pitches)) < mid
     preferred: list[int] = []
-    for off in (2, 3, 1, 4):
+    # 오선 가장자리 쪽을 우선(중선±4) — ±2만 쓰면 OSMD가 중선 쪽으로 그려 “아래”처럼 보임
+    for off in (4, 3, 2, 1):
         cand = mid + off if want_above else mid - off
         if lo <= cand <= hi:
             preferred.append(cand)
@@ -1863,7 +1864,7 @@ def _choose_rest_display_diatonic(
     for cand in preferred:
         if cand not in blocked:
             return cand
-    target = mid + 2 if want_above else mid - 2
+    target = mid + 4 if want_above else mid - 4
     return max(lo, min(hi, target))
 
 

@@ -111,8 +111,8 @@ const m4 = restDisplay(fixed, (n) => {
   const type = [...n.children].find((c) => c.localName === 'type')?.textContent?.trim();
   return staff === '2' && type === 'eighth' && [...n.children].some((c) => c.localName === 'rest');
 });
-if (m4.length !== 1 || m4[0].step !== 'F' || m4[0].oct !== '3') {
-  console.error('polyphonic PL eighth rest should sit above low C3 (F3), in staff', m4);
+if (m4.length !== 1 || m4[0].step !== 'A' || m4[0].oct !== '3') {
+  console.error('polyphonic PL eighth rest should sit above low C3 (A3), in staff', m4);
   process.exit(1);
 }
 
@@ -123,8 +123,28 @@ const m5 = restDisplay(fixed, (n) => {
   const type = [...n.children].find((c) => c.localName === 'type')?.textContent?.trim();
   return staff === '2' && type === 'eighth' && [...n.children].some((c) => c.localName === 'rest');
 });
-if (m5.length !== 1 || m5[0].step !== 'F' || m5[0].oct !== '3') {
-  console.error('opening PL eighth rest before mid G must stay on F-staff side (F3, not B4)', m5);
+if (m5.length !== 1 || m5[0].step !== 'A' || m5[0].oct !== '3') {
+  console.error('opening PL eighth rest before mid G must stay on F-staff side (A3, not B4)', m5);
+  process.exit(1);
+}
+
+const chordLow = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="7">
+      <attributes><divisions>2</divisions><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>F</step><octave>1</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+      <note><chord/><pitch><step>F</step><octave>2</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+      <backup><duration>2</duration></backup>
+      <note><rest/><duration>2</duration><voice>2</voice><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+const chordFixed = repairRestDisplayForOsmdPreview(chordLow);
+const chordRest = restDisplay(chordFixed, (n) => [...n.children].some((c) => c.localName === 'rest'));
+if (chordRest.length !== 1 || chordRest[0].step !== 'F' || chordRest[0].oct !== '5') {
+  console.error('F1+F2 chord → voice2 rest above at F5', chordRest);
   process.exit(1);
 }
 

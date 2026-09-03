@@ -30,15 +30,17 @@ function clearRestDisplayHints(restEl: Element): void {
 function setRestDisplay(restEl: Element, step: string, octave: number): void {
   const doc = restEl.ownerDocument;
   if (!doc) return;
+  // OSMD IXmlElement.element()는 nodeName === "display-step"만 본다.
+  // createElementNS + 접두사는 ns0:display-step가 되어 display-step을 못 찾는다.
   let stepEl = childByLocal(restEl, 'display-step');
   if (!stepEl) {
-    stepEl = doc.createElementNS(restEl.namespaceURI, 'display-step');
+    stepEl = doc.createElement('display-step');
     restEl.appendChild(stepEl);
   }
   stepEl.textContent = step;
   let octEl = childByLocal(restEl, 'display-octave');
   if (!octEl) {
-    octEl = doc.createElementNS(restEl.namespaceURI, 'display-octave');
+    octEl = doc.createElement('display-octave');
     restEl.appendChild(octEl);
   }
   octEl.textContent = String(octave);
@@ -111,7 +113,8 @@ function chooseRestDisplayDiatonic(mid: number, otherPitches: number[], blocked:
   else if (sorted.every((p) => p >= mid)) wantAbove = false;
   else wantAbove = sorted.reduce((a, b) => a + b, 0) / sorted.length < mid;
   const preferred: number[] = [];
-  for (const off of [2, 3, 1, 4]) {
+  // 오선 가장자리 쪽을 우선 — 중선+2(D5)는 OSMD/VexFlow 중선 정렬로 “아래처럼” 보이기 쉽다.
+  for (const off of [4, 3, 2, 1]) {
     const cand = wantAbove ? mid + off : mid - off;
     if (cand >= lo && cand <= hi) preferred.push(cand);
   }
@@ -122,7 +125,7 @@ function chooseRestDisplayDiatonic(mid: number, otherPitches: number[], blocked:
   for (const cand of preferred) {
     if (!blocked.has(cand)) return cand;
   }
-  const target = wantAbove ? mid + 2 : mid - 2;
+  const target = wantAbove ? mid + 4 : mid - 4;
   return Math.max(lo, Math.min(hi, target));
 }
 
@@ -344,6 +347,7 @@ function repairRestDisplayInPart(part: Element): void {
  * 같은 오선에 voice가 둘 이상인 짧은 쉼은 **동시 다른 voice 음의 반대편**(오선 안)에 둔다.
  * (힌트를 지우면 OSMD가 윗성부 쉼표를 오선 밖으로 밀어 올린다.
  *  마디 뒤 mid clef를 쓰면 앞쪽 쉼표가 잘못된 중선으로 고정되므로 document order로 clef 적용.)
+ * OSMD 렌더는 `patchOsmdPolyphonicRestVfpitch`가 voice≠1 기본 아래 배치를 덮어쓴다.
  */
 export function repairRestDisplayForOsmdPreview(xml: string): string {
   try {
@@ -375,7 +379,7 @@ export function repairMissingNoteTypesForOsmdPreview(xml: string): string {
   }
 }
 
-/** rest display + missing `<type>` — OSMD load 직전 한 번에 적용 */
+/** rest display + missing `<type>` — OSMD load 직전 한 번에 적용 (type 먼저) */
 export function repairNotesForOsmdPreview(xml: string): string {
-  return repairMissingNoteTypesForOsmdPreview(repairRestDisplayForOsmdPreview(xml));
+  return repairRestDisplayForOsmdPreview(repairMissingNoteTypesForOsmdPreview(xml));
 }

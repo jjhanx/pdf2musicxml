@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { articulationDistanceSelectValue, hitlPreviewPartIdsMatch } from '../shared/musicXmlArticulationDistance';
+import { articulationDefaultYFromStaffSpaces, articulationDistanceSelectValue, hitlPreviewPartIdsMatch } from '../shared/musicXmlArticulationDistance';
+import { HITL_DYNAMICS_DIRECTION_VALUES } from '../shared/musicXmlDynamics';
 import { isNavigationDirectionType, navigationDirectionLabel, newFixId, type OmrHitlFix } from './omrHitlFixes';
 import {
   PitchAlterSelect,
@@ -102,7 +103,7 @@ function isBeamableNoteEl(n: MeasureNoteEl): boolean {
   return SHORT_BEAM_TYPES.has(n.type ?? '');
 }
 
-const DYNAMICS_DIRECTION_VALUES = ['p', 'pp', 'mp', 'mf', 'f', 'ff', 'sf', 'sfz'] as const;
+const DYNAMICS_DIRECTION_VALUES = HITL_DYNAMICS_DIRECTION_VALUES;
 
 const ARTICULATION_ADD_OPTIONS: { id: string; label: string }[] = [
   { id: 'accent', label: 'Accent (>)' },
@@ -383,6 +384,11 @@ export type MeasureDirectionEl = {
   directionValue?: string;
   distance?: string | null;
   defaultY?: number | null;
+  wedgeNumber?: string | null;
+  /** octave-shift start/stop 짝 번호 */
+  octaveShiftNumber?: string | null;
+  /** wedge start/stop이 붙은 음표 document-order #index */
+  anchorNoteIndex?: number | null;
   /** `<notations><dynamics>` — 음표 #index에 붙음 */
   attachedToNoteIndex?: number;
   fromNoteDynamics?: boolean;
@@ -524,6 +530,125 @@ function wedgeDirectionLabel(d: MeasureDirectionEl): string {
   if (v === 'diminuendo') return 'diminuendo (>)';
   if (v === 'stop') return 'stop (끝)';
   return d.text || v || 'wedge';
+}
+
+function isOctaveShiftDirection(d: MeasureDirectionEl): boolean {
+  const t = (d.directionType || '').trim().toLowerCase();
+  if (t === 'octave-shift') return true;
+  return /^(8va|8vb|\||-)$/i.test((d.text || d.directionValue || '').trim());
+}
+
+function octaveShiftTypeOf(d: MeasureDirectionEl): string {
+  if ((d.directionType || '').trim().toLowerCase() === 'octave-shift') {
+    return (d.directionValue || '').trim().toLowerCase();
+  }
+  const raw = (d.text || d.directionValue || '').trim().toLowerCase();
+  if (raw === '8va') return 'up';
+  if (raw === '8vb') return 'down';
+  if (raw === '|') return 'stop';
+  if (raw === '-') return 'continue';
+  return '';
+}
+
+function octaveShiftDirectionLabel(d: MeasureDirectionEl): string {
+  const v = octaveShiftTypeOf(d);
+  if (v === 'up') return '8va';
+  if (v === 'down') return '8vb';
+  if (v === 'continue') return '-';
+  if (v === 'stop') return '|';
+  return d.text || v || '8va';
+}
+
+type OctaveShiftGroup = {
+  number: string;
+  staff: number;
+  start?: MeasureDirectionEl;
+  stop?: MeasureDirectionEl;
+  shiftKind: 'up' | 'down';
+  placement: 'above' | 'below';
+  distance?: string | null;
+  fromNoteIndex: number;
+  toNoteIndex: number;
+};
+
+function groupOctaveShiftDirections(directions: MeasureDirectionEl[]): OctaveShiftGroup[] {
+  const map = new Map<string, OctaveShiftGroup>();
+  for (const d of directions) {
+    const num = (d.octaveShiftNumber || '1').trim() || '1';
+    const staff = d.staff ?? 1;
+    const key = `${staff}:${num}`;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        number: num,
+        staff,
+        shiftKind: 'up',
+        placement: (d.placement === 'below' ? 'below' : 'above') as 'above' | 'below',
+        distance: d.distance,
+        fromNoteIndex: d.anchorNoteIndex ?? 0,
+        toNoteIndex: d.anchorNoteIndex ?? 0,
+      };
+      map.set(key, g);
+    }
+    const v = octaveShiftTypeOf(d);
+    if (v === 'stop') {
+      g.stop = d;
+      if (d.anchorNoteIndex != null) g.toNoteIndex = d.anchorNoteIndex;
+    } else if (v === 'up' || v === 'down') {
+      g.start = d;
+      g.shiftKind = v;
+      if (d.placement === 'above' || d.placement === 'below') g.placement = d.placement;
+      if (d.distance) g.distance = d.distance;
+      if (d.anchorNoteIndex != null) g.fromNoteIndex = d.anchorNoteIndex;
+    }
+  }
+  return [...map.values()].filter((g) => g.start || g.stop);
+}
+
+type WedgeGroup = {
+  number: string;
+  staff: number;
+  start?: MeasureDirectionEl;
+  stop?: MeasureDirectionEl;
+  wedgeKind: 'crescendo' | 'diminuendo';
+  placement: 'above' | 'below';
+  distance?: string | null;
+  fromNoteIndex: number;
+  toNoteIndex: number;
+};
+
+function groupWedgeDirections(directions: MeasureDirectionEl[]): WedgeGroup[] {
+  const map = new Map<string, WedgeGroup>();
+  for (const d of directions) {
+    const num = (d.wedgeNumber || '1').trim() || '1';
+    const staff = d.staff ?? 1;
+    const key = `${staff}:${num}`;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        number: num,
+        staff,
+        wedgeKind: 'crescendo',
+        placement: (d.placement === 'above' ? 'above' : 'below') as 'above' | 'below',
+        distance: d.distance,
+        fromNoteIndex: d.anchorNoteIndex ?? 0,
+        toNoteIndex: d.anchorNoteIndex ?? 0,
+      };
+      map.set(key, g);
+    }
+    const v = wedgeTypeOf(d);
+    if (v === 'stop') {
+      g.stop = d;
+      if (d.anchorNoteIndex != null) g.toNoteIndex = d.anchorNoteIndex;
+    } else if (v === 'crescendo' || v === 'diminuendo') {
+      g.start = d;
+      g.wedgeKind = v;
+      if (d.anchorNoteIndex != null) g.fromNoteIndex = d.anchorNoteIndex;
+    }
+    if (d.placement) g.placement = d.placement === 'above' ? 'above' : 'below';
+    if (d.distance) g.distance = d.distance;
+  }
+  return [...map.values()].sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 }
 
 function MeasureNavigationEditor({
@@ -707,7 +832,8 @@ function MeasureWedgeEditor({
 }) {
   const [wedgeKind, setWedgeKind] = useState<'crescendo' | 'diminuendo'>('crescendo');
   const [staff, setStaff] = useState(editStaffWithinPart ?? insertStaff ?? 1);
-  const [placement, setPlacement] = useState<'above' | 'below'>('below');
+  const [placement, setPlacement] = useState<'above' | 'below'>('above');
+  const [wedgeDistance, setWedgeDistance] = useState('auto');
 
   useEffect(() => {
     setStaff(editStaffWithinPart ?? insertStaff ?? 1);
@@ -720,13 +846,13 @@ function MeasureWedgeEditor({
   const lastIdx = staffNotes[staffNotes.length - 1]?.index ?? firstIdx;
   const [fromNote, setFromNote] = useState(firstIdx);
   const [toNote, setToNote] = useState(lastIdx);
-  const [stopNote, setStopNote] = useState(lastIdx);
 
   useEffect(() => {
     setFromNote(firstIdx);
     setToNote(lastIdx);
-    setStopNote(lastIdx);
   }, [firstIdx, lastIdx, staff, noteEls.length]);
+
+  const wedgeGroups = useMemo(() => groupWedgeDirections(directions), [directions]);
 
   const noteOptions = [
     ...staffNotes.map((n) => ({
@@ -751,7 +877,7 @@ function MeasureWedgeEditor({
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
         크레센도 <code>&lt;</code> / 디미뉴엔도 <code>&gt;</code> 는{' '}
         <strong>시작 음 앞</strong>에 들어가고, <strong>끝 음 뒤</strong>에 wedge(stop)이 들어가 그 음까지
-        덮습니다. 마지막 음으로 끝낼 때도 stop은 그 음 바로 뒤(backup 앞)에 두어 다음 마디로 이어지지 않게 합니다.
+        덮습니다. 기존 점선은 아래에서 <strong>시작·끝 음</strong>을 고친 뒤 「범위 적용」을 누르세요.
         {editStaffWithinPart != null ? (
           <>
             {' '}
@@ -761,58 +887,21 @@ function MeasureWedgeEditor({
           <> staff를 고르면 PR(staff 1)·PL(staff 2)을 각각 설정할 수 있습니다.</>
         ) : null}
       </p>
-      {directions.length > 0 ? (
-        <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {directions.map((d) => (
-            <li
-              key={`wedge-${d.directionIndex}`}
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 8,
-                alignItems: 'center',
-                padding: '0.35rem 0',
-                borderBottom: '1px solid #e1bee7',
-              }}
-            >
-              <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
-                dir #{d.directionIndex}
-                {d.staff != null ? ` · staff ${d.staff}` : ''}
-              </span>
-              <strong>{wedgeDirectionLabel(d)}</strong>
-              <select
-                value={d.placement || 'below'}
-                onChange={(e) =>
-                  onFix({
-                    kind: 'setDirectionPlacement',
-                    directionIndex: d.directionIndex,
-                    placement: e.target.value as 'above' | 'below',
-                  })
-                }
-                style={{ fontSize: '0.82rem', padding: '1px 4px' }}
-                title="위치 (위/아래)"
-              >
-                <option value="below">아래 (below)</option>
-                <option value="above">위 (above)</option>
-              </select>
-              <button
-                type="button"
-                className="omr-hitl-fix-btn"
-                onClick={() =>
-                  onFix({
-                    kind: 'removeDirection',
-                    directionIndex: d.directionIndex,
-                  })
-                }
-              >
-                삭제
-              </button>
-            </li>
+      {wedgeGroups.length > 0 ? (
+        <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {wedgeGroups.map((g) => (
+            <WedgeGroupEditor
+              key={`wedge-group-${g.staff}-${g.number}`}
+              group={g}
+              noteOptions={noteOptions}
+              onFix={onFix}
+            />
           ))}
         </ul>
       ) : (
         <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>이 마디에 셈여림 점선 없음</p>
       )}
+      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 6 }}>새 점선 추가</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
         <label className="omr-measure-inline-field">
           종류
@@ -869,6 +958,16 @@ function MeasureWedgeEditor({
             <option value="above">위</option>
           </select>
         </label>
+        <label className="omr-measure-inline-field">
+          거리
+          <select value={wedgeDistance} onChange={(e) => setWedgeDistance(e.target.value)} style={{ marginLeft: 4 }}>
+            {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="button"
           className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
@@ -881,43 +980,443 @@ function MeasureWedgeEditor({
               toNoteIndex: toNote,
               staff: editStaffWithinPart ?? staff,
               placement,
+              distance: wedgeDistance,
             })
           }
         >
           점선 추가 (시작→끝)
         </button>
       </div>
+    </div>
+  );
+}
+
+function WedgeGroupEditor({
+  group,
+  noteOptions,
+  onFix,
+}: {
+  group: WedgeGroup;
+  noteOptions: { value: number; label: string }[];
+  onFix: (partial: FixPartial) => void;
+}) {
+  const [fromNote, setFromNote] = useState(group.fromNoteIndex);
+  const [toNote, setToNote] = useState(group.toNoteIndex);
+  const [placement, setPlacement] = useState<'above' | 'below'>(group.placement);
+  const [distance, setDistance] = useState(articulationDistanceSelectValue(group.distance, group.start?.defaultY));
+
+  useEffect(() => {
+    setFromNote(group.fromNoteIndex);
+    setToNote(group.toNoteIndex);
+    setPlacement(group.placement);
+    setDistance(articulationDistanceSelectValue(group.distance, group.start?.defaultY));
+  }, [group.fromNoteIndex, group.toNoteIndex, group.placement, group.distance, group.start?.defaultY]);
+
+  const kindLabel = group.wedgeKind === 'diminuendo' ? 'diminuendo (>)' : 'crescendo (<)';
+  const removeDir = group.start?.directionIndex ?? group.stop?.directionIndex;
+
+  return (
+    <li
+      style={{
+        padding: '0.5rem 0.6rem',
+        border: '1px solid #e1bee7',
+        borderRadius: 6,
+        background: '#faf5fc',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <strong>
+          #{group.number} {kindLabel}
+        </strong>
+        <span style={{ fontSize: '0.82rem', color: '#666' }}>staff {group.staff}</span>
+        {group.start?.anchorNoteIndex != null || group.stop?.anchorNoteIndex != null ? (
+          <span style={{ fontSize: '0.82rem', color: '#555' }}>
+            현재 #{group.start?.anchorNoteIndex ?? '?'} → #{group.stop?.anchorNoteIndex ?? '?'}
+          </span>
+        ) : null}
+      </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <label className="omr-measure-inline-field">
-          끝을 이 음까지
+          시작 음
           <select
-            value={String(stopNote)}
-            onChange={(e) => setStopNote(parseInt(e.target.value, 10))}
+            value={String(fromNote)}
+            onChange={(e) => setFromNote(parseInt(e.target.value, 10))}
+            style={{ marginLeft: 4, minWidth: '9rem' }}
+          >
+            {noteOptions.filter((o) => o.value >= 0).map((o) => (
+              <option key={`g-from-${group.number}-${o.value}`} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          끝 음
+          <select
+            value={String(toNote)}
+            onChange={(e) => setToNote(parseInt(e.target.value, 10))}
             style={{ marginLeft: 4, minWidth: '9rem' }}
           >
             {noteOptions.map((o) => (
-              <option key={`stop-${o.value}`} value={o.value}>
+              <option key={`g-to-${group.number}-${o.value}`} value={o.value}>
                 {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          위치
+          <select value={placement} onChange={(e) => setPlacement(e.target.value as 'above' | 'below')} style={{ marginLeft: 4 }}>
+            <option value="below">아래</option>
+            <option value="above">위</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          거리
+          <select value={distance} onChange={(e) => setDistance(e.target.value)} style={{ marginLeft: 4 }}>
+            {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+              <option key={`g-dist-${group.number}-${opt.value}`} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>
         </label>
         <button
           type="button"
-          className="omr-hitl-fix-btn"
+          className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
           onClick={() =>
             onFix({
-              kind: 'moveWedgeStop',
+              kind: 'setWedgeSpan',
               directionType: 'wedge',
-              directionValue: 'stop',
-              beforeNoteIndex: stopNote >= 0 ? stopNote : undefined,
-              toNoteIndex: stopNote,
-              staff: editStaffWithinPart ?? staff,
+              directionValue: group.wedgeKind,
+              wedgeNumber: group.number,
+              fromNoteIndex: fromNote,
+              toNoteIndex: toNote,
+              staff: group.staff,
               placement,
+              distance,
             })
           }
         >
-          wedge(stop)을 이 음 뒤로
+          범위 적용
+        </button>
+        {removeDir != null ? (
+          <button
+            type="button"
+            className="omr-hitl-fix-btn"
+            onClick={() =>
+              onFix({
+                kind: 'removeDirection',
+                directionIndex: removeDir,
+              })
+            }
+          >
+            삭제
+          </button>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function OctaveShiftGroupEditor({
+  group,
+  noteOptions,
+  onFix,
+}: {
+  group: OctaveShiftGroup;
+  noteOptions: { value: number; label: string }[];
+  onFix: (partial: FixPartial) => void;
+}) {
+  const [fromNote, setFromNote] = useState(group.fromNoteIndex);
+  const [toNote, setToNote] = useState(group.toNoteIndex);
+  const [placement, setPlacement] = useState<'above' | 'below'>(group.placement);
+  const [distance, setDistance] = useState(articulationDistanceSelectValue(group.distance, group.start?.defaultY));
+
+  useEffect(() => {
+    setFromNote(group.fromNoteIndex);
+    setToNote(group.toNoteIndex);
+    setPlacement(group.placement);
+    setDistance(articulationDistanceSelectValue(group.distance, group.start?.defaultY));
+  }, [group.fromNoteIndex, group.toNoteIndex, group.placement, group.distance, group.start?.defaultY]);
+
+  const startLabel = group.shiftKind === 'down' ? '8vb' : '8va';
+  const removeDir = group.start?.directionIndex ?? group.stop?.directionIndex;
+
+  return (
+    <li
+      style={{
+        padding: '0.5rem 0.6rem',
+        border: '1px solid #90caf9',
+        borderRadius: 6,
+        background: '#f5faff',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <strong>
+          #{group.number}{' '}
+          <span style={{ fontFamily: 'serif' }}>{startLabel}</span>
+          <span style={{ margin: '0 0.35rem', color: '#666' }}>—</span>
+          <span style={{ fontFamily: 'serif' }}>|</span>
+        </strong>
+        <span style={{ fontSize: '0.82rem', color: '#666' }}>staff {group.staff}</span>
+        {group.start?.anchorNoteIndex != null || group.stop?.anchorNoteIndex != null ? (
+          <span style={{ fontSize: '0.82rem', color: '#555' }}>
+            {startLabel} #{group.start?.anchorNoteIndex ?? '?'} — #{group.stop?.anchorNoteIndex ?? '?'} |
+          </span>
+        ) : null}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <label className="omr-measure-inline-field">
+          시작 음 (8va)
+          <select
+            value={String(fromNote)}
+            onChange={(e) => setFromNote(parseInt(e.target.value, 10))}
+            style={{ marginLeft: 4, minWidth: '9rem' }}
+          >
+            {noteOptions.filter((o) => o.value >= 0).map((o) => (
+              <option key={`os-from-${group.number}-${o.value}`} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          끝 음 (|)
+          <select
+            value={String(toNote)}
+            onChange={(e) => setToNote(parseInt(e.target.value, 10))}
+            style={{ marginLeft: 4, minWidth: '9rem' }}
+          >
+            {noteOptions.map((o) => (
+              <option key={`os-to-${group.number}-${o.value}`} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          위치
+          <select value={placement} onChange={(e) => setPlacement(e.target.value as 'above' | 'below')} style={{ marginLeft: 4 }}>
+            <option value="above">위</option>
+            <option value="below">아래</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          거리
+          <select value={distance} onChange={(e) => setDistance(e.target.value)} style={{ marginLeft: 4 }}>
+            {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+              <option key={`os-dist-${group.number}-${opt.value}`} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+          onClick={() =>
+            onFix({
+              kind: 'setOctaveShiftSpan',
+              directionType: 'octave-shift',
+              directionValue: group.shiftKind,
+              octaveShiftNumber: group.number,
+              fromNoteIndex: fromNote,
+              toNoteIndex: toNote,
+              staff: group.staff,
+              placement,
+              distance,
+            })
+          }
+        >
+          범위 적용
+        </button>
+        {removeDir != null ? (
+          <button
+            type="button"
+            className="omr-hitl-fix-btn"
+            onClick={() =>
+              onFix({
+                kind: 'removeDirection',
+                directionIndex: removeDir,
+              })
+            }
+          >
+            삭제
+          </button>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function MeasureOctaveShiftEditor({
+  directions,
+  noteEls,
+  partStaveCount,
+  editStaffWithinPart,
+  insertStaff,
+  onFix,
+}: {
+  directions: MeasureDirectionEl[];
+  noteEls: MeasureNoteEl[];
+  partStaveCount: number;
+  editStaffWithinPart?: number | null;
+  insertStaff: number;
+  onFix: (partial: FixPartial) => void;
+}) {
+  const [shiftKind, setShiftKind] = useState<'up' | 'down'>('up');
+  const [staff, setStaff] = useState(editStaffWithinPart ?? insertStaff ?? 1);
+  const [placement, setPlacement] = useState<'above' | 'below'>('above');
+  const [shiftDistance, setShiftDistance] = useState('auto');
+
+  useEffect(() => {
+    setStaff(editStaffWithinPart ?? insertStaff ?? 1);
+  }, [editStaffWithinPart, insertStaff]);
+
+  const staffNotes = noteEls.filter(
+    (n) => isRhythmicSlice(n) && (editStaffWithinPart == null || (n.staff ?? 1) === staff),
+  );
+  const firstIdx = staffNotes[0]?.index ?? 0;
+  const lastIdx = staffNotes[staffNotes.length - 1]?.index ?? firstIdx;
+  const [fromNote, setFromNote] = useState(firstIdx);
+  const [toNote, setToNote] = useState(lastIdx);
+
+  useEffect(() => {
+    setFromNote(firstIdx);
+    setToNote(lastIdx);
+  }, [firstIdx, lastIdx, staff, noteEls.length]);
+
+  const shiftGroups = useMemo(() => groupOctaveShiftDirections(directions), [directions]);
+
+  const noteOptions = [
+    ...staffNotes.map((n) => ({
+      value: n.index,
+      label: `#${n.index} ${noteAnchorLabel(n)}${n.type ? ` ${NOTE_TYPE_LABELS[n.type] ?? n.type}` : ''}`,
+    })),
+    { value: -1, label: '마디 끝 (마지막 음 뒤)' },
+  ];
+
+  return (
+    <div
+      className="omr-measure-octave-shift-panel"
+      style={{
+        marginBottom: '0.85rem',
+        padding: '0.65rem 0.75rem',
+        background: '#e3f2fd',
+        borderRadius: 6,
+        border: '1px solid #90caf9',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>8va / 옥타브 (octave-shift)</div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        시작은 <strong>8va</strong>, 구간은 <strong>—</strong>, 끝은 <strong>|</strong> 로 표시됩니다. 시작 음 앞에 8va,
+        끝 음 뒤에 | (stop)이 들어갑니다. 기존 구간은 아래에서 시작·끝 음을 고친 뒤 「범위 적용」을 누르세요.
+      </p>
+      {shiftGroups.length > 0 ? (
+        <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {shiftGroups.map((g) => (
+            <OctaveShiftGroupEditor
+              key={`octave-shift-group-${g.staff}-${g.number}`}
+              group={g}
+              noteOptions={noteOptions}
+              onFix={onFix}
+            />
+          ))}
+        </ul>
+      ) : (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>이 마디에 8va 없음</p>
+      )}
+      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 6 }}>새 8va 추가</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <label className="omr-measure-inline-field">
+          종류
+          <select
+            value={shiftKind}
+            onChange={(e) => setShiftKind(e.target.value as 'up' | 'down')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="up">8va (한 옥타브 위)</option>
+            <option value="down">8vb (한 옥타브 아래)</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          시작 음
+          <select
+            value={String(fromNote)}
+            onChange={(e) => setFromNote(parseInt(e.target.value, 10))}
+            style={{ marginLeft: 4, minWidth: '9rem' }}
+          >
+            {noteOptions.filter((o) => o.value >= 0).map((o) => (
+              <option key={`os-new-from-${o.value}`} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          끝 음 (|)
+          <select
+            value={String(toNote)}
+            onChange={(e) => setToNote(parseInt(e.target.value, 10))}
+            style={{ marginLeft: 4, minWidth: '9rem' }}
+          >
+            {noteOptions.map((o) => (
+              <option key={`os-new-to-${o.value}`} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {partStaveCount >= 2 && editStaffWithinPart == null ? (
+          <label className="omr-measure-inline-field">
+            staff
+            <select value={String(staff)} onChange={(e) => setStaff(parseInt(e.target.value, 10) || 1)} style={{ marginLeft: 4 }}>
+              <option value="1">staff 1 (PR)</option>
+              <option value="2">staff 2 (PL)</option>
+            </select>
+          </label>
+        ) : null}
+        <label className="omr-measure-inline-field">
+          위치
+          <select value={placement} onChange={(e) => setPlacement(e.target.value as 'above' | 'below')} style={{ marginLeft: 4 }}>
+            <option value="above">위</option>
+            <option value="below">아래</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          거리
+          <select value={shiftDistance} onChange={(e) => setShiftDistance(e.target.value)} style={{ marginLeft: 4 }}>
+            {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+          onClick={() =>
+            onFix({
+              kind: 'insertOctaveShift',
+              directionType: 'octave-shift',
+              directionValue: shiftKind,
+              fromNoteIndex: fromNote,
+              toNoteIndex: toNote,
+              staff: editStaffWithinPart ?? staff,
+              placement,
+              distance: shiftDistance,
+            })
+          }
+        >
+          8va 추가 (시작→끝)
         </button>
       </div>
     </div>
@@ -1185,8 +1684,6 @@ type Props = {
   jobId: string;
   partId: string;
   measureMxl: number;
-  measurePrinted: number;
-  measureOffset: number;
   staffLabel?: string;
   /** 피아노 PR/PL 등 — 목록·삽입 기본 staff 필터 (원본 #index 유지) */
   editStaffWithinPart?: number | null;
@@ -1263,7 +1760,14 @@ type PendingInsertLeader = {
   pitchLabel: string;
   noteType: string;
   dotCount?: number;
+  /** 인덱스 밀림 대비 — insertChordMember의 leaderPitch* */
+  pitchStep: string;
+  pitchOctave: number;
+  pitchAlter?: number;
+  staff?: number;
 };
+
+type ChordMemberDraft = { step: string; octave: number; alter: PitchAlterOption };
 
 function noteAnchorLabel(n: MeasureNoteEl): string {
   if (n.kind === 'rest') return `쉼표(${n.type ?? '?'})`;
@@ -1305,6 +1809,70 @@ function noteDirectionsSummary(el: MeasureNoteEl): string {
     .map((d) => noteDirectionLabel(d))
     .filter(Boolean)
     .join(' · ');
+}
+
+function effectiveNoteDirections(
+  el: MeasureNoteEl,
+  pendingFixes: OmrHitlFix[],
+  partId: string,
+  measureMxl: string,
+): NoteDirectionInfo[] {
+  let dirs = noteDirectionsOf(el).map((d) => ({ ...d }));
+  const mxl = String(measureMxl);
+  for (const f of pendingFixes) {
+    if (!hitlPreviewPartIdsMatch(partId, f.partId)) continue;
+    if (String(f.measureMxl) !== mxl) continue;
+    if (f.noteIndex !== el.index) continue;
+    if (f.kind === 'clearNoteDirection') return [];
+    if (f.kind === 'removeNoteDirection') {
+      dirs = dirs.filter(
+        (d) =>
+          !(
+            d.directionType === f.directionType &&
+            d.directionValue === f.directionValue
+          ),
+      );
+      continue;
+    }
+    if (f.kind === 'addNoteDirection') {
+      const pl = f.placement === 'below' ? 'below' : 'above';
+      const dist = f.distance ?? null;
+      dirs.push({
+        directionType: (f.directionType as NoteDirectionInfo['directionType']) || 'words',
+        directionValue: f.directionValue || '',
+        placement: pl,
+        distance: dist,
+        defaultY: articulationDefaultYFromStaffSpaces(pl, dist ? parseFloat(String(dist)) || 1 : 1),
+      });
+      continue;
+    }
+    if (f.kind === 'setNoteDirectionPlacement') {
+      dirs = dirs.map((d) => {
+        if (
+          d.directionType !== f.directionType ||
+          d.directionValue !== f.directionValue
+        ) {
+          return d;
+        }
+        const pl =
+          f.placement === 'above' || f.placement === 'below'
+            ? f.placement
+            : d.placement || 'above';
+        const dist = f.distance !== undefined ? f.distance : d.distance;
+        const spaces =
+          dist && dist !== 'auto'
+            ? parseFloat(String(dist)) || 1
+            : Math.abs(d.defaultY ?? 10) / 10;
+        return {
+          ...d,
+          placement: pl,
+          distance: dist ?? d.distance,
+          defaultY: articulationDefaultYFromStaffSpaces(pl, spaces),
+        };
+      });
+    }
+  }
+  return dirs;
 }
 
 function noteDirectionLabel(dir: NoteDirectionInfo | null | undefined): string {
@@ -1392,15 +1960,34 @@ function elementTitle(
         )
       : '?';
   const graceTag = el.hasGrace ? ` 꾸밈음${el.graceSlash ? '(slash)' : ''}` : '';
-  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slurTag}${chord}${tuplet}${beam}${dur}${arts}${orns}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${staffVoice}`;
+  let chordPeers = '';
+  if (!el.chord && _noteEls.length) {
+    const peers = _noteEls
+      .filter((n) => n.chord && chordLeaderIndex(n, _noteEls) === el.index)
+      .map((n) =>
+        n.pitch != null
+          ? formatPitchLabel(
+              parsePitch(n.pitch).step,
+              parsePitch(n.pitch).octave,
+              n.pitchAlter,
+            )
+          : '?',
+      );
+    if (peers.length) chordPeers = ` +화음[${peers.join('·')}]`;
+  } else if (el.chord && _noteEls.length) {
+    const leader = _noteEls.find((n) => n.index === chordLeaderIndex(el, _noteEls));
+    if (leader?.pitch) {
+      const lp = parsePitch(leader.pitch);
+      chordPeers = ` ←${formatPitchLabel(lp.step, lp.octave, leader.pitchAlter)}`;
+    }
+  }
+  return `#${idx} ${pitchLabel}${graceTag} ${el.type ?? ''}${dots}${tie}${slurTag}${chord}${chordPeers}${tuplet}${beam}${dur}${arts}${orns}${ferms}${dirSuffix}${el.stem ? ` stem=${el.stem}` : ''}${staffVoice}`;
 }
 
 export function OmrMeasureEditor({
   jobId,
   partId,
   measureMxl,
-  measurePrinted,
-  measureOffset,
   staffLabel,
   editStaffWithinPart = null,
   partStaveCount = 1,
@@ -1440,6 +2027,28 @@ export function OmrMeasureEditor({
     ];
   }, [availableScoreParts]);
 
+  const stavesForPartId = useCallback(
+    (pid: string): number => {
+      if (pid === partId && partStaveCount >= 2) return partStaveCount;
+      const p = availableParts.find((x) => x.id === pid);
+      const lab = (p?.label || '').toUpperCase();
+      if (lab === 'P' || lab === 'PR' || lab === 'PL') return 2;
+      return 1;
+    },
+    [partId, partStaveCount, availableParts],
+  );
+
+  const [copyStaffScope, setCopyStaffScope] = useState<'all' | '1' | '2'>(() => {
+    if (editStaffWithinPart === 2) return '2';
+    if (editStaffWithinPart === 1) return '1';
+    return 'all';
+  });
+
+  useEffect(() => {
+    if (editStaffWithinPart === 2) setCopyStaffScope('2');
+    else if (editStaffWithinPart === 1) setCopyStaffScope('1');
+  }, [editStaffWithinPart]);
+
   const [copyFromPartId, setCopyFromPartId] = useState(partId);
   const [copyToPartIds, setCopyToPartIds] = useState<string[]>(() => {
     const isBass = partId === 'P4' || staffLabel === 'B' || staffLabel === 'Bass';
@@ -1454,14 +2063,49 @@ export function OmrMeasureEditor({
   const [copyRangeMode, setCopyRangeMode] = useState<'single' | 'range'>('single');
   const [copyStartMeasure, setCopyStartMeasure] = useState(measureMxl);
   const [copyEndMeasure, setCopyEndMeasure] = useState(measureMxl);
+  const [copyTargetMeasureMode, setCopyTargetMeasureMode] = useState<'same' | 'custom'>('same');
+  const [copyTargetMeasure, setCopyTargetMeasure] = useState(measureMxl);
+  const [copyTargetStartMeasure, setCopyTargetStartMeasure] = useState(measureMxl);
+  const [copyTargetEndMeasure, setCopyTargetEndMeasure] = useState(measureMxl);
   const [clearSourceAfterCopy, setClearSourceAfterCopy] = useState(false);
   const [splitVoicesOnCopy, setSplitVoicesOnCopy] = useState(true);
 
+  const copyFromStaves = stavesForPartId(copyFromPartId);
+  const copyShowsStaffScope =
+    copyFromStaves >= 2 || copyToPartIds.some((id) => stavesForPartId(id) >= 2);
+
+  const copySourceMeasureSpec =
+    copyRangeMode === 'single' ? String(measureMxl) : `${copyStartMeasure}-${copyEndMeasure}`;
+
+  const copyTargetMeasureSpec =
+    copyTargetMeasureMode === 'same'
+      ? copySourceMeasureSpec
+      : copyRangeMode === 'single'
+        ? String(copyTargetMeasure)
+        : `${copyTargetStartMeasure}-${copyTargetEndMeasure}`;
+
+  const copySelfMeasureOverlap =
+    copyToPartIds.includes(copyFromPartId) &&
+    (copyTargetMeasureMode === 'same' ||
+      (copyRangeMode === 'single'
+        ? String(copyTargetMeasure) === String(measureMxl)
+        : copyTargetStartMeasure === copyStartMeasure && copyTargetEndMeasure === copyEndMeasure));
+
   const handleExecuteCopy = useCallback(() => {
     if (copyToPartIds.length === 0) return;
-    const measureSpec = copyRangeMode === 'single' ? String(measureMxl) : `${copyStartMeasure}-${copyEndMeasure}`;
+    const measureSpec = copySourceMeasureSpec;
     const fromLabel = availableParts.find((p) => p.id === copyFromPartId)?.label || copyFromPartId;
     const toLabels = copyToPartIds.map((id) => availableParts.find((p) => p.id === id)?.label || id).join(', ');
+    const targetMeasureLabel =
+      copyTargetMeasureMode === 'same' ? '동일 마디' : `m.${copyTargetMeasureSpec}`;
+    const staffScopeLabel =
+      copyStaffScope === 'all' ? '' : copyStaffScope === '1' ? ' [PR만]' : ' [PL만]';
+    const moveNote =
+      clearSourceAfterCopy && copySelfMeasureOverlap
+        ? ' [출처=대상 동일 마디: 이동(비우기) 생략]'
+        : clearSourceAfterCopy
+          ? ' [이동]'
+          : '';
 
     const fix: OmrHitlFix = {
       id: newFixId(),
@@ -1470,25 +2114,34 @@ export function OmrMeasureEditor({
       fromPartId: copyFromPartId,
       toPartIds: copyToPartIds,
       measureMxl: measureSpec,
+      ...(copyTargetMeasureMode === 'custom' ? { toMeasureMxl: copyTargetMeasureSpec } : {}),
+      ...(copyStaffScope !== 'all'
+        ? {
+            // 단일 staff 출처(B·T 등)는 항상 staff 1 — PL 범위여도 fromStaff=2면 음표를 못 찾음
+            fromStaff: copyFromStaves >= 2 ? (copyStaffScope === '1' ? 1 : 2) : 1,
+            toStaff: copyStaffScope === '1' ? 1 : 2,
+          }
+        : {}),
       clearSource: clearSourceAfterCopy,
-      splitVoices: splitVoicesOnCopy,
-      detail: `${fromLabel} ➡️ ${toLabels} (${copyRangeMode === 'single' ? `m.${measureMxl}` : `m.${measureSpec}`})${clearSourceAfterCopy ? ' [이동]' : ''}`,
+      splitVoices: splitVoicesOnCopy && copyStaffScope === 'all',
+      detail: `${fromLabel} m.${measureSpec} ➡️ ${toLabels} (${targetMeasureLabel})${staffScopeLabel}${moveNote}`,
     };
 
     onAddFix(fix);
     setFixMsg(
-      `✅ ${fromLabel} 파트의 ${copyRangeMode === 'single' ? `${measureMxl}마디` : `${measureSpec}마디`} 내용을 ${toLabels} 파트로 복사/이동 등록했습니다. 아래 [MXL에 반영·미리보기]를 눌러 적용하세요.`,
+      `✅ ${fromLabel} 파트 m.${measureSpec} 내용을 ${toLabels} 파트 ${targetMeasureLabel}에 복사/이동 등록했습니다. 아래 [MXL에 반영·미리보기]를 눌러 적용하세요.`,
     );
   }, [
     copyToPartIds,
-    copyRangeMode,
-    measureMxl,
-    copyStartMeasure,
-    copyEndMeasure,
+    copySourceMeasureSpec,
+    copyTargetMeasureSpec,
+    copyTargetMeasureMode,
     availableParts,
     copyFromPartId,
     clearSourceAfterCopy,
+    copySelfMeasureOverlap,
     splitVoicesOnCopy,
+    copyStaffScope,
     onAddFix,
   ]);
 
@@ -1648,14 +2301,75 @@ export function OmrMeasureEditor({
     const list = elements.filter(
       (el): el is MeasureElement => el.elementKind === 'note' || el.elementKind === 'clef',
     );
-    if (editStaffWithinPart == null) return list;
-    return list.filter((el) => (el.staff ?? 1) === editStaffWithinPart);
+    const filtered =
+      editStaffWithinPart == null
+        ? list
+        : list.filter((el) => (el.staff ?? 1) === editStaffWithinPart);
+    const notes = filtered.filter(isMeasureNoteEl);
+    const clefs = filtered.filter(isMeasureClefEl);
+    const leaderSortKey = (n: MeasureNoteEl) => {
+      const po = n.playOrder ?? n.displayPlayOrder;
+      const voice = parseInt(String(n.voice ?? '1'), 10) || 999;
+      return [po != null ? Number(po) : 1e9, voice, n.index] as const;
+    };
+    const leaders = notes
+      .filter((n) => !n.chord)
+      .slice()
+      .sort((a, b) => {
+        const ka = leaderSortKey(a);
+        const kb = leaderSortKey(b);
+        for (let i = 0; i < ka.length; i += 1) {
+          if (ka[i]! !== kb[i]!) return ka[i]! - kb[i]!;
+        }
+        return 0;
+      });
+    const used = new Set<number>();
+    const orderedNotes: MeasureNoteEl[] = [];
+    for (const leader of leaders) {
+      orderedNotes.push(leader);
+      used.add(leader.index);
+      const followers = notes
+        .filter((n) => n.chord && chordLeaderIndex(n, notes) === leader.index)
+        .sort((a, b) => a.index - b.index);
+      for (const f of followers) {
+        orderedNotes.push(f);
+        used.add(f.index);
+      }
+    }
+    for (const n of notes) {
+      if (!used.has(n.index)) orderedNotes.push(n);
+    }
+    const out: MeasureElement[] = [];
+    const clefsAtStart = clefs
+      .filter((c) => (c.afterNoteIndex ?? -1) < 0)
+      .sort((a, b) => (a.clefIndex ?? 0) - (b.clefIndex ?? 0));
+    out.push(...clefsAtStart);
+    for (const n of orderedNotes) {
+      out.push(n);
+      const after = clefs
+        .filter((c) => c.afterNoteIndex === n.index)
+        .sort((a, b) => (a.clefIndex ?? 0) - (b.clefIndex ?? 0));
+      out.push(...after);
+    }
+    for (const c of clefs) {
+      if (!out.includes(c)) out.push(c);
+    }
+    return out;
   }, [elements, editStaffWithinPart]);
 
   const noteEls = useMemo(
     () => elements.filter((e): e is MeasureNoteEl => e.elementKind === 'note'),
     [elements],
   );
+
+  const distinctVoicesOnStaff = useMemo(() => {
+    const voices = new Set<string>();
+    for (const el of noteEls) {
+      if (editStaffWithinPart != null && (el.staff ?? 1) !== editStaffWithinPart) continue;
+      voices.add(String(el.voice ?? '1'));
+    }
+    return [...voices].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99));
+  }, [noteEls, editStaffWithinPart]);
 
   const breathMarkNotes = useMemo(() => {
     return displayElements.filter(isMeasureNoteEl).filter((n) =>
@@ -1669,7 +2383,10 @@ export function OmrMeasureEditor({
     [measureDirections],
   );
   const textDirections = useMemo(
-    () => measureDirections.filter((d) => !isNavigationDirection(d) && !isWedgeDirection(d)),
+    () =>
+      measureDirections.filter(
+        (d) => !isNavigationDirection(d) && !isWedgeDirection(d) && !isOctaveShiftDirection(d),
+      ),
     [measureDirections],
   );
   const wedgeDirections = useMemo(
@@ -1677,6 +2394,15 @@ export function OmrMeasureEditor({
       measureDirections.filter((d) => {
         if (!isWedgeDirection(d)) return false
         if (editStaffWithinPart == null) return true
+        return (d.staff ?? 1) === editStaffWithinPart;
+      }),
+    [measureDirections, editStaffWithinPart],
+  );
+  const octaveShiftDirections = useMemo(
+    () =>
+      measureDirections.filter((d) => {
+        if (!isOctaveShiftDirection(d)) return false;
+        if (editStaffWithinPart == null) return true;
         return (d.staff ?? 1) === editStaffWithinPart;
       }),
     [measureDirections, editStaffWithinPart],
@@ -1702,6 +2428,67 @@ export function OmrMeasureEditor({
     });
     setFixMsg('대기 목록에 반영됨 — 오른쪽 MXL 미리보기에 바로 반영됩니다. MXL 저장은 아래 「MXL에 반영·미리보기」를 누르세요.');
   };
+
+  const applyUnifyStaffVoicesSequential = useCallback(() => {
+    const staff = editStaffWithinPart ?? 1;
+    const voiceLabels = distinctVoicesOnStaff;
+    if (voiceLabels.length < 2) return;
+
+    const leaders = noteEls
+      .filter((n) => (n.staff ?? 1) === staff && !n.chord && !n.hasGrace)
+      .slice()
+      .sort((a, b) => {
+        const va = parseInt(String(a.voice ?? '1'), 10) || 999;
+        const vb = parseInt(String(b.voice ?? '1'), 10) || 999;
+        if (va !== vb) return va - vb;
+        return a.index - b.index;
+      });
+    const playByIndex = new Map<number, number>();
+    leaders.forEach((n, i) => playByIndex.set(n.index, i + 1));
+
+    setSnapshot((prev) => {
+      if (!prev) return prev;
+      const remap = (n: MeasureNoteEl): MeasureNoteEl => {
+        if ((n.staff ?? 1) !== staff) return n;
+        const leaderIdx = n.chord ? chordLeaderIndex(n, noteEls) : n.index;
+        const po = playByIndex.get(leaderIdx);
+        return {
+          ...n,
+          voice: '1',
+          playOrder: n.chord ? null : (po ?? n.playOrder ?? null),
+          playOrderAlign: null,
+          displayPlayOrder: n.chord ? n.displayPlayOrder : (po ?? n.displayPlayOrder ?? null),
+        };
+      };
+      if (prev.elements?.length) {
+        return {
+          ...prev,
+          elements: prev.elements.map((el) => (el.elementKind === 'note' ? remap(el) : el)),
+        };
+      }
+      return {
+        ...prev,
+        notes: (prev.notes ?? []).map(remap),
+      };
+    });
+
+    setPlayOrderDraft({});
+    const detail = `성부 ${voiceLabels.join('·')} → 1, 순번 1–${leaders.length} (성부순 배치)`;
+    onAddFix({
+      id: newFixId(),
+      kind: 'unifyStaffVoices',
+      partId,
+      measureMxl: String(measureMxl),
+      staff,
+      voice: '1',
+      assignPlayOrder: true,
+      detail,
+      source: 'manual',
+    });
+    setFixMsg(
+      `${detail} — 에디터·대기열에 반영됨. 「MXL에 반영·미리보기」를 누르면 악보 미리보기에 적용됩니다.`,
+    );
+  }, [distinctVoicesOnStaff, editStaffWithinPart, noteEls, partId, measureMxl, onAddFix]);
 
   const commitPlayOrder = (el: MeasureNoteEl, raw: string) => {
     const trimmed = raw.trim();
@@ -1749,9 +2536,9 @@ export function OmrMeasureEditor({
     <div className="omr-measure-editor">
       <div className="omr-measure-editor-head">
         <strong>
-          마디 편집 · 인쇄 m.{measurePrinted}
+          마디 편집 · m.{measureMxl}
           <span className="omr-measure-editor-sub">
-            (MXL {measureMxl} · part {partId}
+            (part {partId}
             {staffLabel ? ` · ${staffLabel}` : ''}
             {editStaffWithinPart != null ? ` · staff ${editStaffWithinPart}` : ''})
           </span>
@@ -1761,7 +2548,7 @@ export function OmrMeasureEditor({
         </button>
       </div>
       <p className="omr-measure-editor-hint">
-        요소를 고친 뒤 아래 <strong>「MXL에 반영·미리보기」</strong>를 눌러 오른쪽 MusicXML에서 결과를 확인하세요. 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset} − 1.
+        요소를 고친 뒤 아래 <strong>「MXL에 반영·미리보기」</strong>를 눌러 오른쪽 MusicXML에서 결과를 확인하세요. 마디 번호는 MusicXML <code>measure@number</code>(전곡 기준)입니다.
         {' '}
         <strong>연주순번</strong>은 음표·쉼표 모두에 지정할 수 있습니다(같은 번호 = 동시 시작). 예전에 음표만 순번이 저장된 마디는 열 때 쉼표를 포함해 자동 재배열됩니다.
       </p>
@@ -1814,10 +2601,10 @@ export function OmrMeasureEditor({
           }}
         >
           <span>📋</span>
-          <span>마디 파트 복사 / 이동 (다른 파트로 내용 배분)</span>
+          <span>마디 파트 복사 / 이동 (다른 파트·다른 마디로 붙여넣기)</span>
         </div>
         <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>
-          이미 고친 파트(예: B 파트)의 마디 내용을 <strong>다른 파트(예: S, A 파트)로 마디 단위 또는 범위로 복사·이동</strong>합니다.
+          출처 파트의 마디 내용을 <strong>임의의 대상 파트(자기 파트 포함)와 마디 번호</strong>에 복사·이동합니다. 범위 복사 시 출처·대상 마디 개수가 같으면 1:1로 대응합니다.
         </p>
 
         {/* 1. 출처 및 대상 파트 선택 */}
@@ -1839,27 +2626,41 @@ export function OmrMeasureEditor({
 
           <div style={{ fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 600 }}>대상 파트:</span>
-            {availableParts
-              .filter((p) => p.id !== copyFromPartId)
-              .map((p) => (
-                <label key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={copyToPartIds.includes(p.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setCopyToPartIds([...copyToPartIds, p.id]);
-                      } else {
-                        setCopyToPartIds(copyToPartIds.filter((id) => id !== p.id));
-                      }
-                    }}
-                  />
-                  <span>{p.label}</span>
-                </label>
-              ))}
+            {availableParts.map((p) => (
+              <label key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={copyToPartIds.includes(p.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setCopyToPartIds([...copyToPartIds, p.id]);
+                    } else {
+                      setCopyToPartIds(copyToPartIds.filter((id) => id !== p.id));
+                    }
+                  }}
+                />
+                <span>
+                  {p.label}
+                  {p.id === partId ? ' (현재)' : ''}
+                  {p.id === copyFromPartId && p.id !== partId ? ' (출처)' : ''}
+                </span>
+              </label>
+            ))}
           </div>
 
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-muted"
+              style={{ padding: '2px 6px', fontSize: '0.78rem' }}
+              onClick={() => {
+                if (!copyToPartIds.includes(partId)) {
+                  setCopyToPartIds([...copyToPartIds, partId]);
+                }
+              }}
+            >
+              현재 파트
+            </button>
             <button
               type="button"
               className="btn-muted"
@@ -1891,6 +2692,58 @@ export function OmrMeasureEditor({
           </div>
         </div>
 
+        {copyShowsStaffScope ? (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 12,
+              alignItems: 'center',
+              marginBottom: 8,
+              fontSize: '0.86rem',
+            }}
+          >
+            <span style={{ fontWeight: 600 }}>복사 줄 (P·PR/PL):</span>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="copyStaffScope"
+                checked={copyStaffScope === 'all'}
+                onChange={() => setCopyStaffScope('all')}
+              />
+              <span>PR+PL 전체</span>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="copyStaffScope"
+                checked={copyStaffScope === '1'}
+                onChange={() => setCopyStaffScope('1')}
+              />
+              <span>PR (staff 1 · 윗줄)</span>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="copyStaffScope"
+                checked={copyStaffScope === '2'}
+                onChange={() => setCopyStaffScope('2')}
+              />
+              <span>PL (staff 2 · 아랫줄)</span>
+            </label>
+            {copyStaffScope === 'all' && copyFromStaves >= 2 ? (
+              <span style={{ fontSize: '0.78rem', color: '#b45309' }}>
+                전체 선택 시 PR·PL이 한 마디에 겹칩니다. 한 줄만 복사하려면 PR 또는 PL을 고르세요.
+              </span>
+            ) : null}
+            {copyStaffScope !== 'all' && copyFromStaves < 2 ? (
+              <span style={{ fontSize: '0.78rem', color: '#475569' }}>
+                출처가 단일 staff(B·T 등)이면 그 줄 전체가 복사되고, 대상이 피아노일 때만 PR/PL staff로 붙습니다.
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* 2. 마디 범위 선택 */}
         <div
           style={{
@@ -1909,7 +2762,7 @@ export function OmrMeasureEditor({
               checked={copyRangeMode === 'single'}
               onChange={() => setCopyRangeMode('single')}
             />
-            <span>현재 마디만 (MXL {measureMxl} / 인쇄 m.{measurePrinted})</span>
+            <span>현재 마디만 (m.{measureMxl})</span>
           </label>
 
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
@@ -1941,6 +2794,73 @@ export function OmrMeasureEditor({
           </label>
         </div>
 
+        {/* 2b. 대상 마디 선택 */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            alignItems: 'center',
+            marginBottom: 8,
+            fontSize: '0.86rem',
+          }}
+        >
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="copyTargetMeasureType"
+              checked={copyTargetMeasureMode === 'same'}
+              onChange={() => setCopyTargetMeasureMode('same')}
+            />
+            <span>대상 마디 = 출처와 동일 번호</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', flexWrap: 'wrap' }}>
+            <input
+              type="radio"
+              name="copyTargetMeasureType"
+              checked={copyTargetMeasureMode === 'custom'}
+              onChange={() => setCopyTargetMeasureMode('custom')}
+            />
+            <span>다른 마디에 붙여넣기:</span>
+            {copyRangeMode === 'single' ? (
+              <>
+                <span>MXL</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={copyTargetMeasure}
+                  onChange={(e) => setCopyTargetMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+                  disabled={copyTargetMeasureMode !== 'custom'}
+                />
+                <span>마디</span>
+              </>
+            ) : (
+              <>
+                <input
+                  type="number"
+                  min={1}
+                  value={copyTargetStartMeasure}
+                  onChange={(e) => setCopyTargetStartMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+                  disabled={copyTargetMeasureMode !== 'custom'}
+                />
+                <span>~</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={copyTargetEndMeasure}
+                  onChange={(e) => setCopyTargetEndMeasure(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  style={{ width: 48, padding: '2px 4px', textAlign: 'center', border: '1px solid #94a3b8', borderRadius: 4 }}
+                  disabled={copyTargetMeasureMode !== 'custom'}
+                />
+                <span>마디 (출처 범위와 1:1)</span>
+              </>
+            )}
+          </label>
+        </div>
+
         {/* 3. 옵션 및 실행 버튼 */}
         <div
           style={{
@@ -1955,24 +2875,34 @@ export function OmrMeasureEditor({
           }}
         >
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: '0.82rem' }}>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: copySelfMeasureOverlap ? 'not-allowed' : 'pointer' }}>
               <input
                 type="checkbox"
                 checked={clearSourceAfterCopy}
+                disabled={copySelfMeasureOverlap}
                 onChange={(e) => setClearSourceAfterCopy(e.target.checked)}
               />
               <span>
                 복사 후 출처 파트를 <strong>온쉼표로 비우기 (이동)</strong>
+                {copySelfMeasureOverlap ? (
+                  <span style={{ color: '#b45309', marginLeft: 4 }}>
+                    (출처=대상 동일 마디에서는 사용 불가)
+                  </span>
+                ) : null}
               </span>
             </label>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={splitVoicesOnCopy}
+                disabled={copyStaffScope !== 'all'}
                 onChange={(e) => setSplitVoicesOnCopy(e.target.checked)}
               />
               <span>
                 2개 성부/화음 시 <strong>상하 성부 자동 분할 (위 음 ➡️ S, 아래 음 ➡️ A)</strong>
+                {copyStaffScope !== 'all' ? (
+                  <span style={{ color: '#64748b', marginLeft: 4 }}>(PR/PL 줄 복사 시 비활성)</span>
+                ) : null}
               </span>
             </label>
           </div>
@@ -2055,7 +2985,7 @@ export function OmrMeasureEditor({
               checked={clefScope === 'single'}
               onChange={() => setClefScope('single')}
             />
-            <span>현재 마디만 (m.{measurePrinted})</span>
+            <span>현재 마디만 (m.{measureMxl})</span>
           </label>
 
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
@@ -2124,6 +3054,34 @@ export function OmrMeasureEditor({
         때만 참조 표기를 쓰세요. voice만 바꾸면 backup 뒤 음이 마디 앞으로 올 수 있습니다. staff만
         바꾸면 PR/PL로 갈라집니다. 빈 칸·0이면 자동 순번입니다.
       </p>
+      {distinctVoicesOnStaff.length >= 2 ? (
+        <div
+          className="omr-voice-workflow-panel"
+          style={{
+            margin: '8px 0 12px',
+            padding: '10px 12px',
+            border: '1px solid #cbd5e1',
+            borderRadius: 6,
+            background: '#f8fafc',
+            fontSize: '0.86rem',
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>
+            겹친 성부(voice {distinctVoicesOnStaff.join(', ')})
+          </div>
+          <p style={{ margin: '0 0 8px', color: '#475569', lineHeight: 1.45 }}>
+            버튼을 누르면 성부 순으로 펼친 뒤 voice=1로 통일하고 연주순번을 자동으로 매깁니다.
+            에디터·대기열에 바로 반영되며, 「MXL에 반영·미리보기」로 악보에 적용합니다.
+          </p>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn"
+            onClick={applyUnifyStaffVoicesSequential}
+          >
+            성부 통일·순번 자동 (성부순)
+          </button>
+        </div>
+      ) : null}
       {fixMsg ? <p className="omr-measure-fix-msg">{fixMsg}</p> : null}
       {lastPreviewMsg ? <p className="omr-measure-preview-msg">{lastPreviewMsg}</p> : null}
       {loadErr ? <p className="omr-measure-editor-err">{loadErr}</p> : null}
@@ -2140,6 +3098,14 @@ export function OmrMeasureEditor({
           />
           <MeasureWedgeEditor
             directions={wedgeDirections}
+            noteEls={noteEls}
+            partStaveCount={partStaveCount}
+            editStaffWithinPart={editStaffWithinPart}
+            insertStaff={insertStaff}
+            onFix={pushFix}
+          />
+          <MeasureOctaveShiftEditor
+            directions={octaveShiftDirections}
             noteEls={noteEls}
             partStaveCount={partStaveCount}
             editStaffWithinPart={editStaffWithinPart}
@@ -2287,6 +3253,7 @@ export function OmrMeasureEditor({
                   previewRevision={previewRevision}
                   onFix={pushFix}
                   pendingArticulationForNote={pendingArticulationForNote}
+                  pendingFixes={pendingFixes}
                 />
                 <div className="omr-measure-insert-row">
                   <span className="omr-measure-insert-label">이 위치 뒤에 추가:</span>
@@ -2364,16 +3331,16 @@ export function OmrMeasureEditor({
             dotCount,
             staff,
             voice,
+            ...(extraChordMembers.length
+              ? {
+                  chordMembers: extraChordMembers.map((cm) => ({
+                    pitchStep: cm.step,
+                    pitchOctave: cm.octave,
+                    pitchAlter: cm.alter,
+                  })),
+                }
+              : {}),
           });
-          for (const cm of extraChordMembers) {
-            pushFix({
-              kind: 'insertChordMember',
-              leaderNoteIndex: leaderIdx,
-              pitchStep: cm.step,
-              pitchOctave: cm.octave,
-              pitchAlter: cm.alter,
-            });
-          }
           if (extraChordMembers.length > 0) {
             setPendingInsertLeader(null);
             setFixMsg(
@@ -2385,6 +3352,10 @@ export function OmrMeasureEditor({
               pitchLabel: leaderLabel,
               noteType,
               dotCount,
+              pitchStep,
+              pitchOctave,
+              pitchAlter,
+              staff,
             });
             setFixMsg(
               `리더 음표 대기 (#${leaderIdx} 예정 · ${leaderLabel}). 아래 「화음 음 추가」로 2·3음을 더 붙이거나 「MXL에 반영·미리보기」를 누르세요.`,
@@ -2417,16 +3388,27 @@ export function OmrMeasureEditor({
             `음표 ${notes.length}개 연속 추가 대기 (${labels.join(' → ')}) → 「MXL에 반영·미리보기」`,
           );
         }}
-        onInsertChordMember={(leaderNoteIndex, pitchStep, pitchOctave, pitchAlter) => {
+        onInsertChordMember={(leaderNoteIndex, members, leaderMeta) => {
+          if (!members.length) return;
           pushFix({
             kind: 'insertChordMember',
             leaderNoteIndex,
-            pitchStep,
-            pitchOctave,
-            pitchAlter,
+            staff: leaderMeta?.staff,
+            leaderPitchStep: leaderMeta?.pitchStep,
+            leaderPitchOctave: leaderMeta?.pitchOctave,
+            leaderPitchAlter: leaderMeta?.pitchAlter,
+            chordMembers: members.map((m) => ({
+              pitchStep: m.step,
+              pitchOctave: m.octave,
+              pitchAlter: m.alter,
+            })),
+            detail: `#${leaderNoteIndex} +화음 ${members.length}개`,
           });
+          const labels = members
+            .map((m) => formatPitchLabel(m.step, m.octave, m.alter))
+            .join('·');
           setFixMsg(
-            `화음 음 ${formatPitchLabel(pitchStep, pitchOctave, pitchAlter)} 대기 (리더 #${leaderNoteIndex} 예정) → 「MXL에 반영·미리보기」`,
+            `화음 ${members.length}개 (${labels}) 대기 (리더 #${leaderNoteIndex} 예정) → 「MXL에 반영·미리보기」`,
           );
         }}
         onInsertClef={(afterNoteIndex, clefSign, staff, afterClefIndex) => {
@@ -2731,7 +3713,7 @@ function NoteDirectionEditor({
             <span key={`${d.directionType}-${d.directionValue}-${i}`} className="omr-measure-direction-chip">
               {noteDirectionLabel(d)}
               <select
-                value={d.placement || (d.directionType === 'dynamics' ? 'below' : 'above')}
+                value={d.placement || 'above'}
                 onChange={(e) =>
                   onFix({
                     kind: 'setNoteDirectionPlacement',
@@ -2756,7 +3738,7 @@ function NoteDirectionEditor({
                     noteIndex,
                     directionType: d.directionType,
                     directionValue: d.directionValue,
-                    placement: (d.placement || (d.directionType === 'dynamics' ? 'below' : 'above')) as 'above' | 'below',
+                    placement: (d.placement || 'above') as 'above' | 'below',
                     distance: e.target.value,
                   })
                 }
@@ -2801,7 +3783,6 @@ function NoteDirectionEditor({
           onChange={(e) => {
             const v = e.target.value;
             setMode(v === '' ? 'none' : (v as 'dynamics' | 'words' | 'rehearsal'));
-            if (v === 'dynamics') setDirPlacement('below');
           }}
         >
           <option value="">종류 선택</option>
@@ -2923,6 +3904,7 @@ function MeasureNoteEditor({
   previewRevision,
   onFix,
   pendingArticulationForNote,
+  pendingFixes,
 }: {
   el: MeasureNoteEl;
   noteEls: MeasureNoteEl[];
@@ -2935,6 +3917,7 @@ function MeasureNoteEditor({
     noteIndex: number,
     articulation: string,
   ) => { placement?: 'above' | 'below'; distance?: string | null } | undefined;
+  pendingFixes: OmrHitlFix[];
 }) {
   const parsed = parsePitch(el.pitch);
   const [pitchStep, setPitchStep] = useState(parsed.step);
@@ -2959,9 +3942,9 @@ function MeasureNoteEditor({
     defaultBeamEndIndex(chordLeaderIndex(el, noteEls), noteEls, el),
   );
   const [beamNumber, setBeamNumber] = useState(1);
-  const [chordStep, setChordStep] = useState('G');
-  const [chordOctave, setChordOctave] = useState(4);
-  const [chordAlter, setChordAlter] = useState<PitchAlterOption>('0');
+  const [chordDrafts, setChordDrafts] = useState<ChordMemberDraft[]>([
+    { step: 'G', octave: 4, alter: '0' },
+  ]);
   const [pendingArtIds, setPendingArtIds] = useState<string[]>([]);
   const [pendingArtPlacement, setPendingArtPlacement] = useState<Record<string, 'above' | 'below'>>({});
   const [artPlacement, setArtPlacement] = useState<'above' | 'below'>(() =>
@@ -3025,6 +4008,7 @@ function MeasureNoteEditor({
     );
     setTieTo('');
     setSlurTo('');
+    setChordDrafts([{ step: 'G', octave: 4, alter: '0' }]);
     setSlurPlacement(
       el.slurStartPlacement === 'above' || el.slurStartPlacement === 'below'
         ? el.slurStartPlacement
@@ -3381,7 +4365,12 @@ function MeasureNoteEditor({
       {!el.chord && !el.hasGrace && el.index === chordLeaderIdx && (
         <NoteDirectionEditor
           noteIndex={chordLeaderIdx}
-          currentDirections={noteDirectionsOf(chordLeaderEl ?? el)}
+          currentDirections={effectiveNoteDirections(
+            chordLeaderEl ?? el,
+            pendingFixes,
+            partId,
+            String(measureMxl),
+          )}
           onFix={onFix}
         />
       )}
@@ -4035,48 +5024,97 @@ function MeasureNoteEditor({
           </div>
         </div>
       )}
-      {el.kind === 'note' && (
-        <div className="omr-measure-chord-row">
+      {el.kind === 'note' && !el.chord && !el.hasGrace ? (
+        <div className="omr-measure-chord-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
           <span className="omr-measure-chord-hint">
             빠진 화음 음 — 리더 #{chordLeaderIdx}
-            {chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 와 같은 박자·줄기
+            {chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 와 같은 박자·줄기. 여러 음 한 번에 추가 가능.
           </span>
-          <label className="omr-measure-inline-field">
-            화음 음
-            <select value={chordStep} onChange={(e) => setChordStep(e.target.value)}>
-              {PITCH_STEPS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={0}
-              max={9}
-              value={chordOctave}
-              onChange={(e) => setChordOctave(Number(e.target.value))}
-              style={{ width: 48 }}
-            />
-            <PitchAlterSelect value={chordAlter} onChange={setChordAlter} />
-          </label>
-          <button
-            type="button"
-            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
-            onClick={() =>
-              onFix({
-                kind: 'insertChordMember',
-                leaderNoteIndex: chordLeaderIdx,
-                pitchStep: chordStep,
-                pitchOctave: chordOctave,
-                pitchAlter: pitchAlterFromOption(chordAlter),
-              })
-            }
-          >
-            화음 음 추가
-          </button>
+          {chordDrafts.map((row, i) => (
+            <div key={`chord-draft-${i}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+              <label className="omr-measure-inline-field">
+                화음 {i + 2}음
+                <select
+                  value={row.step}
+                  onChange={(e) =>
+                    setChordDrafts((prev) =>
+                      prev.map((r, j) => (j === i ? { ...r, step: e.target.value } : r)),
+                    )
+                  }
+                >
+                  {PITCH_STEPS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={9}
+                  value={row.octave}
+                  onChange={(e) =>
+                    setChordDrafts((prev) =>
+                      prev.map((r, j) => (j === i ? { ...r, octave: Number(e.target.value) } : r)),
+                    )
+                  }
+                  style={{ width: 48 }}
+                />
+                <PitchAlterSelect
+                  value={row.alter}
+                  onChange={(alter) =>
+                    setChordDrafts((prev) => prev.map((r, j) => (j === i ? { ...r, alter } : r)))
+                  }
+                />
+              </label>
+              {chordDrafts.length > 1 ? (
+                <button
+                  type="button"
+                  className="btn-muted"
+                  onClick={() => setChordDrafts((prev) => prev.filter((_, j) => j !== i))}
+                >
+                  줄 삭제
+                </button>
+              ) : null}
+            </div>
+          ))}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <button
+              type="button"
+              className="btn-muted"
+              onClick={() =>
+                setChordDrafts((prev) => [...prev, { step: 'E', octave: 4, alter: '0' }])
+              }
+            >
+              + 화음 줄
+            </button>
+            <button
+              type="button"
+              className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+              onClick={() => {
+                const leaderPitch = pitchFieldsFromMeasureNote(chordLeaderEl ?? el);
+                onFix({
+                  kind: 'insertChordMember',
+                  leaderNoteIndex: chordLeaderIdx,
+                  staff: (chordLeaderEl ?? el).staff ?? undefined,
+                  leaderPitchStep: leaderPitch.pitchStep,
+                  leaderPitchOctave: leaderPitch.pitchOctave,
+                  leaderPitchAlter: leaderPitch.pitchAlter,
+                  chordMembers: chordDrafts.map((c) => ({
+                    pitchStep: c.step,
+                    pitchOctave: c.octave,
+                    pitchAlter: pitchAlterFromOption(c.alter),
+                  })),
+                  detail: `#${chordLeaderIdx} +화음 ${chordDrafts.length}개`,
+                });
+                setChordDrafts([{ step: 'G', octave: 4, alter: '0' }]);
+              }}
+            >
+              화음 {chordDrafts.length}개 추가
+            </button>
+          </div>
         </div>
-      )}
+      ) : null}
       <button
         type="button"
         className="omr-hitl-fix-btn omr-hitl-fix-btn--danger"
@@ -4088,7 +5126,6 @@ function MeasureNoteEditor({
   );
 }
 
-type ChordMemberDraft = { step: string; octave: number; alter: PitchAlterOption };
 type SequenceNoteDraft = {
   step: string;
   octave: number;
@@ -4153,9 +5190,13 @@ function InsertElementForm({
   ) => void;
   onInsertChordMember: (
     leaderNoteIndex: number,
-    step: string,
-    octave: number,
-    pitchAlter: number | undefined,
+    members: Array<{ step: string; octave: number; alter?: number }>,
+    leaderMeta?: {
+      pitchStep?: string;
+      pitchOctave?: number;
+      pitchAlter?: number;
+      staff?: number;
+    },
   ) => void;
   onInsertClef: (after: number, sign: 'G' | 'F', staff: number, afterClef?: number | null) => void;
 }) {
@@ -4168,13 +5209,19 @@ function InsertElementForm({
   const [insertAlter, setInsertAlter] = useState<PitchAlterOption>('0');
   const [extraChords, setExtraChords] = useState<ChordMemberDraft[]>([]);
   const [extraNotes, setExtraNotes] = useState<SequenceNoteDraft[]>([]);
-  const [attachStep, setAttachStep] = useState('E');
-  const [attachOctave, setAttachOctave] = useState(4);
-  const [attachAlter, setAttachAlter] = useState<PitchAlterOption>('0');
+  const [attachDrafts, setAttachDrafts] = useState<ChordMemberDraft[]>([
+    { step: 'E', octave: 4, alter: '0' },
+  ]);
 
   useEffect(() => {
     setStaff(staffDefault);
   }, [staffDefault]);
+
+  useEffect(() => {
+    if (pendingLeader) {
+      setAttachDrafts([{ step: 'E', octave: 4, alter: '0' }]);
+    }
+  }, [pendingLeader?.leaderNoteIndex, pendingLeader?.pitchLabel]);
 
   const afterLabel =
     afterClefIndex != null
@@ -4283,42 +5330,97 @@ function InsertElementForm({
             )?.label ?? pendingLeader.noteType}
           </strong>
           <p style={{ margin: '4px 0 8px', fontSize: '0.86rem', lineHeight: 1.45 }}>
-            MXL 반영 전까지 목록에는 안 보입니다. 아래에서 <strong>화음 음</strong>을 더 추가한 뒤 「MXL에
+            MXL 반영 전까지 목록에는 안 보입니다. 아래에서 <strong>화음 음</strong>을 여러 개 추가한 뒤 「MXL에
             반영·미리보기」를 누르세요.
           </p>
+          {attachDrafts.map((row, i) => (
+            <div
+              key={`attach-chord-${i}`}
+              className="omr-measure-insert-form-row"
+              style={{ marginBottom: 4 }}
+            >
+              <label>
+                화음 {i + 2}음
+                <select
+                  value={row.step}
+                  onChange={(e) =>
+                    setAttachDrafts((prev) =>
+                      prev.map((r, j) => (j === i ? { ...r, step: e.target.value } : r)),
+                    )
+                  }
+                >
+                  {PITCH_STEPS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={9}
+                  value={row.octave}
+                  onChange={(e) =>
+                    setAttachDrafts((prev) =>
+                      prev.map((r, j) =>
+                        j === i ? { ...r, octave: Number(e.target.value) } : r,
+                      ),
+                    )
+                  }
+                  style={{ width: 48 }}
+                />
+                <PitchAlterSelect
+                  value={row.alter}
+                  onChange={(alter) =>
+                    setAttachDrafts((prev) =>
+                      prev.map((r, j) => (j === i ? { ...r, alter } : r)),
+                    )
+                  }
+                />
+              </label>
+              {attachDrafts.length > 1 ? (
+                <button
+                  type="button"
+                  className="btn-muted"
+                  onClick={() => setAttachDrafts((prev) => prev.filter((_, j) => j !== i))}
+                >
+                  줄 삭제
+                </button>
+              ) : null}
+            </div>
+          ))}
           <div className="omr-measure-insert-form-row">
-            <label>
-              화음 음
-              <select value={attachStep} onChange={(e) => setAttachStep(e.target.value)}>
-                {PITCH_STEPS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min={0}
-                max={9}
-                value={attachOctave}
-                onChange={(e) => setAttachOctave(Number(e.target.value))}
-                style={{ width: 48 }}
-              />
-              <PitchAlterSelect value={attachAlter} onChange={setAttachAlter} />
-            </label>
+            <button
+              type="button"
+              className="btn-muted"
+              onClick={() =>
+                setAttachDrafts((prev) => [...prev, { step: 'G', octave: 4, alter: '0' }])
+              }
+            >
+              + 화음 줄
+            </button>
             <button
               type="button"
               className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
-              onClick={() =>
+              onClick={() => {
                 onInsertChordMember(
                   pendingLeader.leaderNoteIndex,
-                  attachStep,
-                  attachOctave,
-                  pitchAlterFromOption(attachAlter),
-                )
-              }
+                  attachDrafts.map((r) => ({
+                    step: r.step,
+                    octave: r.octave,
+                    alter: pitchAlterFromOption(r.alter),
+                  })),
+                  {
+                    pitchStep: pendingLeader.pitchStep,
+                    pitchOctave: pendingLeader.pitchOctave,
+                    pitchAlter: pendingLeader.pitchAlter,
+                    staff: pendingLeader.staff,
+                  },
+                );
+                setAttachDrafts([{ step: 'E', octave: 4, alter: '0' }]);
+              }}
             >
-              화음 음 추가
+              화음 {attachDrafts.length}개 추가
             </button>
             <button type="button" className="btn-muted" onClick={onClearPendingLeader}>
               리더 대기 취소

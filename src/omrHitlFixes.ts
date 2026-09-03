@@ -49,7 +49,7 @@ export type OmrHitlFix = {
   fromPitchOctave?: number;
   fromPitchAlter?: number;
   removeFollowingNote?: boolean;
-  directionType?: 'dynamics' | 'words' | 'rehearsal' | 'segno' | 'coda' | 'fine' | 'dacapo' | 'dalsegno' | 'tocoda' | 'wedge';
+  directionType?: 'dynamics' | 'words' | 'rehearsal' | 'segno' | 'coda' | 'fine' | 'dacapo' | 'dalsegno' | 'tocoda' | 'wedge' | 'octave-shift';
   directionValue?: string;
   placement?: 'above' | 'below';
   defaultY?: number;
@@ -84,8 +84,26 @@ export type OmrHitlFix = {
   toStaff?: number;
   parallelNoteIndices?: number[];
   playOrder?: number;
+  /** unifyStaffVoices — 성부순으로 연주순번 1..N 자동 부여 */
+  assignPlayOrder?: boolean;
   /** 교차 voice 열 맞춤 — 예: "5-6" (voice5 순번6). setPlayOrder 전용 */
   playOrderAlign?: string;
+  /** insertChordMember — 리더 피치(인덱스 밀림 대비) */
+  leaderPitchStep?: string;
+  leaderPitchOctave?: number;
+  leaderPitchAlter?: number;
+  /** insertNote / insertChordMember — 화음 멤버 일괄 */
+  chordMembers?: Array<{
+    pitchStep?: string;
+    step?: string;
+    pitchOctave?: number;
+    octave?: number;
+    pitchAlter?: number | null;
+    alter?: number | null;
+  }>;
+  wedgeNumber?: string;
+  octaveShiftNumber?: string;
+  anchorNoteIndex?: number;
   source?: string;
   lintCode?: string;
   fromPartId?: string;
@@ -121,10 +139,15 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   addOrnament: '꾸밈음(ornament) 추가',
   removeOrnament: '꾸밈음(ornament) 제거',
   insertWedge: '셈여림 점선(wedge) 추가',
+  moveWedgeStart: 'wedge 시작 위치',
   moveWedgeStop: 'wedge(stop) 위치',
+  setWedgeSpan: 'wedge 시작·끝 범위',
+  insertOctaveShift: '8va(octave-shift) 추가',
+  setOctaveShiftSpan: '8va 시작·끝 범위',
   removeTrailingPhantomRest: '마디 끝 쉼표 제거',
   setNoteStaff: '스태프 지정',
   setNoteVoice: '성부(Voice) 지정',
+  unifyStaffVoices: '성부 통일·순번',
   nudgeRestDisplay: '쉼표 줄 이동',
   removeNote: '음·쉼표 삭제',
   removeNoteDot: '점(·) 제거',
@@ -223,6 +246,20 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
 }
 
 export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
+  if (next.kind === 'unifyStaffVoices') {
+    const mxl = String(next.measureMxl);
+    const staff = next.staff ?? 1;
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          f.kind === 'unifyStaffVoices' &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl &&
+          (f.staff ?? 1) === staff
+        ),
+    );
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
   if (next.kind === 'setPlayOrder' && next.noteIndex != null) {
     const mxl = String(next.measureMxl);
     const filtered = fixes.filter(
@@ -309,11 +346,30 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   if (fix.kind === 'setNoteVoice' && fix.voice != null) {
     parts.push(`voice ${fix.voice}`);
   }
-  if (fix.kind === 'insertWedge' || fix.kind === 'moveWedgeStop') {
+  if (fix.kind === 'unifyStaffVoices') {
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+    parts.push(`→ voice ${fix.voice ?? '1'}`);
+    if (fix.assignPlayOrder) parts.push('성부순 순번');
+    if (fix.detail) parts.push(fix.detail);
+  }
+  if (fix.kind === 'insertWedge' || fix.kind === 'moveWedgeStop' || fix.kind === 'moveWedgeStart' || fix.kind === 'setWedgeSpan') {
+    if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+    if (fix.wedgeNumber) parts.push(`#${fix.wedgeNumber}`);
     if (fix.directionValue) parts.push(fix.directionValue);
     if (fix.kind === 'moveWedgeStop' && (fix.beforeNoteIndex != null || fix.toNoteIndex != null)) {
       parts.push(`끝 #${fix.beforeNoteIndex ?? fix.toNoteIndex} 뒤`);
+    }
+    if (fix.kind === 'moveWedgeStart' && fix.fromNoteIndex != null) {
+      parts.push(`시작 #${fix.fromNoteIndex} 앞`);
+    }
+  }
+  if (fix.kind === 'insertOctaveShift' || fix.kind === 'setOctaveShiftSpan') {
+    if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+    if (fix.octaveShiftNumber) parts.push(`#${fix.octaveShiftNumber}`);
+    const v = (fix.directionValue || 'up').toLowerCase();
+    parts.push(v === 'down' ? '8vb' : '8va');
+    if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {
+      parts.push(`#${fix.fromNoteIndex}→#${fix.toNoteIndex}`);
     }
   }
   if (

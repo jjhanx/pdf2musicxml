@@ -44,7 +44,7 @@ function setRestDisplay(restEl: Element, step: string, octave: number): void {
   octEl.textContent = String(octave);
 }
 
-const SHORT_REST_TYPES = new Set(['quarter', 'eighth', '16th', '32nd', '64th', '128th']);
+const SHORT_REST_TYPES = new Set(['half', 'quarter', 'eighth', '16th', '32nd', '64th', '128th']);
 const STEP_DIATONIC: Record<string, number> = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
 
 /** 음자리표 중선 — G/2=B4, F/4=D3, C/3=C4, C/4=A3. */
@@ -105,8 +105,11 @@ function chooseRestDisplayDiatonic(mid: number, otherPitches: number[], blocked:
     return mid;
   }
   const sorted = [...otherPitches].sort((a, b) => a - b);
-  const avg = sorted[Math.floor(sorted.length / 2)]!;
-  const wantAbove = avg < mid;
+  // 화음 2음 median(floor(n/2))은 높은 음만 골라 중선 걸친 화음에서 방향을 뒤집는다.
+  let wantAbove: boolean;
+  if (sorted.every((p) => p <= mid)) wantAbove = true;
+  else if (sorted.every((p) => p >= mid)) wantAbove = false;
+  else wantAbove = sorted.reduce((a, b) => a + b, 0) / sorted.length < mid;
   const preferred: number[] = [];
   for (const off of [2, 3, 1, 4]) {
     const cand = wantAbove ? mid + off : mid - off;

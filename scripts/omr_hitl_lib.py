@@ -1843,8 +1843,14 @@ def _choose_rest_display_diatonic(
                 return cand
         return mid
 
-    avg = sorted(other_pitches)[len(other_pitches) // 2]
-    want_above = avg < mid
+    # 화음 2음 median(len//2)은 높은 음만 골라 F2+F3처럼 중선 걸치면
+    # 잘못 아래로 보낸다. 전부 중선 아래/위면 그쪽 반대, 걸치면 평균.
+    if all(p <= mid for p in other_pitches):
+        want_above = True
+    elif all(p >= mid for p in other_pitches):
+        want_above = False
+    else:
+        want_above = (sum(other_pitches) / len(other_pitches)) < mid
     preferred: list[int] = []
     for off in (2, 3, 1, 4):
         cand = mid + off if want_above else mid - off
@@ -9311,7 +9317,17 @@ def normalize_rest_durations_root(root: ET.Element) -> dict[str, int]:
                 note_type = (
                     (type_el.text or "").strip() if type_el is not None and type_el.text else ""
                 )
-                if note_type not in ("quarter", "eighth", "16th", "32nd", "64th", "128th"):
+                if note_type not in (
+                    "half",
+                    "quarter",
+                    "eighth",
+                    "16th",
+                    "32nd",
+                    "64th",
+                    "128th",
+                ):
+                    continue
+                if rest_el.get("measure") == "yes":
                     continue
                 staff_n = _note_staff_number(note, ns) or 1
                 if len(staff_voices.get(staff_n, ())) >= 2:

@@ -173,6 +173,20 @@ function ensureHeadClef(
   line: number,
 ): void {
   if (headAttrsHasClefForStaff(measure, staffN)) return;
+  const attrs = ensureHeadAttributes(doc, measure);
+  const clef = doc.createElementNS(measure.namespaceURI, 'clef');
+  if (staffN > 1) clef.setAttribute('number', String(staffN));
+  const signEl = doc.createElementNS(measure.namespaceURI, 'sign');
+  signEl.textContent = sign;
+  const lineEl = doc.createElementNS(measure.namespaceURI, 'line');
+  lineEl.textContent = String(line);
+  clef.appendChild(signEl);
+  clef.appendChild(lineEl);
+  attrs.appendChild(clef);
+}
+
+/** 머리 attributes 확보 — divisions/clef 주입용 */
+function ensureHeadAttributes(doc: Document, measure: Element): Element {
   let attrs: Element | null = null;
   let insertBefore: Element | null = null;
   for (const child of [...measure.children]) {
@@ -191,31 +205,46 @@ function ensureHeadClef(
     if (insertBefore) measure.insertBefore(attrs, insertBefore);
     else measure.insertBefore(attrs, measure.firstChild);
   }
-  const clef = doc.createElementNS(measure.namespaceURI, 'clef');
-  if (staffN > 1) clef.setAttribute('number', String(staffN));
-  const signEl = doc.createElementNS(measure.namespaceURI, 'sign');
-  signEl.textContent = sign;
-  const lineEl = doc.createElementNS(measure.namespaceURI, 'line');
-  lineEl.textContent = String(line);
-  clef.appendChild(signEl);
-  clef.appendChild(lineEl);
-  attrs.appendChild(clef);
+  return attrs;
+}
+
+function headAttrsHasDivisions(measure: Element): boolean {
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'note' || tag === 'forward' || tag === 'backup') break;
+    if (tag !== 'attributes') continue;
+    if (child.querySelector('divisions, *|divisions')) return true;
+  }
+  return false;
+}
+
+function ensureHeadDivisions(doc: Document, measure: Element, divisions: number): void {
+  if (!Number.isFinite(divisions) || divisions < 1) return;
+  if (headAttrsHasDivisions(measure)) return;
+  const attrs = ensureHeadAttributes(doc, measure);
+  const divEl = doc.createElementNS(measure.namespaceURI, 'divisions');
+  divEl.textContent = String(Math.floor(divisions));
+  // divisions는 attributes 앞쪽이 관례
+  attrs.insertBefore(divEl, attrs.firstChild);
 }
 
 /**
- * 구간 필터 전에 — 앞 마디에서 이어진 clef를 구간의 첫 마디 머리에 주입.
- * 마디 단위 OSMD 미리보기에서 setMeasureClef/상속 clef가 안 보이는 문제 방지.
+ * 구간 필터 전에 — 앞 마디에서 이어진 clef·divisions를 구간 마디 머리에 주입.
+ * 마디 단위 OSMD에서 상속 clef 누락·`<type>` 없는 온쉼표(duration is not valid: u) 방지.
  */
 function injectCarriedClefsBeforeFilter(doc: Document, lo: number, hi: number): void {
   for (const part of findXmlParts(doc)) {
     const carried = new Map<number, { sign: string; line: number }>();
+    let carriedDivisions: number | null = null;
     for (const measure of [...part.children]) {
       if (xmlLocalName(measure) !== 'measure') continue;
       const n = parseMeasureNumber(measure);
       if (n == null) continue;
-      // 이 마디의 attributes clef로 carried 갱신 (머리+중간)
       for (const child of [...measure.children]) {
         if (xmlLocalName(child) !== 'attributes') continue;
+        const divEl = child.querySelector('divisions, *|divisions');
+        const parsed = parseInt(divEl?.textContent?.trim() ?? '', 10);
+        if (Number.isFinite(parsed) && parsed > 0) carriedDivisions = parsed;
         for (const clef of [...child.children].filter((c) => xmlLocalName(c) === 'clef')) {
           const sign = clef.querySelector('sign, *|sign')?.textContent?.trim().toUpperCase();
           const lineRaw = clef.querySelector('line, *|line')?.textContent?.trim();
@@ -228,7 +257,9 @@ function injectCarriedClefsBeforeFilter(doc: Document, lo: number, hi: number): 
         }
       }
       if (n >= lo && n <= hi) {
-        // 구간 첫 등장 마디(보통 lo)에 아직 머리 clef가 없으면 주입
+        if (carriedDivisions != null) {
+          ensureHeadDivisions(doc, measure, carriedDivisions);
+        }
         for (const [staffN, clef] of carried) {
           ensureHeadClef(doc, measure, staffN, clef.sign, clef.line);
         }

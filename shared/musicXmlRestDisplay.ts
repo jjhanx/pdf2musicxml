@@ -175,6 +175,12 @@ function repairMissingNoteTypesInPart(part: Element): void {
     for (const note of [...measure.children]) {
       if (xmlLocalName(note) !== 'note') continue;
       if (note.querySelector(':scope > type, :scope > *|type')) continue;
+      const restEl = [...note.children].find((c) => xmlLocalName(c) === 'rest');
+      // MusicXML 온쉼표는 type 생략이 흔함 — OSMD는 type 없으면 duration is not valid: u
+      if (restEl?.getAttribute('measure') === 'yes') {
+        insertTypeAfterDuration(note, 'whole');
+        continue;
+      }
       const durEl = note.querySelector(':scope > duration, :scope > *|duration');
       const duration = parseInt(durEl?.textContent?.trim() ?? '', 10);
       if (!Number.isFinite(duration) || duration <= 0) continue;

@@ -305,6 +305,31 @@ export function lightOsmdPreviewMeasureRange(
 }
 
 /**
+ * 경량 OSMD(선택+다음, span===2) 클릭: 왼쪽부터 칸 인덱스 → 전곡 마디.
+ * OSMD가 로컬/중복 MeasureNumber를 줘도 둘째 칸은 항상 start+1.
+ * 페이지 구간(span≠2)은 normalizeToGlobalMeasureMxl만 사용.
+ */
+export function resolveHitMeasureMxl(
+  rawMeasureMxl: number,
+  columnIndex: number | null | undefined,
+  previewRange: MxlMeasureRange | null | undefined,
+): number {
+  if (previewRange) {
+    const span = pageScopedMeasureSpan(previewRange);
+    if (
+      span === 2 &&
+      columnIndex != null &&
+      Number.isFinite(columnIndex) &&
+      columnIndex >= 0 &&
+      columnIndex < span
+    ) {
+      return previewRange.start + Math.floor(columnIndex);
+    }
+  }
+  return normalizeToGlobalMeasureMxl(rawMeasureMxl, previewRange);
+}
+
+/**
  * OSMD가 PDF 페이지 구간만 로드하면 MeasureNumber가 1..k(로컬)로 나올 수 있음.
  * MusicXML measure@number(전곡)로 통일 — HITL·편집 UI와 동일.
  *

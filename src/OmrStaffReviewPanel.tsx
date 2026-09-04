@@ -1038,10 +1038,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const onOsmdMeasureClick = useCallback(
     (info: OsmdMeasureClickInfo) => {
-      // 경량 미리보기(선택+다음): OSMD 로컬 1..2 → 전곡 번호. 다음 마디 클릭으로 선택 이동 가능.
+      if (imagePdfLight) {
+        // 열 매핑된 전곡 번호로 ◀마디와 동일하게 편집 패널·PDF 동기
+        navigateToMeasure(info.measureMxl);
+        return;
+      }
       openMeasure(info, renderedPreviewRange);
     },
-    [openMeasure, renderedPreviewRange],
+    [imagePdfLight, navigateToMeasure, openMeasure, renderedPreviewRange],
   );
 
   const deferredRangeStart = deferredPageMeasureRange.start;
@@ -1197,7 +1201,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         {imagePdfLight ? (
           <span style={{ fontSize: '0.82rem', color: '#555', maxWidth: '28rem', lineHeight: 1.4 }}>
             이미지 PDF 경량 모드 · PNG {pngDpi} DPI(긴 변≤{PNG_MAX_SIDE_IMAGE_LIGHT}px) · OSMD는{' '}
-            <strong>선택 마디 1개</strong>만 · 페이지/마디 번호로 이동
+            <strong>선택+다음 마디</strong> · 페이지/마디 번호로 이동
             (이 페이지 m.{pageMeasureRange.start}–{pageMeasureRange.end})
           </span>
         ) : null}
@@ -1430,7 +1434,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           {editorPartId ? (
             <InspectPanelErrorBoundary>
               <OmrMeasureEditor
-                key={`${editorPartId}-${selectedMeasure.measureMxl}-${previewRevision}`}
+                key={`${editorPartId}-${selectedMeasure.measureMxl}-${previewRevision}-${editorKey}`}
                 jobId={jobId}
                 partId={editorPartId}
                 measureMxl={selectedMeasure.measureMxl}

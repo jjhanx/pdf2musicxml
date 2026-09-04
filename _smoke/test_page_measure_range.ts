@@ -9,6 +9,7 @@ import {
   lightOsmdPreviewMeasureRange,
   measureRangeFromPageIndex,
   normalizeToGlobalMeasureMxl,
+  resolveHitMeasureMxl,
 } from '../shared/musicXmlMeasureRange';
 import { affectedMeasuresFromFixes, expandMeasureMxlSpec } from '../shared/omrHitlAffectedMeasures';
 
@@ -52,6 +53,19 @@ if (normalizeToGlobalMeasureMxl(2, lightPair) !== 43) {
 const lightLast = lightOsmdPreviewMeasureRange(100, 100);
 if (lightLast.start !== 100 || lightLast.end !== 100) {
   throw new Error('last measure light preview should not invent m+1');
+}
+// 경량 2칸: OSMD가 중복/로컬 번호를 줘도 둘째 칸 → start+1
+if (resolveHitMeasureMxl(42, 0, lightPair) !== 42) {
+  throw new Error('column 0 must map to start');
+}
+if (resolveHitMeasureMxl(42, 1, lightPair) !== 43) {
+  throw new Error('column 1 must map to start+1 even if OSMD repeats 42');
+}
+if (resolveHitMeasureMxl(1, 1, lightPair) !== 43) {
+  throw new Error('column 1 must map to start+1 even if OSMD reports local 1');
+}
+if (resolveHitMeasureMxl(4, null, r33) !== 33) {
+  throw new Error('page span>2 should still use normalize (local 4 → 33)');
 }
 
 const sample = `<?xml version="1.0" encoding="UTF-8"?>

@@ -2,6 +2,7 @@ import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
   measuresMatchInPreview,
   normalizeToGlobalMeasureMxl,
+  resolveHitMeasureMxl,
   type MxlMeasureRange,
 } from '../shared/musicXmlMeasureRange';
 
@@ -29,6 +30,8 @@ type GraphicalMeasureLike = Record<string, unknown>;
 
 type MeasureHitTarget = {
   measureMxl: number;
+  /** 해당 오선 줄에서 왼쪽부터 0-based 칸 인덱스(팬텀 제외). 경량 2마디 미리보기 매핑용. */
+  columnIndex: number;
   staffIndex: number;
   partId: string | null;
   staffWithinPart: number;
@@ -759,11 +762,14 @@ function collectFromSystem(
   for (let si = 0; si < rows.length; si += 1) {
     const row = rows[si] ?? [];
     const band = staffBands[si];
+    let columnIndex = 0;
     for (let mi = 0; mi < row.length; mi += 1) {
       const gm = row[mi];
       if (!gm || isExtraMeasure(gm)) continue;
       const measureMxl = resolveMeasureMxlForCell(rows, mi, gm);
       if (measureMxl == null) continue;
+      const thisColumn = columnIndex;
+      columnIndex += 1;
       let col = colByMxl.get(measureMxl) ?? null;
       if (!col) {
         col = horizontalBoundsForGraphic(gm, row[mi + 1], row, layout);
@@ -792,6 +798,7 @@ function collectFromSystem(
       seen.add(key);
       out.push({
         measureMxl,
+        columnIndex: thisColumn,
         staffIndex: si,
         partId: partIdFromGraphic(gm),
         staffWithinPart: 1,
@@ -822,6 +829,7 @@ export function collectMeasureHitTargets(
   if (!out.length) {
     // 마지막 폴백: 마디별 DOM 음표 영역
     try {
+      const colByStaff = new Map<number, number>();
       forEachGraphicalMeasure(osmd, (gm, si) => {
         const measureMxl = measureMxlFromGraphic(gm);
         if (measureMxl == null) return;
@@ -830,14 +838,17 @@ export function collectMeasureHitTargets(
         const key = `${si}|${measureMxl}|${Math.round(bounds.left)}|${Math.round(bounds.top)}`;
         if (seen.has(key)) return;
         seen.add(key);
+        const columnIndex = colByStaff.get(si) ?? 0;
+        colByStaff.set(si, columnIndex + 1);
         out.push({
-        measureMxl,
-        staffIndex: si,
-        partId: partIdFromGraphic(gm),
-        staffWithinPart: 1,
-        bounds,
-        gm,
-      });
+          measureMxl,
+          columnIndex,
+          staffIndex: si,
+          partId: partIdFromGraphic(gm),
+          staffWithinPart: 1,
+          bounds,
+          gm,
+        });
       });
     } catch (e) {
       console.warn('[omr-measure-click] DOM 폴백 collect 실패', e);
@@ -1170,7 +1181,7 @@ export function hitTestOsmdMeasure(
     const t = pickTargetAt(host, osmd, evt);
     if (t) {
       const info: OsmdMeasureClickInfo = {
-        measureMxl: normalizeToGlobalMeasureMxl(t.measureMxl, previewRange),
+        measureMxl: resolveHitMeasureMxl(t.measureMxl, t.columnIndex, previewRange),
         staffIndex: normalizeStaffIndex(osmd, t.staffIndex),
         partId: t.partId,
         staffWithinPart: t.staffWithinPart,
@@ -1186,7 +1197,11 @@ export function hitTestOsmdMeasure(
     );
     const info: OsmdMeasureClickInfo = {
       ...near,
-      measureMxl: normalizeToGlobalMeasureMxl(near.measureMxl, previewRange),
+      measureMxl: resolveHitMeasureMxl(
+        near.measureMxl,
+        peer?.columnIndex,
+        previewRange,
+      ),
       staffIndex: normalizeStaffIndex(osmd, near.staffIndex),
       staffWithinPart: peer?.staffWithinPart ?? near.staffWithinPart,
     };

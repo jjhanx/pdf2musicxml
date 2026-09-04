@@ -2029,6 +2029,8 @@ export function buildOsmdPreviewXml(
   if (!faithful) {
     xml = repairUnderfullMeasuresForOsmdPreview(xml);
   }
+  // 동일 내용 clef(머리·중간·끝) 제거 후 trailing mid만 앵커 — 중복 G가 마디 끝에 안 보이게
+  xml = removeRedundantCourtesyClefsForOsmd(xml);
   xml = anchorTrailingMidClefsForOsmdPreview(xml);
   if (options?.voiceSequentialMeasures?.length) {
     xml = applyVoiceSequentialPreviewToXml(xml, options.voiceSequentialMeasures);
@@ -2049,10 +2051,11 @@ function sanitizeMusicXmlForOsmd(
   try {
     let out = xml;
     const timelineOpts = { faithfulEditorLayout };
+    // verbatim HITL도 동일 내용 clef 중복은 미리보기에서만 제거(의미 있는 G↔F 전환은 유지)
     if (!verbatim) {
       out = repairKeyChangeClefMisreadForOsmd(out);
-      out = removeRedundantCourtesyClefsForOsmd(out);
     }
+    out = removeRedundantCourtesyClefsForOsmd(out);
     out = ensureMetronomeOnSoundTempoDirectionsForOsmdPreview(out);
     out = repositionDirectionsBeforeAttributesForOsmdPreview(out, { tempoOnly: true });
     // type 추론 후 다성부 쉼 display — type 없으면 short-rest 판정이 건너뛰어짐

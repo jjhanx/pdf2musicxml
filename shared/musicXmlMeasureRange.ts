@@ -80,6 +80,45 @@ export function inferPdfPageForMxlMeasure(
   return page;
 }
 
+/**
+ * PDF 한 페이지의 줄(system)×마디 그리드 — `<print new-system>` 기준.
+ * 이미지 위 클릭 오버레이용 (대략 균등 분할; OSMD 좌표 아님).
+ */
+export function buildPdfPageSystemRows(
+  xml: string,
+  pdfPage: number,
+): number[][] {
+  try {
+    const range = inferMeasureRangeForPdfPage(xml, pdfPage);
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return [[range.start]];
+    const part = findXmlParts(doc)[0];
+    if (!part) return [[range.start]];
+    const rows: number[][] = [];
+    let row: number[] = [];
+    for (const measure of [...part.children]) {
+      if (xmlLocalName(measure) !== 'measure') continue;
+      const mnum = parseMeasureNumber(measure);
+      if (mnum == null || mnum < range.start || mnum > range.end) continue;
+      let newSystem = false;
+      for (const child of [...measure.children]) {
+        if (xmlLocalName(child) !== 'print') continue;
+        if (child.getAttribute('new-system') === 'yes') newSystem = true;
+        if (child.getAttribute('new-page') === 'yes') newSystem = true;
+      }
+      if (newSystem && row.length) {
+        rows.push(row);
+        row = [];
+      }
+      row.push(mnum);
+    }
+    if (row.length) rows.push(row);
+    return rows.length ? rows : [[range.start]];
+  } catch {
+    return [[1]];
+  }
+}
+
 /** MusicXML 전체에서 최대 measure@number */
 export function maxMxlMeasureNumber(xml: string): number {
   try {
@@ -252,19 +291,25 @@ export function pageScopedMeasureSpan(range: MxlMeasureRange): number {
 /**
  * OSMD가 PDF 페이지 구간만 로드하면 MeasureNumber가 1..k(로컬)로 나올 수 있음.
  * MusicXML measure@number(전곡)로 통일 — HITL·편집 UI와 동일.
+ *
+ * 단일 마디 미리보기(start===end)에서는 OSMD 로컬/팬텀 번호를 무시하고 항상 그 마디.
+ * 구간 밖 값은 페이지 구간으로 클램프(팬텀 마디·잘못된 XML 번호 방지).
  */
 export function normalizeToGlobalMeasureMxl(
   osmdOrMxl: number,
   range: MxlMeasureRange | null | undefined,
 ): number {
   const n = Math.floor(osmdOrMxl);
-  if (!Number.isFinite(n) || n < 1) return n;
+  if (!Number.isFinite(n)) return n;
   if (!range) return n;
   const { start, end } = range;
+  if (!Number.isFinite(start) || start < 1) return n;
+  if (end <= start) return start;
   if (n >= start && n <= end) return n;
   const span = pageScopedMeasureSpan(range);
   if (n >= 1 && n <= span) return start + n - 1;
-  return n;
+  if (n < 1) return start;
+  return Math.min(end, Math.max(start, n));
 }
 
 export function measuresMatchInPreview(

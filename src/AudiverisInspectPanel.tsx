@@ -1938,7 +1938,7 @@ export function injectMxlMeasureNumberDirectionsForOsmd(xml: string): string {
     for (const meas of [...part.children]) {
       if (xmlLocalName(meas) !== 'measure') continue;
       const mnum = parseInt(meas.getAttribute('number') ?? '0', 10);
-      if (!Number.isFinite(mnum) || mnum < 2) continue;
+      if (!Number.isFinite(mnum) || mnum < 1) continue;
       const label = String(mnum);
       if (measureHasPrintedNumberWords(meas, label)) continue;
 

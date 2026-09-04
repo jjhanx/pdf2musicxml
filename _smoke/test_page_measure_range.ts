@@ -2,6 +2,7 @@
 import { JSDOM } from 'jsdom';
 import {
   buildPdfPageMeasureIndex,
+  buildPdfPageSystemRows,
   filterMusicXmlToMeasureRange,
   inferMeasureRangeForPdfPage,
   inferPdfPageForMxlMeasure,
@@ -26,6 +27,19 @@ if (normalizeToGlobalMeasureMxl(33, r33) !== 33) {
 if (normalizeToGlobalMeasureMxl(4, { start: 1, end: 10 }) !== 4) {
   throw new Error('full-score start=1: local 4 stays 4');
 }
+// 단일 마디 미리보기 — OSMD 로컬/팬텀 번호 무시
+if (normalizeToGlobalMeasureMxl(1, { start: 41, end: 41 }) !== 41) {
+  throw new Error('single-measure preview: local 1 must stay global 41');
+}
+if (normalizeToGlobalMeasureMxl(99, { start: 41, end: 41 }) !== 41) {
+  throw new Error('single-measure preview: out-of-range must clamp to 41');
+}
+if (normalizeToGlobalMeasureMxl(0, { start: 41, end: 48 }) !== 41) {
+  throw new Error('page range: n<1 clamps to start');
+}
+if (normalizeToGlobalMeasureMxl(100, { start: 41, end: 48 }) !== 48) {
+  throw new Error('page range: far local clamps to end');
+}
 
 const sample = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
@@ -34,6 +48,7 @@ const sample = `<?xml version="1.0" encoding="UTF-8"?>
     <measure number="1"><attributes><divisions>1</divisions><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
     <measure number="32"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
     <measure number="33"><print new-page="yes"/><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="34"><print new-system="yes"/><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
     <measure number="40"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
     <measure number="41"><print new-page="yes"/><note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
   </part>
@@ -59,9 +74,21 @@ if (r2idx.start !== 33 || r2idx.end !== 40) {
   throw new Error(`index page2 range expected 33-40 got ${r2idx.start}-${r2idx.end}`);
 }
 
+const rows2 = buildPdfPageSystemRows(sample, 2);
+if (rows2.length !== 2 || rows2[0]?.[0] !== 33 || rows2[1]?.[0] !== 34) {
+  throw new Error(`page2 system rows expected [[33…],[34…]] got ${JSON.stringify(rows2)}`);
+}
+if (!rows2[1]?.includes(40)) {
+  throw new Error('page2 second system should include m.40');
+}
+const rows3 = buildPdfPageSystemRows(sample, 3);
+if (rows3.length !== 1 || rows3[0]?.join(',') !== '41') {
+  throw new Error(`page3 system rows expected [[41]] got ${JSON.stringify(rows3)}`);
+}
+
 const filtered = filterMusicXmlToMeasureRange(sample, 33, 40);
 const nums = [...filtered.matchAll(/<measure number="(\d+)"/g)].map((m) => Number(m[1]));
-if (!nums.every((n) => n >= 33 && n <= 40) || nums.length !== 2) {
+if (!nums.every((n) => n >= 33 && n <= 40) || nums.length !== 3) {
   throw new Error(`filtered measures wrong: ${nums.join(',')}`);
 }
 

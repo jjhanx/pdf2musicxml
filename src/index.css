@@ -578,6 +578,7 @@ button.btn-muted {
 }
 
 .modal-light .omr-pdf-frame {
+  position: relative;
   width: 100%;
   border: 1px solid #bbb;
   border-radius: 6px;
@@ -590,6 +591,73 @@ button.btn-muted {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.modal-light .omr-pdf-page-hit-root {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.modal-light .omr-pdf-measure-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.modal-light .omr-pdf-measure-overlay-row {
+  flex: 1 1 0;
+  display: flex;
+  min-height: 0;
+  pointer-events: none;
+}
+
+.modal-light .omr-pdf-measure-hit {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  position: relative;
+  appearance: none;
+}
+
+.modal-light .omr-pdf-measure-hit:hover {
+  background: rgba(21, 101, 192, 0.12);
+  border-color: rgba(21, 101, 192, 0.45);
+}
+
+.modal-light .omr-pdf-measure-hit--active {
+  background: rgba(21, 101, 192, 0.22);
+  border-color: #1565c0;
+}
+
+.modal-light .omr-pdf-measure-hit-label {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: ui-monospace, Consolas, monospace;
+  color: #1565c0;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.2;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.modal-light .omr-pdf-measure-hit:hover .omr-pdf-measure-hit-label,
+.modal-light .omr-pdf-measure-hit--active .omr-pdf-measure-hit-label {
+  opacity: 1;
 }
 
 .modal-light .omr-compare-row {

@@ -620,6 +620,379 @@ function groupOctaveShiftDirections(directions: MeasureDirectionEl[]): OctaveShi
   return [...map.values()].filter((g) => g.start || g.stop);
 }
 
+function barlineLocationLabel(loc: string): string {
+  const l = (loc || 'right').toLowerCase();
+  if (l === 'left') return '왼쪽(시작)';
+  if (l === 'middle') return '중간';
+  return '오른쪽(끝)';
+}
+
+function barlineSummary(bl: MeasureBarlineEl): string {
+  const bits: string[] = [barlineLocationLabel(bl.location)];
+  if (bl.repeatDirection === 'forward') bits.push('열림 도돌이표');
+  else if (bl.repeatDirection === 'backward') bits.push('닫힘 도돌이표');
+  if (bl.barStyle) bits.push(bl.barStyle);
+  for (const en of bl.endings ?? []) {
+    const t =
+      en.type === 'start' ? '시작' : en.type === 'stop' ? '끝' : en.type === 'discontinue' ? '중단' : en.type;
+    bits.push(`${en.number}번 괄호(${t})`);
+  }
+  return bits.join(' · ');
+}
+
+function MeasureNavigationEditor({
+  directions,
+  barlines,
+  partStaveCount,
+  editStaffWithinPart,
+  insertStaff,
+  onFix,
+}: {
+  directions: MeasureDirectionEl[];
+  barlines: MeasureBarlineEl[];
+  partStaveCount: number;
+  editStaffWithinPart?: number | null;
+  insertStaff: number;
+  onFix: (partial: FixPartial) => void;
+}) {
+  const [navKind, setNavKind] = useState(0);
+  const [measureAnchor, setMeasureAnchor] = useState<'start' | 'end'>('end');
+  const [staff, setStaff] = useState(editStaffWithinPart ?? insertStaff ?? 1);
+  const [placement, setPlacement] = useState<'above' | 'below'>('above');
+  const [applyAllParts, setApplyAllParts] = useState(false);
+  const [endingNumber, setEndingNumber] = useState('1');
+  const [endingType, setEndingType] = useState<'start' | 'stop' | 'discontinue'>('start');
+  const [endingLocation, setEndingLocation] = useState<'left' | 'right'>('left');
+
+  useEffect(() => {
+    setStaff(editStaffWithinPart ?? insertStaff ?? 1);
+  }, [editStaffWithinPart, insertStaff]);
+
+  const selected = NAVIGATION_INSERT_OPTIONS[navKind] ?? NAVIGATION_INSERT_OPTIONS[0];
+
+  useEffect(() => {
+    const t = selected.directionType;
+    // Segno·Coda 기호는 보통 마디 처음, To Coda·Fine·D.C./D.S.는 마디 끝
+    if (t === 'segno' || t === 'coda') setMeasureAnchor('start');
+    else setMeasureAnchor('end');
+  }, [navKind, selected.directionType]);
+
+  useEffect(() => {
+    if (endingType === 'start') setEndingLocation('left');
+    else setEndingLocation('right');
+  }, [endingType]);
+
+  return (
+    <div
+      className="omr-measure-navigation-panel"
+      style={{
+        marginBottom: '0.85rem',
+        padding: '0.65rem 0.75rem',
+        background: '#eef7ff',
+        borderRadius: 6,
+        border: '1px solid #90caf9',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>
+        진행 제어 (도돌이표 · 1·2번 괄호 · Segno·Coda·Fine 등)
+      </div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        <strong>도돌이표·1번/2번 괄호</strong>는 MusicXML <code>&lt;barline&gt;</code>이고, Segno/Coda/Fine/D.C./D.S.는{' '}
+        <code>&lt;direction&gt;</code>입니다. OMR이 원본에 없는 도돌이표를 넣었으면 아래에서 제거하고, 빠진 기호는
+        추가하세요. 「모든 파트」는 같은 마디 번호의 S/A/T/B 등에 함께 적용합니다(기본은 현재 성부만).
+      </p>
+
+      <div style={{ fontWeight: 600, margin: '0.35rem 0 0.4rem', fontSize: '0.9rem' }}>
+        도돌이표 · 1·2번 괄호 (barline)
+      </div>
+      {barlines.length > 0 ? (
+        <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {barlines.map((bl) => (
+            <li
+              key={`bl-${bl.barlineIndex}-${bl.location}`}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                padding: '0.35rem 0',
+                borderBottom: '1px solid #bbdefb',
+              }}
+            >
+              <strong style={{ fontSize: '0.88rem' }}>{barlineSummary(bl)}</strong>
+              {bl.repeatDirection ? (
+                <button
+                  type="button"
+                  className="omr-hitl-fix-btn"
+                  onClick={() =>
+                    onFix({
+                      kind: 'clearBarlineRepeat',
+                      barlineLocation: bl.location,
+                      applyToAllParts: applyAllParts || undefined,
+                    })
+                  }
+                >
+                  도돌이표 삭제
+                </button>
+              ) : null}
+              {(bl.endings ?? []).map((en, ei) => (
+                <button
+                  key={`en-${ei}-${en.number}-${en.type}`}
+                  type="button"
+                  className="omr-hitl-fix-btn"
+                  onClick={() =>
+                    onFix({
+                      kind: 'clearBarlineEnding',
+                      barlineLocation: bl.location,
+                      endingNumber: en.number,
+                      endingType: en.type,
+                      applyToAllParts: applyAllParts || undefined,
+                    })
+                  }
+                >
+                  {en.number}번({en.type}) 삭제
+                </button>
+              ))}
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                title="이 위치의 barline 요소 전체 제거"
+                onClick={() =>
+                  onFix({
+                    kind: 'clearBarline',
+                    barlineLocation: bl.location,
+                    applyToAllParts: applyAllParts || undefined,
+                  })
+                }
+              >
+                barline 전체 삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>
+          이 마디에 도돌이표·1·2번 괄호(barline) 없음
+        </p>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() =>
+            onFix({
+              kind: 'setBarlineRepeat',
+              barlineLocation: 'left',
+              repeatDirection: 'forward',
+              applyToAllParts: applyAllParts || undefined,
+            })
+          }
+        >
+          열림 도돌이표 추가
+        </button>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() =>
+            onFix({
+              kind: 'setBarlineRepeat',
+              barlineLocation: 'right',
+              repeatDirection: 'backward',
+              applyToAllParts: applyAllParts || undefined,
+            })
+          }
+        >
+          닫힘 도돌이표 추가
+        </button>
+        <label className="omr-measure-inline-field" style={{ fontSize: '0.86rem' }}>
+          <input
+            type="checkbox"
+            checked={applyAllParts}
+            onChange={(e) => setApplyAllParts(e.target.checked)}
+            style={{ marginRight: 4 }}
+          />
+          모든 파트에 적용
+        </label>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <label className="omr-measure-inline-field">
+          괄호 번호
+          <select
+            value={endingNumber}
+            onChange={(e) => setEndingNumber(e.target.value)}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="1">1번</option>
+            <option value="2">2번</option>
+            <option value="3">3번</option>
+            <option value="1,2">1,2번</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          종류
+          <select
+            value={endingType}
+            onChange={(e) => setEndingType(e.target.value as 'start' | 'stop' | 'discontinue')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="start">시작 (start)</option>
+            <option value="stop">끝 (stop)</option>
+            <option value="discontinue">중단 (discontinue)</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          barline
+          <select
+            value={endingLocation}
+            onChange={(e) => setEndingLocation(e.target.value as 'left' | 'right')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="left">왼쪽</option>
+            <option value="right">오른쪽</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() =>
+            onFix({
+              kind: 'setBarlineEnding',
+              barlineLocation: endingLocation,
+              endingNumber,
+              endingType,
+              applyToAllParts: applyAllParts || undefined,
+            })
+          }
+        >
+          1·2번 괄호 추가
+        </button>
+      </div>
+
+      <div style={{ fontWeight: 600, margin: '0.5rem 0 0.4rem', fontSize: '0.9rem', borderTop: '1px solid #bbdefb', paddingTop: 8 }}>
+        Segno · Coda · Fine · D.C. / D.S. (direction)
+      </div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        OMR이 Segno(𝄋)를 <code>$5-f</code> 같은 OCR 찌끼로 오인한 경우, 위 「마디 텍스트」에서 삭제한 뒤 여기서{' '}
+        <strong>올바른 기호를 추가</strong>하세요. 위치는 <strong>마디 처음</strong> 또는 <strong>마디 끝</strong>
+        (대부분 위쪽에 표시).
+      </p>
+      {directions.length > 0 ? (
+        <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {directions.map((d) => (
+            <li
+              key={`nav-${d.directionIndex}`}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                padding: '0.35rem 0',
+                borderBottom: '1px solid #bbdefb',
+              }}
+            >
+              <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
+                dir #{d.directionIndex}
+                {d.staff != null ? ` · staff ${d.staff}` : ''}
+              </span>
+              <strong>{navigationDirectionLabel(d.directionType, d.directionValue || d.text)}</strong>
+              <select
+                value={d.placement || 'above'}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setDirectionPlacement',
+                    directionIndex: d.directionIndex,
+                    placement: e.target.value as 'above' | 'below',
+                  })
+                }
+                style={{ fontSize: '0.82rem', padding: '1px 4px' }}
+                title="위치 (위/아래)"
+              >
+                <option value="above">위 (above)</option>
+                <option value="below">아래 (below)</option>
+              </select>
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                onClick={() =>
+                  onFix({
+                    kind: 'removeDirection',
+                    directionIndex: d.directionIndex,
+                  })
+                }
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>이 마디에 Segno/Coda 등 direction 없음</p>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <label className="omr-measure-inline-field">
+          기호
+          <select value={navKind} onChange={(e) => setNavKind(Number(e.target.value))} style={{ marginLeft: 4, minWidth: '10rem' }}>
+            {NAVIGATION_INSERT_OPTIONS.map((o, i) => (
+              <option key={`${o.directionType}-${o.directionValue}-${i}`} value={i}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          위치
+          <select
+            value={measureAnchor}
+            onChange={(e) => setMeasureAnchor(e.target.value as 'start' | 'end')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="start">마디 처음</option>
+            <option value="end">마디 끝</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          위/아래
+          <select
+            value={placement}
+            onChange={(e) => setPlacement(e.target.value as 'above' | 'below')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="above">위 (above)</option>
+            <option value="below">아래 (below)</option>
+          </select>
+        </label>
+        {partStaveCount >= 2 && editStaffWithinPart == null ? (
+          <label className="omr-measure-inline-field">
+            staff
+            <select value={String(staff)} onChange={(e) => setStaff(parseInt(e.target.value, 10) || 1)} style={{ marginLeft: 4 }}>
+              <option value="1">staff 1 (PR)</option>
+              <option value="2">staff 2 (PL)</option>
+            </select>
+          </label>
+        ) : null}
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() =>
+            onFix({
+              kind: 'insertDirection',
+              directionType: selected.directionType,
+              directionValue: selected.directionValue || undefined,
+              measureAnchor,
+              afterNoteIndex: measureAnchor === 'start' ? -1 : undefined,
+              staff: editStaffWithinPart ?? staff,
+              placement,
+            })
+          }
+        >
+          진행 제어 추가
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 function OctaveShiftGroupEditor({
   group,
   noteOptions,

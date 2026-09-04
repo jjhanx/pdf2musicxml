@@ -64,6 +64,7 @@ import {
   parseArticulationStaffSpaces,
 } from '../shared/musicXmlArticulationDistance';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
+import { normalizeMultivoiceStemsForOsmdPreview } from '../shared/musicXmlStem';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
 import {
   anchorTrailingMidClefsForOsmdPreview,
@@ -2057,6 +2058,7 @@ function sanitizeMusicXmlForOsmd(
     // type 추론 후 다성부 쉼 display — type 없으면 short-rest 판정이 건너뛰어짐
     out = repairMissingNoteTypesForOsmdPreview(out);
     out = repairRestDisplayForOsmdPreview(out);
+    out = normalizeMultivoiceStemsForOsmdPreview(out);
     out = repairTimelineForOsmdPreview(out, timelineOpts);
     if (!faithfulEditorLayout) {
       out = repairUnderfullMeasuresForOsmdPreview(out);

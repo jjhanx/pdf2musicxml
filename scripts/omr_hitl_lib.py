@@ -1613,6 +1613,8 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
     # 순번 자동 전체 재배열은 하지 않음 — HITL setPlayOrder 보호
     # (normalize_play_orders_including_rests_in_measure는 no-op)
     normalize_play_orders_including_rests_in_measure(measure, ns)
+    # 다성 겹침 stem을 OSMD 관례(1=up, 2+=down)로 맞춰 편집기·미리보기 일치
+    normalize_multivoice_stems_in_measure(measure, ns)
     elements: list[dict[str, Any]] = []
     note_index = 0
     for child in measure:
@@ -5330,6 +5332,90 @@ def _set_note_stem(note: ET.Element, ns: str, stem: str) -> None:
     stem_el.attrib.pop("default-x", None)
 
 
+def _note_stem_dir(note: ET.Element, ns: str) -> str:
+    stem_el = note.find(_q(ns, "stem"))
+    if stem_el is None or not stem_el.text:
+        return ""
+    v = stem_el.text.strip().lower()
+    return v if v in ("up", "down") else ""
+
+
+def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
+    """같은 오선·같은 onset에 voice가 둘 이상이면 OSMD 관례로 stem 반대 기록.
+
+    낮은 voice 번호 → up, 나머지 → down. 해당 음의 `<beam>` 그룹 전체에 전파.
+    OSMD가 겹치는 다성에서 XML stem(up)을 무시하고 아래로 그리는 경우에도
+    편집기·저장 MXL·미리보기가 같은 방향을 보게 한다.
+    """
+    notes = list_note_elements(measure, ns)
+    if len(notes) < 2:
+        return False
+    staves = {
+        _note_voice_staff(n, ns)[1]
+        for n in notes
+        if n.find(_q(ns, "chord")) is None and n.find(_q(ns, "pitch")) is not None
+    }
+    changed = False
+    for staff in sorted(staves, key=lambda s: int(s) if s.isdigit() else 0):
+        onset_voices: dict[int, dict[str, list[int]]] = {}
+        for i, note in enumerate(notes):
+            if note.find(_q(ns, "chord")) is not None:
+                continue
+            if note.find(_q(ns, "pitch")) is None:
+                continue
+            voice, st = _note_voice_staff(note, ns)
+            if st != staff:
+                continue
+            onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, i)
+            bucket = onset_voices.setdefault(onset, {})
+            bucket.setdefault(voice, []).append(i)
+
+        forced: dict[int, str] = {}
+        for _onset, by_voice in onset_voices.items():
+            if len(by_voice) < 2:
+                continue
+            voices = sorted(by_voice.keys(), key=lambda v: int(v) if v.isdigit() else 999)
+            for vi, voice in enumerate(voices):
+                stem = "up" if vi == 0 else "down"
+                for li in by_voice[voice]:
+                    forced[li] = stem
+
+        if not forced:
+            continue
+
+        # 빔 그룹 전체 동일 stem — 겹침으로 down이 된 A5와 같은 빔의 B4·C5도 down
+        expanded = dict(forced)
+        for li, stem in forced.items():
+            for bi in _beam_span_note_indices(notes, ns, li, staff):
+                prev = expanded.get(bi)
+                if prev is None or (prev == "up" and stem == "down"):
+                    expanded[bi] = stem
+
+        for li, stem in expanded.items():
+            if not (0 <= li < len(notes)):
+                continue
+            note = notes[li]
+            if _note_stem_dir(note, ns) != stem:
+                _set_note_stem(note, ns, stem)
+                changed = True
+            for fidx in _chord_follower_indices(notes, ns, li):
+                if _note_stem_dir(notes[fidx], ns) != stem:
+                    _set_note_stem(notes[fidx], ns, stem)
+                    changed = True
+    return changed
+
+
+def normalize_multivoice_stems_in_root(root: ET.Element) -> int:
+    """전 악보 — 다성 겹침 stem 정규화. 변경 마디 수."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            if normalize_multivoice_stems_in_measure(measure, ns):
+                n += 1
+    return n
+
+
 def _note_beam_value(note: ET.Element, ns: str, beam_number: int = 1) -> str | None:
     for beam in note.findall(_q(ns, "beam")):
         try:
@@ -8978,10 +9064,14 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if idx < 0 or idx >= len(notes):
             return False
         note = notes[idx]
-        stem_el = note.find(_q(ns, "stem"))
-        if stem_el is None:
-            stem_el = ET.SubElement(note, _q(ns, "stem"))
-        stem_el.text = stem_val
+        _set_note_stem(note, ns, stem_val)
+        _, staff = _note_voice_staff(note, ns)
+        # 같은 빔 그룹도 같은 줄기 — OSMD/VexFlow 빔은 stem 방향이 갈라지면 깨짐
+        for bi in _beam_span_note_indices(notes, ns, idx, staff):
+            _set_note_stem(notes[bi], ns, stem_val)
+            for fidx in _chord_follower_indices(notes, ns, bi):
+                _set_note_stem(notes[fidx], ns, stem_val)
+        normalize_multivoice_stems_in_measure(measure, ns)
         return True
 
     if kind == "removeTie":
@@ -9534,6 +9624,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         applied = _apply_beam_to_range(notes, ns, indices, beam_number, divisions)
         if applied:
             _clean_orphan_beams_in_measure(measure, ns)
+            normalize_multivoice_stems_in_measure(measure, ns)
             _normalize_measure_note_engraving(part, ns, measure)
         return applied
 
@@ -10092,41 +10183,49 @@ def _set_or_insert_forward_before_note(
 def _beam_span_note_indices(
     notes: list[ET.Element], ns: str, index: int, staff: str
 ) -> set[int]:
-    """`<beam>`으로 연결된 인접 음표 index(같은 staff, 화음 포함)."""
+    """`<beam>`으로 연결된 인접 음표 index(같은 staff·voice, 화음 포함).
+
+    voice를 넘기거나 이전/다음 빔 그룹(`end` 다음 `begin`)으로 넘어가지 않는다.
+    """
     leader_i = _chord_leader_index(notes, ns, index)
     leader = notes[leader_i]
-    if _note_voice_staff(leader, ns)[1] != staff:
+    leader_voice, leader_staff = _note_voice_staff(leader, ns)
+    if leader_staff != staff:
         return {index}
     span: set[int] = {leader_i}
     for follower in _chord_follower_indices(notes, ns, leader_i):
         span.add(follower)
-    if _note_beams(leader, ns):
+    leader_beams = _note_beams(leader, ns)
+    if leader_beams:
         for note in _collect_beam_followers(notes, ns, leader, staff=staff):
             try:
                 span.add(notes.index(note))
             except ValueError:
                 pass
-        j = leader_i - 1
-        while j >= 0:
-            note = notes[j]
-            if _note_voice_staff(note, ns)[1] != staff:
-                break
-            if note.find(_q(ns, "chord")) is not None:
-                li = _chord_leader_index(notes, ns, j)
-                if li in span:
-                    span.add(j)
-                    j -= 1
-                    continue
-                break
-            beams = _note_beams(note, ns)
-            if not beams:
-                break
-            span.add(j)
-            for fi in _chord_follower_indices(notes, ns, j):
-                span.add(fi)
-            if "begin" in beams:
-                break
-            j -= 1
+        # begin이면 이 그룹 시작 — 뒤로 가면 이전 빔 그룹(end)에 붙음
+        if "begin" not in leader_beams:
+            j = leader_i - 1
+            while j >= 0:
+                note = notes[j]
+                nv, ns_staff = _note_voice_staff(note, ns)
+                if ns_staff != staff or nv != leader_voice:
+                    break
+                if note.find(_q(ns, "chord")) is not None:
+                    li = _chord_leader_index(notes, ns, j)
+                    if li in span:
+                        span.add(j)
+                        j -= 1
+                        continue
+                    break
+                beams = _note_beams(note, ns)
+                if not beams:
+                    break
+                span.add(j)
+                for fi in _chord_follower_indices(notes, ns, j):
+                    span.add(fi)
+                if "begin" in beams:
+                    break
+                j -= 1
     return span
 
 
@@ -10418,7 +10517,7 @@ def _collect_beam_followers(
     staff: str | None = None,
     stop_at_indices: set[int] | None = None,
 ) -> list[ET.Element]:
-    """리더 음표와 `<beam>`으로 이어진 후속 음표(화음 멤버 포함)를 수집 — 같은 staff만."""
+    """리더 음표와 `<beam>`으로 이어진 후속 음표(화음 멤버 포함) — 같은 staff·voice만."""
     try:
         start = notes.index(leader)
     except ValueError:
@@ -10427,14 +10526,15 @@ def _collect_beam_followers(
     beams = _note_beams(leader, ns)
     if not beams or not any(b in ("begin", "continue", "end") for b in beams):
         return span
-    leader_staff = _note_voice_staff(leader, ns)[1]
+    leader_voice, leader_staff = _note_voice_staff(leader, ns)
     staff = staff or leader_staff
     j = start + 1
     while j < len(notes):
         if stop_at_indices and j in stop_at_indices:
             break
         note = notes[j]
-        if _note_voice_staff(note, ns)[1] != staff:
+        nv, ns_staff = _note_voice_staff(note, ns)
+        if ns_staff != staff or nv != leader_voice:
             break
         if note.find(_q(ns, "chord")) is not None:
             span.append(note)
@@ -11143,6 +11243,7 @@ def rebuild_measure_timeline_clean(
         _merge_staff_voices_if_non_overlapping(measure, ns, st)
     for st in ("1", "2"):
         _normalize_staff_note_order(measure, ns, st)
+    normalize_multivoice_stems_in_measure(measure, ns)
     _compact_default_x_by_staff(measure, ns, part)
     _repair_tuplet_brackets_in_measure(measure, ns)
     _clean_orphan_beams_in_measure(measure, ns)
@@ -11174,6 +11275,7 @@ def _rebuild_one_staff_timeline(
     _move_attributes_out_of_chord_groups(measure, ns)
     _merge_staff_voices_if_non_overlapping(measure, ns, staff)
     _normalize_staff_note_order(measure, ns, staff)
+    normalize_multivoice_stems_in_measure(measure, ns)
     _compact_default_x_by_staff(measure, ns, part, staff=staff)
     _repair_tuplet_brackets_in_measure(measure, ns)
     _clean_orphan_beams_in_measure(measure, ns)
@@ -11423,6 +11525,7 @@ def apply_fixes_file(
     stats = apply_fixes_to_root(root, fixes) if fixes else {"applied": 0, "skipped": 0}
     chord_beam_measures = cleanup_chord_beams_in_root(root)
     rest_play_order_measures = normalize_play_orders_including_rests_in_root(root)
+    multivoice_stem_measures = normalize_multivoice_stems_in_root(root)
     coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root)
     timeline_measures = normalize_measure_timelines_in_root(root)
     dynamics_normalized = normalize_dynamics_in_root(root)
@@ -11437,6 +11540,7 @@ def apply_fixes_file(
         "fixCount": len(fixes),
         "chordBeamMeasuresCleaned": chord_beam_measures,
         "restPlayOrderMeasuresNormalized": rest_play_order_measures,
+        "multivoiceStemMeasuresNormalized": multivoice_stem_measures,
         "coalesceVoiceMeasures": max(coalesce_voice_measures, timeline_measures),
         "dynamicsNormalizedMeasures": dynamics_normalized,
         "slursNormalizedMeasures": slurs_normalized,

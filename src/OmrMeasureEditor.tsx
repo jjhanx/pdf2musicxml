@@ -674,8 +674,8 @@ function barlineLocationLabel(loc: string): string {
 
 function barlineSummary(bl: MeasureBarlineEl): string {
   const bits: string[] = [barlineLocationLabel(bl.location)];
-  if (bl.repeatDirection === 'forward') bits.push('열림 도돌이표 𝄆');
-  else if (bl.repeatDirection === 'backward') bits.push('닫힘 도돌이표 𝄇');
+  if (bl.repeatDirection === 'forward') bits.push('열림 도돌이표');
+  else if (bl.repeatDirection === 'backward') bits.push('닫힘 도돌이표');
   if (bl.barStyle) bits.push(bl.barStyle);
   for (const en of bl.endings ?? []) {
     const t =
@@ -833,7 +833,7 @@ function MeasureNavigationEditor({
             })
           }
         >
-          열림 도돌이표 추가 𝄆
+          열림 도돌이표 추가
         </button>
         <button
           type="button"
@@ -847,7 +847,7 @@ function MeasureNavigationEditor({
             })
           }
         >
-          닫힘 도돌이표 추가 𝄇
+          닫힘 도돌이표 추가
         </button>
         <label className="omr-measure-inline-field" style={{ fontSize: '0.86rem' }}>
           <input

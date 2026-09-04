@@ -1739,14 +1739,18 @@ def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, sta
         m = measures[i]
         for attr in m.findall(_q(ns, "attributes")):
             for clef in attr.findall(_q(ns, "clef")):
+                if not _clef_matches_staff(clef, staff_n):
+                    continue
+                # number 없는 clef는 staff 1에만 적용
                 c_staff = clef.get("number")
-                if c_staff is None or c_staff == str(staff_n) or staff_n == 1:
-                    sign = clef.find(_q(ns, "sign"))
-                    line = clef.find(_q(ns, "line"))
-                    if sign is not None and sign.text:
-                        s_text = sign.text.strip().upper()
-                        l_text = int(line.text.strip()) if line is not None and line.text and line.text.strip().isdigit() else (2 if s_text == "G" else 4)
-                        last_clef = {"sign": s_text, "line": l_text}
+                if c_staff is None and staff_n != 1:
+                    continue
+                sign = clef.find(_q(ns, "sign"))
+                line = clef.find(_q(ns, "line"))
+                if sign is not None and sign.text:
+                    s_text = sign.text.strip().upper()
+                    l_text = int(line.text.strip()) if line is not None and line.text and line.text.strip().isdigit() else (2 if s_text == "G" else 4)
+                    last_clef = {"sign": s_text, "line": l_text}
     return last_clef
 
 
@@ -3828,7 +3832,13 @@ def _chord_group_note_indices(notes: list[ET.Element], ns: str, idx: int) -> lis
 def _find_chord_leader_index_for_fix(
     notes: list[ET.Element], ns: str, fix: dict[str, Any]
 ) -> int | None:
-    """insertChordMember — 인덱스 밀림 대비 leaderPitch* 로 리더를 찾는다."""
+    """insertChordMember — 인덱스 밀림·동일 피치 다성부에서도 올바른 리더를 고른다.
+
+    우선순위:
+    1) leaderNoteIndex가 아직 그 피치의 리더면 그대로
+    2) leaderPitch* (+ staff/voice) 매칭
+    3) 인덱스가 다른 화음 멤버를 가리키면(앞쪽 삽입으로 밀림) 그 그룹이 아닌 뒤쪽 리더 우선
+    """
     try:
         leader_idx = int(fix.get("leaderNoteIndex", fix.get("noteIndex", -1)))
     except (TypeError, ValueError):
@@ -3839,35 +3849,86 @@ def _find_chord_leader_index_for_fix(
         staff_n = int(staff_want) if staff_want not in (None, "") else None
     except (TypeError, ValueError):
         staff_n = None
+    voice_want = str(fix.get("leaderVoice") or fix.get("voice") or "").strip()
+
+    def _staff_ok(note: ET.Element) -> bool:
+        if staff_n is None:
+            return True
+        return (_note_staff_number(note, ns) or 1) == staff_n
+
+    def _voice_ok(note: ET.Element) -> bool:
+        if not voice_want:
+            return True
+        return _note_voice_staff(note, ns)[0] == voice_want
+
+    def _pitch_ok(note: ET.Element, octave: int, alter_n: int) -> bool:
+        key = _note_pitch_key(note, ns)
+        return key is not None and key[0] == step and key[1] == octave and key[2] == alter_n
+
+    octave: int | None = None
+    alter_n = 0
     if step:
         try:
             octave = int(fix.get("leaderPitchOctave"))
         except (TypeError, ValueError):
             octave = None
         alter_raw = fix.get("leaderPitchAlter")
-        alter_n = 0
         if alter_raw not in (None, ""):
             try:
                 alter_n = int(alter_raw)
             except (TypeError, ValueError):
                 alter_n = 0
-        matches: list[int] = []
-        if octave is not None:
-            for i, note in enumerate(notes):
-                if note.find(_q(ns, "chord")) is not None or _is_grace_or_cue(note, ns):
-                    continue
-                if staff_n is not None and (_note_staff_number(note, ns) or 1) != staff_n:
-                    continue
-                key = _note_pitch_key(note, ns)
-                if key is not None and key[0] == step and key[1] == octave and key[2] == alter_n:
-                    matches.append(i)
-        if len(matches) == 1:
-            return matches[0]
-        if matches and leader_idx >= 0:
-            return min(matches, key=lambda i: abs(i - leader_idx))
-        if matches:
-            return matches[0]
+
+    # 1) 인덱스가 그대로 유효한 리더면 최우선 (동일 피치가 여러 개여도 확정)
+    if 0 <= leader_idx < len(notes):
+        cand = notes[leader_idx]
+        if (
+            cand.find(_q(ns, "chord")) is None
+            and not _is_grace_or_cue(cand, ns)
+            and _staff_ok(cand)
+            and _voice_ok(cand)
+        ):
+            if not step or octave is None or _pitch_ok(cand, octave, alter_n):
+                return leader_idx
+
+    matches: list[int] = []
+    if step and octave is not None:
+        for i, note in enumerate(notes):
+            if note.find(_q(ns, "chord")) is not None or _is_grace_or_cue(note, ns):
+                continue
+            if not _staff_ok(note) or not _voice_ok(note):
+                continue
+            if _pitch_ok(note, octave, alter_n):
+                matches.append(i)
+
+    if voice_want and len(matches) > 1:
+        voiced = [i for i in matches if _note_voice_staff(notes[i], ns)[0] == voice_want]
+        if voiced:
+            matches = voiced
+
+    if len(matches) == 1:
+        return matches[0]
+
+    if matches and leader_idx >= 0:
+        # 인덱스가 다른 화음 멤버를 가리키면(앞 리더에 멤버 삽입 후 밀림) 그 그룹은 제외
+        if 0 <= leader_idx < len(notes) and notes[leader_idx].find(_q(ns, "chord")) is not None:
+            wrong_leader = _chord_leader_index(notes, ns, leader_idx)
+            later = [i for i in matches if i > leader_idx]
+            if later:
+                return min(later)
+            others = [i for i in matches if i != wrong_leader]
+            if others:
+                return min(others, key=lambda i: abs(i - leader_idx))
+        return min(matches, key=lambda i: abs(i - leader_idx))
+
+    if matches:
+        return matches[0]
+
     if leader_idx < 0 or leader_idx >= len(notes):
+        return None
+    # 피치 힌트 없이 인덱스만 — 화음 멤버면 리더로 승격하되, 이미 피치 힌트가 있었는데
+    # 매칭 실패면 잘못된 그룹으로 붙이지 않음
+    if step and octave is not None:
         return None
     return _chord_leader_index(notes, ns, leader_idx)
 
@@ -6251,6 +6312,17 @@ def _filter_elements_for_split(elements: list[ET.Element], ns: str, voice_layer:
     return res
 
 
+def _clef_matches_staff(clef: ET.Element, staff_n: int) -> bool:
+    """clef@number가 없거나 staff_n과 같으면 해당 스태프 clef."""
+    c_staff = clef.get("number")
+    if c_staff is None or str(c_staff).strip() == "":
+        return True
+    try:
+        return int(str(c_staff).strip()) == int(staff_n)
+    except ValueError:
+        return str(c_staff).strip() == str(staff_n)
+
+
 def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     part_id = str(fix.get("partId") or "").strip()
     measure_spec = str(fix.get("measureMxl") or "").strip()
@@ -6285,15 +6357,25 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
         return False
 
     first_target = target_measures[0]
-    attrs = first_target.find(_q(ns, "attributes"))
+    # 마디 머리 attributes (첫 note 이전) — mid clef attributes와 구분
+    attrs = None
+    for child in list(first_target):
+        if _local(child) == "note":
+            break
+        if _local(child) == "attributes":
+            attrs = child
+            break
     if attrs is None:
         attrs = ET.Element(_q(ns, "attributes"))
         first_target.insert(0, attrs)
 
     found_clef = None
     for c in attrs.findall(_q(ns, "clef")):
-        c_staff = c.get("number")
-        if c_staff is None or c_staff == str(staff_n) or staff_n == 1:
+        if _clef_matches_staff(c, staff_n):
+            # number 없는 clef는 staff 1 전용으로만 재사용 (staff 2에 덮어쓰지 않음)
+            c_staff = c.get("number")
+            if c_staff is None and staff_n != 1:
+                continue
             found_clef = c
             break
     if found_clef is None:
@@ -6316,9 +6398,12 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
             m_attrs = m.find(_q(ns, "attributes"))
             if m_attrs is not None:
                 for c in list(m_attrs.findall(_q(ns, "clef"))):
+                    if not _clef_matches_staff(c, staff_n):
+                        continue
                     c_staff = c.get("number")
-                    if c_staff is None or c_staff == str(staff_n) or staff_n == 1:
-                        m_attrs.remove(c)
+                    if c_staff is None and staff_n != 1:
+                        continue
+                    m_attrs.remove(c)
                 if len(list(m_attrs)) == 0:
                     m.remove(m_attrs)
 

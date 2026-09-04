@@ -108,31 +108,102 @@ export function inferMeasureRangeForPdfPage(
   return measureRangeFromPageIndex(buildPdfPageMeasureIndex(xml), pdfPage);
 }
 
+/** 마디 머리 attributes에 staff별 clef가 있는지 */
+function headAttrsHasClefForStaff(measure: Element, staffN: number): boolean {
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'note' || tag === 'forward' || tag === 'backup') break;
+    if (tag !== 'attributes') continue;
+    for (const clef of [...child.children].filter((c) => xmlLocalName(c) === 'clef')) {
+      const num = clef.getAttribute('number');
+      if (num == null || num === '') {
+        if (staffN === 1) return true;
+        continue;
+      }
+      if (parseInt(num, 10) === staffN) return true;
+    }
+  }
+  return false;
+}
+
+function ensureHeadClef(
+  doc: Document,
+  measure: Element,
+  staffN: number,
+  sign: string,
+  line: number,
+): void {
+  if (headAttrsHasClefForStaff(measure, staffN)) return;
+  let attrs: Element | null = null;
+  let insertBefore: Element | null = null;
+  for (const child of [...measure.children]) {
+    const tag = xmlLocalName(child);
+    if (tag === 'attributes') {
+      attrs = child;
+      break;
+    }
+    if (tag === 'note' || tag === 'forward' || tag === 'backup' || tag === 'direction') {
+      insertBefore = child;
+      break;
+    }
+  }
+  if (!attrs) {
+    attrs = doc.createElementNS(measure.namespaceURI, 'attributes');
+    if (insertBefore) measure.insertBefore(attrs, insertBefore);
+    else measure.insertBefore(attrs, measure.firstChild);
+  }
+  const clef = doc.createElementNS(measure.namespaceURI, 'clef');
+  if (staffN > 1) clef.setAttribute('number', String(staffN));
+  const signEl = doc.createElementNS(measure.namespaceURI, 'sign');
+  signEl.textContent = sign;
+  const lineEl = doc.createElementNS(measure.namespaceURI, 'line');
+  lineEl.textContent = String(line);
+  clef.appendChild(signEl);
+  clef.appendChild(lineEl);
+  attrs.appendChild(clef);
+}
+
+/**
+ * 구간 필터 전에 — 앞 마디에서 이어진 clef를 구간의 첫 마디 머리에 주입.
+ * 마디 단위 OSMD 미리보기에서 setMeasureClef/상속 clef가 안 보이는 문제 방지.
+ */
+function injectCarriedClefsBeforeFilter(doc: Document, lo: number, hi: number): void {
+  for (const part of findXmlParts(doc)) {
+    const carried = new Map<number, { sign: string; line: number }>();
+    for (const measure of [...part.children]) {
+      if (xmlLocalName(measure) !== 'measure') continue;
+      const n = parseMeasureNumber(measure);
+      if (n == null) continue;
+      // 이 마디의 attributes clef로 carried 갱신 (머리+중간)
+      for (const child of [...measure.children]) {
+        if (xmlLocalName(child) !== 'attributes') continue;
+        for (const clef of [...child.children].filter((c) => xmlLocalName(c) === 'clef')) {
+          const sign = clef.querySelector('sign, *|sign')?.textContent?.trim().toUpperCase();
+          const lineRaw = clef.querySelector('line, *|line')?.textContent?.trim();
+          if (!sign) continue;
+          const line = lineRaw && /^\d+$/.test(lineRaw) ? parseInt(lineRaw, 10) : sign === 'F' ? 4 : 2;
+          const numAttr = clef.getAttribute('number');
+          const staffN =
+            numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
+          carried.set(staffN, { sign, line });
+        }
+      }
+      if (n >= lo && n <= hi) {
+        // 구간 첫 등장 마디(보통 lo)에 아직 머리 clef가 없으면 주입
+        for (const [staffN, clef] of carried) {
+          ensureHeadClef(doc, measure, staffN, clef.sign, clef.line);
+        }
+      }
+    }
+  }
+}
+
 /** part·마디 번호는 유지한 채 구간 밖 measure만 제거 (OSMD 마디 클릭 번호 보존). */
 export function filterMusicXmlToMeasureRange(xml: string, start: number, end: number): string {
   const lo = Math.max(1, Math.floor(start));
   const hi = Math.max(lo, Math.floor(end));
-  // 단일 마디·좁은 구간은 max 전수 조사 없이 바로 필터(이미지 PDF 경량 미리보기)
-  if (lo === hi || hi - lo < 64) {
-    try {
-      const doc = parseMusicXmlDocument(xml);
-      if (!doc) return xml;
-      for (const part of findXmlParts(doc)) {
-        for (const child of [...part.children]) {
-          if (xmlLocalName(child) !== 'measure') continue;
-          const n = parseMeasureNumber(child);
-          if (n == null || n < lo || n > hi) part.removeChild(child);
-        }
-      }
-      return serializeMusicXmlDocument(doc);
-    } catch {
-      return xml;
-    }
-  }
-  if (lo <= 1 && hi >= maxMxlMeasureNumber(xml)) return xml;
-  try {
-    const doc = parseMusicXmlDocument(xml);
-    if (!doc) return xml;
+  const filterDoc = (doc: Document) => {
+    injectCarriedClefsBeforeFilter(doc, lo, hi);
     for (const part of findXmlParts(doc)) {
       for (const child of [...part.children]) {
         if (xmlLocalName(child) !== 'measure') continue;
@@ -141,6 +212,22 @@ export function filterMusicXmlToMeasureRange(xml: string, start: number, end: nu
       }
     }
     return serializeMusicXmlDocument(doc);
+  };
+  // 단일 마디·좁은 구간은 max 전수 조사 없이 바로 필터(이미지 PDF 경량 미리보기)
+  if (lo === hi || hi - lo < 64) {
+    try {
+      const doc = parseMusicXmlDocument(xml);
+      if (!doc) return xml;
+      return filterDoc(doc);
+    } catch {
+      return xml;
+    }
+  }
+  if (lo <= 1 && hi >= maxMxlMeasureNumber(xml)) return xml;
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    return filterDoc(doc);
   } catch {
     return xml;
   }

@@ -92,6 +92,8 @@ export type OmrHitlFix = {
   leaderPitchStep?: string;
   leaderPitchOctave?: number;
   leaderPitchAlter?: number;
+  /** insertChordMember — 동일 피치 다성부 구분 */
+  leaderVoice?: string;
   /** insertNote / insertChordMember — 화음 멤버 일괄 */
   chordMembers?: Array<{
     pitchStep?: string;

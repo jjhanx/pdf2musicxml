@@ -1787,6 +1787,7 @@ type PendingInsertLeader = {
   pitchOctave: number;
   pitchAlter?: number;
   staff?: number;
+  voice?: string;
 };
 
 type ChordMemberDraft = { step: string; octave: number; alter: PitchAlterOption };
@@ -2167,7 +2168,7 @@ export function OmrMeasureEditor({
     onAddFix,
   ]);
 
-  const [clefScope, setClefScope] = useState<'all' | 'single' | 'range'>('all');
+  const [clefScope, setClefScope] = useState<'all' | 'single' | 'range'>('single');
   const [clefStartMeasure, setClefStartMeasure] = useState(measureMxl);
   const [clefEndMeasure, setClefEndMeasure] = useState(measureMxl);
 
@@ -2986,6 +2987,7 @@ export function OmrMeasureEditor({
 
         <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>
           현재 파트(<strong>{staffLabel ? `${staffLabel} · ` : ''}part {partId}</strong>)의 음자리표를 높은음자리표(𝄞) 또는 낮은음자리표(𝄢)로 변경합니다.
+          기본은 <strong>이 마디만</strong>입니다. 「1마디부터 곡 전체」는 첫 마디에만 쓰고 이후 마디 머리 clef를 지우므로, 마디 단위 미리보기에서는 변화가 안 보일 수 있습니다.
         </p>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 8, fontSize: '0.86rem' }}>
@@ -2994,20 +2996,20 @@ export function OmrMeasureEditor({
             <input
               type="radio"
               name="clefRangeScope"
-              checked={clefScope === 'all'}
-              onChange={() => setClefScope('all')}
+              checked={clefScope === 'single'}
+              onChange={() => setClefScope('single')}
             />
-            <span>1마디부터 곡 전체 적용 (m.1 ~ 끝)</span>
+            <span>현재 마디만 (m.{measureMxl})</span>
           </label>
 
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
             <input
               type="radio"
               name="clefRangeScope"
-              checked={clefScope === 'single'}
-              onChange={() => setClefScope('single')}
+              checked={clefScope === 'all'}
+              onChange={() => setClefScope('all')}
             />
-            <span>현재 마디만 (m.{measureMxl})</span>
+            <span>1마디부터 곡 전체 적용 (m.1 ~ 끝)</span>
           </label>
 
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
@@ -3379,6 +3381,7 @@ export function OmrMeasureEditor({
               pitchOctave,
               pitchAlter,
               staff,
+              voice,
             });
             setFixMsg(
               `리더 음표 대기 (#${leaderIdx} 예정 · ${leaderLabel}). 아래 「화음 음 추가」로 2·3음을 더 붙이거나 「MXL에 반영·미리보기」를 누르세요.`,
@@ -3417,6 +3420,7 @@ export function OmrMeasureEditor({
             kind: 'insertChordMember',
             leaderNoteIndex,
             staff: leaderMeta?.staff,
+            leaderVoice: leaderMeta?.voice,
             leaderPitchStep: leaderMeta?.pitchStep,
             leaderPitchOctave: leaderMeta?.pitchOctave,
             leaderPitchAlter: leaderMeta?.pitchAlter,
@@ -5120,6 +5124,7 @@ function MeasureNoteEditor({
                   kind: 'insertChordMember',
                   leaderNoteIndex: chordLeaderIdx,
                   staff: (chordLeaderEl ?? el).staff ?? undefined,
+                  leaderVoice: (chordLeaderEl ?? el).voice != null ? String((chordLeaderEl ?? el).voice) : undefined,
                   leaderPitchStep: leaderPitch.pitchStep,
                   leaderPitchOctave: leaderPitch.pitchOctave,
                   leaderPitchAlter: leaderPitch.pitchAlter,
@@ -5221,6 +5226,7 @@ function InsertElementForm({
       pitchOctave?: number;
       pitchAlter?: number;
       staff?: number;
+      voice?: string;
     },
   ) => void;
   onInsertClef: (after: number, sign: 'G' | 'F', staff: number, afterClef?: number | null) => void;
@@ -5442,6 +5448,7 @@ function InsertElementForm({
                     pitchOctave: pendingLeader.pitchOctave,
                     pitchAlter: pendingLeader.pitchAlter,
                     staff: pendingLeader.staff,
+                    voice: pendingLeader.voice,
                   },
                 );
                 setAttachDrafts([{ step: 'E', octave: 4, alter: '0' }]);

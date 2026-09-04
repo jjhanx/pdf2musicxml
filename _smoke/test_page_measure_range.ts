@@ -31,7 +31,7 @@ const sample = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list>
   <part id="P1">
-    <measure number="1"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="1"><attributes><divisions>1</divisions><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
     <measure number="32"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
     <measure number="33"><print new-page="yes"/><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
     <measure number="40"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
@@ -69,6 +69,10 @@ const one = filterMusicXmlToMeasureRange(sample, 33, 33);
 const oneNums = [...one.matchAll(/<measure number="(\d+)"/g)].map((m) => Number(m[1]));
 if (oneNums.length !== 1 || oneNums[0] !== 33) {
   throw new Error(`single-measure filter expected [33] got ${oneNums.join(',')}`);
+}
+// 앞 마디 G clef가 구간 첫 마디에 주입되어야 마디 단위 OSMD에서 음자리표가 유지됨
+if (!/<clef[\s>]/.test(one) || !/<sign>\s*G\s*<\/sign>/.test(one)) {
+  throw new Error('single-measure filter should inject carried clef from earlier measures');
 }
 
 const affected = affectedMeasuresFromFixes([

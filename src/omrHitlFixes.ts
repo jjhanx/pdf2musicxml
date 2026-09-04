@@ -161,6 +161,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   moveWedgeStart: 'wedge 시작 위치',
   moveWedgeStop: 'wedge(stop) 위치',
   setWedgeSpan: 'wedge 시작·끝 범위',
+  removeWedge: '셈여림 점선(wedge) 삭제',
   insertOctaveShift: '8va(octave-shift) 추가',
   setOctaveShiftSpan: '8va 시작·끝 범위',
   removeTrailingPhantomRest: '마디 끝 쉼표 제거',
@@ -374,6 +375,13 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     if (fix.endingNumber) parts.push(`${fix.endingNumber}번`);
     if (fix.endingType) parts.push(fix.endingType);
     if (fix.applyToAllParts) parts.push('전체 파트');
+  }
+  if (fix.kind === 'insertWedge' || fix.kind === 'setWedgeSpan' || fix.kind === 'removeWedge') {
+    if (fix.directionValue) parts.push(fix.directionValue);
+    if (fix.fromNoteIndex != null) parts.push(`#${fix.fromNoteIndex}`);
+    if (fix.toMeasureMxl) parts.push(`→m.${fix.toMeasureMxl}`);
+    if (fix.toNoteIndex != null) parts.push(`#${fix.toNoteIndex}`);
+    if (fix.wedgeNumber) parts.push(`n=${fix.wedgeNumber}`);
   }
   if (fix.kind === 'linkParallelOnsets' && fix.parallelNoteIndices?.length) {
     parts.push(`#${fix.parallelNoteIndices.join(',#')}`);

@@ -58,6 +58,10 @@ export function affectedMeasuresFromFixes(fixes: unknown[]): AffectedMeasureRef[
 
     const partId = String(fix.partId ?? '').trim();
     for (const m of measures) addMeasure(map, partId, m);
+    // wedge·tie 등 교차 마디 — toMeasureMxl도 미리보기 갱신 대상
+    if (toSpec && toSpec !== measureSpec) {
+      for (const m of expandMeasureMxlSpec(toSpec)) addMeasure(map, partId, m);
+    }
   }
   return [...map.values()].sort(
     (a, b) => a.partId.localeCompare(b.partId) || a.measureMxl - b.measureMxl,

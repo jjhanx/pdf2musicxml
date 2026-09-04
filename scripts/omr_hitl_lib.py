@@ -8530,9 +8530,34 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         dist = None if dist_raw in (None, "", "auto") else str(dist_raw).strip().lower()
         start_spread = "0" if wtype == "crescendo" else "15"
         stop_spread = "15" if wtype == "crescendo" else "0"
+        to_mxl = str(fix.get("toMeasureMxl") or fix.get("endMeasureMxl") or "").strip()
+        end_measure = measure
+        end_notes = notes
+        if to_mxl and to_mxl != measure_mxl:
+            end_m = find_measure(part, ns, to_mxl)
+            if end_m is None:
+                return False
+            end_measure = end_m
+            end_notes = list_note_elements(end_measure, ns)
         wedge_no = _next_wedge_number(measure, ns)
+        # 끝 마디에 이미 쓰인 number와 충돌하면 둘 다 피함
+        if end_measure is not measure:
+            used: set[int] = set()
+            for d in end_measure.findall(_q(ns, "direction")):
+                if _wedge_element(d, ns) is None:
+                    continue
+                raw = _wedge_number_on_direction(d, ns)
+                if raw.isdigit():
+                    used.add(int(raw))
+            try:
+                n = int(wedge_no)
+            except ValueError:
+                n = 1
+            while n in used:
+                n += 1
+            wedge_no = str(n)
         if end_i < 0:
-            end_i = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
+            end_i = _last_rhythmic_note_index_on_staff(end_notes, ns, staff_n)
         _insert_standalone_wedge(
             measure,
             ns,
@@ -8546,9 +8571,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             distance=dist,
         )
         _insert_standalone_wedge(
-            measure,
+            end_measure,
             ns,
-            notes,
+            end_notes,
             wtype="stop",
             staff_n=staff_n,
             placement=placement,
@@ -8557,6 +8582,20 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             wedge_number=wedge_no,
             distance=dist,
         )
+        return True
+
+    if kind == "removeWedge":
+        try:
+            staff_n = int(fix.get("staff", 1))
+        except (TypeError, ValueError):
+            return False
+        wedge_no = str(fix.get("wedgeNumber") or "").strip() or None
+        _remove_wedge_pair_on_staff(measure, ns, staff_n, wedge_no)
+        to_mxl = str(fix.get("toMeasureMxl") or fix.get("endMeasureMxl") or "").strip()
+        if to_mxl and to_mxl != measure_mxl:
+            end_m = find_measure(part, ns, to_mxl)
+            if end_m is not None:
+                _remove_wedge_pair_on_staff(end_m, ns, staff_n, wedge_no)
         return True
 
     if kind == "moveWedgeStart":
@@ -8609,17 +8648,29 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         dist_raw = fix.get("distance")
         dist = None if dist_raw in (None, "", "auto") else str(dist_raw).strip().lower()
         wedge_no = str(fix.get("wedgeNumber") or "").strip() or None
+        to_mxl = str(fix.get("toMeasureMxl") or fix.get("endMeasureMxl") or "").strip()
+        end_measure = measure
+        end_notes = list_note_elements(measure, ns)
+        if to_mxl and to_mxl != measure_mxl:
+            end_m = find_measure(part, ns, to_mxl)
+            if end_m is None:
+                return False
+            end_measure = end_m
+            end_notes = list_note_elements(end_measure, ns)
         removed_type, removed_no = _remove_wedge_starts_on_staff(measure, ns, staff_n, wedge_no)
         _remove_wedge_stops_on_staff(measure, ns, staff_n, wedge_no)
+        if end_measure is not measure:
+            _remove_wedge_starts_on_staff(end_measure, ns, staff_n, wedge_no or removed_no)
+            _remove_wedge_stops_on_staff(end_measure, ns, staff_n, wedge_no or removed_no)
         wtype = str(fix.get("directionValue") or removed_type or "crescendo").strip().lower()
         if wtype not in ("crescendo", "diminuendo"):
             wtype = "crescendo"
         wedge_no = wedge_no or removed_no or _next_wedge_number(measure, ns)
         start_spread = "0" if wtype == "crescendo" else "15"
         stop_spread = "15" if wtype == "crescendo" else "0"
-        notes = [c for c in list(measure) if _local(c) == "note"]
+        notes = list_note_elements(measure, ns)
         if end_i < 0:
-            end_i = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
+            end_i = _last_rhythmic_note_index_on_staff(end_notes, ns, staff_n)
         _insert_standalone_wedge(
             measure,
             ns,
@@ -8633,9 +8684,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             distance=dist,
         )
         _insert_standalone_wedge(
-            measure,
+            end_measure,
             ns,
-            notes,
+            end_notes,
             wtype="stop",
             staff_n=staff_n,
             placement=placement,
@@ -8662,17 +8713,26 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if placement not in ("above", "below"):
             placement = "below"
         wedge_no = str(fix.get("wedgeNumber") or "").strip() or None
+        to_mxl = str(fix.get("toMeasureMxl") or fix.get("endMeasureMxl") or "").strip()
+        stop_measure = measure
+        if to_mxl and to_mxl != measure_mxl:
+            end_m = find_measure(part, ns, to_mxl)
+            if end_m is None:
+                return False
+            stop_measure = end_m
         if wedge_no is None:
             wedge_no = _open_wedge_number_on_staff(measure, ns, staff_n)
         _remove_wedge_stops_on_staff(measure, ns, staff_n, wedge_no)
-        notes = [c for c in list(measure) if _local(c) == "note"]
+        if stop_measure is not measure:
+            _remove_wedge_stops_on_staff(stop_measure, ns, staff_n, wedge_no)
+        stop_notes = list_note_elements(stop_measure, ns)
         end_i = before_idx
         if end_i < 0:
-            end_i = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
+            end_i = _last_rhythmic_note_index_on_staff(stop_notes, ns, staff_n)
         _insert_standalone_wedge(
-            measure,
+            stop_measure,
             ns,
-            notes,
+            stop_notes,
             wtype="stop",
             staff_n=staff_n,
             placement=placement,
@@ -11241,6 +11301,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "moveWedgeStart",
         "moveWedgeStop",
         "setWedgeSpan",
+        "removeWedge",
         "insertOctaveShift",
         "setOctaveShiftSpan",
         "setMeasureClef",

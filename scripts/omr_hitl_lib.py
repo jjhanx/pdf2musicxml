@@ -10706,11 +10706,29 @@ def _rebuild_staff_voice_block(
     primary_voice: str | None = None,
     voice_forward: dict[str, int] | None = None,
 ) -> None:
-    """한 staff의 note·backup·forward 블록을 voice별 문서 순서로 재구성."""
+    """한 staff의 note·backup·forward 블록을 voice별 문서 순서로 재구성.
+
+    mid-measure `<attributes>`(음자리표)·direction은 직전 음 뒤에 보존.
+    (이전에는 note만 다시 넣어 끝 clef 뒤 음표 삽입 시 mid F가 사라짐)
+    """
     start, end = _find_staff_block_span(measure, ns, staff)
     if start is None or end is None:
         return
     children = list(measure)
+    # 마지막 음 뒤 trailing mid clef·direction도 블록에 포함
+    i = end + 1
+    while i < len(children):
+        el = children[i]
+        loc = _local(el)
+        if loc == "attributes" and el.find(_q(ns, "clef")) is not None:
+            end = i
+            i += 1
+            continue
+        if loc == "direction":
+            end = i
+            i += 1
+            continue
+        break
     block = children[start : end + 1]
     block_note_order = [
         el
@@ -10719,13 +10737,28 @@ def _rebuild_staff_voice_block(
     ]
     doc_pos = {id(note): idx for idx, note in enumerate(block_note_order)}
     notes_by_voice: dict[str, list[ET.Element]] = {}
+    note_attachments: dict[ET.Element, list[ET.Element]] = {}
+    leading_extras: list[ET.Element] = []
+    last_staff_note: ET.Element | None = None
     for el in block:
-        if _local(el) != "note":
+        loc = _local(el)
+        if loc == "note":
+            voice, st = _note_voice_staff(el, ns)
+            if st != staff:
+                last_staff_note = None
+                continue
+            notes_by_voice.setdefault(voice, []).append(el)
+            if el.find(_q(ns, "chord")) is None:
+                last_staff_note = el
             continue
-        voice, st = _note_voice_staff(el, ns)
-        if st != staff:
+        if loc in ("attributes", "direction"):
+            if last_staff_note is not None:
+                note_attachments.setdefault(last_staff_note, []).append(el)
+            else:
+                leading_extras.append(el)
             continue
-        notes_by_voice.setdefault(voice, []).append(el)
+        if loc in ("backup", "forward"):
+            last_staff_note = None
 
     if not notes_by_voice:
         return
@@ -10740,12 +10773,15 @@ def _rebuild_staff_voice_block(
         return (pri, min_pos, vn)
 
     voice_order = sorted(notes_by_voice.keys(), key=voice_sort_key)
-    rebuilt: list[ET.Element] = []
+    rebuilt: list[ET.Element] = list(leading_extras)
     for i, voice in enumerate(voice_order):
         ordered = sorted(
             notes_by_voice[voice], key=lambda note: doc_pos.get(id(note), 1_000_000)
         )
-        rebuilt.extend(ordered)
+        for note in ordered:
+            rebuilt.append(note)
+            for att in note_attachments.get(note, []):
+                rebuilt.append(att)
         if i + 1 < len(voice_order):
             backup_el = ET.Element(_q(ns, "backup"))
             ET.SubElement(backup_el, _q(ns, "duration")).text = str(

@@ -1,4 +1,9 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import {
+  measuresMatchInPreview,
+  normalizeToGlobalMeasureMxl,
+  type MxlMeasureRange,
+} from '../shared/musicXmlMeasureRange';
 
 /** OSMD re-export가 Node/tsx에서 없을 수 있어 로컬 정의(브라우저·Node 공통). */
 class PointF2D {
@@ -323,11 +328,14 @@ function findMeasureGraphic(
   osmd: OpenSheetMusicDisplay,
   measureMxl: number,
   staffIndex: number,
+  previewRange?: MxlMeasureRange | null,
 ): GraphicalMeasureLike | null {
   let found: GraphicalMeasureLike | null = null;
   forEachGraphicalMeasure(osmd, (gm, si) => {
     if (si !== staffIndex) return;
-    if (measureMxlFromGraphic(gm) === measureMxl) found = gm;
+    const n = measureMxlFromGraphic(gm);
+    if (n == null) return;
+    if (measuresMatchInPreview(n, measureMxl, previewRange)) found = gm;
   });
   return found;
 }
@@ -841,8 +849,20 @@ export function collectMeasureHitTargets(
   return out;
 }
 
+/** 피아노 split 미리보기 part id → staffWithinPart */
+export function staffWithinPartFromPreviewPartId(partId: string | null | undefined): number | null {
+  const trimmed = partId?.trim() ?? '';
+  if (trimmed.endsWith('__PL')) return 2;
+  if (trimmed.endsWith('__PR')) return 1;
+  return null;
+}
+
 /** 피아노 등 한 part id가 여러 줄일 때 윗줄=1, 아랫줄=2 … */
 function annotateStaffWithinPart(targets: MeasureHitTarget[]): void {
+  for (const t of targets) {
+    const fromId = staffWithinPartFromPreviewPartId(t.partId);
+    if (fromId != null) t.staffWithinPart = fromId;
+  }
   const groups = new Map<string, MeasureHitTarget[]>();
   for (const t of targets) {
     if (!t.partId) continue;
@@ -853,7 +873,9 @@ function annotateStaffWithinPart(targets: MeasureHitTarget[]): void {
   }
   for (const g of groups.values()) {
     if (g.length < 2) {
-      for (const t of g) t.staffWithinPart = 1;
+      for (const t of g) {
+        if (staffWithinPartFromPreviewPartId(t.partId) == null) t.staffWithinPart = 1;
+      }
       continue;
     }
     g.sort((a, b) => a.staffIndex - b.staffIndex);
@@ -933,12 +955,15 @@ function boundsFromGraphicMeasure(
   osmd: OpenSheetMusicDisplay,
   host: HTMLElement,
   info: OsmdMeasureClickInfo,
+  previewRange?: MxlMeasureRange | null,
 ): HostBounds | null {
   const targets = targetCache.get(host) ?? [];
 
   // 같은 마디 번호의 다른 줄 셀로 시스템·X 범위를 정하고,
   // 요청한 줄(staffIndex)의 같은 시스템 밴드로 세로를 정한다.
-  const colPeers = targets.filter((t) => t.measureMxl === info.measureMxl && isValidHostBounds(t.bounds));
+  const colPeers = targets.filter(
+    (t) => measuresMatchInPreview(t.measureMxl, info.measureMxl, previewRange) && isValidHostBounds(t.bounds),
+  );
   if (colPeers.length) {
     const left = Math.min(...colPeers.map((t) => t.bounds.left));
     const right = Math.max(...colPeers.map((t) => t.bounds.right));
@@ -963,7 +988,7 @@ function boundsFromGraphicMeasure(
   }
 
   // 그리드가 비어 있으면 해당 줄의 그래픽 마디에서 직접 계산 (다른 줄로 대체하지 않음)
-  const gm = findMeasureGraphic(osmd, info.measureMxl, info.staffIndex);
+  const gm = findMeasureGraphic(osmd, info.measureMxl, info.staffIndex, previewRange);
   if (!gm) return null;
   const dom = domBoundsForMeasure(gm, host);
   if (dom && isValidHostBounds(dom)) return dom;
@@ -974,28 +999,39 @@ function boundsForMeasureInfo(
   osmd: OpenSheetMusicDisplay,
   host: HTMLElement,
   info: OsmdMeasureClickInfo,
+  previewRange?: MxlMeasureRange | null,
 ): HostBounds | null {
   // 렌더 직후 다시 수집된 그리드를 우선 사용 (줌·리사이즈 후에도 정확)
   const cached = targetCache.get(host)?.find(
-    (t) => t.measureMxl === info.measureMxl && t.staffIndex === info.staffIndex && isValidHostBounds(t.bounds),
+    (t) =>
+      measuresMatchInPreview(t.measureMxl, info.measureMxl, previewRange) &&
+      t.staffIndex === info.staffIndex &&
+      isValidHostBounds(t.bounds),
   );
   if (cached) return cached.bounds;
 
   const remembered = getRememberedSelectionBounds(host, info);
   if (remembered) return remembered;
 
-  return boundsFromGraphicMeasure(osmd, host, info);
+  return boundsFromGraphicMeasure(osmd, host, info, previewRange);
 }
 
 function paintBounds(host: HTMLElement, bounds: HostBounds, layerAttr: string, style: string): void {
-  host.querySelectorAll(`[${layerAttr}]`).forEach((el) => el.remove());
   host.style.position = host.style.position || 'relative';
-  const layer = document.createElement('div');
-  layer.setAttribute(layerAttr, '1');
-  layer.style.cssText =
-    'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:5;';
-  const box = document.createElement('div');
-  box.style.cssText = [
+  let layer = host.querySelector(`[${layerAttr}]`) as HTMLDivElement | null;
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.setAttribute(layerAttr, '1');
+    layer.style.cssText =
+      'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+    host.appendChild(layer);
+  }
+  let box = layer.firstElementChild as HTMLDivElement | null;
+  if (!box) {
+    box = document.createElement('div');
+    layer.appendChild(box);
+  }
+  const nextCss = [
     'position:absolute',
     `left:${bounds.left}px`,
     `top:${bounds.top}px`,
@@ -1003,8 +1039,10 @@ function paintBounds(host: HTMLElement, bounds: HostBounds, layerAttr: string, s
     `height:${Math.max(4, bounds.bottom - bounds.top)}px`,
     style,
   ].join(';');
-  layer.appendChild(box);
-  host.appendChild(layer);
+  // 동일 내용이면 DOM 건드리지 않음 — MutationObserver·리레이아웃 깜빡임 방지
+  if (box.getAttribute('data-hitl-bounds') === nextCss) return;
+  box.setAttribute('data-hitl-bounds', nextCss);
+  box.style.cssText = nextCss;
 }
 
 export function removeMeasureHover(host: HTMLElement): void {
@@ -1020,6 +1058,7 @@ export function drawOsmdMeasureHover(
   osmd: OpenSheetMusicDisplay,
   info: OsmdMeasureClickInfo | null,
   evt?: MouseEvent,
+  previewRange?: MxlMeasureRange | null,
 ): void {
   removeMeasureHover(host);
   if (!info || !osmd.IsReadyToRender()) return;
@@ -1030,14 +1069,14 @@ export function drawOsmdMeasureHover(
       const t = pickTargetAt(host, osmd, evt);
       if (
         t &&
-        t.measureMxl === info.measureMxl &&
+        measuresMatchInPreview(t.measureMxl, info.measureMxl, previewRange) &&
         normalizeStaffIndex(osmd, t.staffIndex) === info.staffIndex &&
         isValidHostBounds(t.bounds)
       ) {
         bounds = t.bounds;
       }
     }
-    if (!bounds) bounds = boundsForMeasureInfo(osmd, host, info);
+    if (!bounds) bounds = boundsForMeasureInfo(osmd, host, info, previewRange);
     if (!bounds) return;
     paintBounds(
       host,
@@ -1055,12 +1094,13 @@ export function scrollOsmdMeasureIntoView(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
   info: OsmdMeasureClickInfo,
+  previewRange?: MxlMeasureRange | null,
 ): void {
   const scrollParent = host.closest('.omr-mxl-osmd-frame') as HTMLElement | null;
   if (!scrollParent) return;
 
   try {
-    const bounds = boundsForMeasureInfo(osmd, host, info);
+    const bounds = boundsForMeasureInfo(osmd, host, info, previewRange);
     if (!bounds || !isValidHostBounds(bounds)) return;
 
     const measureMidYInHost = bounds.top + (bounds.bottom - bounds.top) / 2;
@@ -1072,7 +1112,7 @@ export function scrollOsmdMeasureIntoView(
 
     scrollParent.scrollTo({
       top: Math.max(0, targetScroll),
-      behavior: 'smooth',
+      behavior: 'auto',
     });
   } catch (e) {
     console.warn('[omr-measure-click] scroll 실패', e);
@@ -1084,15 +1124,26 @@ export function drawOsmdMeasureHighlight(
   osmd: OpenSheetMusicDisplay,
   measureMxl: number | null | undefined,
   staffIndex?: number | null,
+  previewRange?: MxlMeasureRange | null,
 ): void {
-  host.querySelectorAll(`[${HIGHLIGHT_LAYER_ATTR}]`).forEach((el) => el.remove());
-  if (measureMxl == null || measureMxl < 0 || !osmd.IsReadyToRender()) return;
+  if (measureMxl == null || measureMxl < 0 || !osmd.IsReadyToRender()) {
+    host.querySelectorAll(`[${HIGHLIGHT_LAYER_ATTR}]`).forEach((el) => el.remove());
+    return;
+  }
   try {
-    const bounds = boundsForMeasureInfo(osmd, host, {
-      measureMxl,
-      staffIndex: staffIndex ?? 0,
-    });
-    if (!bounds) return;
+    const bounds = boundsForMeasureInfo(
+      osmd,
+      host,
+      {
+        measureMxl,
+        staffIndex: staffIndex ?? 0,
+      },
+      previewRange,
+    );
+    if (!bounds) {
+      host.querySelectorAll(`[${HIGHLIGHT_LAYER_ATTR}]`).forEach((el) => el.remove());
+      return;
+    }
     paintBounds(
       host,
       bounds,
@@ -1112,13 +1163,14 @@ export function hitTestOsmdMeasure(
   osmd: OpenSheetMusicDisplay,
   host: HTMLElement,
   evt: MouseEvent,
+  previewRange?: MxlMeasureRange | null,
 ): OsmdMeasureClickInfo | null {
   if (!osmd.IsReadyToRender()) return null;
   try {
     const t = pickTargetAt(host, osmd, evt);
     if (t) {
       const info: OsmdMeasureClickInfo = {
-        measureMxl: t.measureMxl,
+        measureMxl: normalizeToGlobalMeasureMxl(t.measureMxl, previewRange),
         staffIndex: normalizeStaffIndex(osmd, t.staffIndex),
         partId: t.partId,
         staffWithinPart: t.staffWithinPart,
@@ -1134,10 +1186,11 @@ export function hitTestOsmdMeasure(
     );
     const info: OsmdMeasureClickInfo = {
       ...near,
+      measureMxl: normalizeToGlobalMeasureMxl(near.measureMxl, previewRange),
       staffIndex: normalizeStaffIndex(osmd, near.staffIndex),
       staffWithinPart: peer?.staffWithinPart ?? near.staffWithinPart,
     };
-    const domBounds = boundsFromGraphicMeasure(osmd, host, info);
+    const domBounds = boundsFromGraphicMeasure(osmd, host, info, previewRange);
     if (domBounds) rememberSelectionBounds(host, info, domBounds);
     return info;
   } catch (e) {

@@ -2288,6 +2288,8 @@ export function OsmdBlock({
   const xmlGenRef = useRef(0);
   /** Invalidates overlapping RAF/resize paint attempts (load-complete vs zoom). */
   const paintSeqRef = useRef(0);
+  /** 렌더 직후 스크롤바·오버레이로 width가 흔들려 ResizeObserver 재렌더 루프 나는 것 방지 */
+  const paintCooldownUntilRef = useRef(0);
   const roRef = useRef<ResizeObserver | null>(null);
   const onMeasureClickRef = useRef(onMeasureClick);
   const highlightMeasureMxlRef = useRef(highlightMeasureMxl);
@@ -2377,6 +2379,7 @@ export function OsmdBlock({
   }, []);
 
   const afterOsmdRender = useCallback(() => {
+    paintCooldownUntilRef.current = Date.now() + 800;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         syncMeasureClickUi();
@@ -2406,6 +2409,7 @@ export function OsmdBlock({
         ) {
           scrollOsmdMeasureIntoView(host, osmd, target, previewMeasureRangeRef.current);
           lastHandledScrollTriggerRef.current = trigger;
+          paintCooldownUntilRef.current = Date.now() + 800;
         }
       });
     });
@@ -2573,19 +2577,21 @@ export function OsmdBlock({
     };
   }, [xml]);
 
-  /** 너비 변경만 재렌더 — 높이만 바뀌는 Accent dy는 무시(autoResize 루프 방지) */
+  /** 너비 변경만 재렌더 — 높이·스크롤바(±15px) 흔들림은 무시해 깜빡임 루프 방지 */
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     let lastW = host.getBoundingClientRect().width;
     let timer: number | null = null;
     const ro = new ResizeObserver(() => {
+      if (Date.now() < paintCooldownUntilRef.current) return;
       const w = host.getBoundingClientRect().width;
-      if (Math.abs(w - lastW) < 2) return;
+      if (Math.abs(w - lastW) < 24) return;
       lastW = w;
       if (timer != null) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         timer = null;
+        if (Date.now() < paintCooldownUntilRef.current) return;
         const osmd = osmdRef.current;
         if (!host.isConnected || !osmd?.IsReadyToRender()) return;
         const gen = xmlGenRef.current;
@@ -2613,7 +2619,7 @@ export function OsmdBlock({
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
           },
         });
-      }, 100);
+      }, 280);
     });
     ro.observe(host);
     return () => {
@@ -2684,16 +2690,42 @@ export function OsmdBlock({
       applyPendingDynamicsOffsetsOnly(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
     };
     apply();
-    // OSMD/align이 SVG를 교체하면 transform 속성이 사라짐 → childList만 감시해 재적용 (attribute 감시 금지=루프 방지)
+    // OSMD가 SVG 트리를 교체할 때만 재적용. host 전체(하이라이트 overlay)를 보면 childList 루프·깜빡임.
     let debounce: number | null = null;
-    const mo = new MutationObserver(() => {
+    const isOverlayNode = (n: Node) =>
+      n instanceof Element &&
+      (n.hasAttribute('data-omr-measure-highlight') ||
+        n.hasAttribute('data-omr-measure-hover') ||
+        Boolean(n.closest?.('[data-omr-measure-highlight], [data-omr-measure-hover]')));
+    const mo = new MutationObserver((mutations) => {
+      let relevant = false;
+      for (const m of mutations) {
+        if (m.type !== 'childList') continue;
+        for (const n of m.addedNodes) {
+          if (!isOverlayNode(n)) {
+            relevant = true;
+            break;
+          }
+        }
+        if (relevant) break;
+        for (const n of m.removedNodes) {
+          if (!isOverlayNode(n)) {
+            relevant = true;
+            break;
+          }
+        }
+        if (relevant) break;
+      }
+      if (!relevant) return;
       if (debounce != null) return;
       debounce = window.setTimeout(() => {
         debounce = null;
         apply();
-      }, 16);
+      }, 32);
     });
-    mo.observe(host, { childList: true, subtree: true });
+    const svg = host.querySelector('svg');
+    if (svg) mo.observe(svg, { childList: true, subtree: true });
+    else mo.observe(host, { childList: true, subtree: false });
     const t1 = window.setTimeout(apply, 0);
     const t2 = window.setTimeout(apply, 100);
     return () => {

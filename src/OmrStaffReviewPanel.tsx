@@ -49,7 +49,8 @@ function DiagnosticPagePng(props: {
     const qs = new URLSearchParams({ source, dpi: String(dpi) });
     if (maxSide && maxSide > 0) qs.set('maxSide', String(maxSide));
     const href = `/api/diagnostic/${jobId}/page/${page}/png?${qs.toString()}`;
-    setPhase('loading');
+    // 이전 이미지가 있으면 교체 전까지 유지 — 로딩 문구로 높이 붕괴·옆 OSMD 폭 흔들림 방지
+    if (!blobUrlRef.current) setPhase('loading');
     const ac = new AbortController();
     (async () => {
       try {
@@ -256,14 +257,19 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [pageMeasureIndex, deferredPage],
   );
 
+  const pageStartsKey = pageMeasureIndex.pageStarts.join(',');
+  const lastPageScrollMxlRef = useRef(0);
+
   useEffect(() => {
     if (!rawXml || page < 1) return;
     if (imagePdfLight) return; // 마디 단위 미리보기 — 페이지 스크롤 대상 불필요
     const mxl = pageMeasureIndex.pageStarts[Math.min(page, pageMeasureIndex.pageStarts.length) - 1] ?? 1;
     if (mxl < 1) return;
+    if (lastPageScrollMxlRef.current === mxl) return;
+    lastPageScrollMxlRef.current = mxl;
     setPageScrollTarget({ measureMxl: mxl, staffIndex: 0, partId: null });
     setScrollToMeasureTrigger((t) => t + 1);
-  }, [page, rawXml, imagePdfLight, pageMeasureIndex]);
+  }, [page, rawXml, imagePdfLight, pageStartsKey, pageMeasureIndex.pageStarts]);
 
   useEffect(() => {
     if (!imagePdfLight || page >= pageCount) return;
@@ -945,6 +951,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     ],
   );
 
+  const deferredRangeStart = deferredPageMeasureRange.start;
+  const deferredRangeEnd = deferredPageMeasureRange.end;
+
   /** 거리 드롭다운은 OSMD 재로드 없이 pending extraY만 적용. Accent는 음표에 남겨 VexFlow가 오선 옆에 그림(mf Direction과 섞지 않음). */
   const previewXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
@@ -958,11 +967,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         faithfulEditorLayout: true,
       });
     }
-    const pageScoped = filterMusicXmlToMeasureRange(
-      rawXml,
-      deferredPageMeasureRange.start,
-      deferredPageMeasureRange.end,
-    );
+    const pageScoped = filterMusicXmlToMeasureRange(rawXml, deferredRangeStart, deferredRangeEnd);
     return buildOsmdPreviewXml(pageScoped, scoreParts, activeStaffFilter, {
       verbatim: true,
       faithfulEditorLayout: true,
@@ -971,9 +976,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     rawXml,
     scoreParts,
     activeStaffFilter,
-    deferredPageMeasureRange,
+    deferredRangeStart,
+    deferredRangeEnd,
     imagePdfLight,
-    selectedMeasure,
+    selectedMeasure?.measureMxl,
   ]);
 
   const osmdPreviewKey = imagePdfLight

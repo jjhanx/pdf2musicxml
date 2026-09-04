@@ -1754,6 +1754,218 @@ def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, sta
     return last_clef
 
 
+def _measure_barlines_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
+    """마디 `<barline>` — 도돌이표·1/2번 괄호(ending)·막대 스타일."""
+    out: list[dict[str, Any]] = []
+    for bi, bl in enumerate(measure.findall(_q(ns, "barline"))):
+        loc = (bl.get("location") or "right").strip().lower() or "right"
+        style_el = bl.find(_q(ns, "bar-style"))
+        bar_style = (style_el.text or "").strip() if style_el is not None and style_el.text else None
+        repeat_el = bl.find(_q(ns, "repeat"))
+        repeat_dir = None
+        if repeat_el is not None:
+            repeat_dir = (repeat_el.get("direction") or "").strip().lower() or None
+        endings: list[dict[str, str]] = []
+        for en in bl.findall(_q(ns, "ending")):
+            num = (en.get("number") or "").strip()
+            et = (en.get("type") or "").strip().lower()
+            if num or et:
+                endings.append({"number": num or "1", "type": et or "start"})
+        out.append(
+            {
+                "barlineIndex": bi,
+                "location": loc,
+                "barStyle": bar_style,
+                "repeatDirection": repeat_dir,
+                "endings": endings,
+            }
+        )
+    return out
+
+
+def _find_barline(measure: ET.Element, ns: str, location: str) -> ET.Element | None:
+    loc = (location or "right").strip().lower() or "right"
+    for bl in measure.findall(_q(ns, "barline")):
+        bl_loc = (bl.get("location") or "right").strip().lower() or "right"
+        if bl_loc == loc:
+            return bl
+    return None
+
+
+def _barline_insert_index(measure: ET.Element, ns: str, location: str) -> int:
+    """left → 헤더(print/attributes) 뒤, right → 마디 끝."""
+    children = list(measure)
+    loc = (location or "right").strip().lower() or "right"
+    if loc == "left":
+        idx = 0
+        for i, child in enumerate(children):
+            name = _local(child)
+            if name in ("print", "attributes", "barline"):
+                if name == "barline" and (child.get("location") or "right").strip().lower() == "left":
+                    return i
+                idx = i + 1
+                continue
+            break
+        return idx
+    for i, child in enumerate(children):
+        if _local(child) == "barline" and (child.get("location") or "right").strip().lower() != "left":
+            return i
+    return len(children)
+
+
+def _ensure_barline(measure: ET.Element, ns: str, location: str) -> ET.Element:
+    existing = _find_barline(measure, ns, location)
+    if existing is not None:
+        return existing
+    bl = ET.Element(_q(ns, "barline"))
+    bl.set("location", (location or "right").strip().lower() or "right")
+    idx = _barline_insert_index(measure, ns, location)
+    children = list(measure)
+    if idx >= len(children):
+        measure.append(bl)
+    else:
+        measure.insert(idx, bl)
+    return bl
+
+
+def _set_barline_style(bl: ET.Element, ns: str, style: str | None) -> None:
+    style_el = bl.find(_q(ns, "bar-style"))
+    if not style:
+        if style_el is not None:
+            bl.remove(style_el)
+        return
+    if style_el is None:
+        style_el = ET.Element(_q(ns, "bar-style"))
+        # bar-style는 보통 repeat/ending보다 앞
+        bl.insert(0, style_el)
+    style_el.text = style
+
+
+def _barline_is_empty(bl: ET.Element, ns: str) -> bool:
+    for child in list(bl):
+        name = _local(child)
+        if name in ("bar-style", "repeat", "ending", "wavy-line", "fermata", "segno", "coda", "footnote", "level"):
+            return False
+    return True
+
+
+def _prune_empty_barline(measure: ET.Element, bl: ET.Element, ns: str) -> None:
+    if _barline_is_empty(bl, ns):
+        try:
+            measure.remove(bl)
+        except ValueError:
+            pass
+
+
+def _apply_barline_fix_on_measure(measure: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
+    """setBarlineRepeat / clearBarlineRepeat / setBarlineEnding / clearBarlineEnding / clearBarline."""
+    kind = str(fix.get("kind") or "")
+    location = str(fix.get("barlineLocation") or fix.get("measureAnchor") or "right").strip().lower()
+    if location not in ("left", "right", "middle"):
+        location = "right"
+
+    if kind == "clearBarline":
+        bl = _find_barline(measure, ns, location)
+        if bl is None:
+            return False
+        measure.remove(bl)
+        return True
+
+    if kind == "clearBarlineRepeat":
+        bl = _find_barline(measure, ns, location)
+        if bl is None:
+            return False
+        changed = False
+        for rep in list(bl.findall(_q(ns, "repeat"))):
+            bl.remove(rep)
+            changed = True
+        if changed:
+            _prune_empty_barline(measure, bl, ns)
+        return changed
+
+    if kind == "setBarlineRepeat":
+        direction = str(fix.get("repeatDirection") or "").strip().lower()
+        if direction not in ("forward", "backward"):
+            return False
+        bl = _ensure_barline(measure, ns, location)
+        # 기본 막대: 열림 heavy-light, 닫힘 light-heavy
+        style = str(fix.get("barStyle") or "").strip()
+        if not style:
+            style = "heavy-light" if direction == "forward" else "light-heavy"
+        if bl.find(_q(ns, "bar-style")) is None or fix.get("barStyle"):
+            _set_barline_style(bl, ns, style)
+        for rep in list(bl.findall(_q(ns, "repeat"))):
+            bl.remove(rep)
+        rep = ET.SubElement(bl, _q(ns, "repeat"))
+        rep.set("direction", direction)
+        times = fix.get("repeatTimes")
+        if times is not None:
+            try:
+                t = int(times)
+                if t >= 2:
+                    rep.set("times", str(t))
+            except (TypeError, ValueError):
+                pass
+        winged = str(fix.get("repeatWinged") or "").strip()
+        if winged:
+            rep.set("winged", winged)
+        return True
+
+    if kind == "clearBarlineEnding":
+        bl = _find_barline(measure, ns, location)
+        if bl is None:
+            return False
+        ending_number = str(fix.get("endingNumber") or "").strip()
+        ending_type = str(fix.get("endingType") or "").strip().lower()
+        changed = False
+        for en in list(bl.findall(_q(ns, "ending"))):
+            num = (en.get("number") or "").strip()
+            et = (en.get("type") or "").strip().lower()
+            if ending_number and num != ending_number:
+                continue
+            if ending_type and et != ending_type:
+                continue
+            bl.remove(en)
+            changed = True
+        if changed:
+            _prune_empty_barline(measure, bl, ns)
+        return changed
+
+    if kind == "setBarlineEnding":
+        ending_number = str(fix.get("endingNumber") or "1").strip() or "1"
+        ending_type = str(fix.get("endingType") or "start").strip().lower()
+        if ending_type not in ("start", "stop", "discontinue"):
+            return False
+        bl = _ensure_barline(measure, ns, location)
+        for en in list(bl.findall(_q(ns, "ending"))):
+            num = (en.get("number") or "").strip()
+            et = (en.get("type") or "").strip().lower()
+            if num == ending_number and et == ending_type:
+                bl.remove(en)
+        en = ET.SubElement(bl, _q(ns, "ending"))
+        en.set("number", ending_number)
+        en.set("type", ending_type)
+        label = str(fix.get("endingLabel") or "").strip()
+        if label:
+            en.text = label
+        elif ending_type == "start":
+            en.text = ending_number
+        return True
+
+    return False
+
+
+def _iter_parts_for_barline_fix(root: ET.Element, ns: str, part_id: str, fix: dict[str, Any]):
+    apply_all = bool(fix.get("applyToAllParts"))
+    if not apply_all:
+        part = find_part(root, ns, part_id)
+        if part is not None:
+            yield part
+        return
+    for part in root.findall(_q(ns, "part")):
+        yield part
+
+
 def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) -> dict[str, Any] | None:
     part = find_part(root, ns, part_id)
     if part is None:
@@ -1767,6 +1979,7 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
     effective = _effective_tempo_bpm_before(root, ns, part_id, measure_mxl)
     effective_clef = _effective_clef_for_measure(part, ns, measure_mxl)
     measure_directions = _measure_standalone_directions_snapshot(measure, ns)
+    barlines = _measure_barlines_snapshot(measure, ns)
     direction_source_part_id = part_id
     if not measure_directions and str(measure_mxl).strip() in ("0", "1"):
         first_pid = first_score_part_id(root, ns)
@@ -1785,6 +1998,7 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
         "elements": elements,
         "tempos": tempos,
         "measureDirections": measure_directions,
+        "barlines": barlines,
         "effectiveTempoBpm": effective,
         "effectiveClef": effective_clef,
     }
@@ -7254,6 +7468,22 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     if kind == "insertEmptyMeasureAfter":
         return _insert_empty_measure(root, ns, measure_mxl, "after")
 
+    if kind in (
+        "setBarlineRepeat",
+        "clearBarlineRepeat",
+        "setBarlineEnding",
+        "clearBarlineEnding",
+        "clearBarline",
+    ):
+        any_ok = False
+        for part in _iter_parts_for_barline_fix(root, ns, part_id, fix):
+            measure = find_measure(part, ns, measure_mxl)
+            if measure is None:
+                continue
+            if _apply_barline_fix_on_measure(measure, ns, fix):
+                any_ok = True
+        return any_ok
+
     part = find_part(root, ns, part_id)
     if part is None:
         return False
@@ -10995,6 +11225,11 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "removeNoteDirection",
         "setNoteDirection",
         "clearNoteDirection",
+        "setBarlineRepeat",
+        "clearBarlineRepeat",
+        "setBarlineEnding",
+        "clearBarlineEnding",
+        "clearBarline",
         "setMeasureTempo",
         "removeMeasureTempo",
         "addArticulation",

@@ -117,6 +117,18 @@ export type OmrHitlFix = {
   clefSign?: 'G' | 'F' | 'C' | string;
   clefLine?: number;
   removeSubsequentClefs?: boolean;
+  /** barline — left | right | middle */
+  barlineLocation?: 'left' | 'right' | 'middle' | string;
+  /** forward=열림 도돌이 · backward=닫힘 도돌이 */
+  repeatDirection?: 'forward' | 'backward' | string;
+  repeatTimes?: number;
+  barStyle?: string;
+  /** 1번/2번 괄호 number (예: "1", "2", "1,2") */
+  endingNumber?: string;
+  endingType?: 'start' | 'stop' | 'discontinue' | string;
+  endingLabel?: string;
+  /** 도돌이·ending을 같은 마디 번호의 모든 파트에 적용 */
+  applyToAllParts?: boolean;
 };
 
 export const FIX_KIND_LABEL: Record<string, string> = {
@@ -136,6 +148,11 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   removeNoteDirection: '음표 direction 제거',
   setNoteDirection: '음표 direction',
   clearNoteDirection: 'direction 지우기',
+  setBarlineRepeat: '도돌이표 설정',
+  clearBarlineRepeat: '도돌이표 제거',
+  setBarlineEnding: '1·2번 괄호 설정',
+  clearBarlineEnding: '1·2번 괄호 제거',
+  clearBarline: '마디선(barline) 제거',
   addArticulation: '표(articulation) 추가',
   setArticulationPlacement: '표 위/아래',
   addOrnament: '꾸밈음(ornament) 추가',
@@ -244,6 +261,11 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.beatUnit ?? '',
     fix.clefSign ?? '',
     fix.clefLine ?? '',
+    fix.barlineLocation ?? '',
+    fix.repeatDirection ?? '',
+    fix.endingNumber ?? '',
+    fix.endingType ?? '',
+    fix.applyToAllParts ? 'all' : '',
   ].join('|');
 }
 
@@ -337,6 +359,21 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   }
   if (fix.kind === 'insertEmptyMeasureBefore' || fix.kind === 'insertEmptyMeasureAfter') {
     parts.push(fix.kind === 'insertEmptyMeasureBefore' ? '앞' : '뒤');
+  }
+  if (
+    fix.kind === 'setBarlineRepeat' ||
+    fix.kind === 'clearBarlineRepeat' ||
+    fix.kind === 'setBarlineEnding' ||
+    fix.kind === 'clearBarlineEnding' ||
+    fix.kind === 'clearBarline'
+  ) {
+    const loc = fix.barlineLocation || 'right';
+    parts.push(loc === 'left' ? '왼쪽' : loc === 'middle' ? '중간' : '오른쪽');
+    if (fix.repeatDirection === 'forward') parts.push('열림 도돌이');
+    if (fix.repeatDirection === 'backward') parts.push('닫힘 도돌이');
+    if (fix.endingNumber) parts.push(`${fix.endingNumber}번`);
+    if (fix.endingType) parts.push(fix.endingType);
+    if (fix.applyToAllParts) parts.push('전체 파트');
   }
   if (fix.kind === 'linkParallelOnsets' && fix.parallelNoteIndices?.length) {
     parts.push(`#${fix.parallelNoteIndices.join(',#')}`);

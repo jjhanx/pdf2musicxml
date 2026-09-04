@@ -67,6 +67,7 @@ import {
   planHitlResultPropagation,
   shouldRestoreOmrScoreFromRaw,
 } from '../shared/omrHitlScoreSync.js';
+import { affectedMeasuresFromFixes } from '../shared/omrHitlAffectedMeasures.js';
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -754,6 +755,31 @@ async function saveHitlBaseline(sessionRoot: string, scorePath: string): Promise
   await fs.copyFile(scorePath, sessionHitlBaselineMxlPath(sessionRoot));
 }
 
+/** HITL 편집·마디 구간 가져오기 후 canonical MXL을 baseline·review·(필요 시) preInject에 반영 */
+async function persistCanonicalScoreAfterHitlEdit(
+  sessionRoot: string,
+  scorePath: string,
+  job?: JobRecord,
+): Promise<void> {
+  if (!fsSync.existsSync(scorePath)) return;
+  await saveHitlBaseline(sessionRoot, scorePath);
+  await mirrorSessionReviewMxl(sessionRoot, scorePath);
+  const cp = await readOmrHitlCheckpoint(sessionRoot);
+  await writeOmrHitlCheckpoint(sessionRoot, {
+    ...cp,
+    baselineOwnsEdits: true,
+    totalHitlApplied: Math.max(cp.totalHitlApplied ?? 0, 1),
+  });
+  const preInject = job?.preInjectMxlPaths?.[0];
+  if (
+    preInject &&
+    fsSync.existsSync(preInject) &&
+    path.resolve(preInject) !== path.resolve(scorePath)
+  ) {
+    await fs.copyFile(scorePath, preInject);
+  }
+}
+
 type OmrHitlCheckpoint = {
   version?: number;
   rebuiltAt?: string;
@@ -987,7 +1013,7 @@ async function syncOmrReviewMxl(
     pendingCleared,
     totalHitlApplied:
       syncMode === 'restore-from-raw' ? 0 : totalHitlApplied + hitlApplied,
-    baselineOwnsEdits: baselineOwnsEdits || hitlApplied > 0,
+    baselineOwnsEdits: baselineOwnsEdits || hitlApplied > 0 || syncMode === 'restore',
   });
   return {
     ...postStats,
@@ -1233,8 +1259,18 @@ async function collectAudiverisStepProbeArtifacts(
 
 const AUDIVERIS_STEP_PROBE_CAPTURE_BYTES = 768 * 1024;
 
+/** PDF 페이지 수 — 경로+mtime 캐시 (페이지 PNG마다 Python info 재실행 방지). */
+const pdfPageCountCache = new Map<string, { mtimeMs: number; count: number }>();
+
 async function pdfPageCountViaPython(pdfPath: string): Promise<number | null> {
   if (!fsSync.existsSync(pdfPath)) return null;
+  try {
+    const st = fsSync.statSync(pdfPath);
+    const hit = pdfPageCountCache.get(pdfPath);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.count >= 1) return hit.count;
+  } catch {
+    /* fall through */
+  }
   const script = path.join(__dirname, '..', 'scripts', 'pdf_diagnostic.py');
   const pythonBin = resolvePythonBin();
   try {
@@ -1242,7 +1278,15 @@ async function pdfPageCountViaPython(pdfPath: string): Promise<number | null> {
       maxBuffer: 8 * 1024 * 1024,
     });
     const j = JSON.parse(String(stdout).trim()) as { pageCount?: unknown };
-    return typeof j.pageCount === 'number' && j.pageCount >= 1 ? j.pageCount : null;
+    const count = typeof j.pageCount === 'number' && j.pageCount >= 1 ? j.pageCount : null;
+    if (count != null) {
+      try {
+        pdfPageCountCache.set(pdfPath, { mtimeMs: fsSync.statSync(pdfPath).mtimeMs, count });
+      } catch {
+        /* ignore */
+      }
+    }
+    return count;
   } catch {
     return null;
   }
@@ -1326,9 +1370,11 @@ async function applyOmrHitlFixesToScoreFile(
   if (!fsSync.existsSync(fixesPath)) return null;
   const script = path.join(__dirname, '..', 'scripts', 'apply_omr_hitl_fixes.py');
   if (!fsSync.existsSync(script)) return null;
+  const checkpoint = await readOmrHitlCheckpoint(sessionRoot);
+  const skipOctaveRepair = checkpoint.baselineOwnsEdits === true ? ' --skip-octave-repair' : '';
   try {
     const { stdout, stderr } = await exec(
-      `"${pythonBin}" "${script}" "${scorePath}" --fixes-json "${fixesPath}"`,
+      `"${pythonBin}" "${script}" "${scorePath}" --fixes-json "${fixesPath}"${skipOctaveRepair}`,
       { maxBuffer: 8 * 1024 * 1024 },
     );
     const line = String(stdout).trim();
@@ -1343,6 +1389,81 @@ async function applyOmrHitlFixesToScoreFile(
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`apply_omr_hitl_fixes failed (${scorePath}): ${msg}`);
     return null;
+  }
+}
+
+async function copyMeasureRangeFromOmrWorkFile(
+  dstScorePath: string,
+  sourceZipPath: string,
+  srcStart: number,
+  srcEnd: number,
+  targetStart: number | undefined,
+  sessionRoot: string,
+  pythonBin: string,
+): Promise<{
+  parts?: number;
+  measuresCopied?: number;
+  measuresSkipped?: number;
+  sourceStart?: number;
+  sourceEnd?: number;
+  targetStart?: number;
+  sourceScore?: string;
+  syncMode?: string;
+} | null> {
+  const script = path.join(__dirname, '..', 'scripts', 'copy_measure_range_from_omr_work.py');
+  if (!fsSync.existsSync(script) || !fsSync.existsSync(dstScorePath)) return null;
+
+  const stamp = Date.now();
+  const extractDir = path.join(sessionRoot, `_range_extract_${stamp}`);
+  const tempSession = path.join(sessionRoot, `_range_import_${stamp}`);
+  const tempScore = path.join(tempSession, 'imported.mxl');
+  const targetArg =
+    targetStart != null && targetStart > 0 ? ` --target-start ${targetStart}` : '';
+
+  try {
+    await fs.mkdir(extractDir, { recursive: true });
+    await fs.mkdir(tempSession, { recursive: true });
+    await extractZipArchive(sourceZipPath, extractDir, pythonBin);
+
+    await importOmrWorkFromExtractDir(
+      tempSession,
+      extractDir,
+      tempScore,
+      pythonBin,
+      undefined,
+      { mxlOnly: true },
+    );
+    const syncStats = await syncOmrReviewMxl(tempSession, tempScore, pythonBin);
+
+    const { stdout, stderr } = await exec(
+      `"${pythonBin}" "${script}" "${dstScorePath}" "${tempScore}" --from ${srcStart} --to ${srcEnd}${targetArg} --prepared-source`,
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    const line = String(stdout).trim();
+    if (stderr?.trim()) {
+      console.warn(`copy_measure_range_from_omr_work stderr (${dstScorePath}): ${stderr.trim()}`);
+    }
+    if (!line) return null;
+    const parsed = JSON.parse(line) as {
+      parts?: number;
+      measuresCopied?: number;
+      measuresSkipped?: number;
+      sourceStart?: number;
+      sourceEnd?: number;
+      targetStart?: number;
+      sourceScore?: string;
+    };
+    console.log(
+      `[omr-hitl] measure-range import via import-work+sync (${dstScorePath}): sync=${syncStats.syncMode} parts=${parsed.parts ?? 0} measures=${parsed.measuresCopied ?? 0}`,
+    );
+    return { ...parsed, syncMode: syncStats.syncMode };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`copyMeasureRangeFromOmrWorkFile failed (${dstScorePath}): ${msg}`);
+    return null;
+  } finally {
+    await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempSession, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -1939,6 +2060,8 @@ async function restoreOmrWorkPdfsFromExtractDir(
       const manifest = JSON.parse(await fs.readFile(manifestSrc, 'utf8')) as {
         originalName?: string;
         sourcePdfDisplayName?: string;
+        pipelineMode?: string;
+        imagePdfOmrEngine?: string;
       };
       if (manifest.sourcePdfDisplayName?.trim()) {
         rememberSourcePdfDisplayName(job, manifest.sourcePdfDisplayName);
@@ -1947,6 +2070,19 @@ async function restoreOmrWorkPdfsFromExtractDir(
       }
       if (manifest.originalName?.trim()) {
         job.originalName = manifest.originalName.trim();
+      }
+      const pm = String(manifest.pipelineMode ?? '').trim();
+      if (
+        pm === 'audiveris_only' ||
+        pm === 'pymupdf_review' ||
+        pm === 'font_separator' ||
+        pm === 'image_pdf' ||
+        pm === 'auto'
+      ) {
+        job.pipelineMode = pm as PipelineMode;
+      }
+      if (manifest.imagePdfOmrEngine?.trim()) {
+        job.imagePdfOmrEngine = manifest.imagePdfOmrEngine.trim();
       }
     } catch {
       /* optional */
@@ -4870,6 +5006,14 @@ app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
   ]);
   const pageCountForUi = origCount ?? cleanCount ?? maskedCount ?? job.pdfPageCount ?? 1;
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  // omr-work 재개 시 pipelineMode가 빠져도 deskewed/image engine이면 경량 HITL 유지
+  if (
+    job.pipelineMode !== 'image_pdf' &&
+    (Boolean(job.imagePdfOmrEngine) ||
+      fsSync.existsSync(path.join(job.sessionRoot, 'deskewed.pdf')))
+  ) {
+    job.pipelineMode = 'image_pdf';
+  }
   let lyricManifestStats: Record<string, unknown> | undefined;
   const manifestPath = path.join(job.sessionRoot, 'lyric_manifest.json');
   if (fsSync.existsSync(manifestPath)) {
@@ -4888,6 +5032,7 @@ app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
     status: job.status,
     originalName: job.originalName,
     pipelineMode: job.pipelineMode ?? 'font_separator',
+    imagePdfOmrEngine: job.imagePdfOmrEngine ?? null,
     originalPdf: { exists: true, pageCount: origCount },
     maskedPdf: { exists: maskedExists, pageCount: maskedExists ? maskedCount : null },
     cleanScorePdf: { exists: cleanScoreExists, pageCount: cleanScoreExists ? cleanCount : null },
@@ -4901,6 +5046,9 @@ app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
       (cleanScoreExists && cleanCount != null && origCount === cleanCount),
     scoreMusicXmlAvailable: Boolean(mxlPath),
   });
+  if (Number.isFinite(pageCountForUi) && pageCountForUi >= 1) {
+    job.pdfPageCount = Math.max(1, pageCountForUi);
+  }
 });
 
 app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
@@ -4915,6 +5063,13 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
   const page = parseInt(req.params.pageNum, 10);
   const dpiRaw = parseInt(String(req.query.dpi ?? '132'), 10);
   const dpi = Number.isFinite(dpiRaw) ? Math.min(240, Math.max(72, dpiRaw)) : 132;
+  const maxSideRaw = parseInt(String(req.query.maxSide ?? '0'), 10);
+  const maxSide =
+    Number.isFinite(maxSideRaw) && maxSideRaw > 0
+      ? Math.min(2400, Math.max(400, maxSideRaw))
+      : job.pipelineMode === 'image_pdf'
+        ? 1200
+        : 0;
 
   const maskedPdfPath = sessionMaskedPdfPath(job.sessionRoot);
   const cleanScorePath = sessionCleanScorePdfPath(job.sessionRoot);
@@ -4931,7 +5086,9 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
     return;
   }
 
-  const count = await pdfPageCountViaPython(pdfPath);
+  const count =
+    (job.pdfPageCount && job.pdfPageCount >= 1 ? job.pdfPageCount : null) ??
+    (await pdfPageCountViaPython(pdfPath));
   if (!count || !Number.isFinite(page) || page < 1 || page > count) {
     res.status(400).json({ error: '페이지 번호가 범위를 벗어났습니다' });
     return;
@@ -4940,7 +5097,8 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
   try {
     const cacheDir = path.join(job.sessionRoot, '.diag-cache');
     await fs.mkdir(cacheDir, { recursive: true });
-    const cacheFile = path.join(cacheDir, `p${page}-${source}-dpi${dpi}-rgb-v2.png`);
+    const sideTag = maxSide > 0 ? `-ms${maxSide}` : '';
+    const cacheFile = path.join(cacheDir, `p${page}-${source}-dpi${dpi}${sideTag}-rgb-v2.png`);
     let needRender = true;
     if (fsSync.existsSync(cacheFile)) {
       const [stPdf, stPng] = await Promise.all([fs.stat(pdfPath), fs.stat(cacheFile)]);
@@ -4955,8 +5113,9 @@ app.get('/api/diagnostic/:jobId/page/:pageNum/png', async (req, res) => {
     if (needRender) {
       const script = path.join(__dirname, '..', 'scripts', 'pdf_diagnostic.py');
       const pythonBin = resolvePythonBin();
+      const maxSideArg = maxSide > 0 ? ` ${maxSide}` : '';
       await exec(
-        `"${pythonBin}" "${script}" render "${pdfPath}" ${page} "${cacheFile}" ${dpi}`,
+        `"${pythonBin}" "${script}" render "${pdfPath}" ${page} "${cacheFile}" ${dpi}${maxSideArg}`,
         { maxBuffer: 32 * 1024 * 1024 },
       );
     }
@@ -4986,9 +5145,13 @@ app.get('/api/diagnostic/:jobId/score-musicxml', async (req, res) => {
     await fs.mkdir(cacheDir, { recursive: true });
     const outXml = path.join(cacheDir, 'inspect-score.musicxml');
     // OMR HITL: raw+HITL만 — fix_audiveris_mxl·rest 정규화는 적용하지 않음
-    if (job.status === 'omr_staff_review_needed') {
+    const skipSync =
+      req.query.skipSync === '1' ||
+      req.query.skipSync === 'true' ||
+      req.query.noSync === '1';
+    if (job.status === 'omr_staff_review_needed' && !skipSync) {
       await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
-    } else {
+    } else if (job.status !== 'omr_staff_review_needed') {
       await fixAudiverisMxlInScoreFile(mxlPath, pythonBin, job.sessionRoot);
     }
     if (fsSync.existsSync(outXml)) await fs.unlink(outXml).catch(() => {});
@@ -6336,14 +6499,22 @@ app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
   }
   const pythonBin = resolvePythonBin();
   try {
+    const fixesBeforeApply = await readOmrHitlFixes(job.sessionRoot);
+    const affectedMeasures = affectedMeasuresFromFixes(fixesBeforeApply);
     const stats = await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+    if (stats.hitlApplied > 0 || stats.syncMode === 'incremental' || stats.syncMode === 'full') {
+      await persistCanonicalScoreAfterHitlEdit(job.sessionRoot, mxlPath, job);
+    }
     await invalidateInspectScoreCache(job.sessionRoot);
+    const runLint = req.query.lint === '1' || req.query.lint === 'true';
     let lintReport: Record<string, unknown> | null = null;
-    try {
-      lintReport = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
-    } catch (lintErr) {
-      const msg = lintErr instanceof Error ? lintErr.message : String(lintErr);
-      console.warn(`[job ${req.params.jobId}] mxl lint after HITL apply: ${msg}`);
+    if (runLint) {
+      try {
+        lintReport = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
+      } catch (lintErr) {
+        const msg = lintErr instanceof Error ? lintErr.message : String(lintErr);
+        console.warn(`[job ${req.params.jobId}] mxl lint after HITL apply: ${msg}`);
+      }
     }
     res.json({
       ok: true,
@@ -6354,6 +6525,7 @@ app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
         syncMode: stats.syncMode,
       },
       postprocess: stats,
+      affectedMeasures,
       lint: lintReport,
     });
   } catch (e) {
@@ -6376,6 +6548,7 @@ app.post('/api/omr-hitl/:jobId/normalize-rests', async (req, res) => {
   const pythonBin = resolvePythonBin();
   try {
     const stats = await runOmrHitlAutoNormalize(job.sessionRoot, mxlPath, pythonBin);
+    await persistCanonicalScoreAfterHitlEdit(job.sessionRoot, mxlPath, job);
     await invalidateInspectScoreCache(job.sessionRoot);
     res.json({ ok: true, stats });
   } catch (e) {
@@ -6398,6 +6571,7 @@ app.post('/api/omr-hitl/:jobId/sync-preview', async (req, res) => {
   const pythonBin = resolvePythonBin();
   try {
     const stats = await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+    await persistCanonicalScoreAfterHitlEdit(job.sessionRoot, mxlPath, job);
     await invalidateInspectScoreCache(job.sessionRoot);
     res.json({ ok: true, stats });
   } catch (e) {
@@ -6502,6 +6676,8 @@ app.post('/api/omr-hitl/:jobId/export-work/start', async (req, res) => {
         originalName: displayPdfName ?? job.originalName,
         sourcePdfDisplayName: displayPdfName ?? undefined,
         pdfIncluded,
+        pipelineMode: job.pipelineMode ?? undefined,
+        imagePdfOmrEngine: job.imagePdfOmrEngine ?? undefined,
       };
 
       await fs.unlink(zipOut).catch(() => {});
@@ -6659,6 +6835,99 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
           fixCount,
           stats,
         });
+      } catch (e) {
+        if (!res.headersSent) res.status(500).json({ error: String(e) });
+      }
+    })();
+  });
+  req.pipe(bb);
+});
+
+app.post('/api/omr-hitl/:jobId/import-measure-range', async (req, res) => {
+  noCacheJson(res);
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'omr_staff_review_needed') {
+    res.status(400).json({ error: 'OMR 품질 검토 대기 중에만 마디 구간을 가져올 수 있습니다' });
+    return;
+  }
+  const mxlPath = resolvePrimaryMxlPathForInspect(job);
+  if (!mxlPath) {
+    res.status(404).json({ error: 'MXL 파일을 찾을 수 없습니다' });
+    return;
+  }
+  const bb = busboy({
+    headers: req.headers,
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+  });
+  let zipPath: string | null = null;
+  let importErr: string | null = null;
+  let sourceStart = 0;
+  let sourceEnd = 0;
+  let targetStart: number | undefined;
+  bb.on('field', (name, value) => {
+    const v = String(value).trim();
+    if (name === 'sourceStartMeasure') sourceStart = parseInt(v, 10) || 0;
+    if (name === 'sourceEndMeasure') sourceEnd = parseInt(v, 10) || 0;
+    if (name === 'targetStartMeasure') {
+      const n = parseInt(v, 10);
+      targetStart = Number.isFinite(n) && n > 0 ? n : undefined;
+    }
+  });
+  bb.on('file', (_name, file, info) => {
+    if (!info.filename.toLowerCase().endsWith('.zip')) {
+      importErr = 'ZIP 파일만 업로드할 수 있습니다';
+      file.resume();
+      return;
+    }
+    zipPath = path.join(job.sessionRoot, `_import_range_${Date.now()}.zip`);
+    const ws = createWriteStream(zipPath);
+    file.pipe(ws);
+  });
+  bb.on('error', (err) => {
+    importErr = String(err);
+  });
+  bb.on('finish', () => {
+    void (async () => {
+      if (importErr) {
+        res.status(400).json({ error: importErr });
+        return;
+      }
+      if (!zipPath || !fsSync.existsSync(zipPath)) {
+        res.status(400).json({ error: '업로드된 ZIP이 없습니다' });
+        return;
+      }
+      if (sourceStart < 1 || sourceEnd < sourceStart) {
+        res.status(400).json({ error: '유효한 출처 마디 범위(시작·끝)를 지정하세요' });
+        await fs.unlink(zipPath).catch(() => {});
+        return;
+      }
+      try {
+        const pythonBin = resolvePythonBin();
+        const stats = await copyMeasureRangeFromOmrWorkFile(
+          mxlPath,
+          zipPath,
+          sourceStart,
+          sourceEnd,
+          targetStart,
+          job.sessionRoot,
+          pythonBin,
+        );
+        if (!stats || (stats.measuresCopied ?? 0) <= 0) {
+          res.status(400).json({
+            error: '복사된 마디가 없습니다. 마디 번호·ZIP(omr-work) 내용을 확인하세요.',
+            stats,
+          });
+          await fs.unlink(zipPath).catch(() => {});
+          return;
+        }
+        // 미리보기(score-musicxml)의 syncOmrReviewMxl이 구 세션 baseline(새 OMR)으로 되돌리지 않게 canonical 반영
+        await persistCanonicalScoreAfterHitlEdit(job.sessionRoot, mxlPath, job);
+        await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+        await saveHitlBaseline(job.sessionRoot, mxlPath);
+        await mirrorSessionReviewMxl(job.sessionRoot, mxlPath);
+        await invalidateInspectScoreCache(job.sessionRoot);
+        await fs.unlink(zipPath).catch(() => {});
+        res.json({ ok: true, stats });
       } catch (e) {
         if (!res.headersSent) res.status(500).json({ error: String(e) });
       }

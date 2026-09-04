@@ -5,8 +5,9 @@ Usage:
   pdf_diagnostic.py info <pdf_path>
       Print JSON: {"pageCount": N}
 
-  pdf_diagnostic.py render <pdf_path> <page_1based> <out_png_path> [dpi]
+  pdf_diagnostic.py render <pdf_path> <page_1based> <out_png_path> [dpi] [max_side]
       Rasterize one page to PNG (RGB, no alpha).
+      Optional max_side caps the longer edge (image PDF HITL light preview).
 
   pdf_diagnostic.py pagesizes <pdf_path>
       Print JSON: {"pageCount": N, "pages": [{"widthPt":…,"heightPt":…}, ...]}
@@ -43,6 +44,7 @@ def main() -> None:
         page_1 = int(sys.argv[3])
         out_png = sys.argv[4]
         dpi = float(sys.argv[5]) if len(sys.argv) > 5 else 144.0
+        max_side = float(sys.argv[6]) if len(sys.argv) > 6 else 0.0
         import fitz  # PyMuPDF
 
         doc = fitz.open(path)
@@ -52,6 +54,13 @@ def main() -> None:
             sys.exit(2)
         page = doc[idx]
         zoom = dpi / 72.0
+        if max_side and max_side > 0:
+            rect = page.rect
+            long_pt = max(float(rect.width), float(rect.height))
+            if long_pt > 0:
+                cap_zoom = max_side / long_pt
+                if cap_zoom < zoom:
+                    zoom = cap_zoom
         mat = fitz.Matrix(zoom, zoom)
         # colorspace를 RGB로 고정(일부 DeviceCMYK·특수 색공간 PDF가 기본 래스터에서 검게 나오는 경우 완화)
         try:

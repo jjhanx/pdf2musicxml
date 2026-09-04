@@ -1,8 +1,11 @@
 /** PDF 페이지 구간·HITL affected measure — 증분 미리보기 회귀 */
 import { JSDOM } from 'jsdom';
 import {
+  buildPdfPageMeasureIndex,
   filterMusicXmlToMeasureRange,
   inferMeasureRangeForPdfPage,
+  inferPdfPageForMxlMeasure,
+  measureRangeFromPageIndex,
   normalizeToGlobalMeasureMxl,
 } from '../shared/musicXmlMeasureRange';
 import { affectedMeasuresFromFixes, expandMeasureMxlSpec } from '../shared/omrHitlAffectedMeasures';
@@ -36,9 +39,24 @@ const sample = `<?xml version="1.0" encoding="UTF-8"?>
   </part>
 </score-partwise>`;
 
+const idx = buildPdfPageMeasureIndex(sample);
+if (idx.pageStarts[0] !== 1 || idx.pageStarts[1] !== 33 || idx.pageStarts[2] !== 41) {
+  throw new Error(`pageStarts expected [1,33,41] got ${idx.pageStarts.join(',')}`);
+}
+if (inferPdfPageForMxlMeasure(idx, 1) !== 1 || inferPdfPageForMxlMeasure(idx, 33) !== 2) {
+  throw new Error('inferPdfPageForMxlMeasure failed');
+}
+if (inferPdfPageForMxlMeasure(idx, 40) !== 2 || inferPdfPageForMxlMeasure(idx, 41) !== 3) {
+  throw new Error('inferPdfPageForMxlMeasure boundary failed');
+}
+
 const r2 = inferMeasureRangeForPdfPage(sample, 2);
 if (r2.start !== 33 || r2.end !== 40) {
   throw new Error(`page2 range expected 33-40 got ${r2.start}-${r2.end}`);
+}
+const r2idx = measureRangeFromPageIndex(idx, 2);
+if (r2idx.start !== 33 || r2idx.end !== 40) {
+  throw new Error(`index page2 range expected 33-40 got ${r2idx.start}-${r2idx.end}`);
 }
 
 const filtered = filterMusicXmlToMeasureRange(sample, 33, 40);
@@ -66,4 +84,4 @@ for (const m of expandMeasureMxlSpec('33-34')) {
   if (!keys.has(`P3:${m}`)) throw new Error(`missing P3 m${m}`);
 }
 
-console.log('OK page measure range + affected measures');
+console.log('OK page measure range + measure nav index + affected measures');

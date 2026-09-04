@@ -16,11 +16,10 @@ import { extraYPxFromArticulationFixes } from './osmdArticulationOffsetFix';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
-  inferFirstMxlMeasureForPdfPage,
-} from '../shared/musicXmlTimelineCleanup';
-import {
+  buildPdfPageMeasureIndex,
   filterMusicXmlToMeasureRange,
-  inferMeasureRangeForPdfPage,
+  inferPdfPageForMxlMeasure,
+  measureRangeFromPageIndex,
 } from '../shared/musicXmlMeasureRange';
 type ScorePartRow = ScorePartForPreview & {
   index: number;
@@ -29,7 +28,87 @@ type ScorePartRow = ScorePartForPreview & {
 /** 이미지 PDF HITL — 페이지 넘김 시 전체/페이지 OSMD 대신 선택 마디만 그림. */
 const IMAGE_PDF_LIGHT_PIPELINE = 'image_pdf';
 const PNG_DPI_DEFAULT = 156;
-const PNG_DPI_IMAGE_LIGHT = 96;
+const PNG_DPI_IMAGE_LIGHT = 72;
+const PNG_MAX_SIDE_IMAGE_LIGHT = 1200;
+
+/** PDF 페이지 PNG — src 교체만으로 멈추지 않게 선로드 + 로딩 표시. */
+function DiagnosticPagePng(props: {
+  jobId: string;
+  page: number;
+  source: string;
+  dpi: number;
+  maxSide?: number;
+}) {
+  const { jobId, page, source, dpi, maxSide } = props;
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const qs = new URLSearchParams({ source, dpi: String(dpi) });
+    if (maxSide && maxSide > 0) qs.set('maxSide', String(maxSide));
+    const href = `/api/diagnostic/${jobId}/page/${page}/png?${qs.toString()}`;
+    setPhase('loading');
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const r = await fetch(href, { cache: 'force-cache', signal: ac.signal });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const blob = await r.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = url;
+        setBlobUrl(url);
+        setPhase('ready');
+      } catch (e) {
+        if (cancelled || (e instanceof DOMException && e.name === 'AbortError')) return;
+        setPhase('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [jobId, page, source, dpi, maxSide]);
+
+  useEffect(
+    () => () => {
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+    },
+    [],
+  );
+
+  if (phase === 'error') {
+    return (
+      <p style={{ padding: '1rem', color: '#a00', lineHeight: 1.5 }}>
+        PDF 페이지 {page} 미리보기를 불러오지 못했습니다. 마디 번호로 먼저 이동해 보세요.
+      </p>
+    );
+  }
+  return (
+    <div style={{ position: 'relative', minHeight: 120 }}>
+      {phase === 'loading' ? (
+        <p style={{ padding: '0.75rem', color: '#555', margin: 0 }}>
+          PDF p.{page} 렌더 중… (이미지 PDF는 첫 로드만 시간이 걸릴 수 있습니다)
+        </p>
+      ) : null}
+      {blobUrl ? (
+        <img
+          alt={`페이지 ${page}`}
+          src={blobUrl}
+          style={{
+            maxWidth: '100%',
+            height: 'auto',
+            display: 'block',
+            opacity: phase === 'ready' ? 1 : 0.35,
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
 
 /** Accent 거리 등 — OSMD 미리보기용 (MXL 반영 후에도 pending이 비워져도 유지). */
 function isArticulationPreviewFix(f: OmrHitlFix): boolean {
@@ -67,6 +146,7 @@ type OmrPolicy = {
 type InspectSummary = {
   pageCountForUi: number;
   pipelineMode?: string;
+  imagePdfOmrEngine?: string | null;
   cleanScorePdf?: { exists: boolean };
   audiverisInputPdf?: string | null;
   activeOmrEngine?: string;
@@ -122,15 +202,25 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [rangeImportOpen, setRangeImportOpen] = useState(false);
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
-  const imagePdfLight = summary?.pipelineMode === IMAGE_PDF_LIGHT_PIPELINE;
+  /** image_pdf 파이프라인 또는 omr-work manifest의 imagePdfOmrEngine — 경량 HITL */
+  const imagePdfLight =
+    summary?.pipelineMode === IMAGE_PDF_LIGHT_PIPELINE ||
+    Boolean(summary?.imagePdfOmrEngine);
   const pngSource =
     summary?.cleanScorePdf?.exists || summary?.audiverisInputPdf === 'clean_score'
       ? 'clean_score'
       : 'original';
-  /** 이미지 PDF는 스캔 PNG가 커서 페이지 넘김 DPI를 낮춤. */
+  /** 이미지 PDF는 스캔 PNG가 커서 페이지 넘김 DPI·긴 변을 낮춤. */
   const pngDpi = imagePdfLight ? PNG_DPI_IMAGE_LIGHT : PNG_DPI_DEFAULT;
+  const pngMaxSide = imagePdfLight ? PNG_MAX_SIDE_IMAGE_LIGHT : undefined;
   /** OSMD 재구성은 deferred — 페이지 버튼·PNG는 즉시 반응. */
   const deferredPage = useDeferredValue(page);
+
+  /** rawXml당 1회 — 페이지 넘김마다 전체 MusicXML DOM 재파싱 금지 */
+  const pageMeasureIndex = useMemo(
+    () => (rawXml ? buildPdfPageMeasureIndex(rawXml) : { pageStarts: [1], maxMeasure: 1 }),
+    [rawXml],
+  );
 
   const staffFilterEntries = useMemo(
     () => buildStaffFilterEntries(scoreParts, rawXml),
@@ -155,34 +245,69 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return staffFilterEntries.find((e) => e.label === staffFilter) ?? null;
   }, [staffFilter, staffFilterEntries]);
 
-  /** PDF 페이지 → MXL 마디 구간 (OSMD·apply 메시지용 — applyFixesToMxl보다 위에 두어 TDZ 방지) */
+  /** PDF 페이지 → MXL 마디 구간 (캐시된 pageStarts — apply 메시지·네비용) */
   const pageMeasureRange = useMemo(
-    () => (rawXml ? inferMeasureRangeForPdfPage(rawXml, page) : { start: 1, end: 1 }),
-    [rawXml, page],
+    () => measureRangeFromPageIndex(pageMeasureIndex, page),
+    [pageMeasureIndex, page],
   );
 
   const deferredPageMeasureRange = useMemo(
-    () => (rawXml ? inferMeasureRangeForPdfPage(rawXml, deferredPage) : { start: 1, end: 1 }),
-    [rawXml, deferredPage],
+    () => measureRangeFromPageIndex(pageMeasureIndex, deferredPage),
+    [pageMeasureIndex, deferredPage],
   );
 
   useEffect(() => {
     if (!rawXml || page < 1) return;
     if (imagePdfLight) return; // 마디 단위 미리보기 — 페이지 스크롤 대상 불필요
-    const mxl = inferFirstMxlMeasureForPdfPage(rawXml, page);
+    const mxl = pageMeasureIndex.pageStarts[Math.min(page, pageMeasureIndex.pageStarts.length) - 1] ?? 1;
     if (mxl < 1) return;
     setPageScrollTarget({ measureMxl: mxl, staffIndex: 0, partId: null });
     setScrollToMeasureTrigger((t) => t + 1);
-  }, [page, rawXml, imagePdfLight]);
+  }, [page, rawXml, imagePdfLight, pageMeasureIndex]);
+
+  useEffect(() => {
+    if (!imagePdfLight || page >= pageCount) return;
+    const qs = new URLSearchParams({
+      source: pngSource,
+      dpi: String(pngDpi),
+      maxSide: String(PNG_MAX_SIDE_IMAGE_LIGHT),
+    });
+    const next = page + 1;
+    const href = `/api/diagnostic/${jobId}/page/${next}/png?${qs.toString()}`;
+    const idle =
+      typeof requestIdleCallback === 'function'
+        ? requestIdleCallback(() => {
+            void fetch(href, { cache: 'force-cache' }).catch(() => undefined);
+          })
+        : window.setTimeout(() => {
+            void fetch(href, { cache: 'force-cache' }).catch(() => undefined);
+          }, 400);
+    return () => {
+      if (typeof cancelIdleCallback === 'function' && typeof idle === 'number') {
+        try {
+          cancelIdleCallback(idle as number);
+        } catch {
+          /* ignore */
+        }
+      } else {
+        window.clearTimeout(idle as number);
+      }
+    };
+  }, [imagePdfLight, page, pageCount, jobId, pngSource, pngDpi]);
 
   const goToPage = useCallback(
     (next: number) => {
       const clamped = Math.max(1, Math.min(pageCount, next));
       startPageTransition(() => {
         setPage(clamped);
+        // 이미지 PDF: 페이지 넘김 시 이전 마디 OSMD를 비워 메인 스레드 부담을 줄임
+        if (imagePdfLight) {
+          setSelectedMeasure(null);
+          setMeasureClickMsg('');
+        }
       });
     },
-    [pageCount],
+    [pageCount, imagePdfLight],
   );
 
   const refreshScoreXml = useCallback(async (opts?: { skipSync?: boolean }) => {
@@ -755,6 +880,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     const staffIndex = staffFilter
       ? Math.max(0, staffList.indexOf(staffFilter))
       : 0;
+    const pdfPage = inferPdfPageForMxlMeasure(pageMeasureIndex, measureMxl);
+    if (pdfPage !== page) {
+      startPageTransition(() => setPage(Math.max(1, Math.min(pageCount, pdfPage))));
+    }
     openMeasure({
       measureMxl,
       staffIndex,
@@ -764,6 +893,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     if (!staffFilter && !editPartId) {
       setEditPartId(resolvePartIdForStaffIndex(staffIndex));
     }
+    setMeasureClickMsg(
+      `마디 이동 · m.${measureMxl} → PDF p.${pdfPage} (구간 m.${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).start}–${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).end})`,
+    );
   }, [
     manualMeasureMxl,
     staffFilter,
@@ -773,7 +905,45 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     partIdForStaff,
     staffWithinPartForLabel,
     resolvePartIdForStaffIndex,
+    pageMeasureIndex,
+    page,
+    pageCount,
   ]);
+
+  const stepMeasure = useCallback(
+    (delta: number) => {
+      const parsed = parseInt(manualMeasureMxl.trim(), 10);
+      const cur =
+        selectedMeasure?.measureMxl ??
+        (Number.isFinite(parsed) && parsed >= 1 ? parsed : pageMeasureRange.start);
+      const next = Math.max(1, Math.min(pageMeasureIndex.maxMeasure, cur + delta));
+      setManualMeasureMxl(String(next));
+      const staffIndex = staffFilter ? Math.max(0, staffList.indexOf(staffFilter)) : 0;
+      const pdfPage = inferPdfPageForMxlMeasure(pageMeasureIndex, next);
+      if (pdfPage !== page) {
+        startPageTransition(() => setPage(Math.max(1, Math.min(pageCount, pdfPage))));
+      }
+      openMeasure({
+        measureMxl: next,
+        staffIndex,
+        partId: staffFilter ? partIdForStaff(staffFilter) : null,
+        staffWithinPart: staffFilter ? staffWithinPartForLabel(staffFilter) ?? undefined : undefined,
+      });
+    },
+    [
+      selectedMeasure,
+      manualMeasureMxl,
+      pageMeasureRange.start,
+      pageMeasureIndex,
+      staffFilter,
+      staffList,
+      page,
+      pageCount,
+      openMeasure,
+      partIdForStaff,
+      staffWithinPartForLabel,
+    ],
+  );
 
   /** 거리 드롭다운은 OSMD 재로드 없이 pending extraY만 적용. Accent는 음표에 남겨 VexFlow가 오선 옆에 그림(mf Direction과 섞지 않음). */
   const previewXml = useMemo(() => {
@@ -923,8 +1093,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         ))}
         {imagePdfLight ? (
           <span style={{ fontSize: '0.82rem', color: '#555', maxWidth: '28rem', lineHeight: 1.4 }}>
-            이미지 PDF 경량 모드 · PNG {pngDpi} DPI · OSMD는 <strong>선택 마디 1개</strong>만
-            (페이지 m.{pageMeasureRange.start}–{pageMeasureRange.end})
+            이미지 PDF 경량 모드 · PNG {pngDpi} DPI(긴 변≤{PNG_MAX_SIDE_IMAGE_LIGHT}px) · OSMD는{' '}
+            <strong>선택 마디 1개</strong>만 · 페이지/마디 번호로 이동
+            (이 페이지 m.{pageMeasureRange.start}–{pageMeasureRange.end})
           </span>
         ) : null}
       </div>
@@ -935,9 +1106,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             PDF ({pngSource === 'clean_score' ? 'clean_score' : '원본'}) · p.{page} · {pngDpi} DPI
           </div>
           <div className="omr-pdf-frame">
-            <img
-              alt={`페이지 ${page}`}
-              src={`/api/diagnostic/${jobId}/page/${page}/png?source=${pngSource}&dpi=${pngDpi}`}
+            <DiagnosticPagePng
+              jobId={jobId}
+              page={page}
+              source={pngSource}
+              dpi={pngDpi}
+              maxSide={pngMaxSide}
             />
           </div>
         </div>
@@ -1031,8 +1205,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           <p className="omr-mxl-preview-hint">
             {imagePdfLight ? (
               <>
-                이미지 PDF는 <strong>선택 마디만</strong> OSMD로 그립니다. 페이지 이동은 PNG(
-                {pngDpi} DPI)만 즉시 바뀌고, 악보 재로드는 백그라운드에서 처리합니다.
+                이미지 PDF는 <strong>선택 마디만</strong> OSMD로 그립니다. 페이지 ◀▶ 는 PNG만 바꾸고,
+                <strong> 마디 번호 / ◀마디 / 마디▶</strong> 로 PDF 페이지까지 같이 이동합니다
+                (DPI {pngDpi}, 긴 변≤{PNG_MAX_SIDE_IMAGE_LIGHT}px).
               </>
             ) : (
               <>
@@ -1053,18 +1228,46 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ) : null}
           <div className="omr-manual-measure-open">
             <label>
-              {imagePdfLight ? '마디 번호로 미리보기·편집' : '마디 번호로 열기(보조)'}
+              {imagePdfLight ? '마디 번호로 이동·미리보기' : '마디 번호로 열기(보조)'}
               <input
                 type="number"
                 min={1}
+                max={pageMeasureIndex.maxMeasure}
                 value={manualMeasureMxl}
                 onChange={(e) => setManualMeasureMxl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    openManualMeasure();
+                  }
+                }}
                 placeholder="MXL 마디"
                 style={{ width: 72, marginLeft: 6 }}
               />
             </label>
             <button type="button" className={imagePdfLight ? '' : 'btn-muted'} onClick={() => openManualMeasure()}>
-              {imagePdfLight ? '마디 열기 (OSMD 1마디)' : '마디 편집 열기'}
+              {imagePdfLight ? '마디로 이동' : '마디 편집 열기'}
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              disabled={(selectedMeasure?.measureMxl ?? parseInt(manualMeasureMxl, 10) ?? 1) <= 1}
+              onClick={() => stepMeasure(-1)}
+              title="이전 마디 (PDF 페이지 자동 동기)"
+            >
+              ◀ 마디
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              disabled={
+                (selectedMeasure?.measureMxl ?? parseInt(manualMeasureMxl, 10) ?? 1) >=
+                pageMeasureIndex.maxMeasure
+              }
+              onClick={() => stepMeasure(1)}
+              title="다음 마디 (PDF 페이지 자동 동기)"
+            >
+              마디 ▶
             </button>
             {imagePdfLight ? (
               <button
@@ -1092,6 +1295,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               onClick={() => {
                 const staffIndex = staffFilter ? Math.max(0, staffList.indexOf(staffFilter)) : 0;
                 setManualMeasureMxl('1');
+                if (page !== 1) startPageTransition(() => setPage(1));
                 openMeasure({
                   measureMxl: 1,
                   staffIndex,

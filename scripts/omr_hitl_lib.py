@@ -663,26 +663,16 @@ def _default_play_orders_for_staff(measure: ET.Element, ns: str, staff: str) -> 
 
 
 def _staff_needs_rest_play_order_rebuild(measure: ET.Element, ns: str, staff: str) -> bool:
-    """명시 연주순번이 음표에만 있고 쉼표 leader에는 없으면 재배열 대상."""
-    notes = list_note_elements(measure, ns)
-    has_rest_without_po = False
-    has_pitched_with_po = False
-    for note in notes:
-        if note.find(_q(ns, "chord")) is not None:
-            continue
-        if _note_voice_staff(note, ns)[1] != staff:
-            continue
-        po = _read_play_order(note)
-        if note.find(_q(ns, "rest")) is not None:
-            if po is None and _read_play_order_ref(note) is None:
-                has_rest_without_po = True
-        elif po is not None:
-            has_pitched_with_po = True
-    return has_rest_without_po and has_pitched_with_po
+    """레거시 호환용 플래그 — 자동 전체 재배열은 더 이상 쓰지 않음(HITL 순번 보호)."""
+    return False
 
 
 def _apply_timeline_play_orders_to_staff(measure: ET.Element, ns: str, staff: str) -> bool:
-    """타임라인 기본 순번을 staff의 모든 leader(음·쉼)에 기록. 교차 참조(5-6)는 유지."""
+    """타임라인 기본 순번을 staff의 모든 leader(음·쉼)에 기록. 교차 참조(5-6)는 유지.
+
+    호출측에서만 사용. normalize_play_orders_including_rests는 HITL 순번 보호로 이 함수를
+    더 이상 자동 호출하지 않는다.
+    """
     defaults = _default_play_orders_for_staff(measure, ns, staff)
     notes = list_note_elements(measure, ns)
     changed = False
@@ -695,27 +685,18 @@ def _apply_timeline_play_orders_to_staff(measure: ET.Element, ns: str, staff: st
 
 
 def normalize_play_orders_including_rests_in_measure(measure: ET.Element, ns: str) -> bool:
-    """쉼표 순번이 빠진 채 음표만 순번이 있으면 마디 staff별 timeline으로 재배열."""
-    notes = list_note_elements(measure, ns)
-    staves = {_note_voice_staff(n, ns)[1] for n in notes if n.find(_q(ns, "chord")) is None}
-    changed = False
-    for staff in sorted(staves, key=lambda s: int(s) if s.isdigit() else 0):
-        if not _staff_needs_rest_play_order_rebuild(measure, ns, staff):
-            continue
-        if _apply_timeline_play_orders_to_staff(measure, ns, staff):
-            changed = True
-    return changed
+    """쉼표 순번 자동 전체 재배열 — 비활성.
+
+    예전: 음표에만 순번이 있고 쉼표에 없으면 timeline으로 **전부 덮어씀**.
+    HITL에서 맞춘 setPlayOrder / 연속 삽입 순번이 「MXL에 반영」·마디 재오픈 때 무시되던 원인.
+    표시용 displayPlayOrder는 스냅샷이 timeline으로 채우므로 저장 순번 재작성은 하지 않음.
+    """
+    return False
 
 
 def normalize_play_orders_including_rests_in_root(root: ET.Element) -> int:
-    """전 악보 — 쉼표 미포함 연주순번 마디를 timeline으로 재배열. 변경 마디 수."""
-    ns = _ns(root)
-    n = 0
-    for part in root.findall(_q(ns, "part")):
-        for measure in part.findall(_q(ns, "measure")):
-            if normalize_play_orders_including_rests_in_measure(measure, ns):
-                n += 1
-    return n
+    """전 악보 — 순번 자동 재배열 비활성(항상 0). 호출부 호환용."""
+    return 0
 
 
 def _timeline_el_duration(el: ET.Element, ns: str) -> int:
@@ -1629,7 +1610,8 @@ def _apply_play_order_column_x_to_snapshot(
 def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     # 옛 same-pitch 전파로 같은 po가 여러 onset에 남은 MXL을 편집 UI·미리보기 전에 정리
     _sanitize_conflicting_play_orders(measure, ns)
-    # 음표만 순번이 있고 쉼표는 빠진 옛 MXL → timeline 기준으로 재배열
+    # 순번 자동 전체 재배열은 하지 않음 — HITL setPlayOrder 보호
+    # (normalize_play_orders_including_rests_in_measure는 no-op)
     normalize_play_orders_including_rests_in_measure(measure, ns)
     elements: list[dict[str, Any]] = []
     note_index = 0
@@ -2511,6 +2493,27 @@ def _assign_insert_layout_defaults(
             x_val = best + 15.0
     if x_val is not None:
         new_note.set("default-x", f"{x_val:.2f}")
+
+
+def _remove_sole_measure_rest_on_staff(
+    measure: ET.Element, ns: str, staff_n: int, notes: list[ET.Element]
+) -> list[ET.Element]:
+    """해당 오선 leader가 온쉼표(measure=yes) 하나뿐이면 제거. 실음 삽입 전용."""
+    leaders: list[ET.Element] = []
+    for n in notes:
+        if n.find(_q(ns, "chord")) is not None:
+            continue
+        if (_note_staff_number(n, ns) or 1) != staff_n:
+            continue
+        leaders.append(n)
+    if len(leaders) != 1:
+        return notes
+    only = leaders[0]
+    rest = only.find(_q(ns, "rest"))
+    if rest is None or rest.get("measure") != "yes":
+        return notes
+    measure.remove(only)
+    return list_note_elements(measure, ns)
 
 
 def _insert_note_element(
@@ -9254,6 +9257,12 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             after_idx = int(fix.get("afterNoteIndex", -1))
         except (TypeError, ValueError):
             return False
+        # 오선에 온쉼표만 있으면 실음 넣기 전에 제거 (온쉼+음표 겹침·순번 꼬임)
+        notes = _remove_sole_measure_rest_on_staff(measure, ns, staff_n, notes)
+        if not notes:
+            after_idx = -1
+        elif after_idx >= len(notes):
+            after_idx = len(notes) - 1
         note_type = str(fix.get("noteType") or "quarter").strip()
         dot_count = 0
         if fix.get("dotCount") is not None:

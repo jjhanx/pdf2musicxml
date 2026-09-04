@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rests participate in play-order; legacy note-only PO is rebuilt with rests."""
+"""연주순번 자동 전체 재배열은 비활성 — HITL setPlayOrder 보호."""
 from __future__ import annotations
 
 import sys
@@ -12,7 +12,6 @@ from omr_hitl_lib import (  # noqa: E402
     apply_fix,
     measure_snapshot,
     normalize_play_orders_including_rests_in_measure,
-    _q,
     _read_play_order,
 )
 
@@ -31,42 +30,33 @@ XML = """<score-partwise version="3.1">
 root = ET.fromstring(XML)
 ns = ""
 notes = root.findall(".//{*}note")
-# Legacy: only pitched notes got play order 1,2,3 — rest skipped
+# 사용자가 맞춘 순번(쉼표 비움) — 자동 재배열이 덮어쓰면 안 됨
 notes[0].set(PLAY_ORDER_ATTR, "1")
 notes[2].set(PLAY_ORDER_ATTR, "2")
 notes[3].set(PLAY_ORDER_ATTR, "3")
 assert _read_play_order(notes[1]) is None
 
 meas = root.find(".//{*}measure")
-assert normalize_play_orders_including_rests_in_measure(meas, ns)
+assert not normalize_play_orders_including_rests_in_measure(meas, ns)
 assert _read_play_order(notes[0]) == 1
-assert _read_play_order(notes[1]) == 2  # rest now has order
-assert _read_play_order(notes[2]) == 3
-assert _read_play_order(notes[3]) == 4
+assert _read_play_order(notes[1]) is None  # 자동으로 채우지/덮지 않음
+assert _read_play_order(notes[2]) == 2
+assert _read_play_order(notes[3]) == 3
 
-# Snapshot exposes rest playOrder / displayPlayOrder
+# Snapshot still loads; displayPlayOrder may fill UI without mutating XML
 snap = measure_snapshot(root, ns, "P1", "1")
 assert snap is not None
-els = snap["elements"]
-rest = next(e for e in els if e.get("kind") == "rest")
-assert rest.get("playOrder") == 2
-assert rest.get("displayPlayOrder") == 2
+assert _read_play_order(notes[0]) == 1
+assert _read_play_order(notes[2]) == 2
 
-# setPlayOrder on a rest works
 assert apply_fix(
     root,
     ns,
     {"kind": "setPlayOrder", "partId": "P1", "measureMxl": "1", "noteIndex": 1, "playOrder": 5},
 )
 assert _read_play_order(notes[1]) == 5
-# clear back via timeline rebuild detection after resetting pitched POs only
-notes[1].attrib.pop(PLAY_ORDER_ATTR, None)
-notes[0].set(PLAY_ORDER_ATTR, "1")
-notes[2].set(PLAY_ORDER_ATTR, "2")
-notes[3].set(PLAY_ORDER_ATTR, "3")
-assert normalize_play_orders_including_rests_in_measure(meas, ns)
-
-# Already complete — no rebuild
 assert not normalize_play_orders_including_rests_in_measure(meas, ns)
+assert _read_play_order(notes[1]) == 5
+assert _read_play_order(notes[2]) == 2
 
-print("OK: rest play-order + legacy rebuild")
+print("OK: play-order auto-rebuild disabled; HITL orders preserved")

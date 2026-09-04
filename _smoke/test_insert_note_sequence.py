@@ -31,10 +31,44 @@ SAMPLE = """<?xml version="1.0"?>
 </score-partwise>
 """
 
+WHOLE_REST = """<?xml version="1.0"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P5"><part-name>P</part-name></score-part></part-list>
+  <part id="P5">
+    <measure number="45">
+      <attributes><divisions>4</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note>
+        <rest measure="yes"/>
+        <duration>16</duration>
+        <voice>1</voice><staff>1</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>
+"""
+
+
+def _steps(root: ET.Element, part_id: str = "P1") -> list[str]:
+    part = root.find(f".//part[@id='{part_id}']")
+    assert part is not None
+    measure = part.find("measure")
+    assert measure is not None
+    notes = list_note_elements(measure, "")
+    leaders = [n for n in notes if n.find("chord") is None]
+    out: list[str] = []
+    for n in leaders:
+        if n.find("rest") is not None:
+            out.append("REST")
+            continue
+        out.append(n.findtext("pitch/step") or "?")
+    return out
+
 
 def main() -> None:
     root = ET.fromstring(SAMPLE)
-    # C4 뒤 D4 → E4 → F4 (after: 0, then 1, then 2)
     stats = apply_fixes_to_root(
         root,
         [
@@ -74,11 +108,36 @@ def main() -> None:
         ],
     )
     assert stats["applied"] == 3, stats
-    notes = list_note_elements(root.find("part").find("measure"), "")  # type: ignore[union-attr]
-    leaders = [n for n in notes if n.find("chord") is None]
-    steps = [n.findtext("pitch/step") for n in leaders]
+    steps = _steps(root)
     assert steps == ["C", "D", "E", "F"], steps
     print("insert_note_sequence ok", steps)
+
+    # 온쉼만 있는 마디 + UI after+=1 체인 → 입력 순 유지(역순 금지)
+    root2 = ET.fromstring(WHOLE_REST)
+    pitches = list("CDEFGAB") + ["C", "D", "E", "F"]
+    fixes = []
+    after = 0
+    for i, step in enumerate(pitches):
+        fixes.append(
+            {
+                "kind": "insertNote",
+                "partId": "P5",
+                "measureMxl": "45",
+                "afterNoteIndex": after,
+                "pitchStep": step,
+                "pitchOctave": 5 if i >= 7 else 4,
+                "noteType": "eighth",
+                "staff": 1,
+                "voice": "1",
+            }
+        )
+        after += 1
+    stats2 = apply_fixes_to_root(root2, fixes)
+    assert stats2["applied"] == 11, stats2
+    steps2 = _steps(root2, "P5")
+    assert "REST" not in steps2, steps2
+    assert steps2 == list(pitches), f"expected input order, got {steps2}"
+    print("insert after whole-rest ok", steps2)
 
 
 if __name__ == "__main__":

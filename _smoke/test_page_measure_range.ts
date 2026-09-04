@@ -6,6 +6,7 @@ import {
   filterMusicXmlToMeasureRange,
   inferMeasureRangeForPdfPage,
   inferPdfPageForMxlMeasure,
+  lightOsmdPreviewMeasureRange,
   measureRangeFromPageIndex,
   normalizeToGlobalMeasureMxl,
 } from '../shared/musicXmlMeasureRange';
@@ -39,6 +40,18 @@ if (normalizeToGlobalMeasureMxl(0, { start: 41, end: 48 }) !== 41) {
 }
 if (normalizeToGlobalMeasureMxl(100, { start: 41, end: 48 }) !== 48) {
   throw new Error('page range: far local clamps to end');
+}
+// 선택+다음 마디 경량 미리보기 — 로컬 2 → 전곡 다음 마디
+const lightPair = lightOsmdPreviewMeasureRange(42, 100);
+if (lightPair.start !== 42 || lightPair.end !== 43) {
+  throw new Error(`light preview range expected 42-43 got ${lightPair.start}-${lightPair.end}`);
+}
+if (normalizeToGlobalMeasureMxl(2, lightPair) !== 43) {
+  throw new Error('light pair: local 2 should map to global 43');
+}
+const lightLast = lightOsmdPreviewMeasureRange(100, 100);
+if (lightLast.start !== 100 || lightLast.end !== 100) {
+  throw new Error('last measure light preview should not invent m+1');
 }
 
 const sample = `<?xml version="1.0" encoding="UTF-8"?>
@@ -102,6 +115,43 @@ if (!/<clef[\s>]/.test(one) || !/<sign>\s*G\s*<\/sign>/.test(one)) {
   throw new Error('single-measure filter should inject carried clef from earlier measures');
 }
 
+// 교차 마디 diminuendo: 선택+다음 필터에 start·stop이 모두 남아야 OSMD가 hairpin을 그림
+const wedgeSample = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="42">
+      <attributes><divisions>1</divisions><clef><sign>G</sign><line>2</line></clef></attributes>
+      <direction placement="below"><direction-type><wedge type="diminuendo"/></direction-type></direction>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="43">
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+      <direction placement="below"><direction-type><wedge type="stop"/></direction-type></direction>
+    </measure>
+  </part>
+</score-partwise>`;
+const wedgePair = lightOsmdPreviewMeasureRange(42, 43);
+const wedgeFiltered = filterMusicXmlToMeasureRange(wedgeSample, wedgePair.start, wedgePair.end);
+if (!/wedge type="diminuendo"/.test(wedgeFiltered) || !/wedge type="stop"/.test(wedgeFiltered)) {
+  throw new Error('light pair filter must keep diminuendo start and stop across measures');
+}
+if (!/<measure number="42"/.test(wedgeFiltered) || !/<measure number="43"/.test(wedgeFiltered)) {
+  throw new Error('light pair filter must include both measures');
+}
+const wedgeAffected = affectedMeasuresFromFixes([
+  {
+    kind: 'insertWedge',
+    partId: 'P1',
+    measureMxl: '42',
+    toMeasureMxl: '43',
+    wedgeType: 'diminuendo',
+  },
+]);
+if (!wedgeAffected.some((a) => a.partId === 'P1' && a.measureMxl === 43)) {
+  throw new Error('insertWedge toMeasureMxl must mark next measure affected');
+}
+
 const affected = affectedMeasuresFromFixes([
   {
     kind: 'copyMeasureContent',
@@ -115,4 +165,4 @@ for (const m of expandMeasureMxlSpec('33-34')) {
   if (!keys.has(`P3:${m}`)) throw new Error(`missing P3 m${m}`);
 }
 
-console.log('OK page measure range + measure nav index + affected measures');
+console.log('OK page measure range + light pair preview + measure nav index + affected measures');

@@ -289,6 +289,22 @@ export function pageScopedMeasureSpan(range: MxlMeasureRange): number {
 }
 
 /**
+ * 이미지 PDF 경량 OSMD 범위: 선택 마디 + 다음 마디.
+ * 교차 마디 cresc/dim(wedge stop)·이음줄을 눈으로 확인하려면 stop이 있는 다음 마디가 필요.
+ * 곡 마지막 마디면 선택만.
+ */
+export function lightOsmdPreviewMeasureRange(
+  selectedMxl: number,
+  maxMeasure: number,
+): MxlMeasureRange {
+  const start = Math.max(1, Math.floor(selectedMxl));
+  const max = Math.max(1, Math.floor(maxMeasure));
+  if (!Number.isFinite(start)) return { start: 1, end: 1 };
+  const end = Math.min(start + 1, max);
+  return { start, end: Math.max(start, end) };
+}
+
+/**
  * OSMD가 PDF 페이지 구간만 로드하면 MeasureNumber가 1..k(로컬)로 나올 수 있음.
  * MusicXML measure@number(전곡)로 통일 — HITL·편집 UI와 동일.
  *

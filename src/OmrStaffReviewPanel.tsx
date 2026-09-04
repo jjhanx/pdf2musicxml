@@ -20,6 +20,7 @@ import {
   buildPdfPageSystemRows,
   filterMusicXmlToMeasureRange,
   inferPdfPageForMxlMeasure,
+  lightOsmdPreviewMeasureRange,
   measureRangeFromPageIndex,
   normalizeToGlobalMeasureMxl,
   type MxlMeasureRange,
@@ -28,7 +29,7 @@ type ScorePartRow = ScorePartForPreview & {
   index: number;
 };
 
-/** 이미지 PDF HITL — 페이지 넘김 시 전체/페이지 OSMD 대신 선택 마디만 그림. */
+/** 이미지 PDF HITL — 페이지 넘김 시 전체 OSMD 대신 선택 마디(+다음)만 그림. */
 const IMAGE_PDF_LIGHT_PIPELINE = 'image_pdf';
 const PNG_DPI_DEFAULT = 156;
 const PNG_DPI_IMAGE_LIGHT = 72;
@@ -908,7 +909,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       const range =
         previewRange ??
         (imagePdfLight && selectedMeasure
-          ? { start: selectedMeasure.measureMxl, end: selectedMeasure.measureMxl }
+          ? lightOsmdPreviewMeasureRange(
+              selectedMeasure.measureMxl,
+              pageMeasureIndex.maxMeasure,
+            )
           : deferredPageMeasureRange);
       const measureMxl = normalizeToGlobalMeasureMxl(info.measureMxl, range);
       if (!Number.isFinite(measureMxl) || measureMxl < 1) {
@@ -944,6 +948,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       imagePdfLight,
       selectedMeasure,
       deferredPageMeasureRange,
+      pageMeasureIndex.maxMeasure,
     ],
   );
 
@@ -1013,11 +1018,18 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const renderedPreviewRange = useMemo((): MxlMeasureRange => {
     if (imagePdfLight && selectedMeasure) {
-      const m = selectedMeasure.measureMxl;
-      return { start: m, end: m };
+      return lightOsmdPreviewMeasureRange(
+        selectedMeasure.measureMxl,
+        pageMeasureIndex.maxMeasure,
+      );
     }
     return deferredPageMeasureRange;
-  }, [imagePdfLight, selectedMeasure, deferredPageMeasureRange]);
+  }, [
+    imagePdfLight,
+    selectedMeasure,
+    deferredPageMeasureRange,
+    pageMeasureIndex.maxMeasure,
+  ]);
 
   const pdfPageSystemRows = useMemo(
     () => (rawXml ? buildPdfPageSystemRows(rawXml, page) : []),
@@ -1026,17 +1038,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const onOsmdMeasureClick = useCallback(
     (info: OsmdMeasureClickInfo) => {
-      // 단일 마디 미리보기: OSMD 로컬/팬텀 번호 무시하고 현재 마디 유지(성부만 갱신 가능)
-      if (imagePdfLight && selectedMeasure) {
-        openMeasure(
-          { ...info, measureMxl: selectedMeasure.measureMxl },
-          { start: selectedMeasure.measureMxl, end: selectedMeasure.measureMxl },
-        );
-        return;
-      }
+      // 경량 미리보기(선택+다음): OSMD 로컬 1..2 → 전곡 번호. 다음 마디 클릭으로 선택 이동 가능.
       openMeasure(info, renderedPreviewRange);
     },
-    [imagePdfLight, selectedMeasure, openMeasure, renderedPreviewRange],
+    [openMeasure, renderedPreviewRange],
   );
 
   const deferredRangeStart = deferredPageMeasureRange.start;
@@ -1046,10 +1051,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const previewXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
     if (imagePdfLight) {
-      // 이미지 PDF: 전체/페이지 OSMD 금지 — 성부 + 선택 마디 1개만.
+      // 이미지 PDF: 페이지 전체 OSMD 금지 — 성부 + 선택 마디(+다음, 교차 wedge 가시화).
       if (!activeStaffFilter || !selectedMeasure) return '';
-      const m = selectedMeasure.measureMxl;
-      const measureScoped = filterMusicXmlToMeasureRange(rawXml, m, m);
+      const { start, end } = lightOsmdPreviewMeasureRange(
+        selectedMeasure.measureMxl,
+        pageMeasureIndex.maxMeasure,
+      );
+      const measureScoped = filterMusicXmlToMeasureRange(rawXml, start, end);
       return buildOsmdPreviewXml(measureScoped, scoreParts, activeStaffFilter, {
         verbatim: true,
         faithfulEditorLayout: true,
@@ -1068,10 +1076,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     deferredRangeEnd,
     imagePdfLight,
     selectedMeasure?.measureMxl,
+    pageMeasureIndex.maxMeasure,
   ]);
 
   const osmdPreviewKey = imagePdfLight
-    ? `osmd-light-m${selectedMeasure?.measureMxl ?? 0}-${staffFilter || 'none'}`
+    ? `osmd-light-m${selectedMeasure?.measureMxl ?? 0}-${renderedPreviewRange.end}-${staffFilter || 'none'}`
     : `osmd-preview-p${deferredPage}-${staffFilter || 'all'}`;
 
   /** MXL 반영분(artPreviewFixes) + 대기분 — 대기가 같은 음표를 덮어씀 */
@@ -1291,7 +1300,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                   <strong>이미지 PDF 경량 미리보기</strong>
                   <br />
                   페이지 넘김은 PDF만 바꿉니다. OSMD는 메모리 부담을 줄이려{' '}
-                  <strong>성부 + 마디 1개</strong>만 그립니다.
+                  <strong>성부 + 선택 마디(+다음 마디)</strong>만 그립니다
+                  (교차 diminuendo/crescendo 확인용).
                   <br />
                   아래 「마디 번호로 열기」에 이 페이지 구간(m.{pageMeasureRange.start}–
                   {pageMeasureRange.end}) 번호를 넣고 열거나, 편집할 마디를 지정하세요.
@@ -1304,9 +1314,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           <p className="omr-mxl-preview-hint">
             {imagePdfLight ? (
               <>
-                이미지 PDF는 <strong>선택 마디만</strong> OSMD로 그립니다. 왼쪽 PDF에서 마디를 클릭하거나
+                이미지 PDF는 <strong>선택 마디+다음 마디</strong>를 OSMD로 그립니다(교차 wedge 가시화).
+                왼쪽 PDF에서 마디를 클릭하거나
                 <strong> 마디 번호 / ◀마디 / 마디▶</strong> 로 이동하면 PDF 페이지까지 같이 바뀝니다
-                (DPI {pngDpi}, 긴 변≤{PNG_MAX_SIDE_IMAGE_LIGHT}px). 오른쪽 미리보기 클릭은 현재 마디를 유지합니다.
+                (DPI {pngDpi}, 긴 변≤{PNG_MAX_SIDE_IMAGE_LIGHT}px). 오른쪽에서 다음 마디를 클릭하면 그 마디로
+                선택이 이동합니다.
               </>
             ) : (
               <>

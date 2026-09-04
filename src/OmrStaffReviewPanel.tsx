@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
   buildOsmdPreviewXml,
   buildStaffFilterEntries,
@@ -19,14 +19,17 @@ import {
   inferFirstMxlMeasureForPdfPage,
 } from '../shared/musicXmlTimelineCleanup';
 import {
-  mxlMeasureToPrintedSidebar,
-  printedMeasureMarkerMap,
-  printedSidebarNumberToMxlMeasure,
-  type PrintedMeasureMarker,
-} from '../shared/printedMeasureNumbers';
+  filterMusicXmlToMeasureRange,
+  inferMeasureRangeForPdfPage,
+} from '../shared/musicXmlMeasureRange';
 type ScorePartRow = ScorePartForPreview & {
   index: number;
 };
+
+/** 이미지 PDF HITL — 페이지 넘김 시 전체/페이지 OSMD 대신 선택 마디만 그림. */
+const IMAGE_PDF_LIGHT_PIPELINE = 'image_pdf';
+const PNG_DPI_DEFAULT = 156;
+const PNG_DPI_IMAGE_LIGHT = 96;
 
 /** Accent 거리 등 — OSMD 미리보기용 (MXL 반영 후에도 pending이 비워져도 유지). */
 function isArticulationPreviewFix(f: OmrHitlFix): boolean {
@@ -36,10 +39,21 @@ function isArticulationPreviewFix(f: OmrHitlFix): boolean {
   );
 }
 
+function isDynamicsPreviewFix(f: OmrHitlFix): boolean {
+  return (
+    (f.kind === 'setNoteDirectionPlacement' || f.kind === 'addNoteDirection') &&
+    f.directionType === 'dynamics'
+  );
+}
+
+function isOsmdPreviewFix(f: OmrHitlFix): boolean {
+  return isArticulationPreviewFix(f) || isDynamicsPreviewFix(f);
+}
+
 function mergeArticulationPreviewFixes(prev: OmrHitlFix[], incoming: OmrHitlFix[]): OmrHitlFix[] {
   let next = prev;
   for (const f of incoming) {
-    if (!isArticulationPreviewFix(f)) continue;
+    if (!isOsmdPreviewFix(f)) continue;
     next = mergeFix(next, f);
   }
   return next;
@@ -47,13 +61,12 @@ function mergeArticulationPreviewFixes(prev: OmrHitlFix[], incoming: OmrHitlFix[
 
 type OmrPolicy = {
   audiverisOcrLangEffective?: string | null;
-  measureOffsetPrinted?: number;
-  printedMeasureMarkers?: PrintedMeasureMarker[];
   pCauses?: string[];
 };
 
 type InspectSummary = {
   pageCountForUi: number;
+  pipelineMode?: string;
   cleanScorePdf?: { exists: boolean };
   audiverisInputPdf?: string | null;
   activeOmrEngine?: string;
@@ -72,6 +85,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [policy, setPolicy] = useState<OmrPolicy | null>(null);
   const [page, setPage] = useState(1);
   const [staffFilter, setStaffFilter] = useState('');
+  const [pagePending, startPageTransition] = useTransition();
   const [loadErr, setLoadErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [pendingFixes, setPendingFixes] = useState<OmrHitlFix[]>([]);
@@ -89,7 +103,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [scoreZoom, setScoreZoom] = useState(0.55);
   const [selectedMeasure, setSelectedMeasure] = useState<OsmdMeasureClickInfo | null>(null);
   const [editPartId, setEditPartId] = useState('');
-  const [manualMeasurePrinted, setManualMeasurePrinted] = useState('');
+  const [manualMeasureMxl, setManualMeasureMxl] = useState('');
   const [editorKey, setEditorKey] = useState(0);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [scrollToMeasureTrigger, setScrollToMeasureTrigger] = useState(0);
@@ -100,28 +114,23 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const previewSyncedRef = useRef(false);
   const pendingFixesRef = useRef<OmrHitlFix[]>([]);
   const importWorkInputRef = useRef<HTMLInputElement>(null);
+  const importRangeInputRef = useRef<HTMLInputElement>(null);
   const [workMsg, setWorkMsg] = useState('');
+  const [rangeImportStart, setRangeImportStart] = useState(33);
+  const [rangeImportEnd, setRangeImportEnd] = useState(65);
+  const [rangeImportTargetStart, setRangeImportTargetStart] = useState<number | ''>('');
+  const [rangeImportOpen, setRangeImportOpen] = useState(false);
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
+  const imagePdfLight = summary?.pipelineMode === IMAGE_PDF_LIGHT_PIPELINE;
   const pngSource =
     summary?.cleanScorePdf?.exists || summary?.audiverisInputPdf === 'clean_score'
       ? 'clean_score'
       : 'original';
-  const pngDpi = 156;
-  const measureOffset = policy?.measureOffsetPrinted ?? 1;
-
-  useEffect(() => {
-    if (!rawXml || page < 1) return;
-    const mxl = inferFirstMxlMeasureForPdfPage(rawXml, page);
-    if (mxl < 1) return;
-    setPageScrollTarget({ measureMxl: mxl, staffIndex: 0, partId: null });
-    setScrollToMeasureTrigger((t) => t + 1);
-  }, [page, rawXml]);
-
-  const printedMeasureMarkers = useMemo(
-    () => printedMeasureMarkerMap(policy?.printedMeasureMarkers ?? []),
-    [policy?.printedMeasureMarkers],
-  );
+  /** 이미지 PDF는 스캔 PNG가 커서 페이지 넘김 DPI를 낮춤. */
+  const pngDpi = imagePdfLight ? PNG_DPI_IMAGE_LIGHT : PNG_DPI_DEFAULT;
+  /** OSMD 재구성은 deferred — 페이지 버튼·PNG는 즉시 반응. */
+  const deferredPage = useDeferredValue(page);
 
   const staffFilterEntries = useMemo(
     () => buildStaffFilterEntries(scoreParts, rawXml),
@@ -135,16 +144,53 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return [...STAFF_FALLBACK];
   }, [staffFilterEntries, scoreParts]);
 
+  /** 이미지 PDF 경량 모드 — 성부 미선택이면 첫 성부 자동(전체 파트 OSMD 금지). */
+  useEffect(() => {
+    if (!imagePdfLight || staffFilter || !staffList.length) return;
+    setStaffFilter(staffList[0]!);
+  }, [imagePdfLight, staffFilter, staffList]);
+
   const activeStaffFilter = useMemo((): StaffFilterEntry | null => {
     if (!staffFilter) return null;
     return staffFilterEntries.find((e) => e.label === staffFilter) ?? null;
   }, [staffFilter, staffFilterEntries]);
 
-  const refreshScoreXml = useCallback(async () => {
+  /** PDF 페이지 → MXL 마디 구간 (OSMD·apply 메시지용 — applyFixesToMxl보다 위에 두어 TDZ 방지) */
+  const pageMeasureRange = useMemo(
+    () => (rawXml ? inferMeasureRangeForPdfPage(rawXml, page) : { start: 1, end: 1 }),
+    [rawXml, page],
+  );
+
+  const deferredPageMeasureRange = useMemo(
+    () => (rawXml ? inferMeasureRangeForPdfPage(rawXml, deferredPage) : { start: 1, end: 1 }),
+    [rawXml, deferredPage],
+  );
+
+  useEffect(() => {
+    if (!rawXml || page < 1) return;
+    if (imagePdfLight) return; // 마디 단위 미리보기 — 페이지 스크롤 대상 불필요
+    const mxl = inferFirstMxlMeasureForPdfPage(rawXml, page);
+    if (mxl < 1) return;
+    setPageScrollTarget({ measureMxl: mxl, staffIndex: 0, partId: null });
+    setScrollToMeasureTrigger((t) => t + 1);
+  }, [page, rawXml, imagePdfLight]);
+
+  const goToPage = useCallback(
+    (next: number) => {
+      const clamped = Math.max(1, Math.min(pageCount, next));
+      startPageTransition(() => {
+        setPage(clamped);
+      });
+    },
+    [pageCount],
+  );
+
+  const refreshScoreXml = useCallback(async (opts?: { skipSync?: boolean }) => {
     setXmlLoading(true);
     setXmlLoadErr('');
     try {
-      const r = await fetch(`/api/diagnostic/${jobId}/score-musicxml`, { cache: 'no-store' });
+      const q = opts?.skipSync ? '?skipSync=1' : '';
+      const r = await fetch(`/api/diagnostic/${jobId}/score-musicxml${q}`, { cache: 'no-store' });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -461,9 +507,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           tupletShowNumberFixed?: number;
         };
       };
-      await refreshScoreXml();
+      await refreshScoreXml({ skipSync: true });
       setPreviewRevision((n) => n + 1);
-      setEditorKey((k) => k + 1);
       const fixed = j.stats?.restsFixed ?? 0;
       const displayCleared = j.stats?.restDisplayCleared ?? 0;
       const staccatoRemoved = j.stats?.tupletStaccatoRemoved ?? 0;
@@ -577,6 +622,56 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [jobId, refreshPanelAfterWorkImport],
   );
 
+  const importMeasureRange = useCallback(
+    async (file: File) => {
+      if (rangeImportStart < 1 || rangeImportEnd < rangeImportStart) {
+        setWorkMsg('출처 마디 범위(시작 ≤ 끝, 1 이상)를 확인하세요.');
+        return;
+      }
+      setWorkMsg('');
+      setApplyBusy(true);
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('sourceStartMeasure', String(rangeImportStart));
+        fd.append('sourceEndMeasure', String(rangeImportEnd));
+        if (rangeImportTargetStart !== '' && rangeImportTargetStart >= 1) {
+          fd.append('targetStartMeasure', String(rangeImportTargetStart));
+        }
+        const r = await fetch(`/api/omr-hitl/${jobId}/import-measure-range`, {
+          method: 'POST',
+          body: fd,
+        });
+        const j = (await r.json()) as {
+          error?: string;
+          stats?: { parts?: number; measuresCopied?: number; measuresSkipped?: number; targetStart?: number };
+        };
+        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+        await refreshScoreXml({ skipSync: true });
+        setPreviewRevision((n) => n + 1);
+        const st = j.stats;
+        const tgt =
+          st?.targetStart != null && st.targetStart !== rangeImportStart
+            ? ` → 대상 m.${st.targetStart}~`
+            : '';
+        setWorkMsg(
+          `이전 작업 m.${rangeImportStart}~${rangeImportEnd}${tgt} 구간을 가져왔습니다 — ${st?.parts ?? 0}개 파트, ${st?.measuresCopied ?? 0}마디 복사${(st?.measuresSkipped ?? 0) > 0 ? ` (건너뜀 ${st?.measuresSkipped})` : ''}.`,
+        );
+      } catch (e) {
+        setWorkMsg(e instanceof Error ? e.message : String(e));
+      } finally {
+        setApplyBusy(false);
+      }
+    },
+    [
+      jobId,
+      rangeImportStart,
+      rangeImportEnd,
+      rangeImportTargetStart,
+      refreshScoreXml,
+    ],
+  );
+
   const applyFixesToMxl = useCallback(async () => {
     setApplyBusy(true);
     setApplyMsg('');
@@ -599,12 +694,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       }
       const j = (await r.json()) as {
         stats?: { applied?: number; skipped?: number; pendingCleared?: number; syncMode?: string };
+        affectedMeasures?: Array<{ partId: string; measureMxl: number }>;
       };
-      await refreshScoreXml();
+      await refreshScoreXml({ skipSync: true });
       setPreviewRevision((n) => n + 1);
       // Accent 거리 미리보기는 pending 경로로만 안정적으로 동작 — 반영 후에도 OSMD에 넘김
       setArtPreviewFixes((prev) => mergeArticulationPreviewFixes(prev, fixes));
-      setEditorKey((k) => k + 1);
       setPendingFixes([]);
       pendingFixesRef.current = [];
       const applied = j.stats?.applied ?? 0;
@@ -615,8 +710,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         applied === 0 && skipped > 0
           ? `반영된 보정이 없습니다 (건너뜀 ${skipped}). 이미 반영됐거나 대상 요소를 찾지 못한 보정입니다 — 마디 편집을 다시 열어 현재 상태를 확인하세요.`
           : cleared > 0
-            ? `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}) — 대기 목록 ${cleared}건 제거${mode ? ` · ${mode}` : ''}. 오른쪽 MusicXML에서 확인하세요.`
-            : `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 오른쪽 MusicXML에서 확인하세요.`;
+            ? `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}) — 대기 목록 ${cleared}건 제거${mode ? ` · ${mode}` : ''}. 현재 PDF 페이지(m.${pageMeasureRange.start}–${pageMeasureRange.end}) 미리보기 갱신.`
+            : `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 현재 PDF 페이지 미리보기 갱신.`;
       setApplyMsg(msg);
       setLastPreviewMsg(msg);
       if (selectedMeasure) {
@@ -627,33 +722,36 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     } finally {
       setApplyBusy(false);
     }
-  }, [jobId, persistFixes, refreshScoreXml, loadFixesFromServer, selectedMeasure]);
+  }, [jobId, persistFixes, refreshScoreXml, loadFixesFromServer, selectedMeasure, pageMeasureRange]);
 
   const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo) => {
       setSelectedMeasure(info);
-      const printed = mxlMeasureToPrintedSidebar(info.measureMxl, measureOffset);
-      setManualMeasurePrinted(String(printed));
+      setManualMeasureMxl(String(info.measureMxl));
       const partId = resolvePartIdForMeasure(info);
+      const fromPreviewId = info.partId?.trim()
+        ? resolveMusicXmlPartFromPreviewId(info.partId)
+        : null;
+      const staffWithin =
+        fromPreviewId?.staffWithinPart ?? info.staffWithinPart ?? null;
       const staffLabel =
-        labelForPartStaff(partId, info.staffWithinPart) ??
+        labelForPartStaff(partId, staffWithin) ??
         staffList[info.staffIndex] ??
         `줄 ${info.staffIndex + 1}`;
       setMeasureClickMsg(
-        `마디 선택됨 · 인쇄 ${printed} · MXL ${info.measureMxl} · ${staffLabel}`,
+        `마디 선택됨 · m.${info.measureMxl} · ${staffLabel}`,
       );
       if (!staffFilter) {
         setEditPartId(partId);
       }
       setEditorKey((k) => k + 1);
     },
-    [staffFilter, measureOffset, resolvePartIdForMeasure, labelForPartStaff, staffList],
+    [staffFilter, resolvePartIdForMeasure, labelForPartStaff, staffList],
   );
 
   const openManualMeasure = useCallback(() => {
-    const printed = parseInt(manualMeasurePrinted.trim(), 10);
-    if (!Number.isFinite(printed) || printed < 1) return;
-    const measureMxl = Math.max(1, printedSidebarNumberToMxlMeasure(printed, measureOffset));
+    const measureMxl = parseInt(manualMeasureMxl.trim(), 10);
+    if (!Number.isFinite(measureMxl) || measureMxl < 1) return;
     const staffIndex = staffFilter
       ? Math.max(0, staffList.indexOf(staffFilter))
       : 0;
@@ -667,8 +765,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       setEditPartId(resolvePartIdForStaffIndex(staffIndex));
     }
   }, [
-    manualMeasurePrinted,
-    measureOffset,
+    manualMeasureMxl,
     staffFilter,
     staffList,
     openMeasure,
@@ -681,12 +778,41 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   /** 거리 드롭다운은 OSMD 재로드 없이 pending extraY만 적용. Accent는 음표에 남겨 VexFlow가 오선 옆에 그림(mf Direction과 섞지 않음). */
   const previewXml = useMemo(() => {
     if (!rawXml || !scoreParts.length) return '';
-    return buildOsmdPreviewXml(rawXml, scoreParts, activeStaffFilter, { verbatim: true });
-  }, [rawXml, scoreParts, activeStaffFilter]);
+    if (imagePdfLight) {
+      // 이미지 PDF: 전체/페이지 OSMD 금지 — 성부 + 선택 마디 1개만.
+      if (!activeStaffFilter || !selectedMeasure) return '';
+      const m = selectedMeasure.measureMxl;
+      const measureScoped = filterMusicXmlToMeasureRange(rawXml, m, m);
+      return buildOsmdPreviewXml(measureScoped, scoreParts, activeStaffFilter, {
+        verbatim: true,
+        faithfulEditorLayout: true,
+      });
+    }
+    const pageScoped = filterMusicXmlToMeasureRange(
+      rawXml,
+      deferredPageMeasureRange.start,
+      deferredPageMeasureRange.end,
+    );
+    return buildOsmdPreviewXml(pageScoped, scoreParts, activeStaffFilter, {
+      verbatim: true,
+      faithfulEditorLayout: true,
+    });
+  }, [
+    rawXml,
+    scoreParts,
+    activeStaffFilter,
+    deferredPageMeasureRange,
+    imagePdfLight,
+    selectedMeasure,
+  ]);
+
+  const osmdPreviewKey = imagePdfLight
+    ? `osmd-light-m${selectedMeasure?.measureMxl ?? 0}-${staffFilter || 'none'}`
+    : `osmd-preview-p${deferredPage}-${staffFilter || 'all'}`;
 
   /** MXL 반영분(artPreviewFixes) + 대기분 — 대기가 같은 음표를 덮어씀 */
   const osmdArticulationFixes = useMemo(
-    () => mergeArticulationPreviewFixes(artPreviewFixes, pendingFixes.filter(isArticulationPreviewFix)),
+    () => mergeArticulationPreviewFixes(artPreviewFixes, pendingFixes.filter(isOsmdPreviewFix)),
     [artPreviewFixes, pendingFixes],
   );
 
@@ -699,10 +825,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       .join(',');
     return { count: arts.length, dy, dists };
   }, [osmdArticulationFixes]);
-
-  const selectedPrinted = selectedMeasure
-    ? mxlMeasureToPrintedSidebar(selectedMeasure.measureMxl, measureOffset)
-    : null;
 
   const activePartLabels = staffList.length
     ? staffList
@@ -735,16 +857,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ) : (
             <strong>S/A/T/B/M/W/U/PR/PL</strong>
           )}
-          ). 인쇄 마디 ≈ MXL <code>measure@number</code> + {measureOffset} − 1 (offset={measureOffset}이면 인쇄 ≈ MXL).
+          ). HITL·편집·음자리표 범위는 MusicXML <code>measure@number</code>(전곡 마디 번호)로 통일합니다.
           {' '}
           <span style={{ color: '#555' }}>
             저장 MXL은 Audiveris raw(+ HITL 보정) 그대로입니다. 미리보기만 m1 조표·조바꿈 F clef 오인·줄바꿈
-            courtesy clef·<strong>줄머리 마디 번호</strong>는 PDF·가사 검토에서 인식한{' '}
-            <code>measure_number</code>만 표시합니다(OSMD 자동 번호·Audiveris OCR 숫자 words는 끔).{' '}
+            courtesy clef·<strong>줄머리 마디 번호</strong>는 MusicXML <code>measure@number</code>로 표시합니다(OSMD 자동 번호·Audiveris OCR 숫자 words는 끔).{' '}
             <strong>1마디</strong>를 클릭하면(제목·찌끼 영역 포함) 「마디 텍스트 (제목·OCR 찌끼)」에서 direction을 삭제·수정할 수 있습니다.
             제목은 보통 <strong>첫 번째 파트(P1)</strong> m1에만 있습니다.
-            마디 끝 phantom clef·최종 MXL measure-numbering은 「OMR 자동 정리」 또는 이어하기 후 반영. PDF와 다르면 마디
-            편집(HITL) 또는 가사 검토에서 마디 번호 구분을 확인하세요.
+            마디 끝 phantom clef·최종 MXL measure-numbering은 「OMR 자동 정리」 또는 이어하기 후 반영. PDF 줄머리 인쇄 번호와 MXL이 다를 수 있으나, 편집 UI는 MXL 번호만 사용합니다.
           </span>
         </p>
       </div>
@@ -763,27 +883,34 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
         <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>페이지</span>
-        <button type="button" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+        <button type="button" disabled={page <= 1} onClick={() => goToPage(page - 1)}>
           ◀
         </button>
         <span style={{ fontWeight: 600 }}>
           {page} / {pageCount}
+          {pagePending || deferredPage !== page ? (
+            <span style={{ marginLeft: 6, fontSize: '0.8rem', color: '#666', fontWeight: 500 }}>
+              미리보기 갱신 중…
+            </span>
+          ) : null}
         </span>
         <button
           type="button"
           disabled={page >= pageCount}
-          onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+          onClick={() => goToPage(page + 1)}
         >
           ▶
         </button>
         <span style={{ marginLeft: '0.75rem', fontSize: '0.9rem', fontWeight: 600 }}>성부 필터</span>
-        <button
-          type="button"
-          className={staffFilter === '' ? '' : 'btn-muted'}
-          onClick={() => setStaffFilter('')}
-        >
-          전체
-        </button>
+        {!imagePdfLight ? (
+          <button
+            type="button"
+            className={staffFilter === '' ? '' : 'btn-muted'}
+            onClick={() => setStaffFilter('')}
+          >
+            전체
+          </button>
+        ) : null}
         {staffList.map((s) => (
           <button
             key={s}
@@ -794,6 +921,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             {s}
           </button>
         ))}
+        {imagePdfLight ? (
+          <span style={{ fontSize: '0.82rem', color: '#555', maxWidth: '28rem', lineHeight: 1.4 }}>
+            이미지 PDF 경량 모드 · PNG {pngDpi} DPI · OSMD는 <strong>선택 마디 1개</strong>만
+            (페이지 m.{pageMeasureRange.start}–{pageMeasureRange.end})
+          </span>
+        ) : null}
       </div>
 
       <div className="omr-compare-row">
@@ -861,28 +994,57 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 </div>
               ) : previewXml ? (
                 <OsmdBlock
-                  key={`osmd-preview-${editorKey}`}
+                  key={osmdPreviewKey}
                   xml={previewXml}
                   articulationHintXml={previewXml}
                   articulationFixes={osmdArticulationFixes}
                   zoom={scoreZoom}
                   embeddedInOmrFrame
                   verbatimPreview
-                  printedMeasureMarkers={printedMeasureMarkers}
+                  faithfulEditorLayout
+                  previewMeasureRange={
+                    imagePdfLight && selectedMeasure
+                      ? { start: selectedMeasure.measureMxl, end: selectedMeasure.measureMxl }
+                      : deferredPageMeasureRange
+                  }
                   onMeasureClick={openMeasure}
                   highlightMeasureMxl={selectedMeasure?.measureMxl ?? null}
                   highlightMeasureStaffIndex={selectedMeasure?.staffIndex ?? null}
-                  scrollToMeasure={selectedMeasure ?? pageScrollTarget}
+                  scrollToMeasure={selectedMeasure ?? (imagePdfLight ? null : pageScrollTarget)}
                   scrollToMeasureTrigger={scrollToMeasureTrigger}
                 />
+              ) : imagePdfLight ? (
+                <p className="omr-mxl-osmd-placeholder" style={{ lineHeight: 1.55, padding: '1rem' }}>
+                  <strong>이미지 PDF 경량 미리보기</strong>
+                  <br />
+                  페이지 넘김은 PDF만 바꿉니다. OSMD는 메모리 부담을 줄이려{' '}
+                  <strong>성부 + 마디 1개</strong>만 그립니다.
+                  <br />
+                  아래 「마디 번호로 열기」에 이 페이지 구간(m.{pageMeasureRange.start}–
+                  {pageMeasureRange.end}) 번호를 넣고 열거나, 편집할 마디를 지정하세요.
+                </p>
               ) : (
                 <p className="omr-mxl-osmd-placeholder">표시할 MusicXML이 없습니다.</p>
               )}
             </InspectPanelErrorBoundary>
           </div>
           <p className="omr-mxl-preview-hint">
-            <strong>오선·음표</strong> 위에 마우스를 올리면 마디가 하늘색으로 표시되고, 클릭하면 편집 패널이 열립니다.
-            {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 성부가 자동 선택됩니다.' : ''}
+            {imagePdfLight ? (
+              <>
+                이미지 PDF는 <strong>선택 마디만</strong> OSMD로 그립니다. 페이지 이동은 PNG(
+                {pngDpi} DPI)만 즉시 바뀌고, 악보 재로드는 백그라운드에서 처리합니다.
+              </>
+            ) : (
+              <>
+                <strong>오선·음표</strong> 위에 마우스를 올리면 마디가 하늘색으로 표시되고, 클릭하면 편집 패널이 열립니다.
+                {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 성부가 자동 선택됩니다.' : ''}
+                {' '}
+                <span style={{ color: '#666' }}>
+                  미리보기는 PDF {page}페이지 구간(MXL m.{pageMeasureRange.start}–{pageMeasureRange.end})만 OSMD로 그립니다.
+                  다른 페이지·전체 악보는 페이지 이동 또는 「MXL 새로고침」으로 확인하세요.
+                </span>
+              </>
+            )}
           </p>
           {measureClickMsg ? (
             <p className="omr-mxl-preview-hint" style={{ color: '#1565c0', fontWeight: 600 }}>
@@ -891,28 +1053,47 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           ) : null}
           <div className="omr-manual-measure-open">
             <label>
-              인쇄 마디로 열기(보조)
+              {imagePdfLight ? '마디 번호로 미리보기·편집' : '마디 번호로 열기(보조)'}
               <input
                 type="number"
                 min={1}
-                value={manualMeasurePrinted}
-                onChange={(e) => setManualMeasurePrinted(e.target.value)}
-                placeholder="인쇄 마디"
+                value={manualMeasureMxl}
+                onChange={(e) => setManualMeasureMxl(e.target.value)}
+                placeholder="MXL 마디"
                 style={{ width: 72, marginLeft: 6 }}
               />
             </label>
-            <button type="button" className="btn-muted" onClick={() => openManualMeasure()}>
-              마디 편집 열기
+            <button type="button" className={imagePdfLight ? '' : 'btn-muted'} onClick={() => openManualMeasure()}>
+              {imagePdfLight ? '마디 열기 (OSMD 1마디)' : '마디 편집 열기'}
             </button>
+            {imagePdfLight ? (
+              <button
+                type="button"
+                className="btn-muted"
+                onClick={() => {
+                  setManualMeasureMxl(String(pageMeasureRange.start));
+                  const staffIndex = staffFilter ? Math.max(0, staffList.indexOf(staffFilter)) : 0;
+                  openMeasure({
+                    measureMxl: pageMeasureRange.start,
+                    staffIndex,
+                    partId: staffFilter ? partIdForStaff(staffFilter) : null,
+                    staffWithinPart: staffFilter
+                      ? staffWithinPartForLabel(staffFilter) ?? undefined
+                      : undefined,
+                  });
+                }}
+              >
+                이 페이지 첫 마디(m.{pageMeasureRange.start})
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn-muted"
               onClick={() => {
-                const measureMxl = Math.max(1, printedSidebarNumberToMxlMeasure(1, measureOffset));
                 const staffIndex = staffFilter ? Math.max(0, staffList.indexOf(staffFilter)) : 0;
-                setManualMeasurePrinted('1');
+                setManualMeasureMxl('1');
                 openMeasure({
-                  measureMxl,
+                  measureMxl: 1,
                   staffIndex,
                   partId: staffFilter ? partIdForStaff(staffFilter) : null,
                   staffWithinPart: staffFilter ? staffWithinPartForLabel(staffFilter) ?? undefined : undefined,
@@ -925,7 +1106,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         </div>
       </div>
 
-      {selectedMeasure && selectedPrinted != null ? (
+      {selectedMeasure ? (
         <div className="omr-measure-editor-wrap">
           {!staffFilter && scoreParts.length > 1 && (
             <label className="omr-measure-part-picker">
@@ -955,12 +1136,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           {editorPartId ? (
             <InspectPanelErrorBoundary>
               <OmrMeasureEditor
-                key={`${editorPartId}-${selectedMeasure.measureMxl}-${editorKey}`}
+                key={`${editorPartId}-${selectedMeasure.measureMxl}-${previewRevision}`}
                 jobId={jobId}
                 partId={editorPartId}
                 measureMxl={selectedMeasure.measureMxl}
-                measurePrinted={selectedPrinted}
-                measureOffset={measureOffset}
                 staffLabel={
                   (selectedMeasure
                     ? labelForPartStaff(editorPartId, editStaffWithinPart ?? selectedMeasure.staffWithinPart)
@@ -1047,6 +1226,15 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             type="button"
             className="btn-muted"
             disabled={applyBusy}
+            onClick={() => setRangeImportOpen((v) => !v)}
+            title="새로 인식한 MXL 위에, 저장해 둔 omr-work ZIP의 특정 마디 구간(전 파트)만 덮어씁니다"
+          >
+            {rangeImportOpen ? '마디 구간 가져오기 닫기' : '마디 구간 가져오기'}
+          </button>
+          <button
+            type="button"
+            className="btn-muted"
+            disabled={applyBusy}
             onClick={() => importWorkInputRef.current?.click()}
           >
             작업 불러오기
@@ -1063,7 +1251,85 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               if (f) void importWork(f);
             }}
           />
+          <input
+            ref={importRangeInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            disabled={applyBusy}
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void importMeasureRange(f);
+            }}
+          />
         </div>
+        {rangeImportOpen ? (
+          <div
+            style={{
+              marginTop: 8,
+              padding: '10px 12px',
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              borderRadius: 6,
+              fontSize: '0.86rem',
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              이전 omr-work ZIP에서 마디 구간 가져오기 (전 파트)
+            </div>
+            <p style={{ margin: '0 0 8px', color: '#475569', lineHeight: 1.45 }}>
+              Audiveris를 <strong>다시 돌린 뒤</strong>에도, 예전에 편집해 저장한 ZIP의{' '}
+              <strong>지정 마디 구간</strong>을 현재 MXL에 그대로 덮어씁니다. S·A·T·B·P 등{' '}
+              <strong>모든 파트</strong>가 한 번에 복사됩니다. 출처는 서버가{' '}
+              <strong>「작업 불러오기」와 같은 import-work + sync</strong> 파이프라인으로 만든 MXL에서
+              가져옵니다 (ZIP을 Python만으로 재해석하지 않음).
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span>출처 마디</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={rangeImportStart}
+                  onChange={(e) => setRangeImportStart(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  style={{ width: 52, padding: '2px 4px' }}
+                />
+                <span>~</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={rangeImportEnd}
+                  onChange={(e) => setRangeImportEnd(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  style={{ width: 52, padding: '2px 4px' }}
+                />
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span>대상 시작 마디</span>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder={String(rangeImportStart)}
+                  value={rangeImportTargetStart}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    setRangeImportTargetStart(v === '' ? '' : Math.max(1, parseInt(v, 10) || 1));
+                  }}
+                  style={{ width: 52, padding: '2px 4px' }}
+                />
+                <span style={{ color: '#64748b', fontSize: '0.8rem' }}>(비우면 출처와 동일)</span>
+              </label>
+              <button
+                type="button"
+                className="btn-muted"
+                disabled={applyBusy}
+                onClick={() => importRangeInputRef.current?.click()}
+              >
+                omr-work ZIP 선택 후 가져오기
+              </button>
+            </div>
+          </div>
+        ) : null}
         {workMsg ? <p className="omr-hitl-apply-msg">{workMsg}</p> : null}
         {applyMsg ? <p className="omr-hitl-apply-msg">{applyMsg}</p> : null}
       </div>

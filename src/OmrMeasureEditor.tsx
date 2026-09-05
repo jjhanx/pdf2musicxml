@@ -1162,7 +1162,7 @@ function MeasureOctaveShiftEditor({
   useEffect(() => {
     setFromNote(firstIdx);
     setToNote(lastIdx);
-  }, [firstIdx, lastIdx, staff, noteEls.length]);
+  }, [firstIdx, lastIdx, staff]);
 
   const shiftGroups = useMemo(() => groupOctaveShiftDirections(directions), [directions]);
 

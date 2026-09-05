@@ -166,14 +166,13 @@ export function MeasureWedgeEditor({
   const [fromKey, setFromKey] = useState(wedgeNoteKey(baseMxl, firstIdx));
   const [toKey, setToKey] = useState(wedgeNoteKey(baseMxl, lastCurIdx));
 
+  // 마디·오선이 바뀔 때만 기본값 리셋. nextStaffNotes 배열 참조를 deps에 넣으면
+  // 부모 리렌더마다 선택이 첫음→끝음으로 돌아가 「점선 추가」가 마디 전체로 적용됨.
   useEffect(() => {
     setFromKey(wedgeNoteKey(baseMxl, firstIdx));
-    setToKey(
-      nextMxl && nextStaffNotes.length
-        ? wedgeNoteKey(nextMxl, nextStaffNotes[nextStaffNotes.length - 1]!.index)
-        : wedgeNoteKey(baseMxl, lastCurIdx),
-    );
-  }, [baseMxl, nextMxl, firstIdx, lastCurIdx, staff, noteEls.length, nextNoteEls?.length, nextStaffNotes]);
+    // 기본 끝은 **현재 마디** 마지막 음. 다음 마디는 선택지로만 두고 자동 확장하지 않음.
+    setToKey(wedgeNoteKey(baseMxl, lastCurIdx));
+  }, [baseMxl, firstIdx, lastCurIdx, staff]);
 
   const mergedDirections = useMemo(() => {
     const cur = directions.map((d) => ({ ...d, measureMxl: baseMxl }));
@@ -238,7 +237,8 @@ export function MeasureWedgeEditor({
       <div style={{ fontWeight: 700, marginBottom: 6 }}>셈여림 점선 (wedge / hairpin)</div>
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
         크레센도 <code>&lt;</code> / 디미뉴엔도 <code>&gt;</code> 는 <strong>시작 음 앞</strong>과{' '}
-        <strong>끝 음 뒤</strong>(stop)로 들어갑니다. 「다음 마디 포함」을 켜면 끝 음을 m.{baseMxl}
+        <strong>끝 음 뒤</strong>(stop)로 들어갑니다. 시작·끝을 고른 뒤 「점선 추가」하면 그 구간으로 바로
+        들어갑니다. 「다음 마디 포함」을 켜면 끝 음을 m.{baseMxl}
         {nextMxl ? ` 또는 m.${nextMxl}` : ''}에서 고를 수 있습니다(예: 42→43 diminuendo).
       </p>
       {wedgeGroups.length > 0 ? (

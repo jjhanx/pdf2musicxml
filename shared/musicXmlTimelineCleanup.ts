@@ -14,6 +14,8 @@ import {
 import {
   applyPlayOrderLayoutToMeasure,
   applyPlayOrderLayoutToXml,
+  reorderPlayOrderDocumentOrderInXml,
+  realignPlayOrderColumnTimelinesInXml,
 } from './musicXmlPlayOrder';
 
 const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
@@ -63,13 +65,28 @@ function removeDanglingTimelineInMeasure(measure: Element): void {
   }
 }
 
+/** OSMD/HITL 미리보기 timeline 정리 옵션 */
+export type RepairTimelineForOsmdPreviewOptions = {
+  /** HITL 마디 편집기 — 연주순번·voice·박자 그대로( clamp·forward pad 없음 ) */
+  faithfulEditorLayout?: boolean;
+};
+
 /** OSMD/HITL 미리보기 전용 — dangling timeline + `<print>`·Audiveris 레이아웃 힌트 제거(저장 MXL 불변). */
-export function repairTimelineForOsmdPreview(xml: string): string {
+export function repairTimelineForOsmdPreview(
+  xml: string,
+  options?: RepairTimelineForOsmdPreviewOptions,
+): string {
+  const faithful = options?.faithfulEditorLayout === true;
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
-  out = capBackupDurationsForOsmdPreview(out);
+  if (!faithful) out = capBackupDurationsForOsmdPreview(out);
   out = stripPrintElementsForOsmdPreview(out);
   out = stripMeasureWidthAttributesForOsmdPreview(out);
   out = stripDefaultXyForOsmdPreview(out);
+  if (faithful) {
+    // partial voice column: 문서 순서 → 타임라인 onset( forward/trim ) → layout-x. 순서 변경 금지.
+    out = reorderPlayOrderDocumentOrderInXml(out);
+    out = realignPlayOrderColumnTimelinesInXml(out);
+  }
   out = realignDefaultXFromStaffTimelineForOsmdPreview(out);
   out = stripChordBeamsForOsmdPreview(out);
   out = dedupeIdenticalChordPitchesForOsmdPreview(out);

@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "convert": "tsx scripts/convert-cli.ts",
     "check-m25": "python _smoke/check_m25_tb_pr.py",
+    "test:partial-voice": "tsx _smoke/test_partial_voice_regression.ts",
     "start": "node --import tsx server/index.ts",
     "start:server": "node --import tsx server/index.ts",
     "start:prod": "npm run build && npm run start",

@@ -509,6 +509,15 @@ function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
   );
 }
 
+/** XML `<staff>` vs OSMD staffIndex+1. PL/PR split 추출 시 XML은 `<staff>2</staff>` 유지, OSMD는 sole staffIndex 0. REGRESSION: test_partial_voice_regression.ts */
+function targetStaffMatchesGraphic(staffIndex: number, targetStaff: number): boolean {
+  const graphicStaff = staffIndex + 1;
+  if (targetStaff === graphicStaff) return true;
+  if (graphicStaff === 1 && targetStaff > 1) return true;
+  if (targetStaff === 1) return true;
+  return false;
+}
+
 function clearStavenoteTranslateX(svg: SVGGraphicsElement): void {
   const tr = svg.getAttribute('transform') ?? '';
   if (!/translate\s*\(/.test(tr)) return;
@@ -712,7 +721,6 @@ function alignMeasureNotesByPlayOrderGrid(
   const measureNumber = measureMxlFromGraphic(gmRaw as any);
   if (!partId || measureNumber == null) return;
 
-  const staff = staffIndex + 1;
   // 이전 pass translate를 지우고 natural x로 span·배치(반복 호출 시 origin이 왼쪽으로 붕괴하지 않음)
   for (const h of collectMeasureNoteHits(osmd, gmRaw)) clearStavenoteTranslateX(h.stavenote);
   const hits = collectMeasureNoteHits(osmd, gmRaw);
@@ -721,7 +729,7 @@ function alignMeasureNotesByPlayOrderGrid(
   const explicitTargets = targets.filter((t) => {
     if (t.measureNumber !== measureNumber) return false;
     if (!partIdsMatch(partId, t.partId)) return false;
-    if (t.staff !== 1 && t.staff !== staff) return false;
+    if (!targetStaffMatchesGraphic(staffIndex, t.staff)) return false;
     return t.playOrder != null || (t.playOrderAlign != null && t.playOrderAlign !== '');
   });
   if (!explicitTargets.length) return;
@@ -830,10 +838,131 @@ function alignPlayOrderGroupForce(
   }
 }
 
+function effectivePlayOrderKey(t: PreviewNoteLayoutTarget): number | null {
+  if (t.playOrderAlign) return null;
+  return t.effectivePlayOrder ?? t.playOrder;
+}
+
+/**
+ * partial voice — voice2만 `po=1` 등 **명시 순번**이 있고 voice1은 timeline 기본 순번인 column.
+ * XML layout-x가 이미 같은 열인데 OSMD가 backup voice를 오른쪽에 그릴 때만,
+ * `5-6` 참조와 동일하게 **명시 순번 voice의 stavenote만** 앵커(voice 번호 최소) x로 이동.
+ * 전역 po cluster snap(alignPlayOrderGroupForce)은 빔 회귀 때문에 쓰지 않음.
+ */
+function alignPartialVoiceExplicitPlayOrderColumns(
+  osmd: OpenSheetMusicDisplay,
+  gmRaw: unknown,
+  staffIndex: number,
+  targets: readonly PreviewNoteLayoutTarget[],
+): void {
+  const partId = partIdFromGraphic(gmRaw as any);
+  const measureNumber = measureMxlFromGraphic(gmRaw as any);
+  if (!partId || measureNumber == null) return;
+
+  const measureTargets = targets.filter((t) => {
+    if (t.measureNumber !== measureNumber) return false;
+    if (!partIdsMatch(partId, t.partId)) return false;
+    if (!targetStaffMatchesGraphic(staffIndex, t.staff)) return false;
+    return true;
+  });
+  if (!measureTargets.length) return;
+
+  const byPo = new Map<number, PreviewNoteLayoutTarget[]>();
+  for (const t of measureTargets) {
+    const po = effectivePlayOrderKey(t);
+    if (po == null) continue;
+    const list = byPo.get(po) ?? [];
+    list.push(t);
+    byPo.set(po, list);
+  }
+
+  const partialGroups: Array<{ po: number; group: PreviewNoteLayoutTarget[]; anchorVoice: string }> = [];
+  for (const [po, group] of byPo) {
+    const voices = new Set(group.map((t) => t.voice));
+    if (voices.size < 2) continue;
+    const layoutXs = group.map((t) => t.defaultXTenths);
+    if (Math.max(...layoutXs) - Math.min(...layoutXs) > 1) continue;
+    const anchorVoice = [...voices].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99))[0]!;
+    const hasExplicitNonAnchor = group.some((t) => t.playOrder === po && t.voice !== anchorVoice);
+    if (!hasExplicitNonAnchor) continue;
+    partialGroups.push({ po, group, anchorVoice });
+  }
+  if (!partialGroups.length) return;
+
+  const hits = collectMeasureNoteHits(osmd, gmRaw);
+  if (!hits.length) return;
+
+  const measureSpan = playOrderPlacementSpan(hits, Math.max(2, partialGroups.length));
+  if (!measureSpan) return;
+
+  const usedHits = new Set<SVGGraphicsElement>();
+  for (const { po, group, anchorVoice } of partialGroups.sort((a, b) => a.po - b.po)) {
+    const layoutX = group[0]!.defaultXTenths;
+    const wantFromGrid = wantXFromLayoutGrid(measureSpan, layoutX);
+
+    const anchorTargets = group.filter((t) => t.voice === anchorVoice);
+    const anchorPitches = [...new Set(anchorTargets.map((t) => t.pitch))];
+    let anchorX: number | null = null;
+    if (anchorPitches.length) {
+      const anchorCandidates = hits
+        .filter((h) => h.voice === anchorVoice && !usedHits.has(h.stavenote))
+        .filter((h) => anchorPitches.some((p) => hitHasPitch(h, p)))
+        .sort(
+          (a, b) =>
+            Math.abs(a.centerX - wantFromGrid) - Math.abs(b.centerX - wantFromGrid) ||
+            a.centerX - b.centerX,
+        );
+      if (anchorCandidates.length) {
+        anchorX = anchorCandidates[0]!.centerX;
+        usedHits.add(anchorCandidates[0]!.stavenote);
+      }
+    }
+    const wantX = anchorX ?? wantFromGrid;
+
+    for (const t of group) {
+      if (t.voice === anchorVoice || t.playOrder !== po) continue;
+      const candidates = hits
+        .filter((h) => h.voice === t.voice && !usedHits.has(h.stavenote))
+        .filter((h) => hitHasPitch(h, t.pitch))
+        .sort(
+          (a, b) =>
+            Math.abs(a.centerX - wantFromGrid) - Math.abs(b.centerX - wantFromGrid) ||
+            a.centerX - b.centerX,
+        );
+      if (!candidates.length) continue;
+      const hit = candidates[0]!;
+      if (Math.abs(hit.centerX - wantX) < 4) continue;
+      usedHits.add(hit.stavenote);
+      const dx = wantX - hit.centerX;
+      const cap = Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2);
+      applySvgTranslateX(hit.stavenote, dx, cap);
+    }
+  }
+}
+
+function measureHasPartialVoicePlayOrder(targets: readonly PreviewNoteLayoutTarget[]): boolean {
+  const byPo = new Map<number, PreviewNoteLayoutTarget[]>();
+  for (const t of targets) {
+    const po = effectivePlayOrderKey(t);
+    if (po == null) continue;
+    const list = byPo.get(po) ?? [];
+    list.push(t);
+    byPo.set(po, list);
+  }
+  for (const [po, group] of byPo) {
+    const voices = new Set(group.map((t) => t.voice));
+    if (voices.size < 2) continue;
+    const layoutXs = group.map((t) => t.defaultXTenths);
+    if (Math.max(...layoutXs) - Math.min(...layoutXs) > 1) continue;
+    const anchorVoice = [...voices].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99))[0]!;
+    if (group.some((t) => t.playOrder === po && t.voice !== anchorVoice)) return true;
+  }
+  return false;
+}
+
 /**
  * 명시 연주순번 — 같은 playOrder끼리 상대 snap(다성부 column).
- * layout-x가 아직 안 맞아도 같은 순번이면 당긴다.
- * 같은 voice에 서로 다른 layout-x가 같은 po로 남아 있으면(옛 전파) 그 voice는 제외.
+ * @deprecated 전역 호출 금지 — 빔 회귀. partial voice는 alignPartialVoiceExplicitPlayOrderColumns 사용.
  */
 function alignExplicitPlayOrderColumnsRelative(
   osmd: OpenSheetMusicDisplay,
@@ -845,7 +974,6 @@ function alignExplicitPlayOrderColumnsRelative(
   const measureNumber = measureMxlFromGraphic(gmRaw as any);
   if (!partId || measureNumber == null) return;
 
-  const staff = staffIndex + 1;
   const hits = collectMeasureNoteHits(osmd, gmRaw);
   if (!hits.length) return;
 
@@ -855,11 +983,12 @@ function alignExplicitPlayOrderColumnsRelative(
   for (const t of targets) {
     if (t.measureNumber !== measureNumber) continue;
     if (!partIdsMatch(partId, t.partId)) continue;
-    if (t.staff !== 1 && t.staff !== staff) continue;
-    if (t.playOrder == null) continue;
-    const list = byPo.get(t.playOrder) ?? [];
+    if (!targetStaffMatchesGraphic(staffIndex, t.staff)) continue;
+    const po = effectivePlayOrderKey(t);
+    if (po == null) continue;
+    const list = byPo.get(po) ?? [];
     list.push(t);
-    byPo.set(t.playOrder, list);
+    byPo.set(po, list);
   }
 
   // 순번 오름차순 — 왼쪽 column부터 소비(중복 pitch 매칭)
@@ -884,6 +1013,12 @@ function alignExplicitPlayOrderColumnsRelative(
       snapVoiceCount += 1;
     }
     if (snapVoiceCount < 2 || queue.length < 2) continue;
+
+    const hasExplicitPo = queue.some((t) => t.playOrder != null);
+    const layoutXs = queue.map((t) => t.defaultXTenths);
+    const layoutSpread = Math.max(...layoutXs) - Math.min(...layoutXs);
+    // XML layout이 이미 같은 열이거나, 한 voice 이상이 명시 순번을 가질 때만 snap
+    if (!hasExplicitPo && layoutSpread > 1) continue;
 
     const byVoicePitch = new Map<string, PreviewNoteLayoutTarget[]>();
     for (const t of queue) {
@@ -1147,11 +1282,10 @@ function alignPlayOrderAlignRefsToAnchorVoice(
   const measureNumber = measureMxlFromGraphic(gmRaw as any);
   if (!partId || measureNumber == null) return;
 
-  const staff = staffIndex + 1;
   const measureTargets = targets.filter((t) => {
     if (t.measureNumber !== measureNumber) return false;
     if (!partIdsMatch(partId, t.partId)) return false;
-    if (t.staff !== 1 && t.staff !== staff) return false;
+    if (!targetStaffMatchesGraphic(staffIndex, t.staff)) return false;
     return true;
   });
   const alignTargets = measureTargets.filter((t) => t.playOrderAlign != null && t.playOrderAlign !== '');
@@ -1240,9 +1374,9 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   const hints = xml ? collectLinkedParallelOnsetHintsFromXml(xml) : [];
   const targets = xml ? collectPreviewNoteLayoutTargetsFromXml(xml) : [];
   const hasAlignRef = targets.some((t) => t.playOrderAlign != null && t.playOrderAlign !== '');
+  const hasPartialVoicePlayOrder = measureHasPartialVoicePlayOrder(targets);
 
-  // linkParallel 힌트 + voice-순번 참조(5-6)만 SVG 보정.
-  // 일반 숫자 순번 전역 snap은 빔이 앞 마디로 삐져나오는 회귀가 있어 쓰지 않음.
+  // linkParallel + voice-순번 참조(5-6) + partial voice(명시 po + timeline 앵커 voice)만 SVG 보정.
   let didAlign = false;
   if (hints.length > 0) {
     alignLinkedParallelHintGroups(osmd, hints);
@@ -1251,6 +1385,12 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   if (hasAlignRef) {
     forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
       alignPlayOrderAlignRefsToAnchorVoice(osmd, gmRaw, staffIndex, targets);
+    });
+    didAlign = true;
+  }
+  if (hasPartialVoicePlayOrder) {
+    forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
+      alignPartialVoiceExplicitPlayOrderColumns(osmd, gmRaw, staffIndex, targets);
     });
     didAlign = true;
   }

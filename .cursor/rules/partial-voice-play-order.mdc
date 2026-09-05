@@ -1,0 +1,38 @@
+---
+description: partial voice 연주순번 column 정렬 — 수정 시 회귀 방지
+globs:
+  - shared/musicXmlPlayOrder.ts
+  - shared/musicXmlTimelineCleanup.ts
+  - src/osmdOnsetColumnAlignFix.ts
+  - src/AudiverisInspectPanel.tsx
+  - _smoke/test_partial_voice*.ts
+---
+
+# partial voice · 연주순번 column
+
+**증상:** voice1·voice2 모두 순번 1(또는 같은 숫자)인데 OSMD 미리보기에서 가로 위치가 다름. 대표: 피아노 PL, voice2만 일부 순번을 갖고 나머지는 voice1 timeline과 공유(d60 m33 PL).
+
+**원인:** OSMD는 `data-osmd-layout-x`보다 **voice별 `<backup>`/`<forward>` 타임라인**으로 x를 잡는다. voice2 `po=1` 앞 `<forward dur=18>`이 있으면 voice1 순번1과 열이 어긋난다.
+
+## 미리보기 3층 (순서·역할 고정)
+
+1. **`applyPlayOrderLayoutToMeasure`** — 명시·timeline 기본 순번 모두로 `poColumnOnset` 계산 → layout-x.
+2. **`realignMeasureTimelineToPlayOrderColumnsForOsmdPreview`** — `faithfulEditorLayout` 전용. 명시 po voice의 forward 감소·필요 시 이전 음 duration trim(미리보기 XML만). **앞에 `<forward>`가 없는 병행 성부는 cross-voice 열 맞추려고 duration을 자르지 않음**(half 절삭 → 슬러 bezier 뒤집힘 방지). `repairTimelineForOsmdPreview`에서 `reorder` **직후** 호출.
+3. **`alignPartialVoiceExplicitPlayOrderColumns`** + **`targetStaffMatchesGraphic`** — (2) 후에도 남는 gap만 SVG 보조. PL/PR 필터 시 XML `<staff>2</staff>` ↔ OSMD sole staffIndex 0 매칭 필수.
+
+## 수정 금지·주의
+
+- `repairTimelineForOsmdPreview` faithful 블록에서 `realignPlayOrderColumnTimelinesInXml` **제거·순서 변경 금지** (`reorder` 다음, `applyPlayOrderLayout` 이전).
+- `flattenNonOverlappingStaffVoicesForOsmd`의 `measureHasSharedPlayOrderAcrossVoices` 가드 **유지** (같은 순번 cross-voice일 때 flatten 하면 column 깨짐).
+- `alignExplicitPlayOrderColumnsRelative` / 전역 po cluster snap **재도입 금지** (빔 전역 회귀).
+- `targetStaffMatchesGraphic` 되돌리지 말 것 (`staffIndex+1`만 보면 PL 필터에서 align 타깃 전부 제외).
+
+## 회귀 (변경 후 필수)
+
+```bash
+npx tsx _smoke/test_partial_voice_regression.ts
+```
+
+개별: `test_partial_voice_play_order_column.ts` · `test_partial_voice_timeline_realign.ts` · `test_partial_voice_osmd_align.ts` · `test_c0b3_m50_pl_slur_bezier.ts`(병행 half trim 금지)
+
+**저장 MXL은 변경하지 않음.** 미리보기·HITL XML 파이프라인만.

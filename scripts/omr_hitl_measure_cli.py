@@ -4,6 +4,9 @@
 쉼표 연주순번이 빠진 옛 MXL은 조회 시 timeline으로 재배열해 저장한다.
 PL 등 가짜 병렬 voice(underfull primary + full parallel + onset-0 짧은 voice)도
 조회 시 primary로 흡수·gap 쉼표 보강 후 저장한다.
+
+전 악보 wedge/dynamics/slur 정규화는 하지 않는다 — 다른 마디 crescendo stop 등을
+열기만으로 지우지 않기 위함. 정규화는 연 마디(+그 마디 전용)에만 한정한다.
 """
 from __future__ import annotations
 
@@ -20,10 +23,7 @@ from omr_hitl_lib import (  # noqa: E402
     load_mxl_root,
     measure_snapshot,
     normalize_dynamics_in_root,
-    normalize_play_orders_including_rests_in_root,
-    normalize_slurs_in_root,
-    normalize_articulations_in_root,
-    normalize_wedges_in_root,
+    normalize_measure_timelines_in_root,
     rebuild_measure_timeline_clean,
     write_mxl_root,
     _ns,
@@ -44,22 +44,23 @@ def main() -> int:
     try:
         files, root_path, root = load_mxl_root(args.mxl_path)
         ns = _ns(root)
-        rest_po_fixed = 0
         coalesce_fixed = 0
         chord_dupes = 0
         dyns_fixed = 0
-        slurs_fixed = 0
-        arts_fixed = 0
-        wedges_fixed = 0
+        timeline_fixed = 0
         if not args.read_only:
-            # 전 악보 정규화 — 다른 마디에 남은 옛 순번 및 이음줄도 함께 고침
-            rest_po_fixed = normalize_play_orders_including_rests_in_root(root)
-            coalesce_fixed = coalesce_spurious_parallel_voices_in_root(root)
-            chord_dupes = dedupe_identical_chord_pitches_in_root(root)
-            dyns_fixed = normalize_dynamics_in_root(root)
-            slurs_fixed = normalize_slurs_in_root(root)
-            arts_fixed = normalize_articulations_in_root(root)
-            wedges_fixed = normalize_wedges_in_root(root)
+            scope = {(str(args.part_id).strip(), str(args.measure).strip())}
+            # 연 마디만 — 전 악보 wedge/slur/articulation normalize 금지
+            coalesce_fixed = coalesce_spurious_parallel_voices_in_root(
+                root, only_measures=scope
+            )
+            chord_dupes = dedupe_identical_chord_pitches_in_root(
+                root, only_measures=scope
+            )
+            dyns_fixed = normalize_dynamics_in_root(root, only_measures=scope)
+            timeline_fixed = normalize_measure_timelines_in_root(
+                root, only_measures=scope
+            )
             part = find_part(root, ns, args.part_id)
             if part is not None:
                 measure = find_measure(part, ns, args.measure)
@@ -70,27 +71,17 @@ def main() -> int:
             print(json.dumps({"error": "part or measure not found"}, ensure_ascii=False))
             return 1
         if (not args.read_only) and (
-            rest_po_fixed
-            or coalesce_fixed
-            or chord_dupes
-            or dyns_fixed
-            or slurs_fixed
-            or arts_fixed
-            or wedges_fixed
+            coalesce_fixed or chord_dupes or dyns_fixed or timeline_fixed
         ):
             write_mxl_root(args.mxl_path, files, root_path, root)
-            if rest_po_fixed:
-                snap["restPlayOrderMeasuresNormalized"] = rest_po_fixed
             if coalesce_fixed:
                 snap["coalesceVoiceMeasures"] = coalesce_fixed
             if chord_dupes:
                 snap["chordPitchDedupeMeasures"] = chord_dupes
-            if slurs_fixed:
-                snap["slursNormalizedMeasures"] = slurs_fixed
-            if arts_fixed:
-                snap["articulationsNormalizedNotes"] = arts_fixed
-            if wedges_fixed:
-                snap["wedgesNormalizedMeasures"] = wedges_fixed
+            if dyns_fixed:
+                snap["dynamicsNormalizedMeasures"] = dyns_fixed
+            if timeline_fixed:
+                snap["timelineMeasuresNormalized"] = timeline_fixed
         print(json.dumps(snap, ensure_ascii=False))
         return 0
     except (OSError, ValueError) as e:

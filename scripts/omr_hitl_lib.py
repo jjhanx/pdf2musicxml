@@ -4375,12 +4375,17 @@ def _dedupe_identical_pitches_in_chord_groups(measure: ET.Element, ns: str) -> i
     return len(to_remove)
 
 
-def dedupe_identical_chord_pitches_in_root(root: ET.Element) -> int:
+def dedupe_identical_chord_pitches_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
     """전 악보 — 화음 내 동일 피치 중복 제거. 변경 마디 수."""
     ns = _ns(root)
     n = 0
     for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
         for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
             if _dedupe_identical_pitches_in_chord_groups(measure, ns):
                 n += 1
     return n
@@ -4776,23 +4781,33 @@ def coalesce_spurious_parallel_voices_in_measure(
     return changed
 
 
-def coalesce_spurious_parallel_voices_in_root(root: ET.Element) -> int:
+def coalesce_spurious_parallel_voices_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
     """전 악보 — 가짜 병렬 voice 흡수. 변경된 마디 수 반환."""
     ns = _ns(root)
     n = 0
     for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
         for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
             if coalesce_spurious_parallel_voices_in_measure(measure, ns, part):
                 n += 1
     return n
 
 
-def normalize_measure_timelines_in_root(root: ET.Element) -> int:
+def normalize_measure_timelines_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
     """전 악보 — 다중 성부 및 분절 성부 스트림 통합·타임라인 재배열. 변경된 마디 수 반환."""
     ns = _ns(root)
     n = 0
     for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
         for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
             if _measure_has_multivoice_layers(measure, ns):
                 rebuild_measure_timeline_clean(measure, ns, part)
                 n += 1
@@ -4925,13 +4940,63 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
     return changed_measures
 
 
-def normalize_dynamics_in_root(root: ET.Element) -> int:
+# (partId, measure number) — None이면 전 악보
+MeasureScope = set[tuple[str, str]] | None
+
+_WEDGE_FIX_KINDS = frozenset(
+    {
+        "insertWedge",
+        "moveWedgeStart",
+        "moveWedgeStop",
+        "setWedgeSpan",
+        "removeWedge",
+    }
+)
+
+_TOUCHED_MEASURE_FIELDS = (
+    "measureMxl",
+    "toMeasureMxl",
+    "fromMeasureMxl",
+    "endMeasureMxl",
+)
+
+
+def touched_measures_from_fixes(fixes: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    """HITL fix가 명시한 마디만 — 다른 마디 post-normalize 오염 방지."""
+    out: set[tuple[str, str]] = set()
+    for fix in fixes:
+        part_id = str(fix.get("partId") or "").strip()
+        if not part_id:
+            continue
+        for field in _TOUCHED_MEASURE_FIELDS:
+            m = str(fix.get(field) or "").strip()
+            if m:
+                out.add((part_id, m))
+    return out
+
+
+def fixes_include_wedge_kind(fixes: list[dict[str, Any]]) -> bool:
+    return any(str(f.get("kind") or "") in _WEDGE_FIX_KINDS for f in fixes)
+
+
+def _part_measure_in_scope(part_id: str, measure: ET.Element, scope: MeasureScope) -> bool:
+    if scope is None:
+        return True
+    return (part_id, measure.get("number") or "") in scope
+
+
+def normalize_dynamics_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
     """전 악보 — note notations에 갇힌 dynamics를 <direction>으로 마이그레이션하고, default-y 여백 부여 및 dynamics -> wedge 시작 순서 보장. 변경된 마디 수 반환."""
     ns = _ns(root)
     changed_measures = 0
 
     for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
         for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
             m_changed = False
             # 1. 음표의 notations/dynamics를 <direction>으로 변환
             for note in list(measure.findall(_q(ns, "note"))):
@@ -5019,17 +5084,25 @@ def normalize_dynamics_in_root(root: ET.Element) -> int:
     return changed_measures
 
 
-def normalize_wedges_in_root(root: ET.Element) -> int:
-    """전 악보 — 쐐기형 셈여림(crescendo/diminuendo) 순서 역전 보정, 고아 stop 제거, 마디 간 누수 방지, 음표 상단(above) default-y 여백 보정. 변경된 마디 수 반환."""
+def normalize_wedges_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
+    """쐐기형 셈여림 순서·고아 stop·마디 간 누수·above default-y 보정.
+
+    only_measures가 있으면 해당 (partId, measure)만 변이한다.
+    open_wedges 상태 추적은 전 파트를 걷되, 범위 밖 마디의 stop 삭제·자동 닫기·배치 변경은 하지 않는다.
+    """
     ns = _ns(root)
     changed_measures = 0
 
     for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
         open_wedges: dict[str, dict[str, Any]] = {}
 
         for measure in part.findall(_q(ns, "measure")):
             m_changed = False
             mnum = measure.get("number") or ""
+            in_scope = _part_measure_in_scope(part_id, measure, only_measures)
 
             # 수집: 이 마디의 wedge directions
             wedge_dirs: list[tuple[int, ET.Element, str, str, str]] = []  # (idx, dir_el, staff, wtype, number)
@@ -5042,7 +5115,7 @@ def normalize_wedges_in_root(root: ET.Element) -> int:
                         wel = _wedge_element(el, ns)
                         wnum = (wel.get("number") if wel is not None else None) or "1"
                         pl = el.get("placement") or "below"
-                        if pl == "above":
+                        if in_scope and pl == "above":
                             if not el.get("default-y"):
                                 el.set("default-y", "25")
                                 m_changed = True
@@ -5058,7 +5131,7 @@ def normalize_wedges_in_root(root: ET.Element) -> int:
                 stops = [wd for wd in st_wedges if wd[3] == "stop"]
 
                 # 1. 마디 내 역전 검사 (start 전에 stop이 먼저 나온 경우)
-                if starts and stops and st not in open_wedges:
+                if in_scope and starts and stops and st not in open_wedges:
                     first_stop_idx = next(i for i, wd in enumerate(st_wedges) if wd[3] == "stop")
                     first_start_idx = next(i for i, wd in enumerate(st_wedges) if wd[3] in ("crescendo", "diminuendo"))
                     if first_stop_idx < first_start_idx:
@@ -5072,7 +5145,7 @@ def normalize_wedges_in_root(root: ET.Element) -> int:
                         stops = [wd for wd in st_wedges if wd[3] == "stop"]
 
                 # 2. 다중 voice — above wedge가 주 voice 첫 음 **앞**(마디 헤더 고착)에만 승격
-                if (starts or stops) and any(wd[1].get("placement") == "above" for wd in st_wedges):
+                if in_scope and (starts or stops) and any(wd[1].get("placement") == "above" for wd in st_wedges):
                     st_n = int(st) if st.isdigit() else 1
                     notes = list_note_elements(measure, ns)
                     st_notes = [n for n in notes if (_note_staff_number(n, ns) or 1) == st_n]
@@ -5116,32 +5189,56 @@ def normalize_wedges_in_root(root: ET.Element) -> int:
                 if starts and st in open_wedges:
                     prev_info = open_wedges[st]
                     prev_m = prev_info["measure"]
-                    stop_dir = _build_direction_element(
-                        ns, "wedge", "stop", staff_n=int(st) if st.isdigit() else 1, placement=prev_info.get("placement") or "below", wedge_number=prev_info.get("number") or "1"
-                    )
-                    if prev_info.get("placement") == "above":
-                        stop_dir.set("default-y", "25")
-                        wel = _wedge_element(stop_dir, ns)
-                        if wel is not None:
-                            wel.set("default-y", "25")
-                    bl = prev_m.find(_q(ns, "barline"))
-                    if bl is not None:
-                        b_idx = list(prev_m).index(bl)
-                        prev_m.insert(b_idx, stop_dir)
-                    else:
-                        prev_m.append(stop_dir)
-                    changed_measures += 1
+                    prev_in_scope = _part_measure_in_scope(part_id, prev_m, only_measures)
+                    # 새 start가 범위 안일 때만 이전 마디에 stop 삽입 (범위 밖 마디는 건드리지 않음)
+                    if in_scope and prev_in_scope:
+                        stop_dir = _build_direction_element(
+                            ns, "wedge", "stop", staff_n=int(st) if st.isdigit() else 1, placement=prev_info.get("placement") or "below", wedge_number=prev_info.get("number") or "1"
+                        )
+                        if prev_info.get("placement") == "above":
+                            stop_dir.set("default-y", "25")
+                            wel = _wedge_element(stop_dir, ns)
+                            if wel is not None:
+                                wel.set("default-y", "25")
+                        bl = prev_m.find(_q(ns, "barline"))
+                        if bl is not None:
+                            b_idx = list(prev_m).index(bl)
+                            prev_m.insert(b_idx, stop_dir)
+                        else:
+                            prev_m.append(stop_dir)
+                        changed_measures += 1
                     del open_wedges[st]
 
-                # 4. 고아 stop 제거 (열린 wedge가 없는데 단독 stop만 있는 경우)
-                if stops and not starts and st not in open_wedges:
-                    for wd in stops:
-                        if wd[1] in list(measure):
-                            measure.remove(wd[1])
-                            m_changed = True
-                    stops = []
+                # 4. 고아 stop — 열린 wedge가 없을 때만 제거.
+                # staff 키가 어긋나도 같은 number의 open이 있으면 닫힘으로 처리(삭제 금지).
+                if stops and not starts:
+                    true_orphans: list[tuple[int, ET.Element, str, str, str]] = []
+                    if st in open_wedges:
+                        open_wedges.pop(st, None)
+                    else:
+                        for wd in stops:
+                            wnum = wd[4]
+                            match_st = next(
+                                (
+                                    ost
+                                    for ost, info in open_wedges.items()
+                                    if str(info.get("number") or "1") == str(wnum)
+                                ),
+                                None,
+                            )
+                            if match_st is not None:
+                                open_wedges.pop(match_st, None)
+                            else:
+                                true_orphans.append(wd)
+                        if in_scope:
+                            for wd in true_orphans:
+                                if wd[1] in list(measure):
+                                    measure.remove(wd[1])
+                                    m_changed = True
+                    # step 5 상태용 — 삭제한(또는 범위 밖 진짜 고아) stop은 짝으로 치지 않음
+                    stops = [wd for wd in stops if wd not in true_orphans]
 
-                # 5. open_wedges 상태 갱신
+                # 5. open_wedges 상태 갱신 (범위와 무관 — 이후 마디 짝짓기용)
                 if starts and not stops:
                     open_wedges[st] = {
                         "measure": measure,
@@ -5405,12 +5502,17 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
     return changed
 
 
-def normalize_multivoice_stems_in_root(root: ET.Element) -> int:
+def normalize_multivoice_stems_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
     """전 악보 — 다성 겹침 stem 정규화. 변경 마디 수."""
     ns = _ns(root)
     n = 0
     for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
         for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
             if normalize_multivoice_stems_in_measure(measure, ns):
                 n += 1
     return n
@@ -11534,12 +11636,17 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
 
 
 
-def cleanup_chord_beams_in_root(root: ET.Element) -> int:
+def cleanup_chord_beams_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
     """전 악보에서 `<chord/>` 멤버의 orphan `<beam>` 제거 — OSMD 미리보기 호환."""
     ns = _ns(root)
     changed = 0
     for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
         for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
             notes = list_note_elements(measure, ns)
             if _strip_chord_member_beams(notes, ns):
                 changed += 1
@@ -11559,15 +11666,28 @@ def apply_fixes_file(
     if not skip_octave_repair:
         new_system_octave_notes = repair_new_system_octave_drift_in_root(root)
     stats = apply_fixes_to_root(root, fixes) if fixes else {"applied": 0, "skipped": 0}
-    chord_beam_measures = cleanup_chord_beams_in_root(root)
+    # fix가 가리킨 마디만 post-normalize — 다른 마디 crescendo/stop 등을 건드리지 않음
+    touched = touched_measures_from_fixes(fixes) if fixes else None
+    only = touched if touched else None
+    chord_beam_measures = cleanup_chord_beams_in_root(root, only_measures=only)
     rest_play_order_measures = normalize_play_orders_including_rests_in_root(root)
-    multivoice_stem_measures = normalize_multivoice_stems_in_root(root)
-    coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root)
-    timeline_measures = normalize_measure_timelines_in_root(root)
-    dynamics_normalized = normalize_dynamics_in_root(root)
-    slurs_normalized = normalize_slurs_in_root(root)
-    wedges_normalized = normalize_wedges_in_root(root)
-    chord_pitch_dupes = dedupe_identical_chord_pitches_in_root(root)
+    multivoice_stem_measures = normalize_multivoice_stems_in_root(root, only_measures=only)
+    coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root, only_measures=only)
+    timeline_measures = normalize_measure_timelines_in_root(root, only_measures=only)
+    dynamics_normalized = normalize_dynamics_in_root(root, only_measures=only)
+    slurs_normalized = 0
+    if only is None:
+        slurs_normalized = normalize_slurs_in_root(root)
+    else:
+        # slur는 교차 마디 짝이 있어 전 악보 추적이 필요 — 변이만 범위 제한은 미구현, fix 없으면 스킵
+        # 이음줄 관련 fix가 있을 때만 전 악보 정리(기존 동작). 그 외는 이웃 마디 오염 방지.
+        slur_kinds = {"addSlur", "removeSlur"}
+        if any(str(f.get("kind") or "") in slur_kinds for f in fixes):
+            slurs_normalized = normalize_slurs_in_root(root)
+    wedges_normalized = 0
+    if fixes_include_wedge_kind(fixes):
+        wedges_normalized = normalize_wedges_in_root(root, only_measures=only)
+    chord_pitch_dupes = dedupe_identical_chord_pitches_in_root(root, only_measures=only)
     write_mxl_root(mxl_path, files, root_path, root)
     return {
         "path": str(mxl_path),

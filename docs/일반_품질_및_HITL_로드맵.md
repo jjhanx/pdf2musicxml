@@ -119,6 +119,7 @@ python _smoke/test_printed_measure_numbers_circled.py  # 원문자·줄머리 OC
 | 현상 | 웹/스크립트로 | 사용자 |
 |------|----------------|--------|
 | 빔 없는 세잇단 괄호(4분·2분+4분 등) | HITL 「세잇단 적용」+ **음표 길이 유지**(혼합 길이)·`fix_audiveris_mxl` bracket 규칙. 검증: `python _smoke/test_triplet_hitl.py` | 마디 편집에서 범위·기준 박자 지정 |
+| 8분+세잇단 16분 4음 「빔 연결」이 반영 후 사라짐 | 세잇단 구간만 보면 빔이 continue로 시작해 repair가 지움 → **레이어 begin…end run이 세잇단을 덮으면** connected로 보존. `python _smoke/test_beam_across_triplet.py` | #14→#20·#26→#32처럼 앞 8분 포함해 빔 연결 후 MXL 반영 |
 | 원본에 없는 지그재그 꾸밈음(inverted-mordent 등) | HITL 음표 **꾸밈음 제거/추가**. 검증: `python _smoke/test_ornament_wedge_hitl.py` | 마디 편집에서 해당 음 선택 |
 | tenuto·accent 거리 미리보기 | **반영 전:** `pendingFixes` → 글리프 Δ. **반영 후:** 대기 목록은 비우되 `artPreviewFixes`로 같은 OSMD 경로 유지(XML `default-y`만으로는 OSMD가 안 옮김). 상세: `docs/악보_변환_품질_가이드.md` 「MXL 반영 후 Accent 거리…」. 검증: `npx tsx _smoke/test_articulation_yshift_draw.ts` | 3칸→Δ=20px → 「MXL에 반영」 후에도 위치·헤더 유지 |
 | 셈여림 점선(wedge) 없음·길이 오류 | HITL **셈여림 점선** 패널에서 시작→끝 추가, `wedge(stop)`을 끝 음 **뒤**로 이동(barline 금지). **PR/PL은 staff별로 독립**. 새 점선: 시작·끝 선택이 부모 리렌더에 덮어쓰이지 않음(기본 끝=현재 마디 마지막). **mf 등 direction만 반영할 때 다른 마디 wedge를 normalize하지 않음**. OSMD split: direction staff 유지. `python _smoke/test_ornament_wedge_hitl.py` · `python _smoke/test_mf_does_not_touch_other_measure_wedge.py` · `npx tsx _smoke/test_wedge_last_note_preview.ts` | 시작·끝 고른 뒤 「점선 추가」→ 첫 반영부터 그 구간 |

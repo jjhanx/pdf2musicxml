@@ -5748,7 +5748,11 @@ def _tuplet_group_has_beam(notes: list[ET.Element], indices: list[int], ns: str)
 def _tuplet_group_has_connected_beam(
     notes: list[ET.Element], indices: list[int], ns: str
 ) -> bool:
-    """리더 음표가 begin→continue*→end로 실제 빔 run을 이루고, 모두 8분 이하일 때만 True."""
+    """리더 음표가 begin→continue*→end로 실제 빔 run을 이루고, 모두 8분 이하일 때만 True.
+
+    세잇단 구간만 보면 continue로 시작하는 경우가 있다(앞 8분이 같은 빔 begin).
+    그때는 같은 staff·voice 레이어의 전체 빔 run이 이 구간을 덮으면 True.
+    """
     leaders = [i for i in indices if not _is_chord_member_note(notes[i], ns)]
     if len(leaders) < 2:
         return False
@@ -5758,12 +5762,66 @@ def _tuplet_group_has_connected_beam(
     beam_vals = [_note_beam_value(notes[i], ns) for i in leaders]
     if not any(beam_vals):
         return False
-    if beam_vals[0] != "begin" or beam_vals[-1] != "end":
+    if beam_vals[0] == "begin" and beam_vals[-1] == "end":
+        if all(mid in ("continue", "end") for mid in beam_vals[1:-1]):
+            return True
+    return _tuplet_leaders_covered_by_layer_beam_run(notes, leaders, ns)
+
+
+def _layer_rhythmic_indices_same_voice_staff(
+    notes: list[ET.Element], ns: str, voice: str, staff: str
+) -> list[int]:
+    out: list[int] = []
+    for i, note in enumerate(notes):
+        if _is_chord_member_note(note, ns):
+            continue
+        if note.find(_q(ns, "rest")) is not None:
+            continue
+        if note.find(_q(ns, "grace")) is not None:
+            continue
+        v, st = _note_voice_staff(note, ns)
+        if v == voice and st == staff:
+            out.append(i)
+    return out
+
+
+def _tuplet_leaders_covered_by_layer_beam_run(
+    notes: list[ET.Element], leaders: list[int], ns: str, beam_number: int = 1
+) -> bool:
+    """세잇단 리더들이 같은 레이어의 begin…end 빔 run 안에 모두 포함되면 True."""
+    if len(leaders) < 2:
         return False
-    for mid in beam_vals[1:-1]:
-        if mid not in ("continue", "end"):
-            return False
-    return True
+    if any(_note_beam_value(notes[i], ns, beam_number) is None for i in leaders):
+        return False
+    voice, staff = _note_voice_staff(notes[leaders[0]], ns)
+    layer = _layer_rhythmic_indices_same_voice_staff(notes, ns, voice, staff)
+    if len(layer) < 2:
+        return False
+    leader_set = set(leaders)
+    # 레이어 순서로 빔 run 탐색
+    active: list[int] = []
+    for idx in layer:
+        val = _note_beam_value(notes[idx], ns, beam_number)
+        if val is None:
+            active = []
+            continue
+        v = val.strip().lower()
+        if v == "begin":
+            active = [idx]
+        elif v in ("continue", "forward hook", "backward hook"):
+            if active:
+                active.append(idx)
+            else:
+                active = []
+        elif v == "end":
+            if active:
+                active.append(idx)
+                if len(active) >= 2 and leader_set.issubset(set(active)):
+                    return True
+            active = []
+        else:
+            active = []
+    return False
 
 
 def _tuplet_span_needs_bracket(

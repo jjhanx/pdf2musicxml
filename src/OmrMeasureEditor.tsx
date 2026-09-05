@@ -4644,8 +4644,8 @@ function MeasureNoteEditor({
             disabled={beamNoteCount < 2}
             title={
               beamNoteCount < 2
-                ? '빔은 8분음표 이하(16·32분 등)에만 적용됩니다 — 2분·4분·세잇단 혼합은 「세잇단 적용」과 bracket을 사용하세요'
-                : `${beamNoteCount}개 음표를 빔 ${beamNumber}로 연결`
+                ? '빔은 8분음표 이하(16·32분 등)에만 적용됩니다 — 2분·4분 혼합 세잇단은 「세잇단 적용」과 bracket을 사용하세요'
+                : `${beamNoteCount}개 음표를 빔 ${beamNumber}로 연결 (8분+세잇단 16분도 가능)`
             }
             onClick={() => {
               const fromEl = noteEls.find((n) => n.index === beamLeaderIdx);

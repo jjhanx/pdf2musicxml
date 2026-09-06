@@ -11,10 +11,11 @@ import {
 } from '../shared/musicXmlArticulationDistance.ts';
 import {
   applyOsmdArticulationOffsetsDetailed,
+  findArticulationElementsInStavenote,
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
 } from '../src/osmdArticulationOffsetFix.ts';
-import { overlayArticulationY, stackOverlayArtSpaces } from '../src/osmdArticulationOverlay.ts';
+import { overlayArticulationY, pathStartXY, stackOverlayArtSpaces } from '../src/osmdArticulationOverlay.ts';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => any }).OpenSheetMusicDisplay ??
@@ -94,23 +95,24 @@ async function main() {
   osmd.render();
   applyOsmdArticulationOffsetsDetailed(host, osmd);
 
-  const tagged = [...host.querySelectorAll('[data-hitl-art-tag]')].map((el) => ({
-    tag: el.getAttribute('data-hitl-art-tag'),
-    spaces: el.getAttribute('data-art-spaces'),
-    shift: parseFloat(el.getAttribute('data-art-shift-y') || '0'),
-  }));
-  console.log('tagged', tagged);
-  const byTag = Object.fromEntries(tagged.map((t) => [t.tag, t]));
-  if (!byTag.tenuto || !byTag.accent) {
-    throw new Error(`expected tags, got ${JSON.stringify(tagged)}`);
+  const notes = [...host.querySelectorAll('.vf-stavenote')];
+  let bestGap = 0;
+  for (const n of notes) {
+    const arts = findArticulationElementsInStavenote(n);
+    if (arts.length < 2) continue;
+    const ys = arts
+      .map((el) => pathStartXY(el)?.y)
+      .filter((y): y is number => y != null)
+      .sort((a, b) => a - b);
+    const g = ys[ys.length - 1]! - ys[0]!;
+    if (g > bestGap) bestGap = g;
   }
-  if (byTag.tenuto.spaces !== '2' || byTag.accent.spaces !== '5') {
-    throw new Error(`spaces ${JSON.stringify(byTag)}`);
+  console.log('native dual gap', bestGap);
+  // distance 2 vs 5 → text_line 1 vs 4 → 눈에 띄는 간격
+  if (bestGap < 15) {
+    throw new Error(`expected native gap>=15 for 2/5, got ${bestGap}`);
   }
-  if (Math.abs(byTag.tenuto.shift - byTag.accent.shift) < 15) {
-    throw new Error(`shifts too close ${JSON.stringify(byTag)}`);
-  }
-  console.log('dual articulation distance ok', byTag);
+  console.log('dual articulation distance ok', { bestGap });
 }
 
 main().catch((e) => {

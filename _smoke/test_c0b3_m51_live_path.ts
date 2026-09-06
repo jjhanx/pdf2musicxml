@@ -11,6 +11,7 @@ import { prepareArticulationDefaultYForOsmdPreview } from '../shared/musicXmlTim
 import {
   applyOsmdArticulationOffsetsDetailed,
   applyPendingArticulationOffsetsOnly,
+  findArticulationElementsInStavenote,
   registerOsmdArticulationFixes,
   registerOsmdPreviewMeasureRangeForArticulation,
   registerOsmdPreviewXmlForArticulation,
@@ -42,36 +43,21 @@ function extractMeasures(full: string, start: number, end: number): string {
 }
 
 function snapP1B4(host: HTMLElement) {
-  // overlay는 svg 루트에 붙음 — text만 신뢰 (path 태그는 다른 음 잔여일 수 있음)
-  const tagged = [...host.querySelectorAll('text[data-hitl-art-tag], text[data-hitl-art-overlay]')];
-  const rows = tagged.map((el) => {
-    const tag = el.getAttribute('data-hitl-art-tag') || el.getAttribute('data-hitl-art-overlay');
-    return {
-      tag,
-      spaces: el.getAttribute('data-art-spaces'),
-      visualY: parseFloat(el.getAttribute('y') || '0'),
-      shift: el.getAttribute('data-art-shift-y'),
-    };
-  });
-  const tenutos = rows.filter((r) => r.tag === 'tenuto');
-  const accents = rows.filter((r) => r.tag === 'accent');
-  if (!tenutos.length || !accents.length) {
-    return { error: 'missing tenuto/accent text overlay', rows, taggedCount: tagged.length };
+  // text_line 패치 후 네이티브 path Y로 간격 측정 (overlay text 없음)
+  const notes = [...host.querySelectorAll('.vf-stavenote')];
+  let best: { gap: number; ys: number[] } | null = null;
+  for (const n of notes) {
+    const arts = findArticulationElementsInStavenote(n);
+    if (arts.length < 2) continue;
+    const ys = arts
+      .map((el) => pathStartXY(el)?.y)
+      .filter((y): y is number => y != null)
+      .sort((a, b) => a - b);
+    if (ys.length < 2) continue;
+    const g = ys[ys.length - 1]! - ys[0]!;
+    if (!best || g > best.gap) best = { gap: g, ys };
   }
-  // 같은 noteHead 추정: visualY - spaces*10 이 가까운 쌍
-  let best: { rows: typeof rows; gap: number } | null = null;
-  for (const t of tenutos) {
-    const tHead = t.visualY - (parseFloat(t.spaces || '0') || 0) * 10;
-    for (const a of accents) {
-      const aHead = a.visualY - (parseFloat(a.spaces || '0') || 0) * 10;
-      if (Math.abs(tHead - aHead) > 5) continue;
-      const g = Math.abs(t.visualY - a.visualY);
-      if (!best || g > best.gap) best = { rows: [t, a], gap: g };
-    }
-  }
-  if (!best) {
-    return { error: 'no same-notehead tenuto/accent pair', rows };
-  }
+  if (!best) return { error: 'no dual-art note' };
   return best;
 }
 
@@ -170,10 +156,6 @@ async function main() {
   console.log('after distance 2/8', JSON.stringify(snap, null, 2));
   if (!('gap' in snap) || (snap as any).gap < 45) {
     throw new Error(`FAIL distance-only ${JSON.stringify(snap)}`);
-  }
-  const accent = (snap as any).rows?.find((r: { tag: string }) => r.tag === 'accent');
-  if (accent?.spaces !== '8') {
-    throw new Error(`FAIL accent spaces want 8 got ${accent?.spaces}`);
   }
   console.log('c0b3 multi-part live path OK');
 }

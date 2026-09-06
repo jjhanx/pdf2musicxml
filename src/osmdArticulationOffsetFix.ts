@@ -87,16 +87,23 @@ function graphicMeasureMxlForArticulation(
 const articulationFixesByOsmd = new WeakMap<OpenSheetMusicDisplay, ArticulationPreviewFix[]>();
 
 /**
- * VexFlow Articulation.draw()는 path를 절대 좌표로 그리며 `this.y_shift`만 반영한다.
- * OSMD는 slur 시작음에만 setYShift하고 MusicXML default-y는 무시한다.
- * 표(tenuto/accent)마다 WeakMap extras — 전역 max Δ를 모든 표에 넣으면 겹침·거리 조절 불가.
+ * VexFlow Articulation.draw()는 y_shift를 쓰지 않는다.
+ * 위치는 text_line으로 계산: below → bottomY + (textLine + initialOffset)×staffSpace.
+ * MusicXML default-y는 OSMD가 무시하므로, HITL 칸 수 → text_line 으로 그린다.
  */
-const articulationModExtraY = new WeakMap<object, number>();
+const articulationModStaffSpaces = new WeakMap<object, number>();
+const osmdArtRerendering = new WeakSet<OpenSheetMusicDisplay>();
 let articulationDrawPatched = false;
 
+/** @deprecated 이름 유지 — staffSpaces를 WeakMap에 저장 */
 export function setArticulationModExtraY(mod: object, y: number): void {
-  if (!Number.isFinite(y) || y === 0) articulationModExtraY.delete(mod);
-  else articulationModExtraY.set(mod, y);
+  if (!Number.isFinite(y) || y <= 0) articulationModStaffSpaces.delete(mod);
+  else articulationModStaffSpaces.set(mod, y);
+}
+
+export function setArticulationModStaffSpaces(mod: object, spaces: number): void {
+  if (!Number.isFinite(spaces) || spaces <= 0) articulationModStaffSpaces.delete(mod);
+  else articulationModStaffSpaces.set(mod, spaces);
 }
 
 export function clearArticulationModExtraYs(): void {
@@ -117,6 +124,7 @@ export function getHitlArticulationExtraYPx(): number {
 type VfArticulationLike = {
   type?: string;
   y_shift?: number;
+  text_line?: number;
   setYShift?: (n: number) => unknown;
   getCategory?: () => string;
   category?: string;
@@ -133,7 +141,7 @@ function isVfArticulationMod(m: VfArticulationLike | null | undefined): boolean 
   return /^a[>.\-^@|,]/.test(t) || t === 'av' || t === 'ao' || t === 'ah' || t === 'abr' || t === 'am';
 }
 
-/** VexFlow Articulation.prototype.draw에 HITL extraY를 주입. 한 번만. */
+/** VexFlow Articulation.prototype.draw — HITL staffSpaces → text_line. 한 번만. */
 export function ensureArticulationDrawPatch(osmd: OpenSheetMusicDisplay): boolean {
   if (articulationDrawPatched) return true;
   let ctor: VfArticulationLike['constructor'] | null = null;
@@ -171,16 +179,18 @@ export function ensureArticulationDrawPatch(osmd: OpenSheetMusicDisplay): boolea
   }
   const orig = ctor.prototype.draw;
   ctor.prototype.draw = function hitlArticulationDraw(this: VfArticulationLike, ...args: unknown[]) {
-    const saved = this.y_shift;
-    // 표별 WeakMap만 사용 — 전역 hitlArticulationExtraYPx는 배너용(그리기 금지)
-    const extra = articulationModExtraY.get(this) ?? 0;
+    const spaces = articulationModStaffSpaces.get(this);
+    const savedLine = this.text_line;
     (ctor as { __hitlDrawCount?: number }).__hitlDrawCount =
       ((ctor as { __hitlDrawCount?: number }).__hitlDrawCount ?? 0) + 1;
-    if (extra) this.y_shift = (typeof saved === 'number' && Number.isFinite(saved) ? saved : 0) + extra;
+    // below: y = bottomY + (textLine + ~1)×gap → staffSpaces N ⇒ textLine ≈ N−1
+    if (spaces != null && Number.isFinite(spaces) && spaces > 0) {
+      this.text_line = Math.max(0, spaces - 1);
+    }
     try {
       return orig.apply(this, args);
     } finally {
-      this.y_shift = saved;
+      this.text_line = savedLine;
     }
   };
   ctor.__hitlArtDrawPatched = true;
@@ -1587,35 +1597,19 @@ export function applyOsmdArticulationOffsetsDetailed(
 }
 
 /**
- * 복수 표·HITL 거리 — 네이티브 articulation path를 표별로 절대 Y로 이동.
- * getBBox/CTM 실패 시에도 path `d`의 M 좌표·VexFlow getYs 사용.
- * 글리프가 부족한 표만 SVG text overlay.
+ * HITL/XML 힌트 칸 수를 VexFlow Articulation modifier에 붙임.
+ * draw 패치가 text_line = spaces−1 로 반영. 같은 쪽 복수 표는 stackOverlayArtSpaces로 간격 보장.
  */
-function applyHitlArticulationOverlaysForOsmd(
-  host: HTMLElement,
+function assignArticulationStaffSpacesToMods(
   osmd: OpenSheetMusicDisplay,
   pendingFixes: ArticulationPreviewFix[],
-  xml: string,
-  staffSpacePx: number,
+  hintsByMeasure: Map<string, OrderedHint[]>,
 ): number {
-  clearHitlArticulationOverlays(host);
-  const svg = host.querySelector('svg');
-  if (!svg) return 0;
-
-  const hintsByMeasure = xml?.trim()
-    ? cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml))
-    : new Map<string, OrderedHint[]>();
-  if (xml?.trim()) overlayFixesOnHints(xml, hintsByMeasure, pendingFixes);
-
+  let assigned = 0;
   const pendingArt = pendingFixes.filter(
     (f) =>
       (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') && Boolean(f.articulation),
   );
-  const pendingMeasureKeys = new Set(pendingArt.map((f) => String(f.measureMxl)));
-  if (!pendingArt.length && countHints(hintsByMeasure) === 0) return 0;
-
-  const gap = staffSpacePx > 2 ? staffSpacePx : 10;
-  let painted = 0;
 
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
     const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
@@ -1627,10 +1621,7 @@ function applyHitlArticulationOverlaysForOsmd(
       lookupHints(hintsByMeasure, partId, measureMxl) ??
       [];
 
-    const measureHasPending = pendingMeasureKeysMatch(measureMxl, pendingMeasureKeys);
-    if (!hints.length && !measureHasPending) return;
-
-        let noteOrd = 0;
+    let noteOrd = 0;
     const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
     for (const seRaw of staffEntries) {
       const se = asRecord(seRaw);
@@ -1641,196 +1632,96 @@ function applyHitlArticulationOverlaysForOsmd(
         if (!gve) continue;
         const staveNote = vexStaveNoteFromGve(gve);
         const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
-        if (!gNotes.length) continue;
-        if (graphicNotesAreRest(gNotes)) continue;
+        if (!gNotes.length || graphicNotesAreRest(gNotes)) continue;
         const thisNoteIndex = noteOrd;
         noteOrd += 1;
         const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
-        const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
-        if (!staveNoteSvg) continue;
-
-        const noteHints = hints.filter((h) => {
-          if (h.pitch && notePitches.length) return graphicPitchesMatchFix(notePitches, h.pitch);
-          return false;
-        });
-        const artElsEarly = findArticulationElementsInStavenote(staveNoteSvg);
-
-        const pendingForNote = pendingArt.filter((f) => {
-          if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) return false;
-          if (f.noteIndex != null && Number(f.noteIndex) !== thisNoteIndex) return false;
-          if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
-            return false;
-          }
-          const fp = pitchLabelFromArticulationFix(f);
-          if (fp && notePitches.length && !graphicPitchesMatchFix(notePitches, fp)) return false;
-          return true;
-        });
-
-        // HITL이 noteIndex로 특정 음을 가리키면, 같은 피치의 다른 음에 피치 힌트만으로 overlay 금지 (m.51 중복 방지)
-        if (!pendingForNote.length && pendingArt.length) {
-          const targeted = pendingArt.some((f) => {
-            if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) return false;
-            if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
-              return false;
-            }
-            if (f.noteIndex == null) return false;
-            const fp = pitchLabelFromArticulationFix(f);
-            if (fp && notePitches.length && !graphicPitchesMatchFix(notePitches, fp)) return false;
-            return Number(f.noteIndex) !== thisNoteIndex;
-          });
-          if (targeted) continue;
-        }
-
-        // 표가 아직 draw되지 않아도 pending/힌트가 있으면 overlay (m.51 HITL add)
-        // 같은 피치 복수 음: 네이티브 표가 있거나 pending noteIndex가 맞은 음만
-        const hintsForNote =
-          noteHints.length && (artElsEarly.length > 0 || pendingForNote.length > 0)
-            ? noteHints
-            : !notePitches.length && artElsEarly.length > 0
-              ? hints.filter((h) => !h.pitch)
-              : [];
-
-        if (!hintsForNote.length && !pendingForNote.length) continue;
-
-        const byTag = new Map<string, HitlArtOverlaySpec>();
-        for (const h of hintsForNote) {
-          const glyph = HITL_ART_OVERLAY_GLYPH[h.tag];
-          if (!glyph) continue;
-          byTag.set(h.tag, {
-            tag: h.tag,
-            placement: h.placement,
-            staffSpaces: h.staffSpaces,
-            glyph,
-          });
-        }
-        for (const f of pendingForNote) {
-          const tag = artNameFromFix(f);
-          const glyph = HITL_ART_OVERLAY_GLYPH[tag];
-          if (!glyph) continue;
-          const spaces =
-            parseArticulationStaffSpaces(
-              f.distance === 'auto' || !f.distance ? 'auto' : String(f.distance),
-            ) ?? 1;
-          byTag.set(tag, {
-            tag,
-            placement: f.placement === 'above' || f.placement === 'below' ? f.placement : 'below',
-            staffSpaces: spaces,
-            glyph,
-          });
-        }
-
-        const specs = stackOverlayArtSpaces([...byTag.values()]);
-        if (!specs.length) continue;
-        const needsOverlay =
-          specs.length >= 2 ||
-          specs.some((s) => s.staffSpaces > 1.01) ||
-          pendingForNote.length > 0;
-        if (!needsOverlay) continue;
-
-        const artEls = artElsEarly.length ? artElsEarly : findArticulationElementsInStavenote(staveNoteSvg);
-        const placement = specs[0]!.placement;
-        const noteHeadY = resolveNoteHeadY(staveNote, staveNoteSvg, artEls, placement, gap);
-        let noteHeadX = resolveNoteHeadX(staveNoteSvg, artEls);
-        if (!noteHeadX) {
-          // path 없을 때 staveNote x
-          const snEl = staveNoteSvg as SVGGraphicsElement;
-          try {
-            if (typeof snEl.getBBox === 'function') {
-              const b = snEl.getBBox();
-              if (b.width > 0) noteHeadX = b.x + b.width / 2;
-            }
-          } catch {
-            /* */
-          }
-        }
-
-        // 같은 음에 표가 2개 이상이면 네이티브(같은 vf-modifiers 그룹 path)를 숨기고
-        // SVG text overlay로만 그린다. path transform은 실브라우저·줌에서 간격이 안 보이는 경우가 있음.
-        const forceTextOverlay = specs.length >= 2;
-        if (forceTextOverlay) {
-          hideNativeArticulationGlyphs(staveNoteSvg);
-          painted += paintHitlArticulationOverlayTexts(
-            svg as SVGSVGElement,
-            specs.map((s) => ({ ...s, x: noteHeadX || 0, noteHeadY })),
-            gap,
-          );
-          continue;
-        }
 
         const rawMods = staveNote?.modifiers as unknown;
         const mods = (Array.isArray(rawMods)
           ? rawMods
           : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
             ? (rawMods as { list: unknown[] }).list
-            : []) as Array<{ type?: string; getCategory?: () => string; category?: string }>;
-        const artMods = mods.filter((m) => {
-          const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
-          const t = String(m.type ?? '').toLowerCase();
-          return (
-            cat.includes('articulation') ||
-            t.includes('accent') ||
-            t.includes('staccato') ||
-            t.includes('tenuto') ||
-            t.includes('marcato') ||
-            /^a[>.\-^@+]/.test(t)
-          );
-        });
+            : []) as VfArticulationLike[];
+        const artMods = mods.filter((m) => isVfArticulationMod(m));
+        if (!artMods.length) continue;
 
-        const assigned = new Map<string, Element>();
-        const unused = [...artEls];
-        for (const spec of specs) {
-          for (let i = 0; i < artMods.length; i++) {
-            if (!articulationModTypeMatchesHint(artMods[i]?.type, spec.tag)) continue;
-            const el = artEls[i];
-            if (!el || !unused.includes(el)) continue;
-            assigned.set(spec.tag, el);
-            unused.splice(unused.indexOf(el), 1);
-            break;
-          }
-        }
-        const remainingSpecs = specs.filter((s) => !assigned.has(s.tag));
-        remainingSpecs.sort((a, b) => b.staffSpaces - a.staffSpaces);
-        unused.sort((a, b) => {
-          const ya = pathStartXY(a)?.y ?? 0;
-          const yb = pathStartXY(b)?.y ?? 0;
-          return placement === 'above' ? ya - yb : yb - ya;
-        });
-        for (let i = 0; i < remainingSpecs.length; i++) {
-          const el = unused[i];
-          if (el) assigned.set(remainingSpecs[i]!.tag, el);
+        type Spec = { mod: VfArticulationLike; tag: string; placement: 'above' | 'below'; staffSpaces: number };
+        const specs: Spec[] = [];
+
+        for (const mod of artMods) {
+          const tag = artTagFromVexModType(mod.type) ?? '';
+          if (!tag) continue;
+
+          const pendingForNote = pendingArt.filter((f) => {
+            if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) return false;
+            if (f.noteIndex != null && Number(f.noteIndex) !== thisNoteIndex) return false;
+            if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
+              return false;
+            }
+            const fp = pitchLabelFromArticulationFix(f);
+            if (fp && notePitches.length && !graphicPitchesMatchFix(notePitches, fp)) return false;
+            return artNameFromFix(f) === tag;
+          });
+
+          const fromPending = pendingForNote[0]
+            ? {
+                staffSpaces:
+                  parseArticulationStaffSpaces(
+                    pendingForNote[0].distance === 'auto' || !pendingForNote[0].distance
+                      ? 'auto'
+                      : String(pendingForNote[0].distance),
+                  ) ?? 1,
+                placement:
+                  pendingForNote[0].placement === 'above' || pendingForNote[0].placement === 'below'
+                    ? pendingForNote[0].placement
+                    : ('below' as const),
+              }
+            : staffSpacesFromPendingFix(pendingArt, {
+                partId,
+                measureMxl,
+                pitches: notePitches,
+                artTag: tag,
+                staffWithinPart,
+              });
+
+          const hint = hints.find((h) => {
+            if (h.tag.replace(/_/g, '-') !== tag) return false;
+            if (h.pitch && notePitches.length && !graphicPitchesMatchFix(notePitches, h.pitch)) return false;
+            return true;
+          });
+
+          const staffSpaces = fromPending?.staffSpaces ?? hint?.staffSpaces;
+          if (staffSpaces == null) continue;
+          const explicit =
+            Boolean(fromPending) || Boolean(hint && (hint.distance || hintNeedsOsmdPreviewShift(hint)));
+          if (!explicit) continue;
+
+          const placement: 'above' | 'below' =
+            fromPending?.placement ??
+            hint?.placement ??
+            ((mod as { getPosition?: () => number }).getPosition?.() === 3 ? 'above' : 'below');
+          specs.push({ mod, tag, placement, staffSpaces });
         }
 
-        const missing: HitlArtOverlaySpec[] = [];
-        for (const spec of specs) {
-          const el = assigned.get(spec.tag);
-          if (!el) {
-            missing.push(spec);
-            continue;
-          }
-          const cur = pathStartXY(el);
-          const targetY = overlayArticulationY(noteHeadY, spec.staffSpaces, spec.placement, gap);
-          if (cur && Number.isFinite(cur.y)) {
-            applyArticulationShiftY(el, targetY - cur.y);
-          } else {
-            const extra = (Math.max(1, spec.staffSpaces) - 1) * gap;
-            applyArticulationShiftY(el, (spec.placement === 'above' ? -1 : 1) * extra);
-          }
-          el.setAttribute('data-art-spaces', String(spec.staffSpaces));
-          el.setAttribute('data-hitl-art-tag', spec.tag);
-          painted += 1;
-        }
-
-        if (missing.length) {
-          painted += paintHitlArticulationOverlayTexts(
-            svg as SVGSVGElement,
-            missing.map((s) => ({ ...s, x: noteHeadX || 0, noteHeadY })),
-            gap,
-          );
+        if (!specs.length) continue;
+        const stacked = stackOverlayArtSpaces(
+          specs.map((s) => ({
+            tag: s.tag,
+            placement: s.placement,
+            staffSpaces: s.staffSpaces,
+            glyph: HITL_ART_OVERLAY_GLYPH[s.tag] || '·',
+          })),
+        );
+        for (let i = 0; i < specs.length; i++) {
+          const spaces = stacked[i]?.staffSpaces ?? specs[i]!.staffSpaces;
+          setArticulationModStaffSpaces(specs[i]!.mod, spaces);
+          assigned += 1;
         }
       }
     }
   });
-  return painted;
+  return assigned;
 }
 
 function applyOsmdArticulationOffsetsDetailedInner(
@@ -1844,246 +1735,43 @@ function applyOsmdArticulationOffsetsDetailedInner(
   if (!host?.querySelector('svg')) return { ...empty, staffSpacePx };
 
   ensureArticulationDrawPatch(osmd);
-
-  // 전역 래핑 경로 제거 — 음표별 글리프만 이동 (꾸밈음 보호 + MXL 반영 후 XML 힌트 유지)
   resetOsmdArticulationOffsets(host);
 
-  // 같은 음에 표가 2개 이상이면 상대 이동(fromDirect/relative)을 쓰면 안 됨.
-  // OSMD 네이티브가 이미 ~1칸 벌려 그린 뒤 (spaces−1)×gap 를 더하면
-  // tenuto@2(+10)과 accent@3(+20)이 같은 visualY로 겹친다(실측 gap≈0.5px).
-  // pending뿐 아니라 XML 힌트(m.49처럼 표가 이미 있는 경우)도 복수면 동일.
-  const pendingArtFixes = pendingFixes.filter(
-    (f) =>
-      (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') && Boolean(f.articulation),
-  );
-
-  const xmlEarly = resolveArticulationPreviewXml(osmd);
-  const hintsEarly = xmlEarly?.trim()
-    ? cloneHintsByMeasure(orderedHintsByMeasureFromXml(xmlEarly))
+  const xml = resolveArticulationPreviewXml(osmd);
+  const hintsByMeasure = xml?.trim()
+    ? cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml))
     : new Map<string, OrderedHint[]>();
-  if (xmlEarly?.trim()) overlayFixesOnHints(xmlEarly, hintsEarly, pendingFixes);
-
-  const hasMultiArtNote =
-    pendingHaveMultiArtOnSameNote(pendingArtFixes) || hintsHaveMultiArtOnSameNote(hintsEarly);
-  const usedElements = new Set<Element>();
-  const fromDirect = hasMultiArtNote
-    ? 0
-    : applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
-
-  const xml = xmlEarly;
-  const hostDy = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
-
-  if (!xml?.trim()) {
-    const fromOverlay = applyHitlArticulationOverlaysForOsmd(host, osmd, pendingFixes, '', staffSpacePx);
-    const shifted = fromDirect + fromOverlay;
-    applyHitlArticulationHostCss(host, shifted ? hostDy : 0);
-    setHitlArticulationExtraYPx(shifted ? hostDy : 0);
-    return { shifted, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
-  }
-
-  const hintsByMeasure = hintsEarly;
+  if (xml?.trim()) overlayFixesOnHints(xml, hintsByMeasure, pendingFixes);
   const totalHints = countHints(hintsByMeasure);
-  if (totalHints === 0 && pendingFixes.length === 0) {
-    applyHitlArticulationHostCss(host, 0);
-    setHitlArticulationExtraYPx(0);
-    return { shifted: fromDirect, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
-  }
 
-  let shiftedCount = fromDirect;
-  const usedHints = new Set<OrderedHint>();
-
-  // 복수 표는 아래 overlay(절대 Y / text)만 사용 — 이 상대 루프도 fromDirect와 같은 상쇄 버그
-  if (!hasMultiArtNote) {
-  try {
-    forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
-      const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
-      if (measureMxl == null) return;
-      const partId = partIdFromGraphic(gm) ?? '';
-      const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);
-      const hints =
-        lookupHints(hintsByMeasure, partId, measureMxl, staffWithinPart) ??
-        lookupHints(hintsByMeasure, partId, measureMxl) ??
-        [];
-      // pending이 있어도 힌트 없는 마디는 건너뜀 (예전: pending만으로 전 악보 순회 → 멈춤)
-      if (!hints.length) return;
-
-      const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
-      for (const seRaw of staffEntries) {
-        const se = asRecord(seRaw);
-        if (!se) continue;
-        const gves = (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[];
-        for (const gveRaw of gves) {
-          const gve = asRecord(gveRaw);
-          if (!gve) continue;
-          const staveNote = vexStaveNoteFromGve(gve);
-          const rawMods = staveNote?.modifiers as unknown;
-          const mods = (Array.isArray(rawMods)
-            ? rawMods
-            : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
-              ? (rawMods as { list: unknown[] }).list
-              : []) as Array<{
-            getCategory?: () => string;
-            category?: string;
-            getPosition?: () => number;
-            type?: string;
-            attrs?: { el?: Element };
-            el?: Element;
-            getAttribute?: (k: string) => unknown;
-          }>;
-          const artMods = mods.filter((m) => {
-            const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
-            const t = String(m.type ?? '').toLowerCase();
-            return (
-              cat.includes('articulation') ||
-              t.includes('accent') ||
-              t.includes('staccato') ||
-              t.includes('tenuto') ||
-              t.includes('marcato') ||
-              /^a[>.\-^@+]/.test(t)
-            );
-          });
-
-          const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
-          const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
-
-          const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
-          const artEls = staveNoteSvg ? findArticulationElementsInStavenote(staveNoteSvg) : [];
-          const modsOrFake =
-            artMods.length > 0 ? artMods : [{ type: undefined as string | undefined, getPosition: () => 0 }];
-
-          for (let i = 0; i < Math.max(modsOrFake.length, artEls.length, 1); i++) {
-            const artMod = modsOrFake[i] ?? modsOrFake[0];
-            const artTagFromMod = artTagFromVexModType(artMod?.type);
-
-            // pending과 동일: 그래픽 피치가 있을 때만 피치 필터. 없으면 표 종류·순서로 매칭
-            // (MXL 반영 후 pending 비울 때 피치 미추출이면 전부 탈락 → 원래 위치로 되돌아가던 버그)
-            const typeOkHints = hints.filter((h) => {
-              if (usedHints.has(h)) return false;
-              if (artMod?.type && !articulationModTypeMatchesHint(artMod.type, h.tag)) return false;
-              return true;
-            });
-            const pitchMatched = typeOkHints.filter((h) => {
-              if (!h.pitch || !notePitches.length) return false;
-              return graphicPitchesMatchFix(notePitches, h.pitch);
-            });
-            const orderMatched = typeOkHints.filter((h) => {
-              if (h.pitch && notePitches.length && !graphicPitchesMatchFix(notePitches, h.pitch)) {
-                return false;
-              }
-              return true;
-            });
-            const matchedHint =
-              pitchMatched.find((h) => hintNeedsOsmdPreviewShift(h)) ??
-              pitchMatched[0] ??
-              orderMatched.find((h) => hintNeedsOsmdPreviewShift(h)) ??
-              orderMatched[0] ??
-              (!pendingFixes.length
-                ? typeOkHints.find((h) => hintNeedsOsmdPreviewShift(h)) ?? typeOkHints[0]
-                : undefined);
-            const pending = staffSpacesFromPendingFix(pendingFixes, {
-              partId,
-              measureMxl,
-              pitches: notePitches,
-              artTag: matchedHint?.tag ?? artTagFromMod ?? undefined,
-              staffWithinPart,
-            });
-            const staffSpaces = pending?.staffSpaces ?? matchedHint?.staffSpaces;
-            if (staffSpaces == null) continue;
-            // pending 없을 때 Audiveris 절대 default-y만으로 전 악보 Accent를 밀지 않음
-            if (!pending && matchedHint && !hintNeedsOsmdPreviewShift(matchedHint)) continue;
-
-            const isAbove =
-              artMod?.getPosition?.() === 3 ||
-              pending?.placement === 'above' ||
-              matchedHint?.placement === 'above';
-            const stave =
-              staveNote?.getStave?.() ??
-              staveNote?.stave ??
-              (gm as { getVFStave?: (n?: number) => unknown; stave?: unknown }).getVFStave?.(staffWithinPart) ??
-              (gm as { stave?: unknown }).stave;
-            const lineSpacing =
-              (typeof (stave as { getSpacingBetweenLines?: () => number })?.getSpacingBetweenLines === 'function'
-                ? (stave as { getSpacingBetweenLines: () => number }).getSpacingBetweenLines()
-                : null) ||
-              staffSpacePx ||
-              10;
-            const extraY = extraArticulationYPx(staffSpaces, lineSpacing, isAbove);
-            if (!extraY) continue;
-            if (artMod && isVfArticulationMod(artMod as VfArticulationLike)) {
-              setArticulationModExtraY(artMod, extraY);
-              rememberArticulationYShift(artMod, extraY);
-            }
-            const paintTargets = paintTargetsForOneArticulation(artMod, artEls, i, usedElements);
-            if (!paintTargets.length) continue;
-            for (const t of paintTargets) {
-              applyArticulationOffsetToTarget(t, extraY);
-              usedElements.add(t);
-            }
-            shiftedCount += 1;
-            if (matchedHint) usedHints.add(matchedHint);
-          }
-        }
-      }
-
-
-
-    });
-  } catch (err) {
-    console.warn('[osmdArticulationOffsetFix] error applying offsets:', err);
-  }
-  } // end !hasMultiArtNote relative path
-
-  // 배너 dy는 실제 글리프 이동이 있을 때만 (pending만으로 허위 표시 금지)
-  let appliedDy = 0;
-  if (shiftedCount > 0) {
-    if (pendingFixes.length) appliedDy = hostDy;
-    else {
-      let maxAbs = 0;
-      for (const el of host.querySelectorAll('[data-art-shift-y]')) {
-        const v = Math.abs(parseFloat(el.getAttribute('data-art-shift-y') ?? '0') || 0);
-        if (v > maxAbs) maxAbs = v;
-      }
-      appliedDy = maxAbs;
+  // 주 경로: VexFlow text_line (y_shift/overlay 아님). WeakMap 설정 후 재 render.
+  const assigned = assignArticulationStaffSpacesToMods(osmd, pendingFixes, hintsByMeasure);
+  if (assigned > 0 && !osmdArtRerendering.has(osmd)) {
+    osmdArtRerendering.add(osmd);
+    try {
+      osmd.render();
+    } catch (err) {
+      console.warn('[osmdArticulationOffsetFix] text_line re-render failed:', err);
+    } finally {
+      osmdArtRerendering.delete(osmd);
     }
   }
 
-  // direction으로 승격된 Accent/Tenuto — VexFlow modifier 경로에 없으면 여기서 이동
-  const liftedXml = resolveArticulationPreviewXml(osmd) ?? '';
+  const hostDy = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
+  let shiftedCount = assigned;
+
   const fromLiftedExpr = shiftLiftedOsmdExpressions(osmd, staffSpacePx || 10);
-  const fromLiftedDom = liftedXml
-    ? shiftLiftedDirectionTexts(host, liftedXml, staffSpacePx || 10)
+  const fromLiftedDom = xml?.trim()
+    ? shiftLiftedDirectionTexts(host, xml, staffSpacePx || 10)
     : 0;
   shiftedCount += fromLiftedExpr + fromLiftedDom;
-  if ((fromLiftedExpr || fromLiftedDom) && !appliedDy && pendingFixes.length) {
-    appliedDy = hostDy;
-  }
 
-  // 복수 표·HITL 거리: VexFlow 매칭 대신 notehead 기준 SVG overlay (최종)
-  const fromOverlay = applyHitlArticulationOverlaysForOsmd(
-    host,
-    osmd,
-    pendingFixes,
-    xml,
-    staffSpacePx || 10,
-  );
-  shiftedCount += fromOverlay;
-  if (fromOverlay && !appliedDy && pendingFixes.length) {
-    appliedDy = hostDy;
-  }
-  if (fromOverlay && !appliedDy) {
-    let maxAbs = 0;
-    for (const el of host.querySelectorAll('[data-hitl-art-overlay][data-art-shift-y]')) {
-      const v = Math.abs(parseFloat(el.getAttribute('data-art-shift-y') ?? '0') || 0);
-      if (v > maxAbs) maxAbs = v;
-    }
-    if (maxAbs) appliedDy = maxAbs;
-  }
-
+  const appliedDy = shiftedCount > 0 && pendingFixes.length ? hostDy : shiftedCount > 0 ? hostDy : 0;
   applyHitlArticulationHostCss(host, appliedDy);
   setHitlArticulationExtraYPx(appliedDy);
   host.setAttribute('data-hitl-art-shifted', String(shiftedCount));
   host.title = appliedDy
-    ? `[HITL Accent] dy=${appliedDy}px, shifted=${shiftedCount}`
+    ? `[HITL Accent] dy=${appliedDy}px, shifted=${shiftedCount}, text_line`
     : '[HITL Accent] dy=0';
 
   return {

@@ -1094,7 +1094,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [artPreviewFixes, pendingFixes],
   );
 
-  /** 거리 힌트 XML — pending/반영 거리를 attr로 심어 SVG·힌트 경로가 표별로 읽게 함 */
+  /** m.49처럼 표·거리가 심긴 XML을 OSMD load에 씀 (previewXml만 쓰면 표 없는 악보를 그림). */
   const articulationHintXml = useMemo(
     () => applyArticulationPlacementFixesToPreviewXml(previewXml, osmdArticulationFixes),
     [previewXml, osmdArticulationFixes],
@@ -1110,15 +1110,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return { count: arts.length, dy, dists };
   }, [osmdArticulationFixes]);
 
-  /** 거리만 바뀌면 키 유지 → OSMD 전체 remount 없이 SVG 표 이동만 재적용.
-   * (거리마다 remount하면 네이티브 겹침(~1칸)이 잠깐/계속 보이는 것처럼 느껴짐) */
+  /** 표 추가·거리 변경 시 remount — m.49와 같이 표가 load XML에 있는 상태로 OSMD를 다시 그림. */
   const artPreviewOsmdKey = useMemo(() => {
     const arts = osmdArticulationFixes.filter(isArticulationPreviewFix);
     if (!arts.length) return osmdPreviewKey;
     const sig = arts
       .map(
         (f) =>
-          `${f.kind}:${f.articulation}:${f.placement ?? ''}:${f.noteIndex ?? ''}:${f.partId ?? ''}:${f.measureMxl ?? ''}`,
+          `${f.kind}:${f.articulation}:${f.placement ?? ''}:${f.distance ?? ''}:${f.noteIndex ?? ''}:${f.partId ?? ''}:${f.measureMxl ?? ''}`,
       )
       .join('|');
     return `${osmdPreviewKey}::${sig}`;
@@ -1306,7 +1305,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               ) : previewXml ? (
                 <OsmdBlock
                   key={artPreviewOsmdKey}
-                  xml={previewXml}
+                  xml={articulationHintXml}
                   articulationHintXml={articulationHintXml}
                   articulationFixes={osmdArticulationFixes}
                   zoom={scoreZoom}

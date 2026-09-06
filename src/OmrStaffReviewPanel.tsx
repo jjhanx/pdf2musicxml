@@ -13,6 +13,7 @@ import {
 import { OmrMeasureEditor } from './OmrMeasureEditor';
 import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
 import { extraYPxFromArticulationFixes } from './osmdArticulationOffsetFix';
+import { applyArticulationPlacementFixesToPreviewXml } from '../shared/musicXmlArticulationDistance';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
@@ -1093,13 +1094,19 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [artPreviewFixes, pendingFixes],
   );
 
+  /** 거리 힌트 XML — pending/반영 거리를 attr로 심어 SVG·힌트 경로가 표별로 읽게 함 */
+  const articulationHintXml = useMemo(
+    () => applyArticulationPlacementFixesToPreviewXml(previewXml, osmdArticulationFixes),
+    [previewXml, osmdArticulationFixes],
+  );
+
   const artPreviewStatus = useMemo(() => {
     const arts = osmdArticulationFixes;
     const dy = extraYPxFromArticulationFixes(arts, 10);
     const dists = arts
-      .map((f) => f.distance || 'auto')
+      .map((f) => `${(f.articulation || '?').split('(')[0]}:${f.distance || 'auto'}`)
       .filter((v, i, a) => a.indexOf(v) === i)
-      .join(',');
+      .join(', ');
     return { count: arts.length, dy, dists };
   }, [osmdArticulationFixes]);
 
@@ -1248,11 +1255,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 color: artPreviewStatus.count || artPreviewStatus.dy ? '#fff' : '#495057',
                 fontWeight: 600,
               }}
-              title="Accent 거리 — 대기 보정 + MXL 반영분(artPreviewFixes) → OSMD Δ. 반영 후에도 유지."
+              title="표별 거리(Tenuto·Accent 각각). 대기+MXL 반영분 → OSMD Δ."
             >
               {artPreviewStatus.count === 0
-                ? 'Accent 거리: 대기/반영 없음'
-                : `Accent ${artPreviewStatus.dists || '?'}칸 · Δ=${artPreviewStatus.dy}px (1칸 대비)`}
+                ? '표 거리: 대기/반영 없음'
+                : `표 ${artPreviewStatus.dists || '?'} · Δmax=${artPreviewStatus.dy}px`}
             </div>
             <div className="omr-mxl-preview-controls">
               <label className="omr-zoom-label">
@@ -1286,7 +1293,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 <OsmdBlock
                   key={osmdPreviewKey}
                   xml={previewXml}
-                  articulationHintXml={previewXml}
+                  articulationHintXml={articulationHintXml}
                   articulationFixes={osmdArticulationFixes}
                   zoom={scoreZoom}
                   embeddedInOmrFrame

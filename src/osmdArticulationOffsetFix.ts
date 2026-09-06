@@ -29,10 +29,22 @@ const articulationFixesByOsmd = new WeakMap<OpenSheetMusicDisplay, ArticulationP
 /**
  * VexFlow Articulation.draw()는 path를 절대 좌표로 그리며 `this.y_shift`만 반영한다.
  * OSMD는 slur 시작음에만 setYShift하고 MusicXML default-y는 무시한다.
- * 거리 드롭다운 → 이 값 → draw() 중 y에 더함 (CSS/transform 우회 없음).
+ * 표(tenuto/accent)마다 WeakMap extras — 전역 max Δ를 모든 표에 넣으면 겹침·거리 조절 불가.
  */
-let hitlArticulationExtraYPx = 0;
+const articulationModExtraY = new WeakMap<object, number>();
 let articulationDrawPatched = false;
+
+export function setArticulationModExtraY(mod: object, y: number): void {
+  if (!Number.isFinite(y) || y === 0) articulationModExtraY.delete(mod);
+  else articulationModExtraY.set(mod, y);
+}
+
+export function clearArticulationModExtraYs(): void {
+  /* WeakMap — 새 render 후 modifier 객체가 바뀌면 자연 소멸. no-op helper for tests. */
+}
+
+/** @deprecated 전역 max Δ — 복수 표에 쓰면 같이 움직임. 배너 표시용으로만 유지. */
+let hitlArticulationExtraYPx = 0;
 
 export function setHitlArticulationExtraYPx(y: number): void {
   hitlArticulationExtraYPx = Number.isFinite(y) ? y : 0;
@@ -100,7 +112,8 @@ export function ensureArticulationDrawPatch(osmd: OpenSheetMusicDisplay): boolea
   const orig = ctor.prototype.draw;
   ctor.prototype.draw = function hitlArticulationDraw(this: VfArticulationLike, ...args: unknown[]) {
     const saved = this.y_shift;
-    const extra = hitlArticulationExtraYPx;
+    // 표별 WeakMap만 사용 — 전역 hitlArticulationExtraYPx는 배너용(그리기 금지)
+    const extra = articulationModExtraY.get(this) ?? 0;
     (ctor as { __hitlDrawCount?: number }).__hitlDrawCount =
       ((ctor as { __hitlDrawCount?: number }).__hitlDrawCount ?? 0) + 1;
     if (extra) this.y_shift = (typeof saved === 'number' && Number.isFinite(saved) ? saved : 0) + extra;
@@ -887,6 +900,7 @@ export function applySvgDyToVfModifiers(host: HTMLElement, dy: number): number {
 
 function applyArticulationOffsetToTarget(el: Element, dy: number): void {
   // 글리프만 이동. 부모 .vf-modifiers 전체를 감싸면 꾸밈음·임시표 기하가 깨질 수 있음.
+  // 그룹에 data-art-shift-y를 남기지 않음 — 마지막 표의 Δ가 그룹에 남아 오인됨.
   if (el.classList?.contains?.('vf-modifiers')) {
     applySvgDyToModifier(el, dy);
     return;
@@ -894,7 +908,6 @@ function applyArticulationOffsetToTarget(el: Element, dy: number): void {
   const modGroup = typeof el.closest === 'function' ? el.closest('.vf-modifiers') : null;
   if (modGroup && el !== modGroup) {
     applyArticulationShiftY(el, dy);
-    modGroup.setAttribute('data-art-shift-y', String(dy));
     return;
   }
   applyArticulationShiftY(el, dy);
@@ -1138,6 +1151,10 @@ function applyPendingDistanceDirect(
           const isAbove = artMod?.getPosition?.() === 3 || pending.placement === 'above';
           const extraY = extraArticulationYPx(pending.staffSpaces, lineSpacing, isAbove);
           if (!extraY) continue;
+          if (artMod) {
+            setArticulationModExtraY(artMod, extraY);
+            rememberArticulationYShift(artMod, extraY);
+          }
           const targets = paintTargetsForOneArticulation(artMod, artEls, i, usedElements);
           for (const t of targets) {
             applyArticulationOffsetToTarget(t, extraY);
@@ -1441,6 +1458,8 @@ function applyOsmdArticulationOffsetsDetailedInner(
 
   if (!host?.querySelector('svg')) return { ...empty, staffSpacePx };
 
+  ensureArticulationDrawPatch(osmd);
+
   // 전역 래핑 경로 제거 — 음표별 글리프만 이동 (꾸밈음 보호 + MXL 반영 후 XML 힌트 유지)
   resetOsmdArticulationOffsets(host);
 
@@ -1583,6 +1602,10 @@ function applyOsmdArticulationOffsetsDetailedInner(
               10;
             const extraY = extraArticulationYPx(staffSpaces, lineSpacing, isAbove);
             if (!extraY) continue;
+            if (artMod && isVfArticulationMod(artMod as VfArticulationLike)) {
+              setArticulationModExtraY(artMod, extraY);
+              rememberArticulationYShift(artMod, extraY);
+            }
             const paintTargets = paintTargetsForOneArticulation(artMod, artEls, i, usedElements);
             if (!paintTargets.length) continue;
             for (const t of paintTargets) {

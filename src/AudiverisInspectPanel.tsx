@@ -2705,7 +2705,12 @@ export function OsmdBlock({
       n instanceof Element &&
       (n.hasAttribute('data-omr-measure-highlight') ||
         n.hasAttribute('data-omr-measure-hover') ||
-        Boolean(n.closest?.('[data-omr-measure-highlight], [data-omr-measure-hover]')));
+        n.hasAttribute('data-hitl-art-overlay') ||
+        Boolean(
+          n.closest?.(
+            '[data-omr-measure-highlight], [data-omr-measure-hover], [data-hitl-art-overlay]',
+          ),
+        ));
     const mo = new MutationObserver((mutations) => {
       let relevant = false;
       for (const m of mutations) {

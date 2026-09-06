@@ -35,19 +35,11 @@ async function main() {
   document.body.appendChild(host);
   const xml = prepareArticulationDefaultYForOsmdPreview(sample);
   const osmd = new OSMD(host, { autoResize: false, drawTitle: false });
-  // UI: hint xml has NO distance attrs; distance only via pending fixes
   registerOsmdPreviewXmlForArticulation(osmd, sample);
   registerOsmdArticulationFixes(osmd, []);
   await osmd.load(xml);
   osmd.render();
   applyOsmdArticulationOffsets(host, osmd);
-
-  const before = [...host.querySelectorAll('.vf-modifiers path')].map((p) => ({
-    d: (p.getAttribute('d') || '').slice(0, 40),
-    tf: p.getAttribute('transform'),
-    shift: p.getAttribute('data-art-shift-y'),
-  }));
-  console.log('before', JSON.stringify(before, null, 2));
 
   const fixes = [
     {
@@ -74,33 +66,41 @@ async function main() {
     },
   ];
 
-  // UI distance dropdown path
-  const n = applyPendingArticulationOffsetsOnly(host, osmd, fixes);
-  const after = [...host.querySelectorAll('[data-art-shift-y]')].map((el) => ({
+  applyPendingArticulationOffsetsOnly(host, osmd, fixes);
+  let overlays = [...host.querySelectorAll('[data-hitl-art-overlay]')].map((el) => ({
+    tag: el.getAttribute('data-hitl-art-overlay'),
+    spaces: el.getAttribute('data-art-spaces'),
     shift: el.getAttribute('data-art-shift-y'),
-    d: (el.getAttribute('d') || '').slice(0, 40),
-    tf: (el.getAttribute('transform') || '').slice(0, 50),
-    tag: el.tagName,
   }));
-  console.log('after pending', n, JSON.stringify(after, null, 2));
+  console.log('after pending', overlays);
 
-  const uniq = [...new Set(after.map((a) => a.shift).filter(Boolean))];
-  if (!uniq.includes('10') || !uniq.includes('50')) {
-    // also try measureMxl mismatch 0/1 like OSMD
-    const fixes2 = fixes.map((f) => ({ ...f, measureMxl: '1' }));
-    applyPendingArticulationOffsetsOnly(host, osmd, fixes2);
-    const after2 = [...host.querySelectorAll('[data-art-shift-y]')].map((el) => el.getAttribute('data-art-shift-y'));
-    console.log('retry measure 1', after2);
-
-    // try without pitch
-    const fixes3 = fixes.map(({ pitchStep, pitchOctave, ...f }) => f);
-    applyPendingArticulationOffsetsOnly(host, osmd, fixes3 as any);
-    const after3 = [...host.querySelectorAll('[data-art-shift-y]')].map((el) => el.getAttribute('data-art-shift-y'));
-    console.log('retry no pitch', after3);
-
-    throw new Error(`UI path failed uniq=${JSON.stringify(uniq)}`);
+  const byTag = Object.fromEntries(overlays.map((o) => [o.tag!, o]));
+  if (byTag.tenuto?.spaces === '2' && byTag.accent?.spaces === '6') {
+    if (byTag.tenuto.shift === '20' && byTag.accent.shift === '60') {
+      console.log('UI path dual art ok', byTag);
+      return;
+    }
   }
-  console.log('UI path dual art ok', uniq);
+
+  // OSMD measure number 0/1 mismatch
+  applyPendingArticulationOffsetsOnly(
+    host,
+    osmd,
+    fixes.map((f) => ({ ...f, measureMxl: '1' })),
+  );
+  overlays = [...host.querySelectorAll('[data-hitl-art-overlay]')].map((el) => ({
+    tag: el.getAttribute('data-hitl-art-overlay'),
+    spaces: el.getAttribute('data-art-spaces'),
+    shift: el.getAttribute('data-art-shift-y'),
+  }));
+  console.log('retry measure 1', overlays);
+  const byTag2 = Object.fromEntries(overlays.map((o) => [o.tag!, o]));
+  if (byTag2.tenuto?.shift === '20' && byTag2.accent?.shift === '60') {
+    console.log('UI path dual art ok (m1)', byTag2);
+    return;
+  }
+
+  throw new Error(`UI path failed ${JSON.stringify(overlays)}`);
 }
 
 main().catch((e) => {

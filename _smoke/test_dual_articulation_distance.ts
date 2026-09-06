@@ -1,5 +1,5 @@
 /**
- * 한 음에 tenuto+accent — 표별 거리 Δ가 독립인지.
+ * 한 음에 tenuto+accent — 표별 거리(overlay)가 독립인지.
  * Run: npx tsx _smoke/test_dual_articulation_distance.ts
  */
 import { JSDOM } from 'jsdom';
@@ -14,6 +14,7 @@ import {
   registerOsmdArticulationFixes,
   registerOsmdPreviewXmlForArticulation,
 } from '../src/osmdArticulationOffsetFix.ts';
+import { overlayArticulationY, stackOverlayArtSpaces } from '../src/osmdArticulationOverlay.ts';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => any }).OpenSheetMusicDisplay ??
@@ -31,6 +32,19 @@ if (suggestStackedArticulationDistance(['3'], 'auto') !== '4') {
 }
 if (suggestStackedArticulationDistance(['2'], '5') !== '5') {
   throw new Error('explicit 5 kept');
+}
+
+{
+  const stacked = stackOverlayArtSpaces([
+    { tag: 'tenuto', placement: 'below', staffSpaces: 2, glyph: '–' },
+    { tag: 'accent', placement: 'below', staffSpaces: 5, glyph: '>' },
+  ]);
+  if (stacked[0]!.staffSpaces !== 2 || stacked[1]!.staffSpaces !== 5) {
+    throw new Error(`stack keep distinct: ${JSON.stringify(stacked)}`);
+  }
+  const y2 = overlayArticulationY(0, 2, 'below', 10);
+  const y5 = overlayArticulationY(0, 5, 'below', 10);
+  if (y2 !== 20 || y5 !== 50) throw new Error(`overlay Y expected 20/50 got ${y2}/${y5}`);
 }
 
 const sample = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list><part id="P1"><measure number="50"><attributes><divisions>4</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>B</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><stem>up</stem><notations><articulations><tenuto placement="below"/><accent placement="below"/></articulations></notations></note><note><rest/><duration>12</duration><type>half</type><dot/></note></measure></part></score-partwise>`;
@@ -84,17 +98,30 @@ async function main() {
   await osmd.load(xml);
   osmd.render();
   const stats = applyOsmdArticulationOffsetsDetailed(host, osmd);
-  const shifts = [...host.querySelectorAll('[data-art-shift-y]')].map((el) =>
-    parseFloat(el.getAttribute('data-art-shift-y') || '0'),
-  );
-  const uniq = [...new Set(shifts.filter((n) => n !== 0))];
-  if (stats.shifted < 2) {
-    throw new Error(`expected ≥2 shifted glyphs, got ${stats.shifted}`);
+
+  const overlays = [...host.querySelectorAll('[data-hitl-art-overlay]')].map((el) => ({
+    tag: el.getAttribute('data-hitl-art-overlay'),
+    spaces: el.getAttribute('data-art-spaces'),
+    shift: parseFloat(el.getAttribute('data-art-shift-y') || '0'),
+    y: parseFloat(el.getAttribute('y') || '0'),
+  }));
+  console.log('overlays', overlays, 'stats', stats);
+
+  const byTag = Object.fromEntries(overlays.map((o) => [o.tag, o]));
+  if (!byTag.tenuto || !byTag.accent) {
+    throw new Error(`expected tenuto+accent overlays, got ${JSON.stringify(overlays)}`);
   }
-  if (!uniq.includes(10) || !uniq.includes(40)) {
-    throw new Error(`expected tenuto Δ=10 and accent Δ=40, got ${JSON.stringify(uniq)} shifts=${JSON.stringify(shifts)}`);
+  if (byTag.tenuto.spaces !== '2' || byTag.accent.spaces !== '5') {
+    throw new Error(`expected spaces 2/5, got ${JSON.stringify(byTag)}`);
   }
-  console.log('dual articulation distance ok', { stats, uniq });
+  // notehead 기준 절대 거리: 2칸→20px, 5칸→50px (staffSpace≈10)
+  if (byTag.tenuto.shift !== 20 || byTag.accent.shift !== 50) {
+    throw new Error(`expected shifts 20/50, got ${JSON.stringify(byTag)}`);
+  }
+  if (Math.abs(byTag.accent.y - byTag.tenuto.y) < 25) {
+    throw new Error(`overlays still overlapping: ${JSON.stringify(byTag)}`);
+  }
+  console.log('dual articulation distance ok', byTag);
 }
 
 main().catch((e) => {

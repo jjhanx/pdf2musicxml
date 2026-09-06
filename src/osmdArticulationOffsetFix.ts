@@ -16,6 +16,15 @@ import { OSMD_LAYOUT_X_ATTR } from '../shared/musicXmlPreviewOnsetLayout';
 import { parseMusicXmlDocument } from '../shared/musicXmlParse';
 import { getOsmdPreviewXml } from './osmdOnsetColumnAlignFix';
 import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
+import {
+  clearHitlArticulationOverlays,
+  hideNativeArticulationGlyphs,
+  HITL_ART_OVERLAY_GLYPH,
+  noteHeadPointInSvg,
+  paintHitlArticulationOverlayTexts,
+  stackOverlayArtSpaces,
+  type HitlArtOverlaySpec,
+} from './osmdArticulationOverlay';
 
 /** sanitize 전 filteredXml — pending articulation attr·noteIndex 기준 */
 const articulationPreviewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
@@ -207,6 +216,7 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 export function resetOsmdArticulationOffsets(host: HTMLElement): void {
+  clearHitlArticulationOverlays(host);
   for (const wrap of [...host.querySelectorAll('g[data-hitl-art-wrap]')]) {
     const g = wrap.parentElement;
     if (!g) {
@@ -1452,6 +1462,130 @@ export function applyOsmdArticulationOffsetsDetailed(
   }
 }
 
+/**
+ * 복수 표·HITL 거리 — VexFlow modifier 매칭 대신 notehead 기준 SVG overlay.
+ * 네이티브 articulation 글리프는 숨김.
+ */
+function applyHitlArticulationOverlaysForOsmd(
+  host: HTMLElement,
+  osmd: OpenSheetMusicDisplay,
+  pendingFixes: ArticulationPreviewFix[],
+  xml: string,
+  staffSpacePx: number,
+): number {
+  clearHitlArticulationOverlays(host);
+  const svg = host.querySelector('svg');
+  if (!svg) return 0;
+
+  const hintsByMeasure = xml?.trim()
+    ? cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml))
+    : new Map<string, OrderedHint[]>();
+  if (xml?.trim()) overlayFixesOnHints(xml, hintsByMeasure, pendingFixes);
+
+  const pendingArt = pendingFixes.filter(
+    (f) =>
+      (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') && Boolean(f.articulation),
+  );
+  const pendingMeasureKeys = new Set(pendingArt.map((f) => String(f.measureMxl)));
+  if (!pendingArt.length && countHints(hintsByMeasure) === 0) return 0;
+
+  let painted = 0;
+  forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
+    const measureMxl = measureMxlFromGraphic(gm);
+    if (measureMxl == null) return;
+    const partId = partIdFromGraphic(gm) ?? '';
+    const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);
+    const hints =
+      lookupHints(hintsByMeasure, partId, measureMxl, staffWithinPart) ??
+      lookupHints(hintsByMeasure, partId, measureMxl) ??
+      [];
+
+    const measureHasPending = pendingMeasureKeysMatch(measureMxl, pendingMeasureKeys);
+    if (!hints.length && !measureHasPending) return;
+
+    const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
+    for (const seRaw of staffEntries) {
+      const se = asRecord(seRaw);
+      if (!se) continue;
+      const gves = (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[];
+      for (const gveRaw of gves) {
+        const gve = asRecord(gveRaw);
+        if (!gve) continue;
+        const staveNote = vexStaveNoteFromGve(gve);
+        const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
+        const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
+        const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
+        if (!staveNoteSvg) continue;
+
+        const noteHints = hints.filter((h) => {
+          if (h.pitch && notePitches.length) return graphicPitchesMatchFix(notePitches, h.pitch);
+          return false;
+        });
+        // 피치 매칭 실패(추출 불가) 시 피치 없는 힌트만 — 마디 전체 복제 방지
+        const useHints = noteHints.length ? noteHints : hints.filter((h) => !h.pitch);
+
+        const pendingForNote = pendingArt.filter((f) => {
+          if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) return false;
+          if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
+            return false;
+          }
+          const fp = pitchLabelFromArticulationFix(f);
+          if (fp && notePitches.length && !graphicPitchesMatchFix(notePitches, fp)) return false;
+          return true;
+        });
+
+        const byTag = new Map<string, HitlArtOverlaySpec>();
+        for (const h of useHints) {
+          const glyph = HITL_ART_OVERLAY_GLYPH[h.tag];
+          if (!glyph) continue;
+          byTag.set(h.tag, {
+            tag: h.tag,
+            placement: h.placement,
+            staffSpaces: h.staffSpaces,
+            glyph,
+          });
+        }
+        for (const f of pendingForNote) {
+          const tag = artNameFromFix(f);
+          const glyph = HITL_ART_OVERLAY_GLYPH[tag];
+          if (!glyph) continue;
+          const spaces =
+            parseArticulationStaffSpaces(
+              f.distance === 'auto' || !f.distance ? 'auto' : String(f.distance),
+            ) ?? 1;
+          byTag.set(tag, {
+            tag,
+            placement: f.placement === 'above' || f.placement === 'below' ? f.placement : 'below',
+            staffSpaces: spaces,
+            glyph,
+          });
+        }
+
+        const specs = [...byTag.values()];
+        if (!specs.length) continue;
+        // 복수 표이거나 HITL 거리가 1칸 초과·pending이면 네이티브 대신 overlay
+        const needsOverlay =
+          specs.length >= 2 ||
+          specs.some((s) => s.staffSpaces > 1.01) ||
+          pendingForNote.length > 0;
+        if (!needsOverlay) continue;
+
+        const anchor = noteHeadPointInSvg(staveNoteSvg, svg as SVGSVGElement);
+        if (!anchor) continue;
+
+        hideNativeArticulationGlyphs(staveNoteSvg);
+        const stacked = stackOverlayArtSpaces(specs);
+        painted += paintHitlArticulationOverlayTexts(
+          svg as SVGSVGElement,
+          stacked.map((s) => ({ ...s, x: anchor.x, noteHeadY: anchor.y })),
+          staffSpacePx || 10,
+        );
+      }
+    }
+  });
+  return painted;
+}
+
 function applyOsmdArticulationOffsetsDetailedInner(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
@@ -1474,9 +1608,11 @@ function applyOsmdArticulationOffsetsDetailedInner(
   const hostDy = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
 
   if (!xml?.trim()) {
-    applyHitlArticulationHostCss(host, hostDy);
-    setHitlArticulationExtraYPx(hostDy);
-    return { shifted: fromDirect, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
+    const fromOverlay = applyHitlArticulationOverlaysForOsmd(host, osmd, pendingFixes, '', staffSpacePx);
+    const shifted = fromDirect + fromOverlay;
+    applyHitlArticulationHostCss(host, shifted ? hostDy : 0);
+    setHitlArticulationExtraYPx(shifted ? hostDy : 0);
+    return { shifted, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
   }
 
   const hintsByMeasure = cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml));
@@ -1652,6 +1788,27 @@ function applyOsmdArticulationOffsetsDetailedInner(
   shiftedCount += fromLiftedExpr + fromLiftedDom;
   if ((fromLiftedExpr || fromLiftedDom) && !appliedDy && pendingFixes.length) {
     appliedDy = hostDy;
+  }
+
+  // 복수 표·HITL 거리: VexFlow 매칭 대신 notehead 기준 SVG overlay (최종)
+  const fromOverlay = applyHitlArticulationOverlaysForOsmd(
+    host,
+    osmd,
+    pendingFixes,
+    xml,
+    staffSpacePx || 10,
+  );
+  shiftedCount += fromOverlay;
+  if (fromOverlay && !appliedDy && pendingFixes.length) {
+    appliedDy = hostDy;
+  }
+  if (fromOverlay && !appliedDy) {
+    let maxAbs = 0;
+    for (const el of host.querySelectorAll('[data-hitl-art-overlay][data-art-shift-y]')) {
+      const v = Math.abs(parseFloat(el.getAttribute('data-art-shift-y') ?? '0') || 0);
+      if (v > maxAbs) maxAbs = v;
+    }
+    if (maxAbs) appliedDy = maxAbs;
   }
 
   applyHitlArticulationHostCss(host, appliedDy);

@@ -318,7 +318,6 @@ export function applyArticulationShiftY(el: Element, deltaY: number): void {
   const prefix = `translate(${ox}, ${oy + deltaY})`;
   el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
   el.setAttribute('data-art-shift-y', String(deltaY));
-  // 일부 환경에서 SVG transform attr만으로는 안 보이므로 CSS도 동기화(동일 Δ, 이중 가산 없음)
   const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
   if (sty?.setProperty) {
     sty.setProperty('transform', `translate(${ox}px, ${oy + deltaY}px)`);

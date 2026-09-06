@@ -2393,8 +2393,14 @@ export function OsmdBlock({
         const host = hostRef.current;
         const osmd = osmdRef.current;
         if (host && osmd?.IsReadyToRender()) {
-          syncOnsetColumnAlign(host, osmd);
+          // align은 afterOsmdRenderSync에서 선행. 여기서 재align하면 표 path 이동이 덮일 수 있음.
           applyOsmdArticulationOffsets(host, osmd);
+          applyOsmdDynamicsOffsets(
+            host,
+            osmd,
+            hintXmlRef.current || xmlRef.current,
+            articulationFixesRef.current,
+          );
           finalizeOsmdMeasureNumberPreview(host, osmd, undefined);
           if (faithfulEditorLayoutRef.current) {
             const issues = collectMeasureTimingIssuesFromXml(xmlRef.current);
@@ -2420,7 +2426,7 @@ export function OsmdBlock({
         }
       });
     });
-  }, [syncMeasureClickUi, syncOnsetColumnAlign]);
+  }, [syncMeasureClickUi]);
 
   useEffect(() => {
     const disconnectRo = () => {
@@ -2454,7 +2460,9 @@ export function OsmdBlock({
         autoResize: false,
         backend: 'svg',
         drawMeasureNumbers: false,
-        useXMLMeasureNumbers: false,
+        // true: MeasureNumberXML=전곡 measure@number — HITL 표 거리(m.51 등)와 맞음.
+        // false면 로컬 0·1…이라 pending/힌트 매칭이 깨져 Tenuto/Accent 거리가 스킵됨.
+        useXMLMeasureNumbers: true,
         autoGenerateMultipleRestMeasuresFromRestMeasures: false,
         alignRests: 0,
       } as ConstructorParameters<typeof OpenSheetMusicDisplay>[1]);
@@ -2509,6 +2517,11 @@ export function OsmdBlock({
             applyOsmdArticulationOffsets(h, o);
             applyOsmdPolyphonicRestOffsets(h, o);
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
+            // 이중 rAF·후속 paint 후에도 표 거리 유지
+            window.setTimeout(() => {
+              if (stale() || !hostRef.current || osmdRef.current !== o) return;
+              applyOsmdArticulationOffsets(hostRef.current, o);
+            }, 50);
           },
         });
       })
@@ -2628,6 +2641,10 @@ export function OsmdBlock({
             applyOsmdArticulationOffsets(h, o);
             applyOsmdPolyphonicRestOffsets(h, o);
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
+            window.setTimeout(() => {
+              if (gen !== xmlGenRef.current || !hostRef.current || osmdRef.current !== o) return;
+              applyOsmdArticulationOffsets(hostRef.current, o);
+            }, 50);
           },
         });
       }, 280);
@@ -2668,6 +2685,10 @@ export function OsmdBlock({
         applyOsmdArticulationOffsets(h, o);
         applyOsmdPolyphonicRestOffsets(h, o);
         applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
+        window.setTimeout(() => {
+          if (gen !== xmlGenRef.current || !hostRef.current || osmdRef.current !== o) return;
+          applyOsmdArticulationOffsets(hostRef.current, o);
+        }, 50);
       },
     });
   }, [zoom, afterOsmdRender]);

@@ -83,43 +83,42 @@ async function main() {
   const host = document.createElement('div');
   host.style.width = '1000px';
   document.body.appendChild(host);
-  // UI OsmdBlock과 동일
-  const osmd = new OSMD(host, {
-    autoResize: false,
-    drawTitle: false,
-    useXMLMeasureNumbers: false,
-  });
-  registerOsmdPreviewXmlForArticulation(osmd, xml);
-  registerOsmdArticulationFixes(osmd, fixes);
-  registerOsmdPreviewMeasureRangeForArticulation(osmd, { start: 51, end: 52 });
-  await osmd.load(xml);
-  osmd.render();
+  // UI: 이제는 useXMLMeasureNumbers:true. 로컬(false) 경로도 range 등록으로 통과해야 함.
+  for (const useXml of [false, true]) {
+    host.innerHTML = '';
+    const osmd = new OSMD(host, {
+      autoResize: false,
+      drawTitle: false,
+      useXMLMeasureNumbers: useXml,
+    });
+    registerOsmdPreviewXmlForArticulation(osmd, xml);
+    registerOsmdArticulationFixes(osmd, fixes);
+    registerOsmdPreviewMeasureRangeForArticulation(osmd, { start: 51, end: 52 });
+    await osmd.load(xml);
+    osmd.render();
 
-  const locals: number[] = [];
-  forEachGraphicalMeasure(osmd, (gm) => {
-    const raw = measureMxlFromGraphic(gm);
-    if (raw != null) locals.push(raw);
-  });
-  console.log('local measure numbers', locals);
-  if (!locals.includes(0) && !locals.includes(1)) {
-    console.warn('unexpected locals', locals);
-  }
+    const locals: number[] = [];
+    forEachGraphicalMeasure(osmd, (gm) => {
+      const raw = measureMxlFromGraphic(gm);
+      if (raw != null) locals.push(raw);
+    });
+    console.log('useXML', useXml, 'locals', locals);
 
-  applyOsmdArticulationOffsetsDetailed(host, osmd);
+    applyOsmdArticulationOffsetsDetailed(host, osmd);
 
-  const notesSvg = [...host.querySelectorAll('.vf-stavenote')];
-  // m51 has 5 notes, m52 has 1 → first 5 are m51
-  const target = notesSvg[1];
-  const tagged = [...(target?.querySelectorAll('[data-hitl-art-tag]') || [])].map((el) => ({
-    tag: el.getAttribute('data-hitl-art-tag'),
-    spaces: el.getAttribute('data-art-spaces'),
-  }));
-  console.log('m51 #1 tagged', tagged);
-  const byTag = Object.fromEntries(tagged.map((t) => [t.tag!, t]));
-  if (byTag.tenuto?.spaces !== '2' || byTag.accent?.spaces !== '5') {
-    throw new Error(
-      `light-preview m51 #1 B4 expected tenuto2/accent5, got ${JSON.stringify(tagged)} (locals=${JSON.stringify(locals)})`,
-    );
+    const notesSvg = [...host.querySelectorAll('.vf-stavenote')];
+    const target = notesSvg[1];
+    const tagged = [...(target?.querySelectorAll('[data-hitl-art-tag]') || [])].map((el) => ({
+      tag: el.getAttribute('data-hitl-art-tag'),
+      spaces: el.getAttribute('data-art-spaces'),
+    }));
+    console.log('m51 #1 tagged', tagged);
+    const byTag = Object.fromEntries(tagged.map((t) => [t.tag!, t]));
+    if (byTag.tenuto?.spaces !== '2' || byTag.accent?.spaces !== '5') {
+      throw new Error(
+        `useXML=${useXml} m51 #1 expected tenuto2/accent5, got ${JSON.stringify(tagged)} locals=${JSON.stringify(locals)}`,
+      );
+    }
   }
   console.log('m51 light-preview dual art ok');
 }

@@ -29,6 +29,7 @@ import {
   type HitlArtOverlaySpec,
 } from './osmdArticulationOverlay';
 import {
+  detectOsmdLocalMeasureBase,
   resolveOsmdGraphicMeasureMxl,
   type MxlMeasureRange,
 } from '../shared/musicXmlMeasureRange';
@@ -36,6 +37,8 @@ import {
 /** sanitize 전 filteredXml — pending articulation attr·noteIndex 기준 */
 const articulationPreviewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
 const articulationPreviewRangeByOsmd = new WeakMap<OpenSheetMusicDisplay, MxlMeasureRange>();
+/** apply 한 번 동안 raw→global 변환용 로컬 기수 (0/1-based) */
+const articulationLocalBaseByOsmd = new WeakMap<OpenSheetMusicDisplay, 'zero' | 'one' | 'absolute'>();
 
 export function registerOsmdPreviewXmlForArticulation(osmd: OpenSheetMusicDisplay, xml: string): void {
   articulationPreviewXmlByOsmd.set(osmd, xml);
@@ -50,9 +53,21 @@ export function registerOsmdPreviewMeasureRangeForArticulation(
   } else {
     articulationPreviewRangeByOsmd.delete(osmd);
   }
+  articulationLocalBaseByOsmd.delete(osmd);
 }
 
-/** OSMD 로컬 마디(0/1…) → HITL/XML 전곡 measure@number */
+function resolveArticulationRange(osmd: OpenSheetMusicDisplay): MxlMeasureRange | null {
+  let range = articulationPreviewRangeByOsmd.get(osmd) ?? null;
+  if (!range) {
+    const xml = resolveArticulationPreviewXml(osmd);
+    if (xml?.trim()) {
+      const inferred = inferMeasureRangeFromPreviewXml(xml);
+      if (inferred) range = inferred;
+    }
+  }
+  return range;
+}
+
 function inferMeasureRangeFromPreviewXml(xml: string): MxlMeasureRange | null {
   const doc = parseMusicXmlDocument(xml);
   if (!doc) return null;
@@ -62,26 +77,36 @@ function inferMeasureRangeFromPreviewXml(xml: string): MxlMeasureRange | null {
       const n = parseInt(measure.getAttribute('number') ?? '', 10);
       if (Number.isFinite(n)) nums.push(n);
     }
-    if (nums.length) break; // 첫 파트 기준(미리보기 구간과 동일)
+    if (nums.length) break;
   }
   if (!nums.length) return null;
   return { start: Math.min(...nums), end: Math.max(...nums) };
 }
 
+function ensureArticulationLocalBase(osmd: OpenSheetMusicDisplay, range: MxlMeasureRange): 'zero' | 'one' | 'absolute' {
+  const cached = articulationLocalBaseByOsmd.get(osmd);
+  if (cached) return cached;
+  const raws: number[] = [];
+  forEachGraphicalMeasure(osmd, (gm) => {
+    const raw = measureMxlFromGraphic(gm);
+    if (raw != null) raws.push(raw);
+  });
+  const base = detectOsmdLocalMeasureBase(raws, range);
+  articulationLocalBaseByOsmd.set(osmd, base);
+  return base;
+}
+
+/** OSMD 로컬 마디(0/1…) → HITL/XML 전곡 measure@number */
 function graphicMeasureMxlForArticulation(
   osmd: OpenSheetMusicDisplay,
   gm: Parameters<typeof measureMxlFromGraphic>[0],
 ): number | null {
   const raw = measureMxlFromGraphic(gm);
-  let range = articulationPreviewRangeByOsmd.get(osmd);
-  if (!range) {
-    const xml = resolveArticulationPreviewXml(osmd);
-    if (xml?.trim()) {
-      const inferred = inferMeasureRangeFromPreviewXml(xml);
-      if (inferred) range = inferred;
-    }
-  }
-  return resolveOsmdGraphicMeasureMxl(raw, range);
+  const range = resolveArticulationRange(osmd);
+  if (!range) return raw;
+  const base = ensureArticulationLocalBase(osmd, range);
+  if (base === 'absolute') return resolveOsmdGraphicMeasureMxl(raw, range);
+  return resolveOsmdGraphicMeasureMxl(raw, range, base);
 }
 
 const articulationFixesByOsmd = new WeakMap<OpenSheetMusicDisplay, ArticulationPreviewFix[]>();
@@ -2094,8 +2119,10 @@ function applyAbsoluteArticulationDistances(
       })
       .join(',');
     const claimed = [...pendingClaimed].join(',') || 'none';
+    const range = resolveArticulationRange(osmd);
+    const base = range ? ensureArticulationLocalBase(osmd, range) : '?';
     debugParts.push(
-      `miss pending=${pend} claimed=${claimed} seen=${seenOrds.slice(0, 12).join(',') || 'none'}${missParts.length ? ` | ${missParts.slice(0, 4).join(';')}` : ''}`,
+      `miss pending=${pend} claimed=${claimed} base=${base} seen=${seenOrds.slice(0, 16).join(',') || 'none'}${missParts.length ? ` | ${missParts.slice(0, 4).join(';')}` : ''}`,
     );
   } else if (missParts.length && !debugParts.length) {
     debugParts.push(missParts.slice(0, 6).join(';'));
@@ -2115,6 +2142,7 @@ function applyOsmdArticulationOffsetsDetailedInner(
   if (!host?.querySelector('svg')) return { ...empty, staffSpacePx };
 
   ensureArticulationDrawPatch(osmd);
+  articulationLocalBaseByOsmd.delete(osmd);
   resetOsmdArticulationOffsets(host);
   clearHitlArticulationOverlays(host);
 

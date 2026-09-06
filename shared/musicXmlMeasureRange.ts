@@ -394,12 +394,16 @@ export function measuresMatchInPreview(
 
 /**
  * OSMD 그래픽 마디 번호 → MusicXML measure@number.
- * `useXMLMeasureNumbers:false` 이면 구간 안 로컬이 **0..span-1**(또는 1..span).
+ * `useXMLMeasureNumbers:false` 이면 구간 안 로컬이 **0..span-1** 또는 **1..span**.
  * HITL pending·힌트 XML은 전곡 번호(예: 51)를 쓰므로 거리 적용 전 반드시 변환.
+ *
+ * @param localBase 로컬 번호 체계. 생략 시 n===0 만 0-based, 1..span 은 1-based
+ *   (옛 `n>=0 && n<span` 은 로컬 1을 둘째 마디로 오인 → m51 노트가 전부 m52로 보임).
  */
 export function resolveOsmdGraphicMeasureMxl(
   graphicMxl: number | null | undefined,
   range: MxlMeasureRange | null | undefined,
+  localBase?: 'zero' | 'one' | null,
 ): number | null {
   if (graphicMxl == null || !Number.isFinite(graphicMxl)) return null;
   const n = Math.floor(graphicMxl);
@@ -408,11 +412,32 @@ export function resolveOsmdGraphicMeasureMxl(
   if (!Number.isFinite(start) || start < 1) return n;
   if (n >= start && n <= end) return n;
   const span = pageScopedMeasureSpan(range);
-  // 0-based local (실측: m51→0, m52→1)
-  if (n >= 0 && n < span) return start + n;
-  // 1-based local
-  if (n >= 1 && n <= span) return start + n - 1;
+  const base = localBase ?? (n === 0 ? 'zero' : 'one');
+  if (base === 'zero') {
+    if (n >= 0 && n < span) return start + n;
+  } else {
+    if (n === 0) return start;
+    if (n >= 1 && n <= span) return start + n - 1;
+  }
   return normalizeToGlobalMeasureMxl(n, range);
+}
+
+/**
+ * 시트에 나타난 raw MeasureNumber 들로 로컬 0-based / 1-based / 전역 판별.
+ * 1이 첫 마디인데 0-based로 치면 start+1(예: 52)이 되어 pending m51이 claimed=none 이 됨.
+ */
+export function detectOsmdLocalMeasureBase(
+  rawNumbers: ReadonlyArray<number>,
+  range: MxlMeasureRange,
+): 'zero' | 'one' | 'absolute' {
+  const span = pageScopedMeasureSpan(range);
+  const nums = [...new Set(rawNumbers.filter((n) => Number.isFinite(n)).map((n) => Math.floor(n)))];
+  if (!nums.length) return 'one';
+  if (nums.some((n) => n >= range.start && n <= range.end)) return 'absolute';
+  if (nums.includes(0)) return 'zero';
+  if (nums.every((n) => n >= 1 && n <= span)) return 'one';
+  if (nums.every((n) => n >= 0 && n < span)) return 'zero';
+  return 'one';
 }
 
 /** @deprecated 호환용 — inferFirstMxlMeasureForPdfPage 재export */

@@ -21,9 +21,13 @@ const OSMD =
 
 {
   const range = { start: 51, end: 52 };
-  if (resolveOsmdGraphicMeasureMxl(0, range) !== 51) throw new Error('local0→51');
-  if (resolveOsmdGraphicMeasureMxl(1, range) !== 52) throw new Error('local1→52');
+  if (resolveOsmdGraphicMeasureMxl(0, range, 'zero') !== 51) throw new Error('local0→51');
+  if (resolveOsmdGraphicMeasureMxl(1, range, 'zero') !== 52) throw new Error('local1→52 zero-based');
+  if (resolveOsmdGraphicMeasureMxl(1, range, 'one') !== 51) throw new Error('local1→51 one-based');
+  if (resolveOsmdGraphicMeasureMxl(2, range, 'one') !== 52) throw new Error('local2→52 one-based');
   if (resolveOsmdGraphicMeasureMxl(51, range) !== 51) throw new Error('global51');
+  // 기본: n===0 → zero, n>=1 → one (로컬 1을 둘째 마디로 오인하지 않음)
+  if (resolveOsmdGraphicMeasureMxl(1, range) !== 51) throw new Error('default local1→51');
 }
 
 const sample = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list><part id="P1">

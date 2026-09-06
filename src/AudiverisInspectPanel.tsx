@@ -2856,12 +2856,45 @@ export function OsmdBlock({
   );
   /** articulationFixes prop이 넘어오는 HITL 미리보기에서만 — sticky라 스크롤해도 보임 */
   const showArtBanner = articulationFixes !== undefined;
+  const artBannerText =
+    artPreviewFixes.length === 0
+      ? 'Accent 미리보기: 대기 보정 없음 (MXL에 반영된 거리는 글리프 오프셋으로 표시)'
+      : (() => {
+          const dist =
+            artPreviewFixes
+              .map((f) => `${(f.articulation || '?').split('(')[0]}:${f.distance || 'auto'}`)
+              .join(' ') || '?';
+          const applyLine =
+            artApplyInfo.debug || artApplyInfo.shifted !== '—'
+              ? ` · 적용 shifted=${artApplyInfo.shifted}${artApplyInfo.debug ? ` [${artApplyInfo.debug}]` : ''}`
+              : ' · 적용 대기…';
+          return `표거리 ${dist}${applyLine}`;
+        })();
 
   return (
     <div style={{ position: 'relative', minWidth: 'min(100%, 260px)' }}>
       {showArtBanner ? (
         <div
           data-hitl-art-banner="1"
+          role="status"
+          title="클릭하면 이 메시지를 클립보드에 복사합니다"
+          onClick={() => {
+            const t = artBannerText;
+            if (navigator.clipboard?.writeText) {
+              void navigator.clipboard.writeText(t).catch(() => {});
+            } else {
+              try {
+                const ta = document.createElement('textarea');
+                ta.value = t;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+              } catch {
+                /* */
+              }
+            }
+          }}
           style={{
             position: 'sticky',
             top: 0,
@@ -2881,24 +2914,14 @@ export function OsmdBlock({
                     : '#868e96'
                   : '#495057',
             color: '#fff',
-            pointerEvents: 'none',
+            cursor: 'pointer',
+            userSelect: 'text',
             fontFamily: 'ui-monospace, Consolas, monospace',
             boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
           }}
         >
-          {artPreviewFixes.length === 0
-            ? 'Accent 미리보기: 대기 보정 없음 (MXL에 반영된 거리는 글리프 오프셋으로 표시)'
-            : (() => {
-                const dist =
-                  artPreviewFixes
-                    .map((f) => `${(f.articulation || '?').split('(')[0]}:${f.distance || 'auto'}`)
-                    .join(' ') || '?';
-                const applyLine =
-                  artApplyInfo.debug || artApplyInfo.shifted !== '—'
-                    ? ` · 적용 shifted=${artApplyInfo.shifted}${artApplyInfo.debug ? ` [${artApplyInfo.debug}]` : ''}`
-                    : ' · 적용 대기…';
-                return `표거리 ${dist}${applyLine}`;
-              })()}
+          {artBannerText}
+          <span style={{ opacity: 0.75, marginLeft: 8, fontSize: 11 }}>(클릭=복사)</span>
         </div>
       ) : null}
       <div

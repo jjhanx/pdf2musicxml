@@ -445,7 +445,8 @@ export function isLiftedArticulationGlyph(text: string | null | undefined): bool
 /**
  * HITL/OSMD 미리보기 전용.
  * `<notations><articulations><accent default-y …>` → 음표 직전 `<direction default-y>` + words 글리프.
- * 저장 MXL은 바꾸지 않음(미리보기 XML에만 적용). OSMD는 direction default-y를 오선 좌표로 씀.
+ * 같은 음·같은 쪽에 표가 여러 개면 칸 수가 겹치지 않게 쌓음(tenuto 1 · accent 2 …).
+ * 저장 MXL은 바꾸지 않음(미리보기 XML에만 적용).
  */
 export function liftArticulationsToDirectionsForOsmdPreview(xml: string): string {
   const doc = parseMusicXmlDocument(xml);
@@ -468,6 +469,14 @@ export function liftArticulationsToDirectionsForOsmdPreview(xml: string): string
               LIFT_ARTICULATION_TAGS.has(xmlLocalName(el).replace(/_/g, '-')),
             );
             if (!toLift.length) continue;
+
+            type Planned = {
+              artEl: Element;
+              tag: string;
+              placement: 'above' | 'below';
+              spaces: number;
+            };
+            const planned: Planned[] = [];
             for (const artEl of toLift) {
               const tag = xmlLocalName(artEl).replace(/_/g, '-');
               let placement = (artEl.getAttribute('placement') || '').trim().toLowerCase();
@@ -478,24 +487,40 @@ export function liftArticulationsToDirectionsForOsmdPreview(xml: string): string
                 artEl.getAttribute(HITL_ART_DISTANCE_ATTR),
                 parseInt(artEl.getAttribute('default-y') ?? '', 10) || 0,
               );
+              planned.push({
+                artEl,
+                tag,
+                placement: placement as 'above' | 'below',
+                spaces: Math.max(1, spaces),
+              });
+            }
+
+            // 같은 쪽·같은 칸이면 뒤 표를 +1… — 겹침 방지(명시 거리가 다르면 그대로)
+            const usedSpaces = new Set<string>();
+            for (const item of planned) {
+              let s = Math.round(item.spaces);
+              const key = (n: number) => `${item.placement}:${n}`;
+              while (usedSpaces.has(key(s))) s += 1;
+              if (s > 10) s = 10;
+              usedSpaces.add(key(s));
+              item.spaces = s;
+            }
+
+            for (const item of planned) {
               const dy = String(
-                articulationDefaultYFromStaffSpaces(placement as 'above' | 'below', spaces),
+                articulationDefaultYFromStaffSpaces(item.placement, item.spaces),
               );
-              const glyph = LIFT_ARTICULATION_GLYPH[tag] ?? '>';
+              const glyph = LIFT_ARTICULATION_GLYPH[item.tag] ?? '>';
+              const distAttr =
+                item.artEl.getAttribute(HITL_ART_DISTANCE_ATTR) ||
+                (item.spaces === 1 ? null : String(item.spaces));
 
               const direction = doc.createElement('direction');
-              direction.setAttribute('placement', placement);
+              direction.setAttribute('placement', item.placement);
               direction.setAttribute('default-y', dy);
-              direction.setAttribute(HITL_LIFTED_ART_ATTR, tag);
-              if (artEl.getAttribute(HITL_ART_DISTANCE_ATTR)) {
-                direction.setAttribute(
-                  HITL_ART_DISTANCE_ATTR,
-                  artEl.getAttribute(HITL_ART_DISTANCE_ATTR)!,
-                );
-              }
+              direction.setAttribute(HITL_LIFTED_ART_ATTR, item.tag);
+              if (distAttr) direction.setAttribute(HITL_ART_DISTANCE_ATTR, distAttr);
               const dt = doc.createElement('direction-type');
-              // OSMD UnknownExpression(words) — mf/dynamics와 같이 OSMD가 그리고 VexFlow Articulation을 타지 않음.
-              // 칸 수 크기는 OSMD가 거의 무시하므로 default-y는 거리 힌트 + 이후 SVG extraY에 씀.
               const words = doc.createElement('words');
               words.setAttribute('default-y', dy);
               words.setAttribute('font-size', '18');
@@ -512,7 +537,7 @@ export function liftArticulationsToDirectionsForOsmdPreview(xml: string): string
                 direction.appendChild(voiceEl);
               }
               measure.insertBefore(direction, note);
-              artEl.remove();
+              item.artEl.remove();
               changed = true;
             }
             if (![...arts.children].length) arts.remove();
@@ -525,4 +550,10 @@ export function liftArticulationsToDirectionsForOsmdPreview(xml: string): string
     }
   }
   return changed ? serializeMusicXmlDocument(doc) : xml;
+}
+
+/** OSMD load 직전 — default-y 정규화 + VexFlow가 무시하는 articulation을 direction으로 승격. */
+export function prepareArticulationsForOsmdPreview(xml: string): string {
+  // prepareArticulationDefaultY는 timelineCleanup에 있음 — 호출측에서 먼저 적용하거나 여기서 중복 없이 lift만.
+  return liftArticulationsToDirectionsForOsmdPreview(xml);
 }

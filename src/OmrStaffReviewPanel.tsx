@@ -1110,6 +1110,18 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return { count: arts.length, dy, dists };
   }, [osmdArticulationFixes]);
 
+  const artPreviewOsmdKey = useMemo(() => {
+    const arts = osmdArticulationFixes.filter(isArticulationPreviewFix);
+    if (!arts.length) return osmdPreviewKey;
+    const sig = arts
+      .map(
+        (f) =>
+          `${f.articulation}:${f.distance ?? 'auto'}:${f.placement ?? ''}:${f.noteIndex ?? ''}`,
+      )
+      .join('|');
+    return `${osmdPreviewKey}::${sig}`;
+  }, [osmdPreviewKey, osmdArticulationFixes]);
+
   const activePartLabels = staffList.length
     ? staffList
     : scoreParts.map((p) => p.displayLabel || p.suggestedLabel).filter(Boolean);
@@ -1291,8 +1303,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 </div>
               ) : previewXml ? (
                 <OsmdBlock
-                  key={osmdPreviewKey}
-                  xml={previewXml}
+                  key={artPreviewOsmdKey}
+                  xml={articulationHintXml}
                   articulationHintXml={articulationHintXml}
                   articulationFixes={osmdArticulationFixes}
                   zoom={scoreZoom}

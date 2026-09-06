@@ -58,6 +58,7 @@ import {
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
 import type { ArticulationPreviewFix } from '../shared/musicXmlArticulationDistance';
 import {
+  applyArticulationPlacementFixesToPreviewXml,
   articulationDefaultYFromStaffSpaces,
   articulationStaffSpacesFromHint,
   HITL_DIR_DISTANCE_ATTR,
@@ -2438,7 +2439,10 @@ export function OsmdBlock({
       verbatimPreview === true,
       faithfulEditorLayoutRef.current,
     );
-    const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(xmlForOsmd);
+    // pending 거리를 load XML에 심음(VexFlow는 default-y 무시 → 이후 SVG/y_shift)
+    const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(
+      applyArticulationPlacementFixesToPreviewXml(xmlForOsmd, articulationFixesRef.current),
+    );
     osmdWedgeRulesXmlRef.current = xmlForOsmdLoad;
 
     let osmd: OpenSheetMusicDisplay;
@@ -2469,8 +2473,8 @@ export function OsmdBlock({
 
     let cancelled = false;
     const stale = () => cancelled || gen !== xmlGenRef.current;
-    // articulation 거리는 sanitize 전 hint XML 기준 — strip/serialize 후에도 attr이 있어야 함
-    registerOsmdPreviewXmlForArticulation(osmd, hintXmlRef.current || xml);
+    // articulation 거리 — sanitize 후 거리 attr이 심긴 load XML
+    registerOsmdPreviewXmlForArticulation(osmd, xmlForOsmdLoad);
     registerOsmdPreviewXmlForDynamics(osmd, hintXmlRef.current || xml);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);

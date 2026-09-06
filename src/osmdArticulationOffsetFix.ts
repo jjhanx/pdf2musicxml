@@ -222,17 +222,25 @@ export function resetOsmdArticulationOffsets(host: HTMLElement): void {
     else el.removeAttribute('transform');
     el.removeAttribute('data-hitl-base-tf');
     el.removeAttribute('data-art-shift-y');
+    const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
+    if (sty?.removeProperty) sty.removeProperty('transform');
   }
   for (const el of host.querySelectorAll('[data-art-base-transform]')) {
     el.setAttribute('transform', el.getAttribute('data-art-base-transform') ?? '');
     el.removeAttribute('data-art-shift-y');
     const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
-    if (sty?.removeProperty) sty.removeProperty('translate');
+    if (sty?.removeProperty) {
+      sty.removeProperty('transform');
+      sty.removeProperty('translate');
+    }
   }
   for (const el of host.querySelectorAll('[data-art-shift-y]')) {
     el.removeAttribute('data-art-shift-y');
     const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
-    if (sty?.removeProperty) sty.removeProperty('translate');
+    if (sty?.removeProperty) {
+      sty.removeProperty('transform');
+      sty.removeProperty('translate');
+    }
   }
   host.removeAttribute('data-hitl-art-shifted');
 }
@@ -250,6 +258,11 @@ export function applyArticulationShiftY(el: Element, deltaY: number): void {
   const prefix = `translate(${ox}, ${oy + deltaY})`;
   el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
   el.setAttribute('data-art-shift-y', String(deltaY));
+  // 일부 환경에서 SVG transform attr만으로는 안 보이므로 CSS도 동기화(동일 Δ, 이중 가산 없음)
+  const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
+  if (sty?.setProperty) {
+    sty.setProperty('transform', `translate(${ox}px, ${oy + deltaY}px)`);
+  }
 }
 
 function defaultArticulationPlacement(note: Element): 'above' | 'below' {
@@ -1402,28 +1415,19 @@ function shiftLiftedDirectionTexts(host: HTMLElement, xml: string, staffSpacePx:
   const dirs = [...doc.querySelectorAll('direction')].filter((d) => d.getAttribute(HITL_LIFTED_ART_ATTR));
   if (!dirs.length) return 0;
   const texts = [...host.querySelectorAll('text')].filter((t) => isLiftedArticulationGlyph(t.textContent));
+  if (!texts.length) return 0;
+  const used = new Set<Element>();
   let shifted = 0;
-  if (dirs.length === 1) {
-    const dir = dirs[0]!;
+  for (const dir of dirs) {
+    const glyph = dir.querySelector('words')?.textContent?.trim() ?? '>';
+    const el = texts.find((t) => t.textContent?.trim() === glyph && !used.has(t));
+    if (!el) continue;
+    used.add(el);
+    const dist = dir.getAttribute(HITL_ART_DISTANCE_ATTR);
     const dy = parseInt(dir.getAttribute('default-y') ?? dir.querySelector('words')?.getAttribute('default-y') ?? '', 10);
-    const spaces = Number.isFinite(dy) && dy !== 0 ? Math.abs(dy) / 10 : 1;
-    const above = (dir.getAttribute('placement') || '').toLowerCase() === 'above' || dy > 0;
-    const extraY = extraLiftedDirectionYPx(spaces, staffSpacePx || 10, above);
-    for (const el of texts) {
-      if (el.textContent?.trim() !== (dir.querySelector('words')?.textContent?.trim() ?? '>')) continue;
-      applyArticulationShiftY(el, extraY);
-      shifted += 1;
-    }
-    return shifted;
-  }
-  const glyphs = dirs.map((d) => d.querySelector('words')?.textContent?.trim() ?? '>');
-  const n = Math.min(dirs.length, texts.length);
-  for (let i = 0; i < n; i++) {
-    const dir = dirs[i]!;
-    const el = texts[i]!;
-    if (el.textContent?.trim() !== glyphs[i]) continue;
-    const dy = parseInt(dir.getAttribute('default-y') ?? dir.querySelector('words')?.getAttribute('default-y') ?? '', 10);
-    const spaces = Number.isFinite(dy) && dy !== 0 ? Math.abs(dy) / 10 : 1;
+    const spaces =
+      parseArticulationStaffSpaces(dist) ??
+      (Number.isFinite(dy) && dy !== 0 ? Math.abs(dy) / 10 : 1);
     const above = (dir.getAttribute('placement') || '').toLowerCase() === 'above' || dy > 0;
     applyArticulationShiftY(el, extraLiftedDirectionYPx(spaces, staffSpacePx || 10, above));
     shifted += 1;
@@ -1638,6 +1642,18 @@ function applyOsmdArticulationOffsetsDetailedInner(
       appliedDy = maxAbs;
     }
   }
+
+  // direction으로 승격된 Accent/Tenuto — VexFlow modifier 경로에 없으면 여기서 이동
+  const liftedXml = resolveArticulationPreviewXml(osmd) ?? '';
+  const fromLiftedExpr = shiftLiftedOsmdExpressions(osmd, staffSpacePx || 10);
+  const fromLiftedDom = liftedXml
+    ? shiftLiftedDirectionTexts(host, liftedXml, staffSpacePx || 10)
+    : 0;
+  shiftedCount += fromLiftedExpr + fromLiftedDom;
+  if ((fromLiftedExpr || fromLiftedDom) && !appliedDy && pendingFixes.length) {
+    appliedDy = hostDy;
+  }
+
   applyHitlArticulationHostCss(host, appliedDy);
   setHitlArticulationExtraYPx(appliedDy);
   host.setAttribute('data-hitl-art-shifted', String(shiftedCount));

@@ -485,12 +485,15 @@ function overlayFixesOnHints(
 
   for (const fix of fixes) {
     const artName = (fix.articulation ?? '').split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
-    if (!artName) continue;
+    if (!artName || !HITL_ART_OVERLAY_GLYPH[artName]) continue;
     const spaces =
       parseArticulationStaffSpaces(
         fix.distance === 'auto' || !fix.distance ? 'auto' : String(fix.distance),
       ) ?? 1;
+    const placement: 'above' | 'below' =
+      fix.placement === 'above' || fix.placement === 'below' ? fix.placement : 'below';
     let pitch = pitchLabelFromArticulationFix(fix);
+    let staffW = fix.staffWithinPart ?? fix.staff ?? null;
     if (!pitch && doc) {
       for (const part of xmlParts) {
         const pid = part.getAttribute('id')?.trim() ?? '';
@@ -500,19 +503,23 @@ function overlayFixesOnHints(
           const notes = [...measure.children].filter((c) => xmlLocalName(c) === 'note');
           const byIndex = fix.noteIndex != null ? notes[fix.noteIndex] : undefined;
           const note =
-            byIndex && (!artName || noteHasArticulation(byIndex, artName))
+            byIndex && (!artName || noteHasArticulation(byIndex, artName) || fix.kind === 'addArticulation')
               ? byIndex
               : notes.find((n) => noteHasArticulation(n, artName)) ?? null;
-          if (note) pitch = notePitchLabel(note);
+          if (note) {
+            pitch = notePitchLabel(note);
+            if (staffW == null) staffW = noteStaffNumber(note);
+          }
           break;
         }
       }
     }
+
+    let updated = false;
     for (const [key, list] of hintsByMeasure) {
       const [p, m, s] = key.split('|');
       if (m !== String(fix.measureMxl)) continue;
       if (p && fix.partId && !previewPartIdsMatch(p, fix.partId) && !partIdsMatch(p, fix.partId)) continue;
-      const staffW = fix.staffWithinPart ?? fix.staff;
       for (const h of list) {
         if (h.tag.replace(/_/g, '-') !== artName) continue;
         if (pitch && h.pitch && !pitchLabelsMatch(pitch, h.pitch) && !pitchLetterOctaveMatch(pitch, h.pitch)) continue;
@@ -520,10 +527,56 @@ function overlayFixesOnHints(
         if (!pitch && staffW != null && s && s !== String(staffW)) continue;
         h.staffSpaces = spaces;
         h.distance = fix.distance ?? h.distance;
-        if (fix.placement === 'above' || fix.placement === 'below') h.placement = fix.placement;
+        h.placement = placement;
+        updated = true;
       }
     }
+
+    // addArticulation: XML에 아직 표가 없으면 힌트를 새로 넣어 overlay가 m.49처럼 동작하게 함
+    if (!updated && (fix.kind === 'addArticulation' || fix.kind === 'setArticulationPlacement')) {
+      const staff = staffW ?? 1;
+      const partKey = fix.partId || '';
+      const key = `${partKey}|${fix.measureMxl}|${staff}`;
+      const list = hintsByMeasure.get(key) ?? [];
+      list.push({
+        defaultY: placement === 'below' ? -spaces * 10 : spaces * 10,
+        distance: fix.distance ?? String(spaces),
+        placement,
+        staffSpaces: spaces,
+        tag: artName,
+        pitch,
+        layoutX: fix.noteIndex != null ? Number(fix.noteIndex) : 0,
+        staff,
+      });
+      hintsByMeasure.set(key, list);
+    }
   }
+}
+
+/** 같은 음(피치+쪽)에 표가 2개 이상인지 — pending뿐 아니라 XML 힌트도 포함 */
+function hintsHaveMultiArtOnSameNote(hintsByMeasure: Map<string, OrderedHint[]>): boolean {
+  for (const list of hintsByMeasure.values()) {
+    const counts = new Map<string, number>();
+    for (const h of list) {
+      if (!HITL_ART_OVERLAY_GLYPH[h.tag]) continue;
+      const k = `${h.pitch ?? '?'}|${h.placement}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    if ([...counts.values()].some((n) => n >= 2)) return true;
+  }
+  return false;
+}
+
+function pendingHaveMultiArtOnSameNote(fixes: ArticulationPreviewFix[]): boolean {
+  const artsPerNote = new Map<string, number>();
+  for (const f of fixes) {
+    if (f.kind !== 'setArticulationPlacement' && f.kind !== 'addArticulation') continue;
+    if (!f.articulation) continue;
+    const pitch = pitchLabelFromArticulationFix(f) ?? '';
+    const k = `${f.partId}|${f.measureMxl}|${f.noteIndex ?? ''}|${pitch}|${f.placement ?? ''}`;
+    artsPerNote.set(k, (artsPerNote.get(k) ?? 0) + 1);
+  }
+  return [...artsPerNote.values()].some((n) => n >= 2);
 }
 
 function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
@@ -1601,13 +1654,6 @@ function applyHitlArticulationOverlaysForOsmd(
           return false;
         });
         const artElsEarly = findArticulationElementsInStavenote(staveNoteSvg);
-        // 같은 피치 복수 음: 네이티브 표가 있는 음에만 피치 힌트 적용
-        const hintsForNote =
-          noteHints.length && artElsEarly.length > 0
-            ? noteHints
-            : !notePitches.length && artElsEarly.length > 0
-              ? hints.filter((h) => !h.pitch)
-              : [];
 
         const pendingForNote = pendingArt.filter((f) => {
           if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) return false;
@@ -1619,6 +1665,30 @@ function applyHitlArticulationOverlaysForOsmd(
           if (fp && notePitches.length && !graphicPitchesMatchFix(notePitches, fp)) return false;
           return true;
         });
+
+        // HITL이 noteIndex로 특정 음을 가리키면, 같은 피치의 다른 음에 피치 힌트만으로 overlay 금지 (m.51 중복 방지)
+        if (!pendingForNote.length && pendingArt.length) {
+          const targeted = pendingArt.some((f) => {
+            if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) return false;
+            if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
+              return false;
+            }
+            if (f.noteIndex == null) return false;
+            const fp = pitchLabelFromArticulationFix(f);
+            if (fp && notePitches.length && !graphicPitchesMatchFix(notePitches, fp)) return false;
+            return Number(f.noteIndex) !== thisNoteIndex;
+          });
+          if (targeted) continue;
+        }
+
+        // 표가 아직 draw되지 않아도 pending/힌트가 있으면 overlay (m.51 HITL add)
+        // 같은 피치 복수 음: 네이티브 표가 있거나 pending noteIndex가 맞은 음만
+        const hintsForNote =
+          noteHints.length && (artElsEarly.length > 0 || pendingForNote.length > 0)
+            ? noteHints
+            : !notePitches.length && artElsEarly.length > 0
+              ? hints.filter((h) => !h.pitch)
+              : [];
 
         if (!hintsForNote.length && !pendingForNote.length) continue;
 
@@ -1778,25 +1848,29 @@ function applyOsmdArticulationOffsetsDetailedInner(
   // 전역 래핑 경로 제거 — 음표별 글리프만 이동 (꾸밈음 보호 + MXL 반영 후 XML 힌트 유지)
   resetOsmdArticulationOffsets(host);
 
-  // 같은 음에 표가 2개 이상이면 상대 이동(fromDirect)을 쓰면 안 됨.
+  // 같은 음에 표가 2개 이상이면 상대 이동(fromDirect/relative)을 쓰면 안 됨.
   // OSMD 네이티브가 이미 ~1칸 벌려 그린 뒤 (spaces−1)×gap 를 더하면
   // tenuto@2(+10)과 accent@3(+20)이 같은 visualY로 겹친다(실측 gap≈0.5px).
+  // pending뿐 아니라 XML 힌트(m.49처럼 표가 이미 있는 경우)도 복수면 동일.
   const pendingArtFixes = pendingFixes.filter(
     (f) =>
       (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') && Boolean(f.articulation),
   );
-  const artsPerNote = new Map<string, number>();
-  for (const f of pendingArtFixes) {
-    const k = `${f.partId}|${f.measureMxl}|${f.noteIndex ?? ''}`;
-    artsPerNote.set(k, (artsPerNote.get(k) ?? 0) + 1);
-  }
-  const hasMultiArtNote = [...artsPerNote.values()].some((n) => n >= 2);
+
+  const xmlEarly = resolveArticulationPreviewXml(osmd);
+  const hintsEarly = xmlEarly?.trim()
+    ? cloneHintsByMeasure(orderedHintsByMeasureFromXml(xmlEarly))
+    : new Map<string, OrderedHint[]>();
+  if (xmlEarly?.trim()) overlayFixesOnHints(xmlEarly, hintsEarly, pendingFixes);
+
+  const hasMultiArtNote =
+    pendingHaveMultiArtOnSameNote(pendingArtFixes) || hintsHaveMultiArtOnSameNote(hintsEarly);
   const usedElements = new Set<Element>();
   const fromDirect = hasMultiArtNote
     ? 0
     : applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
 
-  const xml = resolveArticulationPreviewXml(osmd);
+  const xml = xmlEarly;
   const hostDy = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
 
   if (!xml?.trim()) {
@@ -1807,8 +1881,7 @@ function applyOsmdArticulationOffsetsDetailedInner(
     return { shifted, modifierCount: countModifiers(host), hintCount: 0, staffSpacePx };
   }
 
-  const hintsByMeasure = cloneHintsByMeasure(orderedHintsByMeasureFromXml(xml));
-  overlayFixesOnHints(xml, hintsByMeasure, pendingFixes);
+  const hintsByMeasure = hintsEarly;
   const totalHints = countHints(hintsByMeasure);
   if (totalHints === 0 && pendingFixes.length === 0) {
     applyHitlArticulationHostCss(host, 0);

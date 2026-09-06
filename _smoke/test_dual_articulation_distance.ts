@@ -32,7 +32,14 @@ if (suggestStackedArticulationDistance(['auto'], 'auto') !== '3') {
     { tag: 'tenuto', placement: 'below', staffSpaces: 2, glyph: '–' },
     { tag: 'accent', placement: 'below', staffSpaces: 2, glyph: '>' },
   ]);
-  if (stacked[1]!.staffSpaces !== 3) throw new Error('stack bump');
+  if (stacked[1]!.staffSpaces !== 4) throw new Error(`stack bump same-slot → ${stacked[1]!.staffSpaces}`);
+  const stackedAdj = stackOverlayArtSpaces([
+    { tag: 'tenuto', placement: 'below', staffSpaces: 2, glyph: '–' },
+    { tag: 'accent', placement: 'below', staffSpaces: 3, glyph: '>' },
+  ]);
+  if (stackedAdj[1]!.staffSpaces !== 5) {
+    throw new Error(`stack bump adjacent → ${stackedAdj[1]!.staffSpaces}`);
+  }
 }
 
 const sample = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list><part id="P1"><measure number="50"><attributes><divisions>4</divisions><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>B</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><stem>up</stem><notations><articulations><tenuto placement="below"/><accent placement="below"/></articulations></notations></note></measure></part></score-partwise>`;

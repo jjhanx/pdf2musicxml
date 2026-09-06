@@ -287,20 +287,38 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
   const matchesArt = (n: Element) => !art || noteHasArticulation(n, art);
   const matchesPitch = (n: Element) => !wantPitch || pitchLabelsMatch(notePitchLabel(n), wantPitch);
   const matchesStaff = (n: Element) => staffW == null || noteStaffNumber(n) === staffW;
+  const isRest = (n: Element) => Boolean(n.querySelector(':scope > rest, :scope > *|rest'));
+  const isAdd = fix.kind === 'addArticulation';
+
+  // addArticulation: noteIndex 우선(아직 표가 없어 matchesArt가 실패함)
+  if (isAdd && fix.noteIndex != null && notes[fix.noteIndex]) {
+    const target = notes[fix.noteIndex]!;
+    if (!isRest(target) && matchesPitch(target) && matchesStaff(target)) return target;
+    if (!isRest(target) && matchesPitch(target)) return target;
+  }
 
   // 피치(+표) — PR/PL 분할·스태프 필터 후에도 편집기 noteIndex와 무관하게 같은 음표를 찾음
-  if (wantPitch && art) {
-    const hits = notes.filter((n) => matchesArt(n) && matchesPitch(n) && matchesStaff(n));
-    if (hits.length === 1) return hits[0]!;
-    if (hits.length > 1) return hits[0]!;
-    const anyPitch = notes.filter((n) => matchesArt(n) && matchesPitch(n));
+  if (wantPitch && art && !isAdd) {
+    const hits = notes.filter((n) => !isRest(n) && matchesArt(n) && matchesPitch(n) && matchesStaff(n));
+    if (hits[0]) return hits[0]!;
+    const anyPitch = notes.filter((n) => !isRest(n) && matchesArt(n) && matchesPitch(n));
     if (anyPitch[0]) return anyPitch[0]!;
+  }
+
+  // add + 피치: noteIndex가 미리보기 noteOrd와 어긋나도 같은 음을 찾음
+  if (isAdd && wantPitch) {
+    const hits = notes.filter((n) => !isRest(n) && matchesPitch(n) && matchesStaff(n));
+    if (hits.length === 1) return hits[0]!;
+    if (fix.noteIndex != null && notes[fix.noteIndex] && !isRest(notes[fix.noteIndex]!) && matchesPitch(notes[fix.noteIndex]!)) {
+      return notes[fix.noteIndex]!;
+    }
+    if (hits[0]) return hits[0]!;
   }
 
   // 분할 전 part의 document-order noteIndex (마디 편집기와 동일)
   if (fix.noteIndex != null && notes[fix.noteIndex]) {
     const target = notes[fix.noteIndex]!;
-    if (matchesArt(target) && matchesPitch(target)) return target;
+    if (isAdd || (matchesArt(target) && matchesPitch(target))) return target;
   }
 
   if (art) {

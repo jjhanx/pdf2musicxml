@@ -25,15 +25,20 @@ export type HitlArtOverlaySpec = {
   glyph: string;
 };
 
-/** 같은 쪽 표가 같은 칸이면 +1씩 쌓음 */
+/**
+ * 같은 쪽 표가 같은 칸이거나 1칸만 차이나면 +2씩 벌림.
+ * OSMD 네이티브 스택(~1칸≈10px)과 구분되지 않는 간격은 “차이 없음”으로 보이므로 최소 2칸 간격을 보장.
+ */
 export function stackOverlayArtSpaces(specs: HitlArtOverlaySpec[]): HitlArtOverlaySpec[] {
-  const used = new Set<string>();
+  const usedBySide = new Map<string, Set<number>>();
   return specs.map((s) => {
     let spaces = Math.max(1, Math.round(s.staffSpaces));
-    const key = (n: number) => `${s.placement}:${n}`;
-    while (used.has(key(spaces))) spaces += 1;
+    const used = usedBySide.get(s.placement) ?? new Set<number>();
+    usedBySide.set(s.placement, used);
+    const conflicts = (n: number) => used.has(n) || used.has(n - 1) || used.has(n + 1);
+    while (conflicts(spaces)) spaces += 2;
     if (spaces > 10) spaces = 10;
-    used.add(key(spaces));
+    used.add(spaces);
     return { ...s, staffSpaces: spaces };
   });
 }

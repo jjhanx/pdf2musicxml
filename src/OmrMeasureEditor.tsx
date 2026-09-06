@@ -2479,7 +2479,7 @@ export function OmrMeasureEditor({
       <p className="omr-measure-editor-hint">
         요소를 고친 뒤 아래 <strong>「MXL에 반영·미리보기」</strong>를 눌러 오른쪽 MusicXML에서 결과를 확인하세요. 마디 번호는 MusicXML <code>measure@number</code>(전곡 기준)입니다.
         {' '}
-        <strong>다음 마디 포함</strong>을 켜면 셈여림 점선(diminuendo 등)의 끝을 다음 마디 음까지 걸칠 수 있습니다.
+        <strong>다음 마디 포함</strong>을 켜면 셈여림 점선(diminuendo 등)·이음줄의 끝을 다음 마디 음까지 걸칠 수 있습니다.
         {' '}
         <strong>연주순번</strong>은 음표·쉼표 모두에 지정할 수 있습니다(같은 번호 = 동시 시작).
         입력·수정한 순번은 「MXL에 반영」해도 프로그램이 timeline으로 덮어쓰지 않습니다.
@@ -3202,6 +3202,15 @@ export function OmrMeasureEditor({
                   jobId={jobId}
                   partId={partId}
                   measureMxl={measureMxl}
+                  nextMeasureMxl={includeNextMeasure ? nextMeasureMxl : null}
+                  nextNoteEls={
+                    includeNextMeasure
+                      ? ((nextSnapshot?.notes ??
+                          nextSnapshot?.elements?.filter((e) => e.elementKind === 'note')) as
+                          | MeasureNoteEl[]
+                          | undefined)
+                      : undefined
+                  }
                   previewRevision={previewRevision}
                   onFix={pushFix}
                   pendingArticulationForNote={pendingArticulationForNote}
@@ -3865,6 +3874,8 @@ function MeasureNoteEditor({
   jobId,
   partId,
   measureMxl,
+  nextMeasureMxl,
+  nextNoteEls,
   previewRevision,
   onFix,
   pendingArticulationForNote,
@@ -3875,6 +3886,9 @@ function MeasureNoteEditor({
   jobId: string;
   partId: string;
   measureMxl: number;
+  /** 「다음 마디 포함」 시 끝 음 선택용 */
+  nextMeasureMxl?: string | null;
+  nextNoteEls?: MeasureNoteEl[] | null;
   previewRevision: number;
   onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
   pendingArticulationForNote: (
@@ -4002,6 +4016,15 @@ function MeasureNoteEditor({
   }, [previewRevision, partId, measureMxl, el.index]);
 
   const laterNotes = noteEls.filter((n) => n.index > el.index && n.kind === 'note');
+  const nextSlurNotes = (nextNoteEls ?? []).filter(
+    (n) =>
+      n.kind === 'note' &&
+      !n.chord &&
+      !n.hasGrace &&
+      !n.isCue &&
+      (el.staff == null || n.staff == null || n.staff === el.staff),
+  );
+  const canAddSlur = laterNotes.length > 0 || (Boolean(nextMeasureMxl) && nextSlurNotes.length > 0);
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
   const tripletLeaderIdx = chordLeaderIndex(el, noteEls);
   const tripletCandidates = noteEls.filter((n) => n.index >= tripletLeaderIdx && isRhythmicSlice(n)).slice(0, 8);
@@ -4615,16 +4638,24 @@ function MeasureNoteEditor({
               </label>
             </>
           )}
-          {laterNotes.length > 0 && (
+          {canAddSlur && (
             <label className="omr-measure-inline-field">
               이음줄 연결
               <select value={slurTo} onChange={(e) => setSlurTo(e.target.value)}>
                 <option value="">—</option>
                 {laterNotes.map((n) => (
-                  <option key={n.index} value={String(n.index)}>
-                    #{n.index}{n.hasGrace ? ' (꾸밈음)' : ''} {n.pitch ?? ''}
+                  <option key={`cur-${n.index}`} value={String(n.index)}>
+                    #{n.index}
+                    {n.hasGrace ? ' (꾸밈음)' : ''} {n.pitch ?? ''}
                   </option>
                 ))}
+                {nextMeasureMxl &&
+                  nextSlurNotes.map((n) => (
+                    <option key={`next-${n.index}`} value={`next:${n.index}`}>
+                      m.{nextMeasureMxl} #{n.index}
+                      {n.hasGrace ? ' (꾸밈음)' : ''} {n.pitch ?? ''}
+                    </option>
+                  ))}
               </select>
               <select
                 value={slurPlacement}
@@ -4639,14 +4670,19 @@ function MeasureNoteEditor({
                 type="button"
                 className="omr-hitl-fix-btn"
                 disabled={!slurTo}
-                onClick={() =>
+                onClick={() => {
+                  const nextPrefix = 'next:';
+                  const isNext = slurTo.startsWith(nextPrefix);
+                  const toIdx = parseInt(isNext ? slurTo.slice(nextPrefix.length) : slurTo, 10);
+                  if (!Number.isFinite(toIdx)) return;
                   onFix({
                     kind: 'addSlur',
                     fromNoteIndex: el.index,
-                    toNoteIndex: parseInt(slurTo, 10),
+                    toNoteIndex: toIdx,
                     placement: slurPlacement,
-                  })
-                }
+                    ...(isNext && nextMeasureMxl ? { toMeasureMxl: nextMeasureMxl } : {}),
+                  });
+                }}
               >
                 이음줄 추가
               </button>

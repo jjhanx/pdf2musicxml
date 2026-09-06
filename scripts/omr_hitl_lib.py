@@ -9332,10 +9332,22 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             to_idx = int(fix.get("toNoteIndex"))
         except (TypeError, ValueError):
             return False
-        if from_idx < 0 or to_idx < 0 or from_idx >= len(notes) or to_idx >= len(notes):
+        to_measure_mxl = str(fix.get("toMeasureMxl") or measure_mxl).strip() or measure_mxl
+        from_notes = notes
+        if to_measure_mxl != measure_mxl:
+            to_measure = find_measure(part, ns, to_measure_mxl)
+            if to_measure is None:
+                return False
+            to_notes = list_note_elements(to_measure, ns)
+        else:
+            to_notes = notes
+        if from_idx < 0 or to_idx < 0 or from_idx >= len(from_notes) or to_idx >= len(to_notes):
             return False
-        from_note = notes[from_idx]
-        to_note = notes[to_idx]
+        # 같은 마디에서 끝 음이 시작보다 앞이면 거부(교차 마디는 시작=현재·끝=다음이 정상)
+        if to_notes is from_notes and to_idx <= from_idx:
+            return False
+        from_note = from_notes[from_idx]
+        to_note = to_notes[to_idx]
         from_not = _ensure_notations(from_note, ns)
         to_not = _ensure_notations(to_note, ns)
 
@@ -9346,28 +9358,44 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             if s.get("type") == "stop":
                 to_not.remove(s)
 
-        # from~to 사이 같은 staff의 고아/짧은 OMR stop·start 제거 — 긴 이음줄이 중간에서 끊기지 않게
-        from_staff = _note_staff_number(from_note, ns) or 1
-        lo, hi = (from_idx, to_idx) if from_idx <= to_idx else (to_idx, from_idx)
-        for mid_i in range(lo + 1, hi):
-            mid = notes[mid_i]
-            if (_note_staff_number(mid, ns) or 1) != from_staff:
-                continue
+        def _clear_slurs_on_note(mid: ET.Element) -> None:
             mid_not = mid.find(_q(ns, "notations"))
             if mid_not is None:
-                continue
+                return
             for s in list(mid_not.findall(_q(ns, "slur"))):
                 mid_not.remove(s)
             if not list(mid_not):
                 mid.remove(mid_not)
 
-        existing_numbers = set()
-        for n in notes:
-            for notations_el in n.findall(_q(ns, "notations")):
-                for slur in notations_el.findall(_q(ns, "slur")):
-                    num = slur.get("number")
-                    if num and num.isdigit():
-                        existing_numbers.add(int(num))
+        # from~to 사이 같은 staff의 고아/짧은 OMR stop·start 제거 — 긴 이음줄이 중간에서 끊기지 않게
+        from_staff = _note_staff_number(from_note, ns) or 1
+        if to_notes is from_notes:
+            lo, hi = from_idx, to_idx
+            for mid_i in range(lo + 1, hi):
+                mid = from_notes[mid_i]
+                if (_note_staff_number(mid, ns) or 1) != from_staff:
+                    continue
+                _clear_slurs_on_note(mid)
+        else:
+            for mid_i in range(from_idx + 1, len(from_notes)):
+                mid = from_notes[mid_i]
+                if (_note_staff_number(mid, ns) or 1) != from_staff:
+                    continue
+                _clear_slurs_on_note(mid)
+            for mid_i in range(0, to_idx):
+                mid = to_notes[mid_i]
+                if (_note_staff_number(mid, ns) or 1) != from_staff:
+                    continue
+                _clear_slurs_on_note(mid)
+
+        existing_numbers: set[int] = set()
+        for n_list in (from_notes, to_notes) if to_notes is not from_notes else (from_notes,):
+            for n in n_list:
+                for notations_el in n.findall(_q(ns, "notations")):
+                    for slur in notations_el.findall(_q(ns, "slur")):
+                        num = slur.get("number")
+                        if num and num.isdigit():
+                            existing_numbers.add(int(num))
         new_num = 1
         while new_num in existing_numbers:
             new_num += 1

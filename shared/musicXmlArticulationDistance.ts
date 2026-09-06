@@ -119,6 +119,29 @@ export function articulationPreviewShiftPx(staffSpaces: number, staffSpacePx: nu
   return Math.round(space * staffSpaces);
 }
 
+/**
+ * 같은 음·같은 쪽에 표가 더 있을 때 추가 거리 제안.
+ * 요청이 auto/비어 있거나 기존 max 이하면 max+1 (최대 10). 순차 추가 시 OSMD 기본 겹침을 피함.
+ */
+export function suggestStackedArticulationDistance(
+  existingDistances: ReadonlyArray<string | null | undefined>,
+  requested: string | null | undefined,
+): string {
+  let maxExisting = 0;
+  for (const d of existingDistances) {
+    const n = parseArticulationStaffSpaces(d === 'auto' || !d ? '1' : String(d)) ?? 1;
+    if (n > maxExisting) maxExisting = n;
+  }
+  const reqRaw = (requested ?? '').trim().toLowerCase();
+  const reqAuto = !reqRaw || reqRaw === 'auto';
+  const reqSpaces = reqAuto ? 1 : parseArticulationStaffSpaces(reqRaw) ?? 1;
+  if (maxExisting <= 0) return reqAuto ? 'auto' : String(Math.min(10, Math.max(1, Math.round(reqSpaces))));
+  if (reqAuto || reqSpaces <= maxExisting) {
+    return String(Math.min(10, maxExisting + 1));
+  }
+  return String(Math.min(10, Math.max(1, Math.round(reqSpaces))));
+}
+
 /** UI select value 추정. */
 export function articulationDistanceSelectValue(
   distance: string | null | undefined,
@@ -156,6 +179,8 @@ export type ArticulationPreviewFix = {
   staffWithinPart?: number | null;
   staff?: number | null;
   articulation?: string;
+  directionType?: string;
+  directionValue?: string;
   placement?: 'above' | 'below' | null;
   distance?: string | null;
   pitchStep?: string;

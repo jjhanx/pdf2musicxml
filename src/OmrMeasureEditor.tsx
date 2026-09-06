@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { articulationDefaultYFromStaffSpaces, articulationDistanceSelectValue, hitlPreviewPartIdsMatch } from '../shared/musicXmlArticulationDistance';
+import { articulationDefaultYFromStaffSpaces, articulationDistanceSelectValue, hitlPreviewPartIdsMatch, suggestStackedArticulationDistance } from '../shared/musicXmlArticulationDistance';
 import { HITL_DYNAMICS_DIRECTION_VALUES } from '../shared/musicXmlDynamics';
 import { isNavigationDirectionType, navigationDirectionLabel, newFixId, type OmrHitlFix } from './omrHitlFixes';
 import {
@@ -4129,7 +4129,7 @@ function MeasureNoteEditor({
                 : `${artLabel} 제거`}
             </button>
             <label className="omr-measure-inline-field">
-              위치
+              {artLabel} 위치
               <select
                 value={selectPl}
                 onChange={(e) => {
@@ -4149,13 +4149,14 @@ function MeasureNoteEditor({
                   });
                 }}
                 style={{ marginLeft: 4 }}
+                title={`${artLabel}만 위/아래`}
               >
                 <option value="above">위</option>
                 <option value="below">아래</option>
               </select>
             </label>
             <label className="omr-measure-inline-field">
-              거리
+              {artLabel} 거리
               <select
                 value={currentDist}
                 onChange={(e) => {
@@ -4174,7 +4175,7 @@ function MeasureNoteEditor({
                   });
                 }}
                 style={{ marginLeft: 4 }}
-                title="오선에서 떨어진 칸 수 (1칸 = staff space)"
+                title={`${artLabel}만 — 오선에서 떨어진 칸 수 (다른 표와 독립)`}
               >
                 {ARTICULATION_DISTANCE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -4188,54 +4189,51 @@ function MeasureNoteEditor({
       })}
       {el.kind === 'note' && addableArtOptions.length > 0 && (
         <div className="omr-measure-articulation-row">
-          {savedArtIds.length === 0 ? (
-            <>
-              <span className="omr-measure-articulation-current">
-                현재 표:{' '}
-                {displayArtIds.length > 0
-                  ? displayArtIds
-                      .map((id) => {
-                        const saved = (chordLeaderEl?.articulations ?? []).find((a) => a.split('(')[0] === id);
-                        const pl = saved
-                          ? markPlacementOf(saved)
-                          : pendingArtPlacement[id] ?? null;
-                        const side = placementKo(pl);
-                        return `${articulationOptionLabel(id)}${side ? ` (${side})` : ''}`;
-                      })
-                      .join(' · ')
-                  : '없음'}
-                {pendingArtIds.length > 0 && savedArtIds.length < displayArtIds.length ? (
-                  <span className="omr-measure-articulation-pending"> (반영 대기)</span>
-                ) : null}
-              </span>
-              <label className="omr-measure-inline-field">
-                위치
-                <select
-                  value={artPlacement}
-                  onChange={(e) => setArtPlacement(e.target.value as 'above' | 'below')}
-                  style={{ marginLeft: 4 }}
-                >
-                  <option value="above">위</option>
-                  <option value="below">아래</option>
-                </select>
-              </label>
-              <label className="omr-measure-inline-field">
-                거리
-                <select
-                  value={artDistance}
-                  onChange={(e) => setArtDistance(e.target.value)}
-                  style={{ marginLeft: 4 }}
-                  title="오선에서 떨어진 칸 수 (1칸 = staff space)"
-                >
-                  {ARTICULATION_DISTANCE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          ) : null}
+          <span className="omr-measure-articulation-current">
+            현재 표:{' '}
+            {displayArtIds.length > 0
+              ? displayArtIds
+                  .map((id) => {
+                    const saved = (chordLeaderEl?.articulations ?? []).find((a) => a.split('(')[0] === id);
+                    const pl = saved
+                      ? markPlacementOf(saved)
+                      : pendingArtPlacement[id] ?? null;
+                    const side = placementKo(pl);
+                    return `${articulationOptionLabel(id)}${side ? ` (${side})` : ''}`;
+                  })
+                  .join(' · ')
+              : '없음'}
+            {pendingArtIds.length > 0 && savedArtIds.length < displayArtIds.length ? (
+              <span className="omr-measure-articulation-pending"> (반영 대기)</span>
+            ) : null}
+          </span>
+          <label className="omr-measure-inline-field">
+            추가할 표 위치
+            <select
+              value={artPlacement}
+              onChange={(e) => setArtPlacement(e.target.value as 'above' | 'below')}
+              style={{ marginLeft: 4 }}
+              title="다음에 「표 더 추가」로 넣을 표의 위/아래 (기존 표 거리와 별개)"
+            >
+              <option value="above">위</option>
+              <option value="below">아래</option>
+            </select>
+          </label>
+          <label className="omr-measure-inline-field">
+            추가할 표 거리
+            <select
+              value={artDistance}
+              onChange={(e) => setArtDistance(e.target.value)}
+              style={{ marginLeft: 4 }}
+              title="다음에 추가할 표의 칸 수. 기존 Tenuto/Accent 거리 드롭다운과 다름"
+            >
+              {ARTICULATION_DISTANCE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="omr-measure-inline-field omr-measure-articulation-add">
             표 더 추가
             <select
@@ -4243,14 +4241,29 @@ function MeasureNoteEditor({
               onChange={(e) => {
                 const art = e.target.value;
                 if (!art) return;
+                const sameSideDists = (chordLeaderEl?.articulations ?? [])
+                  .filter((a) => {
+                    const pl = markPlacementOf(a) ?? defaultArticulationPlacement(chordLeaderEl?.stem ?? el.stem);
+                    return pl === artPlacement;
+                  })
+                  .map((a) => markDistanceLevelOf(a));
+                for (const id of pendingArtIds) {
+                  const pl = pendingArtPlacement[id] ?? artPlacement;
+                  if (pl === artPlacement) {
+                    const pend = pendingArticulationForNote(chordLeaderIdx, id);
+                    sameSideDists.push(pend?.distance ?? artDistance);
+                  }
+                }
+                const resolvedDist = suggestStackedArticulationDistance(sameSideDists, artDistance);
                 setPendingArtIds((prev) => (prev.includes(art) ? prev : [...prev, art]));
                 setPendingArtPlacement((prev) => ({ ...prev, [art]: artPlacement }));
+                setArtDistance(suggestStackedArticulationDistance([...sameSideDists, resolvedDist], 'auto'));
                 onFix({
                   kind: 'addArticulation',
                   noteIndex: chordLeaderIdx,
                   articulation: art,
                   placement: artPlacement,
-                  distance: artDistance !== 'auto' ? artDistance : undefined,
+                  distance: resolvedDist === 'auto' ? undefined : resolvedDist,
                   ...pitchFieldsFromMeasureNote(chordLeaderEl),
                 });
               }}
@@ -4263,12 +4276,6 @@ function MeasureNoteEditor({
               ))}
             </select>
           </label>
-          {savedArtIds.length > 0 ? (
-            <span className="omr-measure-articulation-add-hint" style={{ fontSize: '0.82rem', color: '#666' }}>
-              새 표 기본: {placementKo(artPlacement)} ·{' '}
-              {ARTICULATION_DISTANCE_OPTIONS.find((o) => o.value === artDistance)?.label ?? artDistance}
-            </span>
-          ) : null}
         </div>
       )}
       {el.kind === 'note' && addableArtOptions.length === 0 && savedArtIds.length > 0 ? (

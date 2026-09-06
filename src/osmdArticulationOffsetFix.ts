@@ -700,11 +700,54 @@ function articulationModTypeMatchesHint(artModType: string | undefined, hintTag:
   if (!artModType) return true;
   const t = artModType.toLowerCase();
   const h = hintTag.toLowerCase().replace(/_/g, '-');
-  if (h.includes('accent')) return t.includes('a>') || t.includes('accent') || t.includes('a^');
+  if (h.includes('accent') && !h.includes('strong')) {
+    return t.includes('a>') || (t.includes('accent') && !t.includes('strong'));
+  }
   if (h.includes('staccato')) return t.includes('a.') || t.includes('staccato');
   if (h.includes('tenuto')) return t.includes('a-') || t.includes('tenuto');
   if (h.includes('marcato') || h.includes('strong')) return t.includes('a^') || t.includes('marcato');
   return true;
+}
+
+/** VexFlow Articulation.type → MusicXML art tag (힌트·pending 매칭용). */
+function artTagFromVexModType(artModType: string | undefined): string | null {
+  const t = (artModType ?? '').toLowerCase();
+  if (!t) return null;
+  if (t.includes('a>') || (t.includes('accent') && !t.includes('strong'))) return 'accent';
+  if (t.includes('a-') || t.includes('tenuto')) return 'tenuto';
+  if (t.includes('a.') || t.includes('staccato')) return 'staccato';
+  if (t.includes('a^') || t.includes('marcato') || t.includes('strong')) return 'strong-accent';
+  if (t.includes('a@') || t.includes('breath')) return 'breath-mark';
+  return null;
+}
+
+/** 한 표의 글리프만 — `.vf-modifiers` 전체·형제 path에 같은 Δ를 쓰지 않음(tenuto+accent 포개짐 방지). */
+function paintTargetsForOneArticulation(
+  artMod: { attrs?: { el?: Element }; el?: Element; getAttribute?: (k: string) => unknown } | null | undefined,
+  artEls: Element[],
+  index: number,
+  usedElements: Set<Element>,
+): Element[] {
+  const targets: Element[] = [];
+  const push = (el: Element | null | undefined) => {
+    if (!el || usedElements.has(el) || targets.includes(el)) return;
+    // 공유 그룹이면 개별 path만 (그룹 이동은 같은 음의 다른 표까지 같이 움직임)
+    if (el.classList?.contains?.('vf-modifiers')) {
+      const glyphs = articulationGlyphsInModifierGroup(el);
+      const preferred = artEls[index];
+      if (preferred && glyphs.includes(preferred)) {
+        targets.push(preferred);
+        return;
+      }
+      const unused = glyphs.find((g) => !usedElements.has(g));
+      if (unused) targets.push(unused);
+      return;
+    }
+    targets.push(el);
+  };
+  push(artEls[index]);
+  push(vexModifierSvg(artMod));
+  return targets;
 }
 
 function countHints(map: Map<string, OrderedHint[]>): number {
@@ -1061,10 +1104,7 @@ function applyPendingDistanceDirect(
         const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
         const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
         const artEls = staveNoteSvg ? findArticulationElementsInStavenote(staveNoteSvg) : [];
-        const modGroups = staveNoteSvg
-          ? ([...staveNoteSvg.querySelectorAll('.vf-modifiers')] as Element[])
-          : [];
-        if (!artMods.length && !artEls.length && !modGroups.length) continue;
+        if (!artMods.length && !artEls.length) continue;
 
         const stave =
           staveNote?.getStave?.() ??
@@ -1078,39 +1118,27 @@ function applyPendingDistanceDirect(
           staffSpacePx ||
           10;
 
-        for (let i = 0; i < Math.max(artMods.length, artEls.length, modGroups.length, 1); i++) {
+        for (let i = 0; i < Math.max(artMods.length, artEls.length); i++) {
           const artMod = artMods[i] ?? artMods[0];
-          // artTag는 fix 쪽 이름 기준 (Vex type "a>" → ">"로 잘못 줄어 accent 매칭 실패 방지)
+          const artTag = artTagFromVexModType(artMod?.type) ?? undefined;
           const pending = staffSpacesFromPendingFix(pendingFixes, {
             partId,
             measureMxl,
             pitches: notePitches,
-            artTag: undefined,
+            artTag,
             staffWithinPart,
           });
           if (!pending) continue;
 
-          const artName = artNameFromFix(
-            pendingFixes.find((f) => String(f.measureMxl) === String(measureMxl)) ?? pendingFixes[0]!,
-          );
-          const typeOk =
-            !artMod?.type ||
-            !artName ||
-            articulationModTypeMatchesHint(artMod.type, artName) ||
-            articulationModTypeMatchesHint(artMod.type, 'accent');
-          if (artMod && artMods.length && !typeOk) continue;
+          if (artMod?.type && artTag) {
+            const typeOk = articulationModTypeMatchesHint(artMod.type, artTag);
+            if (!typeOk) continue;
+          }
 
           const isAbove = artMod?.getPosition?.() === 3 || pending.placement === 'above';
           const extraY = extraArticulationYPx(pending.staffSpaces, lineSpacing, isAbove);
           if (!extraY) continue;
-          const targets: Element[] = [];
-          const modEl = vexModifierSvg(artMod);
-          if (modEl && !usedElements.has(modEl)) targets.push(modEl);
-          const artEl = artEls[i] ?? artEls[0];
-          if (artEl && !usedElements.has(artEl)) targets.push(artEl);
-          for (const g of modGroups) {
-            if (!usedElements.has(g)) targets.push(g);
-          }
+          const targets = paintTargetsForOneArticulation(artMod, artEls, i, usedElements);
           for (const t of targets) {
             applyArticulationOffsetToTarget(t, extraY);
             usedElements.add(t);
@@ -1499,7 +1527,7 @@ function applyOsmdArticulationOffsetsDetailedInner(
 
           for (let i = 0; i < Math.max(modsOrFake.length, artEls.length, 1); i++) {
             const artMod = modsOrFake[i] ?? modsOrFake[0];
-            const artEl = vexModifierSvg(artMod) ?? artEls[i] ?? artEls[0] ?? null;
+            const artTagFromMod = artTagFromVexModType(artMod?.type);
 
             // pending과 동일: 그래픽 피치가 있을 때만 피치 필터. 없으면 표 종류·순서로 매칭
             // (MXL 반영 후 pending 비울 때 피치 미추출이면 전부 탈락 → 원래 위치로 되돌아가던 버그)
@@ -1530,7 +1558,7 @@ function applyOsmdArticulationOffsetsDetailedInner(
               partId,
               measureMxl,
               pitches: notePitches,
-              artTag: matchedHint?.tag ?? (artMod?.type?.includes('a>') ? 'accent' : undefined),
+              artTag: matchedHint?.tag ?? artTagFromMod ?? undefined,
               staffWithinPart,
             });
             const staffSpaces = pending?.staffSpaces ?? matchedHint?.staffSpaces;
@@ -1555,15 +1583,7 @@ function applyOsmdArticulationOffsetsDetailedInner(
               10;
             const extraY = extraArticulationYPx(staffSpaces, lineSpacing, isAbove);
             if (!extraY) continue;
-            const paintTargets: Element[] = [];
-            for (const t of [artEl, ...artEls]) {
-              if (t && !paintTargets.includes(t) && !usedElements.has(t)) paintTargets.push(t);
-            }
-            if (!paintTargets.length && staveNoteSvg) {
-              for (const g of staveNoteSvg.querySelectorAll('.vf-modifiers')) {
-                if (!usedElements.has(g)) paintTargets.push(g);
-              }
-            }
+            const paintTargets = paintTargetsForOneArticulation(artMod, artEls, i, usedElements);
             if (!paintTargets.length) continue;
             for (const t of paintTargets) {
               applyArticulationOffsetToTarget(t, extraY);

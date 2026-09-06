@@ -21,8 +21,8 @@ const OSMD =
   (osmdLib as { default?: { OpenSheetMusicDisplay?: new (...a: unknown[]) => any } }).default
     ?.OpenSheetMusicDisplay;
 
-if (suggestStackedArticulationDistance(['auto'], 'auto') !== '2') {
-  throw new Error('stack after auto → 2');
+if (suggestStackedArticulationDistance(['auto'], 'auto') !== '3') {
+  throw new Error('stack after auto → 3 (+2칸, 네이티브 1칸 겹침과 구분)');
 }
 {
   const y2 = overlayArticulationY(100, 2, 'below', 10);

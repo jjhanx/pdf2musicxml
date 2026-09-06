@@ -1110,13 +1110,15 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return { count: arts.length, dy, dists };
   }, [osmdArticulationFixes]);
 
+  /** 거리만 바뀌면 키 유지 → OSMD 전체 remount 없이 SVG 표 이동만 재적용.
+   * (거리마다 remount하면 네이티브 겹침(~1칸)이 잠깐/계속 보이는 것처럼 느껴짐) */
   const artPreviewOsmdKey = useMemo(() => {
     const arts = osmdArticulationFixes.filter(isArticulationPreviewFix);
     if (!arts.length) return osmdPreviewKey;
     const sig = arts
       .map(
         (f) =>
-          `${f.articulation}:${f.distance ?? 'auto'}:${f.placement ?? ''}:${f.noteIndex ?? ''}`,
+          `${f.kind}:${f.articulation}:${f.placement ?? ''}:${f.noteIndex ?? ''}:${f.partId ?? ''}:${f.measureMxl ?? ''}`,
       )
       .join('|');
     return `${osmdPreviewKey}::${sig}`;
@@ -1304,7 +1306,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               ) : previewXml ? (
                 <OsmdBlock
                   key={artPreviewOsmdKey}
-                  xml={articulationHintXml}
+                  xml={previewXml}
                   articulationHintXml={articulationHintXml}
                   articulationFixes={osmdArticulationFixes}
                   zoom={scoreZoom}

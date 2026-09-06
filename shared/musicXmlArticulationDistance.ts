@@ -136,8 +136,9 @@ export function suggestStackedArticulationDistance(
   const reqAuto = !reqRaw || reqRaw === 'auto';
   const reqSpaces = reqAuto ? 1 : parseArticulationStaffSpaces(reqRaw) ?? 1;
   if (maxExisting <= 0) return reqAuto ? 'auto' : String(Math.min(10, Math.max(1, Math.round(reqSpaces))));
+  // +2칸: OSMD 네이티브 스택 간격(~1칸≈10px)과 구분되도록. +1이면 눈으로 겹친 것처럼 보임.
   if (reqAuto || reqSpaces <= maxExisting) {
-    return String(Math.min(10, maxExisting + 1));
+    return String(Math.min(10, maxExisting + 2));
   }
   return String(Math.min(10, Math.max(1, Math.round(reqSpaces))));
 }

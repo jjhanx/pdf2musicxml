@@ -4087,31 +4087,42 @@ function MeasureNoteEditor({
           ) : null}
         </>
       )}
-      {(chordLeaderEl?.articulations ?? []).map((art) => {
-        const name = art.split('(')[0];
+      {displayArtIds.map((name) => {
+        const savedArt = (chordLeaderEl?.articulations ?? []).find((a) => a.split('(')[0] === name);
+        const pendingOnly = !savedArt;
         const pendingArt = pendingArticulationForNote(chordLeaderIdx, name);
         const draft = artControlDraft[name];
         const currentPl =
           draft?.placement ??
-          effectiveArticulationPlacement(
-            art,
-            defaultArticulationPlacement(chordLeaderEl?.stem ?? el.stem),
-            pendingArt,
-          );
+          (savedArt
+            ? effectiveArticulationPlacement(
+                savedArt,
+                defaultArticulationPlacement(chordLeaderEl?.stem ?? el.stem),
+                pendingArt,
+              )
+            : pendingArt?.placement ??
+              pendingArtPlacement[name] ??
+              defaultArticulationPlacement(chordLeaderEl?.stem ?? el.stem));
         const currentDist =
           draft?.distance ??
-          effectiveArticulationDistance(art, pendingArt);
+          (savedArt
+            ? effectiveArticulationDistance(savedArt, pendingArt)
+            : pendingArt?.distance != null && pendingArt.distance !== ''
+              ? String(pendingArt.distance)
+              : artDistance === 'auto'
+                ? '1'
+                : artDistance);
         const selectPl = currentPl;
         const beamSide = (chordLeaderEl?.stem ?? el.stem) === 'up' ? 'above' : (chordLeaderEl?.stem ?? el.stem) === 'down' ? 'below' : null;
         const likelyTupletDigit =
           (chordLeaderEl?.timeMod ?? el.timeMod) != null &&
           name === 'staccato' &&
           beamSide != null &&
-          art.includes(beamSide);
+          Boolean(savedArt?.includes(beamSide));
         const isBreathMark = name === 'breath-mark';
         const artLabel = articulationOptionLabel(name);
         return (
-          <span key={art} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <span key={name} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
             <button
               type="button"
               className={`omr-hitl-fix-btn${likelyTupletDigit || isBreathMark ? ' omr-hitl-fix-btn--primary' : ''}`}
@@ -4120,13 +4131,32 @@ function MeasureNoteEditor({
                   ? '잇단 숫자(3)를 가리는 점 — OMR이 숫자를 스타카토로 오인한 것일 가능성이 높습니다'
                   : isBreathMark
                     ? '악센트(>)나 이음줄을 쉼표 모양 숨표(,)로 오인한 것일 수 있습니다 — 클릭하여 제거합니다'
-                    : `이 음표의 ${artLabel} 표를 제거합니다`
+                    : pendingOnly
+                      ? `대기 중인 ${artLabel} 표를 취소합니다`
+                      : `이 음표의 ${artLabel} 표를 제거합니다`
               }
-              onClick={() => onFix({ kind: 'removeArticulation', noteIndex: chordLeaderIdx, articulation: name })}
+              onClick={() => {
+                if (pendingOnly) {
+                  setPendingArtIds((prev) => prev.filter((id) => id !== name));
+                  setPendingArtPlacement((prev) => {
+                    const next = { ...prev };
+                    delete next[name];
+                    return next;
+                  });
+                  setArtControlDraft((prev) => {
+                    const next = { ...prev };
+                    delete next[name];
+                    return next;
+                  });
+                }
+                onFix({ kind: 'removeArticulation', noteIndex: chordLeaderIdx, articulation: name });
+              }}
             >
               {likelyTupletDigit
                 ? `세잇단 숫자 가린 점(${name}) 제거`
-                : `${artLabel} 제거`}
+                : pendingOnly
+                  ? `${artLabel} 추가 취소`
+                  : `${artLabel} 제거`}
             </button>
             <label className="omr-measure-inline-field">
               {artLabel} 위치
@@ -4139,12 +4169,15 @@ function MeasureNoteEditor({
                     ...prev,
                     [name]: { ...prev[name], placement: next, distance: currentDist },
                   }));
+                  if (pendingOnly) {
+                    setPendingArtPlacement((prev) => ({ ...prev, [name]: next }));
+                  }
                   onFix({
                     kind: 'setArticulationPlacement',
                     noteIndex: chordLeaderIdx,
                     articulation: name,
                     placement: next,
-                    distance: currentDist,
+                    distance: currentDist === 'auto' ? undefined : currentDist,
                     ...pitchFieldsFromMeasureNote(chordLeaderEl),
                   });
                 }}
@@ -4158,7 +4191,7 @@ function MeasureNoteEditor({
             <label className="omr-measure-inline-field">
               {artLabel} 거리
               <select
-                value={currentDist}
+                value={currentDist === 'auto' ? '1' : currentDist}
                 onChange={(e) => {
                   const nextDist = e.target.value;
                   setArtControlDraft((prev) => ({
@@ -4170,7 +4203,7 @@ function MeasureNoteEditor({
                     noteIndex: chordLeaderIdx,
                     articulation: name,
                     placement: selectPl,
-                    distance: nextDist,
+                    distance: nextDist === 'auto' ? undefined : nextDist,
                     ...pitchFieldsFromMeasureNote(chordLeaderEl),
                   });
                 }}

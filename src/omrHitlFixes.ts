@@ -313,10 +313,71 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
     );
     return [...filtered, { ...next, id: next.id || newFixId() }];
   }
+  if (next.kind === 'removeArticulation' && next.noteIndex != null && next.articulation) {
+    const mxl = String(next.measureMxl);
+    const art = next.articulation.split('(')[0]!.trim().toLowerCase();
+    const withoutAdd = fixes.filter(
+      (f) =>
+        !(
+          f.kind === 'addArticulation' &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl &&
+          f.noteIndex === next.noteIndex &&
+          (f.articulation ?? '').split('(')[0]!.trim().toLowerCase() === art
+        ),
+    );
+    // 대기 추가만 취소한 경우 — remove를 큐에 남기지 않음(원본에 표가 없음)
+    if (withoutAdd.length < fixes.length) {
+      return withoutAdd.filter(
+        (f) =>
+          !(
+            f.kind === 'setArticulationPlacement' &&
+            f.partId === next.partId &&
+            String(f.measureMxl) === mxl &&
+            f.noteIndex === next.noteIndex &&
+            (f.articulation ?? '').split('(')[0]!.trim().toLowerCase() === art
+          ),
+      );
+    }
+  }
   if (next.kind === 'setArticulationPlacement' && next.noteIndex != null && next.articulation) {
     const mxl = String(next.measureMxl);
     const art = next.articulation.split('(')[0]!.trim().toLowerCase();
-    const filtered = fixes.filter(
+    // 같은 음·표의 addArticulation이 있으면 거리/위치를 그 항목에 합침(중복 set+add로 마지막 값이 덮이는 혼란 방지)
+    let foldedAdd = false;
+    const folded = fixes.map((f) => {
+      if (
+        f.kind === 'addArticulation' &&
+        f.partId === next.partId &&
+        String(f.measureMxl) === mxl &&
+        f.noteIndex === next.noteIndex &&
+        (f.articulation ?? '').split('(')[0]!.trim().toLowerCase() === art
+      ) {
+        foldedAdd = true;
+        return {
+          ...f,
+          placement: next.placement ?? f.placement,
+          distance: next.distance !== undefined ? next.distance : f.distance,
+          pitchStep: next.pitchStep ?? f.pitchStep,
+          pitchOctave: next.pitchOctave ?? f.pitchOctave,
+          pitchAlter: next.pitchAlter ?? f.pitchAlter,
+        };
+      }
+      return f;
+    });
+    if (foldedAdd) {
+      return folded.filter(
+        (f) =>
+          !(
+            f.kind === 'setArticulationPlacement' &&
+            f.partId === next.partId &&
+            String(f.measureMxl) === mxl &&
+            f.noteIndex === next.noteIndex &&
+            (f.articulation ?? '').split('(')[0]!.trim().toLowerCase() === art
+          ),
+      );
+    }
+    const filtered = folded.filter(
       (f) =>
         !(
           f.kind === 'setArticulationPlacement' &&

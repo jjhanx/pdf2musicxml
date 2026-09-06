@@ -1735,6 +1735,16 @@ function applyAbsoluteArticulationDistances(
   );
   let shifted = 0;
   const debugParts: string[] = [];
+  const missParts: string[] = [];
+  /** 에디터 noteIndex = 파트×마디 document order (스태프별 gm마다 0부터 세면 피아노 등에서 어긋남) */
+  const noteOrdByPartMeasure = new Map<string, number>();
+  /** noteIndex로 이미 적용한 pending — 피치 폴백이 다른 음에 중복 적용하지 않게 */
+  const pendingClaimed = new Set<string>();
+  const svgRoot = host.querySelector('svg');
+  const isSvgRoot = (el: Element | null): el is SVGSVGElement =>
+    !!el && el.tagName.toLowerCase() === 'svg';
+  const pendingKey = (f: ArticulationPreviewFix) =>
+    `${f.partId || ''}|${f.measureMxl}|${artNameFromFix(f)}|${f.noteIndex ?? ''}`;
 
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
     const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
@@ -1745,8 +1755,8 @@ function applyAbsoluteArticulationDistances(
       lookupHints(hintsByMeasure, partId, measureMxl, staffWithinPart) ??
       lookupHints(hintsByMeasure, partId, measureMxl) ??
       [];
+    const ordKey = `${partId}|${measureMxl}`;
 
-    let noteOrd = 0;
     const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
     for (const seRaw of staffEntries) {
       const se = asRecord(seRaw);
@@ -1758,14 +1768,12 @@ function applyAbsoluteArticulationDistances(
         const staveNote = vexStaveNoteFromGve(gve);
         const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
         if (!gNotes.length || graphicNotesAreRest(gNotes)) continue;
-        const thisNoteIndex = noteOrd;
-        noteOrd += 1;
+        const thisNoteIndex = noteOrdByPartMeasure.get(ordKey) ?? 0;
+        noteOrdByPartMeasure.set(ordKey, thisNoteIndex + 1);
         const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
         const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
-        if (!staveNoteSvg) continue;
-
-        const artEls = findArticulationElementsInStavenote(staveNoteSvg);
-        if (!artEls.length) continue;
+        // SVG를 못 찾아도 pending 매칭은 시도(아래 miss 디버그). path/overlay는 svg 필요.
+        const artEls = staveNoteSvg ? findArticulationElementsInStavenote(staveNoteSvg) : [];
 
         const rawMods = staveNote?.modifiers as unknown;
         const mods = (Array.isArray(rawMods)
@@ -1780,23 +1788,28 @@ function applyAbsoluteArticulationDistances(
           placement: 'above' | 'below';
           staffSpaces: number;
           mod?: VfArticulationLike;
+          fromPending?: boolean;
         };
         const byTag = new Map<string, Spec>();
 
-        const consider = (tag: string, spaces: number, placement: 'above' | 'below', mod?: VfArticulationLike) => {
+        const consider = (
+          tag: string,
+          spaces: number,
+          placement: 'above' | 'below',
+          mod?: VfArticulationLike,
+          fromPending?: boolean,
+        ) => {
           if (!tag || !Number.isFinite(spaces) || spaces <= 0) return;
-          byTag.set(tag, { tag, staffSpaces: spaces, placement, mod });
+          byTag.set(tag, { tag, staffSpaces: spaces, placement, mod, fromPending });
         };
 
-        // 1) pending (noteIndex 우선)
+        // 1) pending — noteIndex가 맞으면 피치 불일치여도 채택(에디터 인덱스 우선)
         for (const f of pendingArt) {
           if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) continue;
           if (f.noteIndex != null && Number(f.noteIndex) !== thisNoteIndex) continue;
           if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
             continue;
           }
-          const fp = pitchLabelFromArticulationFix(f);
-          if (fp && notePitches.length && !graphicPitchesMatchFix(notePitches, fp)) continue;
           const tag = artNameFromFix(f);
           const spaces =
             parseArticulationStaffSpaces(
@@ -1805,7 +1818,8 @@ function applyAbsoluteArticulationDistances(
           const placement: 'above' | 'below' =
             f.placement === 'above' || f.placement === 'below' ? f.placement : 'below';
           const mod = artMods.find((m) => articulationModTypeMatchesHint(m.type, tag));
-          consider(tag, spaces, placement, mod);
+          consider(tag, spaces, placement, mod, true);
+          pendingClaimed.add(pendingKey(f));
         }
 
         // 2) XML 힌트 (pending이 없는 표)
@@ -1815,31 +1829,44 @@ function applyAbsoluteArticulationDistances(
           if (h.pitch && notePitches.length && !graphicPitchesMatchFix(notePitches, h.pitch)) continue;
           if (!h.distance && !hintNeedsOsmdPreviewShift(h)) continue;
           const mod = artMods.find((m) => articulationModTypeMatchesHint(m.type, tag));
-          consider(tag, h.staffSpaces, h.placement, mod);
+          consider(tag, h.staffSpaces, h.placement, mod, false);
         }
 
-        // pending noteIndex 불일치 시 피치+표로 재시도 (경량 미리보기 noteOrd 어긋남)
-        if (!byTag.size && pendingArt.length) {
+        // 3) pending noteIndex 불일치 → 피치로 재시도 (아직 claim 안 된 fix만)
+        if (pendingArt.length) {
           for (const f of pendingArt) {
+            if (pendingClaimed.has(pendingKey(f))) continue;
             if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) continue;
             if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
               continue;
             }
+            const tag = artNameFromFix(f);
+            if (byTag.has(tag)) continue;
             const fp = pitchLabelFromArticulationFix(f);
             if (!fp || !notePitches.length || !graphicPitchesMatchFix(notePitches, fp)) continue;
-            const tag = artNameFromFix(f);
-            if (!artEls.length) continue;
             const spaces =
               parseArticulationStaffSpaces(
                 f.distance === 'auto' || !f.distance ? 'auto' : String(f.distance),
               ) ?? 1;
             const placement: 'above' | 'below' =
               f.placement === 'above' || f.placement === 'below' ? f.placement : 'below';
-            consider(tag, spaces, placement, artMods.find((m) => articulationModTypeMatchesHint(m.type, tag)));
+            consider(
+              tag,
+              spaces,
+              placement,
+              artMods.find((m) => articulationModTypeMatchesHint(m.type, tag)),
+              true,
+            );
+            pendingClaimed.add(pendingKey(f));
           }
         }
 
         if (!byTag.size) continue;
+
+        if (!staveNoteSvg) {
+          missParts.push(`m${measureMxl}#${thisNoteIndex}:noSvg`);
+          continue;
+        }
 
         const stacked = stackOverlayArtSpaces(
           [...byTag.values()].map((s) => ({
@@ -1851,8 +1878,12 @@ function applyAbsoluteArticulationDistances(
         );
         const placement = stacked[0]!.placement;
         const noteHeadY = resolveNoteHeadY(staveNote, staveNoteSvg, artEls, placement, gap);
+        const noteHeadX = resolveNoteHeadX(staveNoteSvg, artEls);
 
-        // path ↔ tag 매칭
+        const noteDebug: string[] = [];
+        const hasPending = [...byTag.values()].some((s) => s.fromPending);
+
+        // 1) 네이티브 path bake 시도
         const unused = [...artEls];
         const assignedEl = new Map<string, Element>();
         for (let i = 0; i < stacked.length; i++) {
@@ -1876,7 +1907,6 @@ function applyAbsoluteArticulationDistances(
             }
           }
         }
-        // 남은 것은 거리 큰 것부터 먼 path에
         const remain = stacked.filter((s) => !assignedEl.has(s.tag));
         unused.sort((a, b) => {
           const ya = pathStartXY(a)?.y ?? 0;
@@ -1888,7 +1918,7 @@ function applyAbsoluteArticulationDistances(
           if (unused[i]) assignedEl.set(remain[i]!.tag, unused[i]!);
         }
 
-        const noteDebug: string[] = [];
+        let pathOk = 0;
         for (const spec of stacked) {
           const el = assignedEl.get(spec.tag);
           if (!el) continue;
@@ -1902,21 +1932,118 @@ function applyAbsoluteArticulationDistances(
           }
           el.setAttribute('data-art-spaces', String(spec.staffSpaces));
           el.setAttribute('data-hitl-art-tag', spec.tag);
-          // 다음 render용 — modifier 객체가 유지되면 text_line도 먹음
           const mod = byTag.get(spec.tag)?.mod;
           if (mod) {
             setArticulationModStaffSpaces(mod, spec.staffSpaces);
             (mod as { text_line?: number }).text_line = Math.max(0, spec.staffSpaces - 1);
           }
-          shifted += 1;
+          pathOk += 1;
           noteDebug.push(`${spec.tag}@${spec.staffSpaces}`);
         }
-        if (noteDebug.length) {
+
+        // 2) path가 표 개수만큼 안 되면(또는 pending인데 path 0) → overlay로 거리 보장
+        const needOverlay = pathOk < stacked.length || (hasPending && pathOk === 0);
+        if (needOverlay && isSvgRoot(svgRoot)) {
+          hideNativeArticulationGlyphs(staveNoteSvg);
+          const n = paintHitlArticulationOverlayTexts(
+            svgRoot,
+            stacked.map((spec) => ({
+              tag: spec.tag,
+              placement: spec.placement,
+              staffSpaces: spec.staffSpaces,
+              glyph: HITL_ART_OVERLAY_GLYPH[spec.tag] || '·',
+              x: noteHeadX || resolveNoteHeadX(staveNoteSvg, artEls),
+              noteHeadY: noteHeadY || 40,
+            })),
+            gap,
+          );
+          if (n > 0) {
+            shifted += n;
+            debugParts.push(
+              `m${measureMxl}#${thisNoteIndex}:${stacked.map((s) => `${s.tag}@${s.staffSpaces}/ov`).join(',')}`,
+            );
+          } else if (!pathOk) {
+            missParts.push(`m${measureMxl}#${thisNoteIndex}:ovFail`);
+          }
+        } else if (pathOk) {
+          shifted += pathOk;
           debugParts.push(`m${measureMxl}#${thisNoteIndex}:${noteDebug.join(',')}`);
+        } else {
+          missParts.push(`m${measureMxl}#${thisNoteIndex}:noEl(arts=${artEls.length})`);
         }
       }
     }
   });
+
+  if (!shifted && pendingArt.length) {
+    const pend = pendingArt
+      .slice(0, 4)
+      .map(
+        (f) =>
+          `${f.partId || '?'}m${f.measureMxl}#${f.noteIndex ?? '?'}:${artNameFromFix(f)}@${f.distance || 'auto'}`,
+      )
+      .join(',');
+    const claimed = [...pendingClaimed].join(',') || 'none';
+    debugParts.push(
+      `miss pending=${pend} claimed=${claimed}${missParts.length ? ` | ${missParts.slice(0, 6).join(';')}` : ''}`,
+    );
+  } else if (missParts.length && !debugParts.length) {
+    debugParts.push(missParts.slice(0, 6).join(';'));
+  }
+
+  // pending이 한 음도 claim되지 않음 → DOM에서 첫 표 있는 stavenote에 overlay (최후 수단)
+  if (
+    !shifted &&
+    pendingArt.length &&
+    pendingClaimed.size === 0 &&
+    isSvgRoot(svgRoot)
+  ) {
+    const f0 = pendingArt[0]!;
+    const spaces =
+      parseArticulationStaffSpaces(
+        f0.distance === 'auto' || !f0.distance ? 'auto' : String(f0.distance),
+      ) ?? 1;
+    const placement: 'above' | 'below' =
+      f0.placement === 'above' || f0.placement === 'below' ? f0.placement : 'below';
+    const tag = artNameFromFix(f0);
+    for (const sn of host.querySelectorAll('.vf-stavenote')) {
+      const arts = findArticulationElementsInStavenote(sn);
+      if (!arts.length && pendingArt.every((f) => f.kind !== 'addArticulation')) continue;
+      const nhY = resolveNoteHeadY(null, sn, arts, placement, gap);
+      const nhX = resolveNoteHeadX(sn, arts);
+      if (!Number.isFinite(nhY) || nhY === 0) continue;
+      hideNativeArticulationGlyphs(sn);
+      const specs = pendingArt.map((f) => {
+        const t = artNameFromFix(f);
+        const sp =
+          parseArticulationStaffSpaces(
+            f.distance === 'auto' || !f.distance ? 'auto' : String(f.distance),
+          ) ?? 1;
+        const pl: 'above' | 'below' =
+          f.placement === 'above' || f.placement === 'below' ? f.placement : placement;
+        return {
+          tag: t,
+          placement: pl,
+          staffSpaces: sp,
+          glyph: HITL_ART_OVERLAY_GLYPH[t] || '·',
+          x: nhX,
+          noteHeadY: nhY,
+        };
+      });
+      const n = paintHitlArticulationOverlayTexts(svgRoot, specs, gap);
+      if (n > 0) {
+        shifted += n;
+        debugParts.length = 0;
+        debugParts.push(
+          `domFallback:${specs.map((s) => `${s.tag}@${s.staffSpaces}/ov`).join(',')}`,
+        );
+        break;
+      }
+    }
+    if (!shifted) {
+      debugParts.push(`domFallback:none(tag=${tag}@${spaces})`);
+    }
+  }
 
   return { shifted, debug: debugParts.slice(0, 12).join(' | ') };
 }

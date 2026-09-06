@@ -39,6 +39,18 @@ function extract(full: string, start: number, end: number): string {
 }
 
 function nativeGap(host: HTMLElement, noteOrd: number): number {
+  const tagged = [...host.querySelectorAll('[data-hitl-art-tag], [data-hitl-art-overlay]')];
+  if (tagged.length >= 2) {
+    const ys = tagged
+      .map((el) => {
+        const yAttr = el.getAttribute('y');
+        if (yAttr != null && el.tagName.toLowerCase() === 'text') return parseFloat(yAttr);
+        return pathStartXY(el)?.y;
+      })
+      .filter((y): y is number => y != null && Number.isFinite(y))
+      .sort((a, b) => a - b);
+    if (ys.length >= 2) return ys[ys.length - 1]! - ys[0]!;
+  }
   const notes = [...host.querySelectorAll('.vf-stavenote')];
   const arts = findArticulationElementsInStavenote(notes[noteOrd]!);
   const ys = arts

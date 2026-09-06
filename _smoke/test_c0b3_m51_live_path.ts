@@ -43,7 +43,21 @@ function extractMeasures(full: string, start: number, end: number): string {
 }
 
 function snapP1B4(host: HTMLElement) {
-  // text_line 패치 후 네이티브 path Y로 간격 측정 (overlay text 없음)
+  // HITL 태그/overlay 우선 — 네이티브 path만 보면 거리 적용 전 스택을 잴 수 있음
+  const tagged = [...host.querySelectorAll('[data-hitl-art-tag], [data-hitl-art-overlay]')];
+  if (tagged.length >= 2) {
+    const ys = tagged
+      .map((el) => {
+        const yAttr = el.getAttribute('y');
+        if (yAttr != null && el.tagName.toLowerCase() === 'text') return parseFloat(yAttr);
+        return pathStartXY(el)?.y;
+      })
+      .filter((y): y is number => y != null && Number.isFinite(y))
+      .sort((a, b) => a - b);
+    if (ys.length >= 2) {
+      return { gap: ys[ys.length - 1]! - ys[0]!, ys };
+    }
+  }
   const notes = [...host.querySelectorAll('.vf-stavenote')];
   let best: { gap: number; ys: number[] } | null = null;
   for (const n of notes) {

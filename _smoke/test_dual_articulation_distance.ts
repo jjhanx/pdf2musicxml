@@ -95,17 +95,31 @@ async function main() {
   osmd.render();
   applyOsmdArticulationOffsetsDetailed(host, osmd);
 
-  const notes = [...host.querySelectorAll('.vf-stavenote')];
+  const tagged = [...host.querySelectorAll('[data-hitl-art-tag], [data-hitl-art-overlay]')];
   let bestGap = 0;
-  for (const n of notes) {
-    const arts = findArticulationElementsInStavenote(n);
-    if (arts.length < 2) continue;
-    const ys = arts
-      .map((el) => pathStartXY(el)?.y)
-      .filter((y): y is number => y != null)
+  if (tagged.length >= 2) {
+    const ys = tagged
+      .map((el) => {
+        const yAttr = el.getAttribute('y');
+        if (yAttr != null && el.tagName.toLowerCase() === 'text') return parseFloat(yAttr);
+        return pathStartXY(el)?.y;
+      })
+      .filter((y): y is number => y != null && Number.isFinite(y))
       .sort((a, b) => a - b);
-    const g = ys[ys.length - 1]! - ys[0]!;
-    if (g > bestGap) bestGap = g;
+    if (ys.length >= 2) bestGap = ys[ys.length - 1]! - ys[0]!;
+  }
+  if (bestGap < 15) {
+    const notes = [...host.querySelectorAll('.vf-stavenote')];
+    for (const n of notes) {
+      const arts = findArticulationElementsInStavenote(n);
+      if (arts.length < 2) continue;
+      const ys = arts
+        .map((el) => pathStartXY(el)?.y)
+        .filter((y): y is number => y != null)
+        .sort((a, b) => a - b);
+      const g = ys[ys.length - 1]! - ys[0]!;
+      if (g > bestGap) bestGap = g;
+    }
   }
   console.log('native dual gap', bestGap);
   // distance 2 vs 5 → text_line 1 vs 4 → 눈에 띄는 간격

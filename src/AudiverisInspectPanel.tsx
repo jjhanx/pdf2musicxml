@@ -2723,6 +2723,14 @@ export function OsmdBlock({
       applyPendingDynamicsOffsetsOnly(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
     };
     apply();
+    // paint/align가 SVG를 교체·리셋해도 표 거리가 남도록 반복 적용
+    const t0 = window.setTimeout(apply, 0);
+    const t1 = window.setTimeout(apply, 50);
+    const t2 = window.setTimeout(apply, 200);
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
     // OSMD가 SVG 트리를 교체할 때만 재적용. host 전체(하이라이트 overlay)를 보면 childList 루프·깜빡임.
     let debounce: number | null = null;
     const isOverlayNode = (n: Node) =>
@@ -2764,11 +2772,10 @@ export function OsmdBlock({
     const svg = host.querySelector('svg');
     if (svg) mo.observe(svg, { childList: true, subtree: true });
     else mo.observe(host, { childList: true, subtree: false });
-    const t1 = window.setTimeout(apply, 0);
-    const t2 = window.setTimeout(apply, 100);
     return () => {
       mo.disconnect();
       if (debounce != null) window.clearTimeout(debounce);
+      window.clearTimeout(t0);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };

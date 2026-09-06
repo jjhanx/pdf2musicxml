@@ -108,7 +108,7 @@ async function main() {
   console.log({ gapBefore, gap26, stats });
 
   if (gap26 < 25) {
-    throw new Error(`FAIL 2/6 gap too small: ${gap26} (want ~40 from text_line)`);
+    throw new Error(`FAIL 2/6 gap too small: ${gap26} (want ~40 baked into path d)`);
   }
 
   const fixes28 = mk('2', '8');

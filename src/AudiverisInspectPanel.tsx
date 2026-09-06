@@ -38,6 +38,7 @@ import {
   applyHitlArticulationHostCss,
   extraYPxFromArticulationFixes,
   registerOsmdArticulationFixes,
+  registerOsmdPreviewMeasureRangeForArticulation,
   registerOsmdPreviewXmlForArticulation,
   setHitlArticulationExtraYPx,
 } from './osmdArticulationOffsetFix';
@@ -2477,6 +2478,7 @@ export function OsmdBlock({
     registerOsmdPreviewXmlForArticulation(osmd, xmlForOsmdLoad);
     registerOsmdPreviewXmlForDynamics(osmd, hintXmlRef.current || xml);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
+    registerOsmdPreviewMeasureRangeForArticulation(osmd, previewMeasureRangeRef.current);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
     void osmd
       .load(xmlForOsmdLoad)
@@ -2690,6 +2692,7 @@ export function OsmdBlock({
       registerOsmdPreviewXmlForArticulation(osmd, hint);
       registerOsmdPreviewXmlForDynamics(osmd, hint);
       registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
+      registerOsmdPreviewMeasureRangeForArticulation(osmd, previewMeasureRangeRef.current);
     }
     const apply = () => {
       const h = hostRef.current;

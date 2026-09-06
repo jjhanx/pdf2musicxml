@@ -392,5 +392,28 @@ export function measuresMatchInPreview(
   return normalizeToGlobalMeasureMxl(a, range) === normalizeToGlobalMeasureMxl(b, range);
 }
 
+/**
+ * OSMD 그래픽 마디 번호 → MusicXML measure@number.
+ * `useXMLMeasureNumbers:false` 이면 구간 안 로컬이 **0..span-1**(또는 1..span).
+ * HITL pending·힌트 XML은 전곡 번호(예: 51)를 쓰므로 거리 적용 전 반드시 변환.
+ */
+export function resolveOsmdGraphicMeasureMxl(
+  graphicMxl: number | null | undefined,
+  range: MxlMeasureRange | null | undefined,
+): number | null {
+  if (graphicMxl == null || !Number.isFinite(graphicMxl)) return null;
+  const n = Math.floor(graphicMxl);
+  if (!range) return n;
+  const { start, end } = range;
+  if (!Number.isFinite(start) || start < 1) return n;
+  if (n >= start && n <= end) return n;
+  const span = pageScopedMeasureSpan(range);
+  // 0-based local (실측: m51→0, m52→1)
+  if (n >= 0 && n < span) return start + n;
+  // 1-based local
+  if (n >= 1 && n <= span) return start + n - 1;
+  return normalizeToGlobalMeasureMxl(n, range);
+}
+
 /** @deprecated 호환용 — inferFirstMxlMeasureForPdfPage 재export */
 export { inferFirstMxlMeasureForPdfPage };

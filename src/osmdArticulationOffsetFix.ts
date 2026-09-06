@@ -27,12 +27,60 @@ import {
   stackOverlayArtSpaces,
   type HitlArtOverlaySpec,
 } from './osmdArticulationOverlay';
+import {
+  resolveOsmdGraphicMeasureMxl,
+  type MxlMeasureRange,
+} from '../shared/musicXmlMeasureRange';
 
 /** sanitize 전 filteredXml — pending articulation attr·noteIndex 기준 */
 const articulationPreviewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
+const articulationPreviewRangeByOsmd = new WeakMap<OpenSheetMusicDisplay, MxlMeasureRange>();
 
 export function registerOsmdPreviewXmlForArticulation(osmd: OpenSheetMusicDisplay, xml: string): void {
   articulationPreviewXmlByOsmd.set(osmd, xml);
+}
+
+export function registerOsmdPreviewMeasureRangeForArticulation(
+  osmd: OpenSheetMusicDisplay,
+  range: MxlMeasureRange | null | undefined,
+): void {
+  if (range && Number.isFinite(range.start) && range.start >= 1) {
+    articulationPreviewRangeByOsmd.set(osmd, { start: range.start, end: Math.max(range.start, range.end) });
+  } else {
+    articulationPreviewRangeByOsmd.delete(osmd);
+  }
+}
+
+/** OSMD 로컬 마디(0/1…) → HITL/XML 전곡 measure@number */
+function inferMeasureRangeFromPreviewXml(xml: string): MxlMeasureRange | null {
+  const doc = parseMusicXmlDocument(xml);
+  if (!doc) return null;
+  const nums: number[] = [];
+  for (const part of findXmlParts(doc)) {
+    for (const measure of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
+      const n = parseInt(measure.getAttribute('number') ?? '', 10);
+      if (Number.isFinite(n)) nums.push(n);
+    }
+    if (nums.length) break; // 첫 파트 기준(미리보기 구간과 동일)
+  }
+  if (!nums.length) return null;
+  return { start: Math.min(...nums), end: Math.max(...nums) };
+}
+
+function graphicMeasureMxlForArticulation(
+  osmd: OpenSheetMusicDisplay,
+  gm: Parameters<typeof measureMxlFromGraphic>[0],
+): number | null {
+  const raw = measureMxlFromGraphic(gm);
+  let range = articulationPreviewRangeByOsmd.get(osmd);
+  if (!range) {
+    const xml = resolveArticulationPreviewXml(osmd);
+    if (xml?.trim()) {
+      const inferred = inferMeasureRangeFromPreviewXml(xml);
+      if (inferred) range = inferred;
+    }
+  }
+  return resolveOsmdGraphicMeasureMxl(raw, range);
 }
 
 const articulationFixesByOsmd = new WeakMap<OpenSheetMusicDisplay, ArticulationPreviewFix[]>();
@@ -705,6 +753,24 @@ function graphicPitchesMatchFix(notePitches: string[], fixPitch: string): boolea
   return notePitches.some((p) => pitchLabelToMidi(p) === fixMidi);
 }
 
+function graphicNoteIsRest(gn: Record<string, unknown>): boolean {
+  const src = asRecord(gn.sourceNote ?? gn.SourceNote);
+  const raw = src ? (src.isRest ?? src.IsRest) : (gn.isRest ?? gn.IsRest);
+  if (typeof raw === 'function') {
+    try {
+      return Boolean((raw as (this: unknown) => boolean).call(src ?? gn));
+    } catch {
+      return false;
+    }
+  }
+  return raw === true;
+}
+
+function graphicNotesAreRest(gNotes: Array<Record<string, unknown>>): boolean {
+  if (!gNotes.length) return true;
+  return gNotes.every((gn) => graphicNoteIsRest(gn));
+}
+
 /** StaveNote SVG 내부에서 실제 Articulation Glyph (path, text, use) 요소 추출 (덧줄·타이·그레이스노트·임시표 제외). */
 export function findArticulationElementsInStavenote(stavenote: Element): Element[] {
   const out: Element[] = [];
@@ -1097,7 +1163,7 @@ function applyPendingDistanceDirect(
   const measureKeys = new Set(pendingFixes.map((f) => String(f.measureMxl)));
   let shifted = 0;
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
-    const measureMxl = measureMxlFromGraphic(gm);
+    const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
     if (measureMxl == null) return;
     if (!pendingMeasureKeysMatch(measureMxl, measureKeys)) return;
     const partId = partIdFromGraphic(gm) ?? '';
@@ -1496,7 +1562,7 @@ function applyHitlArticulationOverlaysForOsmd(
   let painted = 0;
 
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
-    const measureMxl = measureMxlFromGraphic(gm);
+    const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
     if (measureMxl == null) return;
     const partId = partIdFromGraphic(gm) ?? '';
     const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);
@@ -1508,6 +1574,7 @@ function applyHitlArticulationOverlaysForOsmd(
     const measureHasPending = pendingMeasureKeysMatch(measureMxl, pendingMeasureKeys);
     if (!hints.length && !measureHasPending) return;
 
+        let noteOrd = 0;
     const staffEntries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
     for (const seRaw of staffEntries) {
       const se = asRecord(seRaw);
@@ -1518,6 +1585,10 @@ function applyHitlArticulationOverlaysForOsmd(
         if (!gve) continue;
         const staveNote = vexStaveNoteFromGve(gve);
         const gNotes = (gve.notes ?? gve.Notes ?? []) as Array<Record<string, unknown>>;
+        if (!gNotes.length) continue;
+        if (graphicNotesAreRest(gNotes)) continue;
+        const thisNoteIndex = noteOrd;
+        noteOrd += 1;
         const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
         const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
         if (!staveNoteSvg) continue;
@@ -1526,10 +1597,18 @@ function applyHitlArticulationOverlaysForOsmd(
           if (h.pitch && notePitches.length) return graphicPitchesMatchFix(notePitches, h.pitch);
           return false;
         });
-        const useHints = noteHints.length ? noteHints : hints.filter((h) => !h.pitch);
+        const artElsEarly = findArticulationElementsInStavenote(staveNoteSvg);
+        // 같은 피치 복수 음: 네이티브 표가 있는 음에만 피치 힌트 적용
+        const hintsForNote =
+          noteHints.length && artElsEarly.length > 0
+            ? noteHints
+            : !notePitches.length && artElsEarly.length > 0
+              ? hints.filter((h) => !h.pitch)
+              : [];
 
         const pendingForNote = pendingArt.filter((f) => {
           if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) return false;
+          if (f.noteIndex != null && Number(f.noteIndex) !== thisNoteIndex) return false;
           if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
             return false;
           }
@@ -1538,8 +1617,10 @@ function applyHitlArticulationOverlaysForOsmd(
           return true;
         });
 
+        if (!hintsForNote.length && !pendingForNote.length) continue;
+
         const byTag = new Map<string, HitlArtOverlaySpec>();
-        for (const h of useHints) {
+        for (const h of hintsForNote) {
           const glyph = HITL_ART_OVERLAY_GLYPH[h.tag];
           if (!glyph) continue;
           byTag.set(h.tag, {
@@ -1573,7 +1654,7 @@ function applyHitlArticulationOverlaysForOsmd(
           pendingForNote.length > 0;
         if (!needsOverlay) continue;
 
-        const artEls = findArticulationElementsInStavenote(staveNoteSvg);
+        const artEls = artElsEarly.length ? artElsEarly : findArticulationElementsInStavenote(staveNoteSvg);
         const placement = specs[0]!.placement;
         const noteHeadY = resolveNoteHeadY(staveNote, staveNoteSvg, artEls, placement, gap);
         const noteHeadX = resolveNoteHeadX(staveNoteSvg, artEls);
@@ -1697,7 +1778,7 @@ function applyOsmdArticulationOffsetsDetailedInner(
 
   try {
     forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
-      const measureMxl = measureMxlFromGraphic(gm);
+      const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
       if (measureMxl == null) return;
       const partId = partIdFromGraphic(gm) ?? '';
       const staffWithinPart = staffWithinPartFromGraphic(osmd, gm, staffIndex);

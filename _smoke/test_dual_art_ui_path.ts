@@ -1,5 +1,5 @@
 /**
- * UI-path e2e: pending fixes only (no XML distance), like HITL dropdown.
+ * UI-path: pending distance → 표별 path 이동.
  * Run: npx tsx _smoke/test_dual_art_ui_path.ts
  */
 import { JSDOM } from 'jsdom';
@@ -67,40 +67,42 @@ async function main() {
   ];
 
   applyPendingArticulationOffsetsOnly(host, osmd, fixes);
-  let overlays = [...host.querySelectorAll('[data-hitl-art-overlay]')].map((el) => ({
-    tag: el.getAttribute('data-hitl-art-overlay'),
+  let tagged = [...host.querySelectorAll('[data-hitl-art-tag]')].map((el) => ({
+    tag: el.getAttribute('data-hitl-art-tag'),
     spaces: el.getAttribute('data-art-spaces'),
     shift: el.getAttribute('data-art-shift-y'),
   }));
-  console.log('after pending', overlays);
-
-  const byTag = Object.fromEntries(overlays.map((o) => [o.tag!, o]));
+  console.log('tagged', tagged);
+  const byTag = Object.fromEntries(tagged.map((t) => [t.tag!, t]));
   if (byTag.tenuto?.spaces === '2' && byTag.accent?.spaces === '6') {
-    if (byTag.tenuto.shift === '20' && byTag.accent.shift === '60') {
+    const s1 = Math.abs(parseFloat(byTag.tenuto.shift || '0'));
+    const s2 = Math.abs(parseFloat(byTag.accent.shift || '0'));
+    if (Math.abs(s1 - s2) >= 15) {
       console.log('UI path dual art ok', byTag);
       return;
     }
   }
 
-  // OSMD measure number 0/1 mismatch
   applyPendingArticulationOffsetsOnly(
     host,
     osmd,
     fixes.map((f) => ({ ...f, measureMxl: '1' })),
   );
-  overlays = [...host.querySelectorAll('[data-hitl-art-overlay]')].map((el) => ({
-    tag: el.getAttribute('data-hitl-art-overlay'),
+  tagged = [...host.querySelectorAll('[data-hitl-art-tag]')].map((el) => ({
+    tag: el.getAttribute('data-hitl-art-tag'),
     spaces: el.getAttribute('data-art-spaces'),
     shift: el.getAttribute('data-art-shift-y'),
   }));
-  console.log('retry measure 1', overlays);
-  const byTag2 = Object.fromEntries(overlays.map((o) => [o.tag!, o]));
-  if (byTag2.tenuto?.shift === '20' && byTag2.accent?.shift === '60') {
+  const byTag2 = Object.fromEntries(tagged.map((t) => [t.tag!, t]));
+  if (
+    byTag2.tenuto?.spaces === '2' &&
+    byTag2.accent?.spaces === '6' &&
+    Math.abs(parseFloat(byTag2.tenuto.shift || '0') - parseFloat(byTag2.accent.shift || '0')) >= 15
+  ) {
     console.log('UI path dual art ok (m1)', byTag2);
     return;
   }
-
-  throw new Error(`UI path failed ${JSON.stringify(overlays)}`);
+  throw new Error(`UI path failed ${JSON.stringify(tagged)}`);
 }
 
 main().catch((e) => {

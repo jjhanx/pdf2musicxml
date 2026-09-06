@@ -18,10 +18,12 @@ import { getOsmdPreviewXml } from './osmdOnsetColumnAlignFix';
 import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
 import {
   clearHitlArticulationOverlays,
-  hideNativeArticulationGlyphs,
   HITL_ART_OVERLAY_GLYPH,
-  noteHeadPointInSvg,
+  overlayArticulationY,
   paintHitlArticulationOverlayTexts,
+  pathStartXY,
+  resolveNoteHeadX,
+  resolveNoteHeadY,
   stackOverlayArtSpaces,
   type HitlArtOverlaySpec,
 } from './osmdArticulationOverlay';
@@ -1463,8 +1465,9 @@ export function applyOsmdArticulationOffsetsDetailed(
 }
 
 /**
- * 복수 표·HITL 거리 — VexFlow modifier 매칭 대신 notehead 기준 SVG overlay.
- * 네이티브 articulation 글리프는 숨김.
+ * 복수 표·HITL 거리 — 네이티브 articulation path를 표별로 절대 Y로 이동.
+ * getBBox/CTM 실패 시에도 path `d`의 M 좌표·VexFlow getYs 사용.
+ * 글리프가 부족한 표만 SVG text overlay.
  */
 function applyHitlArticulationOverlaysForOsmd(
   host: HTMLElement,
@@ -1489,7 +1492,9 @@ function applyHitlArticulationOverlaysForOsmd(
   const pendingMeasureKeys = new Set(pendingArt.map((f) => String(f.measureMxl)));
   if (!pendingArt.length && countHints(hintsByMeasure) === 0) return 0;
 
+  const gap = staffSpacePx > 2 ? staffSpacePx : 10;
   let painted = 0;
+
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
     const measureMxl = measureMxlFromGraphic(gm);
     if (measureMxl == null) return;
@@ -1521,7 +1526,6 @@ function applyHitlArticulationOverlaysForOsmd(
           if (h.pitch && notePitches.length) return graphicPitchesMatchFix(notePitches, h.pitch);
           return false;
         });
-        // 피치 매칭 실패(추출 불가) 시 피치 없는 힌트만 — 마디 전체 복제 방지
         const useHints = noteHints.length ? noteHints : hints.filter((h) => !h.pitch);
 
         const pendingForNote = pendingArt.filter((f) => {
@@ -1561,25 +1565,89 @@ function applyHitlArticulationOverlaysForOsmd(
           });
         }
 
-        const specs = [...byTag.values()];
+        const specs = stackOverlayArtSpaces([...byTag.values()]);
         if (!specs.length) continue;
-        // 복수 표이거나 HITL 거리가 1칸 초과·pending이면 네이티브 대신 overlay
         const needsOverlay =
           specs.length >= 2 ||
           specs.some((s) => s.staffSpaces > 1.01) ||
           pendingForNote.length > 0;
         if (!needsOverlay) continue;
 
-        const anchor = noteHeadPointInSvg(staveNoteSvg, svg as SVGSVGElement);
-        if (!anchor) continue;
+        const artEls = findArticulationElementsInStavenote(staveNoteSvg);
+        const placement = specs[0]!.placement;
+        const noteHeadY = resolveNoteHeadY(staveNote, staveNoteSvg, artEls, placement, gap);
+        const noteHeadX = resolveNoteHeadX(staveNoteSvg, artEls);
 
-        hideNativeArticulationGlyphs(staveNoteSvg);
-        const stacked = stackOverlayArtSpaces(specs);
-        painted += paintHitlArticulationOverlayTexts(
-          svg as SVGSVGElement,
-          stacked.map((s) => ({ ...s, x: anchor.x, noteHeadY: anchor.y })),
-          staffSpacePx || 10,
-        );
+        const rawMods = staveNote?.modifiers as unknown;
+        const mods = (Array.isArray(rawMods)
+          ? rawMods
+          : rawMods && typeof rawMods === 'object' && Array.isArray((rawMods as { list?: unknown }).list)
+            ? (rawMods as { list: unknown[] }).list
+            : []) as Array<{ type?: string; getCategory?: () => string; category?: string }>;
+        const artMods = mods.filter((m) => {
+          const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
+          const t = String(m.type ?? '').toLowerCase();
+          return (
+            cat.includes('articulation') ||
+            t.includes('accent') ||
+            t.includes('staccato') ||
+            t.includes('tenuto') ||
+            t.includes('marcato') ||
+            /^a[>.\-^@+]/.test(t)
+          );
+        });
+
+        const assigned = new Map<string, Element>();
+        const unused = [...artEls];
+        for (const spec of specs) {
+          for (let i = 0; i < artMods.length; i++) {
+            if (!articulationModTypeMatchesHint(artMods[i]?.type, spec.tag)) continue;
+            const el = artEls[i];
+            if (!el || !unused.includes(el)) continue;
+            assigned.set(spec.tag, el);
+            unused.splice(unused.indexOf(el), 1);
+            break;
+          }
+        }
+        const remainingSpecs = specs.filter((s) => !assigned.has(s.tag));
+        remainingSpecs.sort((a, b) => b.staffSpaces - a.staffSpaces);
+        unused.sort((a, b) => {
+          const ya = pathStartXY(a)?.y ?? 0;
+          const yb = pathStartXY(b)?.y ?? 0;
+          return placement === 'above' ? ya - yb : yb - ya;
+        });
+        for (let i = 0; i < remainingSpecs.length; i++) {
+          const el = unused[i];
+          if (el) assigned.set(remainingSpecs[i]!.tag, el);
+        }
+
+        const missing: HitlArtOverlaySpec[] = [];
+        for (const spec of specs) {
+          const el = assigned.get(spec.tag);
+          if (!el) {
+            missing.push(spec);
+            continue;
+          }
+          const cur = pathStartXY(el);
+          const targetY = overlayArticulationY(noteHeadY, spec.staffSpaces, spec.placement, gap);
+          if (cur && Number.isFinite(cur.y)) {
+            applyArticulationShiftY(el, targetY - cur.y);
+          } else {
+            const extra = (Math.max(1, spec.staffSpaces) - 1) * gap;
+            applyArticulationShiftY(el, (spec.placement === 'above' ? -1 : 1) * extra);
+          }
+          el.setAttribute('data-art-spaces', String(spec.staffSpaces));
+          el.setAttribute('data-hitl-art-tag', spec.tag);
+          painted += 1;
+        }
+
+        if (missing.length) {
+          painted += paintHitlArticulationOverlayTexts(
+            svg as SVGSVGElement,
+            missing.map((s) => ({ ...s, x: noteHeadX || 0, noteHeadY })),
+            gap,
+          );
+        }
       }
     }
   });

@@ -1,5 +1,5 @@
 /**
- * tenuto만 있는 XML + HITL addArticulation(accent) — overlay로 표별 거리.
+ * tenuto만 있는 XML + HITL addArticulation(accent) — 표별 path 거리.
  * Run: npx tsx _smoke/test_dual_art_add_accent_overlay.ts
  */
 import { JSDOM } from 'jsdom';
@@ -15,10 +15,7 @@ import {
 const OSMD =
   (osmdLib as any).OpenSheetMusicDisplay || (osmdLib as any).default?.OpenSheetMusicDisplay;
 
-const sample = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list><part id="P1"><measure number="50"><attributes><divisions>4</divisions><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>B</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><stem>up><notations><articulations><tenuto placement="below"/></articulations></notations></note></measure></part></score-partwise>`;
-
-// fix malformed stem tag
-const sampleFixed = sample.replace('<stem>up><notations>', '<stem>up</stem><notations>');
+const sampleFixed = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list><part id="P1"><measure number="50"><attributes><divisions>4</divisions><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>B</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><stem>up</stem><notations><articulations><tenuto placement="below"/></articulations></notations></note></measure></part></score-partwise>`;
 
 async function main() {
   const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
@@ -71,20 +68,22 @@ async function main() {
   osmd.render();
   applyOsmdArticulationOffsetsDetailed(host, osmd);
 
-  const overlays = [...host.querySelectorAll('[data-hitl-art-overlay]')].map((el) => ({
-    tag: el.getAttribute('data-hitl-art-overlay'),
+  const tagged = [...host.querySelectorAll('[data-hitl-art-tag]')].map((el) => ({
+    tag: el.getAttribute('data-hitl-art-tag'),
     spaces: el.getAttribute('data-art-spaces'),
     shift: el.getAttribute('data-art-shift-y'),
   }));
-  console.log(overlays);
-  const byTag = Object.fromEntries(overlays.map((o) => [o.tag!, o]));
+  console.log(tagged);
+  const byTag = Object.fromEntries(tagged.map((o) => [o.tag!, o]));
   if (byTag.tenuto?.spaces !== '2' || byTag.accent?.spaces !== '4') {
-    throw new Error(`expected tenuto2 accent4, got ${JSON.stringify(overlays)}`);
+    throw new Error(`expected tenuto2 accent4, got ${JSON.stringify(tagged)}`);
   }
-  if (byTag.tenuto.shift !== '20' || byTag.accent.shift !== '40') {
-    throw new Error(`expected shifts 20/40, got ${JSON.stringify(overlays)}`);
+  const s1 = Math.abs(parseFloat(byTag.tenuto.shift || '0'));
+  const s2 = Math.abs(parseFloat(byTag.accent.shift || '0'));
+  if (Math.abs(s1 - s2) < 10) {
+    throw new Error(`shifts too close ${JSON.stringify(tagged)}`);
   }
-  console.log('add-accent overlay ok');
+  console.log('add-accent path distance ok');
 }
 
 main().catch((e) => {

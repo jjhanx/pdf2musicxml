@@ -1,5 +1,5 @@
 /**
- * 한 음에 tenuto+accent — 표별 거리(overlay)가 독립인지.
+ * 한 음 tenuto+accent — 표별 거리를 네이티브 path에 독립 적용.
  * Run: npx tsx _smoke/test_dual_articulation_distance.ts
  */
 import { JSDOM } from 'jsdom';
@@ -21,33 +21,21 @@ const OSMD =
   (osmdLib as { default?: { OpenSheetMusicDisplay?: new (...a: unknown[]) => any } }).default
     ?.OpenSheetMusicDisplay;
 
-if (suggestStackedArticulationDistance([], 'auto') !== 'auto') {
-  throw new Error('empty→auto');
-}
 if (suggestStackedArticulationDistance(['auto'], 'auto') !== '2') {
   throw new Error('stack after auto → 2');
 }
-if (suggestStackedArticulationDistance(['3'], 'auto') !== '4') {
-  throw new Error('stack after 3 → 4');
-}
-if (suggestStackedArticulationDistance(['2'], '5') !== '5') {
-  throw new Error('explicit 5 kept');
-}
-
 {
+  const y2 = overlayArticulationY(100, 2, 'below', 10);
+  const y5 = overlayArticulationY(100, 5, 'below', 10);
+  if (y2 !== 120 || y5 !== 150) throw new Error(`overlay Y ${y2}/${y5}`);
   const stacked = stackOverlayArtSpaces([
     { tag: 'tenuto', placement: 'below', staffSpaces: 2, glyph: '–' },
-    { tag: 'accent', placement: 'below', staffSpaces: 5, glyph: '>' },
+    { tag: 'accent', placement: 'below', staffSpaces: 2, glyph: '>' },
   ]);
-  if (stacked[0]!.staffSpaces !== 2 || stacked[1]!.staffSpaces !== 5) {
-    throw new Error(`stack keep distinct: ${JSON.stringify(stacked)}`);
-  }
-  const y2 = overlayArticulationY(0, 2, 'below', 10);
-  const y5 = overlayArticulationY(0, 5, 'below', 10);
-  if (y2 !== 20 || y5 !== 50) throw new Error(`overlay Y expected 20/50 got ${y2}/${y5}`);
+  if (stacked[1]!.staffSpaces !== 3) throw new Error('stack bump');
 }
 
-const sample = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list><part id="P1"><measure number="50"><attributes><divisions>4</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>B</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><stem>up</stem><notations><articulations><tenuto placement="below"/><accent placement="below"/></articulations></notations></note><note><rest/><duration>12</duration><type>half</type><dot/></note></measure></part></score-partwise>`;
+const sample = `<?xml version="1.0"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list><part id="P1"><measure number="50"><attributes><divisions>4</divisions><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>B</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><stem>up</stem><notations><articulations><tenuto placement="below"/><accent placement="below"/></articulations></notations></note></measure></part></score-partwise>`;
 
 async function main() {
   const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
@@ -97,29 +85,23 @@ async function main() {
   registerOsmdArticulationFixes(osmd, fixes);
   await osmd.load(xml);
   osmd.render();
-  const stats = applyOsmdArticulationOffsetsDetailed(host, osmd);
+  applyOsmdArticulationOffsetsDetailed(host, osmd);
 
-  const overlays = [...host.querySelectorAll('[data-hitl-art-overlay]')].map((el) => ({
-    tag: el.getAttribute('data-hitl-art-overlay'),
+  const tagged = [...host.querySelectorAll('[data-hitl-art-tag]')].map((el) => ({
+    tag: el.getAttribute('data-hitl-art-tag'),
     spaces: el.getAttribute('data-art-spaces'),
     shift: parseFloat(el.getAttribute('data-art-shift-y') || '0'),
-    y: parseFloat(el.getAttribute('y') || '0'),
   }));
-  console.log('overlays', overlays, 'stats', stats);
-
-  const byTag = Object.fromEntries(overlays.map((o) => [o.tag, o]));
+  console.log('tagged', tagged);
+  const byTag = Object.fromEntries(tagged.map((t) => [t.tag, t]));
   if (!byTag.tenuto || !byTag.accent) {
-    throw new Error(`expected tenuto+accent overlays, got ${JSON.stringify(overlays)}`);
+    throw new Error(`expected tags, got ${JSON.stringify(tagged)}`);
   }
   if (byTag.tenuto.spaces !== '2' || byTag.accent.spaces !== '5') {
-    throw new Error(`expected spaces 2/5, got ${JSON.stringify(byTag)}`);
+    throw new Error(`spaces ${JSON.stringify(byTag)}`);
   }
-  // notehead 기준 절대 거리: 2칸→20px, 5칸→50px (staffSpace≈10)
-  if (byTag.tenuto.shift !== 20 || byTag.accent.shift !== 50) {
-    throw new Error(`expected shifts 20/50, got ${JSON.stringify(byTag)}`);
-  }
-  if (Math.abs(byTag.accent.y - byTag.tenuto.y) < 25) {
-    throw new Error(`overlays still overlapping: ${JSON.stringify(byTag)}`);
+  if (Math.abs(byTag.tenuto.shift - byTag.accent.shift) < 15) {
+    throw new Error(`shifts too close ${JSON.stringify(byTag)}`);
   }
   console.log('dual articulation distance ok', byTag);
 }

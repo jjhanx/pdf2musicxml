@@ -1,8 +1,7 @@
 /**
- * HITL articulation overlays — OSMD/VexFlow 표 위치를 숨기고 SVG text로 표별 거리 배치.
- * (복수 표·거리 조절이 VexFlow modifier 매칭에 의존하지 않도록)
+ * HITL articulation placement — OSMD/VexFlow는 default-y를 무시하므로
+ * 네이티브 글리프 path를 표별로 옮기거나(우선), path 좌표 기준 SVG text overlay.
  */
-
 const OVERLAY_ATTR = 'data-hitl-art-overlay';
 const HIDDEN_ATTR = 'data-hitl-art-hidden';
 
@@ -67,43 +66,18 @@ export function hideNativeArticulationGlyphs(staveNoteSvg: Element): number {
   return n;
 }
 
-/** notehead 중심을 루트 SVG 좌표로 */
-export function noteHeadPointInSvg(staveNoteSvg: Element, svg: SVGSVGElement): { x: number; y: number } | null {
-  const nh =
-    staveNoteSvg.querySelector('.vf-notehead') ||
-    staveNoteSvg.querySelector('.vf-note') ||
-    staveNoteSvg;
-  try {
-    if (typeof (nh as SVGGraphicsElement).getBBox === 'function') {
-      const b = (nh as SVGGraphicsElement).getBBox();
-      if (Number.isFinite(b.x) && Number.isFinite(b.y) && (b.width > 0 || b.height > 0 || b.x !== 0 || b.y !== 0)) {
-        const ctm = typeof (nh as SVGGraphicsElement).getCTM === 'function' ? (nh as SVGGraphicsElement).getCTM() : null;
-        if (ctm && typeof svg.createSVGPoint === 'function') {
-          const pt = svg.createSVGPoint();
-          pt.x = b.x + b.width / 2;
-          pt.y = b.y + b.height / 2;
-          const p = pt.matrixTransform(ctm);
-          if (Number.isFinite(p.x) && Number.isFinite(p.y)) return { x: p.x, y: p.y };
-        }
-        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-      }
-    }
-  } catch {
-    /* jsdom */
-  }
-  const tf = nh.getAttribute('transform') || staveNoteSvg.getAttribute('transform') || '';
-  const m = /translate\(\s*([-\d.eE]+)(?:[\s,]+([-\d.eE]+))?\s*\)/.exec(tf);
-  if (m) {
-    return { x: parseFloat(m[1]!), y: parseFloat(m[2] ?? '0') };
-  }
-  // jsdom: notehead bbox 없을 때 고정 앵커 — 표별 Δ만 검증
-  return { x: 0, y: 0 };
+/** VexFlow path `d`의 첫 M x,y — getBBox/CTM 없이도 OSMD 절대 좌표 */
+export function pathStartXY(el: Element): { x: number; y: number } | null {
+  const d = el.getAttribute('d') || '';
+  const m = /M\s*([-\d.eE]+)(?:[\s,]+([-\d.eE]+))?/.exec(d);
+  if (!m) return null;
+  const x = parseFloat(m[1]!);
+  const y = parseFloat(m[2] ?? '0');
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
 }
 
-/**
- * 거리 N칸 = notehead에서 N×staffSpace (절대 위치).
- * (기존 VexFlow 경로의 Δ=(N−1)×space 와 달리, 네이티브 1칸 기본 위치를 대체한다.)
- */
+/** 거리 N칸 = notehead에서 N×staffSpace (절대 Y) */
 export function overlayArticulationY(
   noteHeadY: number,
   staffSpaces: number,
@@ -116,6 +90,64 @@ export function overlayArticulationY(
   return noteHeadY + dir * spaces * gap;
 }
 
+/**
+ * notehead Y: VexFlow getYs → notehead path → articulation path로부터 추정.
+ */
+export function resolveNoteHeadY(
+  staveNote: { getYs?: () => number[] } | null | undefined,
+  staveNoteSvg: Element,
+  artEls: Element[],
+  placement: 'above' | 'below',
+  staffSpacePx: number,
+): number {
+  const ys = staveNote?.getYs?.();
+  if (Array.isArray(ys) && ys.length && Number.isFinite(ys[0])) return ys[0]!;
+
+  const nh =
+    staveNoteSvg.querySelector('.vf-notehead path') ||
+    staveNoteSvg.querySelector('.vf-notehead') ||
+    staveNoteSvg.querySelector('.vf-note path');
+  if (nh) {
+    const p = pathStartXY(nh) ?? (() => {
+      try {
+        if (typeof (nh as SVGGraphicsElement).getBBox === 'function') {
+          const b = (nh as SVGGraphicsElement).getBBox();
+          if (b.width > 0 || b.height > 0) return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+        }
+      } catch {
+        /* */
+      }
+      return null;
+    })();
+    if (p) return p.y;
+  }
+
+  const coords = artEls.map(pathStartXY).filter(Boolean) as Array<{ x: number; y: number }>;
+  const gap = staffSpacePx > 2 ? staffSpacePx : 10;
+  if (coords.length) {
+    // 표가 이미 1칸 근처에 있다고 보고 notehead 복원
+    if (placement === 'above') return Math.max(...coords.map((c) => c.y)) + gap;
+    return Math.min(...coords.map((c) => c.y)) - gap;
+  }
+  return 0;
+}
+
+export function resolveNoteHeadX(staveNoteSvg: Element, artEls: Element[]): number {
+  for (const el of artEls) {
+    const p = pathStartXY(el);
+    if (p) return p.x;
+  }
+  const nh =
+    staveNoteSvg.querySelector('.vf-notehead path') ||
+    staveNoteSvg.querySelector('.vf-note path') ||
+    staveNoteSvg.querySelector('.vf-notehead');
+  if (nh) {
+    const p = pathStartXY(nh);
+    if (p) return p.x;
+  }
+  return 0;
+}
+
 export function paintHitlArticulationOverlayTexts(
   svg: SVGSVGElement,
   specs: Array<HitlArtOverlaySpec & { x: number; noteHeadY: number }>,
@@ -124,7 +156,6 @@ export function paintHitlArticulationOverlayTexts(
   const ns = svg.namespaceURI || 'http://www.w3.org/2000/svg';
   const gap = staffSpacePx > 2 ? staffSpacePx : 10;
   let n = 0;
-  // 호출측에서 이미 stack 했을 수 있음 — 한 번 더 해도 idempotent
   for (const s of stackOverlayArtSpaces(specs)) {
     const y = overlayArticulationY(s.noteHeadY, s.staffSpaces, s.placement, gap);
     const text = svg.ownerDocument!.createElementNS(ns, 'text');
@@ -136,7 +167,6 @@ export function paintHitlArticulationOverlayTexts(
     text.setAttribute('font-size', String(Math.max(12, gap * 1.4)));
     text.setAttribute('font-weight', 'bold');
     text.setAttribute('fill', '#111');
-    // 테스트·배너용: notehead 대비 절대 거리(px)
     text.setAttribute('data-art-shift-y', String(Math.abs(y - s.noteHeadY)));
     text.setAttribute('data-art-spaces', String(s.staffSpaces));
     text.textContent = s.glyph;

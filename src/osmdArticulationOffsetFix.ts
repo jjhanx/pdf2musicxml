@@ -1338,6 +1338,64 @@ function artNameFromFix(fix: ArticulationPreviewFix): string {
   return (fix.articulation ?? '').split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
 }
 
+/**
+ * 에디터 noteIndex(쉼표·코드 구성음 포함 document order) → OSMD noteOrd(비쉼·코드헤드만).
+ * 쉼표가 앞에 있으면 #1이 OSMD 0이 되어 claimed=none 이 났음.
+ */
+function editorNoteIndexToOsmdOrd(
+  xml: string,
+  partId: string,
+  measureMxl: string | number,
+  noteIndex: number,
+): { ord: number; pitch: string | null } | null {
+  if (!xml?.trim() || noteIndex == null || !Number.isFinite(Number(noteIndex))) return null;
+  const doc = parseMusicXmlDocument(xml);
+  if (!doc) return null;
+  const wantM = String(measureMxl);
+  let measure: Element | null = null;
+  for (const part of findXmlParts(doc)) {
+    const pid = part.getAttribute('id')?.trim() || '';
+    if (partId && pid && !previewPartIdsMatch(pid, partId) && !partIdsMatch(pid, partId)) continue;
+    for (const m of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
+      if ((m.getAttribute('number') || '').trim() === wantM) {
+        measure = m;
+        break;
+      }
+    }
+    if (measure) break;
+  }
+  if (!measure) return null;
+  const notes = [...measure.children].filter((c) => xmlLocalName(c) === 'note');
+  const idx = Math.floor(Number(noteIndex));
+  if (idx < 0 || idx >= notes.length) return null;
+  let leaderIdx = idx;
+  while (leaderIdx > 0 && notes[leaderIdx]?.querySelector(':scope > chord, :scope > *|chord')) {
+    leaderIdx -= 1;
+  }
+  const leader = notes[leaderIdx]!;
+  if (leader.querySelector(':scope > rest, :scope > *|rest')) return null;
+  let ord = 0;
+  for (let i = 0; i < leaderIdx; i += 1) {
+    const n = notes[i]!;
+    if (n.querySelector(':scope > rest, :scope > *|rest')) continue;
+    if (n.querySelector(':scope > chord, :scope > *|chord')) continue;
+    ord += 1;
+  }
+  const pitchEl = leader.querySelector(':scope > pitch, :scope > *|pitch');
+  let pitch: string | null = null;
+  if (pitchEl) {
+    const step = pitchEl.querySelector('step, *|step')?.textContent?.trim()?.toUpperCase();
+    const oct = pitchEl.querySelector('octave, *|octave')?.textContent?.trim();
+    if (step && oct) {
+      const alterRaw = pitchEl.querySelector('alter, *|alter')?.textContent?.trim();
+      const alter = alterRaw ? parseInt(alterRaw, 10) : 0;
+      const acc = alter === 1 ? '#' : alter === -1 ? 'b' : alter === 2 ? '##' : alter === -2 ? 'bb' : '';
+      pitch = `${step}${acc}${oct}`;
+    }
+  }
+  return { ord, pitch };
+}
+
 /** pending 거리 — 해당 마디·파트·피치(또는 staff)에 맞는 articulation만 이동 */
 function applyPendingDistanceDirect(
   osmd: OpenSheetMusicDisplay,
@@ -1746,6 +1804,16 @@ function applyAbsoluteArticulationDistances(
   const pendingKey = (f: ArticulationPreviewFix) =>
     `${f.partId || ''}|${f.measureMxl}|${artNameFromFix(f)}|${f.noteIndex ?? ''}`;
 
+  const previewXml = resolveArticulationPreviewXml(osmd) || '';
+  /** 에디터 noteIndex → OSMD ord (쉼표 보정) */
+  const pendingOsmdOrd = new Map<string, { ord: number; pitch: string | null }>();
+  for (const f of pendingArt) {
+    if (f.noteIndex == null) continue;
+    const mapped = editorNoteIndexToOsmdOrd(previewXml, f.partId || '', f.measureMxl, Number(f.noteIndex));
+    if (mapped) pendingOsmdOrd.set(pendingKey(f), mapped);
+  }
+  const seenOrds: string[] = [];
+
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
     const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
     if (measureMxl == null) return;
@@ -1770,6 +1838,7 @@ function applyAbsoluteArticulationDistances(
         if (!gNotes.length || graphicNotesAreRest(gNotes)) continue;
         const thisNoteIndex = noteOrdByPartMeasure.get(ordKey) ?? 0;
         noteOrdByPartMeasure.set(ordKey, thisNoteIndex + 1);
+        if (seenOrds.length < 24) seenOrds.push(`${partId}m${measureMxl}#${thisNoteIndex}`);
         const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
         const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
         // SVG를 못 찾아도 pending 매칭은 시도(아래 miss 디버그). path/overlay는 svg 필요.
@@ -1803,13 +1872,28 @@ function applyAbsoluteArticulationDistances(
           byTag.set(tag, { tag, staffSpaces: spaces, placement, mod, fromPending });
         };
 
-        // 1) pending — noteIndex 일치만 (피치 폴백 없음: 앞 음에 유령 표 생기는 주원인)
+        // 1) pending — 에디터 noteIndex를 OSMD ord로 변환해 매칭 (쉼표 보정)
         for (const f of pendingArt) {
           if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) continue;
-          if (f.noteIndex == null || Number(f.noteIndex) !== thisNoteIndex) continue;
           if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
             continue;
           }
+          const pk = pendingKey(f);
+          const mapped = pendingOsmdOrd.get(pk);
+          let indexOk = false;
+          if (f.noteIndex != null) {
+            const wantOrd = mapped?.ord ?? Number(f.noteIndex);
+            indexOk = wantOrd === thisNoteIndex;
+            // XML 매핑 실패 시에만 피치 보조 (매핑된 ord가 있으면 엄격히 그 슬롯만)
+            if (!indexOk && !mapped) {
+              const fp = pitchLabelFromArticulationFix(f);
+              if (fp && notePitches.length && graphicPitchesMatchFix(notePitches, fp)) indexOk = true;
+            }
+          } else {
+            const fp = pitchLabelFromArticulationFix(f);
+            indexOk = Boolean(fp && notePitches.length && graphicPitchesMatchFix(notePitches, fp));
+          }
+          if (!indexOk) continue;
           const tag = artNameFromFix(f);
           const spaces =
             parseArticulationStaffSpaces(
@@ -1819,7 +1903,7 @@ function applyAbsoluteArticulationDistances(
             f.placement === 'above' || f.placement === 'below' ? f.placement : 'below';
           const mod = artMods.find((m) => articulationModTypeMatchesHint(m.type, tag));
           consider(tag, spaces, placement, mod, true);
-          pendingClaimed.add(pendingKey(f));
+          pendingClaimed.add(pk);
         }
 
         const hasPendingOnNote = [...byTag.values()].some((s) => s.fromPending);
@@ -2003,14 +2087,15 @@ function applyAbsoluteArticulationDistances(
   if (!shifted && pendingArt.length) {
     const pend = pendingArt
       .slice(0, 4)
-      .map(
-        (f) =>
-          `${f.partId || '?'}m${f.measureMxl}#${f.noteIndex ?? '?'}:${artNameFromFix(f)}@${f.distance || 'auto'}`,
-      )
+      .map((f) => {
+        const pk = pendingKey(f);
+        const m = pendingOsmdOrd.get(pk);
+        return `${f.partId || '?'}m${f.measureMxl}#${f.noteIndex ?? '?'}${m ? `→ord${m.ord}` : '→?ord'}:${artNameFromFix(f)}@${f.distance || 'auto'}`;
+      })
       .join(',');
     const claimed = [...pendingClaimed].join(',') || 'none';
     debugParts.push(
-      `miss pending=${pend} claimed=${claimed}${missParts.length ? ` | ${missParts.slice(0, 6).join(';')}` : ''}`,
+      `miss pending=${pend} claimed=${claimed} seen=${seenOrds.slice(0, 12).join(',') || 'none'}${missParts.length ? ` | ${missParts.slice(0, 4).join(';')}` : ''}`,
     );
   } else if (missParts.length && !debugParts.length) {
     debugParts.push(missParts.slice(0, 6).join(';'));

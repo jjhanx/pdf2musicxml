@@ -1110,14 +1110,18 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     return { count: arts.length, dy, dists };
   }, [osmdArticulationFixes]);
 
-  /** 표 추가·거리 변경 시 remount — m.49와 같이 표가 load XML에 있는 상태로 OSMD를 다시 그림. */
+  /**
+   * 표 추가/제거·위치(위/아래) 변경 시에만 remount.
+   * 거리만 바꿀 때는 remount 금지 — OSMD 재로드 레이스로 path bake가 씹히고
+   * “거리 조절이 안 됨”으로 보였음. 거리는 applyPending(절대 Y)만 사용.
+   */
   const artPreviewOsmdKey = useMemo(() => {
     const arts = osmdArticulationFixes.filter(isArticulationPreviewFix);
     if (!arts.length) return osmdPreviewKey;
     const sig = arts
       .map(
         (f) =>
-          `${f.kind}:${f.articulation}:${f.placement ?? ''}:${f.distance ?? ''}:${f.noteIndex ?? ''}:${f.partId ?? ''}:${f.measureMxl ?? ''}`,
+          `${f.kind}:${f.articulation}:${f.placement ?? ''}:${f.noteIndex ?? ''}:${f.partId ?? ''}:${f.measureMxl ?? ''}`,
       )
       .join('|');
     return `${osmdPreviewKey}::${sig}`;
@@ -1268,7 +1272,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 color: artPreviewStatus.count || artPreviewStatus.dy ? '#fff' : '#495057',
                 fontWeight: 600,
               }}
-              title="표별 거리(Tenuto·Accent 각각). 대기+MXL 반영분 → OSMD Δ."
+              title="대기 표 거리 → OSMD path 절대 Y 적용. 오른쪽 배너의「적용 shifted=…」가 0이면 매칭 실패."
             >
               {artPreviewStatus.count === 0
                 ? '표 거리: 대기/반영 없음'

@@ -35,12 +35,9 @@ import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
   applyPendingArticulationOffsetsOnly,
-  applyHitlArticulationHostCss,
-  extraYPxFromArticulationFixes,
   registerOsmdArticulationFixes,
   registerOsmdPreviewMeasureRangeForArticulation,
   registerOsmdPreviewXmlForArticulation,
-  setHitlArticulationExtraYPx,
 } from './osmdArticulationOffsetFix';
 import { alignOsmdPreviewNotesByOnsetColumn, registerOsmdPreviewXmlForAlign } from './osmdOnsetColumnAlignFix';
 import { applyOsmdDynamicsOffsets, applyPendingDynamicsOffsetsOnly, registerOsmdPreviewXmlForDynamics } from './osmdDynamicsOffsetFix';
@@ -63,7 +60,6 @@ import {
   articulationDefaultYFromStaffSpaces,
   articulationStaffSpacesFromHint,
   HITL_DIR_DISTANCE_ATTR,
-  parseArticulationStaffSpaces,
 } from '../shared/musicXmlArticulationDistance';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { normalizeMultivoiceStemsForOsmdPreview } from '../shared/musicXmlStem';
@@ -2293,6 +2289,11 @@ export function OsmdBlock({
   const articulationFixesRef = useRef(articulationFixes ?? []);
   const zoomRef = useRef(zoom);
   const xmlGenRef = useRef(0);
+  /** path bake 적용 결과 — DevTools 없이 배너에 표시 */
+  const [artApplyInfo, setArtApplyInfo] = useState<{ shifted: string; debug: string }>({
+    shifted: '—',
+    debug: '',
+  });
   /** Invalidates overlapping RAF/resize paint attempts (load-complete vs zoom). */
   const paintSeqRef = useRef(0);
   /** 렌더 직후 스크롤바·오버레이로 width가 흔들려 ResizeObserver 재렌더 루프 나는 것 방지 */
@@ -2517,10 +2518,22 @@ export function OsmdBlock({
             applyOsmdArticulationOffsets(h, o);
             applyOsmdPolyphonicRestOffsets(h, o);
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
+            {
+              const shifted = h.getAttribute('data-hitl-art-shifted') ?? '0';
+              const debug = h.getAttribute('data-hitl-art-debug') ?? '';
+              setArtApplyInfo({ shifted, debug });
+            }
             // 이중 rAF·후속 paint 후에도 표 거리 유지
             window.setTimeout(() => {
               if (stale() || !hostRef.current || osmdRef.current !== o) return;
               applyOsmdArticulationOffsets(hostRef.current, o);
+              const hh = hostRef.current;
+              if (hh) {
+                setArtApplyInfo({
+                  shifted: hh.getAttribute('data-hitl-art-shifted') ?? '0',
+                  debug: hh.getAttribute('data-hitl-art-debug') ?? '',
+                });
+              }
             }, 50);
           },
         });
@@ -2721,6 +2734,11 @@ export function OsmdBlock({
       if (!h) return;
       applyPendingArticulationOffsetsOnly(h, o, articulationFixesRef.current);
       applyPendingDynamicsOffsetsOnly(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
+      const shifted = h.getAttribute('data-hitl-art-shifted') ?? '0';
+      const debug = h.getAttribute('data-hitl-art-debug') ?? '';
+      setArtApplyInfo((prev) =>
+        prev.shifted === shifted && prev.debug === debug ? prev : { shifted, debug },
+      );
     };
     apply();
     // paint/align가 SVG를 교체·리셋해도 표 거리가 남도록 반복 적용
@@ -2836,7 +2854,6 @@ export function OsmdBlock({
   const artPreviewFixes = (articulationFixes ?? []).filter(
     (f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation',
   );
-  const artPreviewDy = extraYPxFromArticulationFixes(artPreviewFixes, 10);
   /** articulationFixes prop이 넘어오는 HITL 미리보기에서만 — sticky라 스크롤해도 보임 */
   const showArtBanner = articulationFixes !== undefined;
 
@@ -2855,7 +2872,14 @@ export function OsmdBlock({
             padding: '5px 10px',
             marginBottom: 2,
             borderRadius: 4,
-            background: artPreviewDy !== 0 ? '#0b7285' : artPreviewFixes.length ? '#868e96' : '#495057',
+            background:
+              artApplyInfo.debug && artApplyInfo.shifted !== '0'
+                ? '#0b7285'
+                : artPreviewFixes.length
+                  ? artApplyInfo.shifted === '0'
+                    ? '#c92a2a'
+                    : '#868e96'
+                  : '#495057',
             color: '#fff',
             pointerEvents: 'none',
             fontFamily: 'ui-monospace, Consolas, monospace',
@@ -2866,15 +2890,14 @@ export function OsmdBlock({
             ? 'Accent 미리보기: 대기 보정 없음 (MXL에 반영된 거리는 글리프 오프셋으로 표시)'
             : (() => {
                 const dist =
-                  artPreviewFixes.map((f) => f.distance || 'auto').filter((v, i, a) => a.indexOf(v) === i).join(',') ||
-                  '?';
-                const spaces =
-                  parseArticulationStaffSpaces(
-                    artPreviewFixes[0]?.distance === 'auto' || !artPreviewFixes[0]?.distance
-                      ? 'auto'
-                      : String(artPreviewFixes[0]?.distance),
-                  ) ?? 1;
-                return `Accent ${dist}칸 · Δ=${artPreviewDy}px (OSMD 1칸 대비 · MXL default-y≈${Math.round(spaces * 10)})`;
+                  artPreviewFixes
+                    .map((f) => `${(f.articulation || '?').split('(')[0]}:${f.distance || 'auto'}`)
+                    .join(' ') || '?';
+                const applyLine =
+                  artApplyInfo.debug || artApplyInfo.shifted !== '—'
+                    ? ` · 적용 shifted=${artApplyInfo.shifted}${artApplyInfo.debug ? ` [${artApplyInfo.debug}]` : ''}`
+                    : ' · 적용 대기…';
+                return `표거리 ${dist}${applyLine}`;
               })()}
         </div>
       ) : null}

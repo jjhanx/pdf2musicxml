@@ -961,16 +961,23 @@ export function findArticulationElementsInStavenote(stavenote: Element): Element
       const parentStavenote = p.closest('.vf-stavenote');
       if (parentStavenote && parentStavenote !== stavenote) return false;
       const d = p.getAttribute('d') ?? '';
-      // 덧줄(단순 가로 직선 L x y) 제외
-      if (/L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) && !/[CQcqs]/.test(d) && (d.match(/M/g) ?? []).length < 2) {
-        return false;
-      }
+      // 덧줄(단순 가로 직선 L x y) 제외 — tenuto(짧은 막대)는 곡선이 없어도 포함해야 함
+      const isLedgerLike =
+        /L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) &&
+        !/[CQcqs]/.test(d) &&
+        (d.match(/M/g) ?? []).length < 2 &&
+        // tenuto 막대는 보통 짧고 두껍게 fill됨 — 오선 덧줄보다 path 토큰이 적음이 아니라
+        // 가로 길이가 오선 간격보다 훨씬 길 때 덧줄로 본다(대략 |Δx|>40).
+        (() => {
+          const m = /M\s*([-\d.eE]+)[\s,]+([-\d.eE]+).*?L\s*([-\d.eE]+)[\s,]+([-\d.eE]+)/i.exec(d);
+          if (!m) return true;
+          return Math.abs(parseFloat(m[3]!) - parseFloat(m[1]!)) > 40;
+        })();
+      if (isLedgerLike) return false;
       return true;
     });
-    const curved = paths.filter((p) => /[CQcqsA]/.test(p.getAttribute('d') ?? ''));
-    if (curved.length > 0) {
-      out.push(...curved);
-    } else if (paths.length > 0) {
+    // accent(곡선) + tenuto(직선)가 같은 그룹에 있어도 둘 다 포함 (곡선만 남기면 tenuto 거리 불가)
+    if (paths.length > 0) {
       out.push(...paths);
     } else if (mod.querySelector('text, use')) {
       out.push(mod);

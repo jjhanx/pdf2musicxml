@@ -106,10 +106,8 @@ async function main() {
 
     applyOsmdArticulationOffsetsDetailed(host, osmd);
 
-    const notesSvg = [...host.querySelectorAll('.vf-stavenote')];
-    const target = notesSvg[1];
-    const tagged = [...(target?.querySelectorAll('[data-hitl-art-tag]') || [])].map((el) => ({
-      tag: el.getAttribute('data-hitl-art-tag'),
+    const tagged = [...host.querySelectorAll('[data-hitl-art-tag], [data-hitl-art-overlay]')].map((el) => ({
+      tag: el.getAttribute('data-hitl-art-tag') || el.getAttribute('data-hitl-art-overlay'),
       spaces: el.getAttribute('data-art-spaces'),
     }));
     console.log('m51 #1 tagged', tagged);

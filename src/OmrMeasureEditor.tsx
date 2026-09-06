@@ -4039,7 +4039,12 @@ function MeasureNoteEditor({
   const chordLeaderEl = noteEls.find((n) => n.index === chordLeaderIdx);
   const gracesBefore = graceNotesBefore(chordLeaderIdx, noteEls);
   const savedArtIds = articulationIdsFromEl(chordLeaderEl?.articulations);
-  const displayArtIds = [...new Set([...savedArtIds, ...pendingArtIds])];
+  const pendingArtsFromFixes: string[] = [];
+  for (const id of ARTICULATION_ADD_OPTIONS.map((o) => o.id)) {
+    const pend = pendingArticulationForNote(chordLeaderIdx, id);
+    if (pend && !savedArtIds.includes(id)) pendingArtsFromFixes.push(id);
+  }
+  const displayArtIds = [...new Set([...savedArtIds, ...pendingArtIds, ...pendingArtsFromFixes])];
   const addableArtOptions = ARTICULATION_ADD_OPTIONS.filter((opt) => !displayArtIds.includes(opt.id));
   const savedOrnamentIds = ornamentIdsFromEl(chordLeaderEl?.ornaments);
   const displayOrnamentIds = [...new Set([...savedOrnamentIds, ...pendingOrnamentIds])];

@@ -18,6 +18,7 @@ import { getOsmdPreviewXml } from './osmdOnsetColumnAlignFix';
 import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
 import {
   clearHitlArticulationOverlays,
+  hideNativeArticulationGlyphs,
   HITL_ART_OVERLAY_GLYPH,
   overlayArticulationY,
   paintHitlArticulationOverlayTexts,
@@ -307,6 +308,8 @@ export function resetOsmdArticulationOffsets(host: HTMLElement): void {
 
 export function applyArticulationShiftY(el: Element, deltaY: number): void {
   // 글리프(path/use/text)만 옮김. 부모 .vf-modifiers에는 CSS/transform을 걸지 않음(꾸밈음 보호).
+  // CSS style.transform(px)는 SVG user unit transform과 좌표계가 달라 실브라우저에서 표 간격이
+  // 무너지거나 둘 다 같이 보이는 것처럼 느껴질 수 있어 attribute만 사용한다.
   if (!el.hasAttribute('data-art-base-transform')) {
     el.setAttribute('data-art-base-transform', el.getAttribute('transform') ?? '');
   }
@@ -319,8 +322,9 @@ export function applyArticulationShiftY(el: Element, deltaY: number): void {
   el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
   el.setAttribute('data-art-shift-y', String(deltaY));
   const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
-  if (sty?.setProperty) {
-    sty.setProperty('transform', `translate(${ox}px, ${oy + deltaY}px)`);
+  if (sty?.removeProperty) {
+    sty.removeProperty('transform');
+    sty.removeProperty('translate');
   }
 }
 
@@ -1656,7 +1660,32 @@ function applyHitlArticulationOverlaysForOsmd(
         const artEls = artElsEarly.length ? artElsEarly : findArticulationElementsInStavenote(staveNoteSvg);
         const placement = specs[0]!.placement;
         const noteHeadY = resolveNoteHeadY(staveNote, staveNoteSvg, artEls, placement, gap);
-        const noteHeadX = resolveNoteHeadX(staveNoteSvg, artEls);
+        let noteHeadX = resolveNoteHeadX(staveNoteSvg, artEls);
+        if (!noteHeadX) {
+          // path 없을 때 staveNote x
+          const snEl = staveNoteSvg as SVGGraphicsElement;
+          try {
+            if (typeof snEl.getBBox === 'function') {
+              const b = snEl.getBBox();
+              if (b.width > 0) noteHeadX = b.x + b.width / 2;
+            }
+          } catch {
+            /* */
+          }
+        }
+
+        // 같은 음에 표가 2개 이상이면 네이티브(같은 vf-modifiers 그룹 path)를 숨기고
+        // SVG text overlay로만 그린다. path transform은 실브라우저·줌에서 간격이 안 보이는 경우가 있음.
+        const forceTextOverlay = specs.length >= 2;
+        if (forceTextOverlay) {
+          hideNativeArticulationGlyphs(staveNoteSvg);
+          painted += paintHitlArticulationOverlayTexts(
+            svg as SVGSVGElement,
+            specs.map((s) => ({ ...s, x: noteHeadX || 0, noteHeadY })),
+            gap,
+          );
+          continue;
+        }
 
         const rawMods = staveNote?.modifiers as unknown;
         const mods = (Array.isArray(rawMods)
@@ -1749,8 +1778,23 @@ function applyOsmdArticulationOffsetsDetailedInner(
   // 전역 래핑 경로 제거 — 음표별 글리프만 이동 (꾸밈음 보호 + MXL 반영 후 XML 힌트 유지)
   resetOsmdArticulationOffsets(host);
 
+  // 같은 음에 표가 2개 이상이면 상대 이동(fromDirect)을 쓰면 안 됨.
+  // OSMD 네이티브가 이미 ~1칸 벌려 그린 뒤 (spaces−1)×gap 를 더하면
+  // tenuto@2(+10)과 accent@3(+20)이 같은 visualY로 겹친다(실측 gap≈0.5px).
+  const pendingArtFixes = pendingFixes.filter(
+    (f) =>
+      (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') && Boolean(f.articulation),
+  );
+  const artsPerNote = new Map<string, number>();
+  for (const f of pendingArtFixes) {
+    const k = `${f.partId}|${f.measureMxl}|${f.noteIndex ?? ''}`;
+    artsPerNote.set(k, (artsPerNote.get(k) ?? 0) + 1);
+  }
+  const hasMultiArtNote = [...artsPerNote.values()].some((n) => n >= 2);
   const usedElements = new Set<Element>();
-  const fromDirect = applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
+  const fromDirect = hasMultiArtNote
+    ? 0
+    : applyPendingDistanceDirect(osmd, pendingFixes, staffSpacePx, usedElements);
 
   const xml = resolveArticulationPreviewXml(osmd);
   const hostDy = extraYPxFromArticulationFixes(pendingFixes, staffSpacePx || 10);
@@ -1775,6 +1819,8 @@ function applyOsmdArticulationOffsetsDetailedInner(
   let shiftedCount = fromDirect;
   const usedHints = new Set<OrderedHint>();
 
+  // 복수 표는 아래 overlay(절대 Y / text)만 사용 — 이 상대 루프도 fromDirect와 같은 상쇄 버그
+  if (!hasMultiArtNote) {
   try {
     forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
       const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
@@ -1912,6 +1958,7 @@ function applyOsmdArticulationOffsetsDetailedInner(
   } catch (err) {
     console.warn('[osmdArticulationOffsetFix] error applying offsets:', err);
   }
+  } // end !hasMultiArtNote relative path
 
   // 배너 dy는 실제 글리프 이동이 있을 때만 (pending만으로 허위 표시 금지)
   let appliedDy = 0;

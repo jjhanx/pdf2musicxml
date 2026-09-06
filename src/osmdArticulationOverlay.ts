@@ -160,6 +160,7 @@ export function paintHitlArticulationOverlayTexts(
     const y = overlayArticulationY(s.noteHeadY, s.staffSpaces, s.placement, gap);
     const text = svg.ownerDocument!.createElementNS(ns, 'text');
     text.setAttribute(OVERLAY_ATTR, s.tag);
+    text.setAttribute('data-hitl-art-tag', s.tag);
     text.setAttribute('x', String(s.x));
     text.setAttribute('y', String(y));
     text.setAttribute('text-anchor', 'middle');

@@ -30,25 +30,52 @@ const OSMD =
 type Row = { tag: string | null; spaces: string | null; visualY: number; shift: string | null };
 
 function snapNote(host: HTMLElement, noteIdx: number, label: string): Row[] {
-  const notes = [...host.querySelectorAll('.vf-stavenote')];
-  // P1 only preview: notes 0=A4 stacc, 1=B4 target
-  const n = notes[noteIdx];
-  if (!n) {
-    console.log(label, 'NO NOTE', noteIdx, 'total', notes.length);
-    return [];
+  const tagged = [...host.querySelectorAll('[data-hitl-art-tag], [data-hitl-art-overlay]')];
+  if (!tagged.length && label.includes('native')) {
+    const notes = [...host.querySelectorAll('.vf-stavenote')];
+    const n = notes[noteIdx];
+    if (!n) {
+      console.log(label, 'NO NOTE', noteIdx, 'total', notes.length);
+      return [];
+    }
+    const arts = findArticulationElementsInStavenote(n);
+    const rows: Row[] = arts.map((el) => {
+      const start = pathStartXY(el);
+      const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?/.exec(el.getAttribute('transform') || '');
+      const ty = m ? parseFloat(m[2] ?? '0') : 0;
+      return {
+        tag: el.getAttribute('data-hitl-art-tag'),
+        spaces: el.getAttribute('data-art-spaces'),
+        visualY: (start?.y ?? 0) + ty,
+        shift: el.getAttribute('data-art-shift-y'),
+      };
+    });
+    console.log(label, JSON.stringify(rows));
+    return rows;
   }
-  const arts = findArticulationElementsInStavenote(n);
-  const rows: Row[] = arts.map((el) => {
-    const start = pathStartXY(el);
-    const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?/.exec(el.getAttribute('transform') || '');
-    const ty = m ? parseFloat(m[2] ?? '0') : 0;
-    return {
-      tag: el.getAttribute('data-hitl-art-tag'),
+  const seen = new Set<Element>();
+  const rows: Row[] = [];
+  for (const el of tagged) {
+    if (seen.has(el)) continue;
+    seen.add(el);
+    const tag = el.getAttribute('data-hitl-art-tag') || el.getAttribute('data-hitl-art-overlay');
+    const yAttr = el.getAttribute('y');
+    let visualY = 0;
+    if (yAttr != null && el.tagName.toLowerCase() === 'text') {
+      visualY = parseFloat(yAttr);
+    } else {
+      const start = pathStartXY(el);
+      const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?/.exec(el.getAttribute('transform') || '');
+      const ty = m ? parseFloat(m[2] ?? '0') : 0;
+      visualY = (start?.y ?? 0) + ty;
+    }
+    rows.push({
+      tag,
       spaces: el.getAttribute('data-art-spaces'),
-      visualY: (start?.y ?? 0) + ty,
+      visualY,
       shift: el.getAttribute('data-art-shift-y'),
-    };
-  });
+    });
+  }
   console.log(label, JSON.stringify(rows));
   return rows;
 }

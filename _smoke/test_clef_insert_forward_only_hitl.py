@@ -89,6 +89,64 @@ assert _pitch(m52, "2") == ["E1"], _pitch(m52, "2")
 assert _pitch(m53, "2") == ["D5"], _pitch(m53, "2")
 assert _pitch(m53, "1") == ["E5"], _pitch(m53, "1")
 
+# 다음 마디 머리에 잔류 F가 있어도 G로 교체 + remap (G 뒤 F 잔류 금지)
+xml_stale = """<score-partwise version="3.1">
+<part id="P5">
+<measure number="52">
+  <attributes><divisions>4</divisions>
+    <clef number="2"><sign>F</sign><line>4</line></clef>
+  </attributes>
+  <note><pitch><step>F</step><octave>3</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+<measure number="53">
+  <attributes><divisions>4</divisions>
+    <clef number="2"><sign>F</sign><line>4</line></clef>
+  </attributes>
+  <note><pitch><step>F</step><octave>3</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+<measure number="54">
+  <attributes><divisions>4</divisions>
+    <clef number="2"><sign>C</sign><line>3</line></clef>
+  </attributes>
+  <note><pitch><step>C</step><octave>4</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+</part></score-partwise>"""
+root_s = ET.fromstring(xml_stale)
+apply_fixes_to_root(
+    root_s,
+    [
+        {
+            "kind": "insertClef",
+            "partId": "P5",
+            "measureMxl": "52",
+            "afterNoteIndex": 0,
+            "clefSign": "G",
+            "clefLine": 2,
+            "staff": 2,
+            "remapStaffPitches": True,
+        }
+    ],
+)
+m52s = root_s.find(".//measure[@number='52']")
+m53s = root_s.find(".//measure[@number='53']")
+m54s = root_s.find(".//measure[@number='54']")
+d52s = _dump(m52s)
+assert d52s[0] == "clef:Fn2" and d52s[1] == "#0:F3s2" and d52s[-1] == "clef:Gn2", d52s
+assert _pitch(m52s, "2") == ["F3"], _pitch(m52s, "2")
+# m53: 잔류 F → G, F3→D5
+assert any(
+    (c.findtext("sign") or "").upper() == "G"
+    for c in m53s.find("attributes").findall("clef")
+), ET.tostring(m53s, encoding="unicode")
+assert not any(
+    (c.findtext("sign") or "").upper() == "F"
+    for c in m53s.find("attributes").findall("clef")
+), "stale F must not remain after inserted G"
+assert _pitch(m53s, "2") == ["D5"], _pitch(m53s, "2")
+# m54: 다른 clef(C) — 중단, pitch·clef 불변
+assert m54s.findtext("attributes/clef/sign") == "C"
+assert _pitch(m54s, "2") == ["C4"], _pitch(m54s, "2")
+
 # trailing F 있으면 제거하고 G만 맨 끝 (앞 mid 없음·머리 F 유지)
 xml_t = """<score-partwise version="3.1">
 <part id="P5">

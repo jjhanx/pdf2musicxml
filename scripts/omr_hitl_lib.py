@@ -2066,17 +2066,19 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
     _apply_play_order_column_x_to_snapshot(measure, ns, elements)
     elements.sort(key=_snapshot_timeline_sort_key)
 
-    # 마디 중간·끝 음자리표 — 직전 note index 뒤에 끼워 UI에서 선택·삭제 가능하게
+    # 마디 중간·끝 음자리표 — 직전 **같은 staff** note index 뒤에 끼워 UI에서 선택·삭제 가능하게
+    # (backup 뒤 PL mid F를 PR 음 #0 뒤에 붙이면 「끝처럼」 보이거나 삽입 위치가 앞 음 앞으로 간다)
     notes = list_note_elements(measure, ns)
     clef_by_after: dict[int, list[dict[str, Any]]] = {}
     note_i = 0
     seen_note = False
-    last_note_idx = -1
+    last_note_by_staff: dict[int, int] = {}
     clef_i = 0
     for child in measure:
         tag = _local(child)
         if tag == "note":
-            last_note_idx = note_i
+            sn = _note_staff_number(child, ns) or 1
+            last_note_by_staff[sn] = note_i
             note_i += 1
             seen_note = True
             continue
@@ -2084,28 +2086,47 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
             continue
         if child.find(_q(ns, "clef")) is None:
             continue
-        snap = _mid_measure_clef_snap(child, ns, clef_i, last_note_idx, measure, notes)
-        clef_by_after.setdefault(last_note_idx, []).append(snap)
+        # clef staff → 그 staff의 직전 음; 없으면 -1(마디 앞) + beforeNoteIndex로 UI 표시
+        clef_staff = 1
+        for cl in child.findall(_q(ns, "clef")):
+            num = cl.get("number")
+            if num and str(num).strip().isdigit():
+                clef_staff = int(str(num).strip())
+                break
+        after_idx = last_note_by_staff.get(clef_staff, -1)
+        snap = _mid_measure_clef_snap(child, ns, clef_i, after_idx, measure, notes)
+        clef_by_after.setdefault(after_idx, []).append(snap)
         clef_i += 1
 
     if not clef_by_after:
         return elements
 
     interleaved: list[dict[str, Any]] = []
+    # afterNoteIndex < 0 (backup 직후·해당 staff 첫 음 앞) — 목록 앞에
+    for csnap in clef_by_after.get(-1, []):
+        interleaved.append(csnap)
+    emitted = {int(c["clefIndex"]) for c in interleaved if c.get("elementKind") == "clef"}
     for snap in elements:
         interleaved.append(snap)
         for csnap in clef_by_after.get(int(snap["index"]), []):
             interleaved.append(csnap)
-    # 정렬에서 빠진 afterNoteIndex(이론상 없음) — 남은 clef append
-    emitted = {int(c["clefIndex"]) for c in interleaved if c.get("elementKind") == "clef"}
+            emitted.add(int(csnap["clefIndex"]))
+    # 정렬에서 빠진 afterNoteIndex — 남은 clef append
     for _after, clist in sorted(clef_by_after.items()):
         for csnap in clist:
             if int(csnap["clefIndex"]) not in emitted:
                 interleaved.append(csnap)
+                emitted.add(int(csnap["clefIndex"]))
     return interleaved
 
 
 def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, staff_n: int = 1) -> dict[str, Any] | None:
+    """이 마디에서 **첫 음(해당 staff)에 적용되는** clef.
+
+    마디 끝 trailing mid clef(다음 마디용 예고 G 등)는 포함하지 않는다.
+    끝 G까지 넣으면 UI「현재 적용」이 앞 음과 무관하게 G로 바뀌어 보이고,
+    편집자가 「앞을 건드렸다」고 오해한다.
+    """
     measures = part.findall(_q(ns, "measure"))
     target_idx = None
     for idx, m in enumerate(measures):
@@ -2114,14 +2135,21 @@ def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, sta
             break
     if target_idx is None:
         target_idx = len(measures) - 1
-    last_clef = None
+    last_clef: dict[str, Any] | None = None
     for i in range(target_idx + 1):
         m = measures[i]
-        for attr in m.findall(_q(ns, "attributes")):
-            for clef in attr.findall(_q(ns, "clef")):
+        is_target = i == target_idx
+        for child in list(m):
+            if is_target and _local(child) == "note":
+                sn = _note_staff_number(child, ns) or 1
+                if sn == staff_n:
+                    # 첫 해당 staff 음 직전까지의 clef만 — 그 뒤 trailing은 무시
+                    return last_clef
+            if _local(child) != "attributes":
+                continue
+            for clef in child.findall(_q(ns, "clef")):
                 if not _clef_matches_staff(clef, staff_n):
                     continue
-                # number 없는 clef는 staff 1에만 적용
                 c_staff = clef.get("number")
                 if c_staff is None and staff_n != 1:
                     continue
@@ -2129,8 +2157,15 @@ def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, sta
                 line = clef.find(_q(ns, "line"))
                 if sign is not None and sign.text:
                     s_text = sign.text.strip().upper()
-                    l_text = int(line.text.strip()) if line is not None and line.text and line.text.strip().isdigit() else (2 if s_text == "G" else 4)
+                    l_text = (
+                        int(line.text.strip())
+                        if line is not None and line.text and line.text.strip().isdigit()
+                        else (2 if s_text == "G" else 4)
+                    )
                     last_clef = {"sign": s_text, "line": l_text}
+        if is_target:
+            # 해당 staff 음이 없으면 머리까지 반영된 last_clef
+            return last_clef
     return last_clef
 
 
@@ -2357,7 +2392,24 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
     elements = measure_elements_snapshot(measure, ns)
     tempos = _measure_tempo_snapshot(measure, ns)
     effective = _effective_tempo_bpm_before(root, ns, part_id, measure_mxl)
-    effective_clef = _effective_clef_for_measure(part, ns, measure_mxl)
+    # staff별: 첫 음에 적용되는 clef (trailing 끝 clef 제외)
+    staffs_in_meas = sorted(
+        {
+            _note_staff_number(n, ns) or 1
+            for n in notes
+            if n.find(_q(ns, "chord")) is None
+        }
+        or {1}
+    )
+    effective_clefs_by_staff: dict[str, dict[str, Any]] = {}
+    for sn in staffs_in_meas:
+        ec = _effective_clef_for_measure(part, ns, measure_mxl, sn)
+        if ec:
+            effective_clefs_by_staff[str(sn)] = ec
+    # 하위 호환: staff1 우선, 없으면 첫 staff
+    effective_clef = effective_clefs_by_staff.get("1") or next(
+        iter(effective_clefs_by_staff.values()), None
+    )
     measure_directions = _measure_standalone_directions_snapshot(measure, ns)
     barlines = _measure_barlines_snapshot(measure, ns)
     direction_source_part_id = part_id
@@ -2381,6 +2433,7 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
         "barlines": barlines,
         "effectiveTempoBpm": effective,
         "effectiveClef": effective_clef,
+        "effectiveClefsByStaff": effective_clefs_by_staff,
     }
     if direction_source_part_id != part_id:
         out["directionSourcePartId"] = direction_source_part_id
@@ -7545,16 +7598,31 @@ def _remap_forward_from_inserted_clef(
         start_i = measures.index(start_measure)
     except ValueError:
         start_i = 0
+    try:
+        insert_child_i = list(start_measure).index(attrs)
+    except ValueError:
+        insert_child_i = -1
     changed = False
     past_insert = False
     for mi in range(start_i, len(measures)):
         m = measures[mi]
-        for child in list(m):
-            if m is start_measure and child is attrs:
-                past_insert = True
-                continue
-            if not past_insert:
-                continue
+        children = list(m)
+        for ci, child in enumerate(children):
+            if m is start_measure:
+                # 문서 순서: 삽입 attrs 인덱스 미만은 절대 미적용 (앞 음·앞 clef 불변)
+                if insert_child_i >= 0 and ci < insert_child_i:
+                    continue
+                if insert_child_i >= 0 and ci == insert_child_i:
+                    past_insert = True
+                    continue
+                if child is attrs:
+                    past_insert = True
+                    continue
+                if not past_insert:
+                    continue
+            else:
+                if not past_insert:
+                    past_insert = True
             if _local(child) == "attributes":
                 stop = False
                 for clef in child.findall(_q(ns, "clef")):
@@ -7585,7 +7653,6 @@ def _remap_forward_from_inserted_clef(
                 child, ns, old_clef[0], old_clef[1], new_clef[0], new_clef[1]
             ):
                 changed = True
-        # 다음 마디로 넘어가면 insert는 이미 지남
         if m is start_measure:
             past_insert = True
     return changed

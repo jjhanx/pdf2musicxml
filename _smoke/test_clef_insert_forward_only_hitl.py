@@ -147,6 +147,16 @@ assert _pitch(m53s, "2") == ["D5"], _pitch(m53s, "2")
 assert m54s.findtext("attributes/clef/sign") == "C"
 assert _pitch(m54s, "2") == ["C4"], _pitch(m54s, "2")
 
+# 끝 G 삽입 후에도 「현재 적용」(첫 음 기준)은 앞 F — trailing G를 effective로 쓰지 않음
+from omr_hitl_lib import measure_snapshot  # noqa: E402
+
+snap = measure_snapshot(root_s, "", "P5", "52")
+assert snap is not None
+assert (snap.get("effectiveClefsByStaff") or {}).get("2", {}).get("sign") == "F", snap
+assert snap["effectiveClefsByStaff"]["2"]["sign"] == "F"
+# staff2 첫 음 pitch 불변
+assert _pitch(m52s, "2") == ["F3"]
+
 # trailing F 있으면 제거하고 G만 맨 끝 (앞 mid 없음·머리 F 유지)
 xml_t = """<score-partwise version="3.1">
 <part id="P5">

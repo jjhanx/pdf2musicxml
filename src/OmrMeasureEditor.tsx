@@ -495,6 +495,8 @@ type MeasureSnapshot = {
   directionSourcePartId?: string;
   effectiveTempoBpm?: number | null;
   effectiveClef?: { sign?: string; line?: number };
+  /** staff 번호 → 그 줄 첫 음에 적용되는 clef (trailing 끝 clef 제외) */
+  effectiveClefsByStaff?: Record<string, { sign?: string; line?: number }>;
 };
 
 type MeasureTempoEntry = {
@@ -2942,21 +2944,31 @@ export function OmrMeasureEditor({
             <span>𝄞 / 𝄢</span>
             <span>음자리표 변경 (높은음 / 낮은음자리표)</span>
           </div>
-          {snapshot?.effectiveClef ? (
+          {(() => {
+            const staffKey =
+              editStaffWithinPart != null ? String(editStaffWithinPart) : null;
+            const ec =
+              (staffKey && snapshot?.effectiveClefsByStaff?.[staffKey]) ||
+              snapshot?.effectiveClef;
+            if (!ec) return null;
+            const isF = ec.sign === 'F';
+            return (
             <span
               style={{
                 fontSize: '0.82rem',
                 fontWeight: 600,
-                color: snapshot.effectiveClef.sign === 'F' ? '#b45309' : '#0369a1',
-                background: snapshot.effectiveClef.sign === 'F' ? '#fef3c7' : '#e0f2fe',
+                color: isF ? '#b45309' : '#0369a1',
+                background: isF ? '#fef3c7' : '#e0f2fe',
                 padding: '2px 8px',
                 borderRadius: 4,
-                border: snapshot.effectiveClef.sign === 'F' ? '1px solid #fde68a' : '1px solid #bae6fd',
+                border: isF ? '1px solid #fde68a' : '1px solid #bae6fd',
               }}
+              title="이 마디 앞·음표에 적용되는 clef (끝 mid/예고 clef 제외)"
             >
-              현재 적용: {snapshot.effectiveClef.sign === 'F' ? '𝄢 낮은음자리표 (F)' : '𝄞 높은음자리표 (G)'}
+              현재 적용: {isF ? '𝄢 낮은음자리표 (F)' : '𝄞 높은음자리표 (G)'}
             </span>
-          ) : null}
+            );
+          })()}
         </div>
 
         <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>

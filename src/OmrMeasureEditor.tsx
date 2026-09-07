@@ -1856,8 +1856,8 @@ function elementTitle(
     ? ` ${el.timeMod === '3:2' ? '세잇단' : `잇단 ${el.timeMod}`}${el.tuplet === 'start' ? '▸' : el.tuplet === 'stop' ? '◂' : ''}`
     : '';
   const artSource =
-    el.chord && _noteEls.length
-      ? _noteEls.find((n) => n.index === chordLeaderIndex(el, _noteEls)) ?? el
+    el.chord && noteEls.length
+      ? noteEls.find((n) => n.index === chordLeaderIndex(el, noteEls)) ?? el
       : el;
   const arts = artSource.articulations?.length
     ? ` [${artSource.articulations
@@ -1883,9 +1883,9 @@ function elementTitle(
       : '?';
   const graceTag = el.hasGrace ? ` 꾸밈음${el.graceSlash ? '(slash)' : ''}` : '';
   let chordPeers = '';
-  if (!el.chord && _noteEls.length) {
-    const peers = _noteEls
-      .filter((n) => n.chord && chordLeaderIndex(n, _noteEls) === el.index)
+  if (!el.chord && noteEls.length) {
+    const peers = noteEls
+      .filter((n) => n.chord && chordLeaderIndex(n, noteEls) === el.index)
       .map((n) =>
         n.pitch != null
           ? formatPitchLabel(
@@ -1896,8 +1896,8 @@ function elementTitle(
           : '?',
       );
     if (peers.length) chordPeers = ` +화음[${peers.join('·')}]`;
-  } else if (el.chord && _noteEls.length) {
-    const leader = _noteEls.find((n) => n.index === chordLeaderIndex(el, _noteEls));
+  } else if (el.chord && noteEls.length) {
+    const leader = noteEls.find((n) => n.index === chordLeaderIndex(el, noteEls));
     if (leader?.pitch) {
       const lp = parsePitch(leader.pitch);
       chordPeers = ` ←${formatPitchLabel(lp.step, lp.octave, leader.pitchAlter)}`;

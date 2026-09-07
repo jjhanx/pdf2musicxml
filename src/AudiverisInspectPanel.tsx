@@ -31,7 +31,7 @@ import {
   scrollOsmdMeasureIntoView,
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
-import { retargetGraphicalChordSlurBeziers } from './osmdChordSlurFix';
+import { prepareGraphicalSlursForOsmdPreview } from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
   applyPendingArticulationOffsetsOnly,
@@ -2190,6 +2190,11 @@ function scheduleOsmdRender(opts: {
       enforceOsmdPreviewMeasureNumberRules(osmd);
       // OSMD는 voice≠1 쉼표를 아래로 밀거나 align_rests로 화음에 붙임 — render 전 vfpitch 고정
       patchOsmdPolyphonicRestVfpitch(osmd);
+      try {
+        prepareGraphicalSlursForOsmdPreview(osmd);
+      } catch (e) {
+        console.warn('[osmd] slur beam clearance skipped:', e);
+      }
       osmd.render();
       afterOsmdRenderSync?.(host, osmd);
       host.querySelector('[data-osmd-warn="width"]')?.remove();
@@ -2494,11 +2499,6 @@ export function OsmdBlock({
       .then(() => {
         if (stale() || !host) return;
         applyOsmdPreviewEngravingRules(osmd.EngravingRules, osmdWedgeRulesXmlRef.current);
-        try {
-          retargetGraphicalChordSlurBeziers(osmd);
-        } catch (e) {
-          console.warn('[osmd] preview engraving adjust skipped:', e);
-        }
         const seq = ++paintSeqRef.current;
         scheduleOsmdRender({
           host,

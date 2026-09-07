@@ -621,6 +621,184 @@ def _complete_cross_measure_slurs_after_copy(
             )
 
 
+def _find_wedge_stop_after_measure(
+    part: ET.Element,
+    ns: str,
+    after_measure_mxl: str,
+    number: str,
+    staff_n: int,
+) -> tuple[str, int] | None:
+    """after_measure 다음 마디에서 같은 staff·number wedge stop → (measureMxl, afterNoteIndex)."""
+    seen = False
+    for m in part.findall(_q(ns, "measure")):
+        mnum = (m.get("number") or "").strip()
+        if not seen:
+            if mnum == after_measure_mxl:
+                seen = True
+            continue
+        for direction in m.findall(_q(ns, "direction")):
+            if (_direction_staff_number(direction, ns) or 1) != staff_n:
+                continue
+            if _wedge_type_of(direction, ns) != "stop":
+                continue
+            if _wedge_number_on_direction(direction, ns) != number:
+                continue
+            anchor = _direction_wedge_anchor_note_index(m, direction, ns)
+            if anchor is None:
+                notes = list_note_elements(m, ns)
+                anchor = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
+            if anchor is None or anchor < 0:
+                anchor = 0
+            return mnum, int(anchor)
+    return None
+
+
+def _measure_has_wedge_stop(measure: ET.Element, ns: str, number: str, staff_n: int) -> bool:
+    for direction in measure.findall(_q(ns, "direction")):
+        if (_direction_staff_number(direction, ns) or 1) != staff_n:
+            continue
+        if _wedge_type_of(direction, ns) != "stop":
+            continue
+        if _wedge_number_on_direction(direction, ns) == number:
+            return True
+    return False
+
+
+def _open_wedge_numbers_before_measure(
+    part: ET.Element, ns: str, before_mxl: str, staff_n: int
+) -> set[str]:
+    """before_mxl 직전까지 같은 staff에서 아직 닫히지 않은 wedge number."""
+    open_nums: set[str] = set()
+    for m in part.findall(_q(ns, "measure")):
+        mnum = (m.get("number") or "").strip()
+        if mnum == before_mxl:
+            break
+        for direction in m.findall(_q(ns, "direction")):
+            if (_direction_staff_number(direction, ns) or 1) != staff_n:
+                continue
+            wtype = _wedge_type_of(direction, ns)
+            if wtype in ("crescendo", "diminuendo"):
+                open_nums.add(_wedge_number_on_direction(direction, ns))
+            elif wtype == "stop":
+                open_nums.discard(_wedge_number_on_direction(direction, ns))
+    return open_nums
+
+
+def _complete_cross_measure_wedges_after_copy(
+    from_part: ET.Element,
+    to_part: ET.Element,
+    ns: str,
+    *,
+    src_m_num: str,
+    dst_m_num: str,
+    staff_filter: int | None = None,
+) -> None:
+    """복사된 마디에 cresc/dim start만 있고 stop이 뒤 마디에 있으면 dest에 stop을 맞춤.
+
+    이음줄과 같이 한 마디만 복사하면 교차 점선이 끊긴다. 기존 dest wedge(다른 number)는 유지.
+    normalize_wedges(staff당 open 1개)가 겹치는 점선을 잘라내지 않도록, 복사 직후 정규화는 호출하지 않는다.
+    """
+    src_m = find_measure(from_part, ns, src_m_num)
+    dst_m = find_measure(to_part, ns, dst_m_num)
+    if src_m is None or dst_m is None:
+        return
+
+    try:
+        src_i = int(src_m_num)
+        dst_i = int(dst_m_num)
+    except ValueError:
+        src_i = dst_i = None  # type: ignore
+
+    for direction in list(dst_m.findall(_q(ns, "direction"))):
+        wtype = _wedge_type_of(direction, ns)
+        if wtype not in ("crescendo", "diminuendo"):
+            continue
+        staff_n = _direction_staff_number(direction, ns) or 1
+        if staff_filter is not None and staff_n != staff_filter:
+            continue
+        src_num = _wedge_number_on_direction(direction, ns)
+        if _measure_has_wedge_stop(dst_m, ns, src_num, staff_n):
+            continue
+        stop_at = _find_wedge_stop_after_measure(from_part, ns, src_m_num, src_num, staff_n)
+        if stop_at is None:
+            # 출처 같은 위치 start의 number로 재탐색
+            src_dirs = [
+                d
+                for d in src_m.findall(_q(ns, "direction"))
+                if _wedge_type_of(d, ns) in ("crescendo", "diminuendo")
+                and (_direction_staff_number(d, ns) or 1) == staff_n
+            ]
+            for sd in src_dirs:
+                alt = _wedge_number_on_direction(sd, ns)
+                stop_at = _find_wedge_stop_after_measure(from_part, ns, src_m_num, alt, staff_n)
+                if stop_at is not None:
+                    src_num = alt
+                    break
+        if stop_at is None:
+            continue
+        stop_mxl, stop_idx = stop_at
+        if src_i is not None:
+            try:
+                dest_stop_mxl = str(dst_i + (int(stop_mxl) - src_i))
+            except ValueError:
+                dest_stop_mxl = stop_mxl
+        else:
+            dest_stop_mxl = stop_mxl
+        dest_stop_m = find_measure(to_part, ns, dest_stop_mxl)
+        if dest_stop_m is None:
+            continue
+
+        open_before = _open_wedge_numbers_before_measure(to_part, ns, dst_m_num, staff_n)
+        used = set(open_before)
+        for d in dest_stop_m.findall(_q(ns, "direction")):
+            if _wedge_type_of(d, ns) is None:
+                continue
+            if (_direction_staff_number(d, ns) or 1) != staff_n:
+                continue
+            used.add(_wedge_number_on_direction(d, ns))
+        for d in dst_m.findall(_q(ns, "direction")):
+            if _wedge_type_of(d, ns) is None:
+                continue
+            if (_direction_staff_number(d, ns) or 1) != staff_n:
+                continue
+            if d is direction:
+                continue
+            used.add(_wedge_number_on_direction(d, ns))
+
+        new_num = src_num
+        if new_num in open_before or (
+            new_num in used and _measure_has_wedge_stop(dest_stop_m, ns, new_num, staff_n)
+        ):
+            new_num = _next_free_slur_number(used)  # 1,2,3… 동일
+
+        wel = _wedge_element(direction, ns)
+        if wel is not None and (wel.get("number") or "1") != new_num:
+            wel.set("number", new_num)
+
+        if _measure_has_wedge_stop(dest_stop_m, ns, new_num, staff_n):
+            continue
+
+        placement = (direction.get("placement") or "below").strip().lower()
+        if placement not in ("above", "below"):
+            placement = "below"
+        dest_notes = list_note_elements(dest_stop_m, ns)
+        if stop_idx >= len(dest_notes):
+            stop_idx = _last_rhythmic_note_index_on_staff(dest_notes, ns, staff_n)
+        if stop_idx < 0:
+            continue
+        _insert_standalone_wedge(
+            dest_stop_m,
+            ns,
+            dest_notes,
+            wtype="stop",
+            staff_n=staff_n,
+            placement=placement,
+            after_note_index=stop_idx,
+            wedge_number=new_num,
+            wedge_spread="0",
+        )
+
+
 def _note_beams(note: ET.Element, ns: str) -> list[str]:
     """MusicXML `<beam>`는 `<note>` 직계 자식. 예전 HITL은 `<notations>` 아래에 쓴 경우도 읽는다."""
     out: list[str] = []
@@ -7885,6 +8063,14 @@ def _apply_copy_measure_content(root: ET.Element, ns: str, fix: dict[str, Any]) 
 
             rebuild_measure_timeline_clean(dst_m, ns, to_part)
             _complete_cross_measure_slurs_after_copy(
+                from_part,
+                to_part,
+                ns,
+                src_m_num=m_num,
+                dst_m_num=dst_m_num,
+                staff_filter=target_staff if staff_scoped else None,
+            )
+            _complete_cross_measure_wedges_after_copy(
                 from_part,
                 to_part,
                 ns,

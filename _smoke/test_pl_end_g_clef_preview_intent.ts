@@ -1,10 +1,5 @@
 /**
- * PL: header/mid F → whole → trailing G (insertClef+remap).
- * Preview XML must keep F before the note, G after; no F after G.
- * Saved MXL: m52 pitch unchanged; m53 stale F→G + remapped pitch.
- *
- * (OSMD Y는 test_pl_whole_trailing_g_clef / test_whole_trailing_g_clef_osmd 에서 검증)
- *
+ * PL end insertClef+remap: current measure XML unchanged; next measure gets G + remapped pitch.
  * Run: npx tsx _smoke/test_pl_end_g_clef_preview_intent.ts
  */
 import assert from 'node:assert/strict';
@@ -40,8 +35,6 @@ const RAW = `<?xml version="1.0"?>
     <measure number="52">
       <attributes>
         <divisions>4</divisions>
-        <key><fifths>0</fifths></key>
-        <time><beats>4</beats><beat-type>4</beat-type></time>
         <staves>2</staves>
         <clef number="1"><sign>G</sign><line>2</line></clef>
         <clef number="2"><sign>F</sign><line>4</line></clef>
@@ -103,7 +96,6 @@ ET.ElementTree(root).write(r${JSON.stringify(outPath)}, encoding="unicode")
   }
 }
 
-/** PL staff=2 filter + mid-clef normalize (panel transform 핵심만). */
 function toPlPreviewXml(rawXml: string): string {
   let xml = repairTimelineForOsmdPreview(rawXml, { faithfulEditorLayout: true });
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
@@ -167,8 +159,7 @@ function measureOrder(xml: string, measureNumber: string): string[] {
       for (const cl of [...c.querySelectorAll('clef')]) {
         out.push(`clef:${cl.querySelector('sign')?.textContent}`);
       }
-    } else if (tag === 'backup') out.push('backup');
-    else if (tag === 'forward') out.push('forward');
+    }
   }
   return out;
 }
@@ -180,8 +171,7 @@ function pitchStaff2(xml: string, measureNumber: string): string[] {
   )!;
   const out: string[] = [];
   for (const n of [...m.querySelectorAll(':scope > note')]) {
-    const st = n.querySelector('staff')?.textContent ?? '1';
-    if (st !== '2') continue;
+    if ((n.querySelector('staff')?.textContent ?? '1') !== '2') continue;
     const p = n.querySelector('pitch');
     if (!p) continue;
     out.push(`${p.querySelector('step')?.textContent}${p.querySelector('octave')?.textContent}`);
@@ -189,38 +179,48 @@ function pitchStaff2(xml: string, measureNumber: string): string[] {
   return out;
 }
 
-function clefStaff2(xml: string, measureNumber: string): string[] {
+function measureOrderStaff2(xml: string, measureNumber: string): string[] {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   const m = [...doc.querySelectorAll('measure')].find(
     (el) => el.getAttribute('number') === measureNumber,
-  )!;
+  );
+  assert.ok(m, `measure ${measureNumber}`);
   const out: string[] = [];
-  for (const c of [...m.children]) {
-    if (c.localName !== 'attributes') continue;
-    for (const cl of [...c.querySelectorAll('clef')]) {
-      const num = cl.getAttribute('number');
-      if (num && num !== '2') continue;
-      out.push(cl.querySelector('sign')?.textContent ?? '?');
+  for (const c of [...m!.children]) {
+    const tag = c.localName;
+    if (tag === 'note') {
+      const st = c.querySelector('staff')?.textContent ?? '1';
+      if (st !== '2') continue;
+      if (c.querySelector(':scope > rest')) {
+        out.push(c.getAttribute('print-object') === 'no' ? 'rest:hidden' : 'rest');
+      } else {
+        const step = c.querySelector('step')?.textContent ?? '';
+        const oct = c.querySelector('octave')?.textContent ?? '';
+        out.push(`note:${step}${oct}`);
+      }
+    } else if (tag === 'attributes') {
+      for (const cl of [...c.querySelectorAll('clef')]) {
+        const num = cl.getAttribute('number');
+        if (num && num !== '2') continue;
+        if (!num) continue; // unnumbered = staff1
+        out.push(`clef:${cl.querySelector('sign')?.textContent}`);
+      }
     }
   }
   return out;
 }
 
 const fixed = applyInsertViaPython(RAW);
-assert.deepEqual(pitchStaff2(fixed, '52'), ['F3'], `m52 pitch must stay F3: ${pitchStaff2(fixed, '52')}`);
-assert.deepEqual(pitchStaff2(fixed, '53'), ['D5'], `m53 must remap F3→D5: ${pitchStaff2(fixed, '53')}`);
-assert.deepEqual(clefStaff2(fixed, '53'), ['G'], `m53 stale F→G: ${clefStaff2(fixed, '53')}`);
-const m52raw = measureOrder(fixed, '52');
-assert.ok(m52raw.includes('clef:F') && m52raw.includes('clef:G'), m52raw.join(' '));
-assert.ok(
-  m52raw.lastIndexOf('clef:G') > m52raw.indexOf('note:F3'),
-  `G after note: ${m52raw.join(' ')}`,
-);
-assert.equal(
-  m52raw.slice(m52raw.lastIndexOf('clef:G') + 1).filter((x) => x === 'clef:F').length,
-  0,
-  `no F after G in saved MXL: ${m52raw.join(' ')}`,
-);
+assert.deepEqual(pitchStaff2(fixed, '52'), ['F3'], `m52 front pitch: ${pitchStaff2(fixed, '52')}`);
+assert.deepEqual(pitchStaff2(fixed, '53'), ['D5'], `m53 remapped: ${pitchStaff2(fixed, '53')}`);
+
+const m52raw = measureOrderStaff2(fixed, '52');
+assert.ok(!m52raw.includes('clef:G'), `end insert must not put G in m52 staff2: ${m52raw.join(' ')}`);
+assert.ok(m52raw.includes('clef:F') && m52raw.includes('note:F3'), m52raw.join(' '));
+
+const m53raw = measureOrderStaff2(fixed, '53');
+assert.ok(m53raw.includes('clef:G'), `m53 header G: ${m53raw.join(' ')}`);
+assert.ok(!m53raw.includes('clef:F'), `m53 no F: ${m53raw.join(' ')}`);
 
 const preview = toPlPreviewXml(fixed);
 const m52prev = measureOrder(preview, '52');
@@ -228,25 +228,10 @@ const m53prev = measureOrder(preview, '53');
 console.log('preview m52', m52prev.join(' → '));
 console.log('preview m53', m53prev.join(' → '));
 
-assert.ok(
-  m52prev.filter((x) => x === 'clef:F').length >= 1,
-  `preview must keep F before note: ${m52prev.join(' ')}`,
-);
-const noteIdx = m52prev.findIndex((x) => x.startsWith('note:'));
-const fBeforeNote = m52prev.findIndex((x) => x === 'clef:F');
-const gIdx = m52prev.lastIndexOf('clef:G');
-assert.ok(fBeforeNote >= 0 && fBeforeNote < noteIdx, `F before note: ${m52prev.join(' ')}`);
-assert.ok(gIdx > noteIdx, `G after note: ${m52prev.join(' ')}`);
-assert.equal(
-  m52prev.slice(gIdx + 1).filter((x) => x === 'clef:F').length,
-  0,
-  `preview must not put F after G in m52: ${m52prev.join(' ')}`,
-);
-// courtesy가 직전 trailing G와 같은 머리 G를 지울 수 있음 — F만 다시 나오면 안 됨
-assert.ok(!m53prev.includes('clef:F'), `m53 must not reintroduce F after G: ${m53prev.join(' ')}`);
-assert.ok(
-  m53prev.some((x) => x.startsWith('note:D')),
-  `m53 remapped pitch under G: ${m53prev.join(' ')}`,
-);
+assert.ok(m52prev.includes('clef:F'), `preview keeps F: ${m52prev.join(' ')}`);
+assert.ok(!m52prev.includes('clef:G'), `preview m52 no G: ${m52prev.join(' ')}`);
+assert.ok(m52prev.some((x) => x.startsWith('note:F')), m52prev.join(' '));
+assert.ok(!m53prev.includes('clef:F'), `preview m53 no F: ${m53prev.join(' ')}`);
+assert.ok(m53prev.some((x) => x.startsWith('note:D')), m53prev.join(' '));
 
 console.log('pl end G clef preview intent ok');

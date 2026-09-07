@@ -7685,15 +7685,113 @@ def _remove_trailing_clefs_on_staff_after_note(
             measure.remove(child)
 
 
+def _ensure_header_clef_on_staff(
+    measure: ET.Element, ns: str, staff_n: int, sign: str, line: int
+) -> bool:
+    """마디 머리 attributes에 해당 staff clef를 sign/line으로 맞춘다(없으면 추가)."""
+    header: ET.Element | None = None
+    for child in list(measure):
+        if _local(child) == "note":
+            break
+        if _local(child) == "attributes":
+            header = child
+            break
+    changed = False
+    if header is None:
+        header = ET.Element(_q(ns, "attributes"))
+        measure.insert(0, header)
+        changed = True
+    found: ET.Element | None = None
+    for clef in header.findall(_q(ns, "clef")):
+        if _clef_element_targets_staff(clef, staff_n):
+            found = clef
+            break
+    if found is None:
+        found = ET.SubElement(header, _q(ns, "clef"))
+        found.set("number", str(staff_n))
+        changed = True
+    elif found.get("number") is None and staff_n > 1:
+        found.set("number", str(staff_n))
+        changed = True
+    if _rewrite_clef_sign_line(found, ns, sign, line):
+        changed = True
+    return changed
+
+
+def _propagate_clef_from_measure_end(
+    part: ET.Element,
+    start_measure: ET.Element,
+    ns: str,
+    staff_n: int,
+    old_clef: tuple[str, int],
+    new_clef: tuple[str, int],
+    *,
+    remap_pitches: bool,
+) -> bool:
+    """맨 끝 삽입: **현재 마디는 불변**. 다음 마디부터 new clef·(선택) remap.
+
+    같은 마디에 trailing mid G를 넣으면 OSMD가 앞 음까지 G로 그려 「앞을 건드린」것처럼 보인다.
+    끝 삽입의 의도는 「이후부터 새 clef」이므로 다음 마디 머리에 반영한다.
+    """
+    if old_clef == new_clef:
+        return False
+    measures = part.findall(_q(ns, "measure"))
+    try:
+        start_i = measures.index(start_measure)
+    except ValueError:
+        return False
+    changed = False
+    for mi in range(start_i + 1, len(measures)):
+        m = measures[mi]
+        # 이 마디에서 old/new가 아닌 clef가 먼저 나오면 중단
+        for child in list(m):
+            if _local(child) != "attributes":
+                continue
+            for clef in child.findall(_q(ns, "clef")):
+                if not _clef_element_targets_staff(clef, staff_n):
+                    continue
+                cur = _clef_sign_line(clef, ns)
+                if cur is None:
+                    continue
+                if cur == new_clef or cur == old_clef:
+                    continue
+                return changed
+        if _ensure_header_clef_on_staff(m, ns, staff_n, new_clef[0], new_clef[1]):
+            changed = True
+        # mid에 남은 old도 new로
+        seen_note = False
+        for child in list(m):
+            if _local(child) == "note":
+                seen_note = True
+                continue
+            if not seen_note or _local(child) != "attributes":
+                continue
+            for clef in child.findall(_q(ns, "clef")):
+                if not _clef_element_targets_staff(clef, staff_n):
+                    continue
+                cur = _clef_sign_line(clef, ns)
+                if cur == old_clef:
+                    if _rewrite_clef_sign_line(clef, ns, new_clef[0], new_clef[1]):
+                        changed = True
+        if remap_pitches:
+            for note in list_note_elements(m, ns):
+                if (_note_staff_number(note, ns) or 1) != staff_n:
+                    continue
+                if _remap_note_pitch_preserve_staff(
+                    note, ns, old_clef[0], old_clef[1], new_clef[0], new_clef[1]
+                ):
+                    changed = True
+    return changed
+
+
 def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     """마디 중간(또는 지정 음 뒤)에 `<attributes><clef/></attributes>` 삽입.
 
-    삽입 위치 **이후** 같은 staff:
-    - 잔류 old clef(삽입 직전 유효 clef)는 new로 교체(G 뒤 F 잔류 금지).
-    - remapStaffPitches=true 이면 그 구간 음만 오선 위치 유지 변환.
-    앞쪽 음·머리/mid clef는 절대 변경하지 않음.
+    삽입 위치 **이후**만 적용. 앞쪽 음·머리/mid clef는 절대 변경하지 않음.
 
-    맨 끝 삽입: 음 뒤 trailing 같은 staff clef만 제거하고 새 clef를 붙인다.
+    **맨 끝 삽입**(같은 staff에 뒤따를 음 없음): 현재 마디에는 mid clef를 넣지 않는다.
+    (넣으면 OSMD가 앞 음까지 새 clef로 그림.) 대신 **다음 마디부터** 머리 clef·(선택) remap.
+    중간 삽입: 지정 음 뒤에 mid clef + 그 뒤 음만 remap.
     """
     part_id = str(fix.get("partId") or "").strip()
     measure_mxl = str(fix.get("measureMxl") or "").strip()
@@ -7728,7 +7826,6 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     )
     at_staff_end = following is None and after_clef_index is None
 
-    # 삽입 직전 유효 clef — 이후 잔류 old 교체·(선택) pitch remap 기준
     old_clef_for_delta: tuple[str, int] | None = None
     if 0 <= insert_after_idx < len(notes):
         old_clef_for_delta = _clef_for_note_in_part(
@@ -7748,12 +7845,46 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         else:
             old_clef_for_delta = ("G", 2)
 
-    # 맨 끝: 음 뒤 trailing 같은 staff clef만 제거 후 새 clef 삽입 (앞 mid는 유지)
-    if at_staff_end and 0 <= insert_after_idx < len(notes):
-        _remove_trailing_clefs_on_staff_after_note(
-            measure, ns, staff_n, notes[insert_after_idx]
-        )
+    new_clef = (clef_sign, clef_line)
 
+    # 맨 끝: 현재 마디 불변 → 다음 마디부터 clef/remap
+    if at_staff_end and old_clef_for_delta is not None:
+        measures = part.findall(_q(ns, "measure"))
+        try:
+            start_i = measures.index(measure)
+        except ValueError:
+            start_i = -1
+        if start_i >= 0 and start_i + 1 < len(measures):
+            return (
+                _propagate_clef_from_measure_end(
+                    part,
+                    measure,
+                    ns,
+                    staff_n,
+                    old_clef_for_delta,
+                    new_clef,
+                    remap_pitches=remap_pitches,
+                )
+                or True
+            )
+        # 다음 마디 없음 — mid clef만 끝에 붙임(이 마디 음은 remap 안 함)
+        if 0 <= insert_after_idx < len(notes):
+            _remove_trailing_clefs_on_staff_after_note(
+                measure, ns, staff_n, notes[insert_after_idx]
+            )
+        attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n)
+        _insert_note_element(
+            measure,
+            ns,
+            attrs,
+            insert_after_idx,
+            staff_n=staff_n,
+            after_clef_index=after_clef_index,
+            skip_trailing_attributes=False,
+        )
+        return True
+
+    # 중간 삽입: 지정 음 뒤 mid clef + 이후만 remap
     attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n)
     _insert_note_element(
         measure,
@@ -7773,7 +7904,7 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             attrs,
             staff_n,
             old_clef_for_delta,
-            (clef_sign, clef_line),
+            new_clef,
             remap_pitches=remap_pitches,
         )
     return True

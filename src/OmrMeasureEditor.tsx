@@ -5637,10 +5637,8 @@ function InsertElementForm({
       ) : null}
       <p className="omr-measure-hint" style={{ margin: '0 0 0.5rem', fontSize: '0.85em', opacity: 0.85 }}>
         마디 <strong>안에서</strong> 바꾸려면: 낮은음자리표로 둘 마지막 음의 「여기 뒤」에 넣고, 그 다음에 올 음표만 새 음자리표를 씁니다.
-        마디 맨 끝에 넣으면 그 지점부터 이후 마디가 새 음자리표를 씁니다.
-        「오선 위치 유지」: 삽입 <strong>앞</strong>은 불변, <strong>뒤·이후 마디</strong>만 새 clef에 맞게 음높이 변환.
-        이후 마디에 남은 옛 F는 G로 바꿔 G 뒤에 F를 다시 그리지 않습니다(다른 종류의 clef가 나오면 중단).
-        음 바로 뒤의 중복 trailing clef는 새 음자리표로 교체합니다.
+        <strong>마지막 음 뒤(맨 끝)</strong>에 넣으면 <strong>이 마디는 그대로</strong> 두고, <strong>다음 마디부터</strong> 새 음자리표·(선택) 오선 위치 유지를 적용합니다.
+        같은 마디 끝에 mid G를 넣으면 미리보기가 앞 음까지 G로 그려 버리므로 넣지 않습니다.
       </p>
       <div className="omr-measure-insert-form-row">
         <label>

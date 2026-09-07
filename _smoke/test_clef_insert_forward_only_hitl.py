@@ -6,7 +6,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, "scripts")
-from omr_hitl_lib import apply_fixes_to_root, measure_elements_snapshot  # noqa: E402
+from omr_hitl_lib import apply_fixes_to_root, measure_elements_snapshot, measure_snapshot  # noqa: E402
 
 
 def _dump(m: ET.Element) -> list[str]:
@@ -58,6 +58,7 @@ xml = """<score-partwise version="3.1">
 </part></score-partwise>"""
 
 root = ET.fromstring(xml)
+before52 = _dump(root.find(".//measure[@number='52']"))
 apply_fixes_to_root(
     root,
     [
@@ -77,19 +78,18 @@ m52 = root.find(".//measure[@number='52']")
 m53 = root.find(".//measure[@number='53']")
 d52 = _dump(m52)
 
-# 앞 F(머리·mid) 유지, 온음 E1 유지, 맨 끝 G
-assert d52[0:2] == ["clef:Gn1", "clef:Fn2"], d52
-assert "backup" in d52
-assert d52[d52.index("backup") + 1] == "clef:Fn2", d52
-assert "#1:E1s2" in d52, d52
-assert d52[-1] == "clef:Gn2", d52
-
-# 52 앞 음 불변, 53 staff2는 G 영향 → F3→D5
+# 맨 끝 삽입: 현재 마디 완전 불변( trailing G 안 넣음 — OSMD가 앞 음에 G 적용하는 회귀 방지)
+assert d52 == before52, (before52, d52)
 assert _pitch(m52, "2") == ["E1"], _pitch(m52, "2")
+# 다음 마디부터 G + remap F3→D5
+assert any(
+    (c.findtext("sign") or "").upper() == "G" and c.get("number") == "2"
+    for c in m53.find("attributes").findall("clef")
+), _dump(m53)
 assert _pitch(m53, "2") == ["D5"], _pitch(m53, "2")
 assert _pitch(m53, "1") == ["E5"], _pitch(m53, "1")
 
-# 다음 마디 머리에 잔류 F가 있어도 G로 교체 + remap (G 뒤 F 잔류 금지)
+# 다음 마디 머리 잔류 F → G + remap. 현재 마디는 불변.
 xml_stale = """<score-partwise version="3.1">
 <part id="P5">
 <measure number="52">
@@ -112,6 +112,7 @@ xml_stale = """<score-partwise version="3.1">
 </measure>
 </part></score-partwise>"""
 root_s = ET.fromstring(xml_stale)
+before_s52 = _dump(root_s.find(".//measure[@number='52']"))
 apply_fixes_to_root(
     root_s,
     [
@@ -130,10 +131,8 @@ apply_fixes_to_root(
 m52s = root_s.find(".//measure[@number='52']")
 m53s = root_s.find(".//measure[@number='53']")
 m54s = root_s.find(".//measure[@number='54']")
-d52s = _dump(m52s)
-assert d52s[0] == "clef:Fn2" and d52s[1] == "#0:F3s2" and d52s[-1] == "clef:Gn2", d52s
+assert _dump(m52s) == before_s52, (_dump(m52s), before_s52)
 assert _pitch(m52s, "2") == ["F3"], _pitch(m52s, "2")
-# m53: 잔류 F → G, F3→D5
 assert any(
     (c.findtext("sign") or "").upper() == "G"
     for c in m53s.find("attributes").findall("clef")
@@ -141,23 +140,16 @@ assert any(
 assert not any(
     (c.findtext("sign") or "").upper() == "F"
     for c in m53s.find("attributes").findall("clef")
-), "stale F must not remain after inserted G"
+), "stale F must not remain on following measure"
 assert _pitch(m53s, "2") == ["D5"], _pitch(m53s, "2")
-# m54: 다른 clef(C) — 중단, pitch·clef 불변
 assert m54s.findtext("attributes/clef/sign") == "C"
 assert _pitch(m54s, "2") == ["C4"], _pitch(m54s, "2")
-
-# 끝 G 삽입 후에도 「현재 적용」(첫 음 기준)은 앞 F — trailing G를 effective로 쓰지 않음
-from omr_hitl_lib import measure_snapshot  # noqa: E402
 
 snap = measure_snapshot(root_s, "", "P5", "52")
 assert snap is not None
 assert (snap.get("effectiveClefsByStaff") or {}).get("2", {}).get("sign") == "F", snap
-assert snap["effectiveClefsByStaff"]["2"]["sign"] == "F"
-# staff2 첫 음 pitch 불변
-assert _pitch(m52s, "2") == ["F3"]
 
-# trailing F 있으면 제거하고 G만 맨 끝 (앞 mid 없음·머리 F 유지)
+# 다음 마디 없음: 끝에 G만 붙이고 이 마디 음은 remap 안 함
 xml_t = """<score-partwise version="3.1">
 <part id="P5">
 <measure number="52">
@@ -219,9 +211,10 @@ for n in root_m.find(".//measure").findall("note"):
     pm.append(f"{p.findtext('step')}{p.findtext('octave')}")
 assert pm == ["C3", "D5", "B4"], pm
 
-# beforeNoteIndex 스냅샷
+# backup 뒤 mid F: 같은 staff 직전 음 없으면 after=-1, beforeNoteIndex=PL
 els = measure_elements_snapshot(ET.fromstring(xml).find(".//measure[@number='52']"), "")
 clefs = [e for e in els if e.get("elementKind") == "clef"]
-assert clefs and clefs[0]["beforeNoteIndex"] == 1, clefs
+pl_clefs = [c for c in clefs if c.get("staff") == 2]
+assert pl_clefs and pl_clefs[0].get("beforeNoteIndex") == 1, pl_clefs
 
 print("insertClef forward-only ok")

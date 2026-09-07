@@ -89,7 +89,7 @@ assert _pitch(m52, "2") == ["E1"], _pitch(m52, "2")
 assert _pitch(m53, "2") == ["D5"], _pitch(m53, "2")
 assert _pitch(m53, "1") == ["E5"], _pitch(m53, "1")
 
-# trailing F 있으면 그 뒤에 G (앞에 끼우지 않음)
+# trailing F 있으면 제거하고 G만 맨 끝 (앞 mid 없음·머리 F 유지)
 xml_t = """<score-partwise version="3.1">
 <part id="P5">
 <measure number="52">
@@ -117,7 +117,7 @@ apply_fixes_to_root(
     ],
 )
 dt = _dump(root_t.find(".//measure[@number='52']"))
-assert dt == ["clef:Fn2", "#0:E1s2", "clef:Fn2", "clef:Gn2"], dt
+assert dt == ["clef:Fn2", "#0:E1s2", "clef:Gn2"], dt
 
 # 중간 삽입: 앞 음 불변, 뒤만 변환
 xml_m = """<score-partwise version="3.1">

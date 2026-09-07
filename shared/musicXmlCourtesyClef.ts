@@ -137,9 +137,34 @@ function ensureHeaderClef(measure: Element, staff: number, identity: string): bo
   return true;
 }
 
+function laterDifferentClefOnStaff(
+  measure: Element,
+  afterAttrs: Element,
+  staff: number,
+  currentId: string,
+): boolean {
+  let past = false;
+  for (const child of [...measure.children]) {
+    if (child === afterAttrs) {
+      past = true;
+      continue;
+    }
+    if (!past) continue;
+    if (xmlLocalName(child) !== 'attributes') continue;
+    for (const clef of [...child.children].filter((c) => xmlLocalName(c) === 'clef')) {
+      if (clefStaffNumber(clef) !== staff) continue;
+      const id = clefIdentity(clef);
+      if (id && id !== currentId) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * 이미 적용된 음자리표와 동일하면 제거(머리 courtesy·중간·끝 중복).
  * mid 전환이 있는 마디의 머리 clef는 유지(없으면 직전 값 주입).
+ * 같은 staff에 **더 뒤에 다른 clef**가 있으면, 앞쪽 동일 mid clef는 제거하지 않음
+ * (온음 뒤 trailing G만 남기면 OSMD가 앞 음까지 G로 그림).
  */
 export function removeRedundantCourtesyClefsForOsmd(xml: string): string {
   try {
@@ -175,6 +200,8 @@ export function removeRedundantCourtesyClefsForOsmd(xml: string): string {
             if (prev !== undefined && id === prev) {
               // mid 전환 마디: 머리 clef는 OSMD가 mid를 앞으로 끌어올리지 않도록 유지
               if (!seenNote && keepHeader.has(staff)) continue;
+              // 뒤에 다른 clef가 있으면 이 mid는 「그 앞 음」용 — 중복이라도 유지
+              if (seenNote && laterDifferentClefOnStaff(meas, child, staff, id)) continue;
               clef.remove();
               changed = true;
             } else {

@@ -65,7 +65,7 @@ assert len(clefs) == 1, clefs
 assert clefs[0]["afterNoteIndex"] == 3, clefs[0]
 assert clefs[0]["beforeNoteIndex"] == 4, clefs[0]  # PL 첫 음 앞
 
-# #5 뒤 + remap → 앞 음(E1/E2) 불변, G는 맨 끝
+# #5 뒤 + remap(맨 끝) → PL 음 오선 위치 유지 변환, trailing G, mid F→G
 root2 = ET.fromstring(xml)
 apply_fixes_to_root(
     root2,
@@ -83,8 +83,11 @@ apply_fixes_to_root(
     ],
 )
 m2 = root2.find(".//measure[@number='52']")
-assert _pitches(m2) == ["E5s1", "G5s1", "B5s1", "E6s1", "E1s2", "E2s2"], _pitches(m2)
-assert _order(m2)[-1].startswith("clef:G"), _order(m2)
+assert _pitches(m2) == ["E5s1", "G5s1", "B5s1", "E6s1", "C3s2", "C4s2"], _pitches(m2)
+ord2 = _order(m2)
+assert ord2[-1].startswith("clef:G"), ord2
+assert "clef:Fn2" not in ord2[ord2.index("backup") :], ord2
+
 
 # F clef 뒤(=#4 앞)에 G + remap → #4,#5만 변환, PR 불변
 root3 = ET.fromstring(xml)

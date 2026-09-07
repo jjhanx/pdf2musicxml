@@ -211,6 +211,135 @@ for n in root_m.find(".//measure").findall("note"):
     pm.append(f"{p.findtext('step')}{p.findtext('octave')}")
 assert pm == ["C3", "D5", "B4"], pm
 
+# 상속 clef만 있는 다음 마디 + remap (머리 clef 없음)
+xml_inh = """<score-partwise version="3.1">
+<part id="P5">
+<measure number="51">
+  <attributes><divisions>4</divisions>
+    <clef number="2"><sign>F</sign><line>4</line></clef>
+  </attributes>
+  <note><pitch><step>C</step><octave>3</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+<measure number="52">
+  <attributes><divisions>4</divisions></attributes>
+  <note><pitch><step>E</step><octave>1</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+<measure number="53">
+  <attributes><divisions>4</divisions></attributes>
+  <note><pitch><step>F</step><octave>3</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+</part></score-partwise>"""
+root_i = ET.fromstring(xml_inh)
+before_i52 = _dump(root_i.find(".//measure[@number='52']"))
+apply_fixes_to_root(
+    root_i,
+    [
+        {
+            "kind": "insertClef",
+            "partId": "P5",
+            "measureMxl": "52",
+            "afterNoteIndex": 0,
+            "clefSign": "G",
+            "clefLine": 2,
+            "staff": 2,
+            "remapStaffPitches": True,
+        }
+    ],
+)
+assert _dump(root_i.find(".//measure[@number='52']")) == before_i52
+m53i = root_i.find(".//measure[@number='53']")
+assert any(
+    (c.findtext("sign") or "").upper() == "G" and c.get("number") == "2"
+    for c in m53i.findall("attributes/clef")
+), _dump(m53i)
+assert _pitch(m53i, "2") == ["D5"], _pitch(m53i, "2")
+
+# 다음 마디: divisions attrs + 별도 F clef attrs — 둘 다 G로, pitch remap
+xml_dual = """<score-partwise version="3.1">
+<part id="P5">
+<measure number="52">
+  <attributes><divisions>4</divisions>
+    <clef number="2"><sign>F</sign><line>4</line></clef>
+  </attributes>
+  <note><pitch><step>E</step><octave>1</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+<measure number="53">
+  <attributes><divisions>4</divisions></attributes>
+  <attributes><clef number="2"><sign>F</sign><line>4</line></clef></attributes>
+  <note><pitch><step>F</step><octave>3</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+</part></score-partwise>"""
+root_d = ET.fromstring(xml_dual)
+apply_fixes_to_root(
+    root_d,
+    [
+        {
+            "kind": "insertClef",
+            "partId": "P5",
+            "measureMxl": "52",
+            "afterNoteIndex": 0,
+            "clefSign": "G",
+            "clefLine": 2,
+            "staff": 2,
+            "remapStaffPitches": True,
+        }
+    ],
+)
+m53d = root_d.find(".//measure[@number='53']")
+assert not any(
+    (c.findtext("sign") or "").upper() == "F" and c.get("number") == "2"
+    for attrs in m53d.findall("attributes")
+    for c in attrs.findall("clef")
+), ET.tostring(m53d, encoding="unicode")
+assert _pitch(m53d, "2") == ["D5"], _pitch(m53d, "2")
+
+# mid other clef 앞 음은 remap, 그 뒤·이후 마디는 중단
+xml_mid = """<score-partwise version="3.1">
+<part id="P5">
+<measure number="52">
+  <attributes><divisions>4</divisions>
+    <clef number="2"><sign>F</sign><line>4</line></clef>
+  </attributes>
+  <note><pitch><step>E</step><octave>1</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+<measure number="53">
+  <attributes><divisions>4</divisions>
+    <clef number="2"><sign>F</sign><line>4</line></clef>
+  </attributes>
+  <note><pitch><step>F</step><octave>3</octave></pitch><duration>8</duration><type>half</type><staff>2</staff></note>
+  <attributes><clef number="2"><sign>C</sign><line>3</line></clef></attributes>
+  <note><pitch><step>C</step><octave>4</octave></pitch><duration>8</duration><type>half</type><staff>2</staff></note>
+</measure>
+<measure number="54">
+  <attributes><divisions>4</divisions>
+    <clef number="2"><sign>F</sign><line>4</line></clef>
+  </attributes>
+  <note><pitch><step>G</step><octave>3</octave></pitch><duration>16</duration><type>whole</type><staff>2</staff></note>
+</measure>
+</part></score-partwise>"""
+root_mid = ET.fromstring(xml_mid)
+apply_fixes_to_root(
+    root_mid,
+    [
+        {
+            "kind": "insertClef",
+            "partId": "P5",
+            "measureMxl": "52",
+            "afterNoteIndex": 0,
+            "clefSign": "G",
+            "clefLine": 2,
+            "staff": 2,
+            "remapStaffPitches": True,
+        }
+    ],
+)
+assert _pitch(root_mid.find(".//measure[@number='53']"), "2") == ["D5", "C4"], _pitch(
+    root_mid.find(".//measure[@number='53']"), "2"
+)
+assert _pitch(root_mid.find(".//measure[@number='54']"), "2") == ["G3"], _pitch(
+    root_mid.find(".//measure[@number='54']"), "2"
+)
+
 # backup 뒤 mid F: 같은 staff 직전 음 없으면 after=-1, beforeNoteIndex=PL
 els = measure_elements_snapshot(ET.fromstring(xml).find(".//measure[@number='52']"), "")
 clefs = [e for e in els if e.get("elementKind") == "clef"]

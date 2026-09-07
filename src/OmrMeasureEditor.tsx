@@ -2074,8 +2074,9 @@ export function OmrMeasureEditor({
   const [clefScope, setClefScope] = useState<'all' | 'single' | 'range'>('single');
   const [clefStartMeasure, setClefStartMeasure] = useState(measureMxl);
   const [clefEndMeasure, setClefEndMeasure] = useState(measureMxl);
-  /** 음자리표 변경/삽입 시 음높이: keep=유지, remap=오선 위치 유지·pitch 변환 */
-  const [clefPitchMode, setClefPitchMode] = useState<'keep' | 'remap'>('keep');
+  /** 음자리표 변경/삽입 시 음높이: keep=유지, remap=오선 위치 유지·pitch 변환.
+   * OMR clef 오인 교정이 많아 기본은 remap(오선 위치 유지). */
+  const [clefPitchMode, setClefPitchMode] = useState<'keep' | 'remap'>('remap');
 
   const handleApplyClef = useCallback(
     (sign: 'G' | 'F', line: 2 | 4) => {
@@ -2983,19 +2984,19 @@ export function OmrMeasureEditor({
             <input
               type="radio"
               name="clefPitchMode"
-              checked={clefPitchMode === 'keep'}
-              onChange={() => setClefPitchMode('keep')}
+              checked={clefPitchMode === 'remap'}
+              onChange={() => setClefPitchMode('remap')}
             />
-            <span>음높이 유지 (오선 그림 위치가 바뀔 수 있음)</span>
+            <span>오선 위치 유지 (음높이를 새 음자리표에 맞게 변환) · 기본</span>
           </label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
             <input
               type="radio"
               name="clefPitchMode"
-              checked={clefPitchMode === 'remap'}
-              onChange={() => setClefPitchMode('remap')}
+              checked={clefPitchMode === 'keep'}
+              onChange={() => setClefPitchMode('keep')}
             />
-            <span>오선 위치 유지 (음높이를 새 음자리표에 맞게 변환)</span>
+            <span>음높이 유지 (오선 그림 위치가 바뀔 수 있음)</span>
           </label>
         </div>
 
@@ -5303,7 +5304,7 @@ function InsertElementForm({
   onInsertNoteSequence,
   onInsertChordMember,
   onInsertClef,
-  clefPitchMode = 'keep',
+  clefPitchMode = 'remap',
   onClefPitchModeChange,
 }: {
   afterNoteIndex: number;
@@ -5592,6 +5593,32 @@ function InsertElementForm({
           </div>
         </div>
       ) : null}
+      {onClefPitchModeChange ? (
+        <div
+          className="omr-measure-insert-form-row"
+          style={{ flexWrap: 'wrap', gap: 10, fontSize: '0.85em', alignItems: 'center' }}
+        >
+          <span className="omr-measure-insert-label">삽입 후 음높이 (먼저 선택)</span>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name={`clefPitchMode-insert-${afterNoteIndex}-${afterClefIndex ?? 'n'}`}
+              checked={clefPitchMode === 'remap'}
+              onChange={() => onClefPitchModeChange('remap')}
+            />
+            <span>오선 위치 유지(뒤·다음 마디 음 변환)</span>
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name={`clefPitchMode-insert-${afterNoteIndex}-${afterClefIndex ?? 'n'}`}
+              checked={clefPitchMode === 'keep'}
+              onChange={() => onClefPitchModeChange('keep')}
+            />
+            <span>음높이 유지</span>
+          </label>
+        </div>
+      ) : null}
       <div className="omr-measure-insert-form-row">
         <span className="omr-measure-insert-label">음자리표 삽입 ({afterLabel})</span>
         <button
@@ -5609,35 +5636,9 @@ function InsertElementForm({
           𝄢 낮은음자리표
         </button>
       </div>
-      {onClefPitchModeChange ? (
-        <div
-          className="omr-measure-insert-form-row"
-          style={{ flexWrap: 'wrap', gap: 10, fontSize: '0.85em', alignItems: 'center' }}
-        >
-          <span className="omr-measure-insert-label">삽입 후 음높이</span>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-            <input
-              type="radio"
-              name={`clefPitchMode-insert-${afterNoteIndex}-${afterClefIndex ?? 'n'}`}
-              checked={clefPitchMode === 'keep'}
-              onChange={() => onClefPitchModeChange('keep')}
-            />
-            <span>유지</span>
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-            <input
-              type="radio"
-              name={`clefPitchMode-insert-${afterNoteIndex}-${afterClefIndex ?? 'n'}`}
-              checked={clefPitchMode === 'remap'}
-              onChange={() => onClefPitchModeChange('remap')}
-            />
-            <span>오선 위치 유지(뒤쪽 음 변환)</span>
-          </label>
-        </div>
-      ) : null}
       <p className="omr-measure-hint" style={{ margin: '0 0 0.5rem', fontSize: '0.85em', opacity: 0.85 }}>
         마디 <strong>안에서</strong> 바꾸려면: 낮은음자리표로 둘 마지막 음의 「여기 뒤」에 넣고, 그 다음에 올 음표만 새 음자리표를 씁니다.
-        <strong>마지막 음 뒤(맨 끝)</strong>에 넣으면 <strong>이 마디는 그대로</strong> 두고, <strong>다음 마디부터</strong> 새 음자리표·(선택) 오선 위치 유지를 적용합니다.
+        <strong>마지막 음 뒤(맨 끝)</strong>에 넣으면 <strong>이 마디는 그대로</strong> 두고, <strong>다음 마디부터</strong> 새 음자리표·오선 위치 유지(기본)를 적용합니다.
         같은 마디 끝에 mid G를 넣으면 미리보기가 앞 음까지 G로 그려 버리므로 넣지 않습니다.
       </p>
       <div className="omr-measure-insert-form-row">

@@ -292,6 +292,26 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
     );
     return [...filtered, { ...next, id: next.id || newFixId() }];
   }
+  // 같은 위치 insertClef는 최신으로 교체(음높이 유지→오선위치유지 재선택 포함)
+  if (next.kind === 'insertClef') {
+    const mxl = String(next.measureMxl);
+    const staff = next.staff ?? 1;
+    const afterNote = next.afterNoteIndex ?? null;
+    const afterClef = next.afterClefIndex ?? null;
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          f.kind === 'insertClef' &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl &&
+          (f.staff ?? 1) === staff &&
+          (f.afterNoteIndex ?? null) === afterNote &&
+          (f.afterClefIndex ?? null) === afterClef &&
+          (f.clefSign ?? 'G') === (next.clefSign ?? 'G')
+        ),
+    );
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
   if (next.kind === 'setPlayOrder' && next.noteIndex != null) {
     const mxl = String(next.measureMxl);
     const filtered = fixes.filter(

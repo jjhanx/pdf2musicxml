@@ -7688,32 +7688,42 @@ def _remove_trailing_clefs_on_staff_after_note(
 def _ensure_header_clef_on_staff(
     measure: ET.Element, ns: str, staff_n: int, sign: str, line: int
 ) -> bool:
-    """마디 머리 attributes에 해당 staff clef를 sign/line으로 맞춘다(없으면 추가)."""
-    header: ET.Element | None = None
+    """첫 음 이전 attributes의 해당 staff clef를 모두 sign/line으로 맞춘다(없으면 추가).
+
+    머리 attributes가 여러 블록이면(divisions만 / clef만) 전부 갱신해야
+    잔류 old F가 OSMD에 다시 먹지 않는다.
+    """
+    pre_note_attrs: list[ET.Element] = []
     for child in list(measure):
         if _local(child) == "note":
             break
         if _local(child) == "attributes":
-            header = child
-            break
+            pre_note_attrs.append(child)
     changed = False
-    if header is None:
+    if not pre_note_attrs:
         header = ET.Element(_q(ns, "attributes"))
         measure.insert(0, header)
+        pre_note_attrs = [header]
         changed = True
-    found: ET.Element | None = None
-    for clef in header.findall(_q(ns, "clef")):
-        if _clef_element_targets_staff(clef, staff_n):
-            found = clef
-            break
-    if found is None:
-        found = ET.SubElement(header, _q(ns, "clef"))
+    found_any = False
+    for header in pre_note_attrs:
+        for clef in header.findall(_q(ns, "clef")):
+            if not _clef_element_targets_staff(clef, staff_n):
+                continue
+            found_any = True
+            if clef.get("number") is None and staff_n > 1:
+                clef.set("number", str(staff_n))
+                changed = True
+            if _rewrite_clef_sign_line(clef, ns, sign, line):
+                changed = True
+            # 잔류 clef-octave-change는 새 clef 의미와 어긋남
+            for oc in list(clef.findall(_q(ns, "clef-octave-change"))):
+                clef.remove(oc)
+                changed = True
+    if not found_any:
+        found = ET.SubElement(pre_note_attrs[0], _q(ns, "clef"))
         found.set("number", str(staff_n))
-        changed = True
-    elif found.get("number") is None and staff_n > 1:
-        found.set("number", str(staff_n))
-        changed = True
-    if _rewrite_clef_sign_line(found, ns, sign, line):
+        _rewrite_clef_sign_line(found, ns, sign, line)
         changed = True
     return changed
 
@@ -7732,6 +7742,9 @@ def _propagate_clef_from_measure_end(
 
     같은 마디에 trailing mid G를 넣으면 OSMD가 앞 음까지 G로 그려 「앞을 건드린」것처럼 보인다.
     끝 삽입의 의도는 「이후부터 새 clef」이므로 다음 마디 머리에 반영한다.
+
+    old/new가 아닌 mid clef가 나오면 그 앞 음까지는 처리하고 중단한다.
+    (머리만 보고 통째로 return 하면 remapping이 빠져 G만 바뀌는 회귀가 난다.)
     """
     if old_clef == new_clef:
         return False
@@ -7743,8 +7756,11 @@ def _propagate_clef_from_measure_end(
     changed = False
     for mi in range(start_i + 1, len(measures)):
         m = measures[mi]
-        # 이 마디에서 old/new가 아닌 clef가 먼저 나오면 중단
+        # 머리(첫 음 전)에 old/new가 아닌 clef면 이 마디부터 적용 중단
+        stop_at_header = False
         for child in list(m):
+            if _local(child) == "note":
+                break
             if _local(child) != "attributes":
                 continue
             for clef in child.findall(_q(ns, "clef")):
@@ -7755,32 +7771,53 @@ def _propagate_clef_from_measure_end(
                     continue
                 if cur == new_clef or cur == old_clef:
                     continue
-                return changed
+                stop_at_header = True
+                break
+            if stop_at_header:
+                break
+        if stop_at_header:
+            return changed
+
         if _ensure_header_clef_on_staff(m, ns, staff_n, new_clef[0], new_clef[1]):
             changed = True
-        # mid에 남은 old도 new로
-        seen_note = False
+
+        # 문서 순: mid other clef 앞까지만 rewrite·remap
+        stop_after_mid_other = False
         for child in list(m):
-            if _local(child) == "note":
-                seen_note = True
+            if _local(child) == "attributes":
+                mid_other = False
+                for clef in child.findall(_q(ns, "clef")):
+                    if not _clef_element_targets_staff(clef, staff_n):
+                        continue
+                    cur = _clef_sign_line(clef, ns)
+                    if cur is None:
+                        continue
+                    if cur == new_clef:
+                        continue
+                    if cur == old_clef:
+                        if _rewrite_clef_sign_line(
+                            clef, ns, new_clef[0], new_clef[1]
+                        ):
+                            changed = True
+                        continue
+                    mid_other = True
+                    break
+                if mid_other:
+                    stop_after_mid_other = True
+                    break
                 continue
-            if not seen_note or _local(child) != "attributes":
+            if _local(child) != "note":
                 continue
-            for clef in child.findall(_q(ns, "clef")):
-                if not _clef_element_targets_staff(clef, staff_n):
-                    continue
-                cur = _clef_sign_line(clef, ns)
-                if cur == old_clef:
-                    if _rewrite_clef_sign_line(clef, ns, new_clef[0], new_clef[1]):
-                        changed = True
-        if remap_pitches:
-            for note in list_note_elements(m, ns):
-                if (_note_staff_number(note, ns) or 1) != staff_n:
-                    continue
-                if _remap_note_pitch_preserve_staff(
-                    note, ns, old_clef[0], old_clef[1], new_clef[0], new_clef[1]
-                ):
-                    changed = True
+            if not remap_pitches:
+                continue
+            if (_note_staff_number(child, ns) or 1) != staff_n:
+                continue
+            if _remap_note_pitch_preserve_staff(
+                child, ns, old_clef[0], old_clef[1], new_clef[0], new_clef[1]
+            ):
+                changed = True
+        if stop_after_mid_other:
+            return changed
     return changed
 
 

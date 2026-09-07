@@ -5626,8 +5626,9 @@ function InsertElementForm({
       <p className="omr-measure-hint" style={{ margin: '0 0 0.5rem', fontSize: '0.85em', opacity: 0.85 }}>
         마디 <strong>안에서</strong> 바꾸려면: 낮은음자리표로 둘 마지막 음의 「여기 뒤」에 넣고, 그 다음에 올 음표만 새 음자리표를 씁니다.
         마디 맨 끝(마지막 음 뒤·뒤따를 음 없음)에 넣으면 다음 마디용 예고로만 쓰입니다.
-        OMR clef 오인으로 음표가 오선에 맞아 보이면 「오선 위치 유지」로 맞출 수 있습니다.
-        <strong>중간 삽입</strong>은 뒤쪽 음만, <strong>맨 끝 삽입</strong>은 이 줄 앞 음을 변환하고 앞쪽·trailing 같은 staff clef를 새 음자리표에 맞춥니다(G 뒤에 F가 남지 않음).
+        OMR clef 오인으로 음표가 오선에 맞아 보이면 「오선 위치 유지」를 쓰세요.
+        <strong>삽입 위치 이후</strong> 같은 줄 음만 변환합니다(앞쪽 음·앞쪽 음자리표는 그대로).
+        맨 끝 삽입이면 이 마디 앞 음은 건드리지 않고, 뒤 마디(다음 clef 전)만 변환합니다.
       </p>
       <div className="omr-measure-insert-form-row">
         <label>

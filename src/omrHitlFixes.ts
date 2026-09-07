@@ -117,6 +117,12 @@ export type OmrHitlFix = {
   clefSign?: 'G' | 'F' | 'C' | string;
   clefLine?: number;
   removeSubsequentClefs?: boolean;
+  /**
+   * insertClef / setMeasureClef — true면 오선 위치를 유지하도록
+   * 뒤(또는 범위 안) 음의 pitch를 새 음자리표에 맞게 변환.
+   * false/생략=음높이 유지(오선 그림 위치가 바뀔 수 있음).
+   */
+  remapStaffPitches?: boolean;
   /** barline — left | right | middle */
   barlineLocation?: 'left' | 'right' | 'middle' | string;
   /** forward=열림 도돌이 · backward=닫힘 도돌이 */
@@ -262,6 +268,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.beatUnit ?? '',
     fix.clefSign ?? '',
     fix.clefLine ?? '',
+    fix.remapStaffPitches ? 'remap' : '',
     fix.barlineLocation ?? '',
     fix.repeatDirection ?? '',
     fix.endingNumber ?? '',
@@ -507,6 +514,7 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     }
     if (fix.clefSign) parts.push(fix.clefSign === 'F' ? '𝄢 F' : fix.clefSign === 'G' ? '𝄞 G' : fix.clefSign);
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+    if (fix.remapStaffPitches) parts.push('오선위치유지·음높이변환');
   }
   if (fix.kind === 'removeClef' && fix.clefIndex != null) {
     parts.push(`clef#${fix.clefIndex}`);

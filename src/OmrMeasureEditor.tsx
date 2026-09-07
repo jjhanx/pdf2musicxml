@@ -402,6 +402,8 @@ export type MeasureClefEl = {
   index: number;
   kind: 'clef';
   afterNoteIndex: number;
+  /** 같은 staff에서 이 clef 다음에 오는 첫 음 인덱스(PL 필터 「#N 앞」 표시) */
+  beforeNoteIndex?: number | null;
   clefSign?: string;
   clefLine?: number;
   staff?: number | null;
@@ -1781,15 +1783,41 @@ function noteDirectionLabel(dir: NoteDirectionInfo | null | undefined): string {
 
 function elementTitle(
   el: MeasureElement,
-  _noteEls: MeasureNoteEl[],
+  noteEls: MeasureNoteEl[],
   ctx?: { partId?: string; staffLabel?: string | null; editStaffWithinPart?: number | null },
 ): string {
   if (el.elementKind === 'clef') {
     const sign = (el.clefSign ?? 'G').toUpperCase();
     const name = sign === 'F' ? '낮은음자리표(𝄢)' : sign === 'C' ? '가온음자리표(𝄡)' : '높은음자리표(𝄞)';
-    const after =
-      el.afterNoteIndex < 0 ? '마디 앞' : `#${el.afterNoteIndex} 뒤`;
-    return `음자리표 clef#${el.clefIndex} ${name} · ${after}${el.staff != null ? ` staff=${el.staff}` : ''}`;
+    const staffScope = ctx?.editStaffWithinPart;
+    let where: string;
+    if (el.afterNoteIndex < 0) {
+      where = '마디 앞';
+    } else if (staffScope != null) {
+      // 스태프 필터: 앵커 음이 다른 줄이면 「이 줄 #N 앞」이 맞음 (문서상 #M 뒤)
+      const before =
+        el.beforeNoteIndex != null
+          ? el.beforeNoteIndex
+          : noteEls.find(
+              (n) =>
+                (n.staff ?? 1) === staffScope &&
+                n.index > el.afterNoteIndex &&
+                !n.chord,
+            )?.index;
+      const anchorOnScope = noteEls.some(
+        (n) => n.index === el.afterNoteIndex && (n.staff ?? 1) === staffScope,
+      );
+      if (before != null && !anchorOnScope) {
+        where = `#${before} 앞 (문서 #${el.afterNoteIndex} 뒤)`;
+      } else if (before != null && before === el.afterNoteIndex + 1) {
+        where = `#${el.afterNoteIndex} 뒤 · #${before} 앞`;
+      } else {
+        where = `#${el.afterNoteIndex} 뒤`;
+      }
+    } else {
+      where = `#${el.afterNoteIndex} 뒤`;
+    }
+    return `음자리표 clef#${el.clefIndex} ${name} · ${where}${el.staff != null ? ` staff=${el.staff}` : ''}`;
   }
   const idx = el.index;
   const dirSuffix = noteDirectionsSummary(el) ? ` · ${noteDirectionsSummary(el)}` : '';
@@ -2271,15 +2299,44 @@ export function OmrMeasureEditor({
       .filter((c) => (c.afterNoteIndex ?? -1) < 0)
       .sort((a, b) => (a.clefIndex ?? 0) - (b.clefIndex ?? 0));
     out.push(...clefsAtStart);
+    const placed = new Set<MeasureClefEl>();
+    for (const c of clefsAtStart) placed.add(c);
+
+    const firstNoteAfterClef = (c: MeasureClefEl): MeasureNoteEl | undefined => {
+      const after = c.afterNoteIndex ?? -1;
+      if (c.beforeNoteIndex != null) {
+        const hit = orderedNotes.find((n) => n.index === c.beforeNoteIndex);
+        if (hit) return hit;
+      }
+      return orderedNotes.find((n) => n.index > after && !n.chord) ?? orderedNotes.find((n) => n.index > after);
+    };
+
     for (const n of orderedNotes) {
+      // 앵커가 필터 밖(다른 staff)인 clef → 이 staff 첫 후속 음 **앞**에 배치
+      const beforeHere = clefs
+        .filter((c) => {
+          if (placed.has(c)) return false;
+          if ((c.afterNoteIndex ?? -1) < 0) return false;
+          const anchorInList = orderedNotes.some((x) => x.index === c.afterNoteIndex);
+          if (anchorInList) return false;
+          return firstNoteAfterClef(c)?.index === n.index;
+        })
+        .sort((a, b) => (a.clefIndex ?? 0) - (b.clefIndex ?? 0));
+      for (const c of beforeHere) {
+        out.push(c);
+        placed.add(c);
+      }
       out.push(n);
       const after = clefs
-        .filter((c) => c.afterNoteIndex === n.index)
+        .filter((c) => !placed.has(c) && c.afterNoteIndex === n.index)
         .sort((a, b) => (a.clefIndex ?? 0) - (b.clefIndex ?? 0));
-      out.push(...after);
+      for (const c of after) {
+        out.push(c);
+        placed.add(c);
+      }
     }
     for (const c of clefs) {
-      if (!out.includes(c)) out.push(c);
+      if (!placed.has(c)) out.push(c);
     }
     return out;
   }, [elements, editStaffWithinPart]);
@@ -5569,7 +5626,7 @@ function InsertElementForm({
       <p className="omr-measure-hint" style={{ margin: '0 0 0.5rem', fontSize: '0.85em', opacity: 0.85 }}>
         마디 <strong>안에서</strong> 바꾸려면: 낮은음자리표로 둘 마지막 음의 「여기 뒤」에 넣고, 그 다음에 올 음표만 새 음자리표를 씁니다.
         마디 맨 끝(마지막 음 뒤·뒤따를 음 없음)에 넣으면 다음 마디용 예고로만 쓰입니다.
-        OMR clef 오인으로 음표가 오선에 맞아 보이면 「오선 위치 유지」로 뒤쪽 음높이를 한 번에 맞출 수 있습니다.
+        OMR clef 오인으로 음표가 오선에 맞아 보이면 「오선 위치 유지」로 **삽입 위치 뒤쪽** 음높이를 한 번에 맞출 수 있습니다(앞쪽 음은 바꾸지 않음).
       </p>
       <div className="omr-measure-insert-form-row">
         <label>

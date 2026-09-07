@@ -1868,12 +1868,19 @@ def _mid_measure_clef_snap(
         ref = _read_play_order_ref(anchor)
         if ref is not None:
             anchor_align = f"{ref[0]}-{ref[1]}"
+    # 같은 staff에서 clef 다음에 오는 첫 음 — PL 필터 UI에서 「#N 앞」 표시용
+    before_note_index: int | None = None
+    for i in range(max(0, after_note_index + 1), len(notes)):
+        if (_note_staff_number(notes[i], ns) or 1) == staff_n:
+            before_note_index = i
+            break
     return {
         "elementKind": "clef",
         "kind": "clef",
         "clefIndex": clef_index,
         "index": clef_index,
         "afterNoteIndex": after_note_index,
+        "beforeNoteIndex": before_note_index,
         "clefSign": sign,
         "clefLine": line,
         "staff": staff_n,
@@ -2674,10 +2681,14 @@ def _remap_measure_notes_after_clef_change(
     staff_n: int | None = None,
     *,
     only_after_el: ET.Element | None = None,
+    force_old_clef: tuple[str, int] | None = None,
+    force_new_clef: tuple[str, int] | None = None,
 ) -> bool:
-    """clef 적용 후, 유효 clef가 바뀐 음의 pitch를 오선 위치 유지로 변환.
+    """clef 적용 후, 삽입·변경된 clef의 **뒤쪽** 음만 오선 위치 유지로 pitch 변환.
 
-    only_after_el이 있으면 그 요소(보통 삽입한 attributes) 뒤에 오는 음만.
+    음자리표는 앞으로 영향을 주지 않는다. only_after_el이 있으면 그 요소 앞 음은
+    절대 바꾸지 않는다. force_* 가 있으면 effective clef 재계산 대신 고정 delta 사용
+    (앞쪽 mid clef·상속 clef와 섞여 오인하는 것을 방지).
     """
     changed = False
     past_anchor = only_after_el is None
@@ -2690,14 +2701,19 @@ def _remap_measure_notes_after_clef_change(
         sn = _note_staff_number(child, ns) or 1
         if staff_n is not None and sn != staff_n:
             continue
-        old = old_clefs.get(id(child))
-        if old is None:
-            continue
-        new_clef = _clef_for_note_in_part(part, measure, child, ns)
-        if new_clef == old:
+        if force_old_clef is not None and force_new_clef is not None:
+            old_sign, old_line = force_old_clef
+            new_sign, new_line = force_new_clef
+        else:
+            old = old_clefs.get(id(child))
+            if old is None:
+                continue
+            old_sign, old_line = old
+            new_sign, new_line = _clef_for_note_in_part(part, measure, child, ns)
+        if (old_sign, old_line) == (new_sign, new_line):
             continue
         if _remap_note_pitch_preserve_staff(
-            child, ns, old[0], old[1], new_clef[0], new_clef[1]
+            child, ns, old_sign, old_line, new_sign, new_line
         ):
             changed = True
     return changed
@@ -7490,7 +7506,34 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     insert_after_idx, staff_n, _anchor, _following, _staff_notes = _resolve_insert_after_context(
         notes, ns, after_idx, staff_n
     )
-    old_clefs = _snapshot_note_clefs(part, measure, ns, staff_n) if remap_pitches else {}
+    # 삽입 직전 유효 clef(뒤쪽 음이 쓰던 것) — remap delta 고정용
+    old_clef_for_delta: tuple[str, int] | None = None
+    if remap_pitches:
+        if 0 <= insert_after_idx < len(notes):
+            # 앵커 음 직후 clef가 바뀌므로, 「다음에 올 음」이 쓰던 clef = 앵커와 동일 시점
+            # (앵커 자체는 새 clef 영향 밖). 다음 같은 staff 음이 있으면 그 음의 구 clef.
+            probe = None
+            for j in range(insert_after_idx + 1, len(notes)):
+                if (_note_staff_number(notes[j], ns) or 1) == staff_n:
+                    probe = notes[j]
+                    break
+            if probe is None:
+                probe = notes[insert_after_idx]
+            old_clef_for_delta = _clef_for_note_in_part(part, measure, probe, ns)
+        else:
+            # 마디/staff 맨 앞 삽입 — 첫 음(또는 직전 마디 상속) clef
+            first = next(
+                (
+                    n
+                    for n in notes
+                    if (_note_staff_number(n, ns) or 1) == staff_n
+                ),
+                notes[0] if notes else None,
+            )
+            if first is not None:
+                old_clef_for_delta = _clef_for_note_in_part(part, measure, first, ns)
+            else:
+                old_clef_for_delta = ("G", 2)
     attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n)
     _insert_note_element(
         measure,
@@ -7500,9 +7543,17 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         staff_n=staff_n,
         after_clef_index=after_clef_index,
     )
-    if remap_pitches:
+    if remap_pitches and old_clef_for_delta is not None:
+        # 새 clef **뒤** 음만 고정 delta로 변환 — 앞 음은 절대 변경하지 않음
         _remap_measure_notes_after_clef_change(
-            part, measure, ns, old_clefs, staff_n, only_after_el=attrs
+            part,
+            measure,
+            ns,
+            {},
+            staff_n,
+            only_after_el=attrs,
+            force_old_clef=old_clef_for_delta,
+            force_new_clef=(clef_sign, clef_line),
         )
     return True
 

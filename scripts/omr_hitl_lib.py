@@ -410,6 +410,217 @@ def _set_slur_pair_placement(
     return changed
 
 
+def _slur_open_numbers_before_note(
+    part: ET.Element,
+    ns: str,
+    measure: ET.Element,
+    note_index: int,
+    staff_n: int,
+) -> set[str]:
+    """해당 음 직전까지 같은 staff에서 아직 닫히지 않은 slur number 집합."""
+    open_nums: set[str] = set()
+    target_id = id(measure)
+    for m in part.findall(_q(ns, "measure")):
+        notes = list_note_elements(m, ns)
+        for i, note in enumerate(notes):
+            if id(m) == target_id and i >= note_index:
+                return open_nums
+            if (_note_staff_number(note, ns) or 1) != staff_n:
+                continue
+            notations = note.find(_q(ns, "notations"))
+            if notations is None:
+                continue
+            for slur in notations.findall(_q(ns, "slur")):
+                num = (slur.get("number") or "1").strip() or "1"
+                t = (slur.get("type") or "").strip()
+                if t == "stop":
+                    open_nums.discard(num)
+                elif t == "start":
+                    open_nums.add(num)
+        if id(m) == target_id:
+            return open_nums
+    return open_nums
+
+
+def _next_free_slur_number(*occupied: set[str] | set[int]) -> str:
+    used: set[str] = set()
+    for occ in occupied:
+        for x in occ:
+            used.add(str(x))
+    n = 1
+    while str(n) in used:
+        n += 1
+    return str(n)
+
+
+def _find_slur_stop_after_measure(
+    part: ET.Element,
+    ns: str,
+    after_measure_mxl: str,
+    number: str,
+    staff_n: int,
+) -> tuple[str, int] | None:
+    """after_measure 다음 마디들에서 같은 staff·number의 stop 위치 (measureMxl, noteIndex)."""
+    seen_start = False
+    for m in part.findall(_q(ns, "measure")):
+        mnum = (m.get("number") or "").strip()
+        if not seen_start:
+            if mnum == after_measure_mxl:
+                seen_start = True
+            continue
+        notes = list_note_elements(m, ns)
+        for i, note in enumerate(notes):
+            if (_note_staff_number(note, ns) or 1) != staff_n:
+                continue
+            notations = note.find(_q(ns, "notations"))
+            if notations is None:
+                continue
+            for slur in notations.findall(_q(ns, "slur")):
+                if (slur.get("type") or "").strip() != "stop":
+                    continue
+                num = (slur.get("number") or "1").strip() or "1"
+                if num == number:
+                    return mnum, i
+    return None
+
+
+def _ensure_slur_on_note(
+    note: ET.Element,
+    ns: str,
+    *,
+    slur_type: str,
+    number: str,
+    placement: str | None = None,
+) -> None:
+    """같은 type+number slur가 없으면 추가. 다른 number는 건드리지 않음."""
+    notations = _ensure_notations(note, ns)
+    for slur in notations.findall(_q(ns, "slur")):
+        if (slur.get("type") or "").strip() != slur_type:
+            continue
+        if ((slur.get("number") or "1").strip() or "1") == number:
+            if placement in ("above", "below"):
+                slur.set("placement", placement)
+            return
+    slur = ET.SubElement(notations, _q(ns, "slur"))
+    slur.set("type", slur_type)
+    slur.set("number", number)
+    if placement in ("above", "below"):
+        slur.set("placement", placement)
+
+
+def _complete_cross_measure_slurs_after_copy(
+    from_part: ET.Element,
+    to_part: ET.Element,
+    ns: str,
+    *,
+    src_m_num: str,
+    dst_m_num: str,
+    staff_filter: int | None = None,
+) -> None:
+    """복사된 마디에 start만 있고 stop이 뒤 마디에 있으면 dest 뒤 마디에 stop을 맞춤.
+
+    붙임줄(tie)은 음 단위로 같이 복사되지만, 이음줄 stop이 복사 범위 밖이면
+    start만 남아 OSMD에 안 그려진다. 기존 dest 이음줄(다른 number)은 유지.
+    """
+    src_m = find_measure(from_part, ns, src_m_num)
+    dst_m = find_measure(to_part, ns, dst_m_num)
+    if src_m is None or dst_m is None:
+        return
+    src_notes = list_note_elements(src_m, ns)
+    dst_notes = list_note_elements(dst_m, ns)
+
+    def _has_stop_in_measure(notes: list[ET.Element], number: str, staff_n: int) -> bool:
+        for note in notes:
+            if (_note_staff_number(note, ns) or 1) != staff_n:
+                continue
+            notations = note.find(_q(ns, "notations"))
+            if notations is None:
+                continue
+            for slur in notations.findall(_q(ns, "slur")):
+                if (slur.get("type") or "").strip() != "stop":
+                    continue
+                if ((slur.get("number") or "1").strip() or "1") == number:
+                    return True
+        return False
+
+    try:
+        src_i = int(src_m_num)
+        dst_i = int(dst_m_num)
+    except ValueError:
+        src_i = dst_i = None  # type: ignore
+
+    for i, dst_note in enumerate(dst_notes):
+        staff_n = _note_staff_number(dst_note, ns) or 1
+        if staff_filter is not None and staff_n != staff_filter:
+            continue
+        notations = dst_note.find(_q(ns, "notations"))
+        if notations is None:
+            continue
+        for slur in list(notations.findall(_q(ns, "slur"))):
+            if (slur.get("type") or "").strip() != "start":
+                continue
+            src_num = (slur.get("number") or "1").strip() or "1"
+            if _has_stop_in_measure(dst_notes, src_num, staff_n):
+                continue
+            # 출처에서 이 start와 같은 number의 stop 위치
+            stop_at = _find_slur_stop_after_measure(from_part, ns, src_m_num, src_num, staff_n)
+            if stop_at is None and i < len(src_notes):
+                # 복사본 number가 바뀌었을 수 있음 — 출처 같은 index start number로 재탐색
+                src_not = src_notes[i].find(_q(ns, "notations"))
+                if src_not is not None:
+                    for ss in src_not.findall(_q(ns, "slur")):
+                        if (ss.get("type") or "").strip() != "start":
+                            continue
+                        alt = (ss.get("number") or "1").strip() or "1"
+                        stop_at = _find_slur_stop_after_measure(from_part, ns, src_m_num, alt, staff_n)
+                        if stop_at is not None:
+                            src_num = alt
+                            break
+            if stop_at is None:
+                continue
+            stop_mxl, stop_idx = stop_at
+            if src_i is not None:
+                try:
+                    delta = int(stop_mxl) - src_i
+                    dest_stop_mxl = str(dst_i + delta)
+                except ValueError:
+                    dest_stop_mxl = stop_mxl
+            else:
+                dest_stop_mxl = stop_mxl
+            dest_stop_m = find_measure(to_part, ns, dest_stop_mxl)
+            if dest_stop_m is None:
+                continue
+            dest_stop_notes = list_note_elements(dest_stop_m, ns)
+            if stop_idx < 0 or stop_idx >= len(dest_stop_notes):
+                continue
+            dest_end_note = dest_stop_notes[stop_idx]
+            if (_note_staff_number(dest_end_note, ns) or 1) != staff_n:
+                # 같은 staff 음으로 폴백
+                dest_end_note = None
+                for cand in dest_stop_notes:
+                    if (_note_staff_number(cand, ns) or 1) == staff_n:
+                        dest_end_note = cand
+                        break
+                if dest_end_note is None:
+                    continue
+
+            open_before = _slur_open_numbers_before_note(to_part, ns, dst_m, i, staff_n)
+            # start에 쓰인 번호가 이미 열려 있으면 새 번호로
+            new_num = src_num
+            if new_num in open_before:
+                new_num = _next_free_slur_number(open_before)
+            placement = (slur.get("placement") or "").strip().lower() or None
+            if (slur.get("number") or "") != new_num:
+                slur.set("number", new_num)
+            _ensure_slur_on_note(
+                dest_end_note,
+                ns,
+                slur_type="stop",
+                number=new_num,
+                placement=placement if placement in ("above", "below") else None,
+            )
+
+
 def _note_beams(note: ET.Element, ns: str) -> list[str]:
     """MusicXML `<beam>`는 `<note>` 직계 자식. 예전 HITL은 `<notations>` 아래에 쓴 경우도 읽는다."""
     out: list[str] = []
@@ -4817,14 +5028,17 @@ def normalize_measure_timelines_in_root(
 def normalize_slurs_in_root(root: ET.Element) -> int:
     """전 악보 — 이음줄(slur) 고아 stop 제거, 중복 start/stop 정리, number 정리, bezier 좌표 제거.
 
-    같은 음에 start/stop이 여러 개면 bezier·default-x/y 없는 쪽을 우선한다.
+    같은 음에 start/stop이 여러 개면 **같은 number끼리** bezier·default-x/y 없는 쪽을 우선한다.
     (좌표 있는 OMR 곡선을 남기면 OSMD가 끝 음 뒤로 끊긴 꼬리만 그리는 경우가 많음.)
+    **다른 number**의 start/stop은 같은 음에 공존할 수 있다(앞 마디에서 열린 이음줄 + 새 이음줄이
+    같은 음에서 끝날 때).
 
     stop은 **같은 staff + 같은 number**의 open start에만 짝짓는다.
     (다른 number의 open start에 붙이면 OMR 고아 stop이 HITL 긴 이음줄을 가로챔.)
 
     start number는 가능하면 유지하고, open/used와 충돌할 때만 새 번호를 부여한 뒤
     같은 staff의 짝 stop number도 함께 갱신한다.
+    재번호 맵(`stop_num_remap`)은 **마디를 넘어** 유지한다(교차 마디 이음줄).
 
     같은 마디에서 stop 직후 number를 재사용하지 않는다. PR/PL 이음줄이 시간상 겹칠 때
     OSMD가 같은 number의 start/stop을 잘못 짝지어 한쪽이 안 보이는 것을 막는다.
@@ -4841,15 +5055,36 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
     def _pick_preferred_slur(slurs: list[ET.Element]) -> ET.Element:
         return min(slurs, key=_slur_layout_noise)
 
+    def _dedupe_same_number(notations: ET.Element, items: list[ET.Element]) -> tuple[list[ET.Element], bool]:
+        """같은 type·number 중복만 축소. 다른 number는 유지."""
+        changed = False
+        by_num: dict[str, list[ET.Element]] = {}
+        for s in items:
+            num = (s.get("number") or "1").strip() or "1"
+            by_num.setdefault(num, []).append(s)
+        kept: list[ET.Element] = []
+        for _num, group in by_num.items():
+            if len(group) == 1:
+                kept.append(group[0])
+                continue
+            prefer = _pick_preferred_slur(group)
+            for s in group:
+                if s is prefer:
+                    kept.append(s)
+                else:
+                    notations.remove(s)
+                    changed = True
+        return kept, changed
+
     for part in root.findall(_q(ns, "part")):
         open_slurs: dict[str, dict[str, Any]] = {}
+        # (staff, orig_num) → remapped num — 교차 마디 stop까지 유지
+        stop_num_remap: dict[tuple[str, str], str] = {}
 
         for measure in part.findall(_q(ns, "measure")):
             mnum = measure.get("number") or ""
             m_changed = False
             used_nums_in_measure: set[str] = set(open_slurs.keys())
-            # start를 재번호화했을 때 같은 staff의 짝 stop이 따라오도록
-            stop_num_remap: dict[tuple[str, str], str] = {}
 
             for note in measure.findall(_q(ns, "note")):
                 notations = note.find(_q(ns, "notations"))
@@ -4866,21 +5101,10 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                 starts = [s for s in slurs if s.get("type") == "start"]
                 stops = [s for s in slurs if s.get("type") == "stop"]
 
-                if len(starts) > 1:
-                    keep = _pick_preferred_slur(starts)
-                    for s in starts:
-                        if s is not keep:
-                            notations.remove(s)
-                            m_changed = True
-                    starts = [keep]
-
-                if len(stops) > 1:
-                    keep = _pick_preferred_slur(stops)
-                    for s in stops:
-                        if s is not keep:
-                            notations.remove(s)
-                            m_changed = True
-                    stops = [keep]
+                starts, ch = _dedupe_same_number(notations, starts)
+                m_changed = m_changed or ch
+                stops, ch = _dedupe_same_number(notations, stops)
+                m_changed = m_changed or ch
 
                 slurs = list(notations.findall(_q(ns, "slur")))
 
@@ -4907,6 +5131,10 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                             m_changed = True
                         del open_slurs[matched_num]
                         used_nums_in_measure.add(str(matched_num))
+                        # 이 orig→remap 소비
+                        for key in list(stop_num_remap.keys()):
+                            if key[0] == staff and stop_num_remap[key] == matched_num:
+                                del stop_num_remap[key]
                     else:
                         # 고아 stop — 다른 number의 open start를 가로채지 않음
                         notations.remove(s)
@@ -4930,6 +5158,7 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                         "voice": voice,
                         "measure_num": mnum,
                     }
+                    used_nums_in_measure.add(num)
 
                 if not list(notations):
                     note.remove(notations)
@@ -7655,6 +7884,14 @@ def _apply_copy_measure_content(root: ET.Element, ns: str, fix: dict[str, Any]) 
                 dst_m.insert(insert_idx + i, el)
 
             rebuild_measure_timeline_clean(dst_m, ns, to_part)
+            _complete_cross_measure_slurs_after_copy(
+                from_part,
+                to_part,
+                ns,
+                src_m_num=m_num,
+                dst_m_num=dst_m_num,
+                staff_filter=target_staff if staff_scoped else None,
+            )
             any_applied = True
 
         if clear_source:
@@ -9348,15 +9585,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         from_note = from_notes[from_idx]
         to_note = to_notes[to_idx]
-        from_not = _ensure_notations(from_note, ns)
-        to_not = _ensure_notations(to_note, ns)
-
-        for s in list(from_not.findall(_q(ns, "slur"))):
-            if s.get("type") == "start":
-                from_not.remove(s)
-        for s in list(to_not.findall(_q(ns, "slur"))):
-            if s.get("type") == "stop":
-                to_not.remove(s)
+        from_staff = _note_staff_number(from_note, ns) or 1
 
         def _clear_slurs_on_note(mid: ET.Element) -> None:
             mid_not = mid.find(_q(ns, "notations"))
@@ -9368,7 +9597,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 mid.remove(mid_not)
 
         # from~to 사이 같은 staff의 고아/짧은 OMR stop·start 제거 — 긴 이음줄이 중간에서 끊기지 않게
-        from_staff = _note_staff_number(from_note, ns) or 1
+        # 끝 마디: 앞 마디에서 이미 열린 number의 stop은 보존(다른 이음줄 끝)
         if to_notes is from_notes:
             lo, hi = from_idx, to_idx
             for mid_i in range(lo + 1, hi):
@@ -9382,23 +9611,45 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 if (_note_staff_number(mid, ns) or 1) != from_staff:
                     continue
                 _clear_slurs_on_note(mid)
+            open_at_to_start = _slur_open_numbers_before_note(part, ns, to_measure, 0, from_staff)
             for mid_i in range(0, to_idx):
                 mid = to_notes[mid_i]
                 if (_note_staff_number(mid, ns) or 1) != from_staff:
                     continue
-                _clear_slurs_on_note(mid)
+                mid_not = mid.find(_q(ns, "notations"))
+                if mid_not is None:
+                    continue
+                for s in list(mid_not.findall(_q(ns, "slur"))):
+                    num = (s.get("number") or "1").strip() or "1"
+                    t = (s.get("type") or "").strip()
+                    if t == "stop" and num in open_at_to_start:
+                        continue
+                    mid_not.remove(s)
+                if not list(mid_not):
+                    mid.remove(mid_not)
 
-        existing_numbers: set[int] = set()
+        open_before = _slur_open_numbers_before_note(part, ns, measure, from_idx, from_staff)
+        occupied: set[str] = set(open_before)
         for n_list in (from_notes, to_notes) if to_notes is not from_notes else (from_notes,):
             for n in n_list:
                 for notations_el in n.findall(_q(ns, "notations")):
                     for slur in notations_el.findall(_q(ns, "slur")):
-                        num = slur.get("number")
-                        if num and num.isdigit():
-                            existing_numbers.add(int(num))
-        new_num = 1
-        while new_num in existing_numbers:
-            new_num += 1
+                        num = (slur.get("number") or "").strip()
+                        if num.isdigit():
+                            occupied.add(num)
+        new_num = _next_free_slur_number(occupied)
+
+        # 시작 음의 기존 start는 교체(다시 그리기). 끝 음의 다른 number stop은 유지.
+        from_not = _ensure_notations(from_note, ns)
+        for s in list(from_not.findall(_q(ns, "slur"))):
+            if (s.get("type") or "").strip() == "start":
+                from_not.remove(s)
+        to_not = _ensure_notations(to_note, ns)
+        for s in list(to_not.findall(_q(ns, "slur"))):
+            if (s.get("type") or "").strip() != "stop":
+                continue
+            if ((s.get("number") or "1").strip() or "1") == new_num:
+                to_not.remove(s)
 
         def get_placement(n_el):
             stem_el = n_el.find(_q(ns, "stem"))
@@ -9415,13 +9666,13 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
         start = ET.SubElement(from_not, _q(ns, "slur"))
         start.set("type", "start")
-        start.set("number", str(new_num))
+        start.set("number", new_num)
         if placement:
             start.set("placement", placement)
 
         stop = ET.SubElement(to_not, _q(ns, "slur"))
         stop.set("type", "stop")
-        stop.set("number", str(new_num))
+        stop.set("number", new_num)
         if placement:
             stop.set("placement", placement)
 
@@ -11767,7 +12018,7 @@ def apply_fixes_file(
     else:
         # slur는 교차 마디 짝이 있어 전 악보 추적이 필요 — 변이만 범위 제한은 미구현, fix 없으면 스킵
         # 이음줄 관련 fix가 있을 때만 전 악보 정리(기존 동작). 그 외는 이웃 마디 오염 방지.
-        slur_kinds = {"addSlur", "removeSlur"}
+        slur_kinds = {"addSlur", "removeSlur", "copyMeasureContent", "copyMeasurePart"}
         if any(str(f.get("kind") or "") in slur_kinds for f in fixes):
             slurs_normalized = normalize_slurs_in_root(root)
     wedges_normalized = 0

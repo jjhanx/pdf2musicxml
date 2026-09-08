@@ -31,7 +31,11 @@ import {
   scrollOsmdMeasureIntoView,
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
-import { prepareGraphicalSlursForOsmdPreview, registerOsmdPreviewXmlForSlurs } from './osmdChordSlurFix';
+import {
+  applyOsmdSlurDistanceOffsets,
+  prepareGraphicalSlursForOsmdPreview,
+  registerOsmdPreviewXmlForSlurs,
+} from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
   applyPendingArticulationOffsetsOnly,
@@ -2520,6 +2524,7 @@ export function OsmdBlock({
             finalizeOsmdMeasureNumberPreview(h, o, undefined);
             // render 직후 동기 align — rAF만 기다리면 autoResize/후속 paint가 transform을 덮어쓸 수 있음
             syncOnsetColumnAlign(h, o);
+            applyOsmdSlurDistanceOffsets(h, o);
             applyOsmdArticulationOffsets(h, o);
             applyOsmdPolyphonicRestOffsets(h, o);
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
@@ -2656,6 +2661,7 @@ export function OsmdBlock({
           afterOsmdRenderSync: (h, o) => {
             finalizeOsmdMeasureNumberPreview(h, o, undefined);
             syncOnsetColumnAlign(h, o);
+            applyOsmdSlurDistanceOffsets(h, o);
             applyOsmdArticulationOffsets(h, o);
             applyOsmdPolyphonicRestOffsets(h, o);
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
@@ -2750,6 +2756,7 @@ export function OsmdBlock({
           o.render();
           finalizeOsmdMeasureNumberPreview(h, o, undefined);
           syncOnsetColumnAlign(h, o);
+          applyOsmdSlurDistanceOffsets(h, o);
         } catch (e) {
           console.warn('[osmd] pending slur distance refresh skipped:', e);
         }

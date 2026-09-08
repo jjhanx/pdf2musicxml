@@ -8,7 +8,6 @@ import {
   BEAM_SLUR_CLEARANCE_STAFF_SPACES,
   beamSlurClearanceDy,
   prepareGraphicalSlursForOsmdPreview,
-  registerOsmdPreviewXmlForSlurs,
   slurPlacementOnStemSide,
 } from '../src/osmdChordSlurFix';
 
@@ -74,26 +73,12 @@ const osmd: any = {
   },
 };
 
-registerOsmdPreviewXmlForSlurs(
-  osmd,
-  `<score-partwise><part id="P1"><measure number="53">
-    <note><staff>1</staff><notations><slur type="start" number="1" placement="above" data-hitl-slur-distance="4" default-y="40"/></notations></note>
-    <note><staff>1</staff><notations><slur type="start" number="2" placement="above"/></notations></note>
-  </measure></part></score-partwise>`,
-);
 prepareGraphicalSlursForOsmdPreview(osmd);
-assert.equal(hinted.bezierStartPt.y, 60);
+assert.equal(hinted.bezierStartPt.y, 90);
 assert.equal(automatic.bezierStartPt.y, 90);
 
-registerOsmdPreviewXmlForSlurs(
-  osmd,
-  `<score-partwise><part id="P1"><measure number="53">
-    <note><staff>1</staff><notations><slur type="start" number="1" placement="above" data-hitl-slur-distance="2" default-y="20"/></notations></note>
-    <note><staff>1</staff><notations><slur type="start" number="2" placement="above"/></notations></note>
-  </measure></part></score-partwise>`,
-);
 prepareGraphicalSlursForOsmdPreview(osmd);
-assert.equal(hinted.bezierStartPt.y, 80);
+assert.equal(hinted.bezierStartPt.y, 90);
 assert.equal(automatic.bezierStartPt.y, 90);
 
 console.log('beam slur clearance ok');

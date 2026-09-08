@@ -1,10 +1,9 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
-import { articulationStaffSpacesFromHint, HITL_DIR_DISTANCE_ATTR } from '../shared/musicXmlArticulationDistance';
 import {
   collectOrderedSlurDistanceHintsFromXml,
-  HITL_SLUR_DISTANCE_ATTR,
   type SlurDistanceHint,
 } from '../shared/musicXmlSlurDistance';
+import { shiftSvgPathAbsoluteYs } from './osmdArticulationOffsetFix';
 
 /** OSMD PlacementEnum — 패키지 루트에서 런타임 export 되지 않음 */
 const PLACEMENT_ABOVE = 0;
@@ -74,56 +73,10 @@ function orderedSlurHintsForOsmd(osmd: OpenSheetMusicDisplay): SlurDistanceHint[
   return hints;
 }
 
-function attrFromUnknown(obj: unknown, names: readonly string[], depth = 0, seen = new Set<unknown>()): string | null {
-  if (!obj || typeof obj !== 'object' || depth > 3 || seen.has(obj)) return null;
-  seen.add(obj);
-  const rec = obj as Record<string, unknown>;
-  const getAttr = rec.getAttribute;
-  if (typeof getAttr === 'function') {
-    for (const name of names) {
-      try {
-        const v = getAttr.call(obj, name);
-        if (typeof v === 'string' && v.trim()) return v.trim();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  for (const [key, value] of Object.entries(rec)) {
-    const keyLow = key.toLowerCase();
-    if (names.some((n) => keyLow === n.toLowerCase() || keyLow.endsWith(n.toLowerCase()))) {
-      if (typeof value === 'string' && value.trim()) return value.trim();
-      if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-    }
-  }
-  for (const [key, value] of Object.entries(rec)) {
-    const keyLow = key.toLowerCase();
-    if (!/(slur|xml|source|node|element)/.test(keyLow)) continue;
-    const nested = attrFromUnknown(value, names, depth + 1, seen);
-    if (nested) return nested;
-  }
-  return null;
-}
-
-function slurClearanceStaffSpaces(gSlur: GraphicalSlurLike, hint?: SlurDistanceHint): number {
-  if (hint?.distance) {
-    return Number.isFinite(hint.staffSpaces) && hint.staffSpaces > 0
-      ? hint.staffSpaces
-      : BEAM_SLUR_CLEARANCE_STAFF_SPACES;
-  }
-  const rawDistance = attrFromUnknown(gSlur.slur ?? gSlur, [
-    HITL_SLUR_DISTANCE_ATTR,
-    HITL_DIR_DISTANCE_ATTR,
-    'SlurDistanceXml',
-    'DefaultYXml',
-    'default-y',
-  ]);
-  if (!rawDistance) return BEAM_SLUR_CLEARANCE_STAFF_SPACES;
-  const numeric = /^-?\d+(?:\.\d+)?$/.test(rawDistance) ? parseFloat(rawDistance) : NaN;
-  if (Number.isFinite(numeric) && Math.abs(numeric) >= 10 && Math.abs(numeric) <= 200) {
-    return Math.abs(numeric) / 10;
-  }
-  return articulationStaffSpacesFromHint(rawDistance, null);
+function slurClearanceStaffSpaces(_gSlur: GraphicalSlurLike): number {
+  // User-selected distance is applied after render to SVG paths. This pre-render path
+  // keeps only the legacy automatic 1-space beam clearance.
+  return BEAM_SLUR_CLEARANCE_STAFF_SPACES;
 }
 
 type GraphicSheetLike = {
@@ -265,14 +218,10 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
 
   const rules = osmd.EngravingRules;
   const unit = (rules as { unit?: number }).unit ?? 10;
-  const orderedHints = orderedSlurHintsForOsmd(osmd);
-  let slurOrdinal = 0;
-
   for (const page of sheet.MusicPages) {
     for (const system of page.MusicSystems) {
       for (const staffLine of system.StaffLines) {
         for (const gSlur of staffLine.GraphicalSlurs) {
-          const hint = orderedHints[slurOrdinal++];
           const slur = gSlur.slur;
           const startNote = slur?.StartNote;
           const endNote = slur?.EndNote;
@@ -289,7 +238,7 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
             slurPlacementOnStemSide(stemEnd, placement);
           if (!onStemSide) continue;
 
-          const desiredSpaces = slurClearanceStaffSpaces(gSlur, hint);
+          const desiredSpaces = slurClearanceStaffSpaces(gSlur);
           const previousSpaces = gSlur._hitlBeamClearanceApplied ? (gSlur._hitlBeamClearanceSpacesApplied ?? 0) : 0;
           const dy = beamSlurClearanceDy(placement, unit, desiredSpaces) - beamSlurClearanceDy(placement, unit, previousSpaces);
           if (Math.abs(dy) < 0.01) continue;
@@ -306,4 +255,132 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
 export function prepareGraphicalSlursForOsmdPreview(osmd: OpenSheetMusicDisplay): void {
   retargetGraphicalChordSlurBeziers(osmd);
   nudgeGraphicalSlursAwayFromBeams(osmd);
+}
+
+function slurSvgPaths(host: HTMLElement): SVGPathElement[] {
+  return ([...host.querySelectorAll('path')] as SVGPathElement[]).filter((path) => {
+    const d = path.getAttribute('d') || '';
+    if (!/[CQ]/.test(d)) return false;
+    const groupClass = [
+      path.getAttribute('class') || '',
+      path.parentElement?.getAttribute('class') || '',
+      path.closest('.vf-stavetie,.vf-curve,.vf-tie')?.getAttribute('class') || '',
+    ].join(' ');
+    return /vf-stavetie|vf-curve|vf-tie/i.test(groupClass);
+  });
+}
+
+function orderedGraphicalSlurs(osmd: OpenSheetMusicDisplay): GraphicalSlurLike[] {
+  const sheet = (osmd.GraphicSheet ?? (osmd as unknown as { graphic?: { sheet?: GraphicSheetLike } }).graphic?.sheet) as
+    | GraphicSheetLike
+    | undefined;
+  if (!sheet?.MusicPages) return [];
+  const out: GraphicalSlurLike[] = [];
+  for (const page of sheet.MusicPages) {
+    for (const system of page.MusicSystems) {
+      for (const staffLine of system.StaffLines) {
+        out.push(...staffLine.GraphicalSlurs);
+      }
+    }
+  }
+  return out;
+}
+
+function graphicalSlurSummary(gSlur: GraphicalSlurLike): { minY: number; maxY: number; firstX: number } | null {
+  const points = [
+    gSlur.bezierStartPt,
+    gSlur.bezierStartControlPt,
+    gSlur.bezierEndControlPt,
+    gSlur.bezierEndPt,
+  ].filter((p): p is GraphicalPoint => !!p && Number.isFinite(p.x) && Number.isFinite(p.y));
+  if (!points.length) return null;
+  return {
+    minY: Math.min(...points.map((p) => p.y)),
+    maxY: Math.max(...points.map((p) => p.y)),
+    firstX: points[0]?.x ?? Number.POSITIVE_INFINITY,
+  };
+}
+
+function svgPathYValues(d: string): number[] {
+  const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+  const ys: number[] = [];
+  for (let i = 1; i < nums.length; i += 2) ys.push(nums[i]!);
+  return ys.filter(Number.isFinite);
+}
+
+function chooseSlurPathForHint(
+  infos: Array<{ path: SVGPathElement; minY: number; maxY: number; firstX: number }>,
+  used: Set<SVGPathElement>,
+  hint: SlurDistanceHint,
+  target?: { minY: number; maxY: number; firstX: number } | null,
+): SVGPathElement | null {
+  const remaining = infos.filter((info) => !used.has(info.path));
+  if (!remaining.length) return null;
+  if (target) {
+    const sorted = [...remaining].sort((a, b) => {
+      const da = Math.abs(a.minY - target.minY) + Math.abs(a.maxY - target.maxY) + Math.abs(a.firstX - target.firstX) * 0.1;
+      const db = Math.abs(b.minY - target.minY) + Math.abs(b.maxY - target.maxY) + Math.abs(b.firstX - target.firstX) * 0.1;
+      return da - db;
+    });
+    return sorted[0]?.path ?? null;
+  }
+  const sorted = [...remaining].sort((a, b) => {
+    const primary = hint.placement === 'above' ? a.minY - b.minY : b.maxY - a.maxY;
+    return Math.abs(primary) > 0.01 ? primary : a.firstX - b.firstX;
+  });
+  return sorted[0]?.path ?? null;
+}
+
+function applySlurSvgShift(path: SVGPathElement, deltaY: number): void {
+  if (!path.hasAttribute('data-hitl-slur-base-d')) {
+    path.setAttribute('data-hitl-slur-base-d', path.getAttribute('d') || '');
+  }
+  const baseD = path.getAttribute('data-hitl-slur-base-d') || path.getAttribute('d') || '';
+  if (Math.abs(deltaY) < 0.01) {
+    path.setAttribute('d', baseD);
+    path.removeAttribute('data-hitl-slur-shift-y');
+    return;
+  }
+  path.setAttribute('d', shiftSvgPathAbsoluteYs(baseD, deltaY));
+  path.setAttribute('data-hitl-slur-shift-y', String(deltaY));
+}
+
+/** render 후 SVG path 직접 보정 — OSMD가 slur default-y/bezier 변화를 무시하는 경우의 확정 경로. */
+export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetMusicDisplay): number {
+  const hints = orderedSlurHintsForOsmd(osmd);
+  if (!hints.length) return 0;
+  const paths = slurSvgPaths(host);
+  if (!paths.length) return 0;
+  const infos = paths.map((path) => {
+    const d = path.getAttribute('d') || '';
+    const ys = svgPathYValues(d);
+    const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+    return {
+      path,
+      minY: ys.length ? Math.min(...ys) : Number.POSITIVE_INFINITY,
+      maxY: ys.length ? Math.max(...ys) : Number.NEGATIVE_INFINITY,
+      firstX: Number.isFinite(nums[0]) ? nums[0]! : Number.POSITIVE_INFINITY,
+    };
+  });
+  const graphicalSlurs = orderedGraphicalSlurs(osmd);
+  const unit = ((osmd.EngravingRules as unknown as { unit?: number }).unit ?? 10) || 10;
+  let shifted = 0;
+  const used = new Set<SVGPathElement>();
+  for (let i = 0; i < hints.length; i += 1) {
+    const hint = hints[i]!;
+    const target = graphicalSlurs[i] ? graphicalSlurSummary(graphicalSlurs[i]!) : null;
+    const path = chooseSlurPathForHint(infos, used, hint, target);
+    if (!path) continue;
+    used.add(path);
+    if (!hint.distance) {
+      applySlurSvgShift(path, 0);
+      continue;
+    }
+    const extraSpaces = Math.max(0, hint.staffSpaces - BEAM_SLUR_CLEARANCE_STAFF_SPACES);
+    const deltaY = (hint.placement === 'above' ? -1 : 1) * extraSpaces * unit;
+    applySlurSvgShift(path, deltaY);
+    if (Math.abs(deltaY) > 0.01) shifted += 1;
+  }
+  host.setAttribute('data-hitl-slur-shifted', String(shifted));
+  return shifted;
 }

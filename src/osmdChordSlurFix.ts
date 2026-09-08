@@ -270,6 +270,57 @@ function slurSvgPaths(host: HTMLElement): SVGPathElement[] {
   });
 }
 
+function elementTranslate(el: Element): { x: number; y: number } {
+  let x = 0;
+  let y = 0;
+  let cur: Element | null = el;
+  while (cur) {
+    const tr = cur.getAttribute?.('transform') ?? '';
+    const m = /translate\(\s*([-\d.eE+]+)(?:[\s,]+([-\d.eE+]+))?/.exec(tr);
+    if (m) {
+      x += parseFloat(m[1]!);
+      y += m[2] != null ? parseFloat(m[2]!) : 0;
+    }
+    cur = cur.parentElement;
+  }
+  return { x, y };
+}
+
+function stemSegmentsFromHost(host: HTMLElement): Array<{ x: number; minY: number; maxY: number }> {
+  const out: Array<{ x: number; minY: number; maxY: number }> = [];
+  const stems = [...host.querySelectorAll('.vf-stem, [class*="vf-stem"]')];
+  for (const stem of stems) {
+    for (const path of stem.querySelectorAll('path')) {
+      const d = path.getAttribute('d') || '';
+      const m = /M\s*([-\d.eE+]+)\s+([-\d.eE+]+)\s*L\s*([-\d.eE+]+)\s+([-\d.eE+]+)/i.exec(d);
+      if (!m) continue;
+      const t = elementTranslate(path);
+      const x1 = parseFloat(m[1]!) + t.x;
+      const x2 = parseFloat(m[3]!) + t.x;
+      const y1 = parseFloat(m[2]!) + t.y;
+      const y2 = parseFloat(m[4]!) + t.y;
+      if (![x1, x2, y1, y2].every(Number.isFinite)) continue;
+      if (Math.abs(y2 - y1) < 4) continue;
+      out.push({ x: (x1 + x2) / 2, minY: Math.min(y1, y2), maxY: Math.max(y1, y2) });
+    }
+    for (const line of stem.querySelectorAll('line')) {
+      const x1 = parseFloat(line.getAttribute('x1') ?? '');
+      const x2 = parseFloat(line.getAttribute('x2') ?? '');
+      const y1 = parseFloat(line.getAttribute('y1') ?? '');
+      const y2 = parseFloat(line.getAttribute('y2') ?? '');
+      if (![x1, x2, y1, y2].every(Number.isFinite)) continue;
+      if (Math.abs(y2 - y1) < 4) continue;
+      const t = elementTranslate(line);
+      out.push({
+        x: (x1 + x2) / 2 + t.x,
+        minY: Math.min(y1, y2) + t.y,
+        maxY: Math.max(y1, y2) + t.y,
+      });
+    }
+  }
+  return out;
+}
+
 function orderedGraphicalSlurs(osmd: OpenSheetMusicDisplay): GraphicalSlurLike[] {
   const sheet = (osmd.GraphicSheet ?? (osmd as unknown as { graphic?: { sheet?: GraphicSheetLike } }).graphic?.sheet) as
     | GraphicSheetLike
@@ -301,15 +352,117 @@ function graphicalSlurSummary(gSlur: GraphicalSlurLike): { minY: number; maxY: n
   };
 }
 
-function svgPathYValues(d: string): number[] {
+function svgPathXYValues(d: string): { xs: number[]; ys: number[] } {
   const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+  const xs: number[] = [];
   const ys: number[] = [];
-  for (let i = 1; i < nums.length; i += 2) ys.push(nums[i]!);
-  return ys.filter(Number.isFinite);
+  for (let i = 0; i < nums.length; i += 2) {
+    if (Number.isFinite(nums[i])) xs.push(nums[i]!);
+    if (Number.isFinite(nums[i + 1])) ys.push(nums[i + 1]!);
+  }
+  return { xs, ys };
+}
+
+function mapSvgPathAbsoluteXs(d: string, mapX: (x: number) => number): string {
+  if (!d) return d;
+  const tokens = d.match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi);
+  if (!tokens?.length) return d;
+  let cmd = '';
+  const out: string[] = [];
+  let i = 0;
+  const num = (): number => {
+    const t = tokens[i++];
+    return t != null ? parseFloat(t) : NaN;
+  };
+  while (i < tokens.length) {
+    const t = tokens[i]!;
+    if (/^[a-zA-Z]$/.test(t)) {
+      cmd = t;
+      out.push(t);
+      i += 1;
+      continue;
+    }
+    const c = cmd;
+    if (c === 'M' || c === 'L' || c === 'T') {
+      out.push(String(mapX(num())), String(num()));
+      if (c === 'M') cmd = 'L';
+    } else if (c === 'm' || c === 'l' || c === 't') {
+      out.push(String(num()), String(num()));
+    } else if (c === 'C') {
+      out.push(String(mapX(num())), String(num()), String(mapX(num())), String(num()), String(mapX(num())), String(num()));
+    } else if (c === 'c') {
+      out.push(String(num()), String(num()), String(num()), String(num()), String(num()), String(num()));
+    } else if (c === 'Q' || c === 'S') {
+      out.push(String(mapX(num())), String(num()), String(mapX(num())), String(num()));
+    } else if (c === 'q' || c === 's') {
+      out.push(String(num()), String(num()), String(num()), String(num()));
+    } else if (c === 'H') {
+      out.push(String(mapX(num())));
+    } else if (c === 'h') {
+      out.push(String(num()));
+    } else if (c === 'V' || c === 'v') {
+      out.push(String(num()));
+    } else if (c === 'A') {
+      out.push(String(num()), String(num()), String(num()), String(num()), String(num()), String(mapX(num())), String(num()));
+    } else if (c === 'a') {
+      out.push(String(num()), String(num()), String(num()), String(num()), String(num()), String(num()), String(num()));
+    } else {
+      out.push(t);
+      i += 1;
+    }
+  }
+  return out.join(' ');
+}
+
+function slurStemSpanForPath(
+  pathInfo: { minX: number; maxX: number; minY: number; maxY: number },
+  stems: Array<{ x: number; minY: number; maxY: number }>,
+  staffSpacePx: number,
+): { minX: number; maxX: number } | null {
+  const verticalLimit = Math.max(24, staffSpacePx * 8);
+  const nearby = stems.filter((s) => {
+    const dy = Math.max(0, pathInfo.minY - s.maxY, s.minY - pathInfo.maxY);
+    return dy <= verticalLimit;
+  }).sort((a, b) => a.x - b.x);
+  if (nearby.length < 2) return null;
+  const rightIdx = nearby.findIndex((s) => s.x >= pathInfo.maxX - staffSpacePx * 0.25);
+  if (rightIdx > 0) {
+    const left = nearby[rightIdx - 1]!;
+    const right = nearby[rightIdx]!;
+    if (right.x > left.x + staffSpacePx) {
+      return {
+        minX: Math.min(pathInfo.minX, left.x),
+        maxX: Math.max(pathInfo.maxX, right.x),
+      };
+    }
+  }
+  const centerX = (pathInfo.minX + pathInfo.maxX) / 2;
+  for (let i = 1; i < nearby.length; i += 1) {
+    const left = nearby[i - 1]!;
+    const right = nearby[i]!;
+    if (right.x <= left.x + staffSpacePx) continue;
+    if (centerX >= left.x - staffSpacePx && centerX <= right.x + staffSpacePx) {
+      return {
+        minX: Math.min(pathInfo.minX, left.x),
+        maxX: Math.max(pathInfo.maxX, right.x),
+      };
+    }
+  }
+  const left = nearby
+    .filter((s) => s.x <= pathInfo.minX + staffSpacePx * 2)
+    .sort((a, b) => b.x - a.x)[0];
+  const right = nearby
+    .filter((s) => s.x >= pathInfo.maxX - staffSpacePx * 2 && (!left || s.x > left.x + staffSpacePx))
+    .sort((a, b) => a.x - b.x)[0];
+  if (!left || !right || right.x <= left.x + staffSpacePx) return null;
+  return {
+    minX: Math.min(pathInfo.minX, left.x),
+    maxX: Math.max(pathInfo.maxX, right.x),
+  };
 }
 
 function chooseSlurPathForHint(
-  infos: Array<{ path: SVGPathElement; minY: number; maxY: number; firstX: number }>,
+  infos: Array<{ path: SVGPathElement; minX: number; maxX: number; minY: number; maxY: number; firstX: number }>,
   used: Set<SVGPathElement>,
   hint: SlurDistanceHint,
   target?: { minY: number; maxY: number; firstX: number } | null,
@@ -331,20 +484,35 @@ function chooseSlurPathForHint(
   return sorted[0]?.path ?? null;
 }
 
-function applySlurSvgShift(path: SVGPathElement, deltaY: number): void {
+function applySlurSvgShift(path: SVGPathElement, deltaY: number, span?: { minX: number; maxX: number } | null): void {
   const currentD = path.getAttribute('d') || '';
   const lastAppliedD = path.getAttribute('data-hitl-slur-last-d') || '';
   if (!path.hasAttribute('data-hitl-slur-base-d') || (lastAppliedD && currentD !== lastAppliedD)) {
     path.setAttribute('data-hitl-slur-base-d', currentD);
   }
   const baseD = path.getAttribute('data-hitl-slur-base-d') || currentD;
-  if (Math.abs(deltaY) < 0.01) {
+  if (Math.abs(deltaY) < 0.01 && !span) {
     path.setAttribute('d', baseD);
     path.removeAttribute('data-hitl-slur-shift-y');
     path.removeAttribute('data-hitl-slur-last-d');
+    path.removeAttribute('data-hitl-slur-span-x');
     return;
   }
-  const shiftedD = shiftSvgPathAbsoluteYs(baseD, deltaY);
+  let adjustedD = baseD;
+  if (span) {
+    const { xs } = svgPathXYValues(baseD);
+    const minX = xs.length ? Math.min(...xs) : NaN;
+    const maxX = xs.length ? Math.max(...xs) : NaN;
+    if (Number.isFinite(minX) && Number.isFinite(maxX) && maxX > minX) {
+      const targetMinX = Math.min(minX, span.minX);
+      const targetMaxX = Math.max(maxX, span.maxX);
+      if (targetMaxX - targetMinX > maxX - minX + 0.5) {
+        adjustedD = mapSvgPathAbsoluteXs(baseD, (x) => targetMinX + ((x - minX) / (maxX - minX)) * (targetMaxX - targetMinX));
+        path.setAttribute('data-hitl-slur-span-x', `${targetMinX},${targetMaxX}`);
+      }
+    }
+  }
+  const shiftedD = shiftSvgPathAbsoluteYs(adjustedD, deltaY);
   path.setAttribute('d', shiftedD);
   path.setAttribute('data-hitl-slur-shift-y', String(deltaY));
   path.setAttribute('data-hitl-slur-last-d', shiftedD);
@@ -358,10 +526,12 @@ export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetM
   if (!paths.length) return 0;
   const infos = paths.map((path) => {
     const d = path.getAttribute('d') || '';
-    const ys = svgPathYValues(d);
+    const { xs, ys } = svgPathXYValues(d);
     const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
     return {
       path,
+      minX: xs.length ? Math.min(...xs) : Number.POSITIVE_INFINITY,
+      maxX: xs.length ? Math.max(...xs) : Number.NEGATIVE_INFINITY,
       minY: ys.length ? Math.min(...ys) : Number.POSITIVE_INFINITY,
       maxY: ys.length ? Math.max(...ys) : Number.NEGATIVE_INFINITY,
       firstX: Number.isFinite(nums[0]) ? nums[0]! : Number.POSITIVE_INFINITY,
@@ -369,6 +539,7 @@ export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetM
   });
   const graphicalSlurs = orderedGraphicalSlurs(osmd);
   const staffSpacePx = staffSpacePxFromHost(host, osmd) || 10;
+  const stems = stemSegmentsFromHost(host);
   let shifted = 0;
   const used = new Set<SVGPathElement>();
   for (let i = 0; i < hints.length; i += 1) {
@@ -383,8 +554,10 @@ export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetM
     }
     const extraSpaces = Math.max(0, hint.staffSpaces - BEAM_SLUR_CLEARANCE_STAFF_SPACES);
     const deltaY = (hint.placement === 'above' ? -1 : 1) * extraSpaces * staffSpacePx;
-    applySlurSvgShift(path, deltaY);
-    if (Math.abs(deltaY) > 0.01) shifted += 1;
+    const info = infos.find((it) => it.path === path);
+    const span = info ? slurStemSpanForPath(info, stems, staffSpacePx) : null;
+    applySlurSvgShift(path, deltaY, span);
+    if (Math.abs(deltaY) > 0.01 || span) shifted += 1;
   }
   host.setAttribute('data-hitl-slur-shifted', String(shifted));
   return shifted;

@@ -55,6 +55,36 @@ function pathYNumbers(d: string): number[] {
   return ys;
 }
 
+function pathXNumbers(d: string): number[] {
+  const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+  const xs: number[] = [];
+  for (let i = 0; i < nums.length; i += 2) xs.push(nums[i]!);
+  return xs;
+}
+
+function scalePathXs(d: string, scale: number): string {
+  const xs = pathXNumbers(d);
+  const minX = Math.min(...xs);
+  let numericIndex = 0;
+  return d.replace(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi, (raw) => {
+    const n = Number(raw);
+    const out = numericIndex % 2 === 0 ? minX + (n - minX) * scale : n;
+    numericIndex += 1;
+    return String(out);
+  });
+}
+
+function stemXs(host: HTMLElement): number[] {
+  const xs: number[] = [];
+  for (const path of host.querySelectorAll('.vf-stem path')) {
+    const d = path.getAttribute('d') || '';
+    const m = /M\s*([-\d.eE+]+)\s+[-\d.eE+]+\s*L\s*([-\d.eE+]+)/i.exec(d);
+    if (!m) continue;
+    xs.push((Number(m[1]) + Number(m[2])) / 2);
+  }
+  return xs.filter(Number.isFinite).sort((a, b) => a - b);
+}
+
 function slurPaths(host: HTMLElement): SVGPathElement[] {
   const candidates = [...host.querySelectorAll('path')] as SVGPathElement[];
   const slurLike = candidates.filter((p) => {
@@ -90,8 +120,18 @@ await osmd.load(hintedXml);
 prepareGraphicalSlursForOsmdPreview(osmd);
 osmd.render();
 
+const initialPaths = slurPaths(host);
+const initialPathDs = initialPaths.map((p) => p.getAttribute('d') || '');
+const initialMins = initialPathDs.map((d) => Math.min(...pathYNumbers(d)));
+const upperBeforeApply = initialMins.indexOf(Math.min(...initialMins));
+initialPaths[upperBeforeApply]!.setAttribute('d', scalePathXs(initialPathDs[upperBeforeApply]!, 0.45));
+
 const beforePaths = slurPaths(host).map((p) => p.getAttribute('d') || '');
 const beforeMins = beforePaths.map((d) => Math.min(...pathYNumbers(d)));
+const stems = stemXs(host);
+const leftStem = stems[2];
+const rightStem = stems[3];
+assert.ok(leftStem != null && rightStem != null && rightStem > leftStem, `missing stem span ${stems.join(',')}`);
 const shifted = applyOsmdSlurDistanceOffsets(host, osmd);
 const afterPaths = slurPaths(host).map((p) => p.getAttribute('d') || '');
 const changed = afterPaths.flatMap((d, i) => (d === beforePaths[i] ? [] : [i]));
@@ -104,6 +144,12 @@ assert.equal(changedIndex, upperIndex, 'slur distance shift should target the up
 const afterMin = Math.min(...pathYNumbers(afterPaths[changedIndex]!));
 const firstDelta = beforeMins[changedIndex]! - afterMin;
 assert.ok(firstDelta >= 30, `above slur should move by staff-space distance, delta=${firstDelta}`);
+const afterXs = pathXNumbers(afterPaths[changedIndex]!);
+assert.ok(Math.min(...afterXs) <= leftStem + 1, `slur should cover start stem: minX=${Math.min(...afterXs)} stem=${leftStem}`);
+assert.ok(
+  Math.max(...afterXs) >= rightStem - 1,
+  `slur should cover end stem: maxX=${Math.max(...afterXs)} stem=${rightStem} span=${slurPaths(host)[changedIndex]?.getAttribute('data-hitl-slur-span-x')}`,
+);
 
 osmd.zoom = 1.5;
 osmd.render();

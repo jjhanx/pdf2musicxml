@@ -2,6 +2,7 @@ import {
   articulationDefaultYFromStaffSpaces,
   articulationStaffSpacesFromHint,
   HITL_DIR_DISTANCE_ATTR,
+  pitchLabelsMatch,
 } from './musicXmlArticulationDistance';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 
@@ -32,6 +33,9 @@ export type SlurDistanceFix = {
   slurEnd?: 'start' | 'stop' | 'both' | string;
   placement?: 'above' | 'below' | null;
   distance?: string | null;
+  pitchStep?: string;
+  pitchOctave?: number;
+  pitchAlter?: number;
 };
 
 export type SlurDistanceHint = {
@@ -122,6 +126,49 @@ function noteSlurElements(note: Element): Element[] {
   return out;
 }
 
+function notePitchLabel(note: Element): string | null {
+  const pitch = note.querySelector(':scope > pitch, :scope > *|pitch');
+  if (!pitch) return null;
+  const step = pitch.querySelector('step, *|step')?.textContent?.trim()?.toUpperCase();
+  const oct = pitch.querySelector('octave, *|octave')?.textContent?.trim();
+  if (!step || !oct) return null;
+  const alterRaw = pitch.querySelector('alter, *|alter')?.textContent?.trim();
+  const alter = alterRaw ? parseInt(alterRaw, 10) : 0;
+  const acc = alter === 1 ? '#' : alter === -1 ? 'b' : alter === 2 ? '##' : alter === -2 ? 'bb' : '';
+  return `${step}${acc}${oct}`;
+}
+
+function pitchLabelFromSlurFix(fix: SlurDistanceFix): string | null {
+  const step = fix.pitchStep?.trim().toUpperCase();
+  if (!step || fix.pitchOctave == null) return null;
+  const alter = fix.pitchAlter ?? 0;
+  const acc = alter === 1 ? '#' : alter === -1 ? 'b' : alter === 2 ? '##' : alter === -2 ? 'bb' : '';
+  return `${step.charAt(0)}${acc}${fix.pitchOctave}`;
+}
+
+function findNoteForSlurFix(
+  notes: Element[],
+  fix: SlurDistanceFix,
+  which: string,
+): Element | null {
+  const idx = fix.kind === 'addSlur' ? fix.fromNoteIndex : fix.noteIndex;
+  if (idx != null && idx >= 0 && idx < notes.length) return notes[idx] ?? null;
+  const wantPitch = pitchLabelFromSlurFix(fix);
+  const matchesSlurEnd = (note: Element) =>
+    noteSlurElements(note).some((s) => {
+      const type = (s.getAttribute('type') || '').trim();
+      return which === 'both' || type === which;
+    });
+  if (wantPitch) {
+    const pitchHits = notes.filter((n) => pitchLabelsMatch(notePitchLabel(n), wantPitch));
+    const withSlur = pitchHits.find(matchesSlurEnd);
+    if (withSlur) return withSlur;
+    if (pitchHits.length === 1) return pitchHits[0]!;
+  }
+  const slurHits = notes.filter(matchesSlurEnd);
+  return slurHits.length === 1 ? slurHits[0]! : null;
+}
+
 function applySlurDistanceAttrs(
   slur: Element,
   placement: 'above' | 'below',
@@ -187,9 +234,9 @@ export function applySlurDistanceFixesToPreviewXml(
       );
       if (!measure) continue;
       const notes = [...measure.children].filter((c) => xmlLocalName(c) === 'note');
-      const note = notes[idx];
-      if (!note) continue;
       const which = fix.kind === 'addSlur' ? 'start' : (fix.slurEnd || 'both');
+      const note = findNoteForSlurFix(notes, fix, which);
+      if (!note) continue;
       const slurs = noteSlurElements(note).filter((s) => {
         const type = (s.getAttribute('type') || '').trim();
         return which === 'both' || type === which;

@@ -2713,10 +2713,15 @@ export function OsmdBlock({
 
   /** 배열 참조가 아니라 거리·위치 문자열로 의존 — 같은 length면 React가 스킵하지 않음 */
   const articulationFixesKey = (articulationFixes ?? [])
-    .filter((f) => f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation')
+    .filter((f) =>
+      f.kind === 'setArticulationPlacement' ||
+      f.kind === 'addArticulation' ||
+      f.kind === 'setSlurPlacement' ||
+      f.kind === 'addSlur'
+    )
     .map(
       (f) =>
-        `${f.partId}|${f.measureMxl}|${f.noteIndex}|${f.articulation}|${f.distance ?? ''}|${f.placement ?? ''}|${f.pitchStep ?? ''}${f.pitchAlter ?? ''}${f.pitchOctave ?? ''}`,
+        `${f.kind}|${f.partId}|${f.measureMxl}|${f.noteIndex}|${f.fromNoteIndex ?? ''}|${f.slurEnd ?? ''}|${f.articulation ?? ''}|${f.distance ?? ''}|${f.placement ?? ''}|${f.pitchStep ?? ''}${f.pitchAlter ?? ''}${f.pitchOctave ?? ''}`,
     )
     .join(';');
 

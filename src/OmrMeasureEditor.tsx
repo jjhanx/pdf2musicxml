@@ -4778,6 +4778,7 @@ function MeasureNoteEditor({
                       slurEnd: el.slurStart && el.slurStop ? 'both' : el.slurStart ? 'start' : 'stop',
                       placement: next,
                       distance: currentSlurDistance === 'auto' ? null : currentSlurDistance,
+                      ...pitchFieldsFromMeasureNote(el),
                     });
                   }}
                   style={{ marginLeft: 4 }}
@@ -4799,6 +4800,7 @@ function MeasureNoteEditor({
                       slurEnd: el.slurStart && el.slurStop ? 'both' : el.slurStart ? 'start' : 'stop',
                       placement: currentSlurPlacement,
                       distance: next === 'auto' ? null : next,
+                      ...pitchFieldsFromMeasureNote(el),
                     });
                   }}
                   style={{ marginLeft: 4 }}
@@ -4870,6 +4872,7 @@ function MeasureNoteEditor({
                     toNoteIndex: toIdx,
                     placement: slurPlacement,
                     distance: slurDistance === 'auto' ? null : slurDistance,
+                    ...pitchFieldsFromMeasureNote(el),
                     ...(isNext && nextMeasureMxl ? { toMeasureMxl: nextMeasureMxl } : {}),
                   });
                 }}

@@ -56,4 +56,32 @@ assert.equal(resetSlur?.getAttribute('placement'), 'above');
 assert.equal(resetSlur?.hasAttribute(HITL_SLUR_DISTANCE_ATTR), false);
 assert.equal(resetSlur?.getAttribute('default-y'), '10');
 
+const filteredPlXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part id="P5__PL">
+    <measure number="53">
+      <note><pitch><step>F</step><octave>2</octave></pitch><duration>1</duration><notations><slur type="start" number="1" placement="below"/></notations></note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+const filteredOut = applySlurDistanceFixesToPreviewXml(filteredPlXml, [
+  {
+    kind: 'setSlurPlacement',
+    partId: 'P5__PL',
+    measureMxl: '53',
+    // 원본 grand-staff document-order index. PL 필터 XML에는 notes[12]가 없다.
+    noteIndex: 12,
+    slurEnd: 'start',
+    placement: 'below',
+    distance: '5',
+    pitchStep: 'F',
+    pitchOctave: 2,
+  },
+]);
+const filteredDoc = new DOMParser().parseFromString(filteredOut, 'application/xml');
+const filteredSlur = filteredDoc.querySelector('slur[type="start"]');
+assert.equal(filteredSlur?.getAttribute(HITL_SLUR_DISTANCE_ATTR), '5');
+assert.equal(filteredSlur?.getAttribute('default-y'), '-50');
+
 console.log('slur distance preview ok');

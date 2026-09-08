@@ -78,6 +78,7 @@ export function repairTimelineForOsmdPreview(
 ): string {
   const faithful = options?.faithfulEditorLayout === true;
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
+  out = capAbsurdTimelineDurationsForOsmdPreview(out);
   if (!faithful) out = capBackupDurationsForOsmdPreview(out);
   out = stripPrintElementsForOsmdPreview(out);
   out = stripMeasureWidthAttributesForOsmdPreview(out);
@@ -93,6 +94,60 @@ export function repairTimelineForOsmdPreview(
   out = normalizeSlursForOsmdPreview(out);
   out = repairArticulationDefaultYForOsmdPreview(out);
   return out;
+}
+
+function boundedMusicXmlDuration(text: string | null | undefined, capacity: number): number | null {
+  const raw = text?.trim() ?? '';
+  if (!/^\d+$/.test(raw)) return null;
+  if (raw.length > 9) return null;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n <= 0) return null;
+  const hardMax = Math.max(1024, capacity * 16);
+  return n > hardMax ? null : n;
+}
+
+/** faithful preview에서도 OSMD를 멈추게 하는 비정상 timeline duration만 제한한다. */
+export function capAbsurdTimelineDurationsForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    for (const part of findXmlParts(doc)) {
+      let divisions = 1;
+      let beats = 4;
+      let beatType = 4;
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        for (const child of [...measure.children]) {
+          if (xmlLocalName(child) !== 'attributes') continue;
+          const parsedDiv = boundedMusicXmlDuration(
+            child.querySelector('divisions, *|divisions')?.textContent,
+            4096,
+          );
+          if (parsedDiv != null) divisions = parsedDiv;
+          const timeEl = child.querySelector('time, *|time');
+          if (timeEl) {
+            const b = boundedMusicXmlDuration(timeEl.querySelector('beats, *|beats')?.textContent, 64);
+            const bt = boundedMusicXmlDuration(timeEl.querySelector('beat-type, *|beat-type')?.textContent, 64);
+            if (b != null) beats = b;
+            if (bt != null) beatType = bt;
+          }
+        }
+        const capacity = Math.max(1, Math.min(4096, Math.round((divisions * beats * 4) / beatType)));
+        for (const child of [...measure.children]) {
+          const tag = xmlLocalName(child);
+          if (tag !== 'note' && tag !== 'backup' && tag !== 'forward') continue;
+          const durationEl = child.querySelector(':scope > duration, :scope > *|duration');
+          if (!durationEl) continue;
+          if (boundedMusicXmlDuration(durationEl.textContent, capacity) == null) {
+            durationEl.textContent = String(capacity);
+          }
+        }
+      }
+    }
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
 }
 
 const ARTICULATION_TAGS = new Set([

@@ -31,7 +31,7 @@ import {
   scrollOsmdMeasureIntoView,
 } from './osmdMeasureClick';
 import { installOsmdPartLabelOverlay, removeOsmdPartLabelOverlay } from './osmdPartLabelOverlay';
-import { prepareGraphicalSlursForOsmdPreview } from './osmdChordSlurFix';
+import { prepareGraphicalSlursForOsmdPreview, registerOsmdPreviewXmlForSlurs } from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
   applyPendingArticulationOffsetsOnly,
@@ -2495,6 +2495,7 @@ export function OsmdBlock({
     // articulation 거리 — sanitize 후 거리 attr이 심긴 load XML
     registerOsmdPreviewXmlForArticulation(osmd, xmlForOsmdLoad);
     registerOsmdPreviewXmlForDynamics(osmd, hintXmlRef.current || xml);
+    registerOsmdPreviewXmlForSlurs(osmd, xmlForOsmdLoad);
     registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
     registerOsmdPreviewMeasureRangeForArticulation(osmd, previewMeasureRangeRef.current);
     registerOsmdPreviewXmlForAlign(osmd, xmlForOsmd);
@@ -2727,8 +2728,10 @@ export function OsmdBlock({
     articulationFixesRef.current = articulationFixes ?? [];
     if (!host) return;
     if (osmd) {
+      const slurHint = applySlurDistanceFixesToPreviewXml(hint, articulationFixesRef.current);
       registerOsmdPreviewXmlForArticulation(osmd, hint);
       registerOsmdPreviewXmlForDynamics(osmd, hint);
+      registerOsmdPreviewXmlForSlurs(osmd, slurHint);
       registerOsmdArticulationFixes(osmd, articulationFixesRef.current);
       registerOsmdPreviewMeasureRangeForArticulation(osmd, previewMeasureRangeRef.current);
     }
@@ -2736,6 +2739,16 @@ export function OsmdBlock({
       const h = hostRef.current;
       const o = osmdRef.current;
       if (!h) return;
+      if (o && articulationFixesRef.current.some((f) => f.kind === 'setSlurPlacement' || f.kind === 'addSlur')) {
+        try {
+          prepareGraphicalSlursForOsmdPreview(o);
+          o.render();
+          finalizeOsmdMeasureNumberPreview(h, o, undefined);
+          syncOnsetColumnAlign(h, o);
+        } catch (e) {
+          console.warn('[osmd] pending slur distance refresh skipped:', e);
+        }
+      }
       applyPendingArticulationOffsetsOnly(h, o, articulationFixesRef.current);
       applyPendingDynamicsOffsetsOnly(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
       const shifted = h.getAttribute('data-hitl-art-shifted') ?? '0';

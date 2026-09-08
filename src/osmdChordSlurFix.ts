@@ -1,6 +1,10 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { articulationStaffSpacesFromHint, HITL_DIR_DISTANCE_ATTR } from '../shared/musicXmlArticulationDistance';
-import { HITL_SLUR_DISTANCE_ATTR } from '../shared/musicXmlSlurDistance';
+import {
+  collectOrderedSlurDistanceHintsFromXml,
+  HITL_SLUR_DISTANCE_ATTR,
+  type SlurDistanceHint,
+} from '../shared/musicXmlSlurDistance';
 
 /** OSMD PlacementEnum — 패키지 루트에서 런타임 export 되지 않음 */
 const PLACEMENT_ABOVE = 0;
@@ -49,7 +53,26 @@ type GraphicalSlurLike = {
   bezierEndPt: PointLike;
   /** 빔 이격 보정을 한 번만 적용 (재 render 시 누적 방지) */
   _hitlBeamClearanceApplied?: boolean;
+  _hitlBeamClearanceSpacesApplied?: number;
 };
+
+const slurPreviewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
+const slurHintsByXml = new Map<string, SlurDistanceHint[]>();
+
+export function registerOsmdPreviewXmlForSlurs(osmd: OpenSheetMusicDisplay, xml: string): void {
+  slurPreviewXmlByOsmd.set(osmd, xml);
+}
+
+function orderedSlurHintsForOsmd(osmd: OpenSheetMusicDisplay): SlurDistanceHint[] {
+  const xml = slurPreviewXmlByOsmd.get(osmd);
+  if (!xml?.trim()) return [];
+  const cached = slurHintsByXml.get(xml);
+  if (cached) return cached;
+  const hints = collectOrderedSlurDistanceHintsFromXml(xml);
+  if (slurHintsByXml.size > 20) slurHintsByXml.clear();
+  slurHintsByXml.set(xml, hints);
+  return hints;
+}
 
 function attrFromUnknown(obj: unknown, names: readonly string[], depth = 0, seen = new Set<unknown>()): string | null {
   if (!obj || typeof obj !== 'object' || depth > 3 || seen.has(obj)) return null;
@@ -82,7 +105,12 @@ function attrFromUnknown(obj: unknown, names: readonly string[], depth = 0, seen
   return null;
 }
 
-function slurClearanceStaffSpaces(gSlur: GraphicalSlurLike): number {
+function slurClearanceStaffSpaces(gSlur: GraphicalSlurLike, hint?: SlurDistanceHint): number {
+  if (hint?.distance) {
+    return Number.isFinite(hint.staffSpaces) && hint.staffSpaces > 0
+      ? hint.staffSpaces
+      : BEAM_SLUR_CLEARANCE_STAFF_SPACES;
+  }
   const rawDistance = attrFromUnknown(gSlur.slur ?? gSlur, [
     HITL_SLUR_DISTANCE_ATTR,
     HITL_DIR_DISTANCE_ATTR,
@@ -220,6 +248,7 @@ export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): 
           shiftBezierY(gSlur, dyStart, dyEnd, headShiftX);
           // 화음 재정렬 후 빔 이격 플래그 초기화 — 아래에서 다시 적용
           gSlur._hitlBeamClearanceApplied = false;
+          gSlur._hitlBeamClearanceSpacesApplied = 0;
         }
       }
     }
@@ -236,12 +265,14 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
 
   const rules = osmd.EngravingRules;
   const unit = (rules as { unit?: number }).unit ?? 10;
+  const orderedHints = orderedSlurHintsForOsmd(osmd);
+  let slurOrdinal = 0;
 
   for (const page of sheet.MusicPages) {
     for (const system of page.MusicSystems) {
       for (const staffLine of system.StaffLines) {
         for (const gSlur of staffLine.GraphicalSlurs) {
-          if (gSlur._hitlBeamClearanceApplied) continue;
+          const hint = orderedHints[slurOrdinal++];
           const slur = gSlur.slur;
           const startNote = slur?.StartNote;
           const endNote = slur?.EndNote;
@@ -258,10 +289,13 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
             slurPlacementOnStemSide(stemEnd, placement);
           if (!onStemSide) continue;
 
-          const dy = beamSlurClearanceDy(placement, unit, slurClearanceStaffSpaces(gSlur));
+          const desiredSpaces = slurClearanceStaffSpaces(gSlur, hint);
+          const previousSpaces = gSlur._hitlBeamClearanceApplied ? (gSlur._hitlBeamClearanceSpacesApplied ?? 0) : 0;
+          const dy = beamSlurClearanceDy(placement, unit, desiredSpaces) - beamSlurClearanceDy(placement, unit, previousSpaces);
           if (Math.abs(dy) < 0.01) continue;
           shiftBezierY(gSlur, dy, dy, 0);
           gSlur._hitlBeamClearanceApplied = true;
+          gSlur._hitlBeamClearanceSpacesApplied = desiredSpaces;
         }
       }
     }

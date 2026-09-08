@@ -34,10 +34,68 @@ export type SlurDistanceFix = {
   distance?: string | null;
 };
 
+export type SlurDistanceHint = {
+  partId: string;
+  measureMxl: string;
+  staff: number;
+  placement: 'above' | 'below';
+  staffSpaces: number;
+  distance: string | null;
+  defaultY: number | null;
+};
+
 export function normalizedSlurDistance(raw: string | null | undefined): string | null {
   const d = (raw || '').trim().toLowerCase();
   if (!d || d === 'auto') return null;
   return articulationStaffSpacesFromHint(d, null) > 0 ? d : null;
+}
+
+function noteStaffNumber(note: Element): number {
+  const st = note.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim();
+  return st && /^\d+$/.test(st) ? parseInt(st, 10) : 1;
+}
+
+function slurDistanceFromElement(slur: Element): string | null {
+  return normalizedSlurDistance(
+    slur.getAttribute(HITL_SLUR_DISTANCE_ATTR) || slur.getAttribute(HITL_DIR_DISTANCE_ATTR),
+  );
+}
+
+function slurDefaultYFromElement(slur: Element): number | null {
+  const raw = slur.getAttribute('default-y') || '';
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function collectOrderedSlurDistanceHintsFromXml(xml: string): SlurDistanceHint[] {
+  const out: SlurDistanceHint[] = [];
+  const doc = parseMusicXmlDocument(xml);
+  if (!doc) return out;
+  for (const part of findXmlParts(doc)) {
+    const partId = part.getAttribute('id')?.trim() || '';
+    for (const measure of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
+      const measureMxl = measure.getAttribute('number')?.trim() || '';
+      for (const note of [...measure.children].filter((c) => xmlLocalName(c) === 'note')) {
+        const staff = noteStaffNumber(note);
+        for (const slur of noteSlurElements(note)) {
+          if ((slur.getAttribute('type') || '').trim() !== 'start') continue;
+          const placement = (slur.getAttribute('placement') || '').trim().toLowerCase() === 'above' ? 'above' : 'below';
+          const distance = slurDistanceFromElement(slur);
+          const defaultY = slurDefaultYFromElement(slur);
+          out.push({
+            partId,
+            measureMxl,
+            staff,
+            placement,
+            staffSpaces: articulationStaffSpacesFromHint(distance, defaultY),
+            distance,
+            defaultY,
+          });
+        }
+      }
+    }
+  }
+  return out;
 }
 
 export function slurDefaultY(

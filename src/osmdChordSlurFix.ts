@@ -258,7 +258,12 @@ export function prepareGraphicalSlursForOsmdPreview(osmd: OpenSheetMusicDisplay)
 }
 
 function slurSvgPaths(host: HTMLElement): SVGPathElement[] {
-  return ([...host.querySelectorAll('path')] as SVGPathElement[]).filter((path) => {
+  const roots = [...host.querySelectorAll('.vf-stavetie, .vf-curve, .vf-tie')];
+  const candidates = roots.flatMap((root) => [
+    ...(root.tagName.toLowerCase() === 'path' ? [root as SVGPathElement] : []),
+    ...([...root.querySelectorAll('path')] as SVGPathElement[]),
+  ]);
+  return candidates.filter((path) => {
     const d = path.getAttribute('d') || '';
     if (!/[CQ]/.test(d)) return false;
     const groupClass = [
@@ -288,7 +293,7 @@ function elementTranslate(el: Element): { x: number; y: number } {
 
 function stemSegmentsFromHost(host: HTMLElement): Array<{ x: number; minY: number; maxY: number }> {
   const out: Array<{ x: number; minY: number; maxY: number }> = [];
-  const stems = [...host.querySelectorAll('.vf-stem, [class*="vf-stem"]')];
+  const stems = [...host.querySelectorAll('.vf-stem')];
   for (const stem of stems) {
     for (const path of stem.querySelectorAll('path')) {
       const d = path.getAttribute('d') || '';
@@ -521,7 +526,10 @@ function applySlurSvgShift(path: SVGPathElement, deltaY: number, span?: { minX: 
 /** render 후 SVG path 직접 보정 — OSMD가 slur default-y/bezier 변화를 무시하는 경우의 확정 경로. */
 export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetMusicDisplay): number {
   const hints = orderedSlurHintsForOsmd(osmd);
-  if (!hints.length) return 0;
+  const hinted = hints
+    .map((hint, index) => ({ hint, index }))
+    .filter(({ hint }) => !!hint.distance);
+  if (!hinted.length) return 0;
   const paths = slurSvgPaths(host);
   if (!paths.length) return 0;
   const infos = paths.map((path) => {
@@ -542,16 +550,11 @@ export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetM
   const stems = stemSegmentsFromHost(host);
   let shifted = 0;
   const used = new Set<SVGPathElement>();
-  for (let i = 0; i < hints.length; i += 1) {
-    const hint = hints[i]!;
-    const target = graphicalSlurs[i] ? graphicalSlurSummary(graphicalSlurs[i]!) : null;
+  for (const { hint, index } of hinted) {
+    const target = graphicalSlurs[index] ? graphicalSlurSummary(graphicalSlurs[index]!) : null;
     const path = chooseSlurPathForHint(infos, used, hint, target);
     if (!path) continue;
     used.add(path);
-    if (!hint.distance) {
-      applySlurSvgShift(path, 0);
-      continue;
-    }
     const extraSpaces = Math.max(0, hint.staffSpaces - BEAM_SLUR_CLEARANCE_STAFF_SPACES);
     const deltaY = (hint.placement === 'above' ? -1 : 1) * extraSpaces * staffSpacePx;
     const info = infos.find((it) => it.path === path);

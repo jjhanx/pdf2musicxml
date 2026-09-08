@@ -343,23 +343,39 @@ def _note_slur_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
             slur_stop = True
     return slur_start, slur_stop
 
-def _note_slur_placements(note: ET.Element, ns: str) -> tuple[str | None, str | None]:
-    """이음줄 start/stop의 placement(above|below). 없으면 None."""
+def _note_slur_placements(note: ET.Element, ns: str) -> tuple[str | None, str | None, str | None, str | None, int | None, int | None]:
+    """이음줄 start/stop의 placement·distance·default-y. 없으면 None."""
     start_pl: str | None = None
     stop_pl: str | None = None
+    start_dist: str | None = None
+    stop_dist: str | None = None
+    start_y: int | None = None
+    stop_y: int | None = None
     notations = note.find(_q(ns, "notations"))
     if notations is None:
-        return start_pl, stop_pl
+        return start_pl, stop_pl, start_dist, stop_dist, start_y, stop_y
     for slur in notations.findall(_q(ns, "slur")):
         t = (slur.get("type") or "").strip()
         pl = (slur.get("placement") or "").strip().lower()
         if pl not in ("above", "below"):
             pl = ""
+        dist = slur.get(SLUR_DISTANCE_ATTR) or slur.get(DIR_DISTANCE_ATTR)
+        dy: int | None = None
+        dy_raw = slur.get("default-y")
+        if dy_raw not in (None, ""):
+            try:
+                dy = int(round(float(str(dy_raw))))
+            except (TypeError, ValueError):
+                dy = None
         if t == "start" and start_pl is None:
             start_pl = pl or None
+            start_dist = dist or None
+            start_y = dy
         elif t == "stop" and stop_pl is None:
             stop_pl = pl or None
-    return start_pl, stop_pl
+            stop_dist = dist or None
+            stop_y = dy
+    return start_pl, stop_pl, start_dist, stop_dist, start_y, stop_y
 
 
 def _set_slur_pair_placement(
@@ -368,8 +384,10 @@ def _set_slur_pair_placement(
     note_idx: int,
     which: str,
     placement: str,
+    distance: str | None = None,
+    update_distance: bool = False,
 ) -> bool:
-    """note_idx의 slur start/stop placement를 바꾸고, 같은 number의 짝에도 맞춤."""
+    """note_idx의 slur start/stop placement·distance를 바꾸고, 같은 number의 짝에도 맞춤."""
     if note_idx < 0 or note_idx >= len(notes):
         return False
     note = notes[note_idx]
@@ -390,6 +408,11 @@ def _set_slur_pair_placement(
         if slur.get("placement") != placement:
             slur.set("placement", placement)
             changed = True
+        if update_distance:
+            before = dict(slur.attrib)
+            _set_slur_distance_on_el(slur, placement, distance)
+            if dict(slur.attrib) != before:
+                changed = True
         # Match pair across measure notes
         want_other = "stop" if t == "start" else "start" if t == "stop" else ""
         if not want_other:
@@ -407,6 +430,11 @@ def _set_slur_pair_placement(
                 if os.get("placement") != placement:
                     os.set("placement", placement)
                     changed = True
+                if update_distance:
+                    before = dict(os.attrib)
+                    _set_slur_distance_on_el(os, placement, distance)
+                    if dict(os.attrib) != before:
+                        changed = True
     return changed
 
 
@@ -1127,7 +1155,14 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
                 pitch_alter = None
     tie_start, tie_stop = _note_tie_flags(note, ns)
     slur_start, slur_stop = _note_slur_flags(note, ns)
-    slur_start_pl, slur_stop_pl = _note_slur_placements(note, ns)
+    (
+        slur_start_pl,
+        slur_stop_pl,
+        slur_start_dist,
+        slur_stop_dist,
+        slur_start_y,
+        slur_stop_y,
+    ) = _note_slur_placements(note, ns)
     duration = None
     dur_el = note.find(_q(ns, "duration"))
     if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
@@ -1207,6 +1242,10 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "slurStop": slur_stop,
         "slurStartPlacement": slur_start_pl,
         "slurStopPlacement": slur_stop_pl,
+        "slurStartDistance": slur_start_dist,
+        "slurStopDistance": slur_stop_dist,
+        "slurStartDefaultY": slur_start_y,
+        "slurStopDefaultY": slur_stop_y,
         "beams": _note_beams(note, ns),
         "stem": (stem_el.text or "").strip() if stem_el is not None and stem_el.text else None,
         "timeMod": time_mod,
@@ -3412,6 +3451,7 @@ def _note_slur_placement_flags(note: ET.Element, ns: str) -> tuple[bool, bool]:
 
 ART_DISTANCE_ATTR = "data-hitl-art-distance"
 DIR_DISTANCE_ATTR = "data-hitl-dir-distance"
+SLUR_DISTANCE_ATTR = "data-hitl-slur-distance"
 ARTICULATION_STAFF_GAP_BASE = 10
 
 
@@ -3457,6 +3497,27 @@ def _set_direction_distance_on_el(el: ET.Element, dist: str | None) -> None:
             del el.attrib[DIR_DISTANCE_ATTR]
     else:
         el.set(DIR_DISTANCE_ATTR, dist)
+
+
+def _normalized_slur_distance(dist: Any) -> str | None:
+    raw = str(dist or "").strip().lower()
+    if raw in ("", "auto"):
+        return None
+    if _articulation_staff_spaces(raw) <= 0:
+        return None
+    return raw
+
+
+def _set_slur_distance_on_el(el: ET.Element, placement: str, dist: str | None) -> None:
+    if dist in (None, "", "auto"):
+        el.attrib.pop(SLUR_DISTANCE_ATTR, None)
+        el.attrib.pop(DIR_DISTANCE_ATTR, None)
+    else:
+        clean = str(dist).strip().lower()
+        el.set(SLUR_DISTANCE_ATTR, clean)
+        # TS 미리보기·디버깅에서 direction류 거리 파서와도 공유 가능하게 병기.
+        el.set(DIR_DISTANCE_ATTR, clean)
+    el.set("default-y", str(_calc_direction_default_y(placement, dist)))
 
 
 def _calc_direction_default_y(placement: str, distance: str | None = None) -> int:
@@ -10472,18 +10533,24 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             plc_from = get_placement(from_note)
             plc_to = get_placement(to_note)
             placement = plc_from if plc_from == plc_to else (plc_from or "below")
+        has_distance = "distance" in fix
+        distance = _normalized_slur_distance(fix.get("distance")) if has_distance else None
 
         start = ET.SubElement(from_not, _q(ns, "slur"))
         start.set("type", "start")
         start.set("number", new_num)
         if placement:
             start.set("placement", placement)
+            if has_distance:
+                _set_slur_distance_on_el(start, placement, distance)
 
         stop = ET.SubElement(to_not, _q(ns, "slur"))
         stop.set("type", "stop")
         stop.set("number", new_num)
         if placement:
             stop.set("placement", placement)
+            if has_distance:
+                _set_slur_distance_on_el(stop, placement, distance)
 
         return True
 
@@ -10498,7 +10565,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         which = str(fix.get("slurEnd") or "both").strip().lower()
         if which not in ("start", "stop", "both"):
             which = "both"
-        return _set_slur_pair_placement(notes, ns, idx, which, placement)
+        has_distance = "distance" in fix
+        distance = _normalized_slur_distance(fix.get("distance")) if has_distance else None
+        return _set_slur_pair_placement(notes, ns, idx, which, placement, distance, has_distance)
 
     if kind == "insertRest":
         rest_type = str(fix.get("noteType") or fix.get("restType") or "quarter").strip()

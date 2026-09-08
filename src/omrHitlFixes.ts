@@ -53,7 +53,7 @@ export type OmrHitlFix = {
   directionValue?: string;
   placement?: 'above' | 'below';
   defaultY?: number;
-  distance?: string;
+  distance?: string | null;
   ornament?: string;
   /** 진행 제어 — 마디 처음(start) / 마디 끝(end). above/below보다 우선. */
   measureAnchor?: 'start' | 'end';
@@ -186,7 +186,7 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   addTie: '붙임줄 연결',
   removeSlur: '이음줄 제거',
   addSlur: '이음줄 연결',
-  setSlurPlacement: '이음줄 위/아래',
+  setSlurPlacement: '이음줄 위/아래·거리',
   insertRest: '쉼표 추가',
   insertNote: '음표 추가',
   insertGraceNote: '꾸밈음 추가',

@@ -1,4 +1,6 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import { articulationStaffSpacesFromHint, HITL_DIR_DISTANCE_ATTR } from '../shared/musicXmlArticulationDistance';
+import { HITL_SLUR_DISTANCE_ATTR } from '../shared/musicXmlSlurDistance';
 
 /** OSMD PlacementEnum — 패키지 루트에서 런타임 export 되지 않음 */
 const PLACEMENT_ABOVE = 0;
@@ -48,6 +50,53 @@ type GraphicalSlurLike = {
   /** 빔 이격 보정을 한 번만 적용 (재 render 시 누적 방지) */
   _hitlBeamClearanceApplied?: boolean;
 };
+
+function attrFromUnknown(obj: unknown, names: readonly string[], depth = 0, seen = new Set<unknown>()): string | null {
+  if (!obj || typeof obj !== 'object' || depth > 3 || seen.has(obj)) return null;
+  seen.add(obj);
+  const rec = obj as Record<string, unknown>;
+  const getAttr = rec.getAttribute;
+  if (typeof getAttr === 'function') {
+    for (const name of names) {
+      try {
+        const v = getAttr.call(obj, name);
+        if (typeof v === 'string' && v.trim()) return v.trim();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  for (const [key, value] of Object.entries(rec)) {
+    const keyLow = key.toLowerCase();
+    if (names.some((n) => keyLow === n.toLowerCase() || keyLow.endsWith(n.toLowerCase()))) {
+      if (typeof value === 'string' && value.trim()) return value.trim();
+      if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    }
+  }
+  for (const [key, value] of Object.entries(rec)) {
+    const keyLow = key.toLowerCase();
+    if (!/(slur|xml|source|node|element)/.test(keyLow)) continue;
+    const nested = attrFromUnknown(value, names, depth + 1, seen);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function slurClearanceStaffSpaces(gSlur: GraphicalSlurLike): number {
+  const rawDistance = attrFromUnknown(gSlur.slur ?? gSlur, [
+    HITL_SLUR_DISTANCE_ATTR,
+    HITL_DIR_DISTANCE_ATTR,
+    'SlurDistanceXml',
+    'DefaultYXml',
+    'default-y',
+  ]);
+  if (!rawDistance) return BEAM_SLUR_CLEARANCE_STAFF_SPACES;
+  const numeric = /^-?\d+(?:\.\d+)?$/.test(rawDistance) ? parseFloat(rawDistance) : NaN;
+  if (Number.isFinite(numeric) && Math.abs(numeric) >= 10 && Math.abs(numeric) <= 200) {
+    return Math.abs(numeric) / 10;
+  }
+  return articulationStaffSpacesFromHint(rawDistance, null);
+}
 
 type GraphicSheetLike = {
   MusicPages: Array<{
@@ -209,7 +258,7 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
             slurPlacementOnStemSide(stemEnd, placement);
           if (!onStemSide) continue;
 
-          const dy = beamSlurClearanceDy(placement, unit);
+          const dy = beamSlurClearanceDy(placement, unit, slurClearanceStaffSpaces(gSlur));
           if (Math.abs(dy) < 0.01) continue;
           shiftBezierY(gSlur, dy, dy, 0);
           gSlur._hitlBeamClearanceApplied = true;

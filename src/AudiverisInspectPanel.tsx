@@ -61,6 +61,7 @@ import {
   articulationStaffSpacesFromHint,
   HITL_DIR_DISTANCE_ATTR,
 } from '../shared/musicXmlArticulationDistance';
+import { applySlurDistanceFixesToPreviewXml } from '../shared/musicXmlSlurDistance';
 import { repairMissingNoteTypesForOsmdPreview, repairRestDisplayForOsmdPreview } from '../shared/musicXmlRestDisplay';
 import { normalizeMultivoiceStemsForOsmdPreview } from '../shared/musicXmlStem';
 import { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
@@ -2454,7 +2455,10 @@ export function OsmdBlock({
     );
     // pending 거리를 load XML에 심음(VexFlow는 default-y 무시 → 이후 SVG/y_shift)
     const xmlForOsmdLoad = prepareArticulationDefaultYForOsmdPreview(
-      applyArticulationPlacementFixesToPreviewXml(xmlForOsmd, articulationFixesRef.current),
+      applySlurDistanceFixesToPreviewXml(
+        applyArticulationPlacementFixesToPreviewXml(xmlForOsmd, articulationFixesRef.current),
+        articulationFixesRef.current,
+      ),
     );
     osmdWedgeRulesXmlRef.current = xmlForOsmdLoad;
 

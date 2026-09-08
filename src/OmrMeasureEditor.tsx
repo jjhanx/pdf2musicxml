@@ -435,6 +435,12 @@ export type MeasureNoteEl = {
   slurStartPlacement?: 'above' | 'below' | null;
   /** 이음줄 stop placement (above|below) */
   slurStopPlacement?: 'above' | 'below' | null;
+  /** 이음줄 start 오선 거리(칸 수) */
+  slurStartDistance?: string | null;
+  /** 이음줄 stop 오선 거리(칸 수) */
+  slurStopDistance?: string | null;
+  slurStartDefaultY?: number | null;
+  slurStopDefaultY?: number | null;
   beams?: string[];
   stem?: string | null;
   /** 잇단음표 비율 (예: "3:2" = 세잇단) */
@@ -4020,6 +4026,7 @@ function MeasureNoteEditor({
   const [slurPlacement, setSlurPlacement] = useState<'above' | 'below'>(() =>
     el.stem === 'down' ? 'above' : 'below',
   );
+  const [slurDistance, setSlurDistance] = useState('1');
   const [tripletEnd, setTripletEnd] = useState(() => defaultTripletEndIndex(chordLeaderIndex(el, noteEls), noteEls));
   const [tripletNormalType, setTripletNormalType] = useState(() => defaultTripletNormalType(el));
   const [tripletPreserveTypes, setTripletPreserveTypes] = useState(() =>
@@ -4105,6 +4112,12 @@ function MeasureNoteEditor({
             ? 'above'
             : 'below',
     );
+    setSlurDistance(
+      articulationDistanceSelectValue(
+        el.slurStart ? el.slurStartDistance : el.slurStopDistance,
+        el.slurStart ? el.slurStartDefaultY : el.slurStopDefaultY,
+      ),
+    );
   }, [
     el.index,
     el.pitch,
@@ -4117,6 +4130,10 @@ function MeasureNoteEditor({
     el.stem,
     el.slurStartPlacement,
     el.slurStopPlacement,
+    el.slurStartDistance,
+    el.slurStopDistance,
+    el.slurStartDefaultY,
+    el.slurStopDefaultY,
     noteEls,
   ]);
 
@@ -4134,6 +4151,34 @@ function MeasureNoteEditor({
       (el.staff == null || n.staff == null || n.staff === el.staff),
   );
   const canAddSlur = laterNotes.length > 0 || (Boolean(nextMeasureMxl) && nextSlurNotes.length > 0);
+  const pendingSlurFix = (() => {
+    if (!el.slurStart && !el.slurStop) return undefined;
+    const wantEnd = el.slurStart && el.slurStop ? 'both' : el.slurStart ? 'start' : 'stop';
+    for (let i = pendingFixes.length - 1; i >= 0; i -= 1) {
+      const f = pendingFixes[i]!;
+      if (f.kind !== 'setSlurPlacement') continue;
+      if (!hitlPreviewPartIdsMatch(partId, f.partId)) continue;
+      if (String(f.measureMxl) !== String(measureMxl)) continue;
+      if (f.noteIndex !== el.index) continue;
+      const end = f.slurEnd ?? 'both';
+      if (end !== 'both' && end !== wantEnd) continue;
+      return f;
+    }
+    return undefined;
+  })();
+  const savedSlurPlacement = el.slurStart ? el.slurStartPlacement : el.slurStopPlacement;
+  const savedSlurDistance = el.slurStart ? el.slurStartDistance : el.slurStopDistance;
+  const savedSlurDefaultY = el.slurStart ? el.slurStartDefaultY : el.slurStopDefaultY;
+  const currentSlurPlacement =
+    pendingSlurFix?.placement === 'above' || pendingSlurFix?.placement === 'below'
+      ? pendingSlurFix.placement
+      : savedSlurPlacement === 'above' || savedSlurPlacement === 'below'
+        ? savedSlurPlacement
+        : slurPlacement;
+  const currentSlurDistance = articulationDistanceSelectValue(
+    pendingSlurFix?.distance !== undefined ? pendingSlurFix.distance : savedSlurDistance,
+    savedSlurDefaultY,
+  );
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
   const tripletLeaderIdx = chordLeaderIndex(el, noteEls);
   const tripletCandidates = noteEls.filter((n) => n.index >= tripletLeaderIdx && isRhythmicSlice(n)).slice(0, 8);
@@ -4723,12 +4768,7 @@ function MeasureNoteEditor({
               <label className="omr-measure-inline-field">
                 이음줄 위치
                 <select
-                  value={
-                    (el.slurStart ? el.slurStartPlacement : el.slurStopPlacement) === 'above' ||
-                    (el.slurStart ? el.slurStartPlacement : el.slurStopPlacement) === 'below'
-                      ? ((el.slurStart ? el.slurStartPlacement : el.slurStopPlacement) as 'above' | 'below')
-                      : slurPlacement
-                  }
+                  value={currentSlurPlacement}
                   onChange={(e) => {
                     const next = e.target.value as 'above' | 'below';
                     setSlurPlacement(next);
@@ -4737,12 +4777,39 @@ function MeasureNoteEditor({
                       noteIndex: el.index,
                       slurEnd: el.slurStart && el.slurStop ? 'both' : el.slurStart ? 'start' : 'stop',
                       placement: next,
+                      distance: currentSlurDistance === 'auto' ? null : currentSlurDistance,
                     });
                   }}
                   style={{ marginLeft: 4 }}
                 >
                   <option value="above">위</option>
                   <option value="below">아래</option>
+                </select>
+              </label>
+              <label className="omr-measure-inline-field">
+                이음줄 거리
+                <select
+                  value={currentSlurDistance}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSlurDistance(next);
+                    onFix({
+                      kind: 'setSlurPlacement',
+                      noteIndex: el.index,
+                      slurEnd: el.slurStart && el.slurStop ? 'both' : el.slurStart ? 'start' : 'stop',
+                      placement: currentSlurPlacement,
+                      distance: next === 'auto' ? null : next,
+                    });
+                  }}
+                  style={{ marginLeft: 4 }}
+                  aria-label="이음줄 거리"
+                  title="이음줄을 오선에서 떨어뜨릴 칸 수"
+                >
+                  {ARTICULATION_DISTANCE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
                 </select>
               </label>
             </>
@@ -4775,6 +4842,19 @@ function MeasureNoteEditor({
                 <option value="above">위</option>
                 <option value="below">아래</option>
               </select>
+              <select
+                value={slurDistance}
+                onChange={(e) => setSlurDistance(e.target.value)}
+                style={{ marginLeft: 4 }}
+                aria-label="이음줄 거리"
+                title="이음줄을 오선에서 떨어뜨릴 칸 수"
+              >
+                {ARTICULATION_DISTANCE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 className="omr-hitl-fix-btn"
@@ -4789,6 +4869,7 @@ function MeasureNoteEditor({
                     fromNoteIndex: el.index,
                     toNoteIndex: toIdx,
                     placement: slurPlacement,
+                    distance: slurDistance === 'auto' ? null : slurDistance,
                     ...(isNext && nextMeasureMxl ? { toMeasureMxl: nextMeasureMxl } : {}),
                   });
                 }}

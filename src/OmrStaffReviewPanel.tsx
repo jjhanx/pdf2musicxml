@@ -14,6 +14,7 @@ import { OmrMeasureEditor } from './OmrMeasureEditor';
 import { formatFixSummary, mergeFix, type OmrHitlFix } from './omrHitlFixes';
 import { extraYPxFromArticulationFixes } from './osmdArticulationOffsetFix';
 import { applyArticulationPlacementFixesToPreviewXml } from '../shared/musicXmlArticulationDistance';
+import { applySlurDistanceFixesToPreviewXml } from '../shared/musicXmlSlurDistance';
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
@@ -176,8 +177,12 @@ function isDynamicsPreviewFix(f: OmrHitlFix): boolean {
   );
 }
 
+function isSlurPreviewFix(f: OmrHitlFix): boolean {
+  return f.kind === 'setSlurPlacement' || f.kind === 'addSlur';
+}
+
 function isOsmdPreviewFix(f: OmrHitlFix): boolean {
-  return isArticulationPreviewFix(f) || isDynamicsPreviewFix(f);
+  return isArticulationPreviewFix(f) || isDynamicsPreviewFix(f) || isSlurPreviewFix(f);
 }
 
 function mergeArticulationPreviewFixes(prev: OmrHitlFix[], incoming: OmrHitlFix[]): OmrHitlFix[] {
@@ -1096,7 +1101,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   /** m.49처럼 표·거리가 심긴 XML을 OSMD load에 씀 (previewXml만 쓰면 표 없는 악보를 그림). */
   const articulationHintXml = useMemo(
-    () => applyArticulationPlacementFixesToPreviewXml(previewXml, osmdArticulationFixes),
+    () => applySlurDistanceFixesToPreviewXml(
+      applyArticulationPlacementFixesToPreviewXml(previewXml, osmdArticulationFixes),
+      osmdArticulationFixes,
+    ),
     [previewXml, osmdArticulationFixes],
   );
 

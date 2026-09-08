@@ -2536,6 +2536,7 @@ export function OsmdBlock({
             // 이중 rAF·후속 paint 후에도 표 거리 유지
             window.setTimeout(() => {
               if (stale() || !hostRef.current || osmdRef.current !== o) return;
+              applyOsmdSlurDistanceOffsets(hostRef.current, o);
               applyOsmdArticulationOffsets(hostRef.current, o);
               const hh = hostRef.current;
               if (hh) {
@@ -2667,6 +2668,7 @@ export function OsmdBlock({
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
             window.setTimeout(() => {
               if (gen !== xmlGenRef.current || !hostRef.current || osmdRef.current !== o) return;
+              applyOsmdSlurDistanceOffsets(hostRef.current, o);
               applyOsmdArticulationOffsets(hostRef.current, o);
             }, 50);
           },
@@ -2706,11 +2708,13 @@ export function OsmdBlock({
       afterOsmdRenderSync: (h, o) => {
         finalizeOsmdMeasureNumberPreview(h, o, undefined);
         syncOnsetColumnAlign(h, o);
+        applyOsmdSlurDistanceOffsets(h, o);
         applyOsmdArticulationOffsets(h, o);
         applyOsmdPolyphonicRestOffsets(h, o);
         applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
         window.setTimeout(() => {
           if (gen !== xmlGenRef.current || !hostRef.current || osmdRef.current !== o) return;
+          applyOsmdSlurDistanceOffsets(hostRef.current, o);
           applyOsmdArticulationOffsets(hostRef.current, o);
         }, 50);
       },

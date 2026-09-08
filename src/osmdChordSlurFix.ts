@@ -3,7 +3,7 @@ import {
   collectOrderedSlurDistanceHintsFromXml,
   type SlurDistanceHint,
 } from '../shared/musicXmlSlurDistance';
-import { shiftSvgPathAbsoluteYs } from './osmdArticulationOffsetFix';
+import { shiftSvgPathAbsoluteYs, staffSpacePxFromHost } from './osmdArticulationOffsetFix';
 
 /** OSMD PlacementEnum — 패키지 루트에서 런타임 export 되지 않음 */
 const PLACEMENT_ABOVE = 0;
@@ -332,17 +332,22 @@ function chooseSlurPathForHint(
 }
 
 function applySlurSvgShift(path: SVGPathElement, deltaY: number): void {
-  if (!path.hasAttribute('data-hitl-slur-base-d')) {
-    path.setAttribute('data-hitl-slur-base-d', path.getAttribute('d') || '');
+  const currentD = path.getAttribute('d') || '';
+  const lastAppliedD = path.getAttribute('data-hitl-slur-last-d') || '';
+  if (!path.hasAttribute('data-hitl-slur-base-d') || (lastAppliedD && currentD !== lastAppliedD)) {
+    path.setAttribute('data-hitl-slur-base-d', currentD);
   }
-  const baseD = path.getAttribute('data-hitl-slur-base-d') || path.getAttribute('d') || '';
+  const baseD = path.getAttribute('data-hitl-slur-base-d') || currentD;
   if (Math.abs(deltaY) < 0.01) {
     path.setAttribute('d', baseD);
     path.removeAttribute('data-hitl-slur-shift-y');
+    path.removeAttribute('data-hitl-slur-last-d');
     return;
   }
-  path.setAttribute('d', shiftSvgPathAbsoluteYs(baseD, deltaY));
+  const shiftedD = shiftSvgPathAbsoluteYs(baseD, deltaY);
+  path.setAttribute('d', shiftedD);
   path.setAttribute('data-hitl-slur-shift-y', String(deltaY));
+  path.setAttribute('data-hitl-slur-last-d', shiftedD);
 }
 
 /** render 후 SVG path 직접 보정 — OSMD가 slur default-y/bezier 변화를 무시하는 경우의 확정 경로. */
@@ -363,7 +368,7 @@ export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetM
     };
   });
   const graphicalSlurs = orderedGraphicalSlurs(osmd);
-  const unit = ((osmd.EngravingRules as unknown as { unit?: number }).unit ?? 10) || 10;
+  const staffSpacePx = staffSpacePxFromHost(host, osmd) || 10;
   let shifted = 0;
   const used = new Set<SVGPathElement>();
   for (let i = 0; i < hints.length; i += 1) {
@@ -377,7 +382,7 @@ export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetM
       continue;
     }
     const extraSpaces = Math.max(0, hint.staffSpaces - BEAM_SLUR_CLEARANCE_STAFF_SPACES);
-    const deltaY = (hint.placement === 'above' ? -1 : 1) * extraSpaces * unit;
+    const deltaY = (hint.placement === 'above' ? -1 : 1) * extraSpaces * staffSpacePx;
     applySlurSvgShift(path, deltaY);
     if (Math.abs(deltaY) > 0.01) shifted += 1;
   }

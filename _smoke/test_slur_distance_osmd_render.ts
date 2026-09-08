@@ -102,6 +102,24 @@ const changedIndex = changed[0]!;
 const upperIndex = beforeMins.indexOf(Math.min(...beforeMins));
 assert.equal(changedIndex, upperIndex, 'slur distance shift should target the upper slur path, not the lower tie');
 const afterMin = Math.min(...pathYNumbers(afterPaths[changedIndex]!));
-assert.ok(afterMin < beforeMins[changedIndex]! - 10, `above slur should move upward: before=${beforeMins[changedIndex]} after=${afterMin}`);
+const firstDelta = beforeMins[changedIndex]! - afterMin;
+assert.ok(firstDelta >= 30, `above slur should move by staff-space distance, delta=${firstDelta}`);
+
+osmd.zoom = 1.5;
+osmd.render();
+const zoomBeforePaths = slurPaths(host).map((p) => p.getAttribute('d') || '');
+const zoomBeforeMins = zoomBeforePaths.map((d) => Math.min(...pathYNumbers(d)));
+const zoomShifted = applyOsmdSlurDistanceOffsets(host, osmd);
+const zoomAfterPaths = slurPaths(host).map((p) => p.getAttribute('d') || '');
+const zoomChanged = zoomAfterPaths.flatMap((d, i) => (d === zoomBeforePaths[i] ? [] : [i]));
+
+assert.equal(zoomShifted, 1);
+assert.equal(zoomChanged.length, 1, `expected one shifted path after zoom, got ${zoomChanged.join(',')}`);
+const zoomChangedIndex = zoomChanged[0]!;
+const zoomAfterMin = Math.min(...pathYNumbers(zoomAfterPaths[zoomChangedIndex]!));
+assert.ok(
+  zoomBeforeMins[zoomChangedIndex]! - zoomAfterMin >= 30,
+  `zoom render should keep slur distance shift, delta=${zoomBeforeMins[zoomChangedIndex]! - zoomAfterMin}`,
+);
 
 console.log('slur distance OSMD render ok');

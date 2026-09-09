@@ -7665,41 +7665,9 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
             old_clefs_by_measure.append(_snapshot_note_clefs(part, m, ns, staff_n))
 
     first_target = target_measures[0]
-    # 마디 머리 attributes (첫 note 이전) — mid clef attributes와 구분
-    attrs = None
-    for child in list(first_target):
-        if _local(child) == "note":
-            break
-        if _local(child) == "attributes":
-            attrs = child
-            break
-    if attrs is None:
-        attrs = ET.Element(_q(ns, "attributes"))
-        first_target.insert(0, attrs)
-
-    found_clef = None
-    for c in attrs.findall(_q(ns, "clef")):
-        if _clef_matches_staff(c, staff_n):
-            # number 없는 clef는 staff 1 전용으로만 재사용 (staff 2에 덮어쓰지 않음)
-            c_staff = c.get("number")
-            if c_staff is None and staff_n != 1:
-                continue
-            found_clef = c
-            break
-    if found_clef is None:
-        found_clef = ET.SubElement(attrs, _q(ns, "clef"))
-        if staff_n > 1 or len(attrs.findall(_q(ns, "clef"))) > 1:
-            found_clef.set("number", str(staff_n))
-
-    s_el = found_clef.find(_q(ns, "sign"))
-    if s_el is None:
-        s_el = ET.SubElement(found_clef, _q(ns, "sign"))
-    s_el.text = clef_sign
-
-    l_el = found_clef.find(_q(ns, "line"))
-    if l_el is None:
-        l_el = ET.SubElement(found_clef, _q(ns, "line"))
-    l_el.text = str(clef_line)
+    changed = _ensure_measure_start_clef_on_staff(
+        first_target, ns, staff_n, clef_sign, clef_line
+    )
 
     if remove_subsequent and len(target_measures) > 1:
         for m in target_measures[1:]:
@@ -7712,16 +7680,19 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
                     if c_staff is None and staff_n != 1:
                         continue
                     m_attrs.remove(c)
+                    changed = True
                 if len(list(m_attrs)) == 0:
                     m.remove(m_attrs)
+                    changed = True
 
     if remap_pitches:
         for m, old_clefs in zip(target_measures, old_clefs_by_measure):
-            _remap_measure_notes_after_clef_change(
+            if _remap_measure_notes_after_clef_change(
                 part, m, ns, old_clefs, staff_n
-            )
+            ):
+                changed = True
 
-    return True
+    return changed
 
 
 def _clef_element_targets_staff(clef: ET.Element, staff_n: int) -> bool:
@@ -7927,6 +7898,52 @@ def _ensure_header_clef_on_staff(
     return changed
 
 
+def _ensure_measure_start_clef_on_staff(
+    measure: ET.Element, ns: str, staff_n: int, sign: str, line: int
+) -> bool:
+    """해당 staff 첫 음 전에 적용되는 clef를 하나의 마디 시작 clef로 정규화.
+
+    피아노 PL처럼 staff 1 음 뒤 `<backup>` 다음에 staff 2 시작 clef가 있으면
+    문서상 mid attributes이지만 음악적으로는 그 staff의 마디 시작 clef다.
+    "마디 앞" 삽입은 이전 마디 끝 courtesy만 만들지 말고 이 구간을 직접 갱신한다.
+    """
+    changed = _ensure_header_clef_on_staff(measure, ns, staff_n, sign, line)
+    children = list(measure)
+    first_staff_note_i: int | None = None
+    for i, child in enumerate(children):
+        if _local(child) != "note":
+            continue
+        if (_note_staff_number(child, ns) or 1) == staff_n:
+            first_staff_note_i = i
+            break
+    if first_staff_note_i is None:
+        return changed
+
+    kept = False
+    for child in list(measure)[:first_staff_note_i]:
+        if _local(child) != "attributes":
+            continue
+        for clef in list(child.findall(_q(ns, "clef"))):
+            if not _clef_element_targets_staff(clef, staff_n):
+                continue
+            if not kept:
+                if clef.get("number") is None and staff_n > 1:
+                    clef.set("number", str(staff_n))
+                    changed = True
+                if _rewrite_clef_sign_line(clef, ns, sign, line):
+                    changed = True
+                for oc in list(clef.findall(_q(ns, "clef-octave-change"))):
+                    clef.remove(oc)
+                    changed = True
+                kept = True
+                continue
+            child.remove(clef)
+            changed = True
+        if len(list(child)) == 0 and child in list(measure):
+            measure.remove(child)
+    return changed
+
+
 def _propagate_clef_from_measure_end(
     part: ET.Element,
     start_measure: ET.Element,
@@ -8086,6 +8103,22 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             old_clef_for_delta = ("G", 2)
 
     new_clef = (clef_sign, clef_line)
+
+    # 마디 앞 삽입: 현재 마디의 해당 staff 시작 clef를 직접 갱신한다.
+    # staff 2 시작 clef가 backup 뒤에 있더라도 음악적으로는 이 마디 시작 clef다.
+    if insert_after_idx < 0 and after_clef_index is None:
+        old_clefs = (
+            _snapshot_note_clefs(part, measure, ns, staff_n) if remap_pitches else {}
+        )
+        changed = _ensure_measure_start_clef_on_staff(
+            measure, ns, staff_n, clef_sign, clef_line
+        )
+        if remap_pitches:
+            if _remap_measure_notes_after_clef_change(
+                part, measure, ns, old_clefs, staff_n
+            ):
+                changed = True
+        return changed
 
     # 맨 끝: 현재 마디 불변 → 다음 마디부터 clef/remap
     if at_staff_end and old_clef_for_delta is not None:

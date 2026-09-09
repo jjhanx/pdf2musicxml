@@ -3415,6 +3415,47 @@ def _resolve_insert_after_context(
     return insert_after_idx, staff_n, anchor, following, staff_notes
 
 
+def _insertion_onset_after_note_index(
+    measure: ET.Element, notes: list[ET.Element], ns: str, after_idx: int
+) -> int:
+    """`after_idx` 뒤 삽입 위치의 음악적 onset.
+
+    문서 순서상 뒤에 있어도 `<backup>` 뒤의 병렬 voice는 더 이른 onset일 수 있다.
+    끝 clef 판단은 문서 순서가 아니라 이 음악적 위치를 기준으로 해야 한다.
+    """
+    if after_idx < 0 or after_idx >= len(notes):
+        return 0
+    leader_idx = _chord_leader_index(notes, ns, after_idx)
+    leader = notes[leader_idx]
+    onsets = _musicxml_leader_onsets(measure, ns)
+    return onsets.get(leader, 0) + _note_duration(leader, ns)
+
+
+def _has_staff_leader_at_or_after_onset(
+    measure: ET.Element, ns: str, staff_n: int, onset: int
+) -> bool:
+    """같은 staff에 `onset` 이후 시작하는 leader note가 있는지."""
+    for note, note_onset in _musicxml_leader_onsets(measure, ns).items():
+        if (_note_staff_number(note, ns) or 1) != staff_n:
+            continue
+        if note_onset >= onset:
+            return True
+    return False
+
+
+def _insert_attributes_at_measure_end(measure: ET.Element, new_el: ET.Element) -> None:
+    """오른쪽 barline 직전(없으면 append)에 attributes 삽입."""
+    children = list(measure)
+    for i, child in enumerate(children):
+        if _local(child) != "barline":
+            continue
+        loc = (child.get("location") or "right").strip().lower()
+        if loc in ("right", ""):
+            measure.insert(i, new_el)
+            return
+    measure.append(new_el)
+
+
 def _default_articulation_placement(note: ET.Element, ns: str) -> str | None:
     """표는 줄기 반대(음표 머리) 쪽 — stem up→below, stem down→above."""
     stem_el = note.find(_q(ns, "stem"))
@@ -7919,10 +7960,14 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         return False
 
     notes = list_note_elements(measure, ns)
-    insert_after_idx, staff_n, _anchor, following, _staff_notes = _resolve_insert_after_context(
+    insert_after_idx, staff_n, _anchor, _following, _staff_notes = _resolve_insert_after_context(
         notes, ns, after_idx, staff_n
     )
-    at_staff_end = following is None and after_clef_index is None
+    insert_onset = _insertion_onset_after_note_index(measure, notes, ns, insert_after_idx)
+    has_later_staff_note = _has_staff_leader_at_or_after_onset(
+        measure, ns, staff_n, insert_onset
+    )
+    at_staff_end = not has_later_staff_note and after_clef_index is None
 
     old_clef_for_delta: tuple[str, int] | None = None
     if 0 <= insert_after_idx < len(notes):
@@ -7971,15 +8016,7 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 measure, ns, staff_n, notes[insert_after_idx]
             )
         attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n)
-        _insert_note_element(
-            measure,
-            ns,
-            attrs,
-            insert_after_idx,
-            staff_n=staff_n,
-            after_clef_index=after_clef_index,
-            skip_trailing_attributes=False,
-        )
+        _insert_attributes_at_measure_end(measure, attrs)
         return True
 
     # 중간 삽입: 지정 음 뒤 mid clef + 이후만 remap

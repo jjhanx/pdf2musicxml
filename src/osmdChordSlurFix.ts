@@ -430,6 +430,26 @@ function slurStemSpanForPath(
     return dy <= verticalLimit;
   }).sort((a, b) => a.x - b.x);
   if (nearby.length < 2) return null;
+
+  // If the path already reaches just past a stem, treat that stem as the
+  // intended endpoint. Otherwise a slightly overshooting control point can make
+  // the next note's stem look like the slur endpoint and stretch the curve by
+  // one extra note.
+  const endpointSlack = Math.max(8, staffSpacePx * 2);
+  for (let i = nearby.length - 1; i >= 1; i -= 1) {
+    const right = nearby[i]!;
+    if (right.x > pathInfo.maxX) continue;
+    if (pathInfo.maxX - right.x > endpointSlack) continue;
+    const next = nearby[i + 1];
+    if (next && next.x - right.x <= endpointSlack) continue;
+    const left = nearby[i - 1]!;
+    if (right.x <= left.x + staffSpacePx) continue;
+    return {
+      minX: Math.min(pathInfo.minX, left.x),
+      maxX: pathInfo.maxX,
+    };
+  }
+
   const rightIdx = nearby.findIndex((s) => s.x >= pathInfo.maxX - staffSpacePx * 0.25);
   if (rightIdx > 0) {
     const left = nearby[rightIdx - 1]!;

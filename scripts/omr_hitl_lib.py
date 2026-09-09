@@ -1930,6 +1930,102 @@ def _mid_measure_clef_snap(
     }
 
 
+def _list_head_measure_clef_pairs(measure: ET.Element, ns: str) -> list[tuple[ET.Element, ET.Element]]:
+    """첫 note 이전 머리 `<attributes><clef>` 목록."""
+    out: list[tuple[ET.Element, ET.Element]] = []
+    for child in measure:
+        tag = _local(child)
+        if tag == "note":
+            break
+        if tag != "attributes":
+            continue
+        for clef in child.findall(_q(ns, "clef")):
+            out.append((child, clef))
+    return out
+
+
+def _clef_staff_number_for_snap(clef: ET.Element) -> int:
+    num = clef.get("number")
+    if num and str(num).strip().isdigit():
+        return int(str(num).strip())
+    return 1
+
+
+def _head_clef_snap(
+    clef: ET.Element,
+    ns: str,
+    clef_index: int,
+    *,
+    after_note_index: int,
+    target_measure_mxl: str,
+    scope: str,
+) -> dict[str, Any]:
+    parsed = _clef_sign_line(clef, ns) or ("G", 2)
+    return {
+        "elementKind": "clef",
+        "kind": "clef",
+        "clefIndex": clef_index,
+        "index": clef_index,
+        "afterNoteIndex": after_note_index,
+        "beforeNoteIndex": None,
+        "clefSign": parsed[0],
+        "clefLine": parsed[1],
+        "staff": _clef_staff_number_for_snap(clef),
+        "clefScope": scope,
+        "targetMeasureMxl": target_measure_mxl,
+    }
+
+
+def _last_note_index_on_staff(notes: list[ET.Element], ns: str, staff_n: int) -> int:
+    out = -1
+    for i, note in enumerate(notes):
+        if (_note_staff_number(note, ns) or 1) == staff_n:
+            out = i
+    return out
+
+
+def _next_measure(part: ET.Element, ns: str, measure: ET.Element) -> ET.Element | None:
+    measures = part.findall(_q(ns, "measure"))
+    try:
+        idx = measures.index(measure)
+    except ValueError:
+        return None
+    if idx + 1 >= len(measures):
+        return None
+    return measures[idx + 1]
+
+
+def _following_header_clef_snaps(
+    part: ET.Element, ns: str, measure: ET.Element, notes: list[ET.Element]
+) -> list[dict[str, Any]]:
+    """다음 마디 머리 clef 중 현재 마디 끝 예고표로 보일 수 있는 항목."""
+    next_m = _next_measure(part, ns, measure)
+    if next_m is None:
+        return []
+    next_mxl = str(next_m.get("number") or "")
+    cur_mxl = str(measure.get("number") or "")
+    out: list[dict[str, Any]] = []
+    for i, (_attrs, clef) in enumerate(_list_head_measure_clef_pairs(next_m, ns)):
+        staff_n = _clef_staff_number_for_snap(clef)
+        cur = _effective_clef_for_measure(part, ns, cur_mxl, staff_n)
+        nxt = _clef_sign_line(clef, ns)
+        if nxt is None:
+            continue
+        if cur and (cur.get("sign"), int(cur.get("line") or 0)) == nxt:
+            continue
+        out.append(
+            _head_clef_snap(
+                clef,
+                ns,
+                i,
+                after_note_index=_last_note_index_on_staff(notes, ns, staff_n),
+                target_measure_mxl=next_mxl,
+                scope="nextHeader",
+            )
+        )
+    return out
+
+
 def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     """마디 `<direction>` (템포 제외) — OCR 제목·마디번호 words 등 HITL 편집용."""
     out: list[dict[str, Any]] = []
@@ -2429,6 +2525,7 @@ def measure_snapshot(root: ET.Element, ns: str, part_id: str, measure_mxl: str) 
         return None
     notes = list_note_elements(measure, ns)
     elements = measure_elements_snapshot(measure, ns)
+    elements.extend(_following_header_clef_snaps(part, ns, measure, notes))
     tempos = _measure_tempo_snapshot(measure, ns)
     effective = _effective_tempo_bpm_before(root, ns, part_id, measure_mxl)
     # staff별: 첫 음에 적용되는 clef (trailing 끝 clef 제외)
@@ -8046,7 +8143,7 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
 
 def _apply_remove_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
-    """마디 중간·끝 음자리표 attributes 블록 제거."""
+    """마디 머리·중간·끝 음자리표 attributes 블록 제거."""
     part_id = str(fix.get("partId") or "").strip()
     measure_mxl = str(fix.get("measureMxl") or "").strip()
     try:
@@ -8059,6 +8156,25 @@ def _apply_remove_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     measure = find_measure(part, ns, measure_mxl)
     if measure is None:
         return False
+    scope = str(fix.get("clefScope") or "").strip()
+    if scope in ("header", "head", "nextHeader"):
+        head_clefs = _list_head_measure_clef_pairs(measure, ns)
+        if clef_index < 0 or clef_index >= len(head_clefs):
+            return False
+        attrs, clef = head_clefs[clef_index]
+        staff_hint = fix.get("staff")
+        if staff_hint is not None:
+            try:
+                staff_n = int(str(staff_hint).strip())
+            except ValueError:
+                staff_n = 1
+            if _clef_staff_number_for_snap(clef) != staff_n:
+                return False
+        attrs.remove(clef)
+        if len(list(attrs)) == 0:
+            measure.remove(attrs)
+        return True
+
     clefs = _list_mid_measure_clef_attrs(measure, ns)
     if clef_index < 0 or clef_index >= len(clefs):
         return False

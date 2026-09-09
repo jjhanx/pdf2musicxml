@@ -407,6 +407,9 @@ export type MeasureClefEl = {
   clefSign?: string;
   clefLine?: number;
   staff?: number | null;
+  /** mid=current measure body, nextHeader=다음 마디 머리 clef가 현재 마디 끝 예고로 보이는 경우 */
+  clefScope?: 'mid' | 'header' | 'nextHeader' | string;
+  targetMeasureMxl?: string | null;
 };
 
 export type MeasureNoteEl = {
@@ -1797,6 +1800,15 @@ function elementTitle(
   if (el.elementKind === 'clef') {
     const sign = (el.clefSign ?? 'G').toUpperCase();
     const name = sign === 'F' ? '낮은음자리표(𝄢)' : sign === 'C' ? '가온음자리표(𝄡)' : '높은음자리표(𝄞)';
+    if (el.clefScope === 'nextHeader') {
+      const target = el.targetMeasureMxl ? `m.${el.targetMeasureMxl}` : '다음 마디';
+      return `음자리표 clef#${el.clefIndex} ${name} · ${target} 머리 예고(현재 마디 끝에 보일 수 있음)${
+        el.staff != null ? ` staff=${el.staff}` : ''
+      }`;
+    }
+    if (el.clefScope === 'header') {
+      return `음자리표 clef#${el.clefIndex} ${name} · 마디 머리${el.staff != null ? ` staff=${el.staff}` : ''}`;
+    }
     const staffScope = ctx?.editStaffWithinPart;
     let where: string;
     if (el.afterNoteIndex < 0) {
@@ -3235,7 +3247,7 @@ export function OmrMeasureEditor({
         <ol className="omr-measure-element-list">
           {displayElements.map((el) =>
             isMeasureClefEl(el) ? (
-              <li key={`clef-${el.clefIndex}`}>
+              <li key={`clef-${el.clefScope ?? 'mid'}-${el.targetMeasureMxl ?? measureMxl}-${el.clefIndex}`}>
                 <div className="omr-measure-element-title">
                   {elementTitle(el, noteEls, { partId, staffLabel, editStaffWithinPart })}
                 </div>
@@ -3244,34 +3256,45 @@ export function OmrMeasureEditor({
                     type="button"
                     className="omr-hitl-fix-btn"
                     onClick={() => {
+                      const isNextHeader = el.clefScope === 'nextHeader';
                       pushFix({
                         kind: 'removeClef',
+                        measureMxl: isNextHeader && el.targetMeasureMxl ? String(el.targetMeasureMxl) : undefined,
                         clefIndex: el.clefIndex,
+                        clefScope: isNextHeader ? 'header' : el.clefScope === 'header' ? 'header' : undefined,
                         staff: el.staff ?? editStaffWithinPart ?? 1,
-                        detail: `clef#${el.clefIndex} 삭제`,
+                        detail: isNextHeader
+                          ? `m.${el.targetMeasureMxl} 머리 clef#${el.clefIndex} 삭제`
+                          : `clef#${el.clefIndex} 삭제`,
                       });
                       setFixMsg(
-                        `음자리표 clef#${el.clefIndex} 삭제 대기 → 「MXL에 반영·미리보기」`,
+                        isNextHeader
+                          ? `다음 m.${el.targetMeasureMxl} 머리 예고 음자리표 clef#${el.clefIndex} 삭제 대기 → 「MXL에 반영·미리보기」`
+                          : `음자리표 clef#${el.clefIndex} 삭제 대기 → 「MXL에 반영·미리보기」`,
                       );
                     }}
                   >
                     음자리표 삭제
                   </button>
-                  <span className="omr-measure-insert-label">이 위치 뒤에 추가:</span>
-                  <button
-                    type="button"
-                    className="btn-muted omr-measure-insert-btn"
-                    onClick={() => {
-                      setInsertAfter(el.afterNoteIndex);
-                      setInsertAfterClef(el.clefIndex);
-                      setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
-                      setFixMsg(
-                        `삽입 위치: 음자리표 clef#${el.clefIndex} 뒤 — 아래 폼에서 음표·쉼표를 넣으세요.`,
-                      );
-                    }}
-                  >
-                    여기 뒤
-                  </button>
+                  {el.clefScope !== 'nextHeader' && el.clefScope !== 'header' ? (
+                    <>
+                      <span className="omr-measure-insert-label">이 위치 뒤에 추가:</span>
+                      <button
+                        type="button"
+                        className="btn-muted omr-measure-insert-btn"
+                        onClick={() => {
+                          setInsertAfter(el.afterNoteIndex);
+                          setInsertAfterClef(el.clefIndex);
+                          setInsertStaff(el.staff ?? editStaffWithinPart ?? 1);
+                          setFixMsg(
+                            `삽입 위치: 음자리표 clef#${el.clefIndex} 뒤 — 아래 폼에서 음표·쉼표를 넣으세요.`,
+                          );
+                        }}
+                      >
+                        여기 뒤
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </li>
             ) : (

@@ -39,6 +39,8 @@ export type OmrHitlFix = {
   afterClefIndex?: number;
   /** removeClef — mid-measure clef 블록 순번 */
   clefIndex?: number;
+  /** removeClef — mid 생략, header=첫 note 이전 마디 머리 clef */
+  clefScope?: 'mid' | 'header' | 'nextHeader' | string;
   leaderNoteIndex?: number;
   toMeasureMxl?: string;
   fromMeasureMxl?: string;
@@ -238,6 +240,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.afterNoteIndex ?? '',
     fix.afterClefIndex ?? '',
     fix.clefIndex ?? '',
+    fix.clefScope ?? '',
     fix.leaderNoteIndex ?? '',
     fix.tieEnd ?? '',
     fix.slurEnd ?? '',
@@ -537,6 +540,7 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     if (fix.remapStaffPitches) parts.push('오선위치유지·음높이변환');
   }
   if (fix.kind === 'removeClef' && fix.clefIndex != null) {
+    if (fix.clefScope === 'header') parts.push('마디 머리');
     parts.push(`clef#${fix.clefIndex}`);
   }
   if (fix.fromNoteIndex != null && fix.toNoteIndex != null) {

@@ -63,6 +63,11 @@ function hideArticulationGlyphEl(p: Element): void {
   else p.setAttribute('opacity', '0');
 }
 
+/** VexFlow duration Dot — `.vf-dot` 클래스가 없어도 작은 원(A2 2)로 그려진다. */
+export function isDurationDotGlyphPath(d: string): boolean {
+  return /A\s*2(?:\.0+)?\s+2(?:\.0+)?/i.test(d) && (d.match(/A/gi) ?? []).length <= 2;
+}
+
 export function hideNativeArticulationGlyphs(staveNoteSvg: Element): number {
   let n = 0;
   for (const mod of staveNoteSvg.querySelectorAll('.vf-modifiers')) {
@@ -72,6 +77,7 @@ export function hideNativeArticulationGlyphs(staveNoteSvg: Element): number {
       if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental, .vf-dot, .vf-dots')) {
         continue;
       }
+      if (isDurationDotGlyphPath(p.getAttribute('d') || '')) continue;
       hideArticulationGlyphEl(p);
       n += 1;
     }
@@ -84,6 +90,15 @@ export function hideArticulationGlyphElements(els: Element[]): number {
   let n = 0;
   for (const p of els) {
     if (!p) continue;
+    if (p.classList?.contains?.('vf-modifiers') || /\bvf-modifiers\b/.test(p.getAttribute('class') || '')) {
+      for (const child of p.querySelectorAll(':scope > path, :scope > text, :scope > use')) {
+        if (isDurationDotGlyphPath(child.getAttribute('d') || '')) continue;
+        hideArticulationGlyphEl(child);
+        n += 1;
+      }
+      continue;
+    }
+    if (isDurationDotGlyphPath(p.getAttribute('d') || '')) continue;
     hideArticulationGlyphEl(p);
     n += 1;
   }

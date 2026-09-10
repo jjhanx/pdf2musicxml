@@ -182,7 +182,10 @@ function isSlurPreviewFix(f: OmrHitlFix): boolean {
 }
 
 function isOsmdPreviewFix(f: OmrHitlFix): boolean {
-  return isArticulationPreviewFix(f) || isDynamicsPreviewFix(f) || isSlurPreviewFix(f);
+  if (isArticulationPreviewFix(f) || isDynamicsPreviewFix(f) || isSlurPreviewFix(f)) return true;
+  if (f.kind === 'removeArticulation' && Boolean(f.articulation)) return true;
+  if (f.kind === 'removeNoteDirection' || f.kind === 'clearNoteDirection') return true;
+  return false;
 }
 
 function mergeArticulationPreviewFixes(prev: OmrHitlFix[], incoming: OmrHitlFix[]): OmrHitlFix[] {
@@ -1124,12 +1127,18 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
    * “거리 조절이 안 됨”으로 보였음. 거리는 applyPending(절대 Y)만 사용.
    */
   const artPreviewOsmdKey = useMemo(() => {
-    const arts = osmdArticulationFixes.filter(isArticulationPreviewFix);
+    const arts = osmdArticulationFixes.filter(
+      (f) =>
+        isArticulationPreviewFix(f) ||
+        f.kind === 'removeArticulation' ||
+        f.kind === 'removeNoteDirection' ||
+        f.kind === 'clearNoteDirection',
+    );
     if (!arts.length) return osmdPreviewKey;
     const sig = arts
       .map(
         (f) =>
-          `${f.kind}:${f.articulation}:${f.placement ?? ''}:${f.noteIndex ?? ''}:${f.partId ?? ''}:${f.measureMxl ?? ''}`,
+          `${f.kind}:${f.articulation ?? ''}:${f.directionType ?? ''}:${f.directionValue ?? ''}:${f.placement ?? ''}:${f.noteIndex ?? ''}:${f.partId ?? ''}:${f.measureMxl ?? ''}`,
       )
       .join('|');
     return `${osmdPreviewKey}::${sig}`;

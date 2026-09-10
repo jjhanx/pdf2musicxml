@@ -60,7 +60,8 @@ assert snap2["elements"][0].get("noteDirection") == {
     "directionType": "dynamics",
     "directionValue": "mf",
     "placement": "above",
-}
+    "defaultY": 10,
+}, snap2["elements"][0]
 
 # dynamics + 쉼표 index — 쉼표 위(앞 음 뒤)
 root_rest = ET.fromstring("""<score-partwise version="3.1">
@@ -421,8 +422,8 @@ assert apply_fix(
 snap_both = measure_snapshot(root_both, "", "P1", "1")
 el0 = snap_both["elements"][0]
 assert el0.get("noteDirections") == [
-    {"directionType": "words", "directionValue": "a tempo"},
-    {"directionType": "dynamics", "directionValue": "ff", "placement": "above"},
+    {"directionType": "words", "directionValue": "a tempo", "placement": "above", "defaultY": 10},
+    {"directionType": "dynamics", "directionValue": "ff", "placement": "above", "defaultY": 10},
 ], el0
 m_both = root_both.find(".//{*}measure")
 note_both = m_both.find("{*}note")
@@ -430,5 +431,37 @@ assert note_both.find(".//{*}dynamics/{*}ff") is not None
 dirs_both = [c for c in m_both if _local(c.tag) == "direction"]
 assert len(dirs_both) == 1
 assert dirs_both[0].find(".//{*}words").text == "a tempo"
+
+# removeNoteDirection(dynamics) — 음표 앞 <direction><ff> 도 함께 제거 (미리보기·편집기 일치)
+root_rm = ET.fromstring(
+    """<score-partwise version="3.1">
+<part id="P2"><measure number="69">
+<attributes><divisions>24</divisions></attributes>
+<note><pitch><step>E</step><octave>4</octave></pitch><duration>48</duration><type>half</type></note>
+<direction placement="below"><direction-type><dynamics><ff/></dynamics></direction-type></direction>
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>24</duration><type>quarter</type>
+<notations><dynamics><ff/></dynamics></notations>
+</note>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>12</duration><type>eighth</type></note>
+</measure></part></score-partwise>"""
+)
+assert apply_fix(
+    root_rm,
+    "",
+    {
+        "kind": "removeNoteDirection",
+        "partId": "P2",
+        "measureMxl": "69",
+        "noteIndex": 1,
+        "directionType": "dynamics",
+        "directionValue": "ff",
+    },
+)
+m_rm = root_rm.find(".//{*}measure")
+assert m_rm.find(".//{*}dynamics") is None, ET.tostring(m_rm, encoding="unicode")
+assert m_rm.find("{*}direction") is None, ET.tostring(m_rm, encoding="unicode")
+snap_rm = measure_snapshot(root_rm, "", "P2", "69")
+a4_el = next(e for e in snap_rm["elements"] if e.get("pitch") == "A4")
+assert not a4_el.get("noteDirection") and not a4_el.get("noteDirections"), a4_el
 
 print("direction hitl ok")

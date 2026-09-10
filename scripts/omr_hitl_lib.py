@@ -9594,28 +9594,37 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         note = notes[note_idx]
         changed = False
-        
+
         if direction_type == "dynamics":
             tag = direction_value.lower() or "p"
             changed = _remove_note_dynamics(note, ns, detail=tag)
-        else:
-            children = list(measure)
-            try:
-                ni = children.index(note)
-            except ValueError:
-                return changed
-            for j in range(ni - 1, -1, -1):
-                c = children[j]
-                if _local(c) == "direction":
-                    dtype = c.find(_q(ns, "direction-type"))
-                    if dtype is not None:
-                        mark = dtype.find(_q(ns, direction_type))
-                        if mark is not None and (mark.text or "").strip() == direction_value:
-                            measure.remove(c)
-                            changed = True
-                            break
-                if _local(c) == "note":
-                    break
+
+        children = list(measure)
+        try:
+            ni = children.index(note)
+        except ValueError:
+            return changed
+        for j in range(ni - 1, -1, -1):
+            c = children[j]
+            if _local(c) == "note":
+                break
+            if _local(c) != "direction":
+                continue
+            info = _direction_element_info(c, ns)
+            info_type = str(info.get("directionType") or "").strip().lower()
+            info_val = str(info.get("directionValue") or "").strip().lower()
+            want_val = direction_value.strip().lower()
+            if info_type != direction_type:
+                continue
+            if want_val and info_val != want_val:
+                # dynamics p vs dyn:p
+                if direction_type == "dynamics" and info_val.replace("dyn:", "") != want_val.replace("dyn:", ""):
+                    continue
+                if direction_type != "dynamics":
+                    continue
+            measure.remove(c)
+            changed = True
+            break
         return changed
 
     if kind == "insertDirection":

@@ -348,29 +348,63 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
   if (next.kind === 'removeArticulation' && next.noteIndex != null && next.articulation) {
     const mxl = String(next.measureMxl);
     const art = next.articulation.split('(')[0]!.trim().toLowerCase();
-    const withoutAdd = fixes.filter(
+    const sameNoteArt = (f: OmrHitlFix) =>
+      f.partId === next.partId &&
+      String(f.measureMxl) === mxl &&
+      f.noteIndex === next.noteIndex &&
+      (f.articulation ?? '').split('(')[0]!.trim().toLowerCase() === art;
+    const hadAdd = fixes.some((f) => f.kind === 'addArticulation' && sameNoteArt(f));
+    const filtered = fixes.filter(
       (f) =>
         !(
-          f.kind === 'addArticulation' &&
-          f.partId === next.partId &&
-          String(f.measureMxl) === mxl &&
-          f.noteIndex === next.noteIndex &&
-          (f.articulation ?? '').split('(')[0]!.trim().toLowerCase() === art
+          (f.kind === 'addArticulation' ||
+            f.kind === 'setArticulationPlacement' ||
+            f.kind === 'removeArticulation') &&
+          sameNoteArt(f)
         ),
     );
     // 대기 추가만 취소한 경우 — remove를 큐에 남기지 않음(원본에 표가 없음)
-    if (withoutAdd.length < fixes.length) {
-      return withoutAdd.filter(
-        (f) =>
-          !(
-            f.kind === 'setArticulationPlacement' &&
-            f.partId === next.partId &&
-            String(f.measureMxl) === mxl &&
-            f.noteIndex === next.noteIndex &&
-            (f.articulation ?? '').split('(')[0]!.trim().toLowerCase() === art
-          ),
-      );
-    }
+    if (hadAdd) return filtered;
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
+  if (next.kind === 'removeNoteDirection' && next.noteIndex != null) {
+    const mxl = String(next.measureMxl);
+    const dtype = (next.directionType || '').trim().toLowerCase();
+    const dval = (next.directionValue || '').trim().toLowerCase();
+    const sameDir = (f: OmrHitlFix) =>
+      f.partId === next.partId &&
+      String(f.measureMxl) === mxl &&
+      f.noteIndex === next.noteIndex &&
+      (f.directionType || '').trim().toLowerCase() === dtype &&
+      (f.directionValue || '').trim().toLowerCase() === dval;
+    const hadAdd = fixes.some((f) => f.kind === 'addNoteDirection' && sameDir(f));
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          (f.kind === 'addNoteDirection' ||
+            f.kind === 'setNoteDirectionPlacement' ||
+            f.kind === 'removeNoteDirection') &&
+          sameDir(f)
+        ),
+    );
+    if (hadAdd) return filtered;
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
+  if (next.kind === 'clearNoteDirection' && next.noteIndex != null) {
+    const mxl = String(next.measureMxl);
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          (f.kind === 'addNoteDirection' ||
+            f.kind === 'setNoteDirectionPlacement' ||
+            f.kind === 'removeNoteDirection' ||
+            f.kind === 'clearNoteDirection') &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl &&
+          f.noteIndex === next.noteIndex
+        ),
+    );
+    return [...filtered, { ...next, id: next.id || newFixId() }];
   }
   if (next.kind === 'setArticulationPlacement' && next.noteIndex != null && next.articulation) {
     const mxl = String(next.measureMxl);

@@ -258,13 +258,23 @@ export function registerOsmdArticulationFixes(
   osmd: OpenSheetMusicDisplay,
   fixes: ReadonlyArray<ArticulationPreviewFix>,
 ): void {
+  const removed = new Set(
+    fixes
+      .filter((f) => f.kind === 'removeArticulation' && f.articulation)
+      .map(
+        (f) =>
+          `${f.partId || ''}|${f.measureMxl}|${(f.articulation ?? '').split('(')[0]!.trim().toLowerCase()}|${f.noteIndex ?? ''}`,
+      ),
+  );
   articulationFixesByOsmd.set(
     osmd,
-    fixes.filter(
-      (f) =>
-        (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') &&
-        Boolean(f.articulation),
-    ),
+    fixes.filter((f) => {
+      if ((f.kind !== 'setArticulationPlacement' && f.kind !== 'addArticulation') || !f.articulation) {
+        return false;
+      }
+      const key = `${f.partId || ''}|${f.measureMxl}|${(f.articulation ?? '').split('(')[0]!.trim().toLowerCase()}|${f.noteIndex ?? ''}`;
+      return !removed.has(key);
+    }),
   );
 }
 
@@ -1634,12 +1644,20 @@ function xmlNotesMatchingStave(
   opts: { pitches: string[]; staff: number; timestamp: number | null },
 ): XmlArtNote[] {
   if (!list?.length) return [];
-  return list.filter((n) => {
+  const staffPitch = list.filter((n) => {
     if (n.staff !== opts.staff) return false;
     if (n.pitch && opts.pitches.length && !graphicPitchesMatchFix(opts.pitches, n.pitch)) return false;
-    if (opts.timestamp == null || !Number.isFinite(n.onsetFrac)) return false;
-    return Math.abs(opts.timestamp - n.onsetFrac) <= ART_ONSET_TS_TOL;
+    return true;
   });
+  if (opts.timestamp != null && Number.isFinite(opts.timestamp)) {
+    const byTs = staffPitch.filter(
+      (n) => Number.isFinite(n.onsetFrac) && Math.abs(opts.timestamp! - n.onsetFrac) <= ART_ONSET_TS_TOL,
+    );
+    if (byTs.length) return byTs;
+  }
+  // timestamp 없거나 스케일 불일치: 같은 마디에서 피치+staff가 유일이면 그 음
+  if (staffPitch.length === 1) return staffPitch;
+  return [];
 }
 
 /** pending 거리 — 해당 마디·파트·피치(또는 staff)에 맞는 articulation만 이동 */
@@ -2188,16 +2206,26 @@ function applyAbsoluteArticulationDistances(
           [...byTag.values()].filter((s) => s.fromPending).map((s) => s.tag),
         );
 
-        // XML에 없는 네이티브 표는 숨김 (삽입한 뒤 음에 OSMD가 붙인 유령 accent)
-        // XML 음표를 못 찾으면 숨기지 않음 — 잘못된 ord로 실제 표를 지우는 부작용 방지
-        if (staveNoteSvg && matchedXml.length) {
+        // XML에 없는 네이티브 표는 숨김 (삽입·삭제 뒤 음에 OSMD가 붙인 유령 accent)
+        // 매칭 실패 시에도 같은 피치 XML이 그 표를 안 가지면 숨김 (편집기에 없는 잔상)
+        if (staveNoteSvg) {
           const ghostEls: Element[] = [];
+          const xmlNotes = xmlNotesByMeasure.get(ordKey) ?? [];
           for (let i = 0; i < artMods.length; i += 1) {
             const tag = artTagFromVexModType(artMods[i]?.type);
             if (!tag || !HITL_ART_OVERLAY_GLYPH[tag]) continue;
             // fermata(a@a)를 breath-mark로 오인해서 지우지 않음
             if (tag === 'breath-mark' || tag === 'caesura') continue;
             if (ownedTags.has(tag) || pendingTags.has(tag)) continue;
+            const samePitchOwns = xmlNotes.some(
+              (n) =>
+                n.staff === staffWithinPart &&
+                n.pitch &&
+                notePitches.length &&
+                graphicPitchesMatchFix(notePitches, n.pitch) &&
+                n.tags.includes(tag),
+            );
+            if (!matchedXml.length && samePitchOwns) continue;
             const el = artEls[i];
             if (el) ghostEls.push(el);
           }

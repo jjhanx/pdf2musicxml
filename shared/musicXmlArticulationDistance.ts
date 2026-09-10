@@ -1,4 +1,5 @@
 /** HITL articulation & direction 거리 — MusicXML accent, dynamics, words 등 (미리보기·MXL 공통). */
+import { HITL_DYNAMICS_TAG_NAMES } from './musicXmlDynamics';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 
 export const HITL_ART_DISTANCE_ATTR = 'data-hitl-art-distance';
@@ -289,16 +290,20 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
   const matchesStaff = (n: Element) => staffW == null || noteStaffNumber(n) === staffW;
   const isRest = (n: Element) => Boolean(n.querySelector(':scope > rest, :scope > *|rest'));
   const isAdd = fix.kind === 'addArticulation';
+  const isRemove =
+    fix.kind === 'removeArticulation' ||
+    fix.kind === 'removeNoteDirection' ||
+    fix.kind === 'clearNoteDirection';
 
-  // addArticulation: noteIndex 우선(아직 표가 없어 matchesArt가 실패함)
-  if (isAdd && fix.noteIndex != null && notes[fix.noteIndex]) {
+  // add/remove: noteIndex 우선(아직 표가 없거나 곧 지울 음 — matchesArt가 실패함)
+  if ((isAdd || isRemove) && fix.noteIndex != null && notes[fix.noteIndex]) {
     const target = notes[fix.noteIndex]!;
     if (!isRest(target) && matchesPitch(target) && matchesStaff(target)) return target;
     if (!isRest(target) && matchesPitch(target)) return target;
   }
 
   // 피치(+표) — PR/PL 분할·스태프 필터 후에도 편집기 noteIndex와 무관하게 같은 음표를 찾음
-  if (wantPitch && art && !isAdd) {
+  if (wantPitch && art && !isAdd && !isRemove) {
     const hits = notes.filter((n) => !isRest(n) && matchesArt(n) && matchesPitch(n) && matchesStaff(n));
     if (hits[0]) return hits[0]!;
     const anyPitch = notes.filter((n) => !isRest(n) && matchesArt(n) && matchesPitch(n));
@@ -318,7 +323,7 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
   // 분할 전 part의 document-order noteIndex (마디 편집기와 동일)
   if (fix.noteIndex != null && notes[fix.noteIndex]) {
     const target = notes[fix.noteIndex]!;
-    if (isAdd || (matchesArt(target) && matchesPitch(target))) return target;
+    if (isAdd || isRemove || (matchesArt(target) && matchesPitch(target))) return target;
   }
 
   if (art) {
@@ -400,16 +405,169 @@ function applyArticulationAttrsToNote(
   return changed;
 }
 
-/** HITL 대기 보정 — articulation 거리/위치를 OSMD 미리보기 XML에 즉시 반영. */
+function artNameOf(raw: string | undefined): string {
+  return (raw ?? '').split('(')[0]!.trim().toLowerCase().replace(/_/g, '-');
+}
+
+function stripArticulationFromNote(note: Element, articulation: string): boolean {
+  const artName = artNameOf(articulation);
+  if (!artName) return false;
+  let changed = false;
+  for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+    for (const arts of [...nots.children].filter((c) => xmlLocalName(c) === 'articulations')) {
+      for (const el of [...arts.children]) {
+        if (xmlLocalName(el).replace(/_/g, '-') !== artName) continue;
+        arts.removeChild(el);
+        changed = true;
+      }
+      if (![...arts.children].length) nots.removeChild(arts);
+    }
+    if (![...nots.children].length) note.removeChild(nots);
+  }
+  return changed;
+}
+
+function stripNoteNotationsDynamics(note: Element, tag: string | null): boolean {
+  let changed = false;
+  const want = (tag ?? '').trim().toLowerCase();
+  for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+    for (const dyn of [...nots.children].filter((c) => xmlLocalName(c) === 'dynamics')) {
+      const tags = [...dyn.children].map((c) => xmlLocalName(c)).filter((t) => HITL_DYNAMICS_TAG_NAMES.has(t));
+      if (want && tags.length && !tags.includes(want)) continue;
+      nots.removeChild(dyn);
+      changed = true;
+    }
+    if (![...nots.children].length) note.removeChild(nots);
+  }
+  return changed;
+}
+
+function directionDynamicsTags(dir: Element): string[] {
+  const out: string[] = [];
+  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    for (const dyn of [...dt.children].filter((c) => xmlLocalName(c) === 'dynamics')) {
+      for (const c of [...dyn.children]) {
+        const t = xmlLocalName(c);
+        if (HITL_DYNAMICS_TAG_NAMES.has(t)) out.push(t);
+      }
+    }
+  }
+  return out;
+}
+
+function directionWordsText(dir: Element): string {
+  const parts: string[] = [];
+  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    for (const w of [...dt.children].filter((c) => xmlLocalName(c) === 'words' || xmlLocalName(c) === 'rehearsal')) {
+      const t = (w.textContent || '').trim();
+      if (t) parts.push(t);
+    }
+  }
+  return parts.join(' ').trim();
+}
+
+function isTempoOrNavigationDirection(dir: Element): boolean {
+  if (dir.querySelector(':scope > sound[tempo], :scope > *|sound[tempo]')) return true;
+  for (const sound of [...dir.children].filter((c) => xmlLocalName(c) === 'sound')) {
+    if (sound.getAttribute('tocoda') || sound.getAttribute('dalsegno')) return true;
+    const fine = (sound.getAttribute('fine') || '').toLowerCase();
+    if (fine === 'yes' || fine === 'true' || fine === '1') return true;
+    const dacapo = (sound.getAttribute('dacapo') || '').toLowerCase();
+    if (dacapo === 'yes' || dacapo === 'true' || dacapo === '1') return true;
+  }
+  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    for (const c of [...dt.children]) {
+      const t = xmlLocalName(c);
+      if (t === 'metronome' || t === 'segno' || t === 'coda') return true;
+    }
+  }
+  return false;
+}
+
+function directionMatchesRemove(dir: Element, fix: ArticulationPreviewFix): boolean {
+  if (isTempoOrNavigationDirection(dir)) return false;
+  const dtype = (fix.directionType || '').trim().toLowerCase();
+  const dval = (fix.directionValue || '').trim().toLowerCase();
+  if (dtype === 'dynamics' || HITL_DYNAMICS_TAG_NAMES.has(dval)) {
+    const tags = directionDynamicsTags(dir);
+    if (!tags.length) return false;
+    return !dval || tags.includes(dval);
+  }
+  if (!dtype) {
+    return directionDynamicsTags(dir).length > 0 || Boolean(directionWordsText(dir));
+  }
+  for (const dt of [...dir.children].filter((c) => xmlLocalName(c) === 'direction-type')) {
+    for (const child of [...dt.children]) {
+      if (xmlLocalName(child) !== dtype) continue;
+      const text = (child.textContent || '').trim().toLowerCase();
+      if (!dval || text === dval) return true;
+    }
+  }
+  if (dtype === 'words' || dtype === 'rehearsal') {
+    return !dval || directionWordsText(dir).toLowerCase() === dval;
+  }
+  return false;
+}
+
+/** 음표 직전 direction 중 조건에 맞는 것만 제거(이전 음 앞에서 멈춤). */
+function stripPrecedingDirections(
+  measure: Element,
+  note: Element,
+  pred: (dir: Element) => boolean,
+): boolean {
+  const kids = [...measure.children];
+  const ni = kids.indexOf(note);
+  if (ni < 0) return false;
+  let changed = false;
+  for (let j = ni - 1; j >= 0; j -= 1) {
+    const c = kids[j]!;
+    const tag = xmlLocalName(c);
+    if (tag === 'note') break;
+    if (tag !== 'direction') continue;
+    if (!pred(c)) continue;
+    measure.removeChild(c);
+    changed = true;
+  }
+  return changed;
+}
+
+function applyDirectionRemoveToNote(
+  measure: Element,
+  note: Element,
+  fix: ArticulationPreviewFix,
+): boolean {
+  let changed = false;
+  if (fix.kind === 'clearNoteDirection') {
+    changed = stripNoteNotationsDynamics(note, null) || changed;
+    changed =
+      stripPrecedingDirections(measure, note, (d) => !isTempoOrNavigationDirection(d)) || changed;
+    return changed;
+  }
+  const dtype = (fix.directionType || '').trim().toLowerCase();
+  const dval = (fix.directionValue || '').trim().toLowerCase();
+  if (dtype === 'dynamics' || HITL_DYNAMICS_TAG_NAMES.has(dval)) {
+    changed = stripNoteNotationsDynamics(note, dval || null) || changed;
+  }
+  changed = stripPrecedingDirections(measure, note, (d) => directionMatchesRemove(d, fix)) || changed;
+  return changed;
+}
+
+function isPreviewXmlMutationFix(f: ArticulationPreviewFix): boolean {
+  if (
+    (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation' || f.kind === 'removeArticulation') &&
+    Boolean(f.articulation)
+  ) {
+    return true;
+  }
+  return f.kind === 'removeNoteDirection' || f.kind === 'clearNoteDirection';
+}
+
+/** HITL 대기 보정 — 표·셈여림 추가/삭제/거리를 OSMD 미리보기 XML에 즉시 반영(편집기와 동일). */
 export function applyArticulationPlacementFixesToPreviewXml(
   xml: string,
   fixes: ReadonlyArray<ArticulationPreviewFix>,
 ): string {
-  const artFixes = fixes.filter(
-    (f) =>
-      (f.kind === 'setArticulationPlacement' || f.kind === 'addArticulation') &&
-      Boolean(f.articulation),
-  );
+  const artFixes = fixes.filter(isPreviewXmlMutationFix);
   if (!artFixes.length) return xml;
 
   const doc = parseMusicXmlDocument(xml);
@@ -430,6 +588,14 @@ export function applyArticulationPlacementFixesToPreviewXml(
       if (!measure) continue;
       const note = findNoteForArticulationFix(measure, fix);
       if (!note) continue;
+      if (fix.kind === 'removeArticulation') {
+        if (stripArticulationFromNote(note, fix.articulation || '')) changed = true;
+        continue;
+      }
+      if (fix.kind === 'removeNoteDirection' || fix.kind === 'clearNoteDirection') {
+        if (applyDirectionRemoveToNote(measure, note, fix)) changed = true;
+        continue;
+      }
       if (applyArticulationAttrsToNote(note, fix)) changed = true;
     }
   }

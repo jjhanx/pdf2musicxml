@@ -2198,6 +2198,18 @@ def measure_elements_snapshot(measure: ET.Element, ns: str) -> list[dict[str, An
                 snap["displayPlayOrder"] = defaults.get(idx)
             else:
                 snap["displayPlayOrder"] = snap.get("playOrder")
+    for i, snap in enumerate(elements):
+        if not snap.get("chord"):
+            continue
+        j = i - 1
+        while j >= 0 and elements[j].get("chord"):
+            j -= 1
+        if j < 0:
+            continue
+        if snap.get("displayPlayOrder") is None:
+            snap["displayPlayOrder"] = elements[j].get("displayPlayOrder")
+        if snap.get("defaultPlayOrder") is None:
+            snap["defaultPlayOrder"] = elements[j].get("defaultPlayOrder")
     _apply_play_order_column_x_to_snapshot(measure, ns, elements)
     elements.sort(key=_snapshot_timeline_sort_key)
 
@@ -4877,11 +4889,19 @@ def _find_chord_leader_index_for_fix(
     1) leaderNoteIndex가 아직 그 피치의 리더면 그대로
     2) leaderPitch* (+ staff/voice) 매칭
     3) 인덱스가 다른 화음 멤버를 가리키면(앞쪽 삽입으로 밀림) 그 그룹이 아닌 뒤쪽 리더 우선
+
+    꾸밈음 리더에도 화음 멤버를 붙일 수 있다. 본음과 꾸밈음은 같은 피치여도 섞지 않는다.
     """
     try:
         leader_idx = int(fix.get("leaderNoteIndex", fix.get("noteIndex", -1)))
     except (TypeError, ValueError):
         leader_idx = -1
+    grace_probe = leader_idx
+    if 0 <= leader_idx < len(notes) and notes[leader_idx].find(_q(ns, "chord")) is not None:
+        grace_probe = _chord_leader_index(notes, ns, leader_idx)
+    want_grace = (
+        0 <= grace_probe < len(notes) and notes[grace_probe].find(_q(ns, "grace")) is not None
+    )
     step = str(fix.get("leaderPitchStep") or "").strip()
     staff_want = fix.get("staff")
     try:
@@ -4899,6 +4919,11 @@ def _find_chord_leader_index_for_fix(
         if not voice_want:
             return True
         return _note_voice_staff(note, ns)[0] == voice_want
+
+    def _grace_ok(note: ET.Element) -> bool:
+        if note.get("cue") == "yes":
+            return False
+        return (note.find(_q(ns, "grace")) is not None) == want_grace
 
     def _pitch_ok(note: ET.Element, octave: int, alter_n: int) -> bool:
         key = _note_pitch_key(note, ns)
@@ -4923,7 +4948,7 @@ def _find_chord_leader_index_for_fix(
         cand = notes[leader_idx]
         if (
             cand.find(_q(ns, "chord")) is None
-            and not _is_grace_or_cue(cand, ns)
+            and _grace_ok(cand)
             and _staff_ok(cand)
             and _voice_ok(cand)
         ):
@@ -4933,9 +4958,9 @@ def _find_chord_leader_index_for_fix(
     matches: list[int] = []
     if step and octave is not None:
         for i, note in enumerate(notes):
-            if note.find(_q(ns, "chord")) is not None or _is_grace_or_cue(note, ns):
+            if note.find(_q(ns, "chord")) is not None:
                 continue
-            if not _staff_ok(note) or not _voice_ok(note):
+            if not _grace_ok(note) or not _staff_ok(note) or not _voice_ok(note):
                 continue
             if _pitch_ok(note, octave, alter_n):
                 matches.append(i)
@@ -6208,10 +6233,14 @@ def _build_chord_member_from_leader(
     octave: int,
     alter: int | None,
 ) -> ET.Element:
-    """리더와 같은 시점·박자·voice·stem으로 `<chord/>` 멤버 생성."""
+    """리더와 같은 시점·박자·voice·stem으로 `<chord/>` 멤버 생성.
+
+    리더가 꾸밈음이면 `<grace>`를 복사한다(화음 꾸밈음). duration은 본음 리더에만 있다.
+    """
     new_note = ET.Element(_q(ns, "note"))
     if leader.get("default-x"):
         new_note.set("default-x", leader.get("default-x"))
+    _copy_note_child(new_note, leader, ns, "grace")
     ET.SubElement(new_note, _q(ns, "chord"))
     pitch_el = ET.SubElement(new_note, _q(ns, "pitch"))
     ET.SubElement(pitch_el, _q(ns, "step")).text = step
@@ -6225,6 +6254,7 @@ def _build_chord_member_from_leader(
     tm = leader.find(_q(ns, "time-modification"))
     if tm is not None:
         new_note.append(copy.deepcopy(tm))
+    _sort_note_children(new_note, ns)
     return new_note
 
 
@@ -9741,7 +9771,12 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
         staff_n = _note_staff_number(target_note, ns) or int(fix.get("staff") or 1)
         voice, stem = _infer_voice_stem_from_neighbors(notes, ns, before_idx, staff_n)
+        as_chord = bool(fix.get("asChord") or fix.get("chordGraceNotes"))
+        if as_chord and len(grace_list) < 2:
+            as_chord = False
         beam_grace = bool(fix.get("beamGraceNotes", fix.get("beam", len(grace_list) >= 2)))
+        if as_chord:
+            beam_grace = False
 
         insert_after_idx = before_idx - 1
         if insert_after_idx >= 0 and target_note.find(_q(ns, "grace")) is None:
@@ -9764,7 +9799,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 defaults = _default_play_orders_for_staff(measure, ns, str(staff_n))
                 insert_po = defaults.get(before_idx, 1)
 
-            shift_count = len(grace_list)
+            shift_count = 1 if as_chord else len(grace_list)
             for n in notes:
                 if n.find(_q(ns, "chord")) is not None:
                     continue
@@ -9807,12 +9842,17 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 stem=group_stem,
                 slash=g_slash_b,
             )
+            if as_chord and k > 0:
+                grace_el = new_note.find(_q(ns, "grace"))
+                insert_at = list(new_note).index(grace_el) + 1 if grace_el is not None else 0
+                new_note.insert(insert_at, ET.Element(_q(ns, "chord")))
+                _sort_note_children(new_note, ns)
 
-            x_offset = (total_k - k) * 12.0
+            x_offset = 0.0 if as_chord else (total_k - k) * 12.0
             new_note.set("default-x", f"{max(fx - x_offset, 1.0):.2f}")
 
-            if insert_po is not None:
-                new_note.set(PLAY_ORDER_ATTR, str(insert_po + k))
+            if insert_po is not None and (not as_chord or k == 0):
+                new_note.set(PLAY_ORDER_ATTR, str(insert_po + (0 if as_chord else k)))
 
             created_notes.append(new_note)
 

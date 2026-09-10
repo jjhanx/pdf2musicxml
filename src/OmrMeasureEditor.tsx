@@ -4083,6 +4083,7 @@ function MeasureNoteEditor({
     { step: parsed.step, octave: parsed.octave, alter: pitchAlterToOption(el.pitchAlter), noteType: '16th' },
   ]);
   const [beamGraceNotes, setBeamGraceNotes] = useState(true);
+  const [asChordGrace, setAsChordGrace] = useState(false);
   const [graceSlash, setGraceSlash] = useState(false);
 
   useEffect(() => {
@@ -4100,6 +4101,7 @@ function MeasureNoteEditor({
       { step: p.step, octave: p.octave, alter: pitchAlterToOption(el.pitchAlter), noteType: '16th' },
     ]);
     setBeamGraceNotes(true);
+    setAsChordGrace(false);
     setGraceSlash(false);
     setNoteTypeValueSel(
       noteTypeValue(el.type ?? 'quarter', el.dotCount ?? (el.isDotted ? 1 : 0)),
@@ -5212,14 +5214,33 @@ function MeasureNoteEditor({
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
             {graceNotesDraft.length >= 2 ? (
-              <label className="omr-measure-inline-field" style={{ fontWeight: 600, color: '#1d4ed8' }}>
-                <input
-                  type="checkbox"
-                  checked={beamGraceNotes}
-                  onChange={(e) => setBeamGraceNotes(e.target.checked)}
-                />
-                빔(연결줄) 연결
-              </label>
+              <>
+                <label className="omr-measure-inline-field" style={{ fontWeight: 600, color: '#1d4ed8' }}>
+                  <input
+                    type="checkbox"
+                    checked={asChordGrace}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setAsChordGrace(on);
+                      if (on) setBeamGraceNotes(false);
+                    }}
+                  />
+                  화음으로 넣기
+                </label>
+                <label className="omr-measure-inline-field" style={{ fontWeight: 600, color: asChordGrace ? '#94a3b8' : '#1d4ed8' }}>
+                  <input
+                    type="checkbox"
+                    checked={beamGraceNotes && !asChordGrace}
+                    disabled={asChordGrace}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setBeamGraceNotes(on);
+                      if (on) setAsChordGrace(false);
+                    }}
+                  />
+                  빔(연결줄) 연결
+                </label>
+              </>
             ) : null}
             <label className="omr-measure-inline-field">
               <input
@@ -5258,14 +5279,19 @@ function MeasureNoteEditor({
                       noteType: g.noteType,
                       graceSlash,
                     })),
-                    beamGraceNotes,
+                    asChord: asChordGrace,
+                    beamGraceNotes: asChordGrace ? false : beamGraceNotes,
                     graceSlash,
                   });
                 }
               }}
             >
               {graceNotesDraft.length > 1
-                ? `앞에 빔 연결 꾸밈음 삽입 (${graceNotesDraft.length}개)`
+                ? asChordGrace
+                  ? `앞에 화음 꾸밈음 삽입 (${graceNotesDraft.length}음)`
+                  : beamGraceNotes
+                    ? `앞에 빔 연결 꾸밈음 삽입 (${graceNotesDraft.length}개)`
+                    : `앞에 꾸밈음 삽입 (${graceNotesDraft.length}개)`
                 : '앞에 꾸밈음 추가'}
             </button>
             {gracesBefore.length > 0 && !el.hasGrace ? (
@@ -5285,11 +5311,12 @@ function MeasureNoteEditor({
           </div>
         </div>
       )}
-      {el.kind === 'note' && !el.chord && !el.hasGrace ? (
+      {el.kind === 'note' && !el.chord ? (
         <div className="omr-measure-chord-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
           <span className="omr-measure-chord-hint">
-            빠진 화음 음 — 리더 #{chordLeaderIdx}
-            {chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 와 같은 박자·줄기. 여러 음 한 번에 추가 가능.
+            {el.hasGrace
+              ? `꾸밈음 화음 — 리더 #${chordLeaderIdx}${chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 와 같은 꾸밈음 기둥. 여러 음 한 번에 추가 가능.`
+              : `빠진 화음 음 — 리더 #${chordLeaderIdx}${chordLeaderEl?.pitch ? ` (${chordLeaderEl.pitch})` : ''} 와 같은 박자·줄기. 여러 음 한 번에 추가 가능.`}
           </span>
           {chordDrafts.map((row, i) => (
             <div key={`chord-draft-${i}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>

@@ -80,6 +80,8 @@ export type OmrHitlFix = {
     graceSlash?: boolean;
   }>;
   beamGraceNotes?: boolean;
+  /** insertGraceNote — 여러 꾸밈음을 순차가 아니라 한 화음 기둥으로 */
+  asChord?: boolean;
   fromPitch?: string;
   toPitch?: string;
   fromStaff?: number;

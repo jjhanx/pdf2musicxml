@@ -24,6 +24,7 @@ import {
   hideNativeArticulationGlyphs,
   HITL_ART_OVERLAY_GLYPH,
   isDurationDotGlyphPath,
+  isFermataGlyphPath,
   overlayArticulationY,
   paintHitlArticulationOverlayTexts,
   pathStartXY,
@@ -161,6 +162,11 @@ type VfArticulationLike = {
   constructor?: { prototype: { draw: (...a: unknown[]) => unknown }; __hitlArtDrawPatched?: boolean };
 };
 
+function isFermataModType(t: string): boolean {
+  const s = t.toLowerCase();
+  return s.includes('fermata') || s.includes('a@');
+}
+
 function isVfArticulationMod(m: VfArticulationLike | null | undefined): boolean {
   if (!m) return false;
   const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
@@ -168,12 +174,12 @@ function isVfArticulationMod(m: VfArticulationLike | null | undefined): boolean 
   if (cat.includes('dot') || cat.includes('flag') || cat.includes('stem')) return false;
   if (cat.includes('articulation')) {
     const t = String(m.type ?? '').toLowerCase();
-    // fermata(a@a)는 HITL overlay 표가 아님 — breath-mark로 오인하면 ','/'.' 잔상
-    if (t.includes('a@a') || t.includes('fermata')) return false;
+    // fermata(a@a/a@u)는 HITL overlay 표가 아님 — breath-mark로 오인하면 ','/'.' 잔상
+    if (isFermataModType(t)) return false;
     return true;
   }
   const t = String(m.type ?? '').toLowerCase();
-  if (t.includes('a@a') || t.includes('fermata')) return false;
+  if (isFermataModType(t)) return false;
   // VexFlow articulation codes: a> a- a. a^  (정확히 — 'a.' includes 는 a@a 등과 혼동)
   return t === 'a>' || t === 'a-' || t === 'a.' || t === 'a^' || t === 'av' || t === 'ao' || t === 'ah' || t === 'abr' || t === 'am';
 }
@@ -1116,7 +1122,7 @@ export function findArticulationElementsInStavenote(stavenote: Element): Element
       const parentStavenote = p.closest('.vf-stavenote');
       if (parentStavenote && parentStavenote !== stavenote) return false;
       const d = p.getAttribute('d') ?? '';
-      if (isDurationDotGlyphPath(d)) return false;
+      if (isDurationDotGlyphPath(d) || isFermataGlyphPath(d)) return false;
       // 덧줄(단순 가로 직선 L x y) 제외 — tenuto(짧은 막대)는 곡선이 없어도 포함해야 함
       const isLedgerLike =
         /L\s*[-\d.eE+]+\s+[-\d.eE+]+\s*$/i.test(d) &&
@@ -1159,7 +1165,7 @@ function articulationModTypeMatchesHint(artModType: string | undefined, hintTag:
 function artTagFromVexModType(artModType: string | undefined): string | null {
   const t = (artModType ?? '').toLowerCase().trim();
   if (!t) return null;
-  if (t.includes('a@a') || t.includes('fermata')) return null;
+  if (isFermataModType(t)) return null;
   if (t === 'a>' || (t.includes('accent') && !t.includes('strong'))) return 'accent';
   if (t === 'a-' || t === 'tenuto') return 'tenuto';
   if (t === 'a.' || t === 'staccato') return 'staccato';
@@ -2295,38 +2301,24 @@ function applyAbsoluteArticulationDistances(
           [...byTag.values()].filter((s) => s.fromPending).map((s) => s.tag),
         );
 
-        // XML에 없는 네이티브 표는 숨김 (삽입 화음에 OSMD가 같은 x의 PR 표를 붙인 유령)
-        // duration dot 과 페르마타는 유지. artEls 인덱스로 점을 지우지 않음.
+        // XML에 없는 overlay 표(accent/tenuto 등)만 숨김.
+        // 늘임표는 artMods에서 빠지므로 미식별 artEls를 전부 지우면 OSMD 페르마타가 사라짐.
         if (staveNoteSvg) {
-          const keep = new Set<Element>();
+          const ghostEls: Element[] = [];
+          const pushGhost = (el: Element | null | undefined) => {
+            if (!el || ghostEls.includes(el)) return;
+            const d = el.getAttribute('d') || '';
+            if (isDurationDotGlyphPath(d) || isFermataGlyphPath(d)) return;
+            ghostEls.push(el);
+          };
           for (let i = 0; i < artMods.length; i += 1) {
             const tag = artTagFromVexModType(artMods[i]?.type);
-            const keepThis =
-              !tag ||
-              !HITL_ART_OVERLAY_GLYPH[tag] ||
-              ownedTags.has(tag) ||
-              pendingTags.has(tag);
-            if (!keepThis) continue;
-            for (const el of paintTargetsForOneArticulation(artMods[i], artEls, i, new Set())) {
-              keep.add(el);
-            }
-            const vexEl = vexModifierSvg(artMods[i]);
-            if (vexEl) keep.add(vexEl);
-          }
-          const ghostEls: Element[] = [];
-          for (const el of artEls) {
-            if (keep.has(el)) continue;
-            if (isDurationDotGlyphPath(el.getAttribute('d') || '')) continue;
-            ghostEls.push(el);
-          }
-          for (const mod of artMods) {
-            const tag = artTagFromVexModType(mod.type);
             if (!tag || !HITL_ART_OVERLAY_GLYPH[tag]) continue;
             if (ownedTags.has(tag) || pendingTags.has(tag)) continue;
-            const vexEl = vexModifierSvg(mod);
-            if (vexEl && !ghostEls.includes(vexEl) && !isDurationDotGlyphPath(vexEl.getAttribute('d') || '')) {
-              ghostEls.push(vexEl);
+            for (const el of paintTargetsForOneArticulation(artMods[i], artEls, i, new Set())) {
+              pushGhost(el);
             }
+            pushGhost(vexModifierSvg(artMods[i]));
           }
           if (ghostEls.length) hideArticulationGlyphElements(ghostEls);
         }

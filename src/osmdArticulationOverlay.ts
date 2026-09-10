@@ -68,6 +68,21 @@ export function isDurationDotGlyphPath(d: string): boolean {
   return /A\s*2(?:\.0+)?\s+2(?:\.0+)?/i.test(d) && (d.match(/A/gi) ?? []).length <= 2;
 }
 
+/**
+ * OSMD/VexFlow 늘임표: 아치 + 가운데 점 blob (M≥3, C가 많음).
+ * tenuto/accent는 보통 M=2·C≤12. duration 점(A2 2)과도 구분.
+ */
+export function isFermataGlyphPath(d: string): boolean {
+  if (!d) return false;
+  const mCount = (d.match(/M/g) ?? []).length;
+  const cCount = (d.match(/C/gi) ?? []).length;
+  return mCount >= 3 && cCount >= 16;
+}
+
+function isProtectedNativeGlyphPath(d: string): boolean {
+  return isDurationDotGlyphPath(d) || isFermataGlyphPath(d);
+}
+
 export function hideNativeArticulationGlyphs(staveNoteSvg: Element): number {
   let n = 0;
   for (const mod of staveNoteSvg.querySelectorAll('.vf-modifiers')) {
@@ -77,7 +92,7 @@ export function hideNativeArticulationGlyphs(staveNoteSvg: Element): number {
       if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental, .vf-dot, .vf-dots')) {
         continue;
       }
-      if (isDurationDotGlyphPath(p.getAttribute('d') || '')) continue;
+      if (isProtectedNativeGlyphPath(p.getAttribute('d') || '')) continue;
       hideArticulationGlyphEl(p);
       n += 1;
     }
@@ -85,20 +100,20 @@ export function hideNativeArticulationGlyphs(staveNoteSvg: Element): number {
   return n;
 }
 
-/** XML에 없는 표만 숨김 — 뒤 음에 OSMD가 붙인 유령 accent 등. */
+/** XML에 없는 표만 숨김 — 뒤 음에 OSMD가 붙인 유령 accent 등. 늘임표·점은 유지. */
 export function hideArticulationGlyphElements(els: Element[]): number {
   let n = 0;
   for (const p of els) {
     if (!p) continue;
     if (p.classList?.contains?.('vf-modifiers') || /\bvf-modifiers\b/.test(p.getAttribute('class') || '')) {
       for (const child of p.querySelectorAll(':scope > path, :scope > text, :scope > use')) {
-        if (isDurationDotGlyphPath(child.getAttribute('d') || '')) continue;
+        if (isProtectedNativeGlyphPath(child.getAttribute('d') || '')) continue;
         hideArticulationGlyphEl(child);
         n += 1;
       }
       continue;
     }
-    if (isDurationDotGlyphPath(p.getAttribute('d') || '')) continue;
+    if (isProtectedNativeGlyphPath(p.getAttribute('d') || '')) continue;
     hideArticulationGlyphEl(p);
     n += 1;
   }

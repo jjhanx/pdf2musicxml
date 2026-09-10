@@ -5,6 +5,8 @@ import {
   extraLiftedArticulationStaffSpaces,
   HITL_ART_DISTANCE_ATTR,
   HITL_LIFTED_ART_ATTR,
+  HITL_SRC_NOTE_INDEX_ATTR,
+  HITL_SRC_STAFF_ATTR,
   isLiftedArticulationGlyph,
   parseArticulationStaffSpaces,
   pitchLabelFromArticulationFix,
@@ -161,10 +163,18 @@ type VfArticulationLike = {
 function isVfArticulationMod(m: VfArticulationLike | null | undefined): boolean {
   if (!m) return false;
   const cat = String(m.getCategory?.() ?? m.category ?? '').toLowerCase();
-  if (cat.includes('articulation')) return true;
+  // 점 음표의 duration dot · 깃대 등은 표가 아님
+  if (cat.includes('dot') || cat.includes('flag') || cat.includes('stem')) return false;
+  if (cat.includes('articulation')) {
+    const t = String(m.type ?? '').toLowerCase();
+    // fermata(a@a)는 HITL overlay 표가 아님 — breath-mark로 오인하면 ','/'.' 잔상
+    if (t.includes('a@a') || t.includes('fermata')) return false;
+    return true;
+  }
   const t = String(m.type ?? '').toLowerCase();
-  // VexFlow articulation codes: a> a- a. a^ a@a abr am …
-  return /^a[>.\-^@|,]/.test(t) || t === 'av' || t === 'ao' || t === 'ah' || t === 'abr' || t === 'am';
+  if (t.includes('a@a') || t.includes('fermata')) return false;
+  // VexFlow articulation codes: a> a- a. a^  (정확히 — 'a.' includes 는 a@a 등과 혼동)
+  return t === 'a>' || t === 'a-' || t === 'a.' || t === 'a^' || t === 'av' || t === 'ao' || t === 'ah' || t === 'abr' || t === 'am';
 }
 
 /** VexFlow Articulation.prototype.draw — HITL staffSpaces → text_line. 한 번만. */
@@ -1097,9 +1107,11 @@ export function findArticulationElementsInStavenote(stavenote: Element): Element
   const out: Element[] = [];
   const mods = stavenote.querySelectorAll('.vf-modifiers');
   for (const mod of mods) {
+    if (mod.classList?.contains?.('vf-dot') || mod.classList?.contains?.('vf-dots')) continue;
+    if (/\bvf-dot/.test(mod.getAttribute('class') || '')) continue;
     const paths = [...mod.querySelectorAll('path')].filter((p) => {
       // 자식 stavenote(그레이스노트), 음표머리, 타이, 덧줄, 임시표 내부의 path는 무조건 제외
-      if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental')) return false;
+      if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental, .vf-dot, .vf-dots')) return false;
       const parentStavenote = p.closest('.vf-stavenote');
       if (parentStavenote && parentStavenote !== stavenote) return false;
       const d = p.getAttribute('d') ?? '';
@@ -1135,7 +1147,7 @@ function articulationModTypeMatchesHint(artModType: string | undefined, hintTag:
   if (h.includes('accent') && !h.includes('strong')) {
     return t.includes('a>') || (t.includes('accent') && !t.includes('strong'));
   }
-  if (h.includes('staccato')) return t.includes('a.') || t.includes('staccato');
+  if (h.includes('staccato')) return t === 'a.' || t.includes('staccato');
   if (h.includes('tenuto')) return t.includes('a-') || t.includes('tenuto');
   if (h.includes('marcato') || h.includes('strong')) return t.includes('a^') || t.includes('marcato');
   return true;
@@ -1143,13 +1155,14 @@ function articulationModTypeMatchesHint(artModType: string | undefined, hintTag:
 
 /** VexFlow Articulation.type → MusicXML art tag (힌트·pending 매칭용). */
 function artTagFromVexModType(artModType: string | undefined): string | null {
-  const t = (artModType ?? '').toLowerCase();
+  const t = (artModType ?? '').toLowerCase().trim();
   if (!t) return null;
-  if (t.includes('a>') || (t.includes('accent') && !t.includes('strong'))) return 'accent';
-  if (t.includes('a-') || t.includes('tenuto')) return 'tenuto';
-  if (t.includes('a.') || t.includes('staccato')) return 'staccato';
-  if (t.includes('a^') || t.includes('marcato') || t.includes('strong')) return 'strong-accent';
-  if (t.includes('a@') || t.includes('breath')) return 'breath-mark';
+  if (t.includes('a@a') || t.includes('fermata')) return null;
+  if (t === 'a>' || (t.includes('accent') && !t.includes('strong'))) return 'accent';
+  if (t === 'a-' || t === 'tenuto') return 'tenuto';
+  if (t === 'a.' || t === 'staccato') return 'staccato';
+  if (t === 'a^' || t.includes('marcato') || t.includes('strong')) return 'strong-accent';
+  if (t === 'a,' || t === 'breath' || t === 'breath-mark') return 'breath-mark';
   return null;
 }
 
@@ -1586,6 +1599,9 @@ function xmlArtNotesByMeasure(xml: string): Map<string, XmlArtNote[]> {
         }
         if (tag !== 'note') continue;
         editorIndex += 1;
+        const srcIdxRaw = child.getAttribute(HITL_SRC_NOTE_INDEX_ATTR)?.trim();
+        const usedIndex =
+          srcIdxRaw && /^\d+$/.test(srcIdxRaw) ? parseInt(srcIdxRaw, 10) : editorIndex;
         const isChord = Boolean(child.querySelector(':scope > chord, :scope > *|chord'));
         const isGrace = Boolean(child.querySelector(':scope > grace, :scope > *|grace'));
         const isRest = Boolean(child.querySelector(':scope > rest, :scope > *|rest'));
@@ -1614,10 +1630,15 @@ function xmlArtNotesByMeasure(xml: string): Map<string, XmlArtNote[]> {
             }
           }
         }
+        const srcStaffRaw = child.getAttribute(HITL_SRC_STAFF_ATTR)?.trim();
+        let staff = noteStaffNumber(child);
+        if (srcStaffRaw && /^\d+$/.test(srcStaffRaw)) staff = parseInt(srcStaffRaw, 10);
+        else if (partId.endsWith('__PL')) staff = 2;
+        else if (partId.endsWith('__PR')) staff = 1;
         list.push({
-          editorIndex,
+          editorIndex: usedIndex,
           pitch: notePitchLabel(child),
-          staff: noteStaffNumber(child),
+          staff,
           onsetFrac: onset / len,
           tags,
         });
@@ -1639,24 +1660,59 @@ function osmdTimestampFromGve(gve: Record<string, unknown>): number | null {
 
 const ART_ONSET_TS_TOL = 0.04;
 
+function xmlStaffMatchesGraphic(
+  xmlStaff: number,
+  graphicStaff: number,
+  partId: string,
+  xmlStaffs?: Set<number>,
+): boolean {
+  if (xmlStaff === graphicStaff) return true;
+  const fromId = staffWithinPartFromPartId(partId);
+  // P5__PL 그래픽 staff=2, 분할 XML은 staff 태그가 1
+  if (fromId != null && graphicStaff === fromId && (xmlStaff === 1 || xmlStaff === fromId)) return true;
+  // PL-only 필터: part id는 P5, 그래픽 staff=1, stamp 원본 staff=2
+  if (fromId == null && xmlStaffs && xmlStaffs.size === 1 && xmlStaffs.has(xmlStaff)) return true;
+  return false;
+}
+
+function graphicPitchesCoveredByXml(notePitches: string[], xmlNotes: XmlArtNote[]): boolean {
+  if (!notePitches.length) return true;
+  return notePitches.every((gp) =>
+    xmlNotes.some((n) => n.pitch && (pitchLabelsMatch(n.pitch, gp) || pitchLetterOctaveMatch(n.pitch, gp))),
+  );
+}
+
 function xmlNotesMatchingStave(
   list: XmlArtNote[] | undefined,
-  opts: { pitches: string[]; staff: number; timestamp: number | null },
+  opts: { pitches: string[]; staff: number; timestamp: number | null; partId: string },
 ): XmlArtNote[] {
   if (!list?.length) return [];
+  const xmlStaffs = new Set(list.map((n) => n.staff));
   const staffPitch = list.filter((n) => {
-    if (n.staff !== opts.staff) return false;
+    if (!xmlStaffMatchesGraphic(n.staff, opts.staff, opts.partId, xmlStaffs)) return false;
     if (n.pitch && opts.pitches.length && !graphicPitchesMatchFix(opts.pitches, n.pitch)) return false;
     return true;
   });
+  const accept = (notes: XmlArtNote[]) =>
+    notes.length > 0 && graphicPitchesCoveredByXml(opts.pitches, notes);
+
   if (opts.timestamp != null && Number.isFinite(opts.timestamp)) {
     const byTs = staffPitch.filter(
       (n) => Number.isFinite(n.onsetFrac) && Math.abs(opts.timestamp! - n.onsetFrac) <= ART_ONSET_TS_TOL,
     );
-    if (byTs.length) return byTs;
+    if (accept(byTs)) return byTs;
   }
-  // timestamp 없거나 스케일 불일치: 같은 마디에서 피치+staff가 유일이면 그 음
-  if (staffPitch.length === 1) return staffPitch;
+  // OSMD timestamp가 0으로 뭉개져도, 같은 onset의 XML 음들이 그래픽 피치(화음)를 덮으면 그 그룹
+  const groups = new Map<number, XmlArtNote[]>();
+  for (const n of staffPitch) {
+    const k = Math.round(n.onsetFrac * 200);
+    const g = groups.get(k) ?? [];
+    g.push(n);
+    groups.set(k, g);
+  }
+  const covering = [...groups.values()].filter(accept);
+  if (covering.length === 1) return covering[0]!;
+  if (accept(staffPitch) && staffPitch.length === 1) return staffPitch;
   return [];
 }
 
@@ -2110,6 +2166,7 @@ function applyAbsoluteArticulationDistances(
           pitches: notePitches,
           staff: staffWithinPart,
           timestamp: gveTs,
+          partId,
         });
         const ownedTags = new Set(matchedXml.flatMap((n) => n.tags));
         const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
@@ -2153,12 +2210,25 @@ function applyAbsoluteArticulationDistances(
           const pk = pendingKey(f);
           let indexOk = false;
           if (f.noteIndex != null) {
-            const want = xmlNotesByMeasure.get(ordKey)?.find((n) => n.editorIndex === Number(f.noteIndex));
+            const list = xmlNotesByMeasure.get(ordKey) ?? [];
+            let want = list.find((n) => n.editorIndex === Number(f.noteIndex));
+            if (!want) {
+              for (const [k, notes] of xmlNotesByMeasure) {
+                const [pid, mxl] = k.split('|');
+                if (mxl !== String(measureMxl)) continue;
+                if (pid && partId && !previewPartIdsMatch(pid, partId) && !partIdsMatch(pid, partId)) continue;
+                want = notes.find((n) => n.editorIndex === Number(f.noteIndex));
+                if (want) break;
+              }
+            }
             if (want) {
+              const xmlStaffs = new Set(list.map((n) => n.staff));
               indexOk = matchedXml.some(
                 (n) =>
                   n.editorIndex === want.editorIndex ||
                   (Math.abs(n.onsetFrac - want.onsetFrac) <= ART_ONSET_TS_TOL &&
+                    xmlStaffMatchesGraphic(n.staff, staffWithinPart, partId, xmlStaffs) &&
+                    xmlStaffMatchesGraphic(want.staff, staffWithinPart, partId, xmlStaffs) &&
                     (!want.pitch || (n.pitch && pitchLabelsMatch(n.pitch, want.pitch)))),
               );
               if (!indexOk && gveTs != null) {
@@ -2168,17 +2238,34 @@ function applyAbsoluteArticulationDistances(
                     notePitches.length &&
                     graphicPitchesMatchFix(notePitches, fp) &&
                     Math.abs(gveTs - want.onsetFrac) <= ART_ONSET_TS_TOL &&
-                    want.staff === staffWithinPart,
+                    xmlStaffMatchesGraphic(want.staff, staffWithinPart, partId, xmlStaffs),
                 );
               }
             } else {
-              // XML 목록에 없으면 예전 ord 매칭 (단일 성부)
-              const mapped = pendingOsmdOrd.get(pk);
-              const wantOrd = mapped?.ord ?? Number(f.noteIndex);
-              indexOk = wantOrd === thisNoteIndex;
-              if (!indexOk && !mapped) {
-                const fp = pitchLabelFromArticulationFix(f);
-                if (fp && notePitches.length && graphicPitchesMatchFix(notePitches, fp)) indexOk = true;
+              // 분할 XML에 원본 noteIndex가 없을 때: 이미 심긴 표+피치+onset만 (피치만으로 이웃 화음에 복제 금지)
+              const tag = artNameFromFix(f);
+              const fp = pitchLabelFromArticulationFix(f);
+              const tagged = list.filter(
+                (n) =>
+                  n.tags.includes(tag) &&
+                  (!fp || (n.pitch && pitchLabelsMatch(n.pitch, fp))),
+              );
+              if (tagged.length === 1) {
+                const w = tagged[0]!;
+                indexOk = matchedXml.some((n) => n.editorIndex === w.editorIndex);
+                if (!indexOk && gveTs != null) {
+                  indexOk = Math.abs(gveTs - w.onsetFrac) <= ART_ONSET_TS_TOL &&
+                    Boolean(fp && notePitches.length && graphicPitchesMatchFix(notePitches, fp));
+                }
+              } else if (tagged.length > 1 && gveTs != null) {
+                indexOk = tagged.some(
+                  (w) =>
+                    Math.abs(gveTs - w.onsetFrac) <= ART_ONSET_TS_TOL &&
+                    Boolean(w.pitch && notePitches.length && graphicPitchesMatchFix(notePitches, w.pitch)),
+                );
+              } else {
+                const mapped = pendingOsmdOrd.get(pk);
+                if (mapped) indexOk = mapped.ord === thisNoteIndex;
               }
             }
           } else {
@@ -2217,9 +2304,10 @@ function applyAbsoluteArticulationDistances(
             // fermata(a@a)를 breath-mark로 오인해서 지우지 않음
             if (tag === 'breath-mark' || tag === 'caesura') continue;
             if (ownedTags.has(tag) || pendingTags.has(tag)) continue;
+            const xmlStaffs = new Set((xmlNotesByMeasure.get(ordKey) ?? []).map((n) => n.staff));
             const samePitchOwns = xmlNotes.some(
               (n) =>
-                n.staff === staffWithinPart &&
+                xmlStaffMatchesGraphic(n.staff, staffWithinPart, partId, xmlStaffs) &&
                 n.pitch &&
                 notePitches.length &&
                 graphicPitchesMatchFix(notePitches, n.pitch) &&
@@ -2250,12 +2338,13 @@ function applyAbsoluteArticulationDistances(
           consider(tag, spaces, h.placement, mod, false);
         }
 
-        // 3) pending 음: Vex에만 있는 형제 표 보강 (XML 힌트 누락·1칸 tenuto)
+        // 3) pending 음: XML이 실제로 가진 형제 표만 보강 (duration dot·페르마타·OSMD 유령 staccato 금지)
         if (hasPendingOnNote) {
           const side = [...byTag.values()][0]?.placement ?? 'below';
           for (const mod of artMods) {
             const tag = artTagFromVexModType(mod.type);
             if (!tag || byTag.has(tag)) continue;
+            if (!ownedTags.has(tag) && !pendingTags.has(tag)) continue;
             consider(tag, 1, side, mod, false);
           }
         }
@@ -2294,16 +2383,34 @@ function applyAbsoluteArticulationDistances(
         }
 
         const stacked = stackOverlayArtSpaces(
-          [...byTag.values()].map((s) => ({
-            tag: s.tag,
-            placement: s.placement,
-            staffSpaces: s.staffSpaces,
-            glyph: HITL_ART_OVERLAY_GLYPH[s.tag] || '·',
-          })),
+          [...byTag.values()]
+            .filter((s) => Boolean(HITL_ART_OVERLAY_GLYPH[s.tag]))
+            .map((s) => ({
+              tag: s.tag,
+              placement: s.placement,
+              staffSpaces: s.staffSpaces,
+              glyph: HITL_ART_OVERLAY_GLYPH[s.tag]!,
+            })),
         );
+        if (!stacked.length) continue;
         const placement = stacked[0]!.placement;
         const noteHeadY = resolveNoteHeadY(staveNote, staveNoteSvg, artEls, placement, gap);
         const noteHeadX = resolveNoteHeadX(staveNoteSvg, artEls);
+        const headYOk = Number.isFinite(noteHeadY) && Math.abs(noteHeadY) > 0.5;
+        const sampleOverlayY =
+          headYOk && stacked[0]
+            ? overlayArticulationY(noteHeadY, stacked[0].staffSpaces, stacked[0].placement, gap)
+            : NaN;
+        // overlay는 SVG root. X가 페이지 좌표인데 Y가 오선 상단 대역이면 복판에 `>` 가 붙음
+        const overlaySafe =
+          headYOk &&
+          !(
+            Number.isFinite(noteHeadX) &&
+            Math.abs(noteHeadX) > 80 &&
+            Number.isFinite(sampleOverlayY) &&
+            sampleOverlayY > 0 &&
+            sampleOverlayY < 45
+          );
 
         const noteDebug: string[] = [];
         const hasPending = [...byTag.values()].some((s) => s.fromPending);
@@ -2334,6 +2441,10 @@ function applyAbsoluteArticulationDistances(
 
         // pending이 있는 음: 형제 표까지 모두 overlay로 배치 (네이티브 스택·오할당 제거)
         if (hasPending && isSvgRoot(svgRoot)) {
+          if (!overlaySafe) {
+            missParts.push(`m${measureMxl}#${thisNoteIndex}:mixedXY`);
+            continue;
+          }
           hideNativeArticulationGlyphs(staveNoteSvg);
           const n = paintHitlArticulationOverlayTexts(
             svgRoot,
@@ -2341,9 +2452,9 @@ function applyAbsoluteArticulationDistances(
               tag: spec.tag,
               placement: spec.placement,
               staffSpaces: spec.staffSpaces,
-              glyph: HITL_ART_OVERLAY_GLYPH[spec.tag] || '·',
+              glyph: HITL_ART_OVERLAY_GLYPH[spec.tag] || spec.glyph,
               x: noteHeadX || resolveNoteHeadX(staveNoteSvg, artEls),
-              noteHeadY: noteHeadY || 40,
+              noteHeadY,
             })),
             gap,
           );
@@ -2364,7 +2475,7 @@ function applyAbsoluteArticulationDistances(
           if (!el) continue;
           const cur = pathStartXY(el);
           const targetY = overlayArticulationY(noteHeadY, spec.staffSpaces, spec.placement, gap);
-          if (cur && Number.isFinite(cur.y)) {
+          if (headYOk && cur && Number.isFinite(cur.y)) {
             const dx =
               noteHeadX && Number.isFinite(noteHeadX) && Math.abs(noteHeadX - cur.x) > 2
                 ? noteHeadX - cur.x
@@ -2385,7 +2496,7 @@ function applyAbsoluteArticulationDistances(
           noteDebug.push(`${spec.tag}@${spec.staffSpaces}`);
         }
 
-        if (pathOk < stacked.length && isSvgRoot(svgRoot)) {
+        if (pathOk < stacked.length && isSvgRoot(svgRoot) && overlaySafe) {
           hideNativeArticulationGlyphs(staveNoteSvg);
           const n = paintHitlArticulationOverlayTexts(
             svgRoot,
@@ -2393,9 +2504,9 @@ function applyAbsoluteArticulationDistances(
               tag: spec.tag,
               placement: spec.placement,
               staffSpaces: spec.staffSpaces,
-              glyph: HITL_ART_OVERLAY_GLYPH[spec.tag] || '·',
+              glyph: HITL_ART_OVERLAY_GLYPH[spec.tag] || spec.glyph,
               x: noteHeadX || resolveNoteHeadX(staveNoteSvg, artEls),
-              noteHeadY: noteHeadY || 40,
+              noteHeadY,
             })),
             gap,
           );

@@ -66,8 +66,12 @@ function hideArticulationGlyphEl(p: Element): void {
 export function hideNativeArticulationGlyphs(staveNoteSvg: Element): number {
   let n = 0;
   for (const mod of staveNoteSvg.querySelectorAll('.vf-modifiers')) {
+    if (mod.classList?.contains?.('vf-dot') || mod.classList?.contains?.('vf-dots')) continue;
+    if (/\bvf-dot/.test(mod.getAttribute('class') || '')) continue;
     for (const p of mod.querySelectorAll(':scope > path, :scope > text, :scope > use')) {
-      if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental')) continue;
+      if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental, .vf-dot, .vf-dots')) {
+        continue;
+      }
       hideArticulationGlyphEl(p);
       n += 1;
     }
@@ -120,9 +124,8 @@ export function resolveNoteHeadY(
   placement: 'above' | 'below',
   staffSpacePx: number,
 ): number {
-  const ys = staveNote?.getYs?.();
-  if (Array.isArray(ys) && ys.length && Number.isFinite(ys[0])) return ys[0]!;
-
+  // overlay는 SVG root에 그리므로 음표머리 path(같은 user space)를 우선.
+  // Vex getYs는 오선 로컬(~30)이라 y≈20에 `>` 가 오선 복판에 붙는다.
   const nh =
     staveNoteSvg.querySelector('.vf-notehead path') ||
     staveNoteSvg.querySelector('.vf-notehead') ||
@@ -139,7 +142,12 @@ export function resolveNoteHeadY(
       }
       return null;
     })();
-    if (p) return p.y;
+    if (p && Number.isFinite(p.y) && Math.abs(p.y) > 0.5) return p.y;
+  }
+
+  const ys = staveNote?.getYs?.();
+  if (Array.isArray(ys) && ys.length && Number.isFinite(ys[0]) && Math.abs(ys[0]!) > 0.5) {
+    return ys[0]!;
   }
 
   const coords = artEls.map(pathStartXY).filter(Boolean) as Array<{ x: number; y: number }>;

@@ -9,7 +9,10 @@ import {
   type ReactNode,
 } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
-import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
+import {
+  pruneCrossStaffTimelineForOsmdPreview,
+  stampHitlSourceNoteIdentity,
+} from '../shared/musicXmlStaffPreview';
 import { removeRedundantCourtesyClefsForOsmd } from '../shared/musicXmlCourtesyClef';
 import {
   realignMeasureDefaultXFromTimelineForOsmd,
@@ -981,6 +984,7 @@ function pruneCrossStaffTimeline(measure: Element, staffN: number): void {
 }
 
 function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number): void {
+  stampHitlSourceNoteIdentity(measure);
   normalizeAllAttributesForSingleStaffPart(measure, staffN);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {
@@ -1010,6 +1014,7 @@ function transformMeasureToSingleStaffVerbatim(measure: Element, staffN: number)
 }
 
 function transformMeasureToSingleStaff(measure: Element, staffN: number): void {
+  stampHitlSourceNoteIdentity(measure);
   normalizeAllAttributesForSingleStaffPart(measure, staffN);
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) === 'note' && noteStaffN(child) !== staffN) {

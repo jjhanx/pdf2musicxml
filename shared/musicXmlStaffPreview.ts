@@ -1,4 +1,23 @@
 /** OSMD staff(PR/PL) 필터 미리보기 — cross-staff timeline 정리. */
+import { HITL_SRC_NOTE_INDEX_ATTR, HITL_SRC_STAFF_ATTR } from './musicXmlArticulationDistance';
+
+/**
+ * staff 필터·분할 전에 편집기 noteIndex/staff를 각 음에 남긴다.
+ * PL만 남기면 문서순 28번이 미리보기 0번이 되어 같은 피치 이웃에 표가 복제되는 것을 막는다.
+ */
+export function stampHitlSourceNoteIdentity(measure: Element): void {
+  let i = -1;
+  for (const child of [...measure.children]) {
+    if (xmlLocalName(child) !== 'note') continue;
+    i += 1;
+    if (!child.hasAttribute(HITL_SRC_NOTE_INDEX_ATTR)) {
+      child.setAttribute(HITL_SRC_NOTE_INDEX_ATTR, String(i));
+    }
+    if (!child.hasAttribute(HITL_SRC_STAFF_ATTR)) {
+      child.setAttribute(HITL_SRC_STAFF_ATTR, String(noteStaffN(child)));
+    }
+  }
+}
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();

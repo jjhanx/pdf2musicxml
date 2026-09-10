@@ -4,6 +4,9 @@ import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlPars
 
 export const HITL_ART_DISTANCE_ATTR = 'data-hitl-art-distance';
 export const HITL_DIR_DISTANCE_ATTR = 'data-hitl-dir-distance';
+/** PR/PL 분할 전 마디 document-order noteIndex · 원본 staff (미리보기 전용). */
+export const HITL_SRC_NOTE_INDEX_ATTR = 'data-hitl-src-note-index';
+export const HITL_SRC_STAFF_ATTR = 'data-hitl-src-staff';
 
 /** MusicXML default-y 기본 단위: 오선 1칸(staff space) = 10 tenths = 약 10px. */
 export const ARTICULATION_STAFF_GAP_BASE = 10;
@@ -287,13 +290,35 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
   const staffW = fix.staffWithinPart ?? fix.staff ?? null;
   const matchesArt = (n: Element) => !art || noteHasArticulation(n, art);
   const matchesPitch = (n: Element) => !wantPitch || pitchLabelsMatch(notePitchLabel(n), wantPitch);
-  const matchesStaff = (n: Element) => staffW == null || noteStaffNumber(n) === staffW;
+  const soundingStaffs = new Set(
+    notes.filter((n) => !n.querySelector(':scope > rest, :scope > *|rest')).map((n) => noteStaffNumber(n)),
+  );
+  const staffCollapsed = soundingStaffs.size <= 1;
+  const srcStaffOf = (n: Element) => {
+    const raw = n.getAttribute(HITL_SRC_STAFF_ATTR)?.trim();
+    return raw && /^\d+$/.test(raw) ? parseInt(raw, 10) : noteStaffNumber(n);
+  };
+  const matchesStaff = (n: Element) => {
+    if (staffW == null) return true;
+    if (srcStaffOf(n) === staffW) return true;
+    if (staffCollapsed) return true;
+    return noteStaffNumber(n) === staffW;
+  };
   const isRest = (n: Element) => Boolean(n.querySelector(':scope > rest, :scope > *|rest'));
   const isAdd = fix.kind === 'addArticulation';
   const isRemove =
     fix.kind === 'removeArticulation' ||
     fix.kind === 'removeNoteDirection' ||
     fix.kind === 'clearNoteDirection';
+  const bySrcIndex =
+    fix.noteIndex != null
+      ? notes.find((n) => n.getAttribute(HITL_SRC_NOTE_INDEX_ATTR)?.trim() === String(fix.noteIndex))
+      : undefined;
+
+  // PR/PL 분할 후에도 편집기 document-order noteIndex로 같은 음만
+  if ((isAdd || isRemove) && bySrcIndex && !isRest(bySrcIndex) && matchesPitch(bySrcIndex)) {
+    return bySrcIndex;
+  }
 
   // add/remove: noteIndex 우선(아직 표가 없거나 곧 지울 음 — matchesArt가 실패함)
   if ((isAdd || isRemove) && fix.noteIndex != null && notes[fix.noteIndex]) {
@@ -314,10 +339,11 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
   if (isAdd && wantPitch) {
     const hits = notes.filter((n) => !isRest(n) && matchesPitch(n) && matchesStaff(n));
     if (hits.length === 1) return hits[0]!;
+    if (bySrcIndex && !isRest(bySrcIndex) && matchesPitch(bySrcIndex)) return bySrcIndex;
     if (fix.noteIndex != null && notes[fix.noteIndex] && !isRest(notes[fix.noteIndex]!) && matchesPitch(notes[fix.noteIndex]!)) {
       return notes[fix.noteIndex]!;
     }
-    if (hits[0]) return hits[0]!;
+    // 같은 피치가 둘 이상이면 첫 음에 몰지 않음(점 2분 A3 + 뒤 화음 A3)
   }
 
   // 분할 전 part의 document-order noteIndex (마디 편집기와 동일)

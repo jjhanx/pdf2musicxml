@@ -56,17 +56,32 @@ export function clearHitlArticulationOverlays(host: HTMLElement): void {
   }
 }
 
+function hideArticulationGlyphEl(p: Element): void {
+  p.setAttribute(HIDDEN_ATTR, '1');
+  const sty = (p as SVGElement & { style?: CSSStyleDeclaration }).style;
+  if (sty?.setProperty) sty.setProperty('opacity', '0');
+  else p.setAttribute('opacity', '0');
+}
+
 export function hideNativeArticulationGlyphs(staveNoteSvg: Element): number {
   let n = 0;
   for (const mod of staveNoteSvg.querySelectorAll('.vf-modifiers')) {
     for (const p of mod.querySelectorAll(':scope > path, :scope > text, :scope > use')) {
       if (p.closest('.vf-note, .vf-notehead, .vf-ledgers, .vf-stavetie, .vf-beam, .vf-accidental')) continue;
-      p.setAttribute(HIDDEN_ATTR, '1');
-      const sty = (p as SVGElement & { style?: CSSStyleDeclaration }).style;
-      if (sty?.setProperty) sty.setProperty('opacity', '0');
-      else p.setAttribute('opacity', '0');
+      hideArticulationGlyphEl(p);
       n += 1;
     }
+  }
+  return n;
+}
+
+/** XML에 없는 표만 숨김 — 뒤 음에 OSMD가 붙인 유령 accent 등. */
+export function hideArticulationGlyphElements(els: Element[]): number {
+  let n = 0;
+  for (const p of els) {
+    if (!p) continue;
+    hideArticulationGlyphEl(p);
+    n += 1;
   }
   return n;
 }
@@ -138,16 +153,17 @@ export function resolveNoteHeadY(
 }
 
 export function resolveNoteHeadX(staveNoteSvg: Element, artEls: Element[]): number {
-  for (const el of artEls) {
-    const p = pathStartXY(el);
-    if (p) return p.x;
-  }
+  // 음표머리 우선 — 표 path x를 쓰면 VexFlow가 오른쪽(다음 음)에 둔 유령 위치를 그대로 씀
   const nh =
     staveNoteSvg.querySelector('.vf-notehead path') ||
     staveNoteSvg.querySelector('.vf-note path') ||
     staveNoteSvg.querySelector('.vf-notehead');
   if (nh) {
     const p = pathStartXY(nh);
+    if (p) return p.x;
+  }
+  for (const el of artEls) {
+    const p = pathStartXY(el);
     if (p) return p.x;
   }
   return 0;

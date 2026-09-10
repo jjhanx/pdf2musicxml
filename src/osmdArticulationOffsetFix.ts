@@ -18,6 +18,7 @@ import { getOsmdPreviewXml } from './osmdOnsetColumnAlignFix';
 import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
 import {
   clearHitlArticulationOverlays,
+  hideArticulationGlyphElements,
   hideNativeArticulationGlyphs,
   HITL_ART_OVERLAY_GLYPH,
   overlayArticulationY,
@@ -432,6 +433,112 @@ export function shiftSvgPathAbsoluteYs(d: string, deltaY: number): string {
     }
   }
   return out.join(' ');
+}
+
+/** path `d`의 절대 X만 이동 (Y bake와 동일 토큰 규칙). */
+export function shiftSvgPathAbsoluteXs(d: string, deltaX: number): string {
+  if (!d || !Number.isFinite(deltaX) || Math.abs(deltaX) < 1e-9) return d;
+  const tokens = d.match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi);
+  if (!tokens?.length) return d;
+  let cmd = '';
+  const out: string[] = [];
+  let i = 0;
+  const num = (): number => {
+    const t = tokens[i++];
+    return t != null ? parseFloat(t) : NaN;
+  };
+  while (i < tokens.length) {
+    const t = tokens[i]!;
+    if (/^[a-zA-Z]$/.test(t)) {
+      cmd = t;
+      out.push(t);
+      i += 1;
+      continue;
+    }
+    const c = cmd;
+    if (c === 'M' || c === 'L' || c === 'T') {
+      const x = num();
+      const y = num();
+      out.push(String(x + deltaX), String(y));
+      if (c === 'M') cmd = 'L';
+    } else if (c === 'm' || c === 'l' || c === 't') {
+      out.push(String(num()), String(num()));
+    } else if (c === 'C') {
+      out.push(
+        String(num() + deltaX),
+        String(num()),
+        String(num() + deltaX),
+        String(num()),
+        String(num() + deltaX),
+        String(num()),
+      );
+    } else if (c === 'c') {
+      out.push(String(num()), String(num()), String(num()), String(num()), String(num()), String(num()));
+    } else if (c === 'Q' || c === 'S') {
+      out.push(String(num() + deltaX), String(num()), String(num() + deltaX), String(num()));
+    } else if (c === 'q' || c === 's') {
+      out.push(String(num()), String(num()), String(num()), String(num()));
+    } else if (c === 'H') {
+      out.push(String(num() + deltaX));
+    } else if (c === 'h') {
+      out.push(String(num()));
+    } else if (c === 'V' || c === 'v') {
+      out.push(String(num()));
+    } else if (c === 'A') {
+      out.push(
+        String(num()),
+        String(num()),
+        String(num()),
+        String(num()),
+        String(num()),
+        String(num() + deltaX),
+        String(num()),
+      );
+    } else if (c === 'a') {
+      out.push(
+        String(num()),
+        String(num()),
+        String(num()),
+        String(num()),
+        String(num()),
+        String(num()),
+        String(num()),
+      );
+    } else {
+      out.push(t);
+      i += 1;
+    }
+  }
+  return out.join(' ');
+}
+
+export function applyArticulationShiftXY(el: Element, deltaX: number, deltaY: number): void {
+  const d = el.getAttribute('d');
+  if (d && (Math.abs(deltaY) > 0.01 || Math.abs(deltaX) > 0.01)) {
+    if (!el.hasAttribute('data-art-base-d')) {
+      el.setAttribute('data-art-base-d', d);
+    }
+    const baseD = el.getAttribute('data-art-base-d') || d;
+    let next = baseD;
+    if (Math.abs(deltaY) > 0.01) next = shiftSvgPathAbsoluteYs(next, deltaY);
+    if (Math.abs(deltaX) > 0.01) next = shiftSvgPathAbsoluteXs(next, deltaX);
+    el.setAttribute('d', next);
+    el.setAttribute('data-art-shift-y', String(deltaY));
+    el.setAttribute('data-art-shift-x', String(deltaX));
+    if (!el.hasAttribute('data-art-base-transform')) {
+      el.setAttribute('data-art-base-transform', el.getAttribute('transform') ?? '');
+    }
+    const baseTf = el.getAttribute('data-art-base-transform') ?? '';
+    if (baseTf) el.setAttribute('transform', baseTf);
+    else el.removeAttribute('transform');
+    const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
+    if (sty?.removeProperty) {
+      sty.removeProperty('transform');
+      sty.removeProperty('translate');
+    }
+    return;
+  }
+  applyArticulationShiftY(el, deltaY);
 }
 
 export function applyArticulationShiftY(el: Element, deltaY: number): void {
@@ -1421,6 +1528,40 @@ function editorNoteIndexToOsmdOrd(
   return { ord, pitch };
 }
 
+/**
+ * OSMD ord(쉼표·코드 팔로워 제외)별 XML 표 태그.
+ * 힌트/네이티브 글리프는 이 목록에 있는 음에만 그린다 — 삽입한 뒤 음에 유령 accent 방지.
+ */
+function xmlOwnedArtTagsByOsmdOrd(xml: string): Map<string, string[][]> {
+  const map = new Map<string, string[][]>();
+  if (!xml?.trim()) return map;
+  const doc = parseMusicXmlDocument(xml);
+  if (!doc) return map;
+  for (const part of findXmlParts(doc)) {
+    const partId = part.getAttribute('id')?.trim() || '';
+    for (const measure of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
+      const measureMxl = measure.getAttribute('number')?.trim() || '';
+      const ords: string[][] = [];
+      for (const note of [...measure.children].filter((c) => xmlLocalName(c) === 'note')) {
+        if (note.querySelector(':scope > rest, :scope > *|rest')) continue;
+        if (note.querySelector(':scope > chord, :scope > *|chord')) continue;
+        const tags: string[] = [];
+        for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+          for (const arts of [...nots.children].filter((c) => xmlLocalName(c) === 'articulations')) {
+            for (const el of [...arts.children]) {
+              const tag = xmlLocalName(el).replace(/_/g, '-');
+              if (HITL_ART_OVERLAY_GLYPH[tag]) tags.push(tag);
+            }
+          }
+        }
+        ords.push(tags);
+      }
+      map.set(`${partId}|${measureMxl}`, ords);
+    }
+  }
+  return map;
+}
+
 /** pending 거리 — 해당 마디·파트·피치(또는 staff)에 맞는 articulation만 이동 */
 function applyPendingDistanceDirect(
   osmd: OpenSheetMusicDisplay,
@@ -1838,6 +1979,7 @@ function applyAbsoluteArticulationDistances(
     if (mapped) pendingOsmdOrd.set(pendingKey(f), mapped);
   }
   const seenOrds: string[] = [];
+  const ownedByOrd = xmlOwnedArtTagsByOsmdOrd(previewXml);
 
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
     const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
@@ -1864,6 +2006,7 @@ function applyAbsoluteArticulationDistances(
         const thisNoteIndex = noteOrdByPartMeasure.get(ordKey) ?? 0;
         noteOrdByPartMeasure.set(ordKey, thisNoteIndex + 1);
         if (seenOrds.length < 24) seenOrds.push(`${partId}m${measureMxl}#${thisNoteIndex}`);
+        const ownedTags = new Set(ownedByOrd.get(ordKey)?.[thisNoteIndex] ?? []);
         const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
         const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
         // SVG를 못 찾아도 pending 매칭은 시도(아래 miss 디버그). path/overlay는 svg 필요.
@@ -1932,14 +2075,37 @@ function applyAbsoluteArticulationDistances(
         }
 
         const hasPendingOnNote = [...byTag.values()].some((s) => s.fromPending);
+        const pendingTags = new Set(
+          [...byTag.values()].filter((s) => s.fromPending).map((s) => s.tag),
+        );
 
-        // 2) XML 힌트 — 이 staveNote에 해당 표 modifier가 있을 때만 (같은 피치 다른 음에 유령 표 방지)
+        // XML에 없는 네이티브 표는 숨김 (삽입한 뒤 음에 OSMD가 붙인 유령 accent)
+        if (staveNoteSvg) {
+          const ghostEls: Element[] = [];
+          for (let i = 0; i < artMods.length; i += 1) {
+            const tag = artTagFromVexModType(artMods[i]?.type);
+            if (!tag || !HITL_ART_OVERLAY_GLYPH[tag]) continue;
+            // fermata(a@a)를 breath-mark로 오인해서 지우지 않음
+            if (tag === 'breath-mark' || tag === 'caesura') continue;
+            if (ownedTags.has(tag) || pendingTags.has(tag)) continue;
+            const el = artEls[i];
+            if (el) ghostEls.push(el);
+          }
+          if (ghostEls.length) hideArticulationGlyphElements(ghostEls);
+        }
+
+        // 2) XML 힌트 — 이 OSMD ord의 XML 음표가 실제로 가진 표만 (피치 폴백·뒤 음 유령 방지)
         for (const h of hints) {
           const tag = h.tag.replace(/_/g, '-');
           if (byTag.has(tag)) continue;
+          if (!ownedTags.has(tag)) continue;
           if (h.pitch && notePitches.length && !graphicPitchesMatchFix(notePitches, h.pitch)) continue;
           const mod = artMods.find((m) => articulationModTypeMatchesHint(m.type, tag));
-          if (!mod) continue;
+          if (!mod) {
+            // OSMD가 표를 다른 음에 그린 경우에도 XML 소유 음에는 overlay
+            consider(tag, Math.max(1, h.staffSpaces), h.placement, undefined, false);
+            continue;
+          }
           if (!h.distance && !hintNeedsOsmdPreviewShift(h) && !hasPendingOnNote) continue;
           const spaces =
             !h.distance && !hintNeedsOsmdPreviewShift(h) && hasPendingOnNote ? 1 : h.staffSpaces;
@@ -2061,7 +2227,11 @@ function applyAbsoluteArticulationDistances(
           const cur = pathStartXY(el);
           const targetY = overlayArticulationY(noteHeadY, spec.staffSpaces, spec.placement, gap);
           if (cur && Number.isFinite(cur.y)) {
-            applyArticulationShiftY(el, targetY - cur.y);
+            const dx =
+              noteHeadX && Number.isFinite(noteHeadX) && Math.abs(noteHeadX - cur.x) > 2
+                ? noteHeadX - cur.x
+                : 0;
+            applyArticulationShiftXY(el, dx, targetY - cur.y);
           } else {
             const extra = (Math.max(1, spec.staffSpaces) - 1) * gap;
             applyArticulationShiftY(el, (spec.placement === 'above' ? -1 : 1) * extra);

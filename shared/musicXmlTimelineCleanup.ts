@@ -261,7 +261,8 @@ export function repairArticulationDefaultYForOsmdPreview(xml: string): string {
 /**
  * OSMD/HITL 미리보기 전용 — slur 좌표/고아 stop 정리 및 number 정리.
  * Audiveris raw bezier/default-y 좌표 및 끊어진 고아 stop 제거.
- * 같은 음에 start/stop이 여러 개면 **좌표(bezier·default-x/y) 없는 쪽**을 남긴다.
+ * 같은 음에 start/stop이 여러 개면 **같은 number끼리** 좌표(bezier·default-x/y) 없는 쪽을 남긴다.
+ * **다른 number**는 공존한다(앞 마디에서 열린 이음줄과 HITL 짧은 이음줄이 같은 음에서 끝날 때).
  * stop은 같은 staff+number의 open start에만 짝짓는다(고아 stop이 긴 이음줄을 가로채지 않음).
  * start number는 가능하면 유지하고, 충돌 시에만 재번호화하며 짝 stop도 remap.
  * 같은 마디에서 stop 직후 number를 재사용하지 않는다 — PR/PL이 시간상 겹치면 OSMD가
@@ -290,6 +291,25 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
       return best;
     };
 
+    const dedupeSameNumber = (items: Element[]): Element[] => {
+      const byNum = new Map<string, Element[]>();
+      for (const s of items) {
+        const num = (s.getAttribute('number') || '1').trim() || '1';
+        const group = byNum.get(num);
+        if (group) group.push(s);
+        else byNum.set(num, [s]);
+      }
+      const kept: Element[] = [];
+      for (const group of byNum.values()) {
+        const prefer = pickPreferredSlur(group);
+        for (const s of group) {
+          if (s === prefer) kept.push(s);
+          else s.remove();
+        }
+      }
+      return kept;
+    };
+
     for (const part of findXmlParts(doc)) {
       const openSlurs = new Map<string, { staff: string; voice: string; measureNum: string }>();
 
@@ -312,24 +332,8 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
           let slurs = [...notations.children].filter((c) => xmlLocalName(c) === 'slur');
           if (slurs.length === 0) continue;
 
-          let starts = slurs.filter((s) => s.getAttribute('type') === 'start');
-          let stops = slurs.filter((s) => s.getAttribute('type') === 'stop');
-
-          if (starts.length > 1) {
-            const keep = pickPreferredSlur(starts);
-            for (const s of starts) {
-              if (s !== keep) s.remove();
-            }
-            starts = [keep];
-          }
-
-          if (stops.length > 1) {
-            const keep = pickPreferredSlur(stops);
-            for (const s of stops) {
-              if (s !== keep) s.remove();
-            }
-            stops = [keep];
-          }
+          dedupeSameNumber(slurs.filter((s) => s.getAttribute('type') === 'start'));
+          dedupeSameNumber(slurs.filter((s) => s.getAttribute('type') === 'stop'));
 
           slurs = [...notations.children].filter((c) => xmlLocalName(c) === 'slur');
 
@@ -340,8 +344,8 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
             s.removeAttribute('default-y');
           }
 
-          starts = slurs.filter((s) => s.getAttribute('type') === 'start');
-          stops = slurs.filter((s) => s.getAttribute('type') === 'stop');
+          const starts = slurs.filter((s) => s.getAttribute('type') === 'start');
+          const stops = slurs.filter((s) => s.getAttribute('type') === 'stop');
 
           for (const s of stops) {
             const origNum = (s.getAttribute('number') || '1').trim() || '1';

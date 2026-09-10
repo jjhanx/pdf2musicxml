@@ -44,6 +44,8 @@ import {
   audiverisTextEngineConstantArgsFromEnv,
   buildAudiverisStepProbeArgv,
   collectMusicXmlOutputs,
+  isAudiverisMovementSplitPath,
+  mergeAudiverisMovementOutputs,
   isAudiverisSheetStep,
   ocrLanguageConstantArgsFromEnv,
   parseAudiverisSheetsSpec,
@@ -894,6 +896,7 @@ async function restoreScoreFileFromAudiverisRaw(
 ): Promise<boolean> {
   const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
   if (!fsSync.existsSync(rawPath) || !fsSync.existsSync(scorePath)) return false;
+  if (isAudiverisMovementSplitPath(scorePath)) return false;
   await fs.copyFile(rawPath, scorePath);
   return true;
 }
@@ -2354,7 +2357,7 @@ async function enterOmrStaffHitlPhase(
   if (fsSync.existsSync(rawPath) && resolvePartLabelsJsonPath(job.sessionRoot)) {
     await applyPartLabelsToScoreFile(job.sessionRoot, rawPath, pythonBin);
     for (const p of mxlForInject) {
-      if (p !== rawPath) await fs.copyFile(rawPath, p);
+      if (p !== rawPath && !isAudiverisMovementSplitPath(p)) await fs.copyFile(rawPath, p);
     }
   }
   job.preInjectMxlPaths = [...mxlForInject];
@@ -4200,6 +4203,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
 
     outputs =
       result.mxlPaths.length > 0 ? result.mxlPaths : await collectMusicXmlOutputs(outBase);
+    outputs = await mergeAudiverisMovementOutputs(outputs, pythonBin);
 
     mxlForInject = outputs.filter((p) => p.toLowerCase().endsWith('.mxl'));
 
@@ -4423,6 +4427,7 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
     const scorePathsForLabels = collectScorePathsForLabeling(outputs, mxlForInject);
     if (scorePathsForLabels.length > 0) {
       for (const p of scorePathsForLabels) {
+        if (isAudiverisMovementSplitPath(p)) continue;
         await applyPartLabelsToScoreFile(job.sessionRoot, p, pythonBin);
         const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
         if (fsSync.existsSync(rawPath) && p !== rawPath) {

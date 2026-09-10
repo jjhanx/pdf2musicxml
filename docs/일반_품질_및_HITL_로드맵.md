@@ -74,6 +74,7 @@ python _smoke/audit_key_change_clef_misread.py # omr-work*.zip — 조바꿈 F c
 python _smoke/audit_measure_numbering_strip.py # omr-work*.zip — measure-numbering 전부 제거
 python _smoke/test_measure_numbering_strip.py  # measure-numbering 제거 회귀
 python _smoke/test_printed_measure_numbers_circled.py  # 원문자·줄머리 OCR 병합(13 T)·페이지 우상단 오인 제외
+python _smoke/test_merge_audiveris_movements.py  # Audiveris mvt1+mvt2 이어 붙여 뒷 페이지 마디 유지
 ```
 
 - **인쇄 마디** ≈ MXL `measure@number` + **`MXL_MEASURE_OFFSET_PRINTED`**(기본 1). `lyric_manifest`는 **좌측 줄머리(x<130pt)**·`spans[0]` 앞쪽 숫자·`"13 T"`류 leading extract로 OCR 병합 줄에서 마디 번호를 복원합니다.

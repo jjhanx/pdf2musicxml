@@ -16,6 +16,7 @@ import path from 'node:path';
 import {
   collectMusicXmlOutputs,
   defaultDownloadsDir,
+  mergeAudiverisMovementOutputs,
   resolveAudiverisBin,
 } from '../shared/audiveris.js';
 import { resolveOmrEngine, resolveP2mpBin, runOmrEngine } from '../shared/omr.js';
@@ -83,8 +84,9 @@ async function main(): Promise<void> {
       inputPdfPath: pdfPath,
     });
 
-    const outputs =
+    const collected =
       result.mxlPaths.length > 0 ? result.mxlPaths : await collectMusicXmlOutputs(outBase);
+    const outputs = await mergeAudiverisMovementOutputs(collected);
     if (outputs.length === 0) {
       // eslint-disable-next-line no-console
       console.error(`${engine} OMR finished but no .mxl/.musicxml was found.`);

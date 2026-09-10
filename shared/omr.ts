@@ -12,7 +12,12 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { collectMusicXmlOutputs, resolveAudiverisBin, runAudiveris } from './audiveris.js';
+import {
+  collectMusicXmlOutputs,
+  mergeAudiverisMovementOutputs,
+  resolveAudiverisBin,
+  runAudiveris,
+} from './audiveris.js';
 import {
   collectPdfToMusicOutputs,
   p2mpInstallHint,
@@ -93,7 +98,8 @@ export async function runOmrEngine(opts: OmrRunOptions): Promise<OmrRunResult> {
     extraArgs: opts.extraArgs,
     onStreamLine: opts.onStreamLine,
   });
-  const mxlPaths = await collectMusicXmlOutputs(opts.outputBaseDir);
+  const collected = await collectMusicXmlOutputs(opts.outputBaseDir);
+  const mxlPaths = await mergeAudiverisMovementOutputs(collected, opts.pythonBin);
   return { ...result, engine: 'audiveris', mxlPaths };
 }
 

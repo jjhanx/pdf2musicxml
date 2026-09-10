@@ -9,6 +9,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 
 ## 최근 변경 (Audiveris 기본 복귀)
 
+- **Audiveris mvt1/mvt2 병합**: 페이지마다 성부 수가 바뀌면 Audiveris가 `*.mvt1.mxl`·`*.mvt2.mxl`로 나누고, 예전 HITL은 첫 파일만 남겨 뒷 페이지 마디가 빠졌습니다. OMR 직후 같은 책의 악장 MXL을 마디 번호만 이어 붙여 한 악보로 만듭니다. `python _smoke/test_merge_audiveris_movements.py`.
 - **OMR 엔진 기본값 Audiveris**: `OMR_ENGINE` 미설정 시 **Audiveris CLI**로 MXL을 생성합니다. PDFtoMusic Pro(`OMR_ENGINE=pdftomusic`)는 **개인용 선택** — 상용 SaaS 자동화는 Myriad CLI 약관상 비권장.
 - **변환 방식 선택(웹 UI)**: 업로드 전 **변환 방식**을 고릅니다.
   - **폰트 크기 분리 + Audiveris + 가사 병합**(권장): pdfplumber로 `extracted_music_text.json` 추출 → **폰트 크기 선택 UI** → `clean_score_only.pdf` → Audiveris → **OMR·HITL** → **PyMuPDF 가사 검증·편집** → 병합·주입. strip 시 **NWC·SMuFL 악보 글꼴(≈18–23pt)은 pt 범위에 포함돼도 자동 보호** — `가사+메타(7–36pt)` 실수 선택으로 마디가 통째로 비어 보이는 현상 방지. [docs/악보_변환_품질_가이드.md](docs/악보_변환_품질_가이드.md) 「OMR 입력 PDF — 무엇을 지울까?」.

@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export interface AudiverisRunOptions {
   audiverisBin: string;
@@ -384,6 +385,74 @@ export async function collectMusicXmlOutputs(searchRoot: string): Promise<string
   await walkFiles(searchRoot, acc);
   acc.sort();
   return acc;
+}
+
+/** 파트 구성 변화로 Audiveris가 나눈 `*.mvt1.mxl` / `*.mvt2.mxl` */
+export function isAudiverisMovementSplitPath(filePath: string): boolean {
+  return /\.mvt\d+\.(mxl|musicxml)$/i.test(path.basename(filePath));
+}
+
+const MERGE_MOVEMENTS_SCRIPT = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'scripts',
+  'merge_audiveris_movements.py',
+);
+
+/**
+ * 같은 책의 mvt1+mvt2를 한 MXL로 이어 붙인다.
+ * 실패하면 원본 경로를 그대로 돌려 변환을 막지 않는다.
+ */
+export async function mergeAudiverisMovementOutputs(
+  mxlPaths: string[],
+  pythonBin = process.env.PYTHON?.trim() || 'python',
+): Promise<string[]> {
+  const mvt = mxlPaths.filter((p) => isAudiverisMovementSplitPath(p));
+  if (mvt.length < 2) return mxlPaths;
+  if (!fsSync.existsSync(MERGE_MOVEMENTS_SCRIPT)) return mxlPaths;
+
+  try {
+    const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>(
+      (resolve, reject) => {
+        const child = spawn(pythonBin, [MERGE_MOVEMENTS_SCRIPT, ...mxlPaths], {
+          windowsHide: true,
+          env: { ...process.env, PYTHONUTF8: '1' },
+        });
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', (d: Buffer) => {
+          stdout += d.toString('utf8');
+        });
+        child.stderr?.on('data', (d: Buffer) => {
+          stderr += d.toString('utf8');
+        });
+        child.on('error', reject);
+        child.on('close', (code) => resolve({ code, stdout, stderr }));
+      },
+    );
+    const line = result.stdout.trim().split(/\r?\n/).pop() || '';
+    const parsed = JSON.parse(line) as {
+      ok?: boolean;
+      outputs?: string[];
+      error?: string;
+      merged?: Array<{ movements?: number; maxMeasure?: number }>;
+    };
+    if (parsed.ok && Array.isArray(parsed.outputs) && parsed.outputs.length > 0) {
+      const groups = parsed.merged ?? [];
+      if (groups.length > 0) {
+        const summary = groups
+          .map((g) => `mvt×${g.movements ?? '?'}→m.${g.maxMeasure ?? '?'}`)
+          .join(', ');
+        console.log(`merge_audiveris_movements: ${summary}`);
+      }
+      return parsed.outputs;
+    }
+        console.warn(`merge_audiveris_movements: ${parsed.error || result.stderr || 'no outputs'}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`merge_audiveris_movements failed: ${msg}`);
+  }
+  return mxlPaths;
 }
 
 export function audiverisLogSuggestsHumanReview(stdout: string, stderr: string): boolean {

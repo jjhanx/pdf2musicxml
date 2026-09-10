@@ -12,7 +12,7 @@ import {
   previewPartIdsMatch,
   type ArticulationPreviewFix,
 } from '../shared/musicXmlArticulationDistance';
-import { OSMD_LAYOUT_X_ATTR } from '../shared/musicXmlPreviewOnsetLayout';
+import { OSMD_LAYOUT_X_ATTR, OSMD_ONSET_UNITS_ATTR, measureLengthUnits } from '../shared/musicXmlPreviewOnsetLayout';
 import { parseMusicXmlDocument } from '../shared/musicXmlParse';
 import { getOsmdPreviewXml } from './osmdOnsetColumnAlignFix';
 import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from './osmdMeasureClick';
@@ -1528,12 +1528,22 @@ function editorNoteIndexToOsmdOrd(
   return { ord, pitch };
 }
 
+type XmlArtNote = {
+  editorIndex: number;
+  pitch: string | null;
+  staff: number;
+  /** 마디 길이 대비 onset (0–1). backup 뒤 2성부는 0부터. */
+  onsetFrac: number;
+  tags: string[];
+};
+
 /**
- * OSMD ord(쉼표·코드 팔로워 제외)별 XML 표 태그.
- * 힌트/네이티브 글리프는 이 목록에 있는 음에만 그린다 — 삽입한 뒤 음에 유령 accent 방지.
+ * 파트×마디 XML 음표(쉼표 제외, 코드 멤버 포함) + 타임라인 onset.
+ * OSMD는 backup 2성부를 박자순으로 그리므로 문서순 ord와 어긋난다.
+ * 표는 피치+onset(+staff)으로 같은 음에만 붙인다.
  */
-function xmlOwnedArtTagsByOsmdOrd(xml: string): Map<string, string[][]> {
-  const map = new Map<string, string[][]>();
+function xmlArtNotesByMeasure(xml: string): Map<string, XmlArtNote[]> {
+  const map = new Map<string, XmlArtNote[]>();
   if (!xml?.trim()) return map;
   const doc = parseMusicXmlDocument(xml);
   if (!doc) return map;
@@ -1541,25 +1551,95 @@ function xmlOwnedArtTagsByOsmdOrd(xml: string): Map<string, string[][]> {
     const partId = part.getAttribute('id')?.trim() || '';
     for (const measure of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
       const measureMxl = measure.getAttribute('number')?.trim() || '';
-      const ords: string[][] = [];
-      for (const note of [...measure.children].filter((c) => xmlLocalName(c) === 'note')) {
-        if (note.querySelector(':scope > rest, :scope > *|rest')) continue;
-        if (note.querySelector(':scope > chord, :scope > *|chord')) continue;
+      const len = Math.max(1, measureLengthUnits(measure));
+      const list: XmlArtNote[] = [];
+      let cursor = 0;
+      let lastLeaderOnset = 0;
+      let editorIndex = -1;
+      for (const child of [...measure.children]) {
+        const tag = xmlLocalName(child);
+        if (tag === 'backup') {
+          const dur = parseInt(
+            child.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
+            10,
+          );
+          cursor = Math.max(0, cursor - (Number.isFinite(dur) ? dur : 0));
+          continue;
+        }
+        if (tag === 'forward') {
+          const dur = parseInt(
+            child.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
+            10,
+          );
+          cursor += Number.isFinite(dur) ? dur : 0;
+          continue;
+        }
+        if (tag !== 'note') continue;
+        editorIndex += 1;
+        const isChord = Boolean(child.querySelector(':scope > chord, :scope > *|chord'));
+        const isGrace = Boolean(child.querySelector(':scope > grace, :scope > *|grace'));
+        const isRest = Boolean(child.querySelector(':scope > rest, :scope > *|rest'));
+        const dur = parseInt(
+          child.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
+          10,
+        );
+        let onset = cursor;
+        const attrOnset = parseInt(child.getAttribute(OSMD_ONSET_UNITS_ATTR) ?? '', 10);
+        if (isChord) {
+          onset = Number.isFinite(attrOnset) ? attrOnset : lastLeaderOnset;
+        } else if (isGrace) {
+          onset = Number.isFinite(attrOnset) ? attrOnset : cursor;
+        } else {
+          onset = Number.isFinite(attrOnset) ? attrOnset : cursor;
+          lastLeaderOnset = onset;
+          if (!isGrace && Number.isFinite(dur) && dur > 0) cursor += dur;
+        }
+        if (isRest) continue;
         const tags: string[] = [];
-        for (const nots of [...note.children].filter((c) => xmlLocalName(c) === 'notations')) {
+        for (const nots of [...child.children].filter((c) => xmlLocalName(c) === 'notations')) {
           for (const arts of [...nots.children].filter((c) => xmlLocalName(c) === 'articulations')) {
             for (const el of [...arts.children]) {
-              const tag = xmlLocalName(el).replace(/_/g, '-');
-              if (HITL_ART_OVERLAY_GLYPH[tag]) tags.push(tag);
+              const t = xmlLocalName(el).replace(/_/g, '-');
+              if (HITL_ART_OVERLAY_GLYPH[t]) tags.push(t);
             }
           }
         }
-        ords.push(tags);
+        list.push({
+          editorIndex,
+          pitch: notePitchLabel(child),
+          staff: noteStaffNumber(child),
+          onsetFrac: onset / len,
+          tags,
+        });
       }
-      map.set(`${partId}|${measureMxl}`, ords);
+      map.set(`${partId}|${measureMxl}`, list);
     }
   }
   return map;
+}
+
+function osmdTimestampFromGve(gve: Record<string, unknown>): number | null {
+  const pve = asRecord(gve.parentVoiceEntry ?? gve.ParentVoiceEntry);
+  if (!pve) return null;
+  const ts = pve.Timestamp ?? pve.timestamp;
+  const direct = coordNum(ts);
+  if (direct != null) return direct;
+  return coordNum(asRecord(ts)?.realValue ?? asRecord(ts)?.RealValue);
+}
+
+const ART_ONSET_TS_TOL = 0.04;
+
+function xmlNotesMatchingStave(
+  list: XmlArtNote[] | undefined,
+  opts: { pitches: string[]; staff: number; timestamp: number | null },
+): XmlArtNote[] {
+  if (!list?.length) return [];
+  return list.filter((n) => {
+    if (n.staff !== opts.staff) return false;
+    if (n.pitch && opts.pitches.length && !graphicPitchesMatchFix(opts.pitches, n.pitch)) return false;
+    if (opts.timestamp == null || !Number.isFinite(n.onsetFrac)) return false;
+    return Math.abs(opts.timestamp - n.onsetFrac) <= ART_ONSET_TS_TOL;
+  });
 }
 
 /** pending 거리 — 해당 마디·파트·피치(또는 staff)에 맞는 articulation만 이동 */
@@ -1979,7 +2059,7 @@ function applyAbsoluteArticulationDistances(
     if (mapped) pendingOsmdOrd.set(pendingKey(f), mapped);
   }
   const seenOrds: string[] = [];
-  const ownedByOrd = xmlOwnedArtTagsByOsmdOrd(previewXml);
+  const xmlNotesByMeasure = xmlArtNotesByMeasure(previewXml);
 
   forEachGraphicalMeasure(osmd, (gm, staffIndex) => {
     const measureMxl = graphicMeasureMxlForArticulation(osmd, gm);
@@ -2006,8 +2086,14 @@ function applyAbsoluteArticulationDistances(
         const thisNoteIndex = noteOrdByPartMeasure.get(ordKey) ?? 0;
         noteOrdByPartMeasure.set(ordKey, thisNoteIndex + 1);
         if (seenOrds.length < 24) seenOrds.push(`${partId}m${measureMxl}#${thisNoteIndex}`);
-        const ownedTags = new Set(ownedByOrd.get(ordKey)?.[thisNoteIndex] ?? []);
         const notePitches = gNotes.map((gn) => pitchFromGraphicNote(gn)).filter(Boolean) as string[];
+        const gveTs = osmdTimestampFromGve(gve);
+        const matchedXml = xmlNotesMatchingStave(xmlNotesByMeasure.get(ordKey), {
+          pitches: notePitches,
+          staff: staffWithinPart,
+          timestamp: gveTs,
+        });
+        const ownedTags = new Set(matchedXml.flatMap((n) => n.tags));
         const staveNoteSvg = stavenoteSvgFromGraphic(osmd, gNotes, staveNote);
         // SVG를 못 찾아도 pending 매칭은 시도(아래 miss 디버그). path/overlay는 svg 필요.
         const artEls = staveNoteSvg ? findArticulationElementsInStavenote(staveNoteSvg) : [];
@@ -2040,26 +2126,49 @@ function applyAbsoluteArticulationDistances(
           byTag.set(tag, { tag, staffSpaces: spaces, placement, mod, fromPending });
         };
 
-        // 1) pending — 에디터 noteIndex를 OSMD ord로 변환해 매칭 (쉼표 보정)
+        // 1) pending — 에디터 noteIndex의 XML 음(피치+onset)과 같은 staveNote에만
         for (const f of pendingArt) {
           if (!pendingMeasureKeysMatch(measureMxl, new Set([String(f.measureMxl)]))) continue;
           if (f.partId && partId && !previewPartIdsMatch(partId, f.partId) && !partIdsMatch(partId, f.partId)) {
             continue;
           }
           const pk = pendingKey(f);
-          const mapped = pendingOsmdOrd.get(pk);
           let indexOk = false;
           if (f.noteIndex != null) {
-            const wantOrd = mapped?.ord ?? Number(f.noteIndex);
-            indexOk = wantOrd === thisNoteIndex;
-            // XML 매핑 실패 시에만 피치 보조 (매핑된 ord가 있으면 엄격히 그 슬롯만)
-            if (!indexOk && !mapped) {
-              const fp = pitchLabelFromArticulationFix(f);
-              if (fp && notePitches.length && graphicPitchesMatchFix(notePitches, fp)) indexOk = true;
+            const want = xmlNotesByMeasure.get(ordKey)?.find((n) => n.editorIndex === Number(f.noteIndex));
+            if (want) {
+              indexOk = matchedXml.some(
+                (n) =>
+                  n.editorIndex === want.editorIndex ||
+                  (Math.abs(n.onsetFrac - want.onsetFrac) <= ART_ONSET_TS_TOL &&
+                    (!want.pitch || (n.pitch && pitchLabelsMatch(n.pitch, want.pitch)))),
+              );
+              if (!indexOk && gveTs != null) {
+                const fp = want.pitch || pitchLabelFromArticulationFix(f);
+                indexOk = Boolean(
+                  fp &&
+                    notePitches.length &&
+                    graphicPitchesMatchFix(notePitches, fp) &&
+                    Math.abs(gveTs - want.onsetFrac) <= ART_ONSET_TS_TOL &&
+                    want.staff === staffWithinPart,
+                );
+              }
+            } else {
+              // XML 목록에 없으면 예전 ord 매칭 (단일 성부)
+              const mapped = pendingOsmdOrd.get(pk);
+              const wantOrd = mapped?.ord ?? Number(f.noteIndex);
+              indexOk = wantOrd === thisNoteIndex;
+              if (!indexOk && !mapped) {
+                const fp = pitchLabelFromArticulationFix(f);
+                if (fp && notePitches.length && graphicPitchesMatchFix(notePitches, fp)) indexOk = true;
+              }
             }
           } else {
             const fp = pitchLabelFromArticulationFix(f);
             indexOk = Boolean(fp && notePitches.length && graphicPitchesMatchFix(notePitches, fp));
+            if (indexOk && matchedXml.length && fp) {
+              indexOk = matchedXml.some((n) => n.pitch && pitchLabelsMatch(n.pitch, fp));
+            }
           }
           if (!indexOk) continue;
           const tag = artNameFromFix(f);
@@ -2080,7 +2189,8 @@ function applyAbsoluteArticulationDistances(
         );
 
         // XML에 없는 네이티브 표는 숨김 (삽입한 뒤 음에 OSMD가 붙인 유령 accent)
-        if (staveNoteSvg) {
+        // XML 음표를 못 찾으면 숨기지 않음 — 잘못된 ord로 실제 표를 지우는 부작용 방지
+        if (staveNoteSvg && matchedXml.length) {
           const ghostEls: Element[] = [];
           for (let i = 0; i < artMods.length; i += 1) {
             const tag = artTagFromVexModType(artMods[i]?.type);

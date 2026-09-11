@@ -188,6 +188,7 @@ npm run dev
 
 - 웹: `http://호스트:5173` (Vite는 `host: true`로 LAN 접속 가능)
 - API: `8787`, 프록시 `/api` → `8787`
+- Windows: 루트 `omr-work*.zip`이 잠겨 있으면 Vite watch가 `EBUSY`로 죽을 수 있음 → `vite.config.ts`에서 해당 패턴을 watch 제외. 죽으면 `npm run dev`로 재기동.
 
 ### 운영 (빌드 + 단일 포트)
 

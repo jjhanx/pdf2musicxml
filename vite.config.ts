@@ -42,6 +42,10 @@ function osmdNavigationLabelPlugin(): Plugin {
       'this.lastWedge.parentMeasure.MeasureNumberXML===i.MeasureNumberXML',
       'this.lastWedge.parentMeasure===i',
     ],
+    [
+      'O=this.rules.StaffHeight+t/2}else O=this.rules.WedgePlacementBelowY',
+      'O=this.rules.WedgePlacementBelowY}else O=this.rules.WedgePlacementBelowY',
+    ],
   ];
   return {
     name: 'osmd-navigation-labels',
@@ -70,6 +74,17 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Windows: omr-work ZIP 등이 열려 있으면 chokidar watch → EBUSY로 Vite가 죽음
+    watch: {
+      ignored: [
+        '**/omr-work*.zip',
+        '**/*.mxl',
+        '**/_smoke/**',
+        '**/_pip_wheels/**',
+        '**/venv/**',
+        '**/venv.broken.*/**',
+      ],
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8787',

@@ -17,6 +17,8 @@ const raw = `<?xml version="1.0" encoding="UTF-8"?>
 
 const out = promoteNoteDynamicsForOsmdPreview(raw);
 if (!out.includes('<ff')) throw new Error('ff direction missing');
+if (!out.includes('placement="below"')) throw new Error('below placement missing after promote');
+if (!out.includes('default-y="-')) throw new Error('negative default-y missing after promote');
 if (out.includes('<notations>') && out.includes('dynamics')) throw new Error('notations dynamics should be promoted');
 const dirCount = (out.match(/<direction/g) || []).length;
 if (dirCount < 2) throw new Error(`expected 2 directions, got ${dirCount}`);

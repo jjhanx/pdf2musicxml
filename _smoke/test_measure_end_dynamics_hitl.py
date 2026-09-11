@@ -1,4 +1,4 @@
-"""마디 끝 셈여림 — 음표 notations가 아니라 standalone direction + barline 직전.
+"""마디 끝 셈여림 — notations가 아니라 standalone + barline 직전 + measure-anchor.
 
 Run: python _smoke/test_measure_end_dynamics_hitl.py
 """
@@ -17,7 +17,7 @@ XML = """<?xml version="1.0"?>
   <part id="P1">
     <measure number="1">
       <attributes><divisions>1</divisions></attributes>
-      <note>
+      <note default-x="80">
         <pitch><step>C</step><octave>4</octave></pitch>
         <duration>4</duration><type>whole</type>
         <voice>1</voice>
@@ -48,11 +48,37 @@ notes = measure.findall("{*}note")
 assert notes[0].find("{*}notations") is None, "must not attach dynamics to note"
 dirs = [c for c in measure if c.tag.rsplit("}", 1)[-1] == "direction"]
 assert len(dirs) == 1
+assert dirs[0].get(lib.MEASURE_END_ANCHOR_ATTR) == "end"
+assert dirs[0].get("default-x"), "measure-end default-x hint required"
+dx = float(dirs[0].get("default-x"))
+assert dx > 80.0, f"default-x should be right of last note, got {dx}"
 dyn = dirs[0].find(".//{*}dynamics/{*}mf")
 assert dyn is not None
 # direction before right barline
 children = list(measure)
 assert children.index(dirs[0]) < children.index(measure.find("{*}barline"))
+
+# words at measure end also annotated
+assert lib.apply_fix(
+    root,
+    "",
+    {
+        "kind": "insertDirection",
+        "partId": "P1",
+        "measureMxl": "1",
+        "directionType": "words",
+        "directionValue": "rit.",
+        "measureAnchor": "end",
+        "staff": 1,
+        "placement": "above",
+    },
+)
+dirs2 = [c for c in measure if c.tag.rsplit("}", 1)[-1] == "direction"]
+assert len(dirs2) == 2
+words_dir = [d for d in dirs2 if d.find(".//{*}words") is not None][0]
+assert words_dir.get(lib.MEASURE_END_ANCHOR_ATTR) == "end"
+assert words_dir.find("{*}notations") is None
+assert notes[0].find("{*}notations") is None
 
 # barline repeat still works
 assert lib.apply_fix(
@@ -80,4 +106,4 @@ assert lib.apply_fix(
 )
 assert bl.find("{*}repeat") is None
 
-print("OK measure-end dynamics + barline repeat")
+print("OK measure-end dynamics + words + barline repeat")

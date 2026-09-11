@@ -565,7 +565,28 @@ export function applyArticulationShiftXY(el: Element, deltaX: number, deltaY: nu
     }
     return;
   }
-  applyArticulationShiftY(el, deltaY);
+  if (Math.abs(deltaX) < 0.01) {
+    applyArticulationShiftY(el, deltaY);
+    return;
+  }
+  // text·group 등 path 없음 — transform translate로 X/Y
+  if (!el.hasAttribute('data-art-base-transform')) {
+    el.setAttribute('data-art-base-transform', el.getAttribute('transform') ?? '');
+  }
+  const base = el.getAttribute('data-art-base-transform') ?? '';
+  const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)/.exec(base);
+  const ox = m ? parseFloat(m[1]!) : 0;
+  const oy = m ? parseFloat(m[2] ?? '0') : 0;
+  const rest = base.replace(/translate\(\s*[-\d.]+\s*(?:,\s*[-\d.]+)?\s*\)/, '').trim();
+  const prefix = `translate(${ox + deltaX}, ${oy + deltaY})`;
+  el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
+  el.setAttribute('data-art-shift-x', String(deltaX));
+  el.setAttribute('data-art-shift-y', String(deltaY));
+  const sty = (el as SVGElement & { style?: CSSStyleDeclaration }).style;
+  if (sty?.removeProperty) {
+    sty.removeProperty('transform');
+    sty.removeProperty('translate');
+  }
 }
 
 export function applyArticulationShiftY(el: Element, deltaY: number): void {

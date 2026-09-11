@@ -76,6 +76,10 @@ import {
   anchorTrailingMidClefsForOsmdPreview,
   anchorTrailingMidClefsInMeasure,
 } from '../shared/musicXmlMidClefOsmdAnchor';
+import {
+  anchorMeasureEndDirectionsForOsmdPreview,
+  directionIsAtMeasureEnd,
+} from '../shared/musicXmlMeasureEndDirectionOsmdAnchor';
 import { normalizeTiePlacementsForOsmdPreview } from '../shared/musicXmlTiePlacement';
 import {
   removeDanglingTimelineElementsForOsmdPreview,
@@ -1388,6 +1392,8 @@ export function migrateDirectionsToNotes(xml: string): string {
         for (const direction of [...measure.children].filter((c) => xmlLocalName(c) === 'direction')) {
           if (isNavigationDirectionElement(direction)) continue;
           if (directionHasTempo(direction)) continue;
+          // 마디 끝 standalone(HITL measureAnchor=end) — 마지막 음 앞으로 끌어오지 않음
+          if (directionIsAtMeasureEnd(measure, direction)) continue;
           const anchor = anchorNoteForDirection(measure, direction);
           if (!anchor) continue;
 
@@ -2040,6 +2046,8 @@ export function buildOsmdPreviewXml(
   // 동일 내용 clef(머리·중간·끝) 제거 후 trailing mid만 앵커 — 중복 G가 마디 끝에 안 보이게
   xml = removeRedundantCourtesyClefsForOsmd(xml);
   xml = anchorTrailingMidClefsForOsmdPreview(xml);
+  // 마디 끝 셈여림/words — OSMD가 마지막 음 onset에 붙이지 않도록 숨은 쉼 앵커(저장 MXL 불변)
+  xml = anchorMeasureEndDirectionsForOsmdPreview(xml);
   if (options?.voiceSequentialMeasures?.length) {
     xml = applyVoiceSequentialPreviewToXml(xml, options.voiceSequentialMeasures);
   }
@@ -2077,6 +2085,7 @@ function sanitizeMusicXmlForOsmd(
     out = anchorTrailingMidClefsForOsmdPreview(out);
     out = normalizeTiePlacementsForOsmdPreview(out);
     out = normalizeDynamicsAndWedgesForOsmdPreview(out);
+    out = anchorMeasureEndDirectionsForOsmdPreview(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     const mxlMeasureLabels = buildMxlMeasureNumberAllowedMap(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, mxlMeasureLabels);

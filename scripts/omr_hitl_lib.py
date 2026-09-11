@@ -3513,6 +3513,37 @@ def _insert_direction_at_staff_measure_start(
     _insert_note_element(measure, ns, new_dir, -1, staff_n=staff_n)
 
 
+MEASURE_END_ANCHOR_ATTR = "data-hitl-measure-anchor"
+
+
+def _measure_end_layout_default_x(measure: ET.Element, ns: str) -> float:
+    """마디 맨 뒤(마지막 음표 오른쪽)에 둘 default-x — OSMD가 끝 타임스탬프를 마지막 음 onset에 붙일 때 대비."""
+    max_x = 0.0
+    saw = False
+    for note in list_note_elements(measure, ns):
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        x = _parse_default_x(note)
+        if x is None:
+            continue
+        saw = True
+        max_x = max(max_x, float(x))
+    if saw:
+        return max_x + 56.0
+    return 400.0
+
+
+def _annotate_measure_end_direction(measure: ET.Element, ns: str, direction: ET.Element) -> None:
+    """마디 끝 standalone direction — 음표에 붙이지 않고 맨 뒤 가로 위치 힌트."""
+    direction.set(MEASURE_END_ANCHOR_ATTR, "end")
+    dx = _measure_end_layout_default_x(measure, ns)
+    direction.set("default-x", f"{dx:.2f}")
+    # 자식 dynamics/words에도 동일 x — OSMD가 부모를 무시하는 경우 대비
+    for dtype in direction.findall(_q(ns, "direction-type")):
+        for child in list(dtype):
+            child.set("default-x", f"{dx:.2f}")
+
+
 def _insert_direction_at_measure_end(measure: ET.Element, ns: str, new_dir: ET.Element) -> None:
     """마디 끝 — 오른쪽 ⟨barline⟩ 직전(없으면 append). backup 뒤 음표보다 뒤라 OSMD가 다음 마디로 밀지 않음."""
     children = list(measure)
@@ -3522,12 +3553,16 @@ def _insert_direction_at_measure_end(measure: ET.Element, ns: str, new_dir: ET.E
         loc = (child.get("location") or "right").strip().lower()
         if loc in ("right", ""):
             measure.insert(i, new_dir)
+            _annotate_measure_end_direction(measure, ns, new_dir)
             return
     measure.append(new_dir)
+    _annotate_measure_end_direction(measure, ns, new_dir)
 
 
 def _direction_is_at_measure_end(measure: ET.Element, direction: ET.Element) -> bool:
     """뒤에 note/backup/forward가 없으면 마디 끝(barline 직전 포함). 음표 없는 마디·온쉼 뒤 rit./mf 등."""
+    if (direction.get(MEASURE_END_ANCHOR_ATTR) or "").strip().lower() == "end":
+        return True
     children = list(measure)
     try:
         idx = children.index(direction)
@@ -9751,15 +9786,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         measure_anchor = str(fix.get("measureAnchor") or "").strip().lower()
         if measure_anchor == "start":
             after_idx = -1
-        elif measure_anchor == "end":
-            last_i = -1
-            for i, note in enumerate(notes):
-                if note.find(_q(ns, "chord")) is not None:
-                    continue
-                if (_note_staff_number(note, ns) or 1) != staff_n:
-                    continue
-                last_i = i
-            after_idx = last_i if last_i >= 0 else -1
+        # measureAnchor=end 일 때 after_idx를 마지막 음으로 두면 아래 fallthrough가
+        # 음표 앞(본음 위)에 붙여 버린다 — end는 전용 경로만 쓴다.
         placement = str(fix.get("placement") or "").strip().lower() or None
         if placement not in ("above", "below", ""):
             placement = None
@@ -9803,6 +9831,25 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                     before_note_index=before_idx,
                 )
             return True
+        # 마디 처음/끝 — 음표 notations·음 앞 direction이 아니라 standalone (셈여림·words·진행 제어 공통)
+        if measure_anchor in ("start", "end"):
+            if direction_type == "dynamics" and placement is None:
+                placement = _DEFAULT_DYNAMICS_PLACEMENT
+            elif placement is None:
+                placement = "above"
+            new_dir = _build_direction_element(
+                ns,
+                direction_type,
+                direction_value or (direction_type if direction_type != "dynamics" else "p"),
+                staff_n=staff_n,
+                placement=placement,
+            )
+            if measure_anchor == "end":
+                _insert_direction_at_measure_end(measure, ns, new_dir)
+            else:
+                _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
+            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
+            return True
         if _is_navigation_direction_type(direction_type):
             if placement is None:
                 placement = "above"
@@ -9813,10 +9860,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 staff_n=staff_n,
                 placement=placement,
             )
-            # 마디 끝은 barline 직전 — 마지막 음 직후(backup 앞)에 넣으면 다음 마디 앞으로 보임
-            if measure_anchor == "end":
-                _insert_direction_at_measure_end(measure, ns, new_dir)
-            elif after_idx < 0 or measure_anchor == "start":
+            if after_idx < 0:
                 _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
             elif fix.get("afterRest") and 0 <= after_idx < len(notes):
                 _insert_before_note_element(measure, ns, new_dir, after_idx, staff_n=staff_n)
@@ -9829,24 +9873,6 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                     staff_n=staff_n,
                     expand_chord_group=False,
                 )
-            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
-            return True
-        # 마디 처음/끝 셈여림 — 음표 notations가 아니라 standalone <direction>
-        # (음표 없는 마디 끝·온쉼 뒤 mf 등). measureAnchor 없을 때는 기존처럼 음표 부착.
-        if direction_type == "dynamics" and measure_anchor in ("start", "end"):
-            if placement is None:
-                placement = _DEFAULT_DYNAMICS_PLACEMENT
-            new_dir = _build_direction_element(
-                ns,
-                "dynamics",
-                direction_value or "p",
-                staff_n=staff_n,
-                placement=placement,
-            )
-            if measure_anchor == "end":
-                _insert_direction_at_measure_end(measure, ns, new_dir)
-            else:
-                _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
             _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
             return True
         if direction_type == "dynamics" and placement is None:

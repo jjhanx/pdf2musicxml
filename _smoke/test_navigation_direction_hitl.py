@@ -3,7 +3,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, "scripts")
-from omr_hitl_lib import apply_fix, measure_snapshot  # noqa: E402
+from omr_hitl_lib import MEASURE_END_ANCHOR_ATTR, apply_fix, measure_snapshot  # noqa: E402
 
 
 def _local(tag: str) -> str:
@@ -110,13 +110,15 @@ assert apply_fix(
 m4 = root4.find(".//{*}measure")
 d4 = m4.findall("{*}direction")[-1]
 assert d4.find(".//{*}words").text == "To Coda"
-assert d4.find(".//{*}coda") is not None
+# MusicXML 표준 To Coda는 words+sound@tocoda (⟨coda⟩ 기호 병기는 재생 루프 오류)
+assert d4.find(".//{*}coda") is None
 assert d4.find("{*}sound").get("tocoda") == "coda"
 assert d4.find(".//{*}tocoda") is None
+assert d4.get(MEASURE_END_ANCHOR_ATTR) == "end"
 snap4 = measure_snapshot(root4, "", "P1", "36")
 assert any(d.get("directionType") == "tocoda" for d in snap4["measureDirections"])
 
-# Coda at measure start — words + coda symbol
+# Coda at measure start — MusicXML 표준 ⟨coda/⟩ 마커만
 root6 = ET.fromstring(
     """<score-partwise version="3.1">
 <part id="P1"><measure number="61">
@@ -141,10 +143,10 @@ m61 = root6.find(".//{*}measure")
 kids6 = [_local(c.tag) for c in m61]
 assert kids6.index("direction") < kids6.index("note")
 d6 = m61.find("{*}direction")
-assert d6.find(".//{*}words").text == "Coda"
 assert d6.find(".//{*}coda") is not None
+assert d6.find(".//{*}words") is None
 
-# D.S. at measure end → before barline; words + segno
+# D.S. at measure end → before barline; words + sound (segno 기호 병기 없음)
 root5 = ET.fromstring(
     """<score-partwise version="3.1">
 <part id="P1"><measure number="60">
@@ -179,8 +181,9 @@ assert kids.index("direction") > kids.index("backup")
 assert kids.index("direction") < kids.index("barline")
 d5 = m60.find("{*}direction")
 assert d5.find(".//{*}words").text == "D.S."
-assert d5.find(".//{*}segno") is not None
+assert d5.find(".//{*}segno") is None
 assert d5.find("{*}sound").get("dalsegno") == "segno"
+assert d5.get(MEASURE_END_ANCHOR_ATTR) == "end"
 # must not leak into next measure
 m61 = root5.findall(".//{*}measure")[1]
 assert m61.find("{*}direction") is None

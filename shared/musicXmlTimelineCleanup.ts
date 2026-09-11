@@ -17,8 +17,10 @@ import {
   reorderPlayOrderDocumentOrderInXml,
   realignPlayOrderColumnTimelinesInXml,
 } from './musicXmlPlayOrder';
+import { HITL_MEASURE_ANCHOR_ATTR } from './musicXmlMeasureEndDirectionOsmdAnchor';
 
 const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
+const OSMD_MEASURE_END_DIR_X_ATTR = 'data-osmd-measure-end-dir-x';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -456,6 +458,20 @@ export function stripDefaultXyForOsmdPreview(xml: string): string {
       stripEngravingChildDefaultXy(el);
     });
     doc.querySelectorAll('direction, *|direction').forEach((el) => {
+      const isMeasureEnd =
+        (el.getAttribute(HITL_MEASURE_ANCHOR_ATTR) || '').trim().toLowerCase() === 'end';
+      if (isMeasureEnd) {
+        // 마디 끝 — OSMD/SVG에 넘길 가로 힌트 보존(음표 default-x는 계속 제거)
+        const dx =
+          el.getAttribute('default-x')?.trim() ||
+          el.getAttribute(OSMD_MEASURE_END_DIR_X_ATTR)?.trim() ||
+          '';
+        if (dx) el.setAttribute(OSMD_MEASURE_END_DIR_X_ATTR, dx);
+        // default-x는 OSMD가 무시·오용하는 경우가 있어 data attr만 유지
+        el.removeAttribute('default-x');
+        el.removeAttribute('default-y');
+        return;
+      }
       el.removeAttribute('default-x');
       el.removeAttribute('default-y');
     });
@@ -552,6 +568,17 @@ export function stripDefaultXyKeepLayoutAttrsForOsmdPreview(xml: string): string
       stripEngravingChildDefaultXy(el);
     });
     doc.querySelectorAll('direction, *|direction').forEach((el) => {
+      const isMeasureEnd =
+        (el.getAttribute(HITL_MEASURE_ANCHOR_ATTR) || '').trim().toLowerCase() === 'end';
+      if (isMeasureEnd) {
+        const dx =
+          el.getAttribute('default-x')?.trim() ||
+          el.getAttribute(OSMD_MEASURE_END_DIR_X_ATTR)?.trim() ||
+          '';
+        if (dx) el.setAttribute(OSMD_MEASURE_END_DIR_X_ATTR, dx);
+        el.removeAttribute('default-x');
+        return;
+      }
       el.removeAttribute('default-x');
       // default-y는 셈여림(p, f) 및 쐐기(crescendo, diminuendo)의 오선 이격 거리를 결정하므로 보존
     });

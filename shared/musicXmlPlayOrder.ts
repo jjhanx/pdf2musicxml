@@ -162,35 +162,54 @@ export function defaultPlayOrdersFromTimeline(measure: Element, staffN?: number)
   return out;
 }
 
-/** 같은 staff·같은 명시 po가 서로 다른 musical onset에 있으면 속성 제거(옛 전파 잔여). */
+/** 같은 staff·voice·pitch·명시 po가 서로 다른 musical onset에 있으면 속성 제거(옛 전파 잔여).
+ * 꾸밈음·다른 pitch의 같은 숫자 순번(다성 column)·다른 voice partial column은 유지.
+ */
 export function sanitizeConflictingPlayOrders(measure: Element): boolean {
   // voice-parallel onset — 단일 part cursor가 underfull forward 등으로 어긋나도
   // 같은 musical 동시성(같은 연주순번)을 다른 onset으로 오인하지 않음.
   const onsets = collectVoiceParallelNoteOnsets(measure);
   type Entry = { leader: Element; onset: number };
-  const byStaffPo = new Map<string, Map<number, Entry[]>>();
+  // staff → po → voice|pitch → entries
+  const byStaffPoPitch = new Map<string, Map<number, Map<string, Entry[]>>>();
   for (const child of [...measure.children]) {
     if (xmlLocalName(child) !== 'note') continue;
     if (isChordMember(child)) continue;
+    if (isGraceNote(child)) continue;
     const po = readPlayOrder(child);
     if (po == null) continue;
-    const staff = noteStaffNumber(child);
-    const staffMap = byStaffPo.get(String(staff)) ?? new Map<number, Entry[]>();
-    const list = staffMap.get(po) ?? [];
+    const staff = String(noteStaffNumber(child));
+    const voice = noteVoiceNumber(child);
+    const pitch =
+      child.querySelector(':scope > pitch > step, :scope > *|pitch > *|step')?.textContent?.trim() ??
+      `__idx`;
+    const oct =
+      child.querySelector(':scope > pitch > octave, :scope > *|pitch > *|octave')?.textContent?.trim() ??
+      '';
+    const alter =
+      child.querySelector(':scope > pitch > alter, :scope > *|pitch > *|alter')?.textContent?.trim() ??
+      '';
+    const pitchKey = `v${voice}|${pitch}${alter}${oct}`;
+    const staffMap = byStaffPoPitch.get(staff) ?? new Map<number, Map<string, Entry[]>>();
+    const poMap = staffMap.get(po) ?? new Map<string, Entry[]>();
+    const list = poMap.get(pitchKey) ?? [];
     list.push({ leader: child, onset: onsets.get(child) ?? 0 });
-    staffMap.set(po, list);
-    byStaffPo.set(String(staff), staffMap);
+    poMap.set(pitchKey, list);
+    staffMap.set(po, poMap);
+    byStaffPoPitch.set(staff, staffMap);
   }
   let changed = false;
-  for (const staffMap of byStaffPo.values()) {
-    for (const entries of staffMap.values()) {
-      const distinct = new Set(entries.map((e) => e.onset));
-      if (distinct.size <= 1) continue;
-      for (const { leader } of entries) {
-        for (const note of noteGroupWithChords(measure, leader)) {
-          if (note.hasAttribute(HITL_PLAY_ORDER_ATTR)) {
-            note.removeAttribute(HITL_PLAY_ORDER_ATTR);
-            changed = true;
+  for (const staffMap of byStaffPoPitch.values()) {
+    for (const poMap of staffMap.values()) {
+      for (const entries of poMap.values()) {
+        const distinct = new Set(entries.map((e) => e.onset));
+        if (distinct.size <= 1) continue;
+        for (const { leader } of entries) {
+          for (const note of noteGroupWithChords(measure, leader)) {
+            if (note.hasAttribute(HITL_PLAY_ORDER_ATTR)) {
+              note.removeAttribute(HITL_PLAY_ORDER_ATTR);
+              changed = true;
+            }
           }
         }
       }

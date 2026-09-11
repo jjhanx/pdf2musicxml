@@ -538,6 +538,12 @@ function isNavigationDirection(d: MeasureDirectionEl): boolean {
   return isNavigationDirectionType(d.directionType, d.directionValue || d.text);
 }
 
+function isDynamicsDirection(d: MeasureDirectionEl): boolean {
+  const t = (d.directionType || '').trim().toLowerCase();
+  if (t === 'dynamics') return true;
+  return (d.text || '').trim().toLowerCase().startsWith('dyn:');
+}
+
 function isWedgeDirection(d: MeasureDirectionEl): boolean {
   const t = (d.directionType || '').trim().toLowerCase();
   if (t === 'wedge') return true;
@@ -676,12 +682,17 @@ function MeasureNavigationEditor({
   const [endingNumber, setEndingNumber] = useState('1');
   const [endingType, setEndingType] = useState<'start' | 'stop' | 'discontinue'>('start');
   const [endingLocation, setEndingLocation] = useState<'left' | 'right'>('left');
+  const [dynTag, setDynTag] = useState<string>(DYNAMICS_DIRECTION_VALUES[0] ?? 'p');
+  const [dynAnchor, setDynAnchor] = useState<'start' | 'end'>('end');
+  const [dynPlacement, setDynPlacement] = useState<'above' | 'below'>('below');
 
   useEffect(() => {
     setStaff(editStaffWithinPart ?? insertStaff ?? 1);
   }, [editStaffWithinPart, insertStaff]);
 
   const selected = NAVIGATION_INSERT_OPTIONS[navKind] ?? NAVIGATION_INSERT_OPTIONS[0];
+  const measureDynDirections = directions.filter((d) => isDynamicsDirection(d));
+  const navOnlyDirections = directions.filter((d) => isNavigationDirection(d));
 
   useEffect(() => {
     const t = selected.directionType;
@@ -707,11 +718,12 @@ function MeasureNavigationEditor({
       }}
     >
       <div style={{ fontWeight: 700, marginBottom: 6 }}>
-        진행 제어 (도돌이표 · 1·2번 괄호 · Segno·Coda·Fine 등)
+        진행 제어 (도돌이표 · 1·2번 괄호 · 마디 끝 셈여림 · Segno·Coda·Fine 등)
       </div>
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
-        <strong>도돌이표·1번/2번 괄호</strong>는 MusicXML <code>&lt;barline&gt;</code>이고, Segno/Coda/Fine/D.C./D.S.는{' '}
-        <code>&lt;direction&gt;</code>입니다. OMR이 원본에 없는 도돌이표를 넣었으면 아래에서 제거하고, 빠진 기호는
+        <strong>도돌이표·1번/2번 괄호</strong>는 MusicXML <code>&lt;barline&gt;</code>이고,{' '}
+        <strong>마디 끝/처음 셈여림</strong>·Segno/Coda/Fine/D.C./D.S.는 <code>&lt;direction&gt;</code>
+        입니다(음표에 붙이지 않음). OMR이 원본에 없는 도돌이표를 넣었으면 아래에서 제거하고, 빠진 기호는
         추가하세요. 「모든 파트」는 같은 마디 번호의 S/A/T/B 등에 함께 적용합니다(기본은 현재 성부만).
       </p>
 
@@ -785,7 +797,7 @@ function MeasureNavigationEditor({
         </ul>
       ) : (
         <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>
-          이 마디에 도돌이표·1·2번 괄호(barline) 없음
+          이 마디에 도돌이표·1·2번 괄호(barline) 없음 — 아래에서 추가하세요
         </p>
       )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
@@ -882,6 +894,126 @@ function MeasureNavigationEditor({
       </div>
 
       <div style={{ fontWeight: 600, margin: '0.5rem 0 0.4rem', fontSize: '0.9rem', borderTop: '1px solid #bbdefb', paddingTop: 8 }}>
+        마디 처음/끝 셈여림 (음표 없이)
+      </div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        특정 음표에 붙이지 않고 마디 <strong>처음</strong> 또는 <strong>끝</strong>(오른쪽 barline 직전)에
+        셈여림 direction만 둡니다. 음표별 셈여림은 아래 음표 행의 direction에서 추가하세요.
+      </p>
+      {measureDynDirections.length > 0 ? (
+        <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {measureDynDirections.map((d) => (
+            <li
+              key={`mdyn-${d.directionIndex}`}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                padding: '0.35rem 0',
+                borderBottom: '1px solid #bbdefb',
+              }}
+            >
+              <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
+                dir #{d.directionIndex}
+                {d.staff != null ? ` · staff ${d.staff}` : ''}
+              </span>
+              <strong>{d.directionValue || d.text || 'dynamics'}</strong>
+              <select
+                value={d.placement || 'below'}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setDirectionPlacement',
+                    directionIndex: d.directionIndex,
+                    placement: e.target.value as 'above' | 'below',
+                  })
+                }
+                style={{ fontSize: '0.82rem', padding: '1px 4px' }}
+              >
+                <option value="above">위</option>
+                <option value="below">아래</option>
+              </select>
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                onClick={() =>
+                  onFix({
+                    kind: 'removeDirection',
+                    directionIndex: d.directionIndex,
+                  })
+                }
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: '#555' }}>
+          이 목록에 잡힌 마디 단위 셈여림 없음
+        </p>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <label className="omr-measure-inline-field">
+          셈여림
+          <select value={dynTag} onChange={(e) => setDynTag(e.target.value)} style={{ marginLeft: 4 }}>
+            {DYNAMICS_DIRECTION_VALUES.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          위치
+          <select
+            value={dynAnchor}
+            onChange={(e) => setDynAnchor(e.target.value as 'start' | 'end')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="start">마디 처음</option>
+            <option value="end">마디 끝</option>
+          </select>
+        </label>
+        <label className="omr-measure-inline-field">
+          위/아래
+          <select
+            value={dynPlacement}
+            onChange={(e) => setDynPlacement(e.target.value as 'above' | 'below')}
+            style={{ marginLeft: 4 }}
+          >
+            <option value="above">위</option>
+            <option value="below">아래</option>
+          </select>
+        </label>
+        {partStaveCount >= 2 && editStaffWithinPart == null ? (
+          <label className="omr-measure-inline-field">
+            staff
+            <select value={String(staff)} onChange={(e) => setStaff(parseInt(e.target.value, 10) || 1)} style={{ marginLeft: 4 }}>
+              <option value="1">staff 1 (PR)</option>
+              <option value="2">staff 2 (PL)</option>
+            </select>
+          </label>
+        ) : null}
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          onClick={() =>
+            onFix({
+              kind: 'insertDirection',
+              directionType: 'dynamics',
+              directionValue: dynTag,
+              measureAnchor: dynAnchor,
+              staff: editStaffWithinPart ?? staff,
+              placement: dynPlacement,
+            })
+          }
+        >
+          마디 셈여림 추가
+        </button>
+      </div>
+
+      <div style={{ fontWeight: 600, margin: '0.5rem 0 0.4rem', fontSize: '0.9rem', borderTop: '1px solid #bbdefb', paddingTop: 8 }}>
         Segno · Coda · Fine · D.C. / D.S. (direction)
       </div>
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
@@ -889,9 +1021,9 @@ function MeasureNavigationEditor({
         <strong>올바른 기호를 추가</strong>하세요. 위치는 <strong>마디 처음</strong> 또는 <strong>마디 끝</strong>
         (대부분 위쪽에 표시).
       </p>
-      {directions.length > 0 ? (
+      {navOnlyDirections.length > 0 ? (
         <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {directions.map((d) => (
+          {navOnlyDirections.map((d) => (
             <li
               key={`nav-${d.directionIndex}`}
               style={{
@@ -2384,13 +2516,20 @@ export function OmrMeasureEditor({
 
   const measureDirections = snapshot?.measureDirections ?? [];
   const navigationDirections = useMemo(
-    () => measureDirections.filter((d) => isNavigationDirection(d)),
+    () =>
+      measureDirections.filter(
+        (d) => isNavigationDirection(d) || isDynamicsDirection(d),
+      ),
     [measureDirections],
   );
   const textDirections = useMemo(
     () =>
       measureDirections.filter(
-        (d) => !isNavigationDirection(d) && !isWedgeDirection(d) && !isOctaveShiftDirection(d),
+        (d) =>
+          !isNavigationDirection(d) &&
+          !isDynamicsDirection(d) &&
+          !isWedgeDirection(d) &&
+          !isOctaveShiftDirection(d),
       ),
     [measureDirections],
   );

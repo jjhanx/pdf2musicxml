@@ -947,11 +947,17 @@ def _set_play_order_same_pitch_staff_leaders(
     OMR이 같은 박에 여러 voice로 같은 pitch를 남긴 경우만 전파한다.
     서로 다른 시점의 동일 pitch(예: m17 F4 화음 여러 개)까지 전파하면
     나중에 설정한 순번이 앞 화음을 덮어쓰거나 미리보기 column이 뒤바뀐다.
+
+    꾸밈음(grace)은 본음과 같은 onset·같은 pitch여도 **별도 연주순번**이 필요하므로
+    전파 대상·기준에서 제외한다(앞선 같은 높이 8분음 순번을 덮어쓰지 않음).
     """
-    target_pitch = _note_pitch_label(notes[leader_i], ns)
+    target = notes[leader_i]
+    if target.find(_q(ns, "grace")) is not None:
+        return _set_play_order_on_leader(notes, ns, leader_i, order)
+    target_pitch = _note_pitch_label(target, ns)
     if not target_pitch:
         return _set_play_order_on_leader(notes, ns, leader_i, order)
-    _, target_staff = _note_voice_staff(notes[leader_i], ns)
+    _, target_staff = _note_voice_staff(target, ns)
     target_onset: int | None = None
     if measure is not None:
         target_onset = _parallel_onset_time_for_note_index(
@@ -960,6 +966,8 @@ def _set_play_order_same_pitch_staff_leaders(
     changed = False
     for i, note in enumerate(notes):
         if note.find(_q(ns, "chord")) is not None:
+            continue
+        if note.find(_q(ns, "grace")) is not None:
             continue
         if _note_pitch_label(note, ns) != target_pitch:
             continue
@@ -982,12 +990,15 @@ def _sanitize_conflicting_play_orders(measure: ET.Element, ns: str) -> bool:
 
     옛 same-pitch 전 staff 전파 잔여(한 voice 안 여러 시점 F4가 모두 po=4)만 정리한다.
     **다른 voice**가 같은 pitch·순번(partial voice column)을 쓰는 것·다른 pitch·`5-6` 참조는 허용.
+    꾸밈음은 본음과 순번 체계가 달라 정리 대상에서 제외(앞 같은 높이 음 순번 보호).
     """
     notes = list_note_elements(measure, ns)
     # staff → po → voice|pitch → [(leader_i, onset)]
     by: dict[str, dict[str, dict[str, list[tuple[int, int]]]]] = {}
     for i, note in enumerate(notes):
         if note.find(_q(ns, "chord")) is not None:
+            continue
+        if note.find(_q(ns, "grace")) is not None:
             continue
         po = _read_play_order(note)  # 숫자만; 참조는 스킵
         if po is None:
@@ -1022,15 +1033,21 @@ def _clear_play_order_on_other_onsets(
 
     다른 voice가 같은 pitch·순번( partial voice column 공유)을 쓰는 경우는 지우지 않음.
     다른 pitch가 같은 순번(다성 column 공유)인 경우도 지우지 않음.
+    꾸밈음 순번은 지우지 않음(본음 순번 설정이 앞 같은 높이 8분·꾸밈을 건드리지 않게).
     """
     if order < 1:
         return False
-    keep_voice, _ = _note_voice_staff(notes[keep_leader_i], ns)
+    keep = notes[keep_leader_i]
+    if keep.find(_q(ns, "grace")) is not None:
+        return False
+    keep_voice, _ = _note_voice_staff(keep, ns)
     keep_onset = _parallel_onset_time_for_note_index(measure, ns, staff, notes, keep_leader_i)
-    keep_pitch = _note_pitch_label(notes[keep_leader_i], ns)
+    keep_pitch = _note_pitch_label(keep, ns)
     changed = False
     for i, note in enumerate(notes):
         if note.find(_q(ns, "chord")) is not None:
+            continue
+        if note.find(_q(ns, "grace")) is not None:
             continue
         voice, st = _note_voice_staff(note, ns)
         if st != staff:
@@ -3430,6 +3447,19 @@ def _insert_direction_at_measure_end(measure: ET.Element, ns: str, new_dir: ET.E
     measure.append(new_dir)
 
 
+def _direction_is_at_measure_end(measure: ET.Element, direction: ET.Element) -> bool:
+    """뒤에 note/backup/forward가 없으면 마디 끝(barline 직전 포함). 음표 없는 마디·온쉼 뒤 rit./mf 등."""
+    children = list(measure)
+    try:
+        idx = children.index(direction)
+    except ValueError:
+        return False
+    for child in children[idx + 1 :]:
+        if _local(child) in ("note", "backup", "forward"):
+            return False
+    return True
+
+
 def _insert_before_note_element(
     measure: ET.Element,
     ns: str,
@@ -4230,6 +4260,9 @@ def _migrate_directions_to_notes(measure: ET.Element, ns: str) -> bool:
             val = str(info.get("directionValue") or "")
             if re.search(r"^(D\.(C|S)\.|To Coda|Fine\b)", val, re.I):
                 continue
+        # 마디 끝 단독 direction(음표 없음·온쉼 뒤 rit./mf)은 음표 앞으로 끌어오지 않음
+        if _direction_is_at_measure_end(measure, direction):
+            continue
         anchor = _anchor_note_for_direction(measure, direction, ns)
         if anchor is None:
             continue
@@ -9718,6 +9751,24 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 )
             _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
             return True
+        # 마디 처음/끝 셈여림 — 음표 notations가 아니라 standalone <direction>
+        # (음표 없는 마디 끝·온쉼 뒤 mf 등). measureAnchor 없을 때는 기존처럼 음표 부착.
+        if direction_type == "dynamics" and measure_anchor in ("start", "end"):
+            if placement is None:
+                placement = _DEFAULT_DYNAMICS_PLACEMENT
+            new_dir = _build_direction_element(
+                ns,
+                "dynamics",
+                direction_value or "p",
+                staff_n=staff_n,
+                placement=placement,
+            )
+            if measure_anchor == "end":
+                _insert_direction_at_measure_end(measure, ns, new_dir)
+            else:
+                _insert_direction_at_staff_measure_start(measure, ns, new_dir, staff_n)
+            _bind_direction_voice_from_staff(measure, ns, new_dir, staff_n)
+            return True
         if direction_type == "dynamics" and placement is None:
             placement = _DEFAULT_DYNAMICS_PLACEMENT
         note_idx: int | None
@@ -9798,6 +9849,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             _read_play_order(n) is not None
             for n in notes
             if (_note_staff_number(n, ns) or 1) == staff_n
+            and n.find(_q(ns, "chord")) is None
         )
 
         insert_po: int | None = None
@@ -9808,15 +9860,10 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 defaults = _default_play_orders_for_staff(measure, ns, str(staff_n))
                 insert_po = defaults.get(before_idx, 1)
 
+            # 본음(+화음)만 순번을 밀어 꾸밈음 자리를 만든다.
+            # staff 전체 po>=insert_po 시프트는 앞선 같은 높이 8분음 등 다른 onset 순번을 건드린다.
             shift_count = 1 if as_chord else len(grace_list)
-            for n in notes:
-                if n.find(_q(ns, "chord")) is not None:
-                    continue
-                if (_note_staff_number(n, ns) or 1) != staff_n:
-                    continue
-                cur_po = _read_play_order(n)
-                if cur_po is not None and cur_po >= insert_po:
-                    _set_play_order_on_leader(notes, ns, notes.index(n), cur_po + shift_count)
+            _set_play_order_on_leader(notes, ns, before_idx, insert_po + shift_count)
 
         created_notes: list[ET.Element] = []
         fx = _parse_default_x(target_note) or 50.0

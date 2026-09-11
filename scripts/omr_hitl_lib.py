@@ -2436,30 +2436,106 @@ def _prune_empty_barline(measure: ET.Element, bl: ET.Element, ns: str) -> None:
             pass
 
 
+def _barline_style_text(bl: ET.Element, ns: str) -> str | None:
+    style_el = bl.find(_q(ns, "bar-style"))
+    if style_el is None or not (style_el.text or "").strip():
+        return None
+    return (style_el.text or "").strip().lower()
+
+
+def _is_final_looking_bar_style(style: str | None) -> bool:
+    """repeat 점이 없어도 OSMD에서 도돌이·곡끝처럼 보이는 막대 스타일."""
+    s = (style or "").strip().lower()
+    return s in ("light-heavy", "heavy-light", "heavy-heavy")
+
+
+def _relocate_misplaced_left_barlines(measure: ET.Element, ns: str) -> bool:
+    """음표·backup 뒤에 끼어 있는 location=left barline을 마디 머리로 옮긴다.
+
+    Audiveris가 left barline·1번 괄호를 마디 끝에 두면 OSMD가 끝 도돌이처럼 그린다.
+    """
+    children = list(measure)
+    first_music = None
+    for i, child in enumerate(children):
+        if _local(child) in ("note", "backup", "forward", "direction", "harmony"):
+            first_music = i
+            break
+    if first_music is None:
+        return False
+    changed = False
+    # 뒤에서부터 제거해 인덱스 안정화
+    for child in list(children[first_music:]):
+        if _local(child) != "barline":
+            continue
+        loc = (child.get("location") or "right").strip().lower() or "right"
+        if loc != "left":
+            continue
+        measure.remove(child)
+        idx = _barline_insert_index(measure, ns, "left")
+        kids = list(measure)
+        if idx >= len(kids):
+            measure.append(child)
+        else:
+            measure.insert(idx, child)
+        changed = True
+    return changed
+
+
 def _apply_barline_fix_on_measure(measure: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
-    """setBarlineRepeat / clearBarlineRepeat / setBarlineEnding / clearBarlineEnding / clearBarline."""
+    """setBarlineRepeat / clearBarlineRepeat / setBarlineStyle / setBarlineEnding / clearBarlineEnding / clearBarline."""
     kind = str(fix.get("kind") or "")
     location = str(fix.get("barlineLocation") or fix.get("measureAnchor") or "right").strip().lower()
     if location not in ("left", "right", "middle"):
         location = "right"
 
+    changed = False
     if kind == "clearBarline":
         bl = _find_barline(measure, ns, location)
         if bl is None:
-            return False
+            return _relocate_misplaced_left_barlines(measure, ns)
         measure.remove(bl)
+        _relocate_misplaced_left_barlines(measure, ns)
         return True
+
+    if kind == "setBarlineStyle":
+        style = str(fix.get("barStyle") or "").strip().lower()
+        # 빈 문자열 = 스타일 제거(일반 세로줄)
+        bl = _find_barline(measure, ns, location)
+        if bl is None and style:
+            bl = _ensure_barline(measure, ns, location)
+        if bl is None:
+            return False
+        before = _barline_style_text(bl, ns)
+        want = style or None
+        if want == "regular":
+            # regular를 명시하거나 스타일 노드 제거 — OSMD는 둘 다 일반 세로줄
+            _set_barline_style(bl, ns, "regular")
+        elif want:
+            _set_barline_style(bl, ns, want)
+        else:
+            _set_barline_style(bl, ns, None)
+            _prune_empty_barline(measure, bl, ns)
+        changed = before != _barline_style_text(bl, ns) or (want is None and before is not None)
+        if _relocate_misplaced_left_barlines(measure, ns):
+            changed = True
+        return changed
 
     if kind == "clearBarlineRepeat":
         bl = _find_barline(measure, ns, location)
         if bl is None:
-            return False
-        changed = False
+            return _relocate_misplaced_left_barlines(measure, ns)
         for rep in list(bl.findall(_q(ns, "repeat"))):
             bl.remove(rep)
             changed = True
+        # `<repeat>` 없이도 light-heavy 등이 도돌이·곡끝처럼 보임 → 일반 세로줄로
+        style = _barline_style_text(bl, ns)
+        if _is_final_looking_bar_style(style):
+            _set_barline_style(bl, ns, "regular")
+            changed = True
         if changed:
             _prune_empty_barline(measure, bl, ns)
+        if _relocate_misplaced_left_barlines(measure, ns):
+            changed = True
         return changed
 
     if kind == "setBarlineRepeat":
@@ -2488,6 +2564,7 @@ def _apply_barline_fix_on_measure(measure: ET.Element, ns: str, fix: dict[str, A
         winged = str(fix.get("repeatWinged") or "").strip()
         if winged:
             rep.set("winged", winged)
+        _relocate_misplaced_left_barlines(measure, ns)
         return True
 
     if kind == "clearBarlineEnding":
@@ -2496,7 +2573,6 @@ def _apply_barline_fix_on_measure(measure: ET.Element, ns: str, fix: dict[str, A
             return False
         ending_number = str(fix.get("endingNumber") or "").strip()
         ending_type = str(fix.get("endingType") or "").strip().lower()
-        changed = False
         for en in list(bl.findall(_q(ns, "ending"))):
             num = (en.get("number") or "").strip()
             et = (en.get("type") or "").strip().lower()
@@ -2508,6 +2584,8 @@ def _apply_barline_fix_on_measure(measure: ET.Element, ns: str, fix: dict[str, A
             changed = True
         if changed:
             _prune_empty_barline(measure, bl, ns)
+        if _relocate_misplaced_left_barlines(measure, ns):
+            changed = True
         return changed
 
     if kind == "setBarlineEnding":
@@ -2529,6 +2607,7 @@ def _apply_barline_fix_on_measure(measure: ET.Element, ns: str, fix: dict[str, A
             en.text = label
         elif ending_type == "start":
             en.text = ending_number
+        _relocate_misplaced_left_barlines(measure, ns)
         return True
 
     return False
@@ -9076,6 +9155,7 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     if kind in (
         "setBarlineRepeat",
         "clearBarlineRepeat",
+        "setBarlineStyle",
         "setBarlineEnding",
         "clearBarlineEnding",
         "clearBarline",
@@ -13033,6 +13113,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "clearNoteDirection",
         "setBarlineRepeat",
         "clearBarlineRepeat",
+        "setBarlineStyle",
         "setBarlineEnding",
         "clearBarlineEnding",
         "clearBarline",

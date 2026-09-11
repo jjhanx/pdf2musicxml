@@ -650,13 +650,22 @@ function barlineSummary(bl: MeasureBarlineEl): string {
   const bits: string[] = [barlineLocationLabel(bl.location)];
   if (bl.repeatDirection === 'forward') bits.push('열림 도돌이표');
   else if (bl.repeatDirection === 'backward') bits.push('닫힘 도돌이표');
-  if (bl.barStyle) bits.push(bl.barStyle);
+  const style = (bl.barStyle || '').toLowerCase();
+  if (style === 'light-heavy') bits.push('끝 겹세로줄(light-heavy·도돌이처럼 보일 수 있음)');
+  else if (style === 'heavy-light') bits.push('열림 겹세로줄(heavy-light)');
+  else if (style === 'heavy-heavy') bits.push('이중 겹세로줄(heavy-heavy)');
+  else if (bl.barStyle) bits.push(bl.barStyle);
   for (const en of bl.endings ?? []) {
     const t =
       en.type === 'start' ? '시작' : en.type === 'stop' ? '끝' : en.type === 'discontinue' ? '중단' : en.type;
     bits.push(`${en.number}번 괄호(${t})`);
   }
   return bits.join(' · ');
+}
+
+function isFinalLookingBarStyle(style?: string | null): boolean {
+  const s = (style || '').toLowerCase();
+  return s === 'light-heavy' || s === 'heavy-light' || s === 'heavy-heavy';
 }
 
 function MeasureNavigationEditor({
@@ -728,8 +737,13 @@ function MeasureNavigationEditor({
       </p>
 
       <div style={{ fontWeight: 600, margin: '0.35rem 0 0.4rem', fontSize: '0.9rem' }}>
-        도돌이표 · 1·2번 괄호 (barline)
+        도돌이표 · 끝 겹세로줄 · 1·2번 괄호 (barline)
       </div>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+        OMR이 <code>&lt;repeat&gt;</code> 없이 <strong>light-heavy</strong> 끝 겹세로줄만 넣어도 미리보기에서
+        도돌이·곡끝처럼 보입니다. 아래에 보이면 「도돌이·끝줄 제거」로 일반 세로줄로 바꾸세요. 성부(S/A)에도
+        같은 줄이 있으면 <strong>모든 파트에 적용</strong>을 켜세요.
+      </p>
       {barlines.length > 0 ? (
         <ul style={{ margin: '0 0 0.65rem', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {barlines.map((bl) => (
@@ -745,10 +759,11 @@ function MeasureNavigationEditor({
               }}
             >
               <strong style={{ fontSize: '0.88rem' }}>{barlineSummary(bl)}</strong>
-              {bl.repeatDirection ? (
+              {bl.repeatDirection || isFinalLookingBarStyle(bl.barStyle) ? (
                 <button
                   type="button"
                   className="omr-hitl-fix-btn"
+                  title="repeat 점 제거 + light-heavy 등 끝 겹세로줄을 일반 세로줄로"
                   onClick={() =>
                     onFix({
                       kind: 'clearBarlineRepeat',
@@ -757,7 +772,23 @@ function MeasureNavigationEditor({
                     })
                   }
                 >
-                  도돌이표 삭제
+                  도돌이·끝줄 제거
+                </button>
+              ) : null}
+              {isFinalLookingBarStyle(bl.barStyle) && !bl.repeatDirection ? (
+                <button
+                  type="button"
+                  className="omr-hitl-fix-btn"
+                  onClick={() =>
+                    onFix({
+                      kind: 'setBarlineStyle',
+                      barlineLocation: bl.location,
+                      barStyle: 'regular',
+                      applyToAllParts: applyAllParts || undefined,
+                    })
+                  }
+                >
+                  일반 세로줄로
                 </button>
               ) : null}
               {(bl.endings ?? []).map((en, ei) => (
@@ -800,6 +831,24 @@ function MeasureNavigationEditor({
           이 마디에 도돌이표·1·2번 괄호(barline) 없음 — 아래에서 추가하세요
         </p>
       )}
+      {barlines.some((bl) => isFinalLookingBarStyle(bl.barStyle) || bl.repeatDirection) ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn omr-hitl-fix-btn--primary"
+            title="오른쪽 끝 light-heavy/도돌이를 모든 파트에서 일반 세로줄로"
+            onClick={() =>
+              onFix({
+                kind: 'clearBarlineRepeat',
+                barlineLocation: 'right',
+                applyToAllParts: true,
+              })
+            }
+          >
+            모든 파트 · 마디 끝 도돌이·겹세로줄 제거
+          </button>
+        </div>
+      ) : null}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
         <button
           type="button"

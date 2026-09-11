@@ -159,7 +159,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   setNoteDirection: '음표 direction',
   clearNoteDirection: 'direction 지우기',
   setBarlineRepeat: '도돌이표 설정',
-  clearBarlineRepeat: '도돌이표 제거',
+  clearBarlineRepeat: '도돌이·끝 겹세로줄 제거',
+  setBarlineStyle: '마디선 스타일',
   setBarlineEnding: '1·2번 괄호 설정',
   clearBarlineEnding: '1·2번 괄호 제거',
   clearBarline: '마디선(barline) 제거',
@@ -491,6 +492,7 @@ export function formatFixSummary(fix: OmrHitlFix): string {
   if (
     fix.kind === 'setBarlineRepeat' ||
     fix.kind === 'clearBarlineRepeat' ||
+    fix.kind === 'setBarlineStyle' ||
     fix.kind === 'setBarlineEnding' ||
     fix.kind === 'clearBarlineEnding' ||
     fix.kind === 'clearBarline'
@@ -499,6 +501,7 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     parts.push(loc === 'left' ? '왼쪽' : loc === 'middle' ? '중간' : '오른쪽');
     if (fix.repeatDirection === 'forward') parts.push('열림 도돌이');
     if (fix.repeatDirection === 'backward') parts.push('닫힘 도돌이');
+    if (fix.barStyle) parts.push(fix.barStyle);
     if (fix.endingNumber) parts.push(`${fix.endingNumber}번`);
     if (fix.endingType) parts.push(fix.endingType);
     if (fix.applyToAllParts) parts.push('전체 파트');

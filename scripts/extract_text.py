@@ -111,13 +111,29 @@ def extract_vector(pdf_path, output_json_path, doc):
     with open(output_json_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
+def _page_rgb_array(page, dpi: int = 300):
+    """PDF 페이지 → RGB numpy (H,W,3). Poppler 없이 PyMuPDF만 사용(Windows 포함)."""
+    import fitz
+    import numpy as np
+
+    zoom = dpi / 72.0
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+    if pix.n == 1:
+        return np.repeat(arr, 3, axis=2)
+    if pix.n == 4:
+        return arr[:, :, :3].copy()
+    return arr.copy()
+
+
 def extract_image(pdf_path, output_json_path):
-    from pdf2image import convert_from_path
+    import fitz
     import numpy as np
     from rapidocr import EngineType, LangRec, ModelType, RapidOCR
     from rapidocr.utils.typings import OCRVersion
 
     # PaddleOCR는 numpy<2 전용이라 homr(numpy>=2.2.6)과 공존할 수 없음 → RapidOCR(한국어 PP-OCRv5).
+    # 페이지 래스터는 pdf2image/Poppler 대신 PyMuPDF — Windows에 poppler 미설치여도 동작.
     engine = RapidOCR(
         params={
             "Rec.lang_type": LangRec.KOREAN,
@@ -128,12 +144,14 @@ def extract_image(pdf_path, output_json_path):
             "Det.limit_side_len": 2560,
         }
     )
-    images = convert_from_path(pdf_path, dpi=300)
+    doc = fitz.open(pdf_path)
+    dpi = 300
+    zoom = dpi / 72.0
 
     ocr_results = []
 
-    for page_idx, img in enumerate(images):
-        img_cv = np.array(img)
+    for page_idx, page in enumerate(doc):
+        img_cv = _page_rgb_array(page, dpi=dpi)
         result = engine(img_cv, use_cls=False)
         if result is None or not result.txts:
             continue
@@ -157,7 +175,6 @@ def extract_image(pdf_path, output_json_path):
             x_center = sum(p[0] for p in bbox) / 4
             y_center = sum(p[1] for p in bbox) / 4
 
-            zoom = 300 / 72
             bbox_points = [x_min / zoom, y_min / zoom, x_max / zoom, y_max / zoom]
 
             ocr_results.append({

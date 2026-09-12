@@ -61,6 +61,8 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 - **PDFtoMusic Pro** — **선택(개인용)**. `OMR_ENGINE=pdftomusic`. 상용 SaaS 자동화 비권장 — [docs/PDFtoMusic_배포_가이드.md](docs/PDFtoMusic_배포_가이드.md)
 - **AI OMR** — **선택(실험)**. `OMR_ENGINE=ai`. [docs/AI_OMR_배포_가이드.md](docs/AI_OMR_배포_가이드.md)
 
+이미지 PDF 가사 OCR(`extract_text.py`)은 **PyMuPDF로 페이지를 래스터**한 뒤 RapidOCR을 돌립니다. **Poppler(`pdfinfo`/`pdftoppm`) 설치는 필요 없습니다**(예전 `pdf2image` 경로 제거).
+
 Python 환경:
 
 ```bash
@@ -85,7 +87,8 @@ Linux에서 `pikepdf` 설치가 실패하면 QPDF 개발 라이브러리가 필�
 sudo apt-get install -y libqpdf-dev   # Debian/Ubuntu
 pip install pikepdf pdfplumber
 ```
-*(참고: 리눅스 환경에서 PDF 이미지 변환 시 `sudo apt-get install poppler-utils`가 필요할 수 있습니다.)*
+
+*(참고: 이미지 PDF OCR은 Poppler 없이 PyMuPDF만 사용합니다. `poppler-utils`는 더 이상 필수가 아닙니다.)*
 
 ## 환경 변수
 

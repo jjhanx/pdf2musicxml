@@ -2,7 +2,7 @@
 numpy>=2.2.6,<3.0
 rapidocr>=3.3.0
 onnxruntime>=1.16
-pdf2image
+pdf2image  # 선택·레거시. 이미지 PDF OCR은 PyMuPDF 사용(Poppler 불필요)
 opencv-python-headless
 lxml
 PyMuPDF

@@ -1894,6 +1894,10 @@ function reviewItemsHaveUserEdits(items: unknown[]): boolean {
       return true;
     }
     if (typeof o.lyricPartIndex === 'number' && o.lyricPartIndex > 1) return true;
+    if (Array.isArray(o.lyricPartIndexes) && o.lyricPartIndexes.some((x) => Number(x) > 1 || Number(x) !== 1)) {
+      const idxs = o.lyricPartIndexes.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n >= 1);
+      if (idxs.length > 1 || idxs.some((n) => n > 1)) return true;
+    }
     if (typeof o.lyricVerseIndex === 'number' && o.lyricVerseIndex > 1) return true;
     if (typeof o.lyricSkipNotes === 'number' && o.lyricSkipNotes > 0) return true;
     if (typeof o.lyricPrintedMeasure === 'number' && o.lyricPrintedMeasure >= 1) return true;
@@ -1917,6 +1921,8 @@ function applyReviewUiDefaultRoles(items: unknown[]): unknown[] {
       t === 'title' ||
       t === 'composer' ||
       t === 'lyricist' ||
+      t === 'arranger' ||
+      t === 'singer' ||
       t === 'copyright' ||
       t === 'tempo'
     ) {
@@ -2601,6 +2607,7 @@ function stripLyricReviewMeta(item: unknown): unknown {
   if (!item || typeof item !== 'object') return item;
   const o = { ...(item as Record<string, unknown>) };
   delete o.lyricPartIndex;
+  delete o.lyricPartIndexes;
   delete o.lyricVerseIndex;
   delete o.lyricVoice;
   delete o.lyricSkipNotes;

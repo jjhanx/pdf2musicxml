@@ -426,6 +426,7 @@ def merge_item(sep_item: dict[str, Any], pymupdf_item: dict[str, Any] | None) ->
         "type",
         "text",
         "lyricPartIndex",
+        "lyricPartIndexes",
         "lyricVerseIndex",
         "lyricVoice",
         "lyricSkipNotes",
@@ -460,6 +461,7 @@ def build_initial_review_items(
             continue
         item = dict(raw)
         item.pop("lyricPartIndex", None)
+        item.pop("lyricPartIndexes", None)
         item.pop("lyricVerseIndex", None)
         item.pop("lyricVoice", None)
         item.pop("lyricSkipNotes", None)
@@ -706,7 +708,7 @@ def pymupdf_review_to_flat_inject_rows(
 ) -> list[dict[str, Any]]:
     """PyMuPDF 검토 JSON — 가사 주입의 단일 진실 공급원(성부·순서·텍스트)."""
     rows: list[dict[str, Any]] = []
-    meta_types = {"title", "composer", "lyricist", "copyright", "tempo"}
+    meta_types = {"title", "composer", "lyricist", "arranger", "singer", "copyright", "tempo"}
     for raw in pymupdf_items:
         if not isinstance(raw, dict) or is_meta_item(raw):
             continue

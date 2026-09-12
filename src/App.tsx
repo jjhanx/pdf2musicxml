@@ -76,8 +76,13 @@ type OcrReviewItem = {
   /** 벡터 추출 시 줄 단위 블록을 이루는 PyMuPDF span 들의 텍스트·bbox(마스킹 시 추출 좌표 우선) */
   spans?: { text: string; bbox: number[] }[];
   type?: string;
-  /** MusicXML에서 `part` 순서(1=첫 파트, 합창 4부면 보통 4). Audiveris 출력 part-list 순서와 동일 */
+  /** MusicXML에서 `part` 순서(1=첫 파트). 하위 호환 — `lyricPartIndexes[0]`과 동기화 */
   lyricPartIndex?: number;
+  /**
+   * 같은 가사를 붙일 파트들(1-based). SATB처럼 동일 가사가 여러 성부에 쓰일 때 복수 선택.
+   * 비어 있으면 `lyricPartIndex`(기본 1)만 사용.
+   */
+  lyricPartIndexes?: number[];
   /** 같은 파트·같은 멜로디에 1절·2절 등 → MusicXML `<lyric number>` (1부터). 멜로디 줄(voice)과 별개 */
   lyricVerseIndex?: number;
   /** 해당 파트 안의 MusicXML `<voice>` — 동시에 울리는 **서로 다른 멜로디 줄**(1절/2절이 아님). 미입력 시 1 */
@@ -170,6 +175,16 @@ function mergeReviewFieldsFromSaved(
   if (typeof match.text === 'string') next.text = match.text;
   if (typeof match.lyricPartIndex === 'number' && match.lyricPartIndex >= 1) {
     next.lyricPartIndex = Math.floor(match.lyricPartIndex);
+  }
+  if (Array.isArray(match.lyricPartIndexes)) {
+    const idxs = normalizeLyricPartIndexes({
+      lyricPartIndexes: match.lyricPartIndexes as number[],
+      lyricPartIndex: next.lyricPartIndex,
+    });
+    next.lyricPartIndexes = idxs;
+    next.lyricPartIndex = idxs[0] ?? 1;
+  } else if (typeof match.lyricPartIndex === 'number' && match.lyricPartIndex >= 1) {
+    next.lyricPartIndexes = [Math.floor(match.lyricPartIndex)];
   }
   if (typeof match.lyricVerseIndex === 'number' && match.lyricVerseIndex >= 1) {
     next.lyricVerseIndex = Math.floor(match.lyricVerseIndex);
@@ -303,6 +318,8 @@ function defaultReviewTypeForInit(t: string | undefined): string {
     t === 'title' ||
     t === 'composer' ||
     t === 'lyricist' ||
+    t === 'arranger' ||
+    t === 'singer' ||
     t === 'copyright' ||
     t === 'tempo' ||
     t === 'measure_number' ||
@@ -321,10 +338,35 @@ const REVIEW_TYPE_OPTIONS = [
   'title',
   'composer',
   'lyricist',
+  'arranger',
+  'singer',
   'copyright',
   'tempo',
   'lyrics',
 ] as const;
+
+/** 가사 블록 → 붙일 파트 번호 목록(1-based, 중복 제거·정렬) */
+function normalizeLyricPartIndexes(
+  item: Pick<OcrReviewItem, 'lyricPartIndex' | 'lyricPartIndexes'>,
+): number[] {
+  const raw = item.lyricPartIndexes;
+  const out: number[] = [];
+  if (Array.isArray(raw)) {
+    for (const x of raw) {
+      const n = typeof x === 'number' ? Math.floor(x) : parseInt(String(x), 10);
+      if (Number.isFinite(n) && n >= 1 && !out.includes(n)) out.push(n);
+    }
+  }
+  if (out.length === 0) {
+    const pi =
+      typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
+        ? Math.floor(item.lyricPartIndex)
+        : 1;
+    out.push(pi);
+  }
+  out.sort((a, b) => a - b);
+  return out;
+}
 
 function reviewTypeSelectValue(type: string | undefined, afterOmr: boolean): string {
   if (type === 'measure_number' || type === 'page_number') return type;
@@ -335,26 +377,27 @@ function reviewTypeSelectValue(type: string | undefined, afterOmr: boolean): str
 }
 
 function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem[] {
-  return payloadItems.map((item) => ({
-    ...item,
-    type: item.type || 'unknown',
-    lyricPartIndex:
-      typeof item.lyricPartIndex === 'number' && item.lyricPartIndex >= 1
-        ? Math.floor(item.lyricPartIndex)
-        : 1,
-    lyricVerseIndex:
-      typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
-        ? Math.floor(item.lyricVerseIndex)
-        : 1,
-    lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
-    lyricSkipNotes:
-      typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
-        ? Math.floor(item.lyricSkipNotes)
-        : 0,
-    ...(typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1
-      ? { lyricPrintedMeasure: Math.floor(item.lyricPrintedMeasure) }
-      : {}),
-  }));
+  return payloadItems.map((item) => {
+    const partIndexes = normalizeLyricPartIndexes(item);
+    return {
+      ...item,
+      type: item.type || 'unknown',
+      lyricPartIndexes: partIndexes,
+      lyricPartIndex: partIndexes[0] ?? 1,
+      lyricVerseIndex:
+        typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex >= 1
+          ? Math.floor(item.lyricVerseIndex)
+          : 1,
+      lyricVoice: (item.lyricVoice && String(item.lyricVoice).trim()) || '1',
+      lyricSkipNotes:
+        typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
+          ? Math.floor(item.lyricSkipNotes)
+          : 0,
+      ...(typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1
+        ? { lyricPrintedMeasure: Math.floor(item.lyricPrintedMeasure) }
+        : {}),
+    };
+  });
 }
 
 const PAGE_WIDTH_PT = 595;
@@ -419,14 +462,16 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
         item.type !== 'measure_number' &&
         item.type !== 'page_number') ||
       (item.type === 'lyrics' &&
-        ((typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
+        ((normalizeLyricPartIndexes(item).length > 1 ||
+          normalizeLyricPartIndexes(item).some((n) => n > 1)) ||
           (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
           (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
           (typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1) ||
           Boolean(
             item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1',
           ))) ||
-      (typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
+      normalizeLyricPartIndexes(item).length > 1 ||
+      normalizeLyricPartIndexes(item).some((n) => n > 1) ||
       (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
       (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
       (typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1) ||
@@ -447,6 +492,7 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
       id: item.id || `lyric_review_${Math.random().toString(36).substring(2)}`,
       type: finalRole,
       lyricPartIndex: 1,
+      lyricPartIndexes: [1],
       lyricVerseIndex: 1,
       lyricVoice: '1',
       lyricSkipNotes: 0,
@@ -1557,6 +1603,8 @@ export default function App() {
           ...item,
           lyricVoice: lv && lv.length > 0 ? lv : '1',
           lyricVerseIndex: Math.min(32, vn),
+          lyricPartIndexes: normalizeLyricPartIndexes(item),
+          lyricPartIndex: normalizeLyricPartIndexes(item)[0] ?? 1,
           ...(typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1
             ? { lyricPrintedMeasure: Math.floor(item.lyricPrintedMeasure) }
             : { lyricPrintedMeasure: undefined }),
@@ -1730,6 +1778,12 @@ export default function App() {
       if (newData[index].lyricPartIndex == null || newData[index].lyricPartIndex! < 1) {
         newData[index].lyricPartIndex = 1;
       }
+      if (
+        !Array.isArray(newData[index].lyricPartIndexes) ||
+        newData[index].lyricPartIndexes!.length === 0
+      ) {
+        newData[index].lyricPartIndexes = [newData[index].lyricPartIndex ?? 1];
+      }
       if (newData[index].lyricVerseIndex == null || newData[index].lyricVerseIndex! < 1) {
         newData[index].lyricVerseIndex = 1;
       }
@@ -1760,18 +1814,37 @@ export default function App() {
   const handleApplyLyricVerseToPart = (index: number) => {
     const anchor = reviewData[index];
     if (!anchor || anchor.type !== 'lyrics') return;
-    const pi = anchor.lyricPartIndex ?? 1;
+    const parts = new Set(normalizeLyricPartIndexes(anchor));
     const vn = anchor.lyricVerseIndex ?? 1;
     setReviewData((prev) =>
       prev.map((row) =>
-        row.type === 'lyrics' && (row.lyricPartIndex ?? 1) === pi ? { ...row, lyricVerseIndex: vn } : row,
+        row.type === 'lyrics' && normalizeLyricPartIndexes(row).some((p) => parts.has(p))
+          ? { ...row, lyricVerseIndex: vn }
+          : row,
       ),
     );
   };
 
   const handleLyricPartIndexChange = (index: number, v: number) => {
     const newData = [...reviewData];
-    newData[index].lyricPartIndex = Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1;
+    const pi = Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1;
+    newData[index].lyricPartIndex = pi;
+    newData[index].lyricPartIndexes = [pi];
+    setReviewData(newData);
+  };
+
+  /** 동일 가사 → 여러 성부 체크(최소 1개 유지) */
+  const handleLyricPartIndexesToggle = (index: number, partIndex: number, checked: boolean) => {
+    const newData = [...reviewData];
+    const cur = new Set(normalizeLyricPartIndexes(newData[index]));
+    if (checked) cur.add(partIndex);
+    else {
+      cur.delete(partIndex);
+      if (cur.size === 0) cur.add(partIndex); // 최소 1개
+    }
+    const idxs = [...cur].sort((a, b) => a - b);
+    newData[index].lyricPartIndexes = idxs;
+    newData[index].lyricPartIndex = idxs[0] ?? 1;
     setReviewData(newData);
   };
 
@@ -2861,11 +2934,11 @@ bash scripts/install-font-separator-deps.sh`}
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               <strong>토큰 규칙</strong>(공백·하이픈이 있을 때): <strong>띄어쓰기</strong>는 다음 음표(단어 경계), 토큰 안 <strong>하이픈</strong>(예: <code>hel-lo</code>)은 같은 단어의 다음 음절(<code>syllabic</code>+하이픈 표시), <strong>공백으로 감싼 단독 <code>-</code></strong>(예: <code>주 - 님</code>)은 가사 없는 음표 한 칸입니다.<br/>
               공백·하이픈이 <em>없으면</em> OCR 줄 전체가 <strong>음표 하나</strong>에 붙습니다(예: <code>주님의</code>, <code>hello</code>). 음표마다 나누려면 <strong>공백</strong>으로 구분하세요(예: <code>주 님 의</code>).<br/>
-              <strong>파트·가사 절·멜로디 줄·인쇄 마디:</strong> <strong>성부</strong>는 MusicXML의 몇 번째 파트인지(S/A/T/B…)입니다.
-              오선이 갈라진 뒤 PDF 위치만으로 붙이기 어려우면 <strong>인쇄 마디</strong>에 악보에 찍힌 마디 번호를 넣고 성부를 지정하세요 — 주입이 그 마디부터 붙입니다.
-              <strong>가사 절</strong>(1절·2절…)은 같은 멜로디의 다른 가사 줄이며 MusicXML <code>lyric number</code>입니다.
-              <strong>멜로디 줄(voice)</strong>은 동시에 울리는 다른 선율용 <code>&lt;voice&gt;</code>이며 1절/2절과 다릅니다.
-              가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 <code> - </code>(빈 칸)을 쓰세요.<br/>
+              <strong>파트·가사 절·멜로디 줄·인쇄 마디:</strong>{' '}
+              <strong>성부</strong>는 체크박스로 <em>여러 파트에 같은 가사</em>를 붙일 수 있습니다(SATB 공통 가사 등).
+              오선이 갈라진 뒤 시작점이면 <strong>인쇄 마디</strong>에 악보에 찍힌 번호를 넣으세요.
+              <strong>가사 절</strong>·<strong>멜로디 줄</strong>은 기존과 같습니다.
+              메타는 작곡가·작사가·편곡자·가수를 구분해 MusicXML <code>creator</code>로 넣습니다.<br/>
               <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다. <strong>마디 번호</strong>·<strong>페이지 번호</strong>는 가사 주입에서 제외됩니다(PDF p.는 각 줄 옆에 표시).<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다. 수동 가사 지우기 영역은 백업·임시 저장에 포함됩니다.</em><br/>
               <strong>🚨 경고:</strong> 이미지 PDF 모드에서 가사 지우기(핑크색 박스)는 <strong>PDF의 픽셀을 물리적으로 하얗게 지웁니다.</strong> 오선표(Stave), 음자리표, 박자표, 세로줄 등을 실수로 함께 덮어서 지워버리면, 다음 단계에서 악보 인식 엔진(Audiveris)이 악보 구조를 파악하지 못해 치명적인 <strong>'변환 실패(Exception in export)'</strong> 에러를 발생시킵니다. 박스를 그릴 때 절대 악보 기호를 건드리지 않도록 주의하세요!
@@ -2960,6 +3033,8 @@ bash scripts/install-font-separator-deps.sh`}
                          <option value="title">제목</option>
                          <option value="composer">작곡가</option>
                          <option value="lyricist">작사가</option>
+                         <option value="arranger">편곡자</option>
+                         <option value="singer">가수</option>
                          <option value="copyright">저작권</option>
                          <option value="tempo">템포(BPM)</option>
                          <option value="measure_number">마디 번호</option>
@@ -2968,22 +3043,45 @@ bash scripts/install-font-separator-deps.sh`}
                       </label>
                       {item.type === 'lyrics' && (
                         <>
-                          <label className="review-field">
+                          <label className="review-field" style={{ alignItems: 'flex-start' }}>
                             <span className="review-field-label">성부</span>
-                            <select
-                              value={item.lyricPartIndex ?? 1}
-                              onChange={(e) =>
-                                handleLyricPartIndexChange(i, parseInt(e.target.value, 10))
-                              }
-                              style={{ padding: '0.4rem', minWidth: '6.5rem' }}
-                              title="MusicXML part 순서 — 위 성부 라벨과 동일"
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '0.35rem 0.65rem',
+                                maxWidth: '18rem',
+                                paddingTop: '0.2rem',
+                              }}
+                              title="같은 가사를 여러 성부에 붙이려면 모두 체크"
                             >
-                              {partLabelsPreset.slice(0, partLabelCount).map((lab, idx) => (
-                                <option key={idx} value={idx + 1}>
-                                  {lab} (파트 {idx + 1})
-                                </option>
-                              ))}
-                            </select>
+                              {partLabelsPreset.slice(0, partLabelCount).map((lab, idx) => {
+                                const partN = idx + 1;
+                                const selected = normalizeLyricPartIndexes(item);
+                                return (
+                                  <label
+                                    key={idx}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      fontSize: '0.88rem',
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selected.includes(partN)}
+                                      onChange={(e) =>
+                                        handleLyricPartIndexesToggle(i, partN, e.target.checked)
+                                      }
+                                    />
+                                    {lab}
+                                  </label>
+                                );
+                              })}
+                            </div>
                           </label>
                           <label className="review-field">
                             <span className="review-field-label">인쇄 마디</span>
@@ -3096,13 +3194,22 @@ bash scripts/install-font-separator-deps.sh`}
                               {countLyricTokens(item.text)} /{' '}
                               {(() => {
                                 if (reviewNoteCountsLoading) return '…';
-                                const pi = item.lyricPartIndex ?? 1;
+                                const parts = normalizeLyricPartIndexes(item);
                                 const v = (item.lyricVoice ?? '1').trim() || '1';
-                                const part = reviewNoteCounts?.parts?.find((p) => (p.partIndex ?? 0) === pi);
-                                if (!part) return '?';
-                                if (v === '*') return part.total ?? '?';
-                                const n = part.voices?.[v];
-                                return typeof n === 'number' ? n : part.total ?? '?';
+                                const counts = parts.map((pi) => {
+                                  const part = reviewNoteCounts?.parts?.find(
+                                    (p) => (p.partIndex ?? 0) === pi,
+                                  );
+                                  if (!part) return null;
+                                  if (v === '*') return part.total ?? null;
+                                  const n = part.voices?.[v];
+                                  return typeof n === 'number' ? n : part.total ?? null;
+                                });
+                                if (counts.every((c) => c == null)) return '?';
+                                if (parts.length === 1) return counts[0] ?? '?';
+                                return counts
+                                  .map((c, i) => `${partLabelsPreset[parts[i]! - 1] ?? parts[i]}:${c ?? '?'}`)
+                                  .join(' · ');
                               })()}
                             </div>
                           </div>

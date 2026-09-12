@@ -827,6 +827,7 @@ def ensure_opening_tempo(parts, ns, bpm: float):
 def collect_lyric_streams(ocr_data):
     """가사를 (파트, 가사 절, 멜로디 voice) 스트림으로 나눈다.
 
+    - lyricPartIndexes: 같은 가사를 여러 파트에 복제(없으면 lyricPartIndex).
     - lyricVerseIndex: 1절·2절 등 → MusicXML `<lyric number>` (기본 1).
     - lyricVoice: 같은 시점에 겹치는 **서로 다른 멜로디 줄**(MusicXML `<voice>`), 1절/2절과 무관.
     """
@@ -834,12 +835,7 @@ def collect_lyric_streams(ocr_data):
     for item in ocr_data:
         if not _is_injectable_lyric_item(item):
             continue
-        try:
-            pi = int(item.get("lyricPartIndex", 1) or 1)
-        except (TypeError, ValueError):
-            pi = 1
-        if pi < 1:
-            pi = 1
+        part_indexes = _lyric_part_indexes(item)
         try:
             verse = int(item.get("lyricVerseIndex", 1) or 1)
         except (TypeError, ValueError):
@@ -849,8 +845,9 @@ def collect_lyric_streams(ocr_data):
         if verse > 32:
             verse = 32
         mv = _normalize_lyric_voice(item.get("lyricVoice"))
-        key = (pi, verse, mv)
-        buckets.setdefault(key, []).append(item)
+        for pi in part_indexes:
+            key = (pi, verse, mv)
+            buckets.setdefault(key, []).append(item)
 
     by_part = {}
     try:
@@ -869,6 +866,28 @@ def collect_lyric_streams(ocr_data):
     for pi in by_part:
         by_part[pi].sort(key=lambda s: (s["verse"], s["melody_voice"]))
     return by_part
+
+
+def _lyric_part_indexes(item) -> list[int]:
+    """가사 블록 → 붙일 파트 번호(1-based). lyricPartIndexes 우선, 없으면 lyricPartIndex."""
+    out: list[int] = []
+    raw = item.get("lyricPartIndexes")
+    if isinstance(raw, (list, tuple)):
+        for x in raw:
+            try:
+                n = int(x)
+            except (TypeError, ValueError):
+                continue
+            if n >= 1 and n not in out:
+                out.append(n)
+    if not out:
+        try:
+            pi = int(item.get("lyricPartIndex", 1) or 1)
+        except (TypeError, ValueError):
+            pi = 1
+        out.append(max(1, pi))
+    out.sort()
+    return out
 
 
 def _sanitize_flat_inject_rows(rows):
@@ -1050,6 +1069,8 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     title_text = ""
     composer_text = ""
     lyricist_text = ""
+    arranger_text = ""
+    singer_text = ""
     copyright_text = ""
 
     if ocr_data:
@@ -1064,6 +1085,10 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
                 composer_text += text + " "
             elif t == "lyricist":
                 lyricist_text += text + " "
+            elif t == "arranger":
+                arranger_text += text + " "
+            elif t == "singer":
+                singer_text += text + " "
             elif t == "copyright":
                 copyright_text += text + " "
 
@@ -1077,18 +1102,21 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
             work_title = ET.SubElement(work, qname(ns, "work-title"))
         work_title.text = title_text.strip()
 
+    creator_blob = composer_text or lyricist_text or arranger_text or singer_text
     identification = root.find(qname(ns, "identification"))
-    if identification is None and (composer_text or lyricist_text or copyright_text):
+    if identification is None and (creator_blob or copyright_text):
         identification = ET.SubElement(root, qname(ns, "identification"))
         idx_ins = 1 if root.find(qname(ns, "work")) is not None else 0
         root.insert(idx_ins, identification)
 
-    if composer_text or lyricist_text:
+    if creator_blob:
         idf = root.find(qname(ns, "identification"))
         if idf is not None:
             for t_name, val in [
                 ("composer", composer_text),
                 ("lyricist", lyricist_text),
+                ("arranger", arranger_text),
+                ("singer", singer_text),
             ]:
                 if val:
                     creator = ET.SubElement(idf, qname(ns, "creator"), type=t_name)

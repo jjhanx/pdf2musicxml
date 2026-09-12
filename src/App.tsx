@@ -84,6 +84,11 @@ type OcrReviewItem = {
   lyricVoice?: string;
   /** 이 블록의 가사를 넣기 전, 해당 성부에서 건너뛸 선율 음표 수(박·도입 등) */
   lyricSkipNotes?: number;
+  /**
+   * 인쇄본에 찍힌 마디 번호. 주입 시 이 마디(MusicXML measure@number로 환산)부터 붙임.
+   * 오선이 갈라진 뒤 PDF 위치만으로 시작점을 못 잡을 때 성부와 함께 지정. 비우면 문서 순 연속.
+   */
+  lyricPrintedMeasure?: number;
   /** 사용자가 구분 풀다운을 직접 바꿨을 때만 true — unknown을 의도적 미분류로 유지 */
   reviewTypeUserSet?: boolean;
 };
@@ -172,6 +177,11 @@ function mergeReviewFieldsFromSaved(
   if (typeof match.lyricVoice === 'string') next.lyricVoice = match.lyricVoice;
   if (typeof match.lyricSkipNotes === 'number' && match.lyricSkipNotes >= 0) {
     next.lyricSkipNotes = Math.floor(match.lyricSkipNotes);
+  }
+  if (typeof match.lyricPrintedMeasure === 'number' && match.lyricPrintedMeasure >= 1) {
+    next.lyricPrintedMeasure = Math.floor(match.lyricPrintedMeasure);
+  } else if (match.lyricPrintedMeasure === null || match.lyricPrintedMeasure === '') {
+    delete next.lyricPrintedMeasure;
   }
   const mb = match.bbox;
   if (Array.isArray(mb) && mb.length >= 4) {
@@ -341,6 +351,9 @@ function normalizeReviewItemsForUi(payloadItems: OcrReviewItem[]): OcrReviewItem
       typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes >= 0
         ? Math.floor(item.lyricSkipNotes)
         : 0,
+    ...(typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1
+      ? { lyricPrintedMeasure: Math.floor(item.lyricPrintedMeasure) }
+      : {}),
   }));
 }
 
@@ -409,12 +422,14 @@ function normalizeReviewItemsForBaseline(payloadItems: OcrReviewItem[]): OcrRevi
         ((typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
           (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
           (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
+          (typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1) ||
           Boolean(
             item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1',
           ))) ||
       (typeof item.lyricPartIndex === 'number' && item.lyricPartIndex > 1) ||
       (typeof item.lyricVerseIndex === 'number' && item.lyricVerseIndex > 1) ||
       (typeof item.lyricSkipNotes === 'number' && item.lyricSkipNotes > 0) ||
+      (typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1) ||
       Boolean(item.lyricVoice && String(item.lyricVoice).trim() && String(item.lyricVoice).trim() !== '1');
     if (hasPriorEdit) {
       return normalizeReviewItemsForUi([item])[0];
@@ -1542,6 +1557,9 @@ export default function App() {
           ...item,
           lyricVoice: lv && lv.length > 0 ? lv : '1',
           lyricVerseIndex: Math.min(32, vn),
+          ...(typeof item.lyricPrintedMeasure === 'number' && item.lyricPrintedMeasure >= 1
+            ? { lyricPrintedMeasure: Math.floor(item.lyricPrintedMeasure) }
+            : { lyricPrintedMeasure: undefined }),
         };
       });
     try {
@@ -1779,6 +1797,22 @@ export default function App() {
   const handleLyricSkipNotesChange = (index: number, v: number) => {
     const newData = [...reviewData];
     newData[index].lyricSkipNotes = Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+    setReviewData(newData);
+  };
+
+  const handleLyricPrintedMeasureChange = (index: number, raw: string) => {
+    const newData = [...reviewData];
+    if (raw.trim() === '') {
+      delete newData[index].lyricPrintedMeasure;
+      setReviewData(newData);
+      return;
+    }
+    const v = parseInt(raw, 10);
+    if (!Number.isFinite(v) || v < 1) {
+      delete newData[index].lyricPrintedMeasure;
+    } else {
+      newData[index].lyricPrintedMeasure = Math.min(9999, Math.floor(v));
+    }
     setReviewData(newData);
   };
 
@@ -2827,7 +2861,11 @@ bash scripts/install-font-separator-deps.sh`}
               <strong>💡 가사 매핑 및 임시 저장 안내</strong><br/>
               <strong>토큰 규칙</strong>(공백·하이픈이 있을 때): <strong>띄어쓰기</strong>는 다음 음표(단어 경계), 토큰 안 <strong>하이픈</strong>(예: <code>hel-lo</code>)은 같은 단어의 다음 음절(<code>syllabic</code>+하이픈 표시), <strong>공백으로 감싼 단독 <code>-</code></strong>(예: <code>주 - 님</code>)은 가사 없는 음표 한 칸입니다.<br/>
               공백·하이픈이 <em>없으면</em> OCR 줄 전체가 <strong>음표 하나</strong>에 붙습니다(예: <code>주님의</code>, <code>hello</code>). 음표마다 나누려면 <strong>공백</strong>으로 구분하세요(예: <code>주 님 의</code>).<br/>
-              <strong>파트·가사 절·멜로디 줄:</strong> <strong>파트 순번</strong>은 MusicXML의 몇 번째 악기/성부인지(1=첫 파트)입니다. <strong>가사 절</strong>(1절·2절…)은 같은 멜로디에 붙는 <strong>서로 다른 가사 줄</strong>이며, 병합 시 같은 음표에 <code>lyric number=&quot;1&quot;</code>, <code>&quot;2&quot;</code>…로 나뉩니다. <strong>멜로디 줄(voice)</strong>은 같은 마디에서 <strong>동시에 울리는 서로 다른 선율</strong>(성부 2줄 등)에 쓰는 MusicXML <code>&lt;voice&gt;</code>이며 <em>1절/2절과 다릅니다</em>. 한 줄만 있는 성부는 보통 멜로디 줄 1과 가사 절만 쓰면 됩니다. 피아노·2멜로디 한 파트면 <strong>전체 순서 (*)</strong> 또는 해당 <code>&lt;voice&gt;</code> 번호를 지정하세요. 가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 <code> - </code>(빈 칸)을 쓰세요.<br/>
+              <strong>파트·가사 절·멜로디 줄·인쇄 마디:</strong> <strong>성부</strong>는 MusicXML의 몇 번째 파트인지(S/A/T/B…)입니다.
+              오선이 갈라진 뒤 PDF 위치만으로 붙이기 어려우면 <strong>인쇄 마디</strong>에 악보에 찍힌 마디 번호를 넣고 성부를 지정하세요 — 주입이 그 마디부터 붙입니다.
+              <strong>가사 절</strong>(1절·2절…)은 같은 멜로디의 다른 가사 줄이며 MusicXML <code>lyric number</code>입니다.
+              <strong>멜로디 줄(voice)</strong>은 동시에 울리는 다른 선율용 <code>&lt;voice&gt;</code>이며 1절/2절과 다릅니다.
+              가사가 중간부터 밀리면 <strong>앞쪽 음표 건너뛰기</strong>와 <code> - </code>(빈 칸)을 쓰세요.<br/>
               <strong>OCR 신뢰도:</strong> 블록 옆 숫자는 글자 인식 점수(참고용)입니다. <strong>마디 번호</strong>·<strong>페이지 번호</strong>는 가사 주입에서 제외됩니다(PDF p.는 각 줄 옆에 표시).<br/>
               <em>모든 수정 사항은 브라우저에 임시 자동 저장됩니다. 변환 실패 시 파일을 다시 올려 '이전 작업 불러오기'를 누르면 복구됩니다. 수동 가사 지우기 영역은 백업·임시 저장에 포함됩니다.</em><br/>
               <strong>🚨 경고:</strong> 이미지 PDF 모드에서 가사 지우기(핑크색 박스)는 <strong>PDF의 픽셀을 물리적으로 하얗게 지웁니다.</strong> 오선표(Stave), 음자리표, 박자표, 세로줄 등을 실수로 함께 덮어서 지워버리면, 다음 단계에서 악보 인식 엔진(Audiveris)이 악보 구조를 파악하지 못해 치명적인 <strong>'변환 실패(Exception in export)'</strong> 에러를 발생시킵니다. 박스를 그릴 때 절대 악보 기호를 건드리지 않도록 주의하세요!
@@ -2946,6 +2984,24 @@ bash scripts/install-font-separator-deps.sh`}
                                 </option>
                               ))}
                             </select>
+                          </label>
+                          <label className="review-field">
+                            <span className="review-field-label">인쇄 마디</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={9999}
+                              placeholder="자동"
+                              title="인쇄본 악보에 찍힌 마디 번호. 비우면 앞 블록에 이어서 붙임. 오선 갈라짐 후 시작점 지정용."
+                              value={
+                                typeof item.lyricPrintedMeasure === 'number' &&
+                                item.lyricPrintedMeasure >= 1
+                                  ? item.lyricPrintedMeasure
+                                  : ''
+                              }
+                              onChange={(e) => handleLyricPrintedMeasureChange(i, e.target.value)}
+                              style={{ width: '4.5rem', padding: '0.4rem' }}
+                            />
                           </label>
                           <label className="review-field">
                             <span className="review-field-label">가사 절</span>

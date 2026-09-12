@@ -295,7 +295,7 @@ def count_matching_voice(c: dict, target: str) -> int:
 def build_events_for_items(items_sorted, part_el=None, ns=None, melody_voice_override=None):
     """
     items_sorted: 해당 (파트·절·멜로디 줄) 스트림에 붙일 가사 블록들 (페이지·y·x 정렬됨).
-    각 블록마다 lyricSkipNotes·(멜로디) voice·text 적용.
+    각 블록마다 lyricPrintedMeasure(인쇄 마디)·lyricSkipNotes·(멜로디) voice·text 적용.
     melody_voice_override가 있으면 항목별 lyricVoice 대신 이 값만 쓴다(같은 스트림 강제).
 
     part_el/ns가 주어지면: 지정한 voice에 해당하는 멜로디 음이 하나도 없을 때
@@ -318,6 +318,20 @@ def build_events_for_items(items_sorted, part_el=None, ns=None, melody_voice_ove
                 )
                 voice = "*"
         try:
+            printed = int(it.get("lyricPrintedMeasure", 0) or 0)
+        except (TypeError, ValueError):
+            printed = 0
+        if printed >= 1:
+            mxl_m = _mxl_measure_from_printed(printed)
+            events.append(
+                {
+                    "op": "seek_measure",
+                    "mxlMeasure": mxl_m,
+                    "printedMeasure": printed,
+                    "voice": voice,
+                }
+            )
+        try:
             skip = int(it.get("lyricSkipNotes", 0) or 0)
         except (TypeError, ValueError):
             skip = 0
@@ -332,10 +346,48 @@ def build_events_for_items(items_sorted, part_el=None, ns=None, melody_voice_ove
     return events
 
 
+def _measure_offset_printed() -> int:
+    try:
+        return max(1, int(os.environ.get("MXL_MEASURE_OFFSET_PRINTED", "1") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _mxl_measure_from_printed(printed: int) -> int:
+    try:
+        from printed_measure_numbers import printed_sidebar_number_to_mxl_measure
+
+        return int(printed_sidebar_number_to_mxl_measure(int(printed), _measure_offset_printed()))
+    except Exception:
+        return max(1, int(printed) - _measure_offset_printed() + 1)
+
+
 def apply_lyric_events(part_el, ns, events, lyric_number=1):
     notes = list_attachable_notes(part_el, ns)
     idx = 0
     for ev in events:
+        if ev["op"] == "seek_measure":
+            try:
+                mxl_target = int(ev.get("mxlMeasure") or 0)
+            except (TypeError, ValueError):
+                mxl_target = 0
+            if mxl_target < 1:
+                continue
+            while idx < len(notes):
+                try:
+                    mnum = int(notes[idx][0].get("number") or 0)
+                except (TypeError, ValueError):
+                    mnum = 0
+                if mnum >= mxl_target:
+                    break
+                idx += 1
+            else:
+                printed = ev.get("printedMeasure")
+                print(
+                    f"inject_ocr: 경고: 인쇄 마디 {printed!r}(MXL {mxl_target}) 이후 붙일 음표가 없습니다.",
+                    file=sys.stderr,
+                )
+            continue
         if ev["op"] == "skip_notes":
             v_target = ev["voice"]
             need = ev["count"]

@@ -429,6 +429,7 @@ def merge_item(sep_item: dict[str, Any], pymupdf_item: dict[str, Any] | None) ->
         "lyricVerseIndex",
         "lyricVoice",
         "lyricSkipNotes",
+        "lyricPrintedMeasure",
         "bbox",
         "spans",
     ):
@@ -462,6 +463,7 @@ def build_initial_review_items(
         item.pop("lyricVerseIndex", None)
         item.pop("lyricVoice", None)
         item.pop("lyricSkipNotes", None)
+        item.pop("lyricPrintedMeasure", None)
         if is_page_number_item(item):
             item["type"] = "page_number"
         elif is_measure_number_item(item):

@@ -1896,6 +1896,7 @@ function reviewItemsHaveUserEdits(items: unknown[]): boolean {
     if (typeof o.lyricPartIndex === 'number' && o.lyricPartIndex > 1) return true;
     if (typeof o.lyricVerseIndex === 'number' && o.lyricVerseIndex > 1) return true;
     if (typeof o.lyricSkipNotes === 'number' && o.lyricSkipNotes > 0) return true;
+    if (typeof o.lyricPrintedMeasure === 'number' && o.lyricPrintedMeasure >= 1) return true;
     const lv = o.lyricVoice;
     if (typeof lv === 'string' && lv.trim() && lv.trim() !== '1') return true;
     if (Array.isArray(o.manualRects) && o.manualRects.length > 0) return true;
@@ -2603,6 +2604,7 @@ function stripLyricReviewMeta(item: unknown): unknown {
   delete o.lyricVerseIndex;
   delete o.lyricVoice;
   delete o.lyricSkipNotes;
+  delete o.lyricPrintedMeasure;
   return o;
 }
 

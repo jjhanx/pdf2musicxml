@@ -25,9 +25,11 @@ globs:
 
 ## 저장·최종 MXL (재생)
 
-HITL에서 같은 연주순번을 달아도 backup/forward·앞 음 duration이 어긋나면 MuseScore 재생이 순차로 밀린다. **`realign_play_order_column_timelines_in_root`**(`omr_hitl_lib.py`)가 「MXL에 반영」·`coalesce_staff_voices_mxl`·결과 생성에서 **저장 MXL** onset을 맞춤(병행 성부 trim 허용). 미리보기 TS realign과 역할을 섞지 말 것.
+HITL에서 같은 연주순번을 달아도 backup/forward·앞 음 duration이 어긋나면 MuseScore 재생이 순차로 밀린다. **`realign_play_order_column_timelines_in_root`** / `scripts/realign_play_order_timelines_mxl.py`가 「MXL에 반영」·`coalesce_staff_voices_mxl`·**restructure/라벨 이후**·OMR 검토 종료 시 **저장 MXL** onset을 맞춤.
 
-회귀: `python _smoke/test_play_order_timeline_realign_persist.py`
+`fix_audiveris_mxl._normalize_grand_staff_voices_in_measure`는 staff2 성부가 **둘 이상이면** 전부 voice=5로 합치지 않고 `5,6,7…`로 재매핑한다(병렬 LH 재생).
+
+회귀: `python _smoke/test_play_order_timeline_realign_persist.py` · `python _smoke/test_play_order_survive_final_pipeline.py`
 
 ## 수정 금지·주의
 

@@ -1512,6 +1512,32 @@ async function coalesceStaffVoicesInScoreFile(
   }
 }
 
+/** 연주순번 column onset을 저장 MXL에 맞춤 — restructure/fix 이후 최종 단계용. */
+async function realignPlayOrderTimelinesInScoreFile(
+  scorePath: string,
+  pythonBin: string,
+): Promise<number> {
+  const script = path.join(__dirname, '..', 'scripts', 'realign_play_order_timelines_mxl.py');
+  if (!fsSync.existsSync(script) || !fsSync.existsSync(scorePath)) return 0;
+  try {
+    const { stdout } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const line = String(stdout).trim();
+    if (!line) return 0;
+    const parsed = JSON.parse(line) as { playOrderTimelineMeasures?: number };
+    const n = parsed.playOrderTimelineMeasures ?? 0;
+    if (n > 0) {
+      console.log(`realign_play_order_timelines (${scorePath}): measures=${n}`);
+    }
+    return n;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`realign_play_order_timelines failed (${scorePath}): ${msg}`);
+    return 0;
+  }
+}
+
 async function fixAudiverisMxlInScoreFile(
   scorePath: string,
   pythonBin: string,
@@ -1668,6 +1694,13 @@ async function applyOmrHitlFixesForJob(job: JobRecord, pythonBin: string): Promi
     }
     await applyOmrHitlFixesToScoreFile(job.sessionRoot, step.target, pythonBin);
   }
+  // 대기 fix가 없어도 review에 이미 박힌 연주순번 onset을 저장 타임라인에 맞춤
+  const realignTargets = new Set<string>();
+  if (canonical) realignTargets.add(path.resolve(canonical));
+  for (const p of paths) realignTargets.add(path.resolve(p));
+  for (const p of realignTargets) {
+    await realignPlayOrderTimelinesInScoreFile(p, pythonBin);
+  }
   const lintCache = sessionMxlLintPath(job.sessionRoot);
   if (fsSync.existsSync(lintCache)) {
     await fs.unlink(lintCache).catch(() => {});
@@ -1726,6 +1759,8 @@ async function applyPartLabelsToScoreFile(
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`apply_part_labels failed (${scorePath}): ${msg}`);
   }
+  // restructure가 voice/timeline을 다시 짜면 연주순번 onset이 깨질 수 있음 → 맨 끝 재맞춤
+  await realignPlayOrderTimelinesInScoreFile(scorePath, pythonBin);
 }
 
 function resolvePrimaryMxlPathForInspect(job: JobRecord): string | null {

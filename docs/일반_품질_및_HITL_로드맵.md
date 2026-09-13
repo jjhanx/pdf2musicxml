@@ -120,6 +120,7 @@ python _smoke/test_merge_audiveris_movements.py  # Audiveris mvt1+mvt2 이어 �
 | 현상 | 웹/스크립트로 | 사용자 |
 |------|----------------|--------|
 | 빔 없는 세잇단 괄호(4분·2분+4분 등) | HITL 「세잇단 적용」+ **음표 길이 유지**(혼합 길이)·`fix_audiveris_mxl` bracket 규칙. 검증: `python _smoke/test_triplet_hitl.py` | 마디 편집에서 범위·기준 박자 지정 |
+| PL 세잇단 클릭 후 편집기·미리보기 무반응 | 낙관적 스냅샷 + 즉시 MXL 반영, pendingFixesRef 동기 갱신. `npx tsx _smoke/test_pending_fix_ref_sync.ts` | 「세잇단 적용」만 눌러도 반영 |
 | PL 빔 세잇단이 적용돼도 미리보기에 안 보임 | Audiveris stem default-y 잔존 → 적용 시 제거. python _smoke/test_pl_m7_triplet_a3.py | #12 등에서 세잇단 적용 후 MXL 반영 |
 | 8분+세잇단 16분 4음 「빔 연결」이 반영 후 사라짐 | 세잇단 구간만 보면 빔이 continue로 시작해 repair가 지움 → **레이어 begin…end run이 세잇단을 덮으면** connected로 보존. `python _smoke/test_beam_across_triplet.py` | #14→#20·#26→#32처럼 앞 8분 포함해 빔 연결 후 MXL 반영 |
 | 원본에 없는 지그재그 꾸밈음(inverted-mordent 등) | HITL 음표 **꾸밈음 제거/추가**. 검증: `python _smoke/test_ornament_wedge_hitl.py` | 마디 편집에서 해당 음 선택 |

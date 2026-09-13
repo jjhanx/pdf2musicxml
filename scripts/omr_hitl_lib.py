@@ -1133,6 +1133,307 @@ def normalize_play_orders_including_rests_in_root(root: ET.Element) -> int:
     return 0
 
 
+def _voice_parallel_note_onsets(measure: ET.Element, ns: str) -> dict[ET.Element, int]:
+    """voice별 cursor onset — OSMD/HITL `collectVoiceParallelNoteOnsets`와 동일."""
+    out: dict[ET.Element, int] = {}
+    voice_cursor: dict[str, int] = {}
+    last_note_voice = "1"
+    for el in measure:
+        loc = _local(el)
+        if loc == "backup":
+            v = _timeline_voice(el, last_note_voice)
+            voice_cursor[v] = max(0, voice_cursor.get(v, 0) - _timeline_el_duration(el, ns))
+        elif loc == "forward":
+            v = _timeline_voice(el, last_note_voice)
+            voice_cursor[v] = voice_cursor.get(v, 0) + _timeline_el_duration(el, ns)
+        elif loc == "note":
+            if el.find(_q(ns, "chord")) is not None:
+                continue
+            voice, _st = _note_voice_staff(el, ns)
+            last_note_voice = voice
+            start = voice_cursor.get(voice, 0)
+            out[el] = start
+            if not _is_grace_or_cue(el, ns):
+                voice_cursor[voice] = start + _note_duration(el, ns)
+    return out
+
+
+def _iter_chord_leaders(measure: ET.Element, ns: str) -> list[ET.Element]:
+    return [
+        el
+        for el in measure
+        if _local(el) == "note" and el.find(_q(ns, "chord")) is None
+    ]
+
+
+def _previous_note_leader_in_voice(
+    measure: ET.Element, ns: str, leader: ET.Element
+) -> ET.Element | None:
+    want_voice, _ = _note_voice_staff(leader, ns)
+    children = list(measure)
+    try:
+        idx = children.index(leader)
+    except ValueError:
+        return None
+    for i in range(idx - 1, -1, -1):
+        el = children[i]
+        loc = _local(el)
+        if loc == "backup":
+            return None
+        if loc != "note" or el.find(_q(ns, "chord")) is not None:
+            continue
+        v, _ = _note_voice_staff(el, ns)
+        if v == want_voice:
+            return el
+    return None
+
+
+def _trim_previous_note_to_onset(
+    measure: ET.Element, ns: str, leader: ET.Element, target_onset: int
+) -> bool:
+    prev = _previous_note_leader_in_voice(measure, ns, leader)
+    if prev is None:
+        return False
+    onsets = _voice_parallel_note_onsets(measure, ns)
+    prev_start = onsets.get(prev, 0)
+    max_dur = target_onset - prev_start
+    if max_dur <= 0:
+        return False
+    dur_el = prev.find(_q(ns, "duration"))
+    if dur_el is None:
+        return False
+    dur = _note_duration(prev, ns)
+    if dur <= max_dur:
+        return False
+    dur_el.text = str(max_dur)
+    return True
+
+
+def _reduce_leading_forward_for_note(
+    measure: ET.Element, ns: str, leader: ET.Element, reduce_by: int
+) -> bool:
+    if reduce_by <= 0:
+        return False
+    want_voice, _ = _note_voice_staff(leader, ns)
+    children = list(measure)
+    try:
+        leader_idx = children.index(leader)
+    except ValueError:
+        return False
+    changed = False
+    left = reduce_by
+    for i in range(leader_idx - 1, -1, -1):
+        if left <= 0:
+            break
+        el = children[i]
+        loc = _local(el)
+        if loc == "backup":
+            break
+        if loc == "note":
+            if el.find(_q(ns, "chord")) is None:
+                break
+            continue
+        if loc != "forward":
+            continue
+        if _timeline_voice(el, want_voice) != want_voice:
+            continue
+        dur_el = el.find(_q(ns, "duration"))
+        if dur_el is None:
+            continue
+        dur = _timeline_el_duration(el, ns)
+        take = min(dur, left)
+        new_dur = dur - take
+        left -= take
+        changed = True
+        if new_dur <= 0:
+            measure.remove(el)
+        else:
+            dur_el.text = str(new_dur)
+    return changed
+
+
+def _increase_leading_forward_for_note(
+    measure: ET.Element, ns: str, leader: ET.Element, increase_by: int
+) -> bool:
+    if increase_by <= 0:
+        return False
+    want_voice, _ = _note_voice_staff(leader, ns)
+    children = list(measure)
+    try:
+        leader_idx = children.index(leader)
+    except ValueError:
+        return False
+    prev = children[leader_idx - 1] if leader_idx > 0 else None
+    if (
+        prev is not None
+        and _local(prev) == "forward"
+        and _timeline_voice(prev, want_voice) == want_voice
+    ):
+        dur_el = prev.find(_q(ns, "duration"))
+        if dur_el is None:
+            dur_el = ET.SubElement(prev, _q(ns, "duration"))
+        dur = _timeline_el_duration(prev, ns)
+        dur_el.text = str(dur + increase_by)
+        return True
+    fwd = ET.Element(_q(ns, "forward"))
+    ET.SubElement(fwd, _q(ns, "duration")).text = str(increase_by)
+    ET.SubElement(fwd, _q(ns, "voice")).text = want_voice
+    measure.insert(leader_idx, fwd)
+    return True
+
+
+def _po_column_onsets_explicit(
+    measure: ET.Element, ns: str
+) -> dict[str, int]:
+    """staff:po → 명시 숫자 연주순번 column의 min onset."""
+    onsets = _voice_parallel_note_onsets(measure, ns)
+    col: dict[str, int] = {}
+    for leader in _iter_chord_leaders(measure, ns):
+        po = _read_play_order(leader)
+        if po is None:
+            continue
+        _v, staff = _note_voice_staff(leader, ns)
+        key = f"{staff}:{po}"
+        onset = onsets.get(leader, 0)
+        prev = col.get(key)
+        if prev is None or onset < prev:
+            col[key] = onset
+    return col
+
+
+def _layout_onset_for_anchor_voice_order(
+    measure: ET.Element, ns: str, staff: str, anchor_voice: int, order: int
+) -> int | None:
+    """참조 `voice-order`의 앵커 voice·순번 column onset."""
+    onsets = _voice_parallel_note_onsets(measure, ns)
+    po_col = _po_column_onsets_explicit(measure, ns)
+    voice_key = str(anchor_voice)
+    best: int | None = None
+    for leader in _iter_chord_leaders(measure, ns):
+        v, st = _note_voice_staff(leader, ns)
+        if st != staff or v != voice_key:
+            continue
+        if _read_play_order(leader) != order:
+            continue
+        key = f"{staff}:{order}"
+        onset = po_col.get(key, onsets.get(leader, 0))
+        best = onset if best is None else min(best, onset)
+    return best
+
+
+def realign_measure_timeline_to_play_order_columns(
+    measure: ET.Element, ns: str
+) -> bool:
+    """명시 연주순번·참조가 같은 column이면 musical onset을 맞춤(저장 MXL).
+
+    HITL에서 다른 voice에 같은 순번을 달아도 backup/forward·앞 음 duration이
+    어긋나면 MuseScore 등 재생기가 순차로 연주한다. OSMD 미리보기용 TS realign과
+    달리 **병행 성부(앞 forward 없음)도 duration trim을 허용**해 재생을 맞춘다.
+    """
+    leaders = _iter_chord_leaders(measure, ns)
+    voices = {_note_voice_staff(n, ns)[0] for n in leaders}
+    if len(voices) < 2:
+        return False
+
+    po_col = _po_column_onsets_explicit(measure, ns)
+    rows: list[tuple[ET.Element, int, int]] = []
+    for leader in leaders:
+        _v, staff = _note_voice_staff(leader, ns)
+        po = _read_play_order(leader)
+        if po is not None:
+            target = po_col.get(f"{staff}:{po}")
+            if target is not None:
+                rows.append((leader, target, po))
+            continue
+        ref = _read_play_order_ref(leader)
+        if ref is None:
+            continue
+        anchor_voice, order = ref
+        target = _layout_onset_for_anchor_voice_order(
+            measure, ns, staff, anchor_voice, order
+        )
+        if target is not None:
+            rows.append((leader, target, order))
+    if not rows:
+        return False
+
+    rows.sort(key=lambda r: r[2])
+    changed = False
+
+    def _pull_or_push(leader: ET.Element, target: int) -> bool:
+        onsets = _voice_parallel_note_onsets(measure, ns)
+        current = onsets.get(leader, 0)
+        if current == target:
+            return False
+        local_changed = False
+        if current > target:
+            if _previous_note_leader_in_voice(measure, ns, leader) is not None:
+                if _trim_previous_note_to_onset(measure, ns, leader, target):
+                    local_changed = True
+                onsets = _voice_parallel_note_onsets(measure, ns)
+                current = onsets.get(leader, 0)
+            delta = current - target
+            if delta > 0 and _reduce_leading_forward_for_note(
+                measure, ns, leader, delta
+            ):
+                local_changed = True
+        else:
+            delta = target - current
+            if delta > 0 and _increase_leading_forward_for_note(
+                measure, ns, leader, delta
+            ):
+                local_changed = True
+        return local_changed
+
+    for leader, target, _sort in rows:
+        if _pull_or_push(leader, target):
+            changed = True
+
+    # 1차(min column)에서 앞 음을 duration 0으로 자를 수 없으면 잔여 어긋남.
+    # 같은 명시 순번·참조끼리 max onset으로 forward 맞춤(1 divisions 등).
+    onsets = _voice_parallel_note_onsets(measure, ns)
+    by_col: dict[str, list[ET.Element]] = {}
+    for leader, _t, _s in rows:
+        _v, staff = _note_voice_staff(leader, ns)
+        po = _read_play_order(leader)
+        if po is not None:
+            key = f"{staff}:{po}"
+        else:
+            ref = _read_play_order_ref(leader)
+            if ref is None:
+                continue
+            key = f"{staff}:{ref[1]}"
+        by_col.setdefault(key, []).append(leader)
+    for leaders_in_col in by_col.values():
+        if len(leaders_in_col) < 2:
+            continue
+        onsets = _voice_parallel_note_onsets(measure, ns)
+        col_onsets = [onsets.get(L, 0) for L in leaders_in_col]
+        if len(set(col_onsets)) <= 1:
+            continue
+        consensus = max(col_onsets)
+        for leader in leaders_in_col:
+            if _pull_or_push(leader, consensus):
+                changed = True
+    return changed
+
+
+def realign_play_order_column_timelines_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
+    """전 악보 — 연주순번 column onset 맞춤. 변경된 마디 수."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
+        for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
+            if realign_measure_timeline_to_play_order_columns(measure, ns):
+                n += 1
+    return n
+
+
 def _timeline_el_duration(el: ET.Element, ns: str) -> int:
     dur_el = el.find(_q(ns, "duration"))
     if dur_el is None or not dur_el.text or not dur_el.text.strip().isdigit():
@@ -8798,7 +9099,17 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     dynamics = normalize_dynamics_in_root(root)
     slurs = normalize_slurs_in_root(root)
     wedges = normalize_wedges_in_root(root)
-    if chord_beams or coalesce or timelines or play_orders or dynamics or slurs or wedges:
+    po_align = realign_play_order_column_timelines_in_root(root)
+    if (
+        chord_beams
+        or coalesce
+        or timelines
+        or play_orders
+        or dynamics
+        or slurs
+        or wedges
+        or po_align
+    ):
         write_mxl_root(out_mxl, files, root_path, root)
 
     return {
@@ -13292,6 +13603,9 @@ def apply_fixes_file(
     if fixes_include_wedge_kind(fixes):
         wedges_normalized = normalize_wedges_in_root(root, only_measures=only)
     chord_pitch_dupes = dedupe_identical_chord_pitches_in_root(root, only_measures=only)
+    play_order_timeline_measures = realign_play_order_column_timelines_in_root(
+        root, only_measures=only
+    )
     write_mxl_root(mxl_path, files, root_path, root)
     return {
         "path": str(mxl_path),
@@ -13306,6 +13620,7 @@ def apply_fixes_file(
         "slursNormalizedMeasures": slurs_normalized,
         "wedgesNormalizedMeasures": wedges_normalized,
         "chordPitchDedupeMeasures": chord_pitch_dupes,
+        "playOrderTimelineMeasures": play_order_timeline_measures,
     }
 
 

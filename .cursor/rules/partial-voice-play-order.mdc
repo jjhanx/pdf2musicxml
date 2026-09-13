@@ -5,7 +5,10 @@ globs:
   - shared/musicXmlTimelineCleanup.ts
   - src/osmdOnsetColumnAlignFix.ts
   - src/AudiverisInspectPanel.tsx
+  - scripts/omr_hitl_lib.py
+  - scripts/coalesce_staff_voices_mxl.py
   - _smoke/test_partial_voice*.ts
+  - _smoke/test_play_order_timeline_realign_persist.py
 ---
 
 # partial voice · 연주순번 column
@@ -20,6 +23,12 @@ globs:
 2. **`realignMeasureTimelineToPlayOrderColumnsForOsmdPreview`** — `faithfulEditorLayout` 전용. 명시 po voice의 forward 감소·필요 시 이전 음 duration trim(미리보기 XML만). **앞에 `<forward>`가 없는 병행 성부는 cross-voice 열 맞추려고 duration을 자르지 않음**(half 절삭 → 슬러 bezier 뒤집힘 방지). `repairTimelineForOsmdPreview`에서 `reorder` **직후** 호출.
 3. **`alignPartialVoiceExplicitPlayOrderColumns`** + **`targetStaffMatchesGraphic`** — (2) 후에도 남는 gap만 SVG 보조. PL/PR 필터 시 XML `<staff>2</staff>` ↔ OSMD sole staffIndex 0 매칭 필수.
 
+## 저장·최종 MXL (재생)
+
+HITL에서 같은 연주순번을 달아도 backup/forward·앞 음 duration이 어긋나면 MuseScore 재생이 순차로 밀린다. **`realign_play_order_column_timelines_in_root`**(`omr_hitl_lib.py`)가 「MXL에 반영」·`coalesce_staff_voices_mxl`·결과 생성에서 **저장 MXL** onset을 맞춤(병행 성부 trim 허용). 미리보기 TS realign과 역할을 섞지 말 것.
+
+회귀: `python _smoke/test_play_order_timeline_realign_persist.py`
+
 ## 수정 금지·주의
 
 - `repairTimelineForOsmdPreview` faithful 블록에서 `realignPlayOrderColumnTimelinesInXml` **제거·순서 변경 금지** (`reorder` 다음, `applyPlayOrderLayout` 이전).
@@ -31,8 +40,9 @@ globs:
 
 ```bash
 npx tsx _smoke/test_partial_voice_regression.ts
+python _smoke/test_play_order_timeline_realign_persist.py
 ```
 
-개별: `test_partial_voice_play_order_column.ts` · `test_partial_voice_timeline_realign.ts` · `test_partial_voice_osmd_align.ts` · `test_c0b3_m50_pl_slur_bezier.ts`(병행 half trim 금지)
+개별: `test_partial_voice_play_order_column.ts` · `test_partial_voice_timeline_realign.ts` · `test_partial_voice_osmd_align.ts` · `test_c0b3_m50_pl_slur_bezier.ts`(미리보기 병행 half trim 금지)
 
-**저장 MXL은 변경하지 않음.** 미리보기·HITL XML 파이프라인만.
+**미리보기 XML ≠ 저장 MXL.** OSMD 경로는 저장을 바꾸지 않음. 저장·최종 onset 맞춤은 Python `realign_play_order_column_timelines_in_root`만.

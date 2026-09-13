@@ -108,7 +108,7 @@ def main() -> None:
     assert has_backup(work, "1"), "backup restored"
     assert staff2_onset(work, "1") == 0, staff2_onset(work, "1")
 
-    # staff2 voice=1 → 5
+    # staff2 voice=1 → 5 (and staff1 high voices remapped so they don't collide)
     files, rp, root = load_mxl_root(OUT / "review.mxl")
     ns = _ns(root)
     for part in root:
@@ -122,6 +122,51 @@ def main() -> None:
     assert staff2_voices(OUT / "m48_voice.mxl", "48") == {"5"}, staff2_voices(
         OUT / "m48_voice.mxl", "48"
     )
+
+    # m21: PR uses v5/v6 while PL uses v1 — staff2-only remap would collide on v5
+    files, rp, root = load_mxl_root(OUT / "review.mxl")
+    ns = _ns(root)
+    for part in root:
+        if _local(part) != "part" or part.get("id") != "P5":
+            continue
+        for m in part:
+            if _local(m) != "measure" or m.get("number") != "21":
+                continue
+            assert normalize_grand_staff_voices_in_measure(m, ns)
+            v1, v2 = set(), set()
+            for el in m:
+                if _local(el) != "note":
+                    continue
+                v, st = _note_voice_staff(el, ns)
+                if st == "1":
+                    v1.add(v)
+                elif st == "2":
+                    v2.add(v)
+            assert not (v1 & v2), (v1, v2)
+            assert v1 == {"1", "2"}, v1
+            assert v2 == {"5"}, v2
+
+    # m11: monophonic PL stem flip → unify
+    files, rp, root = load_mxl_root(OUT / "review.mxl")
+    ns = _ns(root)
+    from omr_hitl_lib import normalize_monophonic_staff_stems_in_measure
+
+    for part in root:
+        if _local(part) != "part" or part.get("id") != "P5":
+            continue
+        for m in part:
+            if _local(m) != "measure" or m.get("number") != "11":
+                continue
+            assert normalize_monophonic_staff_stems_in_measure(m, ns)
+            stems = set()
+            for el in m:
+                if _local(el) != "note":
+                    continue
+                v, st = _note_voice_staff(el, ns)
+                if st != "2" or el.find(f"{{{ns}}}pitch") is None:
+                    continue
+                stems.add((el.findtext(f"{{{ns}}}stem") or "").strip())
+            assert len(stems) == 1, stems
 
     # m14: rest+whole → lower voice stem down
     files, rp, root = load_mxl_root(OUT / "review.mxl")
@@ -145,7 +190,7 @@ def main() -> None:
                 stem = el.findtext(f"{{{ns}}}stem") or ""
                 stems.append(stem.strip())
             assert stems and all(s == "down" for s in stems), stems
-    print("ok phantom backup + staff2 voice + stem")
+    print("ok phantom backup + staff voices + mono stem + stem")
 
 
 if __name__ == "__main__":

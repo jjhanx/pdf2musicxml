@@ -6139,31 +6139,55 @@ def _measure_needs_cross_staff_backup(measure: ET.Element, ns: str) -> bool:
 
 
 def normalize_grand_staff_voices_in_measure(measure: ET.Element, ns: str) -> bool:
-    """피아노 staff2 voice를 5,6,7…로 정리(단일 성부면 5). 변경 여부 반환."""
-    order: list[str] = []
-    for note in list_note_elements(measure, ns):
-        if _note_voice_staff(note, ns)[1] != "2":
-            continue
-        voice, _st = _note_voice_staff(note, ns)
-        key = voice if voice else "5"
-        if key not in order:
-            order.append(key)
-    if not order:
+    """피아노 grand staff voice를 staff1=1,2,3… / staff2=5,6,7…로 정리.
+
+    staff2만 5로 바꾸면 staff1이 이미 5·6을 쓰는 마디(예: PR이 v5)에서
+    같은 voice 번호가 양 오선에 겹쳐 OSMD가 유령 쉼표를 그린다.
+    양쪽을 서로 겹치지 않는 대역으로 동시에 재번호한다.
+    """
+    notes = list_note_elements(measure, ns)
+    order1: list[str] = []
+    order2: list[str] = []
+    for note in notes:
+        voice, st = _note_voice_staff(note, ns)
+        key = voice if voice else ("5" if st == "2" else "1")
+        if st == "2":
+            if key not in order2:
+                order2.append(key)
+        elif st == "1":
+            if key not in order1:
+                order1.append(key)
+    if not order1 and not order2:
         return False
-    if len(order) == 1:
-        target_map = {order[0]: "5"}
+
+    # (old_voice, staff) → new_voice
+    target: dict[tuple[str, str], str] = {}
+    if order1 and order2:
+        for i, v in enumerate(order1):
+            target[(v, "1")] = str(1 + i)
+        for i, v in enumerate(order2):
+            target[(v, "2")] = str(5 + i)
+    elif order2:
+        for i, v in enumerate(order2):
+            target[(v, "2")] = str(5 + i)
     else:
-        target_map = {v: str(5 + i) for i, v in enumerate(order)}
+        # staff1만 — OMR이 5+를 쓰면 1+로 내림(단선 성부 유지)
+        if not any((int(v) if v.isdigit() else 0) >= 5 for v in order1):
+            return False
+        for i, v in enumerate(order1):
+            target[(v, "1")] = str(1 + i)
+
     changed = False
-    for note in list_note_elements(measure, ns):
-        if _note_voice_staff(note, ns)[1] != "2":
+    for note in notes:
+        voice, st = _note_voice_staff(note, ns)
+        if st not in ("1", "2"):
             continue
-        voice, _st = _note_voice_staff(note, ns)
-        raw = voice if voice else "5"
-        want = target_map.get(raw, "5")
-        if raw != want:
-            _set_note_voice_staff(note, ns, want, "2")
-            changed = True
+        raw = voice if voice else ("5" if st == "2" else "1")
+        want = target.get((raw, st))
+        if want is None or raw == want:
+            continue
+        _set_note_voice_staff(note, ns, want, st)
+        changed = True
     return changed
 
 
@@ -6948,10 +6972,61 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
                 if _note_stem_dir(notes[fidx], ns) != stem:
                     _set_note_stem(notes[fidx], ns, stem)
                     changed = True
+    if normalize_monophonic_staff_stems_in_measure(measure, ns):
+        changed = True
     return changed
 
 
+def normalize_monophonic_staff_stems_in_measure(measure: ET.Element, ns: str) -> bool:
+    """오선당 실음 voice가 하나인데 stem이 up/down 혼재하면 OSMD가 가짜 2성부로 쉼표를 그림.
 
+    다수결(동점이면 staff1=up, staff2=down)로 통일한다.
+    """
+    notes = list_note_elements(measure, ns)
+    by_staff_voice: dict[str, dict[str, list[ET.Element]]] = {}
+    for note in notes:
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        if note.find(_q(ns, "pitch")) is None:
+            continue
+        voice, st = _note_voice_staff(note, ns)
+        by_staff_voice.setdefault(st, {}).setdefault(voice, []).append(note)
+
+    changed = False
+    for st, voices in by_staff_voice.items():
+        if len(voices) != 1:
+            continue
+        voice, leaders = next(iter(voices.items()))
+        dirs: list[str] = []
+        for note in notes:
+            v, s = _note_voice_staff(note, ns)
+            if s != st or v != voice:
+                continue
+            if note.find(_q(ns, "pitch")) is None:
+                continue
+            d = _note_stem_dir(note, ns)
+            if d in ("up", "down"):
+                dirs.append(d)
+        if len(set(dirs)) <= 1:
+            continue
+        up_n = dirs.count("up")
+        down_n = dirs.count("down")
+        if up_n > down_n:
+            want = "up"
+        elif down_n > up_n:
+            want = "down"
+        else:
+            want = "up" if st != "2" else "down"
+        for note in notes:
+            v, s = _note_voice_staff(note, ns)
+            if s != st or v != voice:
+                continue
+            if note.find(_q(ns, "pitch")) is None:
+                continue
+            if _note_stem_dir(note, ns) != want:
+                _set_note_stem(note, ns, want)
+                changed = True
+    return changed
 def normalize_multivoice_stems_in_root(
     root: ET.Element, *, only_measures: MeasureScope = None
 ) -> int:

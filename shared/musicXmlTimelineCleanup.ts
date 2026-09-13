@@ -81,7 +81,8 @@ export function repairTimelineForOsmdPreview(
   const faithful = options?.faithfulEditorLayout === true;
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
   out = capAbsurdTimelineDurationsForOsmdPreview(out);
-  if (!faithful) out = capBackupDurationsForOsmdPreview(out);
+  // faithful에서도 backup 폭주를 막음 — 과도한 backup은 OSMD가 앞칸에 유령 쉼표를 그림
+  out = capBackupDurationsForOsmdPreview(out);
   out = stripPrintElementsForOsmdPreview(out);
   out = stripMeasureWidthAttributesForOsmdPreview(out);
   out = stripDefaultXyForOsmdPreview(out);

@@ -2040,9 +2040,9 @@ export function buildOsmdPreviewXml(
   xml = promoteNoteDynamicsForOsmdPreview(xml);
   xml = normalizeTiePlacementsForOsmdPreview(xml);
   xml = repairTimelineForOsmdPreview(xml, timelineOpts);
-  if (!faithful) {
-    xml = repairUnderfullMeasuresForOsmdPreview(xml);
-  }
+  // HITL faithful에서도 underfull invisible forward는 유지 — OSMD가 빈 voice 칸에
+  // 유령 쉼표를 그리는 것을 막음(앞머리 쉼·저장 MXL은 변경하지 않음).
+  xml = repairUnderfullMeasuresForOsmdPreview(xml);
   // 동일 내용 clef(머리·중간·끝) 제거 후 trailing mid만 앵커 — 중복 G가 마디 끝에 안 보이게
   xml = removeRedundantCourtesyClefsForOsmd(xml);
   xml = anchorTrailingMidClefsForOsmdPreview(xml);
@@ -2079,9 +2079,8 @@ function sanitizeMusicXmlForOsmd(
     out = repairRestDisplayForOsmdPreview(out);
     out = normalizeMultivoiceStemsForOsmdPreview(out);
     out = repairTimelineForOsmdPreview(out, timelineOpts);
-    if (!faithfulEditorLayout) {
-      out = repairUnderfullMeasuresForOsmdPreview(out);
-    }
+    // faithful HITL도 underfull forward pad — OSMD 유령 쉼표 방지(저장 MXL 불변)
+    out = repairUnderfullMeasuresForOsmdPreview(out);
     out = anchorTrailingMidClefsForOsmdPreview(out);
     out = normalizeTiePlacementsForOsmdPreview(out);
     out = normalizeDynamicsAndWedgesForOsmdPreview(out);

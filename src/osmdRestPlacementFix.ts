@@ -184,6 +184,31 @@ export function patchOsmdPolyphonicRestVfpitch(osmd: OpenSheetMusicDisplay): num
       measure.verticalSourceStaffEntryContainers ??
       []) as unknown[];
 
+    // 마디 전체 실음을 voice별로 — 쉼표 onset에 실음이 없어도 같은 성부 쪽 유지
+    const measurePitchedByVoice = new Map<number, number[]>();
+    for (const containerRaw of containers) {
+      const container = asRecord(containerRaw);
+      if (!container) continue;
+      for (const seRaw of (container.StaffEntries ?? container.staffEntries ?? []) as unknown[]) {
+        const se = asRecord(seRaw);
+        if (!se) continue;
+        for (const veRaw of (se.VoiceEntries ?? se.voiceEntries ?? []) as unknown[]) {
+          const ve = asRecord(veRaw);
+          if (!ve) continue;
+          for (const noteRaw of (ve.Notes ?? ve.notes ?? []) as unknown[]) {
+            const note = asRecord(noteRaw);
+            if (!note || isRestSourceNote(note)) continue;
+            const dia = pitchDiatonicFromSourceNote(note);
+            const voice = voiceIdFromNote(note);
+            if (dia == null || voice == null) continue;
+            const list = measurePitchedByVoice.get(voice) ?? [];
+            list.push(dia);
+            measurePitchedByVoice.set(voice, list);
+          }
+        }
+      }
+    }
+
     for (const containerRaw of containers) {
       const container = asRecord(containerRaw);
       if (!container) continue;
@@ -220,10 +245,17 @@ export function patchOsmdPolyphonicRestVfpitch(osmd: OpenSheetMusicDisplay): num
         if (!rests.length || !pitched.length) continue;
         const kind = clefKindFromStaffEntry(se);
         const mid = middleDiatonic(kind);
-        // 쉼표마다: 같은 voice 실음이 있으면 그 쪽, 없으면 다른 voice 반대편
         for (const rest of rests) {
           const restVoice = voiceIdFromNote(rest);
-          const own = pitched.filter((p) => p.voice != null && p.voice === restVoice).map((p) => p.dia);
+          const ownFromContainer = pitched
+            .filter((p) => p.voice != null && p.voice === restVoice)
+            .map((p) => p.dia);
+          const own =
+            ownFromContainer.length > 0
+              ? ownFromContainer
+              : restVoice != null
+                ? (measurePitchedByVoice.get(restVoice) ?? [])
+                : [];
           const other = pitched.filter((p) => p.voice == null || p.voice !== restVoice).map((p) => p.dia);
           let above: boolean;
           if (own.length > 0 && other.length > 0) {

@@ -78,7 +78,11 @@ function setStem(note: Element, stem: 'up' | 'down'): boolean {
   return true;
 }
 
-/** per-voice cursor onset for pitched chord leaders on staff (matches Python). */
+function isRest(note: Element): boolean {
+  return [...note.children].some((c) => xmlLocalName(c) === 'rest');
+}
+
+/** per-voice cursor onset for chord leaders on staff (pitched + rest; matches Python). */
 function staffLeaderOnsets(measure: Element, staff: string): Map<Element, number> {
   const out = new Map<Element, number>();
   const voiceCursor = new Map<string, number>();
@@ -100,7 +104,8 @@ function staffLeaderOnsets(measure: Element, staff: string): Map<Element, number
     if (st !== staff) continue;
     lastNoteVoice = voice;
     const start = voiceCursor.get(voice) ?? 0;
-    if (isPitched(child)) out.set(child, start);
+    // 쉼표도 onset에 포함 — 실음만 있으면 아랫성부 stem이 up으로 남는 회귀
+    if (isPitched(child) || isRest(child)) out.set(child, start);
     if (!isGraceOrCue(child)) voiceCursor.set(voice, start + elDuration(child));
   }
   return out;
@@ -196,7 +201,10 @@ function normalizeMeasure(measure: Element): boolean {
       });
       order.forEach((voice, vi) => {
         const stem: 'up' | 'down' = vi === 0 ? 'up' : 'down';
-        for (const note of voices.get(voice) ?? []) forced.set(note, stem);
+        for (const note of voices.get(voice) ?? []) {
+          if (!isPitched(note)) continue;
+          forced.set(note, stem);
+        }
       });
     }
     if (!forced.size) continue;
@@ -211,7 +219,118 @@ function normalizeMeasure(measure: Element): boolean {
       if (setStem(note, stem)) changed = true;
     }
   }
+  if (normalizeMonophonicStaffStems(measure)) changed = true;
   return changed;
+}
+
+function setVoice(note: Element, voice: string): boolean {
+  let el = [...note.children].find((c) => xmlLocalName(c) === 'voice');
+  if (el) {
+    if ((el.textContent || '').trim() === voice) return false;
+    el.textContent = voice;
+    return true;
+  }
+  const doc = note.ownerDocument;
+  if (!doc) return false;
+  const ns = note.namespaceURI;
+  el = ns ? doc.createElementNS(ns, 'voice') : doc.createElement('voice');
+  el.textContent = voice;
+  const staff = [...note.children].find((c) => xmlLocalName(c) === 'staff');
+  if (staff) note.insertBefore(el, staff);
+  else note.appendChild(el);
+  return true;
+}
+
+/** piano: staff1→1,2,3… / staff2→5,6,7… — staff2만 바꾸면 staff1 v5와 충돌해 유령 쉼표 */
+function normalizeGrandStaffVoicesInMeasure(measure: Element): boolean {
+  const notes = measureNotes(measure);
+  const order1: string[] = [];
+  const order2: string[] = [];
+  for (const note of notes) {
+    const { voice, staff } = noteVoiceStaff(note);
+    const key = voice || (staff === '2' ? '5' : '1');
+    if (staff === '2') {
+      if (!order2.includes(key)) order2.push(key);
+    } else if (staff === '1') {
+      if (!order1.includes(key)) order1.push(key);
+    }
+  }
+  if (!order1.length && !order2.length) return false;
+
+  const target = new Map<string, string>();
+  if (order1.length && order2.length) {
+    order1.forEach((v, i) => target.set(`${v}|1`, String(1 + i)));
+    order2.forEach((v, i) => target.set(`${v}|2`, String(5 + i)));
+  } else if (order2.length) {
+    order2.forEach((v, i) => target.set(`${v}|2`, String(5 + i)));
+  } else {
+    if (!order1.some((v) => (parseInt(v, 10) || 0) >= 5)) return false;
+    order1.forEach((v, i) => target.set(`${v}|1`, String(1 + i)));
+  }
+
+  let changed = false;
+  for (const note of notes) {
+    const { voice, staff } = noteVoiceStaff(note);
+    if (staff !== '1' && staff !== '2') continue;
+    const raw = voice || (staff === '2' ? '5' : '1');
+    const want = target.get(`${raw}|${staff}`);
+    if (!want || want === raw) continue;
+    if (setVoice(note, want)) changed = true;
+  }
+  return changed;
+}
+
+/** 단일 성부 stem 혼재 → OSMD 가짜 2성부·유령 쉼표 방지 */
+function normalizeMonophonicStaffStems(measure: Element): boolean {
+  const notes = measureNotes(measure);
+  const byStaffVoice = new Map<string, Map<string, true>>();
+  for (const note of notes) {
+    if (isChord(note) || !isPitched(note)) continue;
+    const { voice, staff } = noteVoiceStaff(note);
+    let voices = byStaffVoice.get(staff);
+    if (!voices) {
+      voices = new Map();
+      byStaffVoice.set(staff, voices);
+    }
+    voices.set(voice, true);
+  }
+  let changed = false;
+  for (const [staff, voices] of byStaffVoice) {
+    if (voices.size !== 1) continue;
+    const voice = [...voices.keys()][0]!;
+    const dirs: Array<'up' | 'down'> = [];
+    for (const note of notes) {
+      const vs = noteVoiceStaff(note);
+      if (vs.staff !== staff || vs.voice !== voice || !isPitched(note)) continue;
+      const stem = childText(note, 'stem');
+      if (stem === 'up' || stem === 'down') dirs.push(stem);
+    }
+    if (new Set(dirs).size <= 1) continue;
+    const upN = dirs.filter((d) => d === 'up').length;
+    const downN = dirs.filter((d) => d === 'down').length;
+    const want: 'up' | 'down' =
+      upN > downN ? 'up' : downN > upN ? 'down' : staff !== '2' ? 'up' : 'down';
+    for (const note of notes) {
+      const vs = noteVoiceStaff(note);
+      if (vs.staff !== staff || vs.voice !== voice || !isPitched(note)) continue;
+      if (setStem(note, want)) changed = true;
+    }
+  }
+  return changed;
+}
+
+export function normalizeGrandStaffVoicesForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    let changed = false;
+    doc.querySelectorAll('measure, *|measure').forEach((m) => {
+      if (normalizeGrandStaffVoicesInMeasure(m)) changed = true;
+    });
+    return changed ? serializeMusicXmlDocument(doc) : xml;
+  } catch {
+    return xml;
+  }
 }
 
 export function normalizeMultivoiceStemsForOsmdPreview(xml: string): string {
@@ -220,6 +339,7 @@ export function normalizeMultivoiceStemsForOsmdPreview(xml: string): string {
     if (!doc) return xml;
     let changed = false;
     doc.querySelectorAll('measure, *|measure').forEach((m) => {
+      if (normalizeGrandStaffVoicesInMeasure(m)) changed = true;
       if (normalizeMeasure(m)) changed = true;
     });
     return changed ? serializeMusicXmlDocument(doc) : xml;

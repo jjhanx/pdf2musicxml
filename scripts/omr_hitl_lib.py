@@ -3072,7 +3072,11 @@ def _polyphonic_short_rest_display(
     notes: list[ET.Element],
     staff_starts: dict[int, int],
 ) -> tuple[str, int]:
-    """다성부 짧은 쉼 — 동시 다른 voice 음의 반대편(오선 안) display-step/octave."""
+    """다성부 짧은 쉼 — 같은 voice 음자리 쪽을 유지하고 다른 voice와 포개지지 않게.
+
+    예전: 다른 voice 반대편만 보면, 윗성부 쉼표가 아래 2분음표와 자리가 바뀐 것처럼 보일 수 있음.
+    지금: 같은 voice 실음이 있으면 그 평균 높이와 다른 voice를 비교해 성부 쪽을 유지.
+    """
     sign, line = _clef_for_note_in_part(part, measure, rest_note, ns)
     mid = _middle_line_diatonic(sign, line)
     try:
@@ -3085,20 +3089,24 @@ def _polyphonic_short_rest_display(
     rest_end = rest_start + rest_dur
 
     other_pitches: list[int] = []
+    own_pitches: list[int] = []
     blocked: set[int] = set()
     for i, note in enumerate(notes):
         if note.find(_q(ns, "rest")) is not None or _is_grace_or_cue(note, ns):
             continue
         voice, st = _note_voice_staff(note, ns)
-        if st != staff or voice == rest_voice:
+        if st != staff:
+            continue
+        dia = _pitch_diatonic(note, ns)
+        if dia is None:
+            continue
+        if voice == rest_voice:
+            own_pitches.append(dia)
             continue
         leader_i = _chord_leader_index(notes, ns, i)
         other_start = staff_starts.get(leader_i, 0)
         other_dur = max(1, _note_duration(notes[leader_i], ns))
         if other_start >= rest_end or other_start + other_dur <= rest_start:
-            continue
-        dia = _pitch_diatonic(note, ns)
-        if dia is None:
             continue
         other_pitches.append(dia)
         blocked.add(dia)
@@ -3114,6 +3122,26 @@ def _polyphonic_short_rest_display(
             dia = _pitch_diatonic(note, ns)
             if dia is not None:
                 other_pitches.append(dia)
+
+    if own_pitches and other_pitches:
+        own_avg = sum(own_pitches) / len(own_pitches)
+        other_avg = sum(other_pitches) / len(other_pitches)
+        want_above = own_avg >= other_avg
+        lo, hi = _staff_interior_diatonic_range(mid)
+        preferred: list[int] = []
+        for off in (4, 3, 2, 1):
+            cand = mid + off if want_above else mid - off
+            if lo <= cand <= hi:
+                preferred.append(cand)
+        preferred.append(mid)
+        for d in range(lo, hi + 1):
+            if d not in preferred:
+                preferred.append(d)
+        for cand in preferred:
+            if cand not in blocked:
+                return _from_diatonic_index(cand)
+        target = mid + 4 if want_above else mid - 4
+        return _from_diatonic_index(max(lo, min(hi, target)))
 
     chosen = _choose_rest_display_diatonic(mid, other_pitches, blocked)
     return _from_diatonic_index(chosen)
@@ -6090,10 +6118,63 @@ def coalesce_spurious_parallel_voices_in_root(
     return n
 
 
+def _measure_needs_cross_staff_backup(measure: ET.Element, ns: str) -> bool:
+    """PR+PL이 있는데 staff1→staff2 전환 `<backup>`이 없으면 True."""
+    saw_s1 = False
+    backup_after_s1 = False
+    has_s2 = False
+    for el in measure:
+        tag = _local(el)
+        if tag == "note":
+            _v, st = _note_voice_staff(el, ns)
+            if st == "1":
+                saw_s1 = True
+            elif st == "2":
+                has_s2 = True
+                if saw_s1 and not backup_after_s1:
+                    return True
+        elif tag == "backup" and saw_s1:
+            backup_after_s1 = True
+    return False
+
+
+def normalize_grand_staff_voices_in_measure(measure: ET.Element, ns: str) -> bool:
+    """피아노 staff2 voice를 5,6,7…로 정리(단일 성부면 5). 변경 여부 반환."""
+    order: list[str] = []
+    for note in list_note_elements(measure, ns):
+        if _note_voice_staff(note, ns)[1] != "2":
+            continue
+        voice, _st = _note_voice_staff(note, ns)
+        key = voice if voice else "5"
+        if key not in order:
+            order.append(key)
+    if not order:
+        return False
+    if len(order) == 1:
+        target_map = {order[0]: "5"}
+    else:
+        target_map = {v: str(5 + i) for i, v in enumerate(order)}
+    changed = False
+    for note in list_note_elements(measure, ns):
+        if _note_voice_staff(note, ns)[1] != "2":
+            continue
+        voice, _st = _note_voice_staff(note, ns)
+        raw = voice if voice else "5"
+        want = target_map.get(raw, "5")
+        if raw != want:
+            _set_note_voice_staff(note, ns, want, "2")
+            changed = True
+    return changed
+
+
 def normalize_measure_timelines_in_root(
     root: ET.Element, *, only_measures: MeasureScope = None
 ) -> int:
-    """전 악보 — 다중 성부 및 분절 성부 스트림 통합·타임라인 재배열. 변경된 마디 수 반환."""
+    """전 악보 — 다중 성부 및 분절 성부 스트림 통합·타임라인 재배열. 변경된 마디 수 반환.
+
+    단일 voice/staff여도 PR+PL cross-staff `<backup>`이 빠졌으면 복구한다.
+    (건너뛰면 PL이 PR 뒤로 이어져 유령 쉼표처럼 보인다.)
+    """
     ns = _ns(root)
     n = 0
     for part in root.findall(_q(ns, "part")):
@@ -6101,8 +6182,16 @@ def normalize_measure_timelines_in_root(
         for measure in part.findall(_q(ns, "measure")):
             if not _part_measure_in_scope(part_id, measure, only_measures):
                 continue
+            touched = False
             if _measure_has_multivoice_layers(measure, ns):
                 rebuild_measure_timeline_clean(measure, ns, part)
+                touched = True
+            elif _measure_needs_cross_staff_backup(measure, ns):
+                if _strip_orphan_timeline_if_single_voice_per_staff(measure, ns):
+                    touched = True
+            if normalize_grand_staff_voices_in_measure(measure, ns):
+                touched = True
+            if touched:
                 n += 1
     return n
 
@@ -6611,18 +6700,20 @@ def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> 
 
 
 def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: str) -> bool:
-    """Staff voice 병합 — 겹치지 않거나 same-x 잘못 분리된 sequential voice."""
+    """Staff voice 병합 — 겹치지 않거나 same-x 잘못 분리된 sequential voice.
+
+    각 voice duration 합이 마디 길이를 크게 넘으면 병렬 층으로 보고 병합하지 않는다.
+    (onset 오판으로 병렬 LH를 순차로 합치면 유령 쉼표·박자 초과가 난다.)
+    """
     notes = list_note_elements(measure, ns)
     timed_starts = dict(_staff_timed_leader_starts(measure, ns, staff))
     leaders: list[tuple[int, str, int, int]] = []
-    leader_indices: list[int] = []
     for i, note in enumerate(notes):
         if _is_grace_or_cue(note, ns) or note.find(_q(ns, "chord")) is not None:
             continue
         voice, st = _note_voice_staff(note, ns)
         if st != staff:
             continue
-        leader_indices.append(i)
         start = timed_starts.get(i, 0)
         dur = _note_duration(note, ns)
         leaders.append((i, voice, start, start + dur))
@@ -6639,6 +6730,13 @@ def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: 
                 for sb, eb in intervals_by_voice.get(voice_list[b], []):
                     if max(sa, sb) < min(ea, eb):
                         return False
+    total_dur = 0
+    for v in voice_list:
+        total_dur += sum(max(0, ea - sa) for sa, ea in intervals_by_voice.get(v, []))
+    divisions, beats, beat_type = _measure_divisions_beats(measure, ns, None)
+    measure_len = _measure_length_units(divisions, beats, beat_type)
+    if measure_len > 0 and total_dur > measure_len + max(3, divisions // 4):
+        return False
     return _merge_staff_voices_to_primary(measure, ns, staff)
 
 
@@ -6783,9 +6881,10 @@ def _note_stem_dir(note: ET.Element, ns: str) -> str:
 
 
 def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
-    """같은 오선·같은 onset에 voice가 둘 이상이면 OSMD 관례로 stem 반대 기록.
+    """같은 오선·같은 onset에 voice가 둘 이상이면 OSMD 관례로 stem 반대 지정.
 
     낮은 voice 번호 → up, 나머지 → down. 해당 음의 `<beam>` 그룹 전체에 전파.
+    한 voice가 쉼표만 있어도(다른 voice에 실음) 성부 구분을 위해 stem을 맞춘다.
     OSMD가 겹치는 다성에서 XML stem(up)을 무시하고 아래로 그리는 경우에도
     편집기·저장 MXL·미리보기가 같은 방향을 보게 한다.
     """
@@ -6795,7 +6894,8 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
     staves = {
         _note_voice_staff(n, ns)[1]
         for n in notes
-        if n.find(_q(ns, "chord")) is None and n.find(_q(ns, "pitch")) is not None
+        if n.find(_q(ns, "chord")) is None
+        and (n.find(_q(ns, "pitch")) is not None or n.find(_q(ns, "rest")) is not None)
     }
     changed = False
     for staff in sorted(staves, key=lambda s: int(s) if s.isdigit() else 0):
@@ -6803,7 +6903,7 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
         for i, note in enumerate(notes):
             if note.find(_q(ns, "chord")) is not None:
                 continue
-            if note.find(_q(ns, "pitch")) is None:
+            if note.find(_q(ns, "pitch")) is None and note.find(_q(ns, "rest")) is None:
                 continue
             voice, st = _note_voice_staff(note, ns)
             if st != staff:
@@ -6820,6 +6920,8 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
             for vi, voice in enumerate(voices):
                 stem = "up" if vi == 0 else "down"
                 for li in by_voice[voice]:
+                    if notes[li].find(_q(ns, "pitch")) is None:
+                        continue
                     forced[li] = stem
 
         if not forced:
@@ -6837,6 +6939,8 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
             if not (0 <= li < len(notes)):
                 continue
             note = notes[li]
+            if note.find(_q(ns, "pitch")) is None:
+                continue
             if _note_stem_dir(note, ns) != stem:
                 _set_note_stem(note, ns, stem)
                 changed = True
@@ -6845,6 +6949,7 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
                     _set_note_stem(notes[fidx], ns, stem)
                     changed = True
     return changed
+
 
 
 def normalize_multivoice_stems_in_root(

@@ -276,11 +276,16 @@ function polyphonicShortRestDisplay(
   const restStart = restEvent.start;
   const restEnd = restStart + restEvent.dur;
   const otherPitches: number[] = [];
+  const ownPitches: number[] = [];
   const blocked = new Set<number>();
 
   for (const ev of events) {
     if (ev.isRest || ev.dia == null) continue;
-    if (ev.staff !== restEvent.staff || ev.voice === restEvent.voice) continue;
+    if (ev.staff !== restEvent.staff) continue;
+    if (ev.voice === restEvent.voice) {
+      ownPitches.push(ev.dia);
+      continue;
+    }
     if (ev.start >= restEnd || ev.start + ev.dur <= restStart) continue;
     otherPitches.push(ev.dia);
     blocked.add(ev.dia);
@@ -291,6 +296,27 @@ function polyphonicShortRestDisplay(
       if (ev.staff !== restEvent.staff || ev.voice === restEvent.voice) continue;
       otherPitches.push(ev.dia);
     }
+  }
+  if (ownPitches.length > 0 && otherPitches.length > 0) {
+    const ownAvg = ownPitches.reduce((a, b) => a + b, 0) / ownPitches.length;
+    const otherAvg = otherPitches.reduce((a, b) => a + b, 0) / otherPitches.length;
+    const wantAbove = ownAvg >= otherAvg;
+    const lo = mid - 4;
+    const hi = mid + 4;
+    const preferred: number[] = [];
+    for (const off of [4, 3, 2, 1]) {
+      const cand = wantAbove ? mid + off : mid - off;
+      if (cand >= lo && cand <= hi) preferred.push(cand);
+    }
+    preferred.push(mid);
+    for (let d = lo; d <= hi; d++) {
+      if (!preferred.includes(d)) preferred.push(d);
+    }
+    for (const cand of preferred) {
+      if (!blocked.has(cand)) return fromDiatonicIndex(cand);
+    }
+    const target = wantAbove ? mid + 4 : mid - 4;
+    return fromDiatonicIndex(Math.max(lo, Math.min(hi, target)));
   }
   const chosen = chooseRestDisplayDiatonic(mid, otherPitches, blocked);
   return fromDiatonicIndex(chosen);

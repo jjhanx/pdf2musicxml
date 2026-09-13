@@ -220,13 +220,25 @@ export function patchOsmdPolyphonicRestVfpitch(osmd: OpenSheetMusicDisplay): num
         if (!rests.length || !pitched.length) continue;
         const kind = clefKindFromStaffEntry(se);
         const mid = middleDiatonic(kind);
-        const above = wantRestAbove(
-          mid,
-          pitched.map((p) => p.dia),
-        );
-        const spec = restPitchSpec(kind, above);
+        // 쉼표마다: 같은 voice 실음이 있으면 그 쪽, 없으면 다른 voice 반대편
         for (const rest of rests) {
-          if (setRestPitch(rest, donorPitch, spec.fundamental, spec.octave)) patched += 1;
+          const restVoice = voiceIdFromNote(rest);
+          const own = pitched.filter((p) => p.voice != null && p.voice === restVoice).map((p) => p.dia);
+          const other = pitched.filter((p) => p.voice == null || p.voice !== restVoice).map((p) => p.dia);
+          let above: boolean;
+          if (own.length > 0 && other.length > 0) {
+            const ownAvg = own.reduce((a, b) => a + b, 0) / own.length;
+            const otherAvg = other.reduce((a, b) => a + b, 0) / other.length;
+            above = ownAvg >= otherAvg;
+          } else {
+            above = wantRestAbove(mid, other.length ? other : pitched.map((p) => p.dia));
+          }
+          const donor =
+            pitched.find((p) => p.voice != null && p.voice !== restVoice)?.note.Pitch ??
+            pitched.find((p) => p.voice != null && p.voice !== restVoice)?.note.pitch ??
+            donorPitch;
+          const spec = restPitchSpec(kind, above);
+          if (setRestPitch(rest, donor, spec.fundamental, spec.octave)) patched += 1;
         }
       }
     }

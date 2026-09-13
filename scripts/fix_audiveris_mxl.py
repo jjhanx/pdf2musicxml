@@ -4858,50 +4858,11 @@ def _repair_piano_spurious_voices(measure: ET.Element, ns: str, expected: int) -
 def _normalize_grand_staff_voices_in_measure(measure: ET.Element, ns: str) -> int:
     """피아노 staff2 voice를 MuseScore 친화적으로 정리하되 병렬 성부는 구분 유지.
 
-    예전: staff2 음을 전부 voice=5로 통일 → backup으로 나뉜 병렬 LH가 같은 voice 번호가
-    되어 MuseScore 등에서 순차 재생·연주순번 column이 밀리는 경우가 있음.
-    지금: staff2 성부가 하나면 5로 통일(phantom rest 완화). 둘 이상이면 문서 등장 순으로
-    5,6,7…에 재매핑해 상대 구분을 유지한다.
+    omr_hitl_lib.normalize_grand_staff_voices_in_measure 위임.
     """
-    order: list[str] = []
-    for note in measure.findall(qname(ns, "note")):
-        if _note_voice_staff(note, ns)[1] != "2":
-            continue
-        vel = note.find(qname(ns, "voice"))
-        raw = (vel.text or "").strip() if vel is not None else ""
-        key = raw if raw else "5"
-        if key not in order:
-            order.append(key)
-    if not order:
-        return 0
-    if len(order) == 1:
-        target_map = {order[0]: "5"}
-    else:
-        target_map = {v: str(5 + i) for i, v in enumerate(order)}
-    changed = 0
-    for note in measure.findall(qname(ns, "note")):
-        if _note_voice_staff(note, ns)[1] != "2":
-            continue
-        vel = note.find(qname(ns, "voice"))
-        if vel is None:
-            vel = ET.SubElement(note, qname(ns, "voice"))
-        raw = (vel.text or "").strip() or "5"
-        want = target_map.get(raw, "5")
-        if (vel.text or "").strip() != want:
-            vel.text = want
-            changed += 1
-    # backup/forward 의 voice도 같은 맵으로 맞춤(있으면)
-    for el in measure:
-        if local_tag(el) not in ("backup", "forward"):
-            continue
-        vel = el.find(qname(ns, "voice"))
-        if vel is None or not (vel.text or "").strip():
-            continue
-        raw = vel.text.strip()
-        if raw in target_map and vel.text.strip() != target_map[raw]:
-            vel.text = target_map[raw]
-            changed += 1
-    return changed
+    from omr_hitl_lib import normalize_grand_staff_voices_in_measure as _norm
+
+    return 1 if _norm(measure, ns) else 0
 
 
 def _rebuild_piano_grand_staff_measures(part: ET.Element, ns: str) -> int:

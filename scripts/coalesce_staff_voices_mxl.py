@@ -11,6 +11,7 @@ from omr_hitl_lib import (  # noqa: E402
     load_mxl_root,
     normalize_dynamics_in_root,
     normalize_measure_timelines_in_root,
+    normalize_multivoice_stems_in_root,
     normalize_play_orders_including_rests_in_root,
     normalize_slurs_in_root,
     normalize_wedges_in_root,
@@ -28,18 +29,20 @@ def main() -> int:
         files, root_path, root = load_mxl_root(mxl_path)
         n = coalesce_spurious_parallel_voices_in_root(root)
         n_rebuild = normalize_measure_timelines_in_root(root)
+        n_stem = normalize_multivoice_stems_in_root(root)
         n_po = normalize_play_orders_including_rests_in_root(root)
         n_dyns = normalize_dynamics_in_root(root)
         n_slurs = normalize_slurs_in_root(root)
         n_wedges = normalize_wedges_in_root(root)
         # timeline rebuild 이후 — 같은 연주순번 column onset을 저장 MXL에 맞춤(재생)
         n_po_align = realign_play_order_column_timelines_in_root(root)
-        if n or n_rebuild or n_po or n_dyns or n_slurs or n_wedges or n_po_align:
+        if n or n_rebuild or n_stem or n_po or n_dyns or n_slurs or n_wedges or n_po_align:
             write_mxl_root(mxl_path, files, root_path, root)
         print(
             json.dumps(
                 {
                     "coalesceVoiceMeasures": max(n, n_rebuild, n_wedges),
+                    "multivoiceStemMeasures": n_stem,
                     "playOrderTimelineMeasures": n_po_align,
                 },
                 ensure_ascii=False,

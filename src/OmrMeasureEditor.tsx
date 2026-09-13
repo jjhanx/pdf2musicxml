@@ -206,6 +206,107 @@ function isRhythmicSlice(n: MeasureNoteEl): boolean {
   return n.kind === 'rest' || (n.kind === 'note' && !n.chord);
 }
 
+/** 세잇단 적용 — 마디 편집기 즉시 반영(MXL 반영 전 낙관적 UI) */
+function optimisticApplyTripletToSnapshot(
+  snap: MeasureSnapshot,
+  fix: {
+    fromNoteIndex?: number;
+    toNoteIndex?: number;
+    actualNotes?: number;
+    normalNotes?: number;
+    normalType?: string;
+    preserveNoteTypes?: boolean;
+  },
+): MeasureSnapshot {
+  const from = Number(fix.fromNoteIndex);
+  const to = Number(fix.toNoteIndex);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return snap;
+  const raw = snap.elements ?? (snap.notes ?? []).map((n) => ({ ...n, elementKind: 'note' as const }));
+  const noteEls = raw.filter(isMeasureNoteEl);
+  let indices = noteEls
+    .filter((n) => n.index >= from && n.index <= to && isRhythmicSlice(n))
+    .map((n) => n.index);
+  const actualReq = Number(fix.actualNotes ?? indices.length);
+  const normalNotes = Math.max(1, Number(fix.normalNotes ?? 2));
+  const preserve = Boolean(fix.preserveNoteTypes);
+  if (!preserve && actualReq >= 2 && indices.length > actualReq) {
+    indices = indices.slice(0, actualReq);
+  }
+  if (indices.length < 2) return snap;
+  const actualNotes = preserve
+    ? Math.max(
+        2,
+        Math.round(
+          indices.reduce((acc, idx) => {
+            const n = noteEls.find((x) => x.index === idx);
+            return acc + noteTypeWeight(n?.type, n?.isDotted);
+          }, 0),
+        ),
+      )
+    : indices.length;
+  const normalType = String(fix.normalType || 'eighth');
+  const idxSet = new Set(indices);
+  const first = indices[0]!;
+  const last = indices[indices.length - 1]!;
+  const scaleDur = (d: number | null | undefined) => {
+    if (d == null || !Number.isFinite(d) || preserve) return d ?? undefined;
+    return Math.max(1, Math.round((Number(d) * normalNotes) / actualNotes));
+  };
+  const elements = raw.map((el) => {
+    if (!isMeasureNoteEl(el)) return el;
+    const leaderIdx = el.chord ? chordLeaderIndex(el, noteEls) : el.index;
+    if (!idxSet.has(leaderIdx)) return el;
+    const next: MeasureNoteEl = {
+      ...el,
+      timeMod: `${actualNotes}:${normalNotes}`,
+      duration: scaleDur(el.duration) ?? el.duration,
+      type: preserve || el.chord ? el.type : normalType,
+      tuplet: el.chord ? el.tuplet : leaderIdx === first ? 'start' : leaderIdx === last ? 'stop' : null,
+    };
+    return next;
+  });
+  return { ...snap, elements, notes: elements.filter(isMeasureNoteEl) };
+}
+
+function optimisticRemoveTripletFromSnapshot(
+  snap: MeasureSnapshot,
+  fix: { fromNoteIndex?: number; toNoteIndex?: number },
+): MeasureSnapshot {
+  const start = Number(fix.fromNoteIndex);
+  if (!Number.isFinite(start)) return snap;
+  const raw = snap.elements ?? (snap.notes ?? []).map((n) => ({ ...n, elementKind: 'note' as const }));
+  const noteEls = raw.filter(isMeasureNoteEl);
+  const anchor = noteEls.find((n) => n.index === start);
+  if (!anchor) return snap;
+  const span = tripletRangeFor(anchor, noteEls);
+  const from = span.from;
+  const to = Number(fix.toNoteIndex ?? span.to);
+  const elements = raw.map((el) => {
+    if (!isMeasureNoteEl(el)) return el;
+    if (el.index < from || el.index > to) return el;
+    if (!el.timeMod && !el.tuplet) return el;
+    let duration = el.duration;
+    const m = /^(?:(\d+):(\d+))$/.exec(el.timeMod ?? '');
+    if (duration != null && m) {
+      const actual = parseInt(m[1]!, 10);
+      const normal = parseInt(m[2]!, 10);
+      if (actual >= 2 && normal >= 1) {
+        duration = Math.max(1, Math.round((duration * actual) / normal));
+      }
+    }
+    return { ...el, timeMod: null, tuplet: null, duration };
+  });
+  return { ...snap, elements, notes: elements.filter(isMeasureNoteEl) };
+}
+
+/** 리듬·구조 보정 — 대기만 쌓지 말고 MXL·미리보기까지 바로 돌림 */
+const SYNC_PREVIEW_FIX_KINDS = new Set([
+  'applyTriplet',
+  'removeTriplet',
+  'applyBeam',
+  'removeBeam',
+]);
+
 function defaultTripletNormalType(el: MeasureNoteEl): string {
   const t = el.type ?? 'quarter';
   if (t === '32nd' || t === '64th') return '32nd';
@@ -2617,6 +2718,12 @@ export function OmrMeasureEditor({
       directionKinds.has(String(rest.kind)) && snapshot?.directionSourcePartId
         ? snapshot.directionSourcePartId
         : partId;
+    const kind = String(rest.kind || '');
+    if (kind === 'applyTriplet') {
+      setSnapshot((prev) => (prev ? optimisticApplyTripletToSnapshot(prev, rest) : prev));
+    } else if (kind === 'removeTriplet') {
+      setSnapshot((prev) => (prev ? optimisticRemoveTripletFromSnapshot(prev, rest) : prev));
+    }
     onAddFix({
       id: newFixId(),
       partId: fixPartId,
@@ -2624,7 +2731,14 @@ export function OmrMeasureEditor({
       source: 'manual',
       ...rest,
     });
-    setFixMsg('대기 목록에 반영됨 — 오른쪽 MXL 미리보기에 바로 반영됩니다. MXL 저장은 아래 「MXL에 반영·미리보기」를 누르세요.');
+    if (SYNC_PREVIEW_FIX_KINDS.has(kind) && onPreview) {
+      setFixMsg('MXL·미리보기에 반영 중…');
+      queueMicrotask(() => onPreview());
+    } else {
+      setFixMsg(
+        '대기 목록에 반영됨 — 표·셈여림 등은 미리보기에 바로 보일 수 있습니다. 리듬·음표 구조 변경은 「MXL에 반영·미리보기」를 누르세요.',
+      );
+    }
   };
 
   const applyUnifyStaffVoicesSequential = useCallback(() => {

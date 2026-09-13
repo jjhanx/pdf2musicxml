@@ -655,23 +655,23 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const addFix = useCallback(
     (fix: OmrHitlFix) => {
-      setPendingFixes((prev) => {
-        const next = mergeFix(prev, fix);
-        if (next === prev) return prev;
-        persistFixesDebounced(next);
-        return next;
-      });
+      // ref를 동기로 갱신 — 같은 틱에 「MXL에 반영」이 오면 방금 넣은 보정이 빠지지 않게
+      const prev = pendingFixesRef.current;
+      const next = mergeFix(prev, fix);
+      if (next === prev) return;
+      pendingFixesRef.current = next;
+      setPendingFixes(next);
+      persistFixesDebounced(next);
     },
     [persistFixesDebounced],
   );
 
   const removeFix = useCallback(
     (id: string) => {
-      setPendingFixes((prev) => {
-        const next = prev.filter((f) => f.id !== id);
-        void persistFixes(next).catch(console.error);
-        return next;
-      });
+      const next = pendingFixesRef.current.filter((f) => f.id !== id);
+      pendingFixesRef.current = next;
+      setPendingFixes(next);
+      void persistFixes(next).catch(console.error);
     },
     [persistFixes],
   );

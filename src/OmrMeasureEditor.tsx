@@ -277,12 +277,17 @@ function smallestTripletNormalType(from: number, to: number, noteEls: MeasureNot
 function defaultTripletEndIndex(elIndex: number, noteEls: MeasureNoteEl[]): number {
   const startPos = noteEls.findIndex((n) => n.index === elIndex);
   if (startPos < 0) return elIndex;
+  const leader = noteEls[startPos]!;
+  const staff = leader.staff ?? 1;
+  const voice = String(leader.voice ?? '1');
   let count = 0;
   let endIdx = elIndex;
   for (let i = startPos; i < noteEls.length && count < 3; i++) {
-    if (isRhythmicSlice(noteEls[i])) {
+    const n = noteEls[i]!;
+    if ((n.staff ?? 1) !== staff || String(n.voice ?? '1') !== voice) continue;
+    if (isRhythmicSlice(n)) {
       count += 1;
-      endIdx = noteEls[i].index;
+      endIdx = n.index;
     }
   }
   return endIdx;
@@ -4394,7 +4399,15 @@ function MeasureNoteEditor({
   );
   const nextNote = noteEls.find((n) => n.index === el.index + 1);
   const tripletLeaderIdx = chordLeaderIndex(el, noteEls);
-  const tripletCandidates = noteEls.filter((n) => n.index >= tripletLeaderIdx && isRhythmicSlice(n)).slice(0, 8);
+  const tripletCandidates = noteEls
+    .filter(
+      (n) =>
+        n.index >= tripletLeaderIdx &&
+        isRhythmicSlice(n) &&
+        (n.staff ?? 1) === (el.staff ?? 1) &&
+        String(n.voice ?? '1') === String(el.voice ?? '1'),
+    )
+    .slice(0, 8);
   const tripletNoteCount = countNotesInRange(tripletLeaderIdx, tripletEnd, noteEls);
   const tripletMixedTypes = tripletRangeHasMixedTypes(tripletLeaderIdx, tripletEnd, noteEls);
   const tripletSlotTotal = tripletSlotCount(tripletLeaderIdx, tripletEnd, noteEls);
@@ -5233,6 +5246,7 @@ function MeasureNoteEditor({
                 normalNotes: 2,
                 normalType: tripletEffectiveNormalType,
                 preserveNoteTypes: tripletUsePreserve,
+                staff: el.staff ?? 1,
               })
             }
           >

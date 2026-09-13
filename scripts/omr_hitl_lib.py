@@ -6706,10 +6706,27 @@ def _build_chord_member_from_leader(
     return new_note
 
 
+def _strip_stem_absolute_offsets(note: ET.Element, ns: str) -> bool:
+    """Audiveris stem default-x/y 제거 — OSMD 빔·세잇단 숫자 배치가 깨지지 않게."""
+    stem_el = note.find(_q(ns, "stem"))
+    if stem_el is None:
+        return False
+    changed = False
+    for attr in ("default-y", "default-x"):
+        if attr in stem_el.attrib:
+            stem_el.attrib.pop(attr, None)
+            changed = True
+    return changed
+
+
 def _ensure_short_type_for_beam(
     note: ET.Element, ns: str, divisions: int, prefer: str = "eighth"
 ) -> None:
-    """빔 연결 대상 박자·duration을 맞춰 OSMD가 빔을 그리게 한다."""
+    """빔 연결 대상 박자·duration을 맞춰 OSMD가 빔을 그리게 한다.
+
+    time-modification이 있으면 세잇단 비율(normal/actual)로 duration을 맞춘다.
+    (빔 재적용이 HITL 세잇단 duration을 풀 type 길이로 덮어쓰지 않게.)
+    """
     if note.find(_q(ns, "rest")) is not None or note.find(_q(ns, "pitch")) is None:
         return
     type_el = note.find(_q(ns, "type"))
@@ -6726,11 +6743,23 @@ def _ensure_short_type_for_beam(
     target_dur = _duration_for_type_dots(target_type, divisions, dot_count)
     if target_dur <= 0:
         return
+    tm = note.find(_q(ns, "time-modification"))
+    if tm is not None:
+        an = tm.find(_q(ns, "actual-notes"))
+        nn = tm.find(_q(ns, "normal-notes"))
+        try:
+            actual = int((an.text or "").strip()) if an is not None and an.text else 0
+            normal = int((nn.text or "").strip()) if nn is not None and nn.text else 0
+        except ValueError:
+            actual = normal = 0
+        if actual >= 2 and normal >= 1:
+            target_dur = max(1, (target_dur * normal) // actual)
     dur_el = note.find(_q(ns, "duration"))
     if dur_el is None:
         dur_el = ET.SubElement(note, _q(ns, "duration"))
     if (dur_el.text or "").strip() != str(target_dur):
         dur_el.text = str(target_dur)
+    _strip_stem_absolute_offsets(note, ns)
 
 
 def _set_note_stem(note: ET.Element, ns: str, stem: str) -> None:
@@ -7299,8 +7328,15 @@ def _apply_triplet_to_range(
         elif pos == len(indices) - 1:
             ET.SubElement(notations, _q(ns, "tuplet"), {"type": "stop"})
             changed = True
+        if _strip_stem_absolute_offsets(note, ns):
+            changed = True
+        _sort_note_children(note, ns)
         if _sync_chord_followers_with_leader(notes, ns, idx):
             changed = True
+        for fidx in _chord_follower_indices(notes, ns, idx):
+            if _strip_stem_absolute_offsets(notes[fidx], ns):
+                changed = True
+            _sort_note_children(notes[fidx], ns)
     return changed
 
 
@@ -13418,6 +13454,8 @@ def _staff_hint_from_fix(
         return None
     idx_raw = fix.get("noteIndex", fix.get("leaderNoteIndex"))
     if idx_raw in (None, ""):
+        idx_raw = fix.get("fromNoteIndex")
+    if idx_raw in (None, ""):
         idx_raw = fix.get("afterNoteIndex")
         try:
             after = int(idx_raw)
@@ -13543,6 +13581,24 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             stats["applied"] += 1
         else:
             stats["skipped"] += 1
+    # 빔이 세잇단 duration을 덮어쓰지 않도록 빔→이음줄→세잇단 순
+    _deferred_kind_rank = {
+        "applyBeam": 0,
+        "removeBeam": 1,
+        "addTie": 2,
+        "removeTie": 3,
+        "addSlur": 4,
+        "removeSlur": 5,
+        "applyTriplet": 6,
+        "removeTriplet": 7,
+    }
+    deferred.sort(
+        key=lambda f: (
+            _deferred_kind_rank.get(str(f.get("kind") or ""), 50),
+            str(f.get("partId") or ""),
+            str(f.get("measureMxl") or ""),
+        )
+    )
     for fix in deferred:
         if apply_fix(root, ns, fix):
             stats["applied"] += 1

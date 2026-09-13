@@ -120,6 +120,7 @@ python _smoke/test_merge_audiveris_movements.py  # Audiveris mvt1+mvt2 이어 �
 | 현상 | 웹/스크립트로 | 사용자 |
 |------|----------------|--------|
 | 빔 없는 세잇단 괄호(4분·2분+4분 등) | HITL 「세잇단 적용」+ **음표 길이 유지**(혼합 길이)·`fix_audiveris_mxl` bracket 규칙. 검증: `python _smoke/test_triplet_hitl.py` | 마디 편집에서 범위·기준 박자 지정 |
+| PL 빔 세잇단이 적용돼도 미리보기에 안 보임 | Audiveris stem default-y 잔존 → 적용 시 제거. python _smoke/test_pl_m7_triplet_a3.py | #12 등에서 세잇단 적용 후 MXL 반영 |
 | 8분+세잇단 16분 4음 「빔 연결」이 반영 후 사라짐 | 세잇단 구간만 보면 빔이 continue로 시작해 repair가 지움 → **레이어 begin…end run이 세잇단을 덮으면** connected로 보존. `python _smoke/test_beam_across_triplet.py` | #14→#20·#26→#32처럼 앞 8분 포함해 빔 연결 후 MXL 반영 |
 | 원본에 없는 지그재그 꾸밈음(inverted-mordent 등) | HITL 음표 **꾸밈음 제거/추가**. 검증: `python _smoke/test_ornament_wedge_hitl.py` | 마디 편집에서 해당 음 선택 |
 | tenuto·accent 거리 미리보기(겹침·거리 UI 무반응·삽입 음 유령 `>`·오선 복판 `>`/`–`·PL에 `.`/`,` 잔상·앞 음에 표·지운 표가 다음 음에 잔상·**늘임표가 미리보기에서 사라짐**) | **상세·금지 패턴:** `docs/악보_변환_품질_가이드.md` 「표(tenuto·accent) 거리 조절 (회귀 방지 필수)」. duration 점(`A2 2`)·페르마타 글리프는 표로 세지 않음. XML에 없는 accent/tenuto만 숨김. 회귀: `test_s_m77_fermata_visible.ts` · `test_pl_insert_chord_no_staff_art.ts` · `test_pl_add_art_no_dot_ghost.ts` · `test_insert_note_no_staff_accent.ts` 등 | `default-y`만 믿기 · 미식별 artEls를 전부 숨김 · artEls 인덱스로 점과 accent를 같이 숨김 · 피치만으로 마디 힌트 · overlay Y 폴백 40 |

@@ -1650,27 +1650,70 @@ export default function App() {
          localStorage.removeItem('pdf2mxl_review_' + reviewOriginalFileName);
       }
       setReviewProcessingPhase('polling');
-      const interval = window.setInterval(async () => {
+      const afterOmr = reviewAfterOmr;
+      const jobIdForPoll = reviewingJobId;
+      const finishPostOmrReviewSuccess = () => {
+        // OMR 후 가사는 inject 뒤 status=completed — 메인 폴링이 다운로드함.
+        // lyric_manifest_save_needed만 기다리면 모달이 영원히 "생성 중"에 멈춤.
+        setReviewingJobId(null);
+        setReviewAfterOmr(false);
+        setReviewData([]);
+        setManualLyricRects([]);
+        setLyricReviewUndo(null);
+        setFocusedReviewRowIndex(null);
+        setReviewOriginalFileName('');
+        setHasSavedData(false);
+        setReviewProcessingPhase('idle');
+        setReviewProgressDetail('');
+      };
+      const pollReviewFollowUp = async (intervalId: number) => {
         try {
-          const statusRes = await fetch(`/api/status/${reviewingJobId}`);
-          if (statusRes.ok) {
-            const jobData = await statusRes.json();
-            if (jobData.status === 'lyric_manifest_save_needed') {
-              window.clearInterval(interval);
+          const statusRes = await fetch(`/api/status/${jobIdForPoll}`);
+          if (!statusRes.ok) return;
+          const jobData = (await statusRes.json()) as {
+            status?: string;
+            detail?: string;
+            error?: string;
+            progress?: { detail?: string };
+          };
+          if (jobData.status === 'lyric_manifest_save_needed') {
+            window.clearInterval(intervalId);
+            setReviewPollIntervalId(null);
+            setReviewProcessingPhase('done');
+            setReviewProgressDetail('');
+            return;
+          }
+          if (jobData.status === 'completed') {
+            window.clearInterval(intervalId);
+            setReviewPollIntervalId(null);
+            if (afterOmr) {
+              finishPostOmrReviewSuccess();
+            } else {
               setReviewProcessingPhase('done');
               setReviewProgressDetail('');
-            } else if (jobData.status === 'failed') {
-              window.clearInterval(interval);
-              setReviewProcessingPhase('idle');
-              setReviewProgressDetail('');
-              alert(jobData.detail || jobData.error || 'OMR 작업이 실패했습니다.');
-            } else if (jobData.progress && jobData.progress.detail) {
-              setReviewProgressDetail(jobData.progress.detail);
             }
+            return;
           }
-        } catch(err) {}
+          if (jobData.status === 'failed') {
+            window.clearInterval(intervalId);
+            setReviewPollIntervalId(null);
+            setReviewProcessingPhase('idle');
+            setReviewProgressDetail('');
+            alert(jobData.detail || jobData.error || 'OMR 작업이 실패했습니다.');
+            return;
+          }
+          if (jobData.progress?.detail) {
+            setReviewProgressDetail(jobData.progress.detail);
+          }
+        } catch {
+          /* 폴링 중 일시 오류 무시 */
+        }
+      };
+      const interval = window.setInterval(() => {
+        void pollReviewFollowUp(interval);
       }, 1000);
       setReviewPollIntervalId(interval as unknown as number);
+      void pollReviewFollowUp(interval);
     } catch (e) {
       console.error(e);
       alert('리뷰 제출 실패');
@@ -3304,23 +3347,29 @@ bash scripts/install-font-separator-deps.sh`}
               )}
               {reviewProcessingPhase === 'polling' && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                  <span style={{ color: '#007bff', fontWeight: 'bold' }}>결과 PDF 생성 중... (수 초 소요)</span>
+                  <span style={{ color: '#007bff', fontWeight: 'bold' }}>
+                    {reviewAfterOmr
+                      ? '가사 주입 및 결과 생성 중…'
+                      : '결과 PDF 생성 중... (수 초 소요)'}
+                  </span>
                   {reviewProgressDetail && <span style={{ fontSize: '0.85rem', color: '#666' }}>{reviewProgressDetail}</span>}
                 </div>
               )}
               {reviewProcessingPhase === 'done' && (
                 <>
-                  <a
-                    href={`/api/deskew/${reviewingJobId}/clean-score-pdf`}
-                    download={`clean-score-${reviewingJobId}.pdf`}
-                    className="btn-link"
-                    style={{ color: '#f59e0b', textDecoration: 'underline', fontWeight: 'bold', fontSize: '1rem' }}
-                    title="가사가 제거된 Clean Score PDF"
-                  >
-                    Clean Score PDF 다운로드
-                  </a>
+                  {!reviewAfterOmr && (
+                    <a
+                      href={`/api/deskew/${reviewingJobId}/clean-score-pdf`}
+                      download={`clean-score-${reviewingJobId}.pdf`}
+                      className="btn-link"
+                      style={{ color: '#f59e0b', textDecoration: 'underline', fontWeight: 'bold', fontSize: '1rem' }}
+                      title="가사가 제거된 Clean Score PDF"
+                    >
+                      Clean Score PDF 다운로드
+                    </a>
+                  )}
                   <button onClick={finishReviewProcess} style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                    다음 단계로 이동
+                    {reviewAfterOmr ? '닫기' : '다음 단계로 이동'}
                   </button>
                 </>
               )}

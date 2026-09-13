@@ -956,8 +956,25 @@ def load_ocr_items(json_in_path):
     return None
 
 
-def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path):
-    """Audiveris MXL → 잔여 P/2P direction·이중 staccato-natural 등 완화."""
+def _is_valid_mxl_zip(path: str) -> bool:
+    """빈 mkstemp·손상 파일·비-zip을 inject 입력으로 쓰지 않기 위한 검사."""
+    try:
+        if not path or not os.path.isfile(path) or os.path.getsize(path) < 4:
+            return False
+        with open(path, "rb") as f:
+            if f.read(2) != b"PK":
+                return False
+        with zipfile.ZipFile(path, "r") as z:
+            return bool(z.namelist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path) -> bool:
+    """Audiveris MXL → 잔여 P/2P direction·이중 staccato-natural 등 완화.
+
+    성공 시 True(작업 경로에 유효 MXL 기록). 실패·미적용 시 False — 호출측이 원본을 써야 함.
+    """
     import os as _os
 
     _os.environ.setdefault("OMR_ENGINE", "audiveris")
@@ -969,11 +986,19 @@ def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path):
         from fix_audiveris_mxl import fix_mxl_file
     except ImportError as e:
         print(f"inject_ocr: fix_audiveris_mxl 임포트 실패: {e}", file=sys.stderr)
-        return
+        return False
     try:
         fix_mxl_file(mxl_in_path, mxl_work_path)
     except Exception as e:
         print(f"inject_ocr: fix_audiveris_mxl 경고: {e}", file=sys.stderr)
+        return False
+    if not _is_valid_mxl_zip(mxl_work_path):
+        print(
+            "inject_ocr: fix_audiveris_mxl 산출이 유효 MXL이 아님 — 원본을 사용합니다.",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 def _apply_part_labels_from_session(root, json_in_path):
@@ -1021,8 +1046,27 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
 
         fd, mxl_tmp = tempfile.mkstemp(suffix=".mxl")
         os.close(fd)
-        _run_audiveris_mxl_fix(mxl_in_path, mxl_tmp)
-        mxl_source = mxl_tmp
+        if _run_audiveris_mxl_fix(mxl_in_path, mxl_tmp):
+            mxl_source = mxl_tmp
+        else:
+            # 임포트 실패·예외·빈 mkstemp를 zip으로 열면 BadZipFile → 원본 유지
+            try:
+                os.remove(mxl_tmp)
+            except OSError:
+                pass
+            mxl_tmp = None
+
+    if not _is_valid_mxl_zip(mxl_source):
+        print(
+            f"inject_ocr: 입력 MXL이 zip이 아닙니다: {mxl_source}",
+            file=sys.stderr,
+        )
+        if mxl_tmp and os.path.isfile(mxl_tmp):
+            try:
+                os.remove(mxl_tmp)
+            except OSError:
+                pass
+        return
 
     meta_path = Path(json_in_path).parent / "ocr_meta.json"
     transpose = 0
@@ -1062,7 +1106,7 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
     if transpose != 0:
         transpose_score_chromatic(root, ns, transpose)
 
-    bpm_user = collect_tempo_bpm(ocr_data)
+    bpm_user = collect_tempo_bpm(ocr_data) if ocr_data else None
     if bpm_user is not None:
         ensure_opening_tempo(parts, ns, bpm_user)
 

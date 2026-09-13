@@ -338,53 +338,61 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
 
         label_to_pid = {l.upper(): f"P{i+1}" for i, l in enumerate(labels)}
 
+        # 이미 성부 수만큼 분리된 SATB(+…) 악보면 휴리스틱 재분배하지 않고 1:1 보존.
+        # (S+A만 울리는 마디를 "2성 스태프"로 오인해 A를 T/B에 복제하던 버그 방지)
+        already_split_satb = (
+            len(vocal_src_pids) == len(target_vocal_pids) and len(target_vocal_pids) >= 2
+        )
+
         # Form contiguous blocks of single-vocal measures to determine phrase-level register
         single_vocal_blocks = []
         current_block = []
 
-        for num in measure_nums:
-            active_m_list = []
-            for pid in vocal_src_pids:
-                p = parts_by_id[pid]
-                m = p.find(f'./{_q(ns, "measure")}[@number="{num}"]')
-                if m is not None:
-                    pitched = [n for n in m.findall(_q(ns, "note")) if n.find(_q(ns, "pitch")) is not None]
-                    if pitched:
-                        active_m_list.append((pid, m, pitched))
-            if len(active_m_list) == 1:
-                current_block.append((num, active_m_list[0]))
-            else:
-                if current_block:
-                    single_vocal_blocks.append(current_block)
-                    current_block = []
-        if current_block:
-            single_vocal_blocks.append(current_block)
+        if not already_split_satb:
+            for num in measure_nums:
+                active_m_list = []
+                for pid in vocal_src_pids:
+                    p = parts_by_id[pid]
+                    m = p.find(f'./{_q(ns, "measure")}[@number="{num}"]')
+                    if m is not None:
+                        pitched = [n for n in m.findall(_q(ns, "note")) if n.find(_q(ns, "pitch")) is not None]
+                        if pitched:
+                            active_m_list.append((pid, m, pitched))
+                if len(active_m_list) == 1:
+                    current_block.append((num, active_m_list[0]))
+                else:
+                    if current_block:
+                        single_vocal_blocks.append(current_block)
+                        current_block = []
+            if current_block:
+                single_vocal_blocks.append(current_block)
 
         measure_reg_cache = {}
-        for block in single_vocal_blocks:
-            all_pitches = []
-            has_f_clef = False
-            for num, (pid, m, pitched) in block:
-                clef = m.find(f'.//{_q(ns, "clef")}')
-                if clef is not None and clef.findtext(_q(ns, "sign")) == "F":
-                    has_f_clef = True
-                for n in pitched:
-                    pv = get_pitch_value(n, ns=_q(ns, ""))
-                    if pv > 0:
-                        all_pitches.append(pv)
-            avg_p = sum(all_pitches) / len(all_pitches) if all_pitches else 30.0
-            min_p = min(all_pitches) if all_pitches else 30.0
-            block_reg = "men" if (has_f_clef or min_p <= 22 or avg_p < 27.5) else "women"
-            for num, _ in block:
-                measure_reg_cache[num] = block_reg
+        if not already_split_satb:
+            for block in single_vocal_blocks:
+                all_pitches = []
+                has_f_clef = False
+                for num, (pid, m, pitched) in block:
+                    clef = m.find(f'.//{_q(ns, "clef")}')
+                    if clef is not None and clef.findtext(_q(ns, "sign")) == "F":
+                        has_f_clef = True
+                    for n in pitched:
+                        pv = get_pitch_value(n, ns=_q(ns, ""))
+                        if pv > 0:
+                            all_pitches.append(pv)
+                avg_p = sum(all_pitches) / len(all_pitches) if all_pitches else 30.0
+                min_p = min(all_pitches) if all_pitches else 30.0
+                block_reg = "men" if (has_f_clef or min_p <= 22 or avg_p < 27.5) else "women"
+                for num, _ in block:
+                    measure_reg_cache[num] = block_reg
 
-        for num in measure_nums:
-            m_int = int(re.sub(r"[^0-9]", "", num)) if re.sub(r"[^0-9]", "", num) else 0
-            # Explicit section mapping overrides any automatic heuristic
-            for m_set, tgt in section_mappings:
-                if m_int in m_set:
-                    measure_reg_cache[num] = "explicit:" + ",".join(tgt)
-                    break
+            for num in measure_nums:
+                m_int = int(re.sub(r"[^0-9]", "", num)) if re.sub(r"[^0-9]", "", num) else 0
+                # Explicit section mapping overrides any automatic heuristic
+                for m_set, tgt in section_mappings:
+                    if m_int in m_set:
+                        measure_reg_cache[num] = "explicit:" + ",".join(tgt)
+                        break
 
         curr_divisions = 24
         curr_beats = 4
@@ -427,8 +435,21 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
 
             vocal_out_measures = {t_pid: ET.Element(_q(ns, "measure"), number=str(num)) for t_pid in target_vocal_pids}
 
+            if already_split_satb:
+                # 1:1 — 각 성부 마디를 그대로 유지 (쉼표-only 성부 포함)
+                for idx, t_pid in enumerate(target_vocal_pids):
+                    src_pid = vocal_src_pids[idx]
+                    src_m = None
+                    if src_pid in parts_by_id:
+                        src_m = parts_by_id[src_pid].find(f'./{_q(ns, "measure")}[@number="{num}"]')
+                    if src_m is not None:
+                        vocal_out_measures[t_pid] = copy.deepcopy(src_m)
+                    else:
+                        vocal_out_measures[t_pid] = create_empty_rest_measure(
+                            num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                        )
             # Distribute vocal notes
-            if len(active_vocal) == 0:
+            elif len(active_vocal) == 0:
                 # All vocal parts silent (Piano Intro / Interlude)
                 for t_pid in target_vocal_pids:
                     src_m = parts_by_id.get(t_pid, first_vocal_measure).find(f'./{_q(ns, "measure")}[@number="{num}"]') if t_pid in parts_by_id else first_vocal_measure

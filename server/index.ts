@@ -2357,14 +2357,22 @@ async function enterOmrStaffHitlPhase(
     }
   }
   
-  // 새 PDF(1~2단계 시작)이든 기존 ZIP(3~4단계 시작)이든, 
-  // OMR 검토 진입 전에 part_labels가 있으면 무조건 성부 병합 스크립트를 선제 적용합니다.
-  // 이를 통해 사용자가 9성부 대신 지정한 5성부로만 검토할 수 있습니다.
+  // 새 PDF(1~2단계 시작)이든 기존 ZIP(3~4단계 시작)이든,
+  // OMR 검토 진입 전에 part_labels가 있으면 성부 라벨·재구성을 적용합니다.
+  // ZIP 재개 시에는 이미 HITL 교정된 inject 대상을 덮어쓰지 않습니다(raw 복사 금지).
   const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
-  if (fsSync.existsSync(rawPath) && resolvePartLabelsJsonPath(job.sessionRoot)) {
-    await applyPartLabelsToScoreFile(job.sessionRoot, rawPath, pythonBin);
-    for (const p of mxlForInject) {
-      if (p !== rawPath && !isAudiverisMovementSplitPath(p)) await fs.copyFile(rawPath, p);
+  if (resolvePartLabelsJsonPath(job.sessionRoot)) {
+    if (job.resumeOmrWorkZipPath) {
+      for (const p of mxlForInject) {
+        if (!isAudiverisMovementSplitPath(p)) {
+          await applyPartLabelsToScoreFile(job.sessionRoot, p, pythonBin);
+        }
+      }
+    } else if (fsSync.existsSync(rawPath)) {
+      await applyPartLabelsToScoreFile(job.sessionRoot, rawPath, pythonBin);
+      for (const p of mxlForInject) {
+        if (p !== rawPath && !isAudiverisMovementSplitPath(p)) await fs.copyFile(rawPath, p);
+      }
     }
   }
   job.preInjectMxlPaths = [...mxlForInject];

@@ -4827,7 +4827,11 @@ def _voice_durations_on_staff(measure: ET.Element, ns: str, staff: str) -> dict[
 
 
 def _repair_piano_spurious_voices(measure: ET.Element, ns: str, expected: int) -> int:
-    """한 staff에 마디 길이만큼 채운 voice가 있으면 나머지 보조 voice 음·쉼 제거."""
+    """한 staff에 마디를 가득 채운 voice가 있을 때, 쉼표만인 보조 voice를 제거.
+
+    온음표 베이스 + 다른 voice의 움직이는 음형은 정상 피아노 다성이다.
+    pitched 보조 voice까지 지우면 PL 왼손 아르페지오 등이 HITL과 달라진다.
+    """
     if expected <= 0:
         return 0
     removed = 0
@@ -4838,11 +4842,16 @@ def _repair_piano_spurious_voices(measure: ET.Element, ns: str, expected: int) -
         primary = next((v for v, d in durs.items() if d == expected), None)
         if primary is None:
             continue
-        for note in list(measure.findall(qname(ns, "note"))):
+        secondary: list[ET.Element] = []
+        for note in measure.findall(qname(ns, "note")):
             voice, st = _note_voice_staff(note, ns)
             if st == staff and voice != primary:
-                measure.remove(note)
-                removed += 1
+                secondary.append(note)
+        if any(note.find(qname(ns, "rest")) is None for note in secondary):
+            continue
+        for note in secondary:
+            measure.remove(note)
+            removed += 1
     return removed
 
 

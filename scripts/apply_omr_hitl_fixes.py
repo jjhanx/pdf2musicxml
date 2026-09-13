@@ -15,13 +15,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="OMR HITL 보정을 MXL에 적용")
     ap.add_argument("mxl_path", type=Path)
     ap.add_argument("--fixes-json", type=Path, required=True)
+    ap.add_argument(
+        "--skip-octave-repair",
+        action="store_true",
+        help="baseline에 사용자 교정이 반영된 뒤 new-system octave 자동 복구를 건너뜀",
+    )
     args = ap.parse_args()
     fixes = load_fixes_json(args.fixes_json)
     if not fixes:
         print(json.dumps({"applied": 0, "skipped": 0, "fixCount": 0, "reason": "no_fixes"}))
         return 0
     try:
-        result = apply_fixes_file(args.mxl_path, fixes)
+        result = apply_fixes_file(args.mxl_path, fixes, skip_octave_repair=args.skip_octave_repair)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (OSError, ValueError, zipfile.BadZipFile) as e:

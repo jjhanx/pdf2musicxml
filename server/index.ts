@@ -853,14 +853,18 @@ async function runOmrHitlAutoNormalize(
   let hitlSkipped = 0;
   let pendingCleared = 0;
   if (fixes.length > 0) {
-    const hitlStats = (await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin)) ?? {
-      applied: 0,
-      skipped: 0,
-    };
-    hitlApplied = hitlStats.applied;
-    hitlSkipped = hitlStats.skipped;
-    pendingCleared = fixes.length;
-    await writeOmrHitlFixes(sessionRoot, []);
+    const hitlStats = await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin);
+    if (!hitlStats || hitlStats.applied <= 0) {
+      hitlApplied = 0;
+      hitlSkipped = hitlStats?.skipped ?? 0;
+      pendingCleared = 0;
+      // 적용 실패·전부 건너뜀 — 대기 목록 유지
+    } else {
+      hitlApplied = hitlStats.applied;
+      hitlSkipped = hitlStats.skipped;
+      pendingCleared = fixes.length;
+      await writeOmrHitlFixes(sessionRoot, []);
+    }
   }
   await saveHitlBaseline(sessionRoot, scorePath);
   // 자동 정리 결과·소진한 보정은 baseline에만 남는다 — 다음 동기화가 raw로 되돌리지 않도록 기록
@@ -958,27 +962,47 @@ async function syncOmrReviewMxl(
   if (!hasBaseline && fixes.length > 0) {
     syncMode = 'full';
     if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
-    const hitlStats = (await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin)) ?? {
-      applied: 0,
-      skipped: 0,
-    };
-    hitlApplied = hitlStats.applied;
-    hitlSkipped = hitlStats.skipped;
-    pendingCleared = fixes.length;
-    await saveHitlBaseline(sessionRoot, scorePath);
-    await writeOmrHitlFixes(sessionRoot, []);
+    const hitlStats = await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin);
+    if (!hitlStats) {
+      // 적용 스크립트 실패 — 대기 목록·baseline 유지
+      hitlApplied = 0;
+      hitlSkipped = 0;
+      pendingCleared = 0;
+      if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
+    } else if (hitlStats.applied > 0) {
+      hitlApplied = hitlStats.applied;
+      hitlSkipped = hitlStats.skipped;
+      pendingCleared = fixes.length;
+      await saveHitlBaseline(sessionRoot, scorePath);
+      await writeOmrHitlFixes(sessionRoot, []);
+    } else {
+      // 전부 건너뜀·적용 0건 — 대기 목록 유지(재시도 가능)
+      hitlApplied = 0;
+      hitlSkipped = hitlStats.skipped;
+      pendingCleared = 0;
+      if (fsSync.existsSync(rawPath)) await fs.copyFile(rawPath, scorePath);
+    }
   } else if (hasBaseline && fixes.length > 0) {
     syncMode = 'incremental';
     await fs.copyFile(baselinePath, scorePath);
-    const hitlStats = (await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin)) ?? {
-      applied: 0,
-      skipped: 0,
-    };
-    hitlApplied = hitlStats.applied;
-    hitlSkipped = hitlStats.skipped;
-    pendingCleared = fixes.length;
-    await saveHitlBaseline(sessionRoot, scorePath);
-    await writeOmrHitlFixes(sessionRoot, []);
+    const hitlStats = await applyOmrHitlFixesToScoreFile(sessionRoot, scorePath, pythonBin);
+    if (!hitlStats) {
+      hitlApplied = 0;
+      hitlSkipped = 0;
+      pendingCleared = 0;
+      await fs.copyFile(baselinePath, scorePath);
+    } else if (hitlStats.applied > 0) {
+      hitlApplied = hitlStats.applied;
+      hitlSkipped = hitlStats.skipped;
+      pendingCleared = fixes.length;
+      await saveHitlBaseline(sessionRoot, scorePath);
+      await writeOmrHitlFixes(sessionRoot, []);
+    } else {
+      hitlApplied = 0;
+      hitlSkipped = hitlStats.skipped;
+      pendingCleared = 0;
+      await fs.copyFile(baselinePath, scorePath);
+    }
   } else if (hasBaseline) {
     syncMode = 'restore';
     if (
@@ -6556,16 +6580,20 @@ app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
   }
   const pythonBin = resolvePythonBin();
   try {
-    const fixesBeforeApply = await readOmrHitlFixes(job.sessionRoot);
-    const affectedMeasures = affectedMeasuresFromFixes(fixesBeforeApply);
-    const stats = await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
-    if (stats.hitlApplied > 0 || stats.syncMode === 'incremental' || stats.syncMode === 'full') {
-      await persistCanonicalScoreAfterHitlEdit(job.sessionRoot, mxlPath, job);
-    }
-    await invalidateInspectScoreCache(job.sessionRoot);
+    // 마디 조회(measure_cli)와 MXL 쓰기가 겹치면 Windows에서 zip 잠금으로 실패할 수 있음 → 직렬화
+    const result = await enqueueHitlMeasureCli(req.params.jobId, async () => {
+      const fixesBeforeApply = await readOmrHitlFixes(job.sessionRoot);
+      const affectedMeasures = affectedMeasuresFromFixes(fixesBeforeApply);
+      const stats = await syncOmrReviewMxl(job.sessionRoot, mxlPath, pythonBin);
+      if (stats.hitlApplied > 0) {
+        await persistCanonicalScoreAfterHitlEdit(job.sessionRoot, mxlPath, job);
+      }
+      await invalidateInspectScoreCache(job.sessionRoot);
+      return { stats, affectedMeasures };
+    });
     const runLint = req.query.lint === '1' || req.query.lint === 'true';
     let lintReport: Record<string, unknown> | null = null;
-    if (runLint) {
+    if (runLint && result.stats.hitlApplied > 0) {
       try {
         lintReport = await runMxlQualityLintForJob(job, mxlPath, pythonBin);
       } catch (lintErr) {
@@ -6576,13 +6604,13 @@ app.post('/api/omr-hitl/:jobId/apply', async (req, res) => {
     res.json({
       ok: true,
       stats: {
-        applied: stats.hitlApplied,
-        skipped: stats.hitlSkipped,
-        pendingCleared: stats.pendingCleared,
-        syncMode: stats.syncMode,
+        applied: result.stats.hitlApplied,
+        skipped: result.stats.hitlSkipped,
+        pendingCleared: result.stats.pendingCleared,
+        syncMode: result.stats.syncMode,
       },
-      postprocess: stats,
-      affectedMeasures,
+      postprocess: result.stats,
+      affectedMeasures: result.affectedMeasures,
       lint: lintReport,
     });
   } catch (e) {

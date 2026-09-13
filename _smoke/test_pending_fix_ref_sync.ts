@@ -1,6 +1,6 @@
 /**
  * pendingFixesRef must update synchronously when adding a fix,
- * otherwise 「세잇단 적용」직후 auto MXL 반영이 빈 목록을 읽는다.
+ * otherwise 「MXL에 반영」직전 레이스에서 방금 넣은 보정이 빠질 수 있다.
  */
 import { mergeFix, newFixId, type OmrHitlFix } from '../src/omrHitlFixes.ts';
 

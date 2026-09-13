@@ -874,8 +874,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         setApplyMsg('반영할 보정이 없습니다. 마디 편집에서 삭제·추가 버튼을 먼저 누르세요.');
         return;
       }
-      await persistFixes(fixes);
+      // 반영 직전 디스크와 ref를 맞춘다(비동기 persist 레이스 방지)
+      pendingFixesRef.current = fixes;
       setPendingFixes(fixes);
+      await persistFixes(fixes);
       const r = await fetch(`/api/omr-hitl/${jobId}/apply`, { method: 'POST' });
       if (!r.ok) {
         const j = (await r.json()) as { error?: string };
@@ -885,25 +887,49 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         stats?: { applied?: number; skipped?: number; pendingCleared?: number; syncMode?: string };
         affectedMeasures?: Array<{ partId: string; measureMxl: number }>;
       };
-      await refreshScoreXml({ skipSync: true });
-      setPreviewRevision((n) => n + 1);
-      // Accent 거리 미리보기는 pending 경로로만 안정적으로 동작 — 반영 후에도 OSMD에 넘김
-      setArtPreviewFixes((prev) => mergeArticulationPreviewFixes(prev, fixes));
-      setPendingFixes([]);
-      pendingFixesRef.current = [];
       const applied = j.stats?.applied ?? 0;
       const skipped = j.stats?.skipped ?? 0;
       const cleared = j.stats?.pendingCleared ?? 0;
       const mode = j.stats?.syncMode ?? '';
-      const msg =
-        applied === 0 && skipped > 0
-          ? `반영된 보정이 없습니다 (건너뜀 ${skipped}). 이미 반영됐거나 대상 요소를 찾지 못한 보정입니다 — 마디 편집을 다시 열어 현재 상태를 확인하세요.`
-          : cleared > 0
-            ? `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}) — 대기 목록 ${cleared}건 제거${mode ? ` · ${mode}` : ''}. 현재 PDF 페이지(m.${pageMeasureRange.start}–${pageMeasureRange.end}) 미리보기 갱신.`
-            : `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}). 현재 PDF 페이지 미리보기 갱신.`;
-      setApplyMsg(msg);
-      setLastPreviewMsg(msg);
-      if (selectedMeasure) {
+
+      if (applied > 0 && cleared > 0) {
+        await refreshScoreXml({ skipSync: true });
+        setPreviewRevision((n) => n + 1);
+        setArtPreviewFixes((prev) => mergeArticulationPreviewFixes(prev, fixes));
+        setPendingFixes([]);
+        pendingFixesRef.current = [];
+        const msg = `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped}) — 대기 목록 ${cleared}건 제거${mode ? ` · ${mode}` : ''}. 미리보기 갱신.`;
+        setApplyMsg(msg);
+        setLastPreviewMsg(msg);
+      } else if (applied === 0 && skipped > 0) {
+        const msg = `반영된 보정이 없습니다 (건너뜀 ${skipped}). 대기 목록은 유지했습니다 — 대상 음표·마디를 확인한 뒤 다시 「MXL에 반영·미리보기」하세요.`;
+        setApplyMsg(msg);
+        setLastPreviewMsg(msg);
+        // 서버가 대기 목록을 지웠을 수 있어 다시 맞춤
+        pendingFixesRef.current = fixes;
+        setPendingFixes(fixes);
+        await persistFixes(fixes);
+      } else if (applied === 0 && cleared === 0) {
+        const msg =
+          'MXL 반영에 실패했거나 적용된 항목이 없습니다. 대기 목록은 유지했습니다 — 잠시 후 다시 시도하세요.';
+        setApplyMsg(msg);
+        setLastPreviewMsg(msg);
+        pendingFixesRef.current = fixes;
+        setPendingFixes(fixes);
+        await persistFixes(fixes);
+      } else {
+        await refreshScoreXml({ skipSync: true });
+        setPreviewRevision((n) => n + 1);
+        setArtPreviewFixes((prev) => mergeArticulationPreviewFixes(prev, fixes));
+        if (cleared > 0) {
+          setPendingFixes([]);
+          pendingFixesRef.current = [];
+        }
+        const msg = `MXL에 반영됨 (적용 ${applied}, 건너뜀 ${skipped})${mode ? ` · ${mode}` : ''}.`;
+        setApplyMsg(msg);
+        setLastPreviewMsg(msg);
+      }
+      if (selectedMeasure && applied > 0) {
         setScrollToMeasureTrigger((n) => n + 1);
       }
     } catch (e) {
@@ -911,7 +937,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     } finally {
       setApplyBusy(false);
     }
-  }, [jobId, persistFixes, refreshScoreXml, loadFixesFromServer, selectedMeasure, pageMeasureRange]);
+  }, [jobId, persistFixes, refreshScoreXml, loadFixesFromServer, selectedMeasure]);
 
   const openMeasure = useCallback(
     (info: OsmdMeasureClickInfo, previewRange?: MxlMeasureRange | null) => {

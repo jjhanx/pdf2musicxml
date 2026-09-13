@@ -4918,8 +4918,14 @@ def _rebuild_piano_grand_staff_measures(part: ET.Element, ns: str) -> int:
         elif _part_has_two_staves(part, ns):
             voices_s1 = set(_voice_durations_on_staff(_measure, ns, "1"))
             voices_s2 = set(_voice_durations_on_staff(_measure, ns, "2"))
-            if len(voices_s1) <= 1 and len(voices_s2) <= 1 and any(
-                local_tag(el) == "backup" for el in _measure
+            # backup이 빠지면 PL이 PR 뒤에 이어져 유령 PR 온쉼표처럼 보임 → flat 복구.
+            # 이미 backup이 있는 단일 voice/staff는 건드리지 않음(같은 voice 병렬 층 보존).
+            if (
+                voices_s1
+                and voices_s2
+                and len(voices_s1) <= 1
+                and len(voices_s2) <= 1
+                and not any(local_tag(el) == "backup" for el in _measure)
             ):
                 _rebuild_measure_flat_staffs(_measure, ns)
                 rebuilt += 1

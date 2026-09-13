@@ -73,11 +73,174 @@ def label_to_part_name(label: str) -> str:
 
 
 def label_to_part_abbrev(label: str, display_name: str) -> str:
-    if display_name == "Piano" and (label or "").strip().upper() in _PIANO_DISPLAY_LABELS:
-        return "Pno."
+    text = (label or "").strip().upper()
+    # 오선 앞 짧은 표시: 피아노도 P (Pno.는 너무 김·혼동)
+    if text in _PIANO_DISPLAY_LABELS or display_name == "Piano":
+        return "P"
     if len(display_name) <= 4:
         return display_name
     return display_name[:4]
+
+
+def _part_has_pitched_notes(measure: ET.Element, ns: str) -> bool:
+    for el in measure:
+        if _local(el) != "note":
+            continue
+        if el.find(_q(ns, "rest")) is not None:
+            continue
+        if el.find(_q(ns, "chord")) is not None:
+            continue
+        if el.find(_q(ns, "grace")) is not None or el.get("cue") == "yes":
+            continue
+        return True
+    return False
+
+
+def _measure_is_system_start(measure: ET.Element, ns: str, *, is_first: bool) -> bool:
+    if is_first:
+        return True
+    for el in measure:
+        if _local(el) != "print":
+            continue
+        if (el.get("new-system") or "").strip().lower() in ("yes", "1", "true"):
+            return True
+        if (el.get("new-page") or "").strip().lower() in ("yes", "1", "true"):
+            return True
+    return False
+
+
+def _ensure_print_element(measure: ET.Element, ns: str) -> ET.Element:
+    for el in measure:
+        if _local(el) == "print":
+            return el
+    print_el = ET.Element(_q(ns, "print"))
+    # attributes 앞·첫 note 앞
+    insert_at = 0
+    for i, el in enumerate(measure):
+        loc = _local(el)
+        if loc in ("note", "backup", "forward", "direction", "barline"):
+            insert_at = i
+            break
+        if loc == "attributes":
+            insert_at = i + 1
+    measure.insert(insert_at, print_el)
+    return print_el
+
+
+def _set_part_abbreviation_display(print_el: ET.Element, ns: str, abbrev: str) -> bool:
+    """print 아래 part-abbreviation-display를 보이게 설정."""
+    changed = False
+    pad = None
+    for child in list(print_el):
+        if _local(child) == "part-abbreviation-display":
+            pad = child
+            break
+    if pad is None:
+        pad = ET.SubElement(print_el, _q(ns, "part-abbreviation-display"))
+        changed = True
+    if (pad.get("print-object") or "").strip().lower() != "yes":
+        pad.set("print-object", "yes")
+        changed = True
+    display_text = None
+    for child in list(pad):
+        if _local(child) == "display-text":
+            display_text = child
+            break
+    if display_text is None:
+        display_text = ET.SubElement(pad, _q(ns, "display-text"))
+        changed = True
+    if (display_text.text or "").strip() != abbrev:
+        display_text.text = abbrev
+        changed = True
+    # 긴 이름은 시스템마다 반복하지 않음
+    for child in list(print_el):
+        if _local(child) == "part-name-display":
+            if (child.get("print-object") or "").strip().lower() != "no":
+                child.set("print-object", "no")
+                changed = True
+            break
+    else:
+        pnd = ET.SubElement(print_el, _q(ns, "part-name-display"))
+        pnd.set("print-object", "no")
+        changed = True
+    return changed
+
+
+def ensure_system_part_abbreviation_displays(root: ET.Element) -> int:
+    """시스템 시작·성부 구성이 바뀌는 마디에 오선 앞 약어(S/A/T/B/P)를 표시.
+
+    S+A만 또는 T+B만 나오는 구간에서 파트 표시가 없으면 혼동되므로,
+    활성(실음) 성부 집합이 바뀌거나 new-system 때 각 파트의 part-abbreviation-display를 켠다.
+    """
+    ns = _ns(root)
+    part_list = root.find(_q(ns, "part-list"))
+    if part_list is None:
+        return 0
+    abbrev_by_id: dict[str, str] = {}
+    for sp in part_list:
+        if _local(sp) != "score-part":
+            continue
+        pid = sp.get("id") or ""
+        if not pid:
+            continue
+        pa = sp.find(_q(ns, "part-abbreviation"))
+        pn = sp.find(_q(ns, "part-name"))
+        abbrev = (pa.text or "").strip() if pa is not None else ""
+        name = (pn.text or "").strip() if pn is not None else ""
+        abbrev_by_id[pid] = abbrev or name or pid
+        if pa is not None:
+            if (pa.get("print-object") or "").strip().lower() != "yes":
+                pa.set("print-object", "yes")
+
+    parts = [p for p in root if _local(p) == "part" and (p.get("id") or "") in abbrev_by_id]
+    if not parts:
+        return 0
+
+    # measure number → 활성(실음) 파트 id 집합
+    measures_by_num: dict[str, list[tuple[ET.Element, ET.Element]]] = {}
+    for part in parts:
+        for measure in part:
+            if _local(measure) != "measure":
+                continue
+            num = measure.get("number") or ""
+            measures_by_num.setdefault(num, []).append((part, measure))
+
+    ordered_nums = sorted(
+        measures_by_num.keys(),
+        key=lambda n: (int(n) if str(n).isdigit() else 10**9, str(n)),
+    )
+    changed = 0
+    prev_active: frozenset[str] | None = None
+    for i, num in enumerate(ordered_nums):
+        entries = measures_by_num[num]
+        active = frozenset(
+            (part.get("id") or "")
+            for part, measure in entries
+            if _part_has_pitched_notes(measure, ns)
+        )
+        # 피아노(실음 있는 비보컬)도 표시 대상에 포함 — active에 이미 들어감
+        is_first = i == 0
+        system_start = any(
+            _measure_is_system_start(measure, ns, is_first=is_first)
+            for _part, measure in entries
+        )
+        active_changed = prev_active is not None and active != prev_active and bool(active)
+        if system_start or active_changed or is_first:
+            for part, measure in entries:
+                pid = part.get("id") or ""
+                abbrev = abbrev_by_id.get(pid)
+                if not abbrev:
+                    continue
+                # 실음이 있거나, 같은 시스템에서 다른 성부가 노래하는 동안 쉼표만인 성부도
+                # 오선이 보이면 약어를 붙여 혼동을 줄인다.
+                print_el = _ensure_print_element(measure, ns)
+                if _set_part_abbreviation_display(print_el, ns, abbrev):
+                    changed += 1
+        if active:
+            prev_active = active
+        elif prev_active is None:
+            prev_active = active
+    return changed
 
 
 def _set_text(el: ET.Element, text: str) -> bool:
@@ -163,6 +326,7 @@ def apply_part_labels_to_root(root: ET.Element, labels_by_index: list[str]) -> i
         display = label_to_part_name(labels_by_index[i])
         abbrev = label_to_part_abbrev(labels_by_index[i], display)
         changed += _apply_names_to_score_part(sp, display, abbrev, parents)
+    changed += ensure_system_part_abbreviation_displays(root)
     return changed
 
 

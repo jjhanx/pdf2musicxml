@@ -12464,9 +12464,22 @@ def _measure_has_multivoice_layers(measure: ET.Element, ns: str) -> bool:
 def _strip_orphan_timeline_if_single_voice_per_staff(
     measure: ET.Element, ns: str
 ) -> bool:
-    """note가 staff별 단일 voice뿐이면 남은 backup/forward 제거 — voice 통일 후 재분리 방지."""
+    """staff별 단일 voice일 때 불필요 timeline 정리.
+
+    한 오선만 있으면 orphan backup/forward 제거.
+    PR+PL(두 오선)은 cross-staff `<backup>`이 필수 — 지우지 않고, 없으면 flat 재배치로 복구.
+    (backup을 지우면 PL이 PR 뒤로 이어져 렌더러가 PR 구간에 유령 온쉼표를 그린다.)
+    """
     if _measure_has_multivoice_layers(measure, ns):
         return False
+    staves = {
+        _note_voice_staff(n, ns)[1] for n in list_note_elements(measure, ns)
+    }
+    if len(staves) >= 2:
+        if any(_local(el) == "backup" for el in measure):
+            return False
+        _rebuild_measure_flat_staffs(measure, ns)
+        return True
     changed = False
     for el in list(measure):
         if _local(el) in ("backup", "forward"):

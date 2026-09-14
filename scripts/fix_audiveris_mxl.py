@@ -4535,6 +4535,30 @@ def _promote_staff_numbered_keys_to_global_in_measure(
     return n
 
 
+def _clef_sign_earlier_in_same_measure(
+    measure: ET.Element,
+    staff_n: int,
+    ns: str,
+    before_attr: ET.Element,
+) -> str | None:
+    """같은 마디에서 `before_attr`보다 앞에 나온 해당 staff clef sign (중간 전환 감지)."""
+    sign: str | None = None
+    for child in list(measure):
+        if child is before_attr:
+            break
+        if local_tag(child) != "attributes":
+            continue
+        for clef in child.findall(qname(ns, "clef")):
+            num_attr = clef.get("number")
+            staff = int(num_attr) if num_attr and num_attr.isdigit() else 1
+            if staff != staff_n:
+                continue
+            sign_el = clef.find(qname(ns, "sign"))
+            if sign_el is not None and sign_el.text:
+                sign = sign_el.text.strip().upper()
+    return sign
+
+
 def _is_treble_f_clef_key_change_misread(
     part: ET.Element,
     part_id: str | None,
@@ -4545,6 +4569,9 @@ def _is_treble_f_clef_key_change_misread(
     root: ET.Element,
     global_key_change: bool,
 ) -> bool:
+    # 피아노 PL(staff 2) F clef는 조바꿈 OCR 오인이 아님 — 중간 G→F·마디 머리 F 모두 유지
+    if staff_n == 2 and _part_has_two_staves(part, ns):
+        return False
     if _clef_sign_before(part, mnum, staff_n, ns) != "G":
         return False
     has_f = False
@@ -4624,7 +4651,10 @@ def _remove_redundant_courtesy_clefs_root(root: ET.Element, ns: str) -> int:
                     sign = (sign_el.text or "").strip().upper() if sign_el is not None else ""
                     if not sign:
                         continue
-                    if sign == (_clef_sign_before(part, mnum, staff_n, ns) or ""):
+                    # 같은 마디 앞 clef(중간 전환)를 우선 — m29 G 뒤 F를 m1 F courtesy로 지우면 안 됨
+                    earlier = _clef_sign_earlier_in_same_measure(measure, staff_n, ns, attr)
+                    before = earlier if earlier is not None else _clef_sign_before(part, mnum, staff_n, ns)
+                    if sign == (before or ""):
                         attr.remove(clef)
                         removed += 1
                 if len(attr) == 0:
@@ -4710,6 +4740,13 @@ def _repair_key_change_clef_misread_root(root: ET.Element, ns: str) -> int:
                         continue
                     num_attr = clef.get("number")
                     staff_n = int(num_attr) if num_attr and num_attr.isdigit() else 1
+                    # 같은 마디 앞쪽에 이미 다른 clef(예: G)가 있으면 중간 전환 — 오인 아님
+                    earlier = _clef_sign_earlier_in_same_measure(meas, staff_n, ns, attr)
+                    if earlier is not None and earlier != "F":
+                        continue
+                    # 피아노 bass staff F는 항상 유지(median 휴리스틱이 G→F 마디를 지움)
+                    if staff_n == 2 and _part_has_two_staves(part, ns):
+                        continue
                     prev_sign = _clef_sign_before(part, mnum, staff_n, ns)
                     med = _median_pitch_on_staff_in_measure(meas, ns, str(staff_n))
                     treble_misread = _is_treble_f_clef_key_change_misread(
@@ -4719,6 +4756,8 @@ def _repair_key_change_clef_misread_root(root: ET.Element, ns: str) -> int:
                         and not _staff_has_key_in_measure(meas, staff_n, ns)
                         and med is not None
                         and med >= 52
+                        # 마디 머리 F만 — 중간 F는 earlier 분기로 이미 제외
+                        and earlier is None
                     )
                     if treble_misread:
                         attr.remove(clef)

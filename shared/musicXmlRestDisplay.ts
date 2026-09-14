@@ -151,6 +151,51 @@ function inferNoteTypeFromDuration(duration: number, divisions: number, dotCount
   return null;
 }
 
+function expectedDurationForType(typeName: string, divisions: number, dotCount: number): number | null {
+  const row = NOTE_TYPE_MULTIPLIERS.find((t) => t.name === typeName);
+  if (!row || !Number.isFinite(divisions) || divisions <= 0) return null;
+  let beats = row.mult;
+  if (dotCount === 1) beats *= 1.5;
+  else if (dotCount === 2) beats *= 1.75;
+  else if (dotCount > 2) beats *= 1.875;
+  const dur = Math.round(beats * divisions);
+  return dur > 0 ? dur : null;
+}
+
+function findTypeAndDotsForDuration(
+  duration: number,
+  divisions: number,
+  preferDots: number,
+): { type: string; dots: number } | null {
+  const order = [preferDots, 0, 1, 2].filter((d, i, a) => d >= 0 && d <= 2 && a.indexOf(d) === i);
+  for (const dots of order) {
+    const type = inferNoteTypeFromDuration(duration, divisions, dots);
+    if (type) return { type, dots };
+  }
+  return null;
+}
+
+function setNoteDotCount(note: Element, dots: number): void {
+  const doc = note.ownerDocument;
+  if (!doc) return;
+  const existing = [...note.children].filter((c) => xmlLocalName(c) === 'dot');
+  for (const d of existing) note.removeChild(d);
+  if (dots <= 0) return;
+  const typeEl = [...note.children].find((c) => xmlLocalName(c) === 'type');
+  const insertBefore =
+    [...note.children].find((c) => xmlLocalName(c) === 'stem') ??
+    [...note.children].find((c) => xmlLocalName(c) === 'staff') ??
+    [...note.children].find((c) => xmlLocalName(c) === 'beam') ??
+    [...note.children].find((c) => xmlLocalName(c) === 'notations') ??
+    null;
+  for (let i = 0; i < dots; i += 1) {
+    const dotEl = doc.createElementNS(note.namespaceURI, 'dot');
+    if (insertBefore) note.insertBefore(dotEl, insertBefore);
+    else if (typeEl?.nextSibling) note.insertBefore(dotEl, typeEl.nextSibling);
+    else note.appendChild(dotEl);
+  }
+}
+
 function insertTypeAfterDuration(note: Element, typeName: string): void {
   if (note.querySelector(':scope > type, :scope > *|type')) return;
   const doc = note.ownerDocument;
@@ -160,6 +205,44 @@ function insertTypeAfterDuration(note: Element, typeName: string): void {
   const dur = [...note.children].find((c) => xmlLocalName(c) === 'duration');
   if (dur?.nextSibling) note.insertBefore(typeEl, dur.nextSibling);
   else note.appendChild(typeEl);
+}
+
+/**
+ * Audiveris가 `<type>half</type>` + `<duration>`=8분 길이처럼 type·duration이 어긋나면
+ * OSMD가 병행 성부 가로 배치를 뒤집어 짧은 이음줄 bezier가 좌우 반전된다.
+ * duration(타임라인)을 권위로 type·dot을 맞춘다. 세잇단(time-modification)은 건너뛴다.
+ */
+function coerceMismatchedNoteTypesInPart(part: Element): void {
+  let divisions = 1;
+  for (const measure of [...part.children]) {
+    if (xmlLocalName(measure) !== 'measure') continue;
+    for (const child of [...measure.children]) {
+      if (xmlLocalName(child) !== 'attributes') continue;
+      const divEl = child.querySelector('divisions, *|divisions');
+      const parsed = parseInt(divEl?.textContent?.trim() ?? '', 10);
+      if (Number.isFinite(parsed) && parsed > 0) divisions = parsed;
+    }
+    for (const note of [...measure.children]) {
+      if (xmlLocalName(note) !== 'note') continue;
+      if (note.querySelector('grace, *|grace')) continue;
+      if (note.querySelector('time-modification, *|time-modification')) continue;
+      const typeEl = [...note.children].find((c) => xmlLocalName(c) === 'type');
+      if (!typeEl) continue;
+      const typeName = (typeEl.textContent || '').trim().toLowerCase();
+      if (!typeName) continue;
+      const durEl = note.querySelector(':scope > duration, :scope > *|duration');
+      const duration = parseInt(durEl?.textContent?.trim() ?? '', 10);
+      if (!Number.isFinite(duration) || duration <= 0) continue;
+      const dots = note.querySelectorAll(':scope > dot, :scope > *|dot').length;
+      const expected = expectedDurationForType(typeName, divisions, dots);
+      if (expected != null && expected === duration) continue;
+      const coerced = findTypeAndDotsForDuration(duration, divisions, dots);
+      if (!coerced) continue;
+      if (coerced.type === typeName && coerced.dots === dots) continue;
+      typeEl.textContent = coerced.type;
+      if (coerced.dots !== dots) setNoteDotCount(note, coerced.dots);
+    }
+  }
 }
 
 function repairMissingNoteTypesInPart(part: Element): void {
@@ -397,6 +480,7 @@ export function repairRestDisplayForOsmdPreview(xml: string): string {
 /**
  * OSMD/HITL 미리보기 전용 — `<type>` 없는 note/rest에 duration·divisions로 길이 종류 추론.
  * Audiveris Voice(P4) 등 초반 마디 전체 쉼에 type이 빠지면 OSMD 전 악보 load가 `duration is not valid: u` 로 실패.
+ * 이어서 type·duration 불일치(예: half + duration=8분 길이)도 duration 권위로 맞춘다.
  */
 export function repairMissingNoteTypesForOsmdPreview(xml: string): string {
   try {
@@ -404,6 +488,24 @@ export function repairMissingNoteTypesForOsmdPreview(xml: string): string {
     if (!doc) return xml;
     for (const part of findXmlParts(doc)) {
       repairMissingNoteTypesInPart(part);
+      coerceMismatchedNoteTypesInPart(part);
+    }
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+/**
+ * OSMD/HITL 미리보기 전용 — 기존 `<type>`이 duration과 어긋나면 duration에 맞게 type·dot 교정.
+ * (저장 MXL 불변. 세잇단 time-modification 음표는 제외.)
+ */
+export function coerceNoteTypesToDurationForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    for (const part of findXmlParts(doc)) {
+      coerceMismatchedNoteTypesInPart(part);
     }
     return serializeMusicXmlDocument(doc);
   } catch {

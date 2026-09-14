@@ -1989,7 +1989,12 @@ export type OsmdPreviewOptions = {
 };
 
 export { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfullMeasureForOsmd';
-export { repairRestDisplayForOsmdPreview, repairMissingNoteTypesForOsmdPreview, repairNotesForOsmdPreview } from '../shared/musicXmlRestDisplay';
+export {
+  repairRestDisplayForOsmdPreview,
+  repairMissingNoteTypesForOsmdPreview,
+  coerceNoteTypesToDurationForOsmdPreview,
+  repairNotesForOsmdPreview,
+} from '../shared/musicXmlRestDisplay';
   export {
   removeDanglingTimelineElementsForOsmdPreview,
   repairTimelineForOsmdPreview,

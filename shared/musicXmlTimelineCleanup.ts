@@ -18,6 +18,7 @@ import {
   realignPlayOrderColumnTimelinesInXml,
 } from './musicXmlPlayOrder';
 import { HITL_MEASURE_ANCHOR_ATTR } from './musicXmlMeasureEndDirectionOsmdAnchor';
+import { coerceNoteDurationsToTypeForOsmdPreview } from './musicXmlRestDisplay';
 
 const OSMD_ORIG_DEFAULT_X_ATTR = 'data-osmd-orig-default-x';
 const OSMD_MEASURE_END_DIR_X_ATTR = 'data-osmd-measure-end-dir-x';
@@ -94,6 +95,8 @@ export function repairTimelineForOsmdPreview(
   out = realignDefaultXFromStaffTimelineForOsmdPreview(out);
   out = stripChordBeamsForOsmdPreview(out);
   out = dedupeIdenticalChordPitchesForOsmdPreview(out);
+  // type·duration 불일치(예: half+dur=2)를 duration←type로 맞춘 뒤 slur 짝 정리
+  out = coerceNoteDurationsToTypeForOsmdPreview(out);
   out = normalizeSlursForOsmdPreview(out);
   out = repairArticulationDefaultYForOsmdPreview(out);
   return out;
@@ -325,8 +328,205 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
       return '1';
     };
 
+    const noteStaff = (note: Element): string =>
+      [...note.children].find((c) => xmlLocalName(c) === 'staff')?.textContent?.trim() || '1';
+
+    const measureNotes = (measure: Element): Element[] =>
+      [...measure.children].filter((c) => xmlLocalName(c) === 'note');
+
+    const noteHasChord = (note: Element): boolean =>
+      [...note.children].some((c) => xmlLocalName(c) === 'chord');
+
+    const chordGroupIndices = (notes: Element[], idx: number): number[] => {
+      if (idx < 0 || idx >= notes.length) return [idx];
+      let primary = idx;
+      if (noteHasChord(notes[idx]!)) {
+        while (primary > 0 && noteHasChord(notes[primary]!)) {
+          primary -= 1;
+        }
+      }
+      const members = [primary];
+      for (let j = primary + 1; j < notes.length; j += 1) {
+        if (!noteHasChord(notes[j]!)) break;
+        members.push(j);
+      }
+      return members;
+    };
+
+    const ensureNotations = (note: Element): Element => {
+      let notations = [...note.children].find((c) => xmlLocalName(c) === 'notations');
+      if (notations) return notations;
+      notations = note.ownerDocument!.createElementNS(
+        note.namespaceURI || null,
+        'notations',
+      );
+      note.appendChild(notations);
+      return notations;
+    };
+
+    /** 화음 아랫성 고아 start → 평행 stop 보강 (Python `_complete_orphan_slur_stops_in_measure`) */
+    const completeOrphanSlurStops = (measure: Element): void => {
+      const notes = measureNotes(measure);
+      const openStarts = new Map<
+        string,
+        { index: number; note: Element; slur: Element; placement: string | null }
+      >();
+      for (let i = 0; i < notes.length; i += 1) {
+        const note = notes[i]!;
+        const staff = noteStaff(note);
+        const notations = [...note.children].find((c) => xmlLocalName(c) === 'notations');
+        if (!notations) continue;
+        for (const slur of [...notations.children].filter((c) => xmlLocalName(c) === 'slur')) {
+          const num = (slur.getAttribute('number') || '1').trim() || '1';
+          const t = (slur.getAttribute('type') || '').trim();
+          const key = `${staff}|${num}`;
+          if (t === 'start') {
+            openStarts.set(key, {
+              index: i,
+              note,
+              slur,
+              placement: (slur.getAttribute('placement') || '').trim() || null,
+            });
+          } else if (t === 'stop' && openStarts.has(key)) {
+            openStarts.delete(key);
+          }
+        }
+      }
+      for (const [key, info] of [...openStarts.entries()]) {
+        const [staff, num] = key.split('|');
+        if (!staff || !num) continue;
+        const si = info.index;
+        const sMembers = chordGroupIndices(notes, si);
+        const sRole = Math.max(0, sMembers.indexOf(si));
+        for (let j = si + 1; j < notes.length; j += 1) {
+          const tnote = notes[j]!;
+          if (noteStaff(tnote) !== staff) continue;
+          const tNot = [...tnote.children].find((c) => xmlLocalName(c) === 'notations');
+          if (!tNot) continue;
+          const otherStops = [...tNot.children].filter(
+            (c) =>
+              xmlLocalName(c) === 'slur' &&
+              (c.getAttribute('type') || '').trim() === 'stop' &&
+              ((c.getAttribute('number') || '1').trim() || '1') !== num,
+          );
+          if (!otherStops.length) continue;
+          const tMembers = chordGroupIndices(notes, j);
+          let targetI = j;
+          if (tMembers.length >= 2) {
+            targetI = tMembers[Math.min(sRole, tMembers.length - 1)]!;
+          } else if (sMembers.length >= 2) {
+            // 단성 stop 음에 닫기
+            targetI = j;
+          }
+          const target = notes[targetI]!;
+          const tgtNot = ensureNotations(target);
+          const already = [...tgtNot.children].some(
+            (c) =>
+              xmlLocalName(c) === 'slur' &&
+              (c.getAttribute('type') || '').trim() === 'stop' &&
+              ((c.getAttribute('number') || '1').trim() || '1') === num,
+          );
+          if (already) {
+            openStarts.delete(key);
+            break;
+          }
+          const stop = target.ownerDocument!.createElementNS(
+            target.namespaceURI || null,
+            'slur',
+          );
+          stop.setAttribute('type', 'stop');
+          stop.setAttribute('number', num);
+          if (info.placement) stop.setAttribute('placement', info.placement);
+          tgtNot.appendChild(stop);
+          openStarts.delete(key);
+          break;
+        }
+      }
+    };
+
+    const removeOrphanSlurStartsInPart = (part: Element): void => {
+      const openEls = new Map<string, { note: Element; slur: Element }>();
+      for (const measure of [...part.children]) {
+        if (xmlLocalName(measure) !== 'measure') continue;
+        for (const note of measureNotes(measure)) {
+          const staff = noteStaff(note);
+          const notations = [...note.children].find((c) => xmlLocalName(c) === 'notations');
+          if (!notations) continue;
+          for (const slur of [...notations.children].filter((c) => xmlLocalName(c) === 'slur')) {
+            const num = (slur.getAttribute('number') || '1').trim() || '1';
+            const t = (slur.getAttribute('type') || '').trim();
+            const key = `${staff}|${num}`;
+            if (t === 'start') openEls.set(key, { note, slur });
+            else if (t === 'stop') openEls.delete(key);
+          }
+        }
+      }
+      for (const { note, slur } of openEls.values()) {
+        const notations = [...note.children].find((c) => xmlLocalName(c) === 'notations');
+        if (!notations) continue;
+        if ([...notations.children].includes(slur)) slur.remove();
+        if (notations.children.length === 0) notations.remove();
+      }
+    };
+
+    /** 같은 staff·placement로 이어지는 짧은 이음줄에 default-y를 엇갈리게 부여(MuseScore/OSMD 납작 곡선 방지) */
+    const boostSequentialSlurHeights = (measure: Element): void => {
+      const notes = measureNotes(measure);
+      type Open = { staff: string; num: string; start: Element; placement: string };
+      const open = new Map<string, Open>();
+      const closed: Array<{ staff: string; placement: string; start: Element; stop: Element }> = [];
+      for (const note of notes) {
+        const staff = noteStaff(note);
+        const notations = [...note.children].find((c) => xmlLocalName(c) === 'notations');
+        if (!notations) continue;
+        for (const slur of [...notations.children].filter((c) => xmlLocalName(c) === 'slur')) {
+          const num = (slur.getAttribute('number') || '1').trim() || '1';
+          const t = (slur.getAttribute('type') || '').trim();
+          const key = `${staff}|${num}`;
+          if (t === 'start') {
+            open.set(key, {
+              staff,
+              num,
+              start: slur,
+              placement: (slur.getAttribute('placement') || 'above').trim() || 'above',
+            });
+          } else if (t === 'stop' && open.has(key)) {
+            const o = open.get(key)!;
+            closed.push({ staff, placement: o.placement, start: o.start, stop: slur });
+            open.delete(key);
+          }
+        }
+      }
+      const byStaff = new Map<string, typeof closed>();
+      for (const c of closed) {
+        const list = byStaff.get(c.staff) ?? [];
+        list.push(c);
+        byStaff.set(c.staff, list);
+      }
+      for (const list of byStaff.values()) {
+        const aboveOrBelow = new Map<string, number>();
+        for (const pair of list) {
+          const plc = pair.placement === 'below' ? 'below' : 'above';
+          const idx = aboveOrBelow.get(plc) ?? 0;
+          aboveOrBelow.set(plc, idx + 1);
+          if (list.length < 2 && idx === 0) continue;
+          // tenths: above는 음수(위), below는 양수(아래). 뒤 쌍일수록 더 멀리.
+          const base = plc === 'below' ? 12 : -12;
+          const step = plc === 'below' ? 10 : -10;
+          const y = String(base + step * idx);
+          pair.start.setAttribute('default-y', y);
+          pair.stop.setAttribute('default-y', y);
+          if (!pair.start.getAttribute('placement')) pair.start.setAttribute('placement', plc);
+          if (!pair.stop.getAttribute('placement')) pair.stop.setAttribute('placement', plc);
+        }
+      }
+    };
+
     for (const part of findXmlParts(doc)) {
-      const openSlurs = new Map<string, { staff: string; voice: string; measureNum: string }>();
+      const openSlurs = new Map<
+        string,
+        { staff: string; voice: string; measureNum: string; placement?: string }
+      >();
       // staff|orig → remapped — 교차 마디 stop까지 유지 (Python normalize_slurs_in_root 와 동일)
       const stopNumRemap = new Map<string, string>();
 
@@ -335,13 +535,14 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
         const mnum = measure.getAttribute('number') || '';
         const usedNumsInMeasure = new Set<string>(openSlurs.keys());
 
+        completeOrphanSlurStops(measure);
+
         for (const note of [...measure.children]) {
           if (xmlLocalName(note) !== 'note') continue;
           const notations = [...note.children].find((c) => xmlLocalName(c) === 'notations');
           if (!notations) continue;
 
-          const staff =
-            [...note.children].find((c) => xmlLocalName(c) === 'staff')?.textContent?.trim() || '1';
+          const staff = noteStaff(note);
           const voice =
             [...note.children].find((c) => xmlLocalName(c) === 'voice')?.textContent?.trim() || '1';
 
@@ -377,6 +578,10 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
               if ((s.getAttribute('number') || '') !== matchedNum) {
                 s.setAttribute('number', matchedNum);
               }
+              const startPlc = openSlurs.get(matchedNum)?.placement;
+              if (startPlc && !(s.getAttribute('placement') || '').trim()) {
+                s.setAttribute('placement', startPlc);
+              }
               openSlurs.delete(matchedNum);
               usedNumsInMeasure.add(matchedNum);
               for (const [k, v] of [...stopNumRemap.entries()]) {
@@ -403,6 +608,7 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
               staff,
               voice,
               measureNum: mnum,
+              placement: (s.getAttribute('placement') || '').trim() || undefined,
             });
             usedNumsInMeasure.add(num);
           }
@@ -411,7 +617,11 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
             notations.remove();
           }
         }
+
+        boostSequentialSlurHeights(measure);
       }
+
+      removeOrphanSlurStartsInPart(part);
     }
 
     return serializeMusicXmlDocument(doc);

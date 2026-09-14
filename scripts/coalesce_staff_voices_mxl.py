@@ -56,7 +56,9 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "coalesceVoiceMeasures": max(n, n_rebuild, n_wedges, n_oshift),
+                    "coalesceVoiceMeasures": max(
+                        n, n_rebuild, n_wedges, n_oshift, n_dur, n_slurs
+                    ),
                     "multivoiceStemMeasures": n_stem,
                     "playOrderTimelineMeasures": n_po_align,
                     "octaveShiftStopRepaired": n_oshift,

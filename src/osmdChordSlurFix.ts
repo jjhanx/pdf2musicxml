@@ -155,6 +155,7 @@ export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): 
   if (!sheet?.MusicPages) return;
 
   const rules = osmd.EngravingRules;
+  if (!rules) return;
   const unit = (rules as { unit?: number }).unit ?? 10;
   const headOffset = (rules.SlurNoteHeadYOffset ?? 0.136) * unit;
   const headShiftX = -0.42 * unit;
@@ -217,6 +218,7 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
   if (!sheet?.MusicPages) return;
 
   const rules = osmd.EngravingRules;
+  if (!rules) return;
   const unit = (rules as { unit?: number }).unit ?? 10;
   for (const page of sheet.MusicPages) {
     for (const system of page.MusicSystems) {
@@ -255,6 +257,46 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
 export function prepareGraphicalSlursForOsmdPreview(osmd: OpenSheetMusicDisplay): void {
   retargetGraphicalChordSlurBeziers(osmd);
   nudgeGraphicalSlursAwayFromBeams(osmd);
+  inflateFlatGraphicalSlurs(osmd);
+}
+
+/**
+ * 짧은 연속 이음줄이 ySpan≈0.8로 납작해 engraver에서 「없는 것처럼」 보이는 경우
+ * 제어점을 placement 쪽으로 밀어 곡선을 키운다(미리보기 전용).
+ */
+function inflateFlatGraphicalSlurs(osmd: OpenSheetMusicDisplay): void {
+  const MIN_Y_SPAN = 1.35;
+  const sheet = osmd.GraphicSheet as GraphicSheetLike | undefined;
+  if (!sheet?.MusicPages) return;
+  for (const page of sheet.MusicPages) {
+    for (const system of page.MusicSystems) {
+      for (const staffLine of system.StaffLines) {
+        for (const gSlur of staffLine.GraphicalSlurs) {
+          const pts = [
+            gSlur.bezierStartPt,
+            gSlur.bezierStartControlPt,
+            gSlur.bezierEndControlPt,
+            gSlur.bezierEndPt,
+          ];
+          if (pts.some((p) => !p || !Number.isFinite(p.y))) continue;
+          const ys = pts.map((p) => p.y);
+          const ySpan = Math.max(...ys) - Math.min(...ys);
+          if (ySpan >= MIN_Y_SPAN) continue;
+          const placement =
+            gSlur.slur?.PlacementXml ?? gSlur.placement ?? PLACEMENT_ABOVE;
+          const boost = (MIN_Y_SPAN - ySpan) * 0.55 + 0.45;
+          // OSMD: y 감소 = 위(above)
+          if (placement === PLACEMENT_BELOW) {
+            gSlur.bezierStartControlPt.y += boost;
+            gSlur.bezierEndControlPt.y += boost;
+          } else {
+            gSlur.bezierStartControlPt.y -= boost;
+            gSlur.bezierEndControlPt.y -= boost;
+          }
+        }
+      }
+    }
+  }
 }
 
 function slurSvgPaths(host: HTMLElement): SVGPathElement[] {

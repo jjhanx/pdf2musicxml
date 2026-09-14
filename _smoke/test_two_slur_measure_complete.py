@@ -92,13 +92,33 @@ def main() -> None:
     coerce_note_durations_to_type_in_root(root2)
     assert _note_duration(half, ns) == 8, _note_duration(half, ns)
 
-    # m53/m54 still have two complete PR pairs after normalize
+    # m53/m54 still have two complete PR pairs after normalize + staggered default-y
     root3 = load_review()
     normalize_slurs_in_root(root3)
     for mnum in ("53", "54"):
         pairs, orphans = slur_pairs_staff(root3, mnum, "1")
         assert not orphans, (mnum, orphans)
         assert len(pairs) >= 2, (mnum, pairs)
+        ys = {p[1][2] for p in pairs}  # start placements exist
+        assert ys, pairs
+        # sequential starts should have distinct default-y
+        ns = _ns(root3)
+        part = next(p for p in root3.findall(_q(ns, "part")) if p.get("id") == "P5")
+        m = next(x for x in part.findall(_q(ns, "measure")) if x.get("number") == mnum)
+        start_ys = []
+        for n in list_note_elements(m, ns):
+            if (n.findtext(_q(ns, "staff")) or "1") != "1":
+                continue
+            notat = n.find(_q(ns, "notations"))
+            if notat is None:
+                continue
+            for s in notat.findall(_q(ns, "slur")):
+                if s.get("type") == "start":
+                    start_ys.append(s.get("default-y"))
+        assert len(start_ys) >= 2 and all(start_ys) and start_ys[0] != start_ys[1], (
+            mnum,
+            start_ys,
+        )
 
     print(
         "two-slur measure fix ok",

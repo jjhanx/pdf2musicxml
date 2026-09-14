@@ -6431,6 +6431,72 @@ def _complete_orphan_slur_stops_in_measure(measure: ET.Element, ns: str) -> int:
     return fixed
 
 
+def _inject_sequential_slur_default_y_in_measure(measure: ET.Element, ns: str) -> int:
+    """같은 staff·placement로 이어지는 이음줄에 default-y를 엇갈리게 부여.
+
+    Audiveris bezier는 제거한 뒤, 짧은 연속 above/below 쌍이 engraver에서
+    납작하게(거의 안 보이게) 겹치지 않도록 MusicXML tenths 높이를 준다.
+    """
+    notes = list_note_elements(measure, ns)
+    open_at: dict[tuple[str, str], dict[str, Any]] = {}
+    closed: list[dict[str, Any]] = []
+    for note in notes:
+        staff = str(_note_staff_number(note, ns) or 1)
+        notations = note.find(_q(ns, "notations"))
+        if notations is None:
+            continue
+        for slur in notations.findall(_q(ns, "slur")):
+            num = (slur.get("number") or "1").strip() or "1"
+            t = (slur.get("type") or "").strip()
+            key = (staff, num)
+            if t == "start":
+                open_at[key] = {
+                    "start": slur,
+                    "placement": (slur.get("placement") or "above").strip() or "above",
+                    "staff": staff,
+                }
+            elif t == "stop" and key in open_at:
+                info = open_at.pop(key)
+                closed.append(
+                    {
+                        "staff": staff,
+                        "placement": info["placement"],
+                        "start": info["start"],
+                        "stop": slur,
+                    }
+                )
+    by_staff: dict[str, list[dict[str, Any]]] = {}
+    for c in closed:
+        by_staff.setdefault(str(c["staff"]), []).append(c)
+    changed = 0
+    for pairs in by_staff.values():
+        if len(pairs) < 2:
+            continue
+        counts: dict[str, int] = {}
+        for pair in pairs:
+            plc = "below" if pair["placement"] == "below" else "above"
+            idx = counts.get(plc, 0)
+            counts[plc] = idx + 1
+            base = 12 if plc == "below" else -12
+            step = 10 if plc == "below" else -10
+            y = str(base + step * idx)
+            start: ET.Element = pair["start"]
+            stop: ET.Element = pair["stop"]
+            if start.get("default-y") != y:
+                start.set("default-y", y)
+                changed += 1
+            if stop.get("default-y") != y:
+                stop.set("default-y", y)
+                changed += 1
+            if not (start.get("placement") or "").strip():
+                start.set("placement", plc)
+                changed += 1
+            if not (stop.get("placement") or "").strip():
+                stop.set("placement", plc)
+                changed += 1
+    return changed
+
+
 def _remove_orphan_slur_starts_in_part(part: ET.Element, ns: str) -> int:
     """파트 끝에도 닫히지 않은 start 제거 — 이후 마디 number 오염·이중 소실 방지."""
     open_els: dict[tuple[str, str], tuple[ET.Element, ET.Element]] = {}
@@ -6651,6 +6717,9 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
 
                 if not list(notations):
                     note.remove(notations)
+
+            if _inject_sequential_slur_default_y_in_measure(measure, ns):
+                m_changed = True
 
             if m_changed:
                 changed_measures += 1
@@ -9755,6 +9824,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     timelines = normalize_measure_timelines_in_root(root)
     play_orders = normalize_play_orders_including_rests_in_root(root)
     dynamics = normalize_dynamics_in_root(root)
+    coerce_durs = coerce_note_durations_to_type_in_root(root)
     slurs = normalize_slurs_in_root(root)
     wedges = normalize_wedges_in_root(root)
     po_align = realign_play_order_column_timelines_in_root(root)
@@ -9764,6 +9834,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
         or timelines
         or play_orders
         or dynamics
+        or coerce_durs
         or slurs
         or wedges
         or po_align
@@ -14335,6 +14406,7 @@ def apply_fixes_file(
     coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root, only_measures=only)
     timeline_measures = normalize_measure_timelines_in_root(root, only_measures=only)
     dynamics_normalized = normalize_dynamics_in_root(root, only_measures=only)
+    note_durs_coerced = coerce_note_durations_to_type_in_root(root)
     slurs_normalized = 0
     if only is None:
         slurs_normalized = normalize_slurs_in_root(root)
@@ -14362,6 +14434,7 @@ def apply_fixes_file(
         "multivoiceStemMeasuresNormalized": multivoice_stem_measures,
         "coalesceVoiceMeasures": max(coalesce_voice_measures, timeline_measures),
         "dynamicsNormalizedMeasures": dynamics_normalized,
+        "noteDurationsCoercedToType": note_durs_coerced,
         "slursNormalizedMeasures": slurs_normalized,
         "wedgesNormalizedMeasures": wedges_normalized,
         "chordPitchDedupeMeasures": chord_pitch_dupes,

@@ -2083,6 +2083,7 @@ function sanitizeMusicXmlForOsmd(
     // type 추론 후 다성부 쉼 display — type 없으면 short-rest 판정이 건너뛰어짐
     out = repairMissingNoteTypesForOsmdPreview(out);
     out = repairRestDisplayForOsmdPreview(out);
+    out = coerceNoteDurationsToTypeForOsmdPreview(out);
     out = normalizeMultivoiceStemsForOsmdPreview(out);
     out = repairTimelineForOsmdPreview(out, timelineOpts);
     // faithful HITL도 underfull forward pad — OSMD 유령 쉼표 방지(저장 MXL 불변)

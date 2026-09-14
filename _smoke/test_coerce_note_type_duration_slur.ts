@@ -1,5 +1,5 @@
 /**
- * type=half + duration=eighth-length scrambles parallel-voice X and inverts short slurs.
+ * type=half + duration=eighth-length: keep half glyph, fix duration → un-invert slur.
  * Run: npx tsx _smoke/test_coerce_note_type_duration_slur.ts
  */
 import assert from 'node:assert/strict';
@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import * as osmdLib from 'opensheetmusicdisplay';
 import {
-  coerceNoteTypesToDurationForOsmdPreview,
+  coerceNoteDurationsToTypeForOsmdPreview,
   repairMissingNoteTypesForOsmdPreview,
 } from '../shared/musicXmlRestDisplay';
 
@@ -33,7 +33,7 @@ Object.assign(globalThis, {
 Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { get: () => 1200 });
 Object.defineProperty(dom.window.HTMLElement.prototype, 'clientHeight', { get: () => 500 });
 
-// --- unit: coerce half/dur2 → eighth ---
+// --- unit: half stays half; duration 2 → 8 ---
 const unitXml = `<?xml version="1.0"?>
 <score-partwise version="3.1">
   <part-list><score-part id="P1"><part-name/></score-part></part-list>
@@ -45,22 +45,25 @@ const unitXml = `<?xml version="1.0"?>
     </measure>
   </part>
 </score-partwise>`;
-const coerced = coerceNoteTypesToDurationForOsmdPreview(unitXml);
-assert.match(coerced, /<type>eighth<\/type>/);
-assert.doesNotMatch(coerced, /<type>half<\/type>/);
-assert.match(coerced, /<type>quarter<\/type>\s*<dot\s*\/>/); // dotted quarter dur=6 kept
-console.log('coerce unit ok');
+const coerced = coerceNoteDurationsToTypeForOsmdPreview(unitXml);
+assert.match(coerced, /<type>half<\/type>/);
+assert.match(coerced, /<duration>8<\/duration>\s*<voice>1<\/voice>\s*<type>half<\/type>/);
+assert.match(coerced, /<duration>6<\/duration>/); // dotted quarter unchanged
+assert.doesNotMatch(coerced, /<type>eighth<\/type>/);
+console.log('coerce unit ok (duration←type, keep half)');
 
-// --- OSMD: m50 PL C3→A3 not inverted after coerce ---
+// --- OSMD: m50 PL keeps half + C3→A3 not inverted ---
 spawnSync('venv/Scripts/python.exe', ['_smoke/_build_014f_minimal_slur.py'], {
   encoding: 'utf-8',
   stdio: 'inherit',
 });
 const raw = readFileSync(join('_smoke/_014f_m50_slur', 'minimal.xml'), 'utf8');
-assert.match(raw, /<type>half<\/type>/);
+assert.match(raw, /<duration>2<\/duration>\s*<voice>6<\/voice>\s*<type>half<\/type>/);
 
 const fixed = repairMissingNoteTypesForOsmdPreview(raw);
-assert.doesNotMatch(fixed, /<voice>6<\/voice>\s*<type>half<\/type>/);
+assert.match(fixed, /<duration>8<\/duration>\s*<voice>6<\/voice>\s*<type>half<\/type>/);
+assert.doesNotMatch(fixed, /<duration>2<\/duration>\s*<voice>6<\/voice>\s*<type>half<\/type>/);
+assert.doesNotMatch(fixed, /<type>eighth<\/type>\s*<stem>down<\/stem>\s*<\/note>\s*<note default-x="82/); // F chord not coerced to 8th
 
 function halfTone(n: any): number | null {
   try {
@@ -109,4 +112,4 @@ const short = after.find((s) => s.start === 36 && s.end === 45);
 const long = after.find((s) => s.start === 40 && s.end === 47);
 assert.ok(short && !short.inv && short.dx > 1, `C3→A3 must go L→R: ${JSON.stringify(short)}`);
 assert.ok(long && !long.inv && long.dx > 1, `E3→B3 must stay ok: ${JSON.stringify(long)}`);
-console.log('coerce OSMD slur ok', { short, long });
+console.log('coerce OSMD slur ok (half glyph kept)', { short, long });

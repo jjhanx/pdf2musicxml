@@ -1992,6 +1992,7 @@ export { repairUnderfullMeasuresForOsmdPreview } from '../shared/musicXmlUnderfu
 export {
   repairRestDisplayForOsmdPreview,
   repairMissingNoteTypesForOsmdPreview,
+  coerceNoteDurationsToTypeForOsmdPreview,
   coerceNoteTypesToDurationForOsmdPreview,
   repairNotesForOsmdPreview,
 } from '../shared/musicXmlRestDisplay';

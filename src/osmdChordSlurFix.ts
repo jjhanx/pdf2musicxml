@@ -348,7 +348,7 @@ function graphicalSlurSummary(gSlur: GraphicalSlurLike): { minY: number; maxY: n
     gSlur.bezierStartControlPt,
     gSlur.bezierEndControlPt,
     gSlur.bezierEndPt,
-  ].filter((p): p is GraphicalPoint => !!p && Number.isFinite(p.x) && Number.isFinite(p.y));
+  ].filter((p): p is PointLike => !!p && Number.isFinite(p.x) && Number.isFinite(p.y));
   if (!points.length) return null;
   return {
     minY: Math.min(...points.map((p) => p.y)),
@@ -425,17 +425,25 @@ function slurStemSpanForPath(
   staffSpacePx: number,
 ): { minX: number; maxX: number } | null {
   const verticalLimit = Math.max(24, staffSpacePx * 8);
-  const nearby = stems.filter((s) => {
-    const dy = Math.max(0, pathInfo.minY - s.maxY, s.minY - pathInfo.maxY);
-    return dy <= verticalLimit;
-  }).sort((a, b) => a.x - b.x);
+  const endpointSlack = Math.max(8, staffSpacePx * 2);
+  // path 너비 대비 확장 상한 — 짧은 이음줄(C3→A3)이 다음 빔·병렬 voice 줄기까지
+  // 늘어 "A3에서 시작하는 쓰레기 이음줄"처럼 보이는 것을 막음.
+  // (살짝 모자란 path→끝 줄기 보정은 허용: max(pathWidth*1.5, 4칸))
+  const pathWidth = Math.max(1, pathInfo.maxX - pathInfo.minX);
+  const maxExpand = Math.max(pathWidth * 1.5, staffSpacePx * 4);
+  const loBound = pathInfo.minX - maxExpand;
+  const hiBound = pathInfo.maxX + maxExpand;
+
+  const nearby = stems
+    .filter((s) => {
+      if (s.x < loBound || s.x > hiBound) return false;
+      const dy = Math.max(0, pathInfo.minY - s.maxY, s.minY - pathInfo.maxY);
+      return dy <= verticalLimit;
+    })
+    .sort((a, b) => a.x - b.x);
   if (nearby.length < 2) return null;
 
-  // If the path already reaches just past a stem, treat that stem as the
-  // intended endpoint. Otherwise a slightly overshooting control point can make
-  // the next note's stem look like the slur endpoint and stretch the curve by
-  // one extra note.
-  const endpointSlack = Math.max(8, staffSpacePx * 2);
+  // path가 이미 끝 줄기 근처면 그 줄기를 endpoint로 — 다음 음으로 과확장 금지
   for (let i = nearby.length - 1; i >= 1; i -= 1) {
     const right = nearby[i]!;
     if (right.x > pathInfo.maxX) continue;

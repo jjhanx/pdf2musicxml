@@ -6337,8 +6337,9 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
     재번호 맵(`stop_num_remap`)은 **마디를 넘어** 유지한다(교차 마디 이음줄).
 
     같은 마디에서 stop 직후 number는 **가능하면** 재사용하지 않는다(PR/PL 겹침 시 OSMD 소실 방지).
-    다만 MusicXML·MuseScore는 number **1–6만** 인정하므로, 1–6이 모두 쓰였으면
-    이미 닫힌 number를 재사용한다(7+ 부여 금지 — 최종에서 이음줄이 안 보임).
+    충돌로 **새 번호를 부여할 때**만 MusicXML 1–6 안에서 고른다(1–6 소진 시 닫힌 number 재사용).
+    이미 붙어 있는 7+ OMR 번호는 **그대로 둔다** — 전부 1–6으로 욱여넣으면 멀쩡한 이음줄
+    짝이 깨져 OSMD/미리보기에서 같이 사라진다. (새 HITL `addSlur`는 처음부터 1–6.)
 
     변경된 마디 수 반환.
     """
@@ -6372,12 +6373,6 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                     notations.remove(s)
                     changed = True
         return kept, changed
-
-    def _slur_num_out_of_range(num: str) -> bool:
-        if not num.isdigit():
-            return True
-        v = int(num)
-        return v < 1 or v > _MUSICXML_SLUR_NUMBER_MAX
 
     for part in root.findall(_q(ns, "part")):
         open_slurs: dict[str, dict[str, Any]] = {}
@@ -6446,11 +6441,7 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                 for s in starts:
                     orig_num = (s.get("number") or "1").strip() or "1"
                     num = orig_num
-                    if (
-                        num in open_slurs
-                        or num in used_nums_in_measure
-                        or _slur_num_out_of_range(num)
-                    ):
+                    if num in open_slurs or num in used_nums_in_measure:
                         num = _next_free_slur_number(
                             set(open_slurs.keys()),
                             soft_occupied=used_nums_in_measure,

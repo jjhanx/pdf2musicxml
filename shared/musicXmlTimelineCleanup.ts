@@ -325,12 +325,6 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
       return '1';
     };
 
-    const outOfRange = (num: string): boolean => {
-      if (!/^\d+$/.test(num)) return true;
-      const v = Number(num);
-      return v < 1 || v > SLUR_NUMBER_MAX;
-    };
-
     for (const part of findXmlParts(doc)) {
       const openSlurs = new Map<string, { staff: string; voice: string; measureNum: string }>();
       // staff|orig → remapped — 교차 마디 stop까지 유지 (Python normalize_slurs_in_root 와 동일)
@@ -396,7 +390,9 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
           for (const s of starts) {
             const origNum = (s.getAttribute('number') || '1').trim() || '1';
             let num = origNum;
-            if (openSlurs.has(num) || usedNumsInMeasure.has(num) || outOfRange(num)) {
+            // 기존 7+ OMR 번호는 충돌 없을 때 유지(전부 1–6 재매핑 시 다른 이음줄 소실).
+            // 새 번호가 필요할 때만 1–6.
+            if (openSlurs.has(num) || usedNumsInMeasure.has(num)) {
               num = nextFreeSlurNumber(new Set(openSlurs.keys()), usedNumsInMeasure);
             }
             if ((s.getAttribute('number') || '') !== num) {

@@ -17,13 +17,21 @@ import { promisify } from 'node:util';
 const exec = promisify(execCallback);
 
 /** fix_audiveris_mxl — 리듬 duration 변경은 기본 off(OMR 유지). */
-function pythonMxlFixEnv(sessionRoot?: string): NodeJS.ProcessEnv {
+function pythonMxlFixEnv(
+  sessionRoot?: string,
+  opts?: { slurFix?: 'on' | 'off' },
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     OMR_ENGINE: process.env.OMR_ENGINE?.trim() || 'audiveris',
     AI_OMR_BACKEND: process.env.AI_OMR_BACKEND?.trim() || 'homr',
     AUDIVERIS_MXL_RHYTHM_FIX: process.env.AUDIVERIS_MXL_RHYTHM_FIX ?? 'off',
   };
+  if (opts?.slurFix) {
+    env.AUDIVERIS_MXL_SLUR_FIX = opts.slurFix;
+  } else if (process.env.AUDIVERIS_MXL_SLUR_FIX) {
+    env.AUDIVERIS_MXL_SLUR_FIX = process.env.AUDIVERIS_MXL_SLUR_FIX;
+  }
   if (sessionRoot) {
     const manifestPath = sessionLyricManifestPath(sessionRoot);
     if (fsSync.existsSync(manifestPath)) {
@@ -34,6 +42,14 @@ function pythonMxlFixEnv(sessionRoot?: string): NodeJS.ProcessEnv {
     );
   }
   return env;
+}
+
+/** HITL 미리보기는 fix_audiveris slur 변형을 쓰지 않음 — 최종도 같아야 이음줄이 유지됨. */
+async function sessionShouldSkipAudiverisSlurFix(sessionRoot?: string): Promise<boolean> {
+  if (!sessionRoot) return false;
+  if (fsSync.existsSync(sessionHitlBaselineMxlPath(sessionRoot))) return true;
+  const cp = await readOmrHitlCheckpoint(sessionRoot);
+  return cp.baselineOwnsEdits === true || (cp.totalHitlApplied ?? 0) > 0;
 }
 
 import {
@@ -1566,6 +1582,7 @@ async function fixAudiverisMxlInScoreFile(
   scorePath: string,
   pythonBin: string,
   sessionRoot?: string,
+  opts?: { skipSlurFix?: boolean },
 ): Promise<{
   slursInjected: number;
   tupletShowNumberFixed: number;
@@ -1575,9 +1592,11 @@ async function fixAudiverisMxlInScoreFile(
   const script = path.join(__dirname, '..', 'scripts', 'fix_audiveris_mxl.py');
   if (!fsSync.existsSync(script) || !fsSync.existsSync(scorePath)) return null;
   try {
+    const skipSlur =
+      opts?.skipSlurFix === true || (await sessionShouldSkipAudiverisSlurFix(sessionRoot));
     const { stdout, stderr } = await exec(`"${pythonBin}" "${script}" "${scorePath}"`, {
       maxBuffer: 8 * 1024 * 1024,
-      env: pythonMxlFixEnv(sessionRoot),
+      env: pythonMxlFixEnv(sessionRoot, { slurFix: skipSlur ? 'off' : undefined }),
     });
     if (stderr?.trim()) console.warn(`fix_audiveris_mxl stderr (${scorePath}): ${stderr.trim()}`);
     const line = String(stdout).trim();
@@ -1594,9 +1613,11 @@ async function fixAudiverisMxlInScoreFile(
       tuplet_show_number_fixed?: number;
       tuplet_staccato_removed?: number;
       directions_removed?: number;
+      slur_placements_fixed?: number;
+      chord_slurs_completed?: number;
     };
     console.log(
-      `fix_audiveris_mxl (${scorePath}): slurs=${parsed.slurs_injected ?? 0} tupletShow=${parsed.tuplet_show_number_fixed ?? 0} tupletStaccato=${parsed.tuplet_staccato_removed ?? 0}`,
+      `fix_audiveris_mxl (${scorePath}): slurs=${parsed.slurs_injected ?? 0} tupletShow=${parsed.tuplet_show_number_fixed ?? 0} tupletStaccato=${parsed.tuplet_staccato_removed ?? 0} slurFix=${skipSlur ? 'off' : 'on'} placements=${parsed.slur_placements_fixed ?? 0}`,
     );
     return {
       slursInjected: parsed.slurs_injected ?? 0,
@@ -1615,6 +1636,7 @@ async function postprocessAudiverisMxlInScoreFile(
   scorePath: string,
   pythonBin: string,
   sessionRoot?: string,
+  opts?: { skipSlurFix?: boolean },
 ): Promise<{
   restsFixed: number;
   measuresChanged: number;
@@ -1631,7 +1653,7 @@ async function postprocessAudiverisMxlInScoreFile(
     restDisplayCleared: 0,
     tupletStaccatoRemoved: 0,
   };
-  const fixStats = (await fixAudiverisMxlInScoreFile(scorePath, pythonBin, sessionRoot)) ?? {
+  const fixStats = (await fixAudiverisMxlInScoreFile(scorePath, pythonBin, sessionRoot, opts)) ?? {
     slursInjected: 0,
     tupletShowNumberFixed: 0,
     tupletStaccatoRemoved: 0,

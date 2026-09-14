@@ -54,6 +54,17 @@ def _strip_redundant_naturals_enabled() -> bool:
     return not _env_truthy("AUDIVERIS_MXL_KEEP_REDUNDANT_NATURAL", default=False)
 
 
+def _slur_fix_enabled() -> bool:
+    """화음 slur 이동·continuation/chord slur 주입 — 기본 on.
+
+    HITL 미리보기는 fix_audiveris_mxl 을 건너뛴다. 최종에서만 돌리면
+    `_normalize_slur_placements`가 기존 이음줄을 다른 화음 음으로 옮겨
+    미리보기와 달리 MuseScore에서 사라지거나 엉뚱하게 보인다.
+    HITL 이후 최종 후처리는 `AUDIVERIS_MXL_SLUR_FIX=off` 로 맞춘다.
+    """
+    return _env_truthy("AUDIVERIS_MXL_SLUR_FIX", default=True)
+
+
 def _strip_invented_keys_enabled() -> bool:
     """Audiveris `<key>` 자동 정리 — 기본 off (OMR/HITL 미리보기 그대로, 사람이 보정).
 
@@ -5265,12 +5276,13 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         stats["chord_ties_completed"] += completed
         stats["system_break_ties_added"] += system_added
 
-        if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
-            stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
-        stats["continuation_slurs_added"] += _repair_same_pitch_continuation_slurs(part, ns)
-        stats["repeated_chord_slurs_added"] += _repair_repeated_chord_slurs(part, ns)
-        stats["chord_slurs_completed"] += _complete_chord_member_slurs(part, ns)
-        stats["slur_placements_fixed"] += _normalize_slur_placements(part, ns)
+        if _slur_fix_enabled():
+            if _part_is_piano(part.get("id"), root, ns) or _part_has_two_staves(part, ns):
+                stats["slurs_injected"] += _inject_missing_slurs_piano_m6(part, ns)
+            stats["continuation_slurs_added"] += _repair_same_pitch_continuation_slurs(part, ns)
+            stats["repeated_chord_slurs_added"] += _repair_repeated_chord_slurs(part, ns)
+            stats["chord_slurs_completed"] += _complete_chord_member_slurs(part, ns)
+            stats["slur_placements_fixed"] += _normalize_slur_placements(part, ns)
         stats["tie_placements_fixed"] += _normalize_tie_placements(part, ns)
 
         for measure in part.findall(qname(ns, "measure")):

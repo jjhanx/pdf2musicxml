@@ -5819,6 +5819,10 @@ def _merge_forward_coarse_layer_on_staff(
     """backup+forward 뒤 16분 층 + 앞쪽 8분 층(2배 박자 OMR 오인) → 단일 16분 voice.
 
     예: PR m28 — v1 eighth run + v2 forward 뒤 16th run을 한 voice로.
+
+    HITL로 의도한 다성(다른 voice·연주순번 참조·줄기 잠금)에는 적용하지 않는다.
+    순번만 맞춘 voice2 16분을 OMR 2배 박자로 오인하면 앞 4분음을 8분으로 줄이고
+    겹치는 voice1 16분을 삭제하는 부작용이 난다.
     """
     meta = _staff_voice_layer_meta(measure, ns, staff)
     if len(meta) != 2:
@@ -5834,9 +5838,15 @@ def _merge_forward_coarse_layer_on_staff(
     if not p_leaders or not s_leaders:
         return False
 
+    # HITL 의도 다성 — 연주순번·참조·줄기 잠금이 있으면 OMR 흡수 금지
+    for note in list_note_elements(measure, ns):
+        _v, st = _note_voice_staff(note, ns)
+        if st != staff:
+            continue
+        if _play_order_attr_raw(note) or _stem_hitl_locked(note, ns):
+            return False
+
     divisions, _beats, _beat_type = _measure_divisions_beats(measure, ns, part)
-    sixteenth_dur = max(1, _duration_for_type_dots("16th", divisions, 0))
-    eighth_dur = max(1, _duration_for_type_dots("eighth", divisions, 0))
 
     def _note_type_name(note: ET.Element) -> str:
         type_el = note.find(_q(ns, "type"))
@@ -5848,19 +5858,52 @@ def _merge_forward_coarse_layer_on_staff(
     if any(_note_duration(n, ns) > quarter_dur for n in s_leaders):
         return False
 
+    # OMR 2× 패턴만: primary는 전부 8분(또는 type 비어 duration=8분).
+    # 4분·16분 혼재(HITL/정상 기보)는 반으로 줄이거나 삭제하지 않음.
+    eighth_dur = max(1, _duration_for_type_dots("eighth", divisions, 0))
+    for note in p_leaders:
+        typ = _note_type_name(note)
+        dur = _note_duration(note, ns)
+        if typ == "eighth":
+            continue
+        if not typ and dur == eighth_dur:
+            continue
+        return False
+
     onsets = _musicxml_leader_onsets(measure, ns)
-    changed = False
+    # 사전 검증 — 중간 실패로 4분→8분만 남는 partial mutate 방지
+    to_halve: list[ET.Element] = []
+    to_remove: list[ET.Element] = []
     for note in list(p_leaders):
         onset = onsets.get(note, 0)
         if onset >= s_start:
-            if note in list(measure):
-                measure.remove(note)
-                changed = True
+            to_remove.append(note)
             continue
+        dur = _note_duration(note, ns)
+        if dur <= 1 or dur % 2 != 0:
+            return False
+        to_halve.append(note)
+
+    changed = False
+    for note in to_halve:
         if _halve_note_duration_and_type(note, ns, divisions):
             changed = True
         else:
             return False
+    for note in to_remove:
+        if note in list(measure):
+            # chord followers도 함께 제거
+            notes_now = list_note_elements(measure, ns)
+            try:
+                li = notes_now.index(note)
+            except ValueError:
+                continue
+            for fidx in reversed(_chord_follower_indices(notes_now, ns, li)):
+                if notes_now[fidx] in list(measure):
+                    measure.remove(notes_now[fidx])
+            if note in list(measure):
+                measure.remove(note)
+            changed = True
 
     notes = list_note_elements(measure, ns)
     for note in notes:
@@ -6770,8 +6813,16 @@ def _merge_staff_voices_if_non_overlapping(measure: ET.Element, ns: str, staff: 
 
     각 voice duration 합이 마디 길이를 크게 넘으면 병렬 층으로 보고 병합하지 않는다.
     (onset 오판으로 병렬 LH를 순차로 합치면 유령 쉼표·박자 초과가 난다.)
+
+    HITL 연주순번 참조(`1-6`)·줄기 잠금이 있으면 의도적 다성으로 보고 병합하지 않는다.
     """
     notes = list_note_elements(measure, ns)
+    for note in notes:
+        _v, st = _note_voice_staff(note, ns)
+        if st != staff:
+            continue
+        if _read_play_order_ref(note) or _stem_hitl_locked(note, ns):
+            return False
     timed_starts = dict(_staff_timed_leader_starts(measure, ns, staff))
     leaders: list[tuple[int, str, int, int]] = []
     for i, note in enumerate(notes):
@@ -13847,6 +13898,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
     skip_rebuild_kinds = {
         "linkParallelOnsets",
         "setNoteVoice",
+        "setNoteStem",
         "unifyStaffVoices",
         "setPlayOrder",
         "insertDirection",

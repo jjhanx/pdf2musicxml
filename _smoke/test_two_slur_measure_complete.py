@@ -67,6 +67,7 @@ def main() -> None:
     assert any(n == "2" for n, _ in orphans_before), orphans_before
 
     n = normalize_slurs_in_root(root)
+    normalize_changed = n
     pairs_after, orphans_after = slur_pairs_staff(root, "55", "1")
     assert not orphans_after, orphans_after
     nums = {p[0] for p in pairs_after}
@@ -122,7 +123,11 @@ def main() -> None:
 
     print(
         "two-slur measure fix ok",
-        {"m55pairs": len(pairs_after), "normalizeChanged": n, "halfDur": _note_duration(half, ns)},
+        {
+            "m55pairs": len(pairs_after),
+            "normalizeChanged": normalize_changed,
+            "halfDur": _note_duration(half, ns),
+        },
     )
 
 

@@ -4766,13 +4766,25 @@ def _assign_timeline_attachment(
     staff_preamble: dict[int, list[ET.Element]],
     start_elements: list[ET.Element],
 ) -> None:
-    """direction staff ≠ 직전 note staff 이면 해당 staff 블록 앞(preamble)으로 — backup 뒤 PL 셈여림 등."""
+    """direction staff ≠ 직전 note staff 이면 해당 staff 블록 앞(preamble)으로 — backup 뒤 PL 셈여림 등.
+
+    octave-shift/wedge **stop**은 preamble에 넣지 않는다. backup 직후면 같은 staff
+    마지막 음 attachment로 두어, 마디 앞에 붙어 빈 8va(MuseScore 미표시)가 되지 않게 한다.
+    """
     if _local(el) == "direction":
         dstaff = _direction_effective_staff(measure, el, ns, 1)
+        is_stop = (
+            _octave_shift_type_of(el, ns) == "stop" or _wedge_type_of(el, ns) == "stop"
+        )
         if last_seen_note is not None:
             nstaff = _note_staff_number(last_seen_note, ns) or 1
             if dstaff == nstaff:
                 note_attachments.setdefault(last_seen_note, []).append(el)
+                return
+        if is_stop:
+            last_on = _last_note_element_on_staff(measure, ns, dstaff)
+            if last_on is not None:
+                note_attachments.setdefault(last_on, []).append(el)
                 return
         staff_preamble.setdefault(dstaff, []).append(el)
         return
@@ -4780,6 +4792,21 @@ def _assign_timeline_attachment(
         note_attachments.setdefault(last_seen_note, []).append(el)
     else:
         start_elements.append(el)
+
+
+def _last_note_element_on_staff(
+    measure: ET.Element, ns: str, staff_n: int
+) -> ET.Element | None:
+    last: ET.Element | None = None
+    for el in measure:
+        if _local(el) != "note":
+            continue
+        if el.find(_q(ns, "chord")) is not None:
+            continue
+        if (_note_staff_number(el, ns) or 1) != staff_n:
+            continue
+        last = el
+    return last
 
 
 def _try_preamble_direction_before_following_note(
@@ -8155,39 +8182,76 @@ def _remove_octave_shift_stops_on_staff(
 def repair_octave_shift_stops_before_cross_staff_backup_in_measure(
     measure: ET.Element, ns: str
 ) -> bool:
-    """octave-shift stop이 `<backup>` 뒤(다른 staff 앞)에 있으면 같은 staff 마지막 음 뒤로 옮김.
+    """잘못된 octave-shift stop 위치를 같은 staff 마지막(또는 올바른) 음 뒤로 복구.
 
-    timeline rebuild가 stop을 다음 음 preamble로 붙이면 PR 8va stop이 PL 앞으로 밀려
-    MuseScore/OSMD에서 괄호가 안 보인다.
+    1) `<backup>` 뒤에 있으면 → 그 staff 마지막 음 뒤
+    2) 짝 start와 stop 사이에 같은 staff 실음이 없으면(rebuild가 preamble로 올림) → 마지막 음 뒤
+       (빈 8va는 MuseScore가 무시함)
     """
-    children = list(measure)
     changed = False
-    for direction in list(measure.findall(_q(ns, "direction"))):
-        if _octave_shift_type_of(direction, ns) != "stop":
-            continue
+    children = list(measure)
+    stops: list[ET.Element] = []
+    for direction in measure.findall(_q(ns, "direction")):
+        if _octave_shift_type_of(direction, ns) == "stop":
+            stops.append(direction)
+
+    for direction in stops:
         staff_n = _direction_staff_number(direction, ns) or 1
         try:
-            di = children.index(direction)
+            di = list(measure).index(direction)
         except ValueError:
             continue
-        # 앞에 backup이 있고, 그 사이에 같은 staff 음이 없으면 잘못된 위치
+
         saw_backup = False
         for j in range(di - 1, -1, -1):
-            tag = _local(children[j])
+            tag = _local(list(measure)[j])
             if tag == "backup":
                 saw_backup = True
                 break
-            if tag == "note" and children[j].find(_q(ns, "chord")) is None:
-                if (_note_staff_number(children[j], ns) or 1) == staff_n:
+            if tag == "note" and list(measure)[j].find(_q(ns, "chord")) is None:
+                if (_note_staff_number(list(measure)[j], ns) or 1) == staff_n:
                     break
-        if not saw_backup:
+
+        empty_span = False
+        start_dir = None
+        oshift = _octave_shift_element(direction, ns)
+        stop_num = (oshift.get("number") if oshift is not None else None) or "1"
+        for j in range(di - 1, -1, -1):
+            el = list(measure)[j]
+            if _local(el) != "direction":
+                continue
+            if _octave_shift_type_of(el, ns) not in ("up", "down"):
+                continue
+            if (_direction_staff_number(el, ns) or 1) != staff_n:
+                continue
+            o2 = _octave_shift_element(el, ns)
+            onum = (o2.get("number") if o2 is not None else None) or "1"
+            if onum != stop_num:
+                continue
+            start_dir = el
+            break
+        if start_dir is not None:
+            try:
+                si = list(measure).index(start_dir)
+            except ValueError:
+                si = -1
+            notes_between = 0
+            if si >= 0:
+                for el in list(measure)[si + 1 : di]:
+                    if _local(el) != "note" or el.find(_q(ns, "chord")) is not None:
+                        continue
+                    if (_note_staff_number(el, ns) or 1) == staff_n:
+                        notes_between += 1
+            empty_span = notes_between == 0
+
+        if not saw_backup and not empty_span:
             continue
+
         notes = [c for c in list(measure) if _local(c) == "note"]
         last_i = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
         if last_i < 0:
             continue
         end_note = notes[_chord_group_end_index(notes, ns, last_i)]
-        # 이미 올바른 위치면 skip
         try:
             end_idx = list(measure).index(end_note)
             cur_idx = list(measure).index(direction)
@@ -8195,18 +8259,18 @@ def repair_octave_shift_stops_before_cross_staff_backup_in_measure(
             continue
         if cur_idx == end_idx + 1:
             continue
+        # stop에 size 보강(뷰어 호환)
+        if oshift is not None and not (oshift.get("size") or "").strip():
+            oshift.set("size", "8")
         measure.remove(direction)
-        # remove 후 인덱스 재계산
         children_now = list(measure)
         try:
             end_idx = children_now.index(end_note)
         except ValueError:
             measure.append(direction)
-            children = list(measure)
             changed = True
             continue
         measure.insert(end_idx + 1, direction)
-        children = list(measure)
         changed = True
     return changed
 

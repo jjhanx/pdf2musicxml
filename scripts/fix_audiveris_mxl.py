@@ -5092,7 +5092,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                 measure, ns
             )
 
-    # grand staff rebuild 이후 — PR 8va stop이 backup 뒤로 밀린 것 복구(최종 MXL)
+    # grand staff rebuild 직후 조기 복구(중간 단계용). 최종 복구는 fix_score_xml 말미에서 한 번 더.
     try:
         from omr_hitl_lib import repair_octave_shift_stops_before_cross_staff_backup_in_root
     except ImportError:
@@ -5279,6 +5279,17 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             )
             if max_staff >= 2:
                 _align_staves_timeline(measure, ns)
+
+    # 모든 rebuild/리듬 정리 이후 — PR 8va stop이 preamble·backup 뒤로 간 것 최종 복구
+    try:
+        from omr_hitl_lib import repair_octave_shift_stops_before_cross_staff_backup_in_root
+    except ImportError:
+        from scripts.omr_hitl_lib import (  # type: ignore
+            repair_octave_shift_stops_before_cross_staff_backup_in_root,
+        )
+    stats["octave_shift_stop_repaired"] += repair_octave_shift_stops_before_cross_staff_backup_in_root(
+        root
+    )
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats

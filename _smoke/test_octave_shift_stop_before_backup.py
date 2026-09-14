@@ -69,8 +69,7 @@ def main() -> None:
     measure = root.find(".//{*}measure")
     assert measure is not None
 
-    # Simulate the buggy rebuild path that used to pull stop after backup
-    # by placing stop after backup first, then repairing.
+    # 1) stop after backup (wrong) → repair
     children = list(measure)
     stop = None
     for c in children:
@@ -82,7 +81,6 @@ def main() -> None:
                     stop = c
     assert stop is not None
     measure.remove(stop)
-    # append after backup (wrong)
     for i, c in enumerate(list(measure)):
         if _local(c) == "backup":
             measure.insert(i + 1, stop)
@@ -94,10 +92,41 @@ def main() -> None:
     si, bi = stop_index_and_backup(measure)
     assert si is not None and bi is not None and si < bi, (si, bi)
 
-    # rebuild must not move stop after backup again
+    # 2) rebuild must not move stop after backup — or to empty preamble
     _rebuild_measure_flat_staffs(measure, ns)
     si, bi = stop_index_and_backup(measure)
     assert si is not None and bi is not None and si < bi, (si, bi)
+
+    # notes must exist between start and stop
+    start_i = None
+    for i, c in enumerate(list(measure)):
+        if _local(c) != "direction":
+            continue
+        for dt in c:
+            for child in dt:
+                if _local(child) == "octave-shift" and child.get("type") == "up":
+                    start_i = i
+    assert start_i is not None and si > start_i
+    notes_between = sum(
+        1
+        for c in list(measure)[start_i + 1 : si]
+        if _local(c) == "note" and c.find("chord") is None
+    )
+    assert notes_between > 0, notes_between
+
+    # 3) empty span (stop next to start) → repair to after last note
+    measure.remove(stop)
+    measure.insert(start_i + 1, stop)
+    assert repair_octave_shift_stops_before_cross_staff_backup_in_measure(measure, ns)
+    si2, bi2 = stop_index_and_backup(measure)
+    assert si2 is not None and bi2 is not None and si2 < bi2, (si2, bi2)
+    notes_between2 = sum(
+        1
+        for c in list(measure)[start_i + 1 : si2]
+        if _local(c) == "note" and c.find("chord") is None
+    )
+    assert notes_between2 > 0, notes_between2
+
     print("ok octave-shift stop stays before cross-staff backup")
 
 

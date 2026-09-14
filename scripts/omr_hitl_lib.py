@@ -13,6 +13,7 @@ from typing import Any
 
 _STEPS = ("C", "D", "E", "F", "G", "A", "B")
 PLAY_ORDER_ATTR = "data-hitl-play-order"
+HITL_STEM_ATTR = "data-hitl-stem"
 _PLAY_ORDER_REF_RE = re.compile(r"^(\d+)\s*[-–]\s*(\d+)$")
 _DYNAMICS_TAGS = frozenset(
     {
@@ -6925,7 +6926,15 @@ def _ensure_short_type_for_beam(
     _strip_stem_absolute_offsets(note, ns)
 
 
-def _set_note_stem(note: ET.Element, ns: str, stem: str) -> None:
+def _stem_hitl_locked(note: ET.Element, ns: str) -> bool:
+    stem_el = note.find(_q(ns, "stem"))
+    if stem_el is None:
+        return False
+    locked = (stem_el.get(HITL_STEM_ATTR) or "").strip().lower()
+    return locked in ("up", "down")
+
+
+def _set_note_stem(note: ET.Element, ns: str, stem: str, *, hitl_lock: bool = False) -> None:
     if stem not in ("up", "down"):
         return
     stem_el = note.find(_q(ns, "stem"))
@@ -6935,6 +6944,8 @@ def _set_note_stem(note: ET.Element, ns: str, stem: str) -> None:
     # Audiveris 절대 default-y가 남으면 OSMD 빔이 앞·위 오선 쪽으로 깨짐
     stem_el.attrib.pop("default-y", None)
     stem_el.attrib.pop("default-x", None)
+    if hitl_lock:
+        stem_el.set(HITL_STEM_ATTR, stem)
 
 
 def _note_stem_dir(note: ET.Element, ns: str) -> str:
@@ -6996,6 +7007,8 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
         expanded = dict(forced)
         for li, stem in forced.items():
             for bi in _beam_span_note_indices(notes, ns, li, staff):
+                if _stem_hitl_locked(notes[bi], ns):
+                    continue
                 prev = expanded.get(bi)
                 if prev is None or (prev == "up" and stem == "down"):
                     expanded[bi] = stem
@@ -7006,10 +7019,14 @@ def normalize_multivoice_stems_in_measure(measure: ET.Element, ns: str) -> bool:
             note = notes[li]
             if note.find(_q(ns, "pitch")) is None:
                 continue
+            if _stem_hitl_locked(note, ns):
+                continue
             if _note_stem_dir(note, ns) != stem:
                 _set_note_stem(note, ns, stem)
                 changed = True
             for fidx in _chord_follower_indices(notes, ns, li):
+                if _stem_hitl_locked(notes[fidx], ns):
+                    continue
                 if _note_stem_dir(notes[fidx], ns) != stem:
                     _set_note_stem(notes[fidx], ns, stem)
                     changed = True
@@ -7045,6 +7062,8 @@ def normalize_monophonic_staff_stems_in_measure(measure: ET.Element, ns: str) ->
                 continue
             if note.find(_q(ns, "pitch")) is None:
                 continue
+            if _stem_hitl_locked(note, ns):
+                continue
             d = _note_stem_dir(note, ns)
             if d in ("up", "down"):
                 dirs.append(d)
@@ -7063,6 +7082,8 @@ def normalize_monophonic_staff_stems_in_measure(measure: ET.Element, ns: str) ->
             if s != st or v != voice:
                 continue
             if note.find(_q(ns, "pitch")) is None:
+                continue
+            if _stem_hitl_locked(note, ns):
                 continue
             if _note_stem_dir(note, ns) != want:
                 _set_note_stem(note, ns, want)
@@ -11403,13 +11424,13 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         if idx < 0 or idx >= len(notes):
             return False
         note = notes[idx]
-        _set_note_stem(note, ns, stem_val)
+        _set_note_stem(note, ns, stem_val, hitl_lock=True)
         _, staff = _note_voice_staff(note, ns)
         # 같은 빔 그룹도 같은 줄기 — OSMD/VexFlow 빔은 stem 방향이 갈라지면 깨짐
         for bi in _beam_span_note_indices(notes, ns, idx, staff):
-            _set_note_stem(notes[bi], ns, stem_val)
+            _set_note_stem(notes[bi], ns, stem_val, hitl_lock=True)
             for fidx in _chord_follower_indices(notes, ns, bi):
-                _set_note_stem(notes[fidx], ns, stem_val)
+                _set_note_stem(notes[fidx], ns, stem_val, hitl_lock=True)
         normalize_multivoice_stems_in_measure(measure, ns)
         return True
 

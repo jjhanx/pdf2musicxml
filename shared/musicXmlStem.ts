@@ -2,8 +2,11 @@
  * OSMD/HITL — 같은 오선·같은 onset에 voice가 둘 이상이면
  * 낮은 voice=up, 나머지=down (OSMD 다성 관례). 빔 그룹·화음에 전파.
  * 편집기 MusicXML stem과 미리보기 줄기 방향 일치.
+ * HITL `setNoteStem`은 `<stem data-hitl-stem>`으로 잠금 — 단일 성부 다수결 정규화가 덮어쓰지 않음.
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
+
+const HITL_STEM_ATTR = 'data-hitl-stem';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -53,6 +56,12 @@ function beamValues(note: Element): string[] {
 function timelineVoice(el: Element, fallback: string): string {
   const v = childText(el, 'voice');
   return v || fallback;
+}
+
+function stemHitlLocked(note: Element): boolean {
+  const stemEl = [...note.children].find((c) => xmlLocalName(c) === 'stem');
+  const locked = (stemEl?.getAttribute(HITL_STEM_ATTR) || '').trim().toLowerCase();
+  return locked === 'up' || locked === 'down';
 }
 
 function setStem(note: Element, stem: 'up' | 'down'): boolean {
@@ -211,11 +220,13 @@ function normalizeMeasure(measure: Element): boolean {
     const expanded = new Map(forced);
     for (const [note, stem] of forced) {
       for (const member of beamSpanNotes(notes, note, staff)) {
+        if (stemHitlLocked(member)) continue;
         const prev = expanded.get(member);
         if (!prev || (prev === 'up' && stem === 'down')) expanded.set(member, stem);
       }
     }
     for (const [note, stem] of expanded) {
+      if (stemHitlLocked(note)) continue;
       if (setStem(note, stem)) changed = true;
     }
   }
@@ -302,6 +313,7 @@ function normalizeMonophonicStaffStems(measure: Element): boolean {
     for (const note of notes) {
       const vs = noteVoiceStaff(note);
       if (vs.staff !== staff || vs.voice !== voice || !isPitched(note)) continue;
+      if (stemHitlLocked(note)) continue;
       const stem = childText(note, 'stem');
       if (stem === 'up' || stem === 'down') dirs.push(stem);
     }
@@ -313,6 +325,7 @@ function normalizeMonophonicStaffStems(measure: Element): boolean {
     for (const note of notes) {
       const vs = noteVoiceStaff(note);
       if (vs.staff !== staff || vs.voice !== voice || !isPitched(note)) continue;
+      if (stemHitlLocked(note)) continue;
       if (setStem(note, want)) changed = true;
     }
   }

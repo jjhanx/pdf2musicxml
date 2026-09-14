@@ -11601,30 +11601,81 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         to_note = to_notes[to_idx]
         from_staff = _note_staff_number(from_note, ns) or 1
 
-        def _clear_slurs_on_note(mid: ET.Element) -> None:
+        def _clear_internal_slurs_on_note(
+            mid: ET.Element,
+            *,
+            preserve_stop_nums: set[str],
+            internal_start_nums: set[str],
+        ) -> None:
+            """중간 음의 slur 정리.
+
+            - 구간 **안에만** 있는 짧은 start/stop 쌍·고아 stop 제거(긴 이음줄이 끊기지 않게)
+            - **앞에서 이미 열린** number의 stop은 보존(앞서 그린 HITL 이음줄 끝)
+            """
             mid_not = mid.find(_q(ns, "notations"))
             if mid_not is None:
                 return
             for s in list(mid_not.findall(_q(ns, "slur"))):
+                num = (s.get("number") or "1").strip() or "1"
+                t = (s.get("type") or "").strip()
+                if t == "stop" and num in preserve_stop_nums:
+                    continue
+                if t == "stop" and num in internal_start_nums:
+                    mid_not.remove(s)
+                    continue
+                if t == "start":
+                    mid_not.remove(s)
+                    continue
+                if t == "stop":
+                    # 고아 stop(앞에 짝 start 없음)
+                    mid_not.remove(s)
+                    continue
                 mid_not.remove(s)
             if not list(mid_not):
                 mid.remove(mid_not)
 
-        # from~to 사이 같은 staff의 고아/짧은 OMR stop·start 제거 — 긴 이음줄이 중간에서 끊기지 않게
-        # 끝 마디: 앞 마디에서 이미 열린 number의 stop은 보존(다른 이음줄 끝)
+        # from~to 사이 같은 staff: 구간에만 있는 짧은 OMR/잔여 slur만 제거.
+        # 앞에서 열린 number의 stop(이전에 그린 이음줄 끝)은 지우지 않음 —
+        # 지우면 start만 남아 최종 MXL/MuseScore에서 이음줄이 「안 나온」 것처럼 보임.
         if to_notes is from_notes:
             lo, hi = from_idx, to_idx
+            preserve_stops = set(
+                _slur_open_numbers_before_note(part, ns, measure, from_idx, from_staff)
+            )
+            internal_starts: set[str] = set()
             for mid_i in range(lo + 1, hi):
                 mid = from_notes[mid_i]
                 if (_note_staff_number(mid, ns) or 1) != from_staff:
                     continue
-                _clear_slurs_on_note(mid)
+                mid_not = mid.find(_q(ns, "notations"))
+                if mid_not is None:
+                    continue
+                for s in mid_not.findall(_q(ns, "slur")):
+                    if (s.get("type") or "").strip() != "start":
+                        continue
+                    internal_starts.add((s.get("number") or "1").strip() or "1")
+            for mid_i in range(lo + 1, hi):
+                mid = from_notes[mid_i]
+                if (_note_staff_number(mid, ns) or 1) != from_staff:
+                    continue
+                _clear_internal_slurs_on_note(
+                    mid,
+                    preserve_stop_nums=preserve_stops,
+                    internal_start_nums=internal_starts,
+                )
         else:
+            preserve_stops = set(
+                _slur_open_numbers_before_note(part, ns, measure, from_idx, from_staff)
+            )
             for mid_i in range(from_idx + 1, len(from_notes)):
                 mid = from_notes[mid_i]
                 if (_note_staff_number(mid, ns) or 1) != from_staff:
                     continue
-                _clear_slurs_on_note(mid)
+                _clear_internal_slurs_on_note(
+                    mid,
+                    preserve_stop_nums=preserve_stops,
+                    internal_start_nums=set(),
+                )
             open_at_to_start = _slur_open_numbers_before_note(part, ns, to_measure, 0, from_staff)
             for mid_i in range(0, to_idx):
                 mid = to_notes[mid_i]

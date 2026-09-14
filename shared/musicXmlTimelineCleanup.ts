@@ -275,6 +275,7 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
   try {
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return xml;
+    const SLUR_NUMBER_MAX = 6;
 
     const slurLayoutNoise = (s: Element): number =>
       (['bezier-x', 'bezier-y', 'default-x', 'default-y'] as const).filter((a) => s.hasAttribute(a))
@@ -313,14 +314,32 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
       return kept;
     };
 
+    const nextFreeSlurNumber = (hard: Set<string>, soft: Set<string>): string => {
+      const softAll = new Set([...soft, ...hard]);
+      for (let n = 1; n <= SLUR_NUMBER_MAX; n += 1) {
+        if (!softAll.has(String(n))) return String(n);
+      }
+      for (let n = 1; n <= SLUR_NUMBER_MAX; n += 1) {
+        if (!hard.has(String(n))) return String(n);
+      }
+      return '1';
+    };
+
+    const outOfRange = (num: string): boolean => {
+      if (!/^\d+$/.test(num)) return true;
+      const v = Number(num);
+      return v < 1 || v > SLUR_NUMBER_MAX;
+    };
+
     for (const part of findXmlParts(doc)) {
       const openSlurs = new Map<string, { staff: string; voice: string; measureNum: string }>();
+      // staff|orig → remapped — 교차 마디 stop까지 유지 (Python normalize_slurs_in_root 와 동일)
+      const stopNumRemap = new Map<string, string>();
 
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
         const mnum = measure.getAttribute('number') || '';
         const usedNumsInMeasure = new Set<string>(openSlurs.keys());
-        const stopNumRemap = new Map<string, string>(); // `${staff}|${orig}` -> newNum
 
         for (const note of [...measure.children]) {
           if (xmlLocalName(note) !== 'note') continue;
@@ -366,6 +385,9 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
               }
               openSlurs.delete(matchedNum);
               usedNumsInMeasure.add(matchedNum);
+              for (const [k, v] of [...stopNumRemap.entries()]) {
+                if (k.startsWith(`${staff}|`) && v === matchedNum) stopNumRemap.delete(k);
+              }
             } else {
               s.remove();
             }
@@ -374,12 +396,8 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
           for (const s of starts) {
             const origNum = (s.getAttribute('number') || '1').trim() || '1';
             let num = origNum;
-            if (openSlurs.has(num) || usedNumsInMeasure.has(num)) {
-              let nextNum = 1;
-              while (openSlurs.has(String(nextNum)) || usedNumsInMeasure.has(String(nextNum))) {
-                nextNum += 1;
-              }
-              num = String(nextNum);
+            if (openSlurs.has(num) || usedNumsInMeasure.has(num) || outOfRange(num)) {
+              num = nextFreeSlurNumber(new Set(openSlurs.keys()), usedNumsInMeasure);
             }
             if ((s.getAttribute('number') || '') !== num) {
               s.setAttribute('number', num);
@@ -390,6 +408,7 @@ export function normalizeSlursForOsmdPreview(xml: string): string {
               voice,
               measureNum: mnum,
             });
+            usedNumsInMeasure.add(num);
           }
 
           if (notations.children.length === 0) {

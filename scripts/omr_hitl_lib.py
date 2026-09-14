@@ -439,14 +439,21 @@ def _set_slur_pair_placement(
     return changed
 
 
+# MusicXML slur@number 허용 범위. MuseScore 등은 7+ 를 무시해 이음줄이 「안 나타남」.
+_MUSICXML_SLUR_NUMBER_MAX = 6
+
+
 def _slur_open_numbers_before_note(
     part: ET.Element,
     ns: str,
     measure: ET.Element,
     note_index: int,
-    staff_n: int,
+    staff_n: int | None,
 ) -> set[str]:
-    """해당 음 직전까지 같은 staff에서 아직 닫히지 않은 slur number 집합."""
+    """해당 음 직전까지 아직 닫히지 않은 slur number 집합.
+
+    staff_n 이 None 이면 모든 staff(파트 전역 open — OSMD number 충돌 회피용).
+    """
     open_nums: set[str] = set()
     target_id = id(measure)
     for m in part.findall(_q(ns, "measure")):
@@ -454,7 +461,7 @@ def _slur_open_numbers_before_note(
         for i, note in enumerate(notes):
             if id(m) == target_id and i >= note_index:
                 return open_nums
-            if (_note_staff_number(note, ns) or 1) != staff_n:
+            if staff_n is not None and (_note_staff_number(note, ns) or 1) != staff_n:
                 continue
             notations = note.find(_q(ns, "notations"))
             if notations is None:
@@ -471,15 +478,24 @@ def _slur_open_numbers_before_note(
     return open_nums
 
 
-def _next_free_slur_number(*occupied: set[str] | set[int]) -> str:
-    used: set[str] = set()
-    for occ in occupied:
-        for x in occ:
-            used.add(str(x))
-    n = 1
-    while str(n) in used:
-        n += 1
-    return str(n)
+def _next_free_slur_number(
+    hard_occupied: set[str] | set[int] | None = None,
+    soft_occupied: set[str] | set[int] | None = None,
+) -> str:
+    """MusicXML 1–6 안에서 빈 번호 선택.
+
+    hard: 현재 열린 number(반드시 회피). soft: 같은 마디에서 이미 쓴 number(가능하면 회피).
+    soft 가 1–6 을 다 채우면 hard 만 비어 있는 번호를 재사용한다(7+ 금지 — MuseScore 미표시).
+    """
+    hard = {str(x) for x in (hard_occupied or ())}
+    soft = {str(x) for x in (soft_occupied or ())} | hard
+    for n in range(1, _MUSICXML_SLUR_NUMBER_MAX + 1):
+        if str(n) not in soft:
+            return str(n)
+    for n in range(1, _MUSICXML_SLUR_NUMBER_MAX + 1):
+        if str(n) not in hard:
+            return str(n)
+    return "1"
 
 
 def _find_slur_stop_after_measure(
@@ -6320,8 +6336,9 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
     같은 staff의 짝 stop number도 함께 갱신한다.
     재번호 맵(`stop_num_remap`)은 **마디를 넘어** 유지한다(교차 마디 이음줄).
 
-    같은 마디에서 stop 직후 number를 재사용하지 않는다. PR/PL 이음줄이 시간상 겹칠 때
-    OSMD가 같은 number의 start/stop을 잘못 짝지어 한쪽이 안 보이는 것을 막는다.
+    같은 마디에서 stop 직후 number는 **가능하면** 재사용하지 않는다(PR/PL 겹침 시 OSMD 소실 방지).
+    다만 MusicXML·MuseScore는 number **1–6만** 인정하므로, 1–6이 모두 쓰였으면
+    이미 닫힌 number를 재사용한다(7+ 부여 금지 — 최종에서 이음줄이 안 보임).
 
     변경된 마디 수 반환.
     """
@@ -6355,6 +6372,12 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                     notations.remove(s)
                     changed = True
         return kept, changed
+
+    def _slur_num_out_of_range(num: str) -> bool:
+        if not num.isdigit():
+            return True
+        v = int(num)
+        return v < 1 or v > _MUSICXML_SLUR_NUMBER_MAX
 
     for part in root.findall(_q(ns, "part")):
         open_slurs: dict[str, dict[str, Any]] = {}
@@ -6423,11 +6446,15 @@ def normalize_slurs_in_root(root: ET.Element) -> int:
                 for s in starts:
                     orig_num = (s.get("number") or "1").strip() or "1"
                     num = orig_num
-                    if num in open_slurs or num in used_nums_in_measure:
-                        next_num = 1
-                        while str(next_num) in open_slurs or str(next_num) in used_nums_in_measure:
-                            next_num += 1
-                        num = str(next_num)
+                    if (
+                        num in open_slurs
+                        or num in used_nums_in_measure
+                        or _slur_num_out_of_range(num)
+                    ):
+                        num = _next_free_slur_number(
+                            set(open_slurs.keys()),
+                            soft_occupied=used_nums_in_measure,
+                        )
                     if (s.get("number") or "") != num:
                         s.set("number", num)
                         m_changed = True
@@ -11693,16 +11720,18 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 if not list(mid_not):
                     mid.remove(mid_not)
 
-        open_before = _slur_open_numbers_before_note(part, ns, measure, from_idx, from_staff)
-        occupied: set[str] = set(open_before)
+        # hard: 파트 전역으로 아직 열린 number(다른 staff 포함 — OSMD 충돌 회피)
+        # soft: 같은 마디에 이미 등장한 number(가능하면 회피). 1–6 소진 시 soft 재사용.
+        open_hard = _slur_open_numbers_before_note(part, ns, measure, from_idx, None)
+        soft_used: set[str] = set(open_hard)
         for n_list in (from_notes, to_notes) if to_notes is not from_notes else (from_notes,):
             for n in n_list:
                 for notations_el in n.findall(_q(ns, "notations")):
                     for slur in notations_el.findall(_q(ns, "slur")):
                         num = (slur.get("number") or "").strip()
                         if num.isdigit():
-                            occupied.add(num)
-        new_num = _next_free_slur_number(occupied)
+                            soft_used.add(num)
+        new_num = _next_free_slur_number(open_hard, soft_occupied=soft_used)
 
         # 시작 음의 기존 start는 교체(다시 그리기). 끝 음의 다른 number stop은 유지.
         from_not = _ensure_notations(from_note, ns)

@@ -2096,7 +2096,9 @@ function sanitizeMusicXmlForOsmd(
       typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
 
     doc.querySelectorAll('*').forEach((el) => {
+      // HITL faithful: octave-shift 유지(잘 짝지어진 8va). 비-HITL만 OSMD 크래시 회피로 제거.
       if (local(el) === 'octave-shift') {
+        if (faithfulEditorLayout) return;
         const words = doc.createElement('words');
         el.replaceWith(words);
       }

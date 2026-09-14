@@ -4789,18 +4789,30 @@ def _try_preamble_direction_before_following_note(
 ) -> bool:
     """`<direction>` 바로 다음 `<note>` 앞 preamble — 화음 리더 직전 셈여림 등 timeline 재정렬 보존."""
     ns = _ns(measure)
-    # wedge(stop)은 끝나는 음의 뒤(attachment)에 붙어야 하므로 앞선 음의 preamble로 취급하지 않음
+    # wedge/octave-shift stop은 끝나는 음의 뒤(attachment)에 붙어야 함.
+    # 다음 음으로 preamble 하면 grand staff에서 backup 뒤 PL 앞으로 밀려 8va가 안 보임.
     if _wedge_type_of(direction, ns) == "stop":
         return False
+    if _octave_shift_type_of(direction, ns) == "stop":
+        return False
+    dir_staff = _direction_staff_number(direction, ns)
     children = list(measure)
     try:
         idx = children.index(direction)
     except ValueError:
         return False
     for j in range(idx + 1, len(children)):
-        if _local(children[j]) == "note":
-            note_preamble.setdefault(children[j], []).append(direction)
-            return True
+        tag = _local(children[j])
+        # backup/forward 너머 다른 오선 음으로 넘기지 않음
+        if tag in ("backup", "forward"):
+            return False
+        if tag != "note":
+            continue
+        note = children[j]
+        if dir_staff is not None and (_note_staff_number(note, ns) or 1) != dir_staff:
+            return False
+        note_preamble.setdefault(note, []).append(direction)
+        return True
     return False
 
 
@@ -6214,6 +6226,8 @@ def normalize_measure_timelines_in_root(
                 if _strip_orphan_timeline_if_single_voice_per_staff(measure, ns):
                     touched = True
             if normalize_grand_staff_voices_in_measure(measure, ns):
+                touched = True
+            if repair_octave_shift_stops_before_cross_staff_backup_in_measure(measure, ns):
                 touched = True
             if touched:
                 n += 1
@@ -8076,9 +8090,14 @@ def _direction_octave_shift_anchor_note_index(
     if otype == "stop":
         for j in range(di - 1, -1, -1):
             c = children[j]
-            if _local(c) == "note" and c.find(_q(ns, "chord")) is None:
-                idx = _note_index_of_element(measure, c)
-                return idx if idx >= 0 else None
+            if _local(c) != "note" or c.find(_q(ns, "chord")) is not None:
+                continue
+            # stop staff와 같은 오선 음만 — backup 뒤 PL 음을 끝으로 잡지 않음
+            dir_staff = _direction_staff_number(direction, ns)
+            if dir_staff is not None and (_note_staff_number(c, ns) or 1) != dir_staff:
+                continue
+            idx = _note_index_of_element(measure, c)
+            return idx if idx >= 0 else None
         return None
     if otype == "continue":
         return None
@@ -8131,6 +8150,80 @@ def _remove_octave_shift_stops_on_staff(
         measure.remove(direction)
         removed += 1
     return removed
+
+
+def repair_octave_shift_stops_before_cross_staff_backup_in_measure(
+    measure: ET.Element, ns: str
+) -> bool:
+    """octave-shift stop이 `<backup>` 뒤(다른 staff 앞)에 있으면 같은 staff 마지막 음 뒤로 옮김.
+
+    timeline rebuild가 stop을 다음 음 preamble로 붙이면 PR 8va stop이 PL 앞으로 밀려
+    MuseScore/OSMD에서 괄호가 안 보인다.
+    """
+    children = list(measure)
+    changed = False
+    for direction in list(measure.findall(_q(ns, "direction"))):
+        if _octave_shift_type_of(direction, ns) != "stop":
+            continue
+        staff_n = _direction_staff_number(direction, ns) or 1
+        try:
+            di = children.index(direction)
+        except ValueError:
+            continue
+        # 앞에 backup이 있고, 그 사이에 같은 staff 음이 없으면 잘못된 위치
+        saw_backup = False
+        for j in range(di - 1, -1, -1):
+            tag = _local(children[j])
+            if tag == "backup":
+                saw_backup = True
+                break
+            if tag == "note" and children[j].find(_q(ns, "chord")) is None:
+                if (_note_staff_number(children[j], ns) or 1) == staff_n:
+                    break
+        if not saw_backup:
+            continue
+        notes = [c for c in list(measure) if _local(c) == "note"]
+        last_i = _last_rhythmic_note_index_on_staff(notes, ns, staff_n)
+        if last_i < 0:
+            continue
+        end_note = notes[_chord_group_end_index(notes, ns, last_i)]
+        # 이미 올바른 위치면 skip
+        try:
+            end_idx = list(measure).index(end_note)
+            cur_idx = list(measure).index(direction)
+        except ValueError:
+            continue
+        if cur_idx == end_idx + 1:
+            continue
+        measure.remove(direction)
+        # remove 후 인덱스 재계산
+        children_now = list(measure)
+        try:
+            end_idx = children_now.index(end_note)
+        except ValueError:
+            measure.append(direction)
+            children = list(measure)
+            changed = True
+            continue
+        measure.insert(end_idx + 1, direction)
+        children = list(measure)
+        changed = True
+    return changed
+
+
+def repair_octave_shift_stops_before_cross_staff_backup_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
+        for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
+            if repair_octave_shift_stops_before_cross_staff_backup_in_measure(measure, ns):
+                n += 1
+    return n
 
 
 def _insert_standalone_octave_shift(

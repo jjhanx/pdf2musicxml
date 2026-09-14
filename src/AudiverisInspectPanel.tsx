@@ -2096,10 +2096,16 @@ function sanitizeMusicXmlForOsmd(
       typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
 
     doc.querySelectorAll('*').forEach((el) => {
-      // HITL faithful: octave-shift 유지(잘 짝지어진 8va). 비-HITL만 OSMD 크래시 회피로 제거.
+      // OSMD calculateSingleOctaveShift → realValue 크래시 — 미리보기에서는 항상 제거.
+      // start만 보이는 "8va"/"8vb" words로 바꿔 HITL에서 존재 여부만 확인 가능하게.
       if (local(el) === 'octave-shift') {
-        if (faithfulEditorLayout) return;
-        const words = doc.createElement('words');
+        const typ = (el.getAttribute('type') || '').trim().toLowerCase();
+        const words = el.namespaceURI
+          ? doc.createElementNS(el.namespaceURI, 'words')
+          : doc.createElement('words');
+        if (typ === 'up') words.textContent = '8va';
+        else if (typ === 'down') words.textContent = '8vb';
+        else words.textContent = '';
         el.replaceWith(words);
       }
     });

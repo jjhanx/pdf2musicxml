@@ -5064,6 +5064,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "measure_numbering_removed": 0,
         "measure_numbering_restored": 0,
         "dangling_timeline_removed": 0,
+        "octave_shift_stop_repaired": 0,
     }
 
     # 1) 텍스트 정리 + orphan backup/forward + backup/forward 겹침 voice 병합
@@ -5090,6 +5091,17 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             stats["trailing_phantom_rests_removed"] += _remove_trailing_phantom_rests_in_measure(
                 measure, ns
             )
+
+    # grand staff rebuild 이후 — PR 8va stop이 backup 뒤로 밀린 것 복구(최종 MXL)
+    try:
+        from omr_hitl_lib import repair_octave_shift_stops_before_cross_staff_backup_in_root
+    except ImportError:
+        from scripts.omr_hitl_lib import (  # type: ignore
+            repair_octave_shift_stops_before_cross_staff_backup_in_root,
+        )
+    stats["octave_shift_stop_repaired"] += repair_octave_shift_stops_before_cross_staff_backup_in_root(
+        root
+    )
 
     # 1a) m1 조표 생략 → C major 명시 (기본 off — HITL·OMR 조표는 사람이 보정)
     if _opening_key_explicit_enabled():

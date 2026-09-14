@@ -8,6 +8,7 @@ from pathlib import Path
 
 from omr_hitl_lib import (  # noqa: E402
     coalesce_spurious_parallel_voices_in_root,
+    coerce_note_durations_to_type_in_root,
     load_mxl_root,
     normalize_dynamics_in_root,
     normalize_measure_timelines_in_root,
@@ -34,6 +35,7 @@ def main() -> int:
         n_stem = normalize_multivoice_stems_in_root(root)
         n_po = normalize_play_orders_including_rests_in_root(root)
         n_dyns = normalize_dynamics_in_root(root)
+        n_dur = coerce_note_durations_to_type_in_root(root)
         n_slurs = normalize_slurs_in_root(root)
         n_wedges = normalize_wedges_in_root(root)
         # timeline rebuild 이후 — 같은 연주순번 column onset을 저장 MXL에 맞춤(재생)
@@ -45,6 +47,7 @@ def main() -> int:
             or n_stem
             or n_po
             or n_dyns
+            or n_dur
             or n_slurs
             or n_wedges
             or n_po_align
@@ -57,6 +60,8 @@ def main() -> int:
                     "multivoiceStemMeasures": n_stem,
                     "playOrderTimelineMeasures": n_po_align,
                     "octaveShiftStopRepaired": n_oshift,
+                    "noteDurationsCoercedToType": n_dur,
+                    "slursNormalizedMeasures": n_slurs,
                 },
                 ensure_ascii=False,
             )

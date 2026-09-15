@@ -3981,7 +3981,12 @@ function NoteDirectionEditor({
   currentDirections?: NoteDirectionInfo[];
   onFix: (partial: Omit<OmrHitlFix, 'id' | 'partId' | 'measureMxl'>) => void;
 }) {
-  const dirs = currentDirections ?? [];
+  // wedge/octave-shift는 셈여림 점선·옥타브 패널에서만 — 여기 distance를 바꾸면
+  // setNoteDirectionPlacement가 실패하거나 미리보기 wedge 길이가 어긋날 수 있음
+  const dirs = (currentDirections ?? []).filter((d) => {
+    const t = (d.directionType || '').trim().toLowerCase();
+    return t !== 'wedge' && t !== 'octave-shift';
+  });
   const [mode, setMode] = useState<'none' | 'dynamics' | 'words' | 'rehearsal'>('none');
   const [dynValue, setDynValue] = useState('mf');
   const [dirPlacement, setDirPlacement] = useState<'above' | 'below'>('above');

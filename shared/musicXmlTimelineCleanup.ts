@@ -1292,6 +1292,63 @@ export function reanchorWedgeStopsForOsmdPreview(measure: Element, staffN: numbe
   }
 }
 
+/**
+ * OSMD는 wedge stop을 **앞** 음표 onset에 붙인다(뒤 음 onset이 아님).
+ * MusicXML/MuseScore·HITL은 stop이 다음 음 **앞**에 있으면 그 음 시작(=앞 구간 끝)에서 닫는다.
+ * 그래서 `… noteA, stop, [mf…], noteB …` 는 OSMD에서 noteA onset에 끝나 한 음 짧게(선분처럼) 보인다.
+ * 미리보기 전용: stop을 noteB(화음 그룹) **뒤**로 옮겨 OSMD endTs=noteB onset 이 되게 한다.
+ * 저장 MXL은 변경하지 않는다. 뒤에 같은 staff 음이 없으면 그대로 둔다.
+ */
+export function advanceWedgeStopsPastFollowingNoteInMeasure(measure: Element): void {
+  const ADV = 'data-osmd-wedge-stop-advanced';
+  for (const stop of [...measure.children]) {
+    if (xmlLocalName(stop) !== 'direction') continue;
+    if (directionWedgeType(stop) !== 'stop') continue;
+    if ((stop.getAttribute(ADV) || '').trim() === '1') continue;
+    const staffN = directionStaffNumber(stop) ?? 1;
+    const children = [...measure.children];
+    const idx = children.indexOf(stop);
+    if (idx < 0) continue;
+
+    let nextNote: Element | null = null;
+    for (let j = idx + 1; j < children.length; j += 1) {
+      const c = children[j]!;
+      const tag = xmlLocalName(c);
+      if (tag === 'backup') break;
+      if (tag === 'direction') continue;
+      if (tag !== 'note') continue;
+      if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
+      if (!noteMatchesPreviewStaff(c, staffN)) continue;
+      nextNote = c;
+      break;
+    }
+    if (!nextNote) continue;
+    const group = noteGroupWithChords(measure, nextNote);
+    const lastInGroup = group[group.length - 1] ?? nextNote;
+    const stopNow = [...measure.children].indexOf(stop);
+    const lastIdx = [...measure.children].indexOf(lastInGroup);
+    if (stopNow > lastIdx) continue;
+    insertDirectionAfterNoteGroup(measure, stop, nextNote);
+    stop.setAttribute(ADV, '1');
+  }
+}
+
+export function advanceWedgeStopsPastFollowingNoteForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    for (const part of findXmlParts(doc)) {
+      for (const meas of [...part.children]) {
+        if (xmlLocalName(meas) !== 'measure') continue;
+        advanceWedgeStopsPastFollowingNoteInMeasure(meas);
+      }
+    }
+    return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
 function ensureChordTag(note: Element): void {
   if (note.querySelector('chord, *|chord') !== null) return;
   const doc = note.ownerDocument;

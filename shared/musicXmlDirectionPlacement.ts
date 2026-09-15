@@ -4,6 +4,7 @@ import {
   HITL_DIR_DISTANCE_ATTR,
 } from './musicXmlArticulationDistance';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
+import { advanceWedgeStopsPastFollowingNoteInMeasure } from './musicXmlTimelineCleanup';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -273,7 +274,13 @@ export function dynamicsHintNeedsOsmdPreviewShift(h: {
   return mag >= 10 && mag <= 100 && mag % 10 === 0;
 }
 
-/** OSMD EngravingRules — XML wedge distance 힌트(없으면 1칸). */
+function medianStaffSpaces(values: number[]): number {
+  if (!values.length) return 1;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)]!;
+}
+
+/** OSMD EngravingRules — XML wedge distance 힌트(없으면 1칸). 전역 규칙이라 **중앙값** 사용(마지막 wedge 거리로 전곡을 덮어쓰지 않음). */
 export function applyWedgeEngravingRulesFromXml(
   rules: { WedgePlacementBelowY?: number; WedgePlacementAboveY?: number },
   xml: string,
@@ -281,32 +288,28 @@ export function applyWedgeEngravingRulesFromXml(
   try {
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return;
-    let belowSpaces = 1;
-    let aboveSpaces = 1;
-    let sawBelow = false;
-    let sawAbove = false;
+    const belowSpaces: number[] = [];
+    const aboveSpaces: number[] = [];
     for (const part of findXmlParts(doc)) {
       for (const meas of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
         for (const dir of [...meas.children].filter((c) => xmlLocalName(c) === 'direction')) {
           const wedgeEl = dir.querySelector('wedge, *|wedge');
           if (!wedgeEl) continue;
+          const wType = (wedgeEl.getAttribute('type') || '').trim().toLowerCase();
+          // stop은 start와 동일 distance를 복제하는 경우가 많아 중앙값 왜곡만 키움
+          if (wType === 'stop') continue;
           const pl = (dir.getAttribute('placement') || 'below').trim().toLowerCase();
           const spaces = wedgeStaffSpacesFromDirection(dir, wedgeEl);
-          if (pl === 'above') {
-            aboveSpaces = spaces;
-            sawAbove = true;
-          } else {
-            belowSpaces = spaces;
-            sawBelow = true;
-          }
+          if (pl === 'above') aboveSpaces.push(spaces);
+          else belowSpaces.push(spaces);
         }
       }
     }
-    if (typeof rules.WedgePlacementBelowY === 'number' && sawBelow) {
-      rules.WedgePlacementBelowY = belowSpaces;
+    if (typeof rules.WedgePlacementBelowY === 'number' && belowSpaces.length) {
+      rules.WedgePlacementBelowY = medianStaffSpaces(belowSpaces);
     }
-    if (typeof rules.WedgePlacementAboveY === 'number' && sawAbove) {
-      rules.WedgePlacementAboveY = -aboveSpaces;
+    if (typeof rules.WedgePlacementAboveY === 'number' && aboveSpaces.length) {
+      rules.WedgePlacementAboveY = -medianStaffSpaces(aboveSpaces);
     }
   } catch {
     /* keep defaults */
@@ -410,6 +413,9 @@ export function normalizeDynamicsAndWedgesForOsmdPreview(xml: string): string {
             }
           }
         }
+
+        // 4. OSMD stop 한 음 일찍 종료 보정 (미리보기 전용)
+        advanceWedgeStopsPastFollowingNoteInMeasure(meas);
       }
     }
     return serializeMusicXmlDocument(doc);

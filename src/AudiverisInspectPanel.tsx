@@ -139,7 +139,10 @@ export function applyOsmdPreviewEngravingRules(
   // OSMD 기본 줄머리 번호는 measure@number+layout으로 전부 그려짐 — PDF 인쇄 번호만 HTML 오버레이
   rules.RenderMeasureNumbers = false;
   rules.RenderMeasureNumbersOnlyAtSystemStart = false;
-  rules.UseXMLMeasureNumbers = false;
+  // UseXMLMeasureNumbers 는 load 옵션(true)을 유지한다.
+  // false로 덮어쓰면 MeasureNumberXML이 전부 undefined가 되어, 패치 전 lastWedge 중복판정·표 거리 매칭이 깨진다.
+  // OSMD SVG 마디 번호는 위에서 끄고, HITL은 injectMxlMeasureNumberDirectionsForOsmd로 표시.
+  // rules.UseXMLMeasureNumbers = false; // 금지 — wedge 선분·표 거리 회귀
   // OSMD 기본은 연속 온쉼 마디를 다중쉼표(오선 중 굵은 선+숫자)로 접음.
   // OMR 검토는 PDF와 마디 1:1 — load() 전에 끔. 저장 MXL은 변경하지 않음.
   const r = rules as OpenSheetMusicDisplay['EngravingRules'] & {

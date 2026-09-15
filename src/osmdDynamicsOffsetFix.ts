@@ -21,8 +21,12 @@ import { applyArticulationShiftY } from './osmdArticulationOffsetFix';
 
 /** patch_osmd_navigation_labels — below dynamics 기본 여백(staff-space). */
 const OSMD_DYNAMICS_BASELINE_BELOW_SPACES = 2.5;
-/** patch — above dynamics 기본 여백(staff-space). */
-const OSMD_DYNAMICS_BASELINE_ABOVE_SPACES = 3.8;
+/**
+ * above: OSMD 패치(+3.8)와 달리 wedge 옆 mf는 오선에 붙어 그려지는 경우가 있다.
+ * HITL N칸을 “OSMD 기본 3.8 대비 델타”로 보면 distance 1~4가 거의 무반응·고착으로 보인다.
+ * 기본을 0으로 두면 N칸만큼 항상 오선에서 멀어져 거리 UI가 동작한다.
+ */
+const OSMD_DYNAMICS_BASELINE_ABOVE_SPACES = 0;
 
 const previewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
 

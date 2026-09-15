@@ -11066,6 +11066,18 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                             dyn.set("default-y", str(dy))
                             _set_direction_distance_on_el(dyn, dist)
                         changed = True
+                    elif direction_type == "wedge":
+                        wtype = _wedge_type_of(c, ns)
+                        want = (direction_value or "").strip().lower()
+                        if wtype and (not want or wtype == want):
+                            c.set("placement", placement)
+                            c.set("default-y", str(dy))
+                            _set_direction_distance_on_el(c, dist)
+                            wel = _wedge_element(c, ns)
+                            if wel is not None:
+                                wel.set("default-y", str(dy))
+                                _set_direction_distance_on_el(wel, dist)
+                            changed = True
                     else:
                         mark = dtype.find(_q(ns, direction_type))
                         if mark is not None and (not direction_value or (mark.text or "").strip() == direction_value):

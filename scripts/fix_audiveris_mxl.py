@@ -5078,6 +5078,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "measure_numbering_restored": 0,
         "dangling_timeline_removed": 0,
         "octave_shift_stop_repaired": 0,
+        "sole_voice_to_one_measures": 0,
+        "leading_wedge_stops_reanchored": 0,
+        "chord_gap_directions_moved": 0,
     }
 
     # 1) 텍스트 정리 + orphan backup/forward + backup/forward 겹침 voice 병합
@@ -5296,11 +5299,22 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
 
     # 모든 rebuild/리듬 정리 이후 — PR 8va stop이 preamble·backup 뒤로 간 것 최종 복구
     try:
-        from omr_hitl_lib import repair_octave_shift_stops_before_cross_staff_backup_in_root
-    except ImportError:
-        from scripts.omr_hitl_lib import (  # type: ignore
+        from omr_hitl_lib import (
+            normalize_sole_staff_voices_to_one_in_root,
+            reanchor_leading_wedge_stops_in_root,
+            repair_directions_between_chord_notes_in_root,
             repair_octave_shift_stops_before_cross_staff_backup_in_root,
         )
+    except ImportError:
+        from scripts.omr_hitl_lib import (  # type: ignore
+            normalize_sole_staff_voices_to_one_in_root,
+            reanchor_leading_wedge_stops_in_root,
+            repair_directions_between_chord_notes_in_root,
+            repair_octave_shift_stops_before_cross_staff_backup_in_root,
+        )
+    stats["sole_voice_to_one_measures"] += normalize_sole_staff_voices_to_one_in_root(root)
+    stats["chord_gap_directions_moved"] += repair_directions_between_chord_notes_in_root(root)
+    stats["leading_wedge_stops_reanchored"] += reanchor_leading_wedge_stops_in_root(root)
     stats["octave_shift_stop_repaired"] += repair_octave_shift_stops_before_cross_staff_backup_in_root(
         root
     )

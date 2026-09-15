@@ -7059,6 +7059,223 @@ def normalize_wedges_in_root(
     return changed_measures
 
 
+def normalize_sole_staff_voices_to_one_in_measure(measure: ET.Element, ns: str) -> bool:
+    """한 staff에 voice가 하나뿐인데 번호가 1이 아니면 1로 통일.
+
+    MuseScore는 빈 voice 1에 온쉼표를 그려, HITL/OSMD에는 없는 잔상이 최종 MXL에만 생긴다.
+    direction(wedge 등) voice도 같이 맞춘다.
+    """
+    notes = list_note_elements(measure, ns)
+    by_staff: dict[str, set[str]] = {}
+    for note in notes:
+        if _is_grace_or_cue(note, ns):
+            continue
+        voice, staff = _note_voice_staff(note, ns)
+        by_staff.setdefault(staff, set()).add(voice)
+    changed = False
+    for staff, voices in by_staff.items():
+        if len(voices) != 1:
+            continue
+        sole = next(iter(voices))
+        if sole == "1":
+            continue
+        for note in notes:
+            if _is_grace_or_cue(note, ns):
+                continue
+            voice, st = _note_voice_staff(note, ns)
+            if st != staff or voice == "1":
+                continue
+            _set_note_voice_staff(note, ns, "1", staff)
+            changed = True
+        staff_n = int(staff) if staff.isdigit() else 1
+        for direction in measure.findall(_q(ns, "direction")):
+            d_staff = _direction_staff_number(direction, ns)
+            if d_staff is not None and d_staff != staff_n:
+                continue
+            if d_staff is None and staff_n != 1:
+                # staff 미표기 direction은 staff1 관례 — staff2 sole remap 대상 아님
+                continue
+            voice_el = direction.find(_q(ns, "voice"))
+            if voice_el is not None and (voice_el.text or "").strip() == sole:
+                voice_el.text = "1"
+                changed = True
+            elif _wedge_type_of(direction, ns) in ("crescendo", "diminuendo", "stop"):
+                _bind_direction_voice_from_staff(measure, ns, direction, staff_n)
+                changed = True
+    return changed
+
+
+def normalize_sole_staff_voices_to_one_in_root(root: ET.Element) -> int:
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            if normalize_sole_staff_voices_to_one_in_measure(measure, ns):
+                n += 1
+    return n
+
+
+def _first_rhythmic_note_on_staff(
+    measure: ET.Element, ns: str, staff_n: int
+) -> ET.Element | None:
+    for note in list_note_elements(measure, ns):
+        if _is_grace_or_cue(note, ns) or note.find(_q(ns, "chord")) is not None:
+            continue
+        if (_note_staff_number(note, ns) or 1) == staff_n:
+            return note
+    return None
+
+
+def _direction_has_prev_note_on_staff(
+    measure: ET.Element, direction: ET.Element, ns: str, staff_n: int
+) -> bool:
+    children = list(measure)
+    try:
+        idx = children.index(direction)
+    except ValueError:
+        return False
+    for j in range(idx - 1, -1, -1):
+        el = children[j]
+        if _local(el) == "backup":
+            break
+        if _local(el) != "note" or el.find(_q(ns, "chord")) is not None:
+            continue
+        if (_note_staff_number(el, ns) or 1) == staff_n:
+            return True
+    return False
+
+
+def reanchor_leading_wedge_stops_in_root(root: ET.Element) -> int:
+    """이전 마디에서 열린 wedge의 stop이 다음 마디 첫 음 **앞**에만 있으면 첫 음 뒤로.
+
+    MuseScore는 마디 머리 stop을 바로 앞 마디 끝(barline)에서 닫아 교차 crescendo가
+    끊긴 것처럼 보인다. OSMD 미리보기는 별도 reanchor로 마디 안으로 그린다.
+    stop을 첫 리듬 음(화음 그룹) 뒤로 두면 A/T처럼 다음 마디로 이어진다.
+    """
+    ns = _ns(root)
+    moved = 0
+    for part in root.findall(_q(ns, "part")):
+        open_wedges: dict[str, str] = {}  # staff -> number
+        for measure in part.findall(_q(ns, "measure")):
+            for el in list(measure):
+                if _local(el) != "direction":
+                    continue
+                wtype = _wedge_type_of(el, ns)
+                if wtype not in ("crescendo", "diminuendo", "stop"):
+                    continue
+                st_n = _direction_effective_staff(measure, el, ns, 1)
+                st = str(st_n)
+                wel = _wedge_element(el, ns)
+                wnum = (wel.get("number") if wel is not None else None) or "1"
+                if wtype in ("crescendo", "diminuendo"):
+                    open_wedges[st] = wnum
+                    continue
+                # stop
+                if st not in open_wedges and wnum not in open_wedges.values():
+                    continue
+                match_st = st if st in open_wedges else next(
+                    (ost for ost, onum in open_wedges.items() if onum == wnum),
+                    None,
+                )
+                if match_st is None:
+                    continue
+                if _direction_has_prev_note_on_staff(measure, el, ns, st_n):
+                    open_wedges.pop(match_st, None)
+                    continue
+                first = _first_rhythmic_note_on_staff(measure, ns, st_n)
+                if first is None:
+                    open_wedges.pop(match_st, None)
+                    continue
+                notes = list_note_elements(measure, ns)
+                try:
+                    note_idx = notes.index(first)
+                except ValueError:
+                    open_wedges.pop(match_st, None)
+                    continue
+                measure.remove(el)
+                _insert_after_note_group(measure, ns, el, note_idx)
+                _bind_direction_voice_from_staff(measure, ns, el, st_n)
+                open_wedges.pop(match_st, None)
+                moved += 1
+    return moved
+
+
+def repair_directions_between_chord_notes_in_measure(measure: ET.Element, ns: str) -> int:
+    """화음 리더와 <chord/> 멤버 사이에 끼인 direction을 그룹 밖으로 이동.
+
+    MuseScore는 화음이 끊기면 박자·hairpin 길이가 어긋나 점선이 한 줄처럼 길어 보인다.
+    dynamics 등은 리더 앞(onset), wedge stop은 화음 그룹 뒤로.
+    """
+    moved = 0
+    children = list(measure)
+    i = 0
+    while i < len(children):
+        el = children[i]
+        if _local(el) != "note" or el.find(_q(ns, "chord")) is not None:
+            i += 1
+            continue
+        if _is_grace_or_cue(el, ns):
+            i += 1
+            continue
+        j = i + 1
+        between: list[ET.Element] = []
+        saw_chord = False
+        while j < len(children):
+            c = children[j]
+            tag = _local(c)
+            if tag == "note" and c.find(_q(ns, "chord")) is not None:
+                saw_chord = True
+                j += 1
+                continue
+            if tag == "direction":
+                between.append(c)
+                j += 1
+                continue
+            break
+        if not (saw_chord and between):
+            i += 1
+            continue
+        # between에 모인 direction을 리더 앞 / 그룹 뒤로 재배치
+        last_chord = None
+        for k in range(i + 1, j):
+            c = children[k]
+            if _local(c) == "note" and c.find(_q(ns, "chord")) is not None:
+                last_chord = c
+        for direction in between:
+            wtype = _wedge_type_of(direction, ns)
+            measure.remove(direction)
+            if wtype == "stop" and last_chord is not None:
+                # 화음 그룹 뒤
+                kids = list(measure)
+                try:
+                    idx = kids.index(last_chord)
+                except ValueError:
+                    measure.insert(0, direction)
+                else:
+                    measure.insert(idx + 1, direction)
+            else:
+                kids = list(measure)
+                try:
+                    idx = kids.index(el)
+                except ValueError:
+                    measure.insert(0, direction)
+                else:
+                    measure.insert(idx, direction)
+            moved += 1
+        children = list(measure)
+        i += 1
+    return moved
+
+
+def repair_directions_between_chord_notes_in_root(root: ET.Element) -> int:
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            n += repair_directions_between_chord_notes_in_measure(measure, ns)
+    return n
+
+
 def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> bool:
     notes = list_note_elements(measure, ns)
     voices: set[str] = set()

@@ -7487,16 +7487,37 @@ def repair_wedge_stops_after_same_staff_backup_in_root(root: ET.Element) -> int:
 
 
 def amplify_wedge_spreads_for_visibility_in_root(root: ET.Element) -> int:
-    """긴 hairpin이 MuseScore에서 직선처럼 보이지 않도록 stop/start spread를 키움.
+    """MuseScore hairpin 높이용 spread를 open 끝에 맞춤(과도 증폭·마디 분할 없음).
 
-    MusicXML spread는 십분의일 인터라인. OMR 기본 stop=15(1.5칸)는 두 마디
-    crescendo에서 각도가 거의 0에 가깝다. 같은 staff에서 start→stop 사이
-    리듬 음(화음 리더) 수에 비례해 open 쪽 spread를 올린다(상한 60).
+    MuseScore(importLayout)는 crescendo/diminuendo **start**의 ``spread``를
+    ``hairpinHeight = spread/10`` 스파티움으로 읽는다(MusicXML은 crescendo stop
+    쪽을 open으로 보지만, MuseScore export/import는 start에 높이를 넣음).
+    OMR은 보통 start=0·stop=15라 MuseScore에서는 기본 ~1.2칸만 쓰여 긴 점선이
+    직선처럼 보인다. start(및 MusicXML용 stop)에 완만한 높이(상한 30=3칸)만 넣고,
+    교차 마디를 쪼개지 않는다(짧은 구간만 과하게 벌어지던 부작용 방지).
     """
     ns = _ns(root)
     changed = 0
+
+    def _spread_num(raw: str | None) -> int | None:
+        s = (raw or "").strip()
+        if not s:
+            return None
+        try:
+            return int(float(s))
+        except ValueError:
+            return None
+
+    def _set_spread(wel: ET.Element, target: int) -> bool:
+        cur = _spread_num(wel.get("spread"))
+        if cur is not None and cur == target:
+            return False
+        wel.set("spread", str(target))
+        return True
+
     for part in root.findall(_q(ns, "part")):
-        open_at: dict[str, tuple[ET.Element, str, int]] = {}  # staff -> (dir, wtype, notes_since)
+        # staff -> (start_dir, wtype, notes_since_start)
+        open_at: dict[str, tuple[ET.Element, str, int]] = {}
         for measure in part.findall(_q(ns, "measure")):
             for el in list(measure):
                 tag = _local(el)
@@ -7522,118 +7543,28 @@ def amplify_wedge_spreads_for_visibility_in_root(root: ET.Element) -> int:
                 if wtype in ("crescendo", "diminuendo"):
                     open_at[st] = (el, wtype, 0)
                     continue
-                # stop
                 if st not in open_at:
                     continue
-                _start_el, start_type, nnotes = open_at.pop(st)
-                # open 끝(crescendo stop / diminuendo start) spread
-                # nnotes 0→20, 1→25, 2→30, 3+→ min(20+10*n, 60)
-                target = min(20 + max(nnotes, 0) * 10, 60)
+                start_el, start_type, nnotes = open_at.pop(st)
+                start_w = _wedge_element(start_el, ns)
+                if start_w is None:
+                    continue
+                # 1음≈16, 긴 구간도 3칸(30) 상한 — 예전 60·마디 분할은 짧은 쪽만 과벌림
+                target = min(14 + max(nnotes, 1) * 2, 30)
                 if start_type == "crescendo":
-                    cur = (wel.get("spread") or "").strip()
-                    if not cur or (cur.isdigit() and int(cur) < target):
-                        wel.set("spread", str(target))
+                    # MuseScore 높이 = start.spread; MusicXML open = stop.spread
+                    if _set_spread(start_w, target):
+                        changed += 1
+                    if _set_spread(wel, target):
                         changed += 1
                 else:
-                    # diminuendo: start should be wide, stop near 0
-                    start_w = _wedge_element(_start_el, ns)
-                    if start_w is not None:
-                        cur = (start_w.get("spread") or "").strip()
-                        if not cur or (cur.isdigit() and int(cur) < target):
-                            start_w.set("spread", str(target))
-                            changed += 1
-                    cur_stop = (wel.get("spread") or "").strip()
-                    if cur_stop and cur_stop.isdigit() and int(cur_stop) > 5:
-                        wel.set("spread", "0")
+                    if _set_spread(start_w, target):
                         changed += 1
+                    stop_cur = _spread_num(wel.get("spread"))
+                    if stop_cur is not None and stop_cur > 5:
+                        if _set_spread(wel, 0):
+                            changed += 1
     return changed
-
-
-def split_cross_measure_wedges_at_barlines_in_root(root: ET.Element) -> int:
-    """교차 마디 wedge를 마디 경계에서 끊고 다음 마디에 다시 연다(최종 MuseScore용).
-
-    MuseScore는 기본 hairpin 높이(~1.15칸)가 고정이고, 줄바꿈 연속 hairpin은
-    ContHeight(~0.5칸)로 거의 평행선(=직선)처럼 보인다. MusicXML spread를
-    무시하는 빌드도 많다. 마디마다 짧은 hairpin으로 나누면 각 구간이
-    벌어져 보인다. HITL/OSMD 미리보기 경로에서는 호출하지 않는다.
-    """
-    ns = _ns(root)
-    splits = 0
-    for part in root.findall(_q(ns, "part")):
-        # (staff, number) → open wedge meta
-        open_w: dict[tuple[str, str], dict[str, Any]] = {}
-        measures = list(part.findall(_q(ns, "measure")))
-        for mi, measure in enumerate(measures):
-            if mi > 0 and open_w:
-                prev = measures[mi - 1]
-                for (_st, _num), info in list(open_w.items()):
-                    st_n = int(info["staff_n"])
-                    prev_notes = list_note_elements(prev, ns)
-                    last_i = _last_rhythmic_note_index_on_staff(prev_notes, ns, st_n)
-                    if last_i < 0:
-                        continue
-                    cur_notes = list_note_elements(measure, ns)
-                    first = _first_rhythmic_note_on_staff(measure, ns, st_n)
-                    if first is None:
-                        continue
-                    try:
-                        first_i = cur_notes.index(first)
-                    except ValueError:
-                        continue
-                    wnum = str(info.get("number") or "1")
-                    wtype = str(info.get("wtype") or "crescendo")
-                    placement = str(info.get("placement") or "above")
-                    _insert_standalone_wedge(
-                        prev,
-                        ns,
-                        prev_notes,
-                        wtype="stop",
-                        staff_n=st_n,
-                        placement=placement,
-                        after_note_index=last_i,
-                        wedge_spread="15" if wtype == "crescendo" else "0",
-                        wedge_number=wnum,
-                    )
-                    _insert_standalone_wedge(
-                        measure,
-                        ns,
-                        cur_notes,
-                        wtype=wtype,
-                        staff_n=st_n,
-                        placement=placement,
-                        before_note_index=first_i,
-                        wedge_spread="0" if wtype == "crescendo" else "15",
-                        wedge_number=wnum,
-                    )
-                    info["start_measure"] = measure
-                    splits += 1
-            for el in list(measure):
-                if _local(el) != "direction":
-                    continue
-                wtype = _wedge_type_of(el, ns)
-                if wtype not in ("crescendo", "diminuendo", "stop"):
-                    continue
-                st_n = _direction_effective_staff(measure, el, ns, 1)
-                st = str(st_n)
-                wel = _wedge_element(el, ns)
-                wnum = (wel.get("number") if wel is not None else None) or "1"
-                if wel is not None and not (wel.get("number") or "").strip():
-                    wel.set("number", wnum)
-                pl = (el.get("placement") or "above").strip().lower()
-                if pl not in ("above", "below"):
-                    pl = "above"
-                key = (st, wnum)
-                if wtype in ("crescendo", "diminuendo"):
-                    open_w[key] = {
-                        "wtype": wtype,
-                        "placement": pl,
-                        "number": wnum,
-                        "staff_n": st_n,
-                        "start_measure": measure,
-                    }
-                elif wtype == "stop":
-                    open_w.pop(key, None)
-    return splits
 
 
 def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> bool:

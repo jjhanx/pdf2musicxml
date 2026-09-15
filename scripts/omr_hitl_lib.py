@@ -7241,10 +7241,13 @@ def reanchor_leading_wedge_stops_in_root(root: ET.Element) -> int:
 
 
 def repair_directions_between_chord_notes_in_measure(measure: ET.Element, ns: str) -> int:
-    """화음 리더와 <chord/> 멤버 사이에 끼인 direction을 그룹 밖으로 이동.
+    """화음 리더와 <chord/> 멤버 **사이**에 끼인 direction만 그룹 밖으로 이동.
 
-    MuseScore는 화음이 끊기면 박자·hairpin 길이가 어긋나 점선이 한 줄처럼 길어 보인다.
-    dynamics 등은 리더 앞(onset), wedge stop은 화음 그룹 뒤로.
+    화음 그룹이 끝난 뒤(다음 단음 앞의 stop·셈여림)는 건드리지 않는다.
+    예전 루프는 그룹 뒤 direction까지 between에 넣어 E4용 f가 D5로 가거나
+    hairpin이 어긋나 점선이 직선처럼 보이는 회귀가 있었다.
+
+    dynamics 등 onset 기호 → 리더 앞, wedge stop → 화음 그룹 뒤.
     """
     moved = 0
     children = list(measure)
@@ -7259,33 +7262,35 @@ def repair_directions_between_chord_notes_in_measure(measure: ET.Element, ns: st
             continue
         j = i + 1
         between: list[ET.Element] = []
+        pending: list[ET.Element] = []
         saw_chord = False
+        last_chord: ET.Element | None = None
         while j < len(children):
             c = children[j]
             tag = _local(c)
-            if tag == "note" and c.find(_q(ns, "chord")) is not None:
-                saw_chord = True
-                j += 1
-                continue
             if tag == "direction":
-                between.append(c)
+                pending.append(c)
                 j += 1
                 continue
+            if tag == "note" and c.find(_q(ns, "chord")) is not None:
+                # pending = 이 chord 멤버 직전(리더·이전 멤버와의 사이)만
+                between.extend(pending)
+                pending = []
+                saw_chord = True
+                last_chord = c
+                j += 1
+                continue
+            # 다음 단음 등 — 화음 그룹 종료. pending(그룹 뒤)은 제외
             break
         if not (saw_chord and between):
             i += 1
             continue
-        # between에 모인 direction을 리더 앞 / 그룹 뒤로 재배치
-        last_chord = None
-        for k in range(i + 1, j):
-            c = children[k]
-            if _local(c) == "note" and c.find(_q(ns, "chord")) is not None:
-                last_chord = c
         for direction in between:
+            if direction not in list(measure):
+                continue
             wtype = _wedge_type_of(direction, ns)
             measure.remove(direction)
             if wtype == "stop" and last_chord is not None:
-                # 화음 그룹 뒤
                 kids = list(measure)
                 try:
                     idx = kids.index(last_chord)
@@ -7313,6 +7318,171 @@ def repair_directions_between_chord_notes_in_root(root: ET.Element) -> int:
     for part in root.findall(_q(ns, "part")):
         for measure in part.findall(_q(ns, "measure")):
             n += repair_directions_between_chord_notes_in_measure(measure, ns)
+    return n
+
+
+def repair_adjacent_wedge_stop_after_notes_in_measure(measure: ET.Element, ns: str) -> int:
+    """같은 마디에서 start 직후(음 없이) stop만 있으면 stop을 다음 음(화음) 뒤로.
+
+    OMR이 crescendo+stop을 음표 앞에 붙여 두면 길이가 0 → 점선이 직선/점으로 보인다.
+    """
+    moved = 0
+    children = list(measure)
+    i = 0
+    while i < len(children):
+        el = children[i]
+        if _local(el) != "direction":
+            i += 1
+            continue
+        wtype = _wedge_type_of(el, ns)
+        if wtype not in ("crescendo", "diminuendo"):
+            i += 1
+            continue
+        st_n = _direction_effective_staff(measure, el, ns, 1)
+        j = i + 1
+        stop_el: ET.Element | None = None
+        while j < len(children):
+            c = children[j]
+            tag = _local(c)
+            if tag == "direction":
+                if _wedge_type_of(c, ns) == "stop":
+                    c_st = _direction_effective_staff(measure, c, ns, 1)
+                    if c_st == st_n:
+                        stop_el = c
+                        break
+                j += 1
+                continue
+            if tag == "note":
+                stop_el = None
+                break
+            break
+        if stop_el is None:
+            i += 1
+            continue
+        # stop 다음 리듬 음
+        kids = list(measure)
+        try:
+            si = kids.index(stop_el)
+        except ValueError:
+            i += 1
+            continue
+        next_leader: ET.Element | None = None
+        for k in range(si + 1, len(kids)):
+            c = kids[k]
+            if _local(c) == "backup":
+                break
+            if _local(c) != "note":
+                continue
+            if c.find(_q(ns, "chord")) is not None:
+                continue
+            if (_note_staff_number(c, ns) or 1) != st_n:
+                continue
+            next_leader = c
+            break
+        if next_leader is None:
+            i += 1
+            continue
+        try:
+            note_idx = list_note_elements(measure, ns).index(next_leader)
+        except ValueError:
+            i += 1
+            continue
+        measure.remove(stop_el)
+        _insert_after_note_group(measure, ns, stop_el, note_idx)
+        moved += 1
+        children = list(measure)
+        i += 1
+    return moved
+
+
+def repair_adjacent_wedge_stop_after_notes_in_root(root: ET.Element) -> int:
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            n += repair_adjacent_wedge_stop_after_notes_in_measure(measure, ns)
+    return n
+
+
+def repair_wedge_stops_after_same_staff_backup_in_measure(measure: ET.Element, ns: str) -> int:
+    """같은 staff에서 backup 앞에 열린 wedge의 stop이 backup 뒤에 있으면 backup 앞으로.
+
+    OMR이 다성부 마디에서 stop을 다음 voice(backup 후)에 두면 절대 시각이
+    시작보다 앞서 hairpin 길이가 0·직선처럼 보인다. stop을 backup 직전
+    (해당 staff 마지막 리듬 음 뒤)으로 되돌린다.
+    """
+    moved = 0
+    children = list(measure)
+    open_before: dict[int, ET.Element] = {}  # staff -> start direction
+    i = 0
+    while i < len(children):
+        el = children[i]
+        tag = _local(el)
+        if tag == "backup":
+            # backup 이후~다음 backup 전 stop 검사
+            j = i + 1
+            while j < len(children):
+                c = children[j]
+                ct = _local(c)
+                if ct == "backup":
+                    break
+                if ct == "direction" and _wedge_type_of(c, ns) == "stop":
+                    st_n = _direction_effective_staff(measure, c, ns, 1)
+                    if st_n in open_before:
+                        # backup 앞 구간에서 해당 staff 마지막 리듬 음
+                        last_leader: ET.Element | None = None
+                        for k in range(i - 1, -1, -1):
+                            prev = children[k]
+                            if _local(prev) == "backup":
+                                break
+                            if _local(prev) != "note":
+                                continue
+                            if prev.find(_q(ns, "chord")) is not None:
+                                continue
+                            if (_note_staff_number(prev, ns) or 1) != st_n:
+                                continue
+                            last_leader = prev
+                            break
+                        if last_leader is not None:
+                            try:
+                                note_idx = list_note_elements(measure, ns).index(last_leader)
+                            except ValueError:
+                                j += 1
+                                continue
+                            measure.remove(c)
+                            _insert_after_note_group(measure, ns, c, note_idx)
+                            _bind_direction_voice_from_staff(measure, ns, c, st_n)
+                            open_before.pop(st_n, None)
+                            moved += 1
+                            children = list(measure)
+                            # backup 위치 재탐색
+                            try:
+                                i = children.index(el)
+                            except ValueError:
+                                i = 0
+                            j = i + 1
+                            continue
+                j += 1
+            open_before.clear()
+            i += 1
+            continue
+        if tag == "direction":
+            wtype = _wedge_type_of(el, ns)
+            st_n = _direction_effective_staff(measure, el, ns, 1)
+            if wtype in ("crescendo", "diminuendo"):
+                open_before[st_n] = el
+            elif wtype == "stop":
+                open_before.pop(st_n, None)
+        i += 1
+    return moved
+
+
+def repair_wedge_stops_after_same_staff_backup_in_root(root: ET.Element) -> int:
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            n += repair_wedge_stops_after_same_staff_backup_in_measure(measure, ns)
     return n
 
 
@@ -14793,6 +14963,10 @@ def apply_fixes_file(
         wedges_normalized = normalize_wedges_in_root(root, only_measures=only)
     # 화음 사이 wedge stop/dynamics — HITL 반영 시에도 직선(붕괴) hairpin 방지(전 악보)
     chord_gap_dirs = repair_directions_between_chord_notes_in_root(root)
+    # start 직후 음 없이 stop만 있는 붕괴 wedge → 다음 음 뒤로
+    adjacent_wedge_stops = repair_adjacent_wedge_stop_after_notes_in_root(root)
+    # 같은 staff backup 뒤에 잘못 붙은 stop → backup 앞 성부 끝으로
+    backup_wedge_stops = repair_wedge_stops_after_same_staff_backup_in_root(root)
     orphan_octave_closed = repair_orphan_octave_shifts_in_root(root)
     play_order_doc_measures = materialize_play_order_document_order_in_root(
         root, only_measures=only
@@ -14816,6 +14990,8 @@ def apply_fixes_file(
         "slursNormalizedMeasures": slurs_normalized,
         "wedgesNormalizedMeasures": wedges_normalized,
         "chordGapDirectionsMoved": chord_gap_dirs,
+        "adjacentWedgeStopsMoved": adjacent_wedge_stops,
+        "backupWedgeStopsMoved": backup_wedge_stops,
         "orphanOctaveShiftsClosed": orphan_octave_closed,
         "playOrderDocumentOrderMeasures": play_order_doc_measures,
         "chordPitchDedupeMeasures": chord_pitch_dupes,

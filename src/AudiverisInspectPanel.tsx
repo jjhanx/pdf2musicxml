@@ -165,6 +165,17 @@ export function applyOsmdPreviewEngravingRules(
   rules.WedgePlacementAboveY = -1.0;
   rules.WedgePlacementBelowY = 1.0;
   rules.WedgeVerticalMargin = 0.5;
+  // 벌어짐(opening) — 기본 1.2는 짧은 span에서 직선처럼 보임 → 미리보기에서 더 벌림
+  const wr = rules as OpenSheetMusicDisplay['EngravingRules'] & {
+    WedgeOpeningLength?: number;
+    WedgeMeasureEndOpeningLength?: number;
+    WedgeMeasureBeginOpeningLength?: number;
+    WedgeMinLength?: number;
+  };
+  wr.WedgeOpeningLength = 3.0;
+  wr.WedgeMeasureEndOpeningLength = 2.0;
+  wr.WedgeMeasureBeginOpeningLength = 2.0;
+  if (typeof wr.WedgeMinLength === 'number') wr.WedgeMinLength = Math.max(wr.WedgeMinLength, 2.5);
   // 슬러 끝점 아티큘레이션 및 이음줄 간격 여백 확보
   rules.SlurEndArticulationYOffset = 2.4;
   rules.SlurStartArticulationYOffsetOfArticulation = 2.4;

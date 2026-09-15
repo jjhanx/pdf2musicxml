@@ -4,7 +4,7 @@ import {
   HITL_DIR_DISTANCE_ATTR,
 } from './musicXmlArticulationDistance';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
-import { advanceWedgeStopsPastFollowingNoteInMeasure } from './musicXmlTimelineCleanup';
+import { repairCollapsedWedgesForOsmdPreviewInMeasure } from './musicXmlTimelineCleanup';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -414,8 +414,8 @@ export function normalizeDynamicsAndWedgesForOsmdPreview(xml: string): string {
           }
         }
 
-        // 4. OSMD stop 한 음 일찍 종료 보정 (미리보기 전용)
-        advanceWedgeStopsPastFollowingNoteInMeasure(meas);
+        // 4. 화음 사이·빈 start/stop·backup 오배치 + OSMD stop 한 음 보정 (미리보기 전용)
+        repairCollapsedWedgesForOsmdPreviewInMeasure(meas);
       }
     }
     return serializeMusicXmlDocument(doc);

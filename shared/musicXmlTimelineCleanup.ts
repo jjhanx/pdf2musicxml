@@ -1356,6 +1356,172 @@ export function advanceWedgeStopsPastFollowingNoteInMeasure(measure: Element): v
   }
 }
 
+/**
+ * 화음 리더와 <chord/> 사이 direction만 그룹 밖으로 (미리보기).
+ * 그룹 뒤 stop·셈여림은 건드리지 않음 — E4용 f가 D5로 가는 회귀 방지.
+ */
+export function repairDirectionsBetweenChordNotesInMeasure(measure: Element): void {
+  let guard = 0;
+  while (guard < 64) {
+    guard += 1;
+    const children = [...measure.children];
+    let moved = false;
+    for (let i = 0; i < children.length; i += 1) {
+      const el = children[i]!;
+      if (xmlLocalName(el) !== 'note') continue;
+      if (el.querySelector(':scope > chord, :scope > *|chord')) continue;
+      const between: Element[] = [];
+      let pending: Element[] = [];
+      let sawChord = false;
+      let lastChord: Element | null = null;
+      for (let j = i + 1; j < children.length; j += 1) {
+        const c = children[j]!;
+        const tag = xmlLocalName(c);
+        if (tag === 'direction') {
+          pending.push(c);
+          continue;
+        }
+        if (tag === 'note' && c.querySelector(':scope > chord, :scope > *|chord')) {
+          between.push(...pending);
+          pending = [];
+          sawChord = true;
+          lastChord = c;
+          continue;
+        }
+        break;
+      }
+      if (!(sawChord && between.length)) continue;
+      for (const direction of between) {
+        if (!direction.isConnected) continue;
+        const wtype = directionWedgeType(direction);
+        direction.remove();
+        if (wtype === 'stop' && lastChord) {
+          const after = lastChord.nextElementSibling;
+          if (after) measure.insertBefore(direction, after);
+          else measure.appendChild(direction);
+        } else {
+          measure.insertBefore(direction, el);
+        }
+        moved = true;
+      }
+      if (moved) break;
+    }
+    if (!moved) break;
+  }
+}
+
+/** start 직후(음 없이) stop만 있으면 다음 리듬 음(화음) 뒤로 — 길이 0 붕괴 방지. */
+export function repairAdjacentWedgeStopAfterNotesInMeasure(measure: Element): void {
+  let guard = 0;
+  while (guard < 32) {
+    guard += 1;
+    const children = [...measure.children];
+    let moved = false;
+    for (let i = 0; i < children.length; i += 1) {
+      const el = children[i]!;
+      if (xmlLocalName(el) !== 'direction') continue;
+      const wtype = directionWedgeType(el);
+      if (wtype !== 'crescendo' && wtype !== 'diminuendo') continue;
+      const staffN = directionStaffNumber(el);
+      let stopEl: Element | null = null;
+      for (let j = i + 1; j < children.length; j += 1) {
+        const c = children[j]!;
+        const tag = xmlLocalName(c);
+        if (tag === 'direction') {
+          if (directionWedgeType(c) === 'stop' && directionStaffNumber(c) === staffN) {
+            stopEl = c;
+            break;
+          }
+          continue;
+        }
+        if (tag === 'note') {
+          stopEl = null;
+          break;
+        }
+        break;
+      }
+      if (!stopEl) continue;
+      const si = [...measure.children].indexOf(stopEl);
+      let nextLeader: Element | null = null;
+      for (let k = si + 1; k < measure.children.length; k += 1) {
+        const c = measure.children[k]!;
+        if (xmlLocalName(c) === 'backup') break;
+        if (xmlLocalName(c) !== 'note') continue;
+        if (c.querySelector(':scope > chord, :scope > *|chord')) continue;
+        if (!noteMatchesPreviewStaff(c, staffN)) continue;
+        nextLeader = c;
+        break;
+      }
+      if (!nextLeader) continue;
+      insertDirectionAfterNoteGroup(measure, stopEl, nextLeader);
+      moved = true;
+      break;
+    }
+    if (!moved) break;
+  }
+}
+
+/**
+ * 같은 staff에서 backup 앞 wedge의 stop이 backup 뒤에 있으면 backup 직전으로.
+ * 다성부 OMR 오배치로 절대시각이 뒤집혀 직선/0길이 hairpin이 되는 경우.
+ */
+export function repairWedgeStopsAfterSameStaffBackupInMeasure(measure: Element): void {
+  let guard = 0;
+  while (guard < 16) {
+    guard += 1;
+    const children = [...measure.children];
+    const openBefore = new Map<number, Element>();
+    let moved = false;
+    for (let i = 0; i < children.length; i += 1) {
+      const el = children[i]!;
+      const tag = xmlLocalName(el);
+      if (tag === 'backup') {
+        for (let j = i + 1; j < children.length; j += 1) {
+          const c = children[j]!;
+          const ct = xmlLocalName(c);
+          if (ct === 'backup') break;
+          if (ct !== 'direction' || directionWedgeType(c) !== 'stop') continue;
+          const stN = directionStaffNumber(c);
+          if (!openBefore.has(stN)) continue;
+          let lastLeader: Element | null = null;
+          for (let k = i - 1; k >= 0; k -= 1) {
+            const prev = children[k]!;
+            if (xmlLocalName(prev) === 'backup') break;
+            if (xmlLocalName(prev) !== 'note') continue;
+            if (prev.querySelector(':scope > chord, :scope > *|chord')) continue;
+            if (!noteMatchesPreviewStaff(prev, stN)) continue;
+            lastLeader = prev;
+            break;
+          }
+          if (!lastLeader) continue;
+          insertDirectionAfterNoteGroup(measure, c, lastLeader);
+          openBefore.delete(stN);
+          moved = true;
+          break;
+        }
+        openBefore.clear();
+        if (moved) break;
+        continue;
+      }
+      if (tag === 'direction') {
+        const wtype = directionWedgeType(el);
+        const stN = directionStaffNumber(el);
+        if (wtype === 'crescendo' || wtype === 'diminuendo') openBefore.set(stN, el);
+        else if (wtype === 'stop') openBefore.delete(stN);
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+/** 미리보기 전용: 화음 사이·빈 start/stop·backup 오배치 wedge를 OSMD 그리기 전에 정리. */
+export function repairCollapsedWedgesForOsmdPreviewInMeasure(measure: Element): void {
+  repairDirectionsBetweenChordNotesInMeasure(measure);
+  repairWedgeStopsAfterSameStaffBackupInMeasure(measure);
+  repairAdjacentWedgeStopAfterNotesInMeasure(measure);
+  advanceWedgeStopsPastFollowingNoteInMeasure(measure);
+}
+
 export function advanceWedgeStopsPastFollowingNoteForOsmdPreview(xml: string): string {
   try {
     const doc = parseMusicXmlDocument(xml);

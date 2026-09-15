@@ -5080,6 +5080,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "octave_shift_stop_repaired": 0,
         "orphan_octave_shifts_closed": 0,
         "play_order_document_order_measures": 0,
+        "grand_staff_voices_normalized": 0,
         "sole_voice_to_one_measures": 0,
         "leading_wedge_stops_reanchored": 0,
         "chord_gap_directions_moved": 0,
@@ -5303,6 +5304,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     try:
         from omr_hitl_lib import (
             materialize_play_order_document_order_in_root,
+            normalize_grand_staff_voices_in_root,
             normalize_sole_staff_voices_to_one_in_root,
             reanchor_leading_wedge_stops_in_root,
             repair_directions_between_chord_notes_in_root,
@@ -5312,6 +5314,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     except ImportError:
         from scripts.omr_hitl_lib import (  # type: ignore
             materialize_play_order_document_order_in_root,
+            normalize_grand_staff_voices_in_root,
             normalize_sole_staff_voices_to_one_in_root,
             reanchor_leading_wedge_stops_in_root,
             repair_directions_between_chord_notes_in_root,
@@ -5319,6 +5322,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
             repair_octave_shift_stops_before_cross_staff_backup_in_root,
         )
     stats["sole_voice_to_one_measures"] += normalize_sole_staff_voices_to_one_in_root(root)
+    # sole→1이 grand staff를 건드리지 않아도, 이전 산출·다른 단계에서 staff2=voice1이 되면 복구
+    stats["grand_staff_voices_normalized"] = stats.get("grand_staff_voices_normalized", 0) + (
+        normalize_grand_staff_voices_in_root(root)
+    )
     stats["chord_gap_directions_moved"] += repair_directions_between_chord_notes_in_root(root)
     stats["leading_wedge_stops_reanchored"] += reanchor_leading_wedge_stops_in_root(root)
     stats["octave_shift_stop_repaired"] += repair_octave_shift_stops_before_cross_staff_backup_in_root(

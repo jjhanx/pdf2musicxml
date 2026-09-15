@@ -7064,6 +7064,9 @@ def normalize_sole_staff_voices_to_one_in_measure(measure: ET.Element, ns: str) 
 
     MuseScore는 빈 voice 1에 온쉼표를 그려, HITL/OSMD에는 없는 잔상이 최종 MXL에만 생긴다.
     direction(wedge 등) voice도 같이 맞춘다.
+
+    **피아노 grand staff(staff 2 존재)는 적용하지 않는다.** LH는 MuseScore 관례상
+    voice 5+인데 1로 바꾸면 PR/PL 여기저기에 미리보기에 없던 온쉼이 생긴다.
     """
     notes = list_note_elements(measure, ns)
     by_staff: dict[str, set[str]] = {}
@@ -7072,6 +7075,9 @@ def normalize_sole_staff_voices_to_one_in_measure(measure: ET.Element, ns: str) 
             continue
         voice, staff = _note_voice_staff(note, ns)
         by_staff.setdefault(staff, set()).add(voice)
+    # grand staff — sole→1 금지 (staff2 voice 5→1 회귀)
+    if any((s.isdigit() and int(s) >= 2) or s == "2" for s in by_staff):
+        return False
     changed = False
     for staff, voices in by_staff.items():
         if len(voices) != 1:
@@ -7093,7 +7099,6 @@ def normalize_sole_staff_voices_to_one_in_measure(measure: ET.Element, ns: str) 
             if d_staff is not None and d_staff != staff_n:
                 continue
             if d_staff is None and staff_n != 1:
-                # staff 미표기 direction은 staff1 관례 — staff2 sole remap 대상 아님
                 continue
             voice_el = direction.find(_q(ns, "voice"))
             if voice_el is not None and (voice_el.text or "").strip() == sole:
@@ -7103,6 +7108,17 @@ def normalize_sole_staff_voices_to_one_in_measure(measure: ET.Element, ns: str) 
                 _bind_direction_voice_from_staff(measure, ns, direction, staff_n)
                 changed = True
     return changed
+
+
+def normalize_grand_staff_voices_in_root(root: ET.Element) -> int:
+    """전 악보 grand staff voice 대역 정리. 변경된 마디 수."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            if normalize_grand_staff_voices_in_measure(measure, ns):
+                n += 1
+    return n
 
 
 def normalize_sole_staff_voices_to_one_in_root(root: ET.Element) -> int:

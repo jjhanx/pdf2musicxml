@@ -172,9 +172,9 @@ export function applyOsmdPreviewEngravingRules(
     WedgeMeasureBeginOpeningLength?: number;
     WedgeMinLength?: number;
   };
-  wr.WedgeOpeningLength = 4.0;
-  wr.WedgeMeasureEndOpeningLength = 2.5;
-  wr.WedgeMeasureBeginOpeningLength = 2.5;
+  wr.WedgeOpeningLength = 5.0;
+  wr.WedgeMeasureEndOpeningLength = 3.5;
+  wr.WedgeMeasureBeginOpeningLength = 3.5;
   if (typeof wr.WedgeMinLength === 'number') wr.WedgeMinLength = Math.max(wr.WedgeMinLength, 3);
   // 슬러 끝점 아티큘레이션 및 이음줄 간격 여백 확보
   rules.SlurEndArticulationYOffset = 2.4;

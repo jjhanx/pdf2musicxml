@@ -46,6 +46,31 @@ function osmdNavigationLabelPlugin(): Plugin {
       'O=this.rules.StaffHeight+t/2}else O=this.rules.WedgePlacementBelowY',
       'O=this.rules.WedgePlacementBelowY}else O=this.rules.WedgePlacementBelowY',
     ],
+    // 긴 hairpin이 고정 opening으로 직선처럼 보이는 문제 — 길이 비례 벌어짐
+    [
+      'createCrescendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i),a=new o.PointF2D(e,i-s/2),l=new o.PointF2D(e,i+s/2);this.addWedgeLines(r,a,l,n)}',
+      'createCrescendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,14)),r=new o.PointF2D(t,i),a=new o.PointF2D(e,i-_o/2),l=new o.PointF2D(e,i+_o/2);this.addWedgeLines(r,a,l,n)}',
+    ],
+    [
+      'createDiminuendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i-s/2),a=new o.PointF2D(t,i+s/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
+      'createDiminuendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,14)),r=new o.PointF2D(t,i-_o/2),a=new o.PointF2D(t,i+_o/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
+    ],
+    [
+      'createFirstHalfCrescendoLines(t,e,i,s=this.rules.WedgeMeasureEndOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i),a=new o.PointF2D(e,i-s/2),l=new o.PointF2D(e,i+s/2);this.addWedgeLines(r,a,l,n)}',
+      'createFirstHalfCrescendoLines(t,e,i,s=this.rules.WedgeMeasureEndOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,10)),r=new o.PointF2D(t,i),a=new o.PointF2D(e,i-_o/2),l=new o.PointF2D(e,i+_o/2);this.addWedgeLines(r,a,l,n)}',
+    ],
+    [
+      'createSecondHalfDiminuendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i-s/2),a=new o.PointF2D(t,i+s/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
+      'createSecondHalfDiminuendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,10)),r=new o.PointF2D(t,i-_o/2),a=new o.PointF2D(t,i+_o/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
+    ],
+    [
+      'createSecondHalfCrescendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeOpeningLength,r=this.rules.WedgeLineWidth){const a=new o.PointF2D(t,i-s/2),l=new o.PointF2D(t,i+s/2),h=new o.PointF2D(e,i-n/2),c=new o.PointF2D(e,i+n/2);this.addDoubleLines(a,h,l,c,r)}',
+      'createSecondHalfCrescendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeOpeningLength,r=this.rules.WedgeLineWidth){const _len=Math.abs(e-t),_n=Math.max(n,Math.min(_len*.5,14)),_s=Math.max(s,Math.min(_n*.45,8)),a=new o.PointF2D(t,i-_s/2),l=new o.PointF2D(t,i+_s/2),h=new o.PointF2D(e,i-_n/2),c=new o.PointF2D(e,i+_n/2);this.addDoubleLines(a,h,l,c,r)}',
+    ],
+    [
+      'createFirstHalfDiminuendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeMeasureEndOpeningLength,r=this.rules.WedgeLineWidth){const a=new o.PointF2D(t,i-s/2),l=new o.PointF2D(t,i+s/2),h=new o.PointF2D(e,i-n/2),c=new o.PointF2D(e,i+n/2);this.addDoubleLines(a,h,l,c,r)}',
+      'createFirstHalfDiminuendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeMeasureEndOpeningLength,r=this.rules.WedgeLineWidth){const _len=Math.abs(e-t),_s=Math.max(s,Math.min(_len*.5,14)),_n=Math.max(n,Math.min(_s*.45,8)),a=new o.PointF2D(t,i-_s/2),l=new o.PointF2D(t,i+_s/2),h=new o.PointF2D(e,i-_n/2),c=new o.PointF2D(e,i+_n/2);this.addDoubleLines(a,h,l,c,r)}',
+    ],
   ];
   return {
     name: 'osmd-navigation-labels',

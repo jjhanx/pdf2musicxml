@@ -38,6 +38,7 @@ def test_osmd_patch_present() -> None:
         return
     text = minjs.read_text(encoding="utf-8", errors="ignore")
     assert "Math.min(Math.abs(e-t)*.5,14)" in text, "OSMD length-scaled wedge opening patch missing — run npm i / postinstall"
+    assert "_n=Math.max(n,Math.min(_len*.5,14))" in text, "OSMD second-half crescendo opening patch missing"
 
 
 if __name__ == "__main__":

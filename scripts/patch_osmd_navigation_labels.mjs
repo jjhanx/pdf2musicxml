@@ -103,6 +103,17 @@ const PATCHES = [
     from: 'createSecondHalfDiminuendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i-s/2),a=new o.PointF2D(t,i+s/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
     to: 'createSecondHalfDiminuendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,10)),r=new o.PointF2D(t,i-_o/2),a=new o.PointF2D(t,i+_o/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
   },
+  // 시스템 분할 후반 crescendo / 전반 diminuendo — 고정 begin·end opening이면 긴 구간이 평행선(직선)처럼 보임
+  {
+    name: 'Second-half crescendo openings scale with length',
+    from: 'createSecondHalfCrescendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeOpeningLength,r=this.rules.WedgeLineWidth){const a=new o.PointF2D(t,i-s/2),l=new o.PointF2D(t,i+s/2),h=new o.PointF2D(e,i-n/2),c=new o.PointF2D(e,i+n/2);this.addDoubleLines(a,h,l,c,r)}',
+    to: 'createSecondHalfCrescendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeOpeningLength,r=this.rules.WedgeLineWidth){const _len=Math.abs(e-t),_n=Math.max(n,Math.min(_len*.5,14)),_s=Math.max(s,Math.min(_n*.45,8)),a=new o.PointF2D(t,i-_s/2),l=new o.PointF2D(t,i+_s/2),h=new o.PointF2D(e,i-_n/2),c=new o.PointF2D(e,i+_n/2);this.addDoubleLines(a,h,l,c,r)}',
+  },
+  {
+    name: 'First-half diminuendo openings scale with length',
+    from: 'createFirstHalfDiminuendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeMeasureEndOpeningLength,r=this.rules.WedgeLineWidth){const a=new o.PointF2D(t,i-s/2),l=new o.PointF2D(t,i+s/2),h=new o.PointF2D(e,i-n/2),c=new o.PointF2D(e,i+n/2);this.addDoubleLines(a,h,l,c,r)}',
+    to: 'createFirstHalfDiminuendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeMeasureEndOpeningLength,r=this.rules.WedgeLineWidth){const _len=Math.abs(e-t),_s=Math.max(s,Math.min(_len*.5,14)),_n=Math.max(n,Math.min(_s*.45,8)),a=new o.PointF2D(t,i-_s/2),l=new o.PointF2D(t,i+_s/2),h=new o.PointF2D(e,i-_n/2),c=new o.PointF2D(e,i+_n/2);this.addDoubleLines(a,h,l,c,r)}',
+  },
 ];
 
 if (!fs.existsSync(target)) {

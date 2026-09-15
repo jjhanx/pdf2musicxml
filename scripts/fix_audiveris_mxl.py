@@ -5086,6 +5086,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "chord_gap_directions_moved": 0,
         "adjacent_wedge_stops_moved": 0,
         "backup_wedge_stops_moved": 0,
+        "wedge_spreads_amplified": 0,
     }
 
     # 1) 텍스트 정리 + orphan backup/forward + backup/forward 겹침 voice 병합
@@ -5344,6 +5345,13 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     )
     stats["backup_wedge_stops_moved"] = stats.get("backup_wedge_stops_moved", 0) + (
         repair_wedge_stops_after_same_staff_backup_in_root(root)
+    )
+    try:
+        from omr_hitl_lib import amplify_wedge_spreads_for_visibility_in_root
+    except ImportError:
+        from scripts.omr_hitl_lib import amplify_wedge_spreads_for_visibility_in_root  # type: ignore
+    stats["wedge_spreads_amplified"] = stats.get("wedge_spreads_amplified", 0) + (
+        amplify_wedge_spreads_for_visibility_in_root(root)
     )
     stats["leading_wedge_stops_reanchored"] += reanchor_leading_wedge_stops_in_root(root)
     stats["octave_shift_stop_repaired"] += repair_octave_shift_stops_before_cross_staff_backup_in_root(

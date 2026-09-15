@@ -76,6 +76,33 @@ const PATCHES = [
     from: 'this.lastWedge.parentMeasure.MeasureNumberXML===i.MeasureNumberXML',
     to: 'this.lastWedge.parentMeasure===i',
   },
+  {
+    name: 'Wedge below multi-staff use placement rule not inter-staff mid',
+    from: 'O=this.rules.StaffHeight+t/2}else O=this.rules.WedgePlacementBelowY',
+    to: 'O=this.rules.WedgePlacementBelowY}else O=this.rules.WedgePlacementBelowY',
+  },
+  // OSMD는 MusicXML spread를 무시하고 WedgeOpeningLength(절대칸)만 씀.
+  // 긴 hairpin에서 각도가 ~수 °로 거의 직선 → 길이에 비례해 벌어짐(상한 14칸).
+  {
+    name: 'Crescendo opening scales with length',
+    from: 'createCrescendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i),a=new o.PointF2D(e,i-s/2),l=new o.PointF2D(e,i+s/2);this.addWedgeLines(r,a,l,n)}',
+    to: 'createCrescendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,14)),r=new o.PointF2D(t,i),a=new o.PointF2D(e,i-_o/2),l=new o.PointF2D(e,i+_o/2);this.addWedgeLines(r,a,l,n)}',
+  },
+  {
+    name: 'Diminuendo opening scales with length',
+    from: 'createDiminuendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i-s/2),a=new o.PointF2D(t,i+s/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
+    to: 'createDiminuendoLines(t,e,i,s=this.rules.WedgeOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,14)),r=new o.PointF2D(t,i-_o/2),a=new o.PointF2D(t,i+_o/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
+  },
+  {
+    name: 'First-half crescendo opening scales with length',
+    from: 'createFirstHalfCrescendoLines(t,e,i,s=this.rules.WedgeMeasureEndOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i),a=new o.PointF2D(e,i-s/2),l=new o.PointF2D(e,i+s/2);this.addWedgeLines(r,a,l,n)}',
+    to: 'createFirstHalfCrescendoLines(t,e,i,s=this.rules.WedgeMeasureEndOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,10)),r=new o.PointF2D(t,i),a=new o.PointF2D(e,i-_o/2),l=new o.PointF2D(e,i+_o/2);this.addWedgeLines(r,a,l,n)}',
+  },
+  {
+    name: 'Second-half diminuendo opening scales with length',
+    from: 'createSecondHalfDiminuendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeLineWidth){const r=new o.PointF2D(t,i-s/2),a=new o.PointF2D(t,i+s/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
+    to: 'createSecondHalfDiminuendoLines(t,e,i,s=this.rules.WedgeMeasureBeginOpeningLength,n=this.rules.WedgeLineWidth){const _o=Math.max(s,Math.min(Math.abs(e-t)*.5,10)),r=new o.PointF2D(t,i-_o/2),a=new o.PointF2D(t,i+_o/2),l=new o.PointF2D(e,i);this.addWedgeLines(l,r,a,n)}',
+  },
 ];
 
 if (!fs.existsSync(target)) {

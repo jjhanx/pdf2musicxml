@@ -7486,6 +7486,69 @@ def repair_wedge_stops_after_same_staff_backup_in_root(root: ET.Element) -> int:
     return n
 
 
+def amplify_wedge_spreads_for_visibility_in_root(root: ET.Element) -> int:
+    """긴 hairpin이 MuseScore에서 직선처럼 보이지 않도록 stop/start spread를 키움.
+
+    MusicXML spread는 십분의일 인터라인. OMR 기본 stop=15(1.5칸)는 두 마디
+    crescendo에서 각도가 거의 0에 가깝다. 같은 staff에서 start→stop 사이
+    리듬 음(화음 리더) 수에 비례해 open 쪽 spread를 올린다(상한 60).
+    """
+    ns = _ns(root)
+    changed = 0
+    for part in root.findall(_q(ns, "part")):
+        open_at: dict[str, tuple[ET.Element, str, int]] = {}  # staff -> (dir, wtype, notes_since)
+        for measure in part.findall(_q(ns, "measure")):
+            for el in list(measure):
+                tag = _local(el)
+                if tag == "note":
+                    if el.find(_q(ns, "chord")) is not None:
+                        continue
+                    st = str(_note_staff_number(el, ns) or 1)
+                    if st in open_at:
+                        d, wt, nnotes = open_at[st]
+                        open_at[st] = (d, wt, nnotes + 1)
+                    continue
+                if tag == "backup":
+                    continue
+                if tag != "direction":
+                    continue
+                wtype = _wedge_type_of(el, ns)
+                if wtype not in ("crescendo", "diminuendo", "stop"):
+                    continue
+                st = str(_direction_effective_staff(measure, el, ns, 1))
+                wel = _wedge_element(el, ns)
+                if wel is None:
+                    continue
+                if wtype in ("crescendo", "diminuendo"):
+                    open_at[st] = (el, wtype, 0)
+                    continue
+                # stop
+                if st not in open_at:
+                    continue
+                _start_el, start_type, nnotes = open_at.pop(st)
+                # open 끝(crescendo stop / diminuendo start) spread
+                # nnotes 0→20, 1→25, 2→30, 3+→ min(20+10*n, 60)
+                target = min(20 + max(nnotes, 0) * 10, 60)
+                if start_type == "crescendo":
+                    cur = (wel.get("spread") or "").strip()
+                    if not cur or (cur.isdigit() and int(cur) < target):
+                        wel.set("spread", str(target))
+                        changed += 1
+                else:
+                    # diminuendo: start should be wide, stop near 0
+                    start_w = _wedge_element(_start_el, ns)
+                    if start_w is not None:
+                        cur = (start_w.get("spread") or "").strip()
+                        if not cur or (cur.isdigit() and int(cur) < target):
+                            start_w.set("spread", str(target))
+                            changed += 1
+                    cur_stop = (wel.get("spread") or "").strip()
+                    if cur_stop and cur_stop.isdigit() and int(cur_stop) > 5:
+                        wel.set("spread", "0")
+                        changed += 1
+    return changed
+
+
 def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> bool:
     notes = list_note_elements(measure, ns)
     voices: set[str] = set()
@@ -14967,6 +15030,7 @@ def apply_fixes_file(
     adjacent_wedge_stops = repair_adjacent_wedge_stop_after_notes_in_root(root)
     # 같은 staff backup 뒤에 잘못 붙은 stop → backup 앞 성부 끝으로
     backup_wedge_stops = repair_wedge_stops_after_same_staff_backup_in_root(root)
+    wedge_spreads_amplified = amplify_wedge_spreads_for_visibility_in_root(root)
     orphan_octave_closed = repair_orphan_octave_shifts_in_root(root)
     play_order_doc_measures = materialize_play_order_document_order_in_root(
         root, only_measures=only
@@ -14992,6 +15056,7 @@ def apply_fixes_file(
         "chordGapDirectionsMoved": chord_gap_dirs,
         "adjacentWedgeStopsMoved": adjacent_wedge_stops,
         "backupWedgeStopsMoved": backup_wedge_stops,
+        "wedgeSpreadsAmplified": wedge_spreads_amplified,
         "orphanOctaveShiftsClosed": orphan_octave_closed,
         "playOrderDocumentOrderMeasures": play_order_doc_measures,
         "chordPitchDedupeMeasures": chord_pitch_dupes,

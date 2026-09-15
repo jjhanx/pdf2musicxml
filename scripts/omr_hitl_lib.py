@@ -7549,6 +7549,93 @@ def amplify_wedge_spreads_for_visibility_in_root(root: ET.Element) -> int:
     return changed
 
 
+def split_cross_measure_wedges_at_barlines_in_root(root: ET.Element) -> int:
+    """교차 마디 wedge를 마디 경계에서 끊고 다음 마디에 다시 연다(최종 MuseScore용).
+
+    MuseScore는 기본 hairpin 높이(~1.15칸)가 고정이고, 줄바꿈 연속 hairpin은
+    ContHeight(~0.5칸)로 거의 평행선(=직선)처럼 보인다. MusicXML spread를
+    무시하는 빌드도 많다. 마디마다 짧은 hairpin으로 나누면 각 구간이
+    벌어져 보인다. HITL/OSMD 미리보기 경로에서는 호출하지 않는다.
+    """
+    ns = _ns(root)
+    splits = 0
+    for part in root.findall(_q(ns, "part")):
+        # (staff, number) → open wedge meta
+        open_w: dict[tuple[str, str], dict[str, Any]] = {}
+        measures = list(part.findall(_q(ns, "measure")))
+        for mi, measure in enumerate(measures):
+            if mi > 0 and open_w:
+                prev = measures[mi - 1]
+                for (_st, _num), info in list(open_w.items()):
+                    st_n = int(info["staff_n"])
+                    prev_notes = list_note_elements(prev, ns)
+                    last_i = _last_rhythmic_note_index_on_staff(prev_notes, ns, st_n)
+                    if last_i < 0:
+                        continue
+                    cur_notes = list_note_elements(measure, ns)
+                    first = _first_rhythmic_note_on_staff(measure, ns, st_n)
+                    if first is None:
+                        continue
+                    try:
+                        first_i = cur_notes.index(first)
+                    except ValueError:
+                        continue
+                    wnum = str(info.get("number") or "1")
+                    wtype = str(info.get("wtype") or "crescendo")
+                    placement = str(info.get("placement") or "above")
+                    _insert_standalone_wedge(
+                        prev,
+                        ns,
+                        prev_notes,
+                        wtype="stop",
+                        staff_n=st_n,
+                        placement=placement,
+                        after_note_index=last_i,
+                        wedge_spread="15" if wtype == "crescendo" else "0",
+                        wedge_number=wnum,
+                    )
+                    _insert_standalone_wedge(
+                        measure,
+                        ns,
+                        cur_notes,
+                        wtype=wtype,
+                        staff_n=st_n,
+                        placement=placement,
+                        before_note_index=first_i,
+                        wedge_spread="0" if wtype == "crescendo" else "15",
+                        wedge_number=wnum,
+                    )
+                    info["start_measure"] = measure
+                    splits += 1
+            for el in list(measure):
+                if _local(el) != "direction":
+                    continue
+                wtype = _wedge_type_of(el, ns)
+                if wtype not in ("crescendo", "diminuendo", "stop"):
+                    continue
+                st_n = _direction_effective_staff(measure, el, ns, 1)
+                st = str(st_n)
+                wel = _wedge_element(el, ns)
+                wnum = (wel.get("number") if wel is not None else None) or "1"
+                if wel is not None and not (wel.get("number") or "").strip():
+                    wel.set("number", wnum)
+                pl = (el.get("placement") or "above").strip().lower()
+                if pl not in ("above", "below"):
+                    pl = "above"
+                key = (st, wnum)
+                if wtype in ("crescendo", "diminuendo"):
+                    open_w[key] = {
+                        "wtype": wtype,
+                        "placement": pl,
+                        "number": wnum,
+                        "staff_n": st_n,
+                        "start_measure": measure,
+                    }
+                elif wtype == "stop":
+                    open_w.pop(key, None)
+    return splits
+
+
 def _merge_staff_voices_to_primary(measure: ET.Element, ns: str, staff: str) -> bool:
     notes = list_note_elements(measure, ns)
     voices: set[str] = set()

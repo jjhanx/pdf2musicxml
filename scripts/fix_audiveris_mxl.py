@@ -5332,13 +5332,17 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     stats["chord_gap_directions_moved"] += repair_directions_between_chord_notes_in_root(root)
     try:
         from omr_hitl_lib import (
+            amplify_wedge_spreads_for_visibility_in_root,
             repair_adjacent_wedge_stop_after_notes_in_root,
             repair_wedge_stops_after_same_staff_backup_in_root,
+            split_cross_measure_wedges_at_barlines_in_root,
         )
     except ImportError:
         from scripts.omr_hitl_lib import (  # type: ignore
+            amplify_wedge_spreads_for_visibility_in_root,
             repair_adjacent_wedge_stop_after_notes_in_root,
             repair_wedge_stops_after_same_staff_backup_in_root,
+            split_cross_measure_wedges_at_barlines_in_root,
         )
     stats["adjacent_wedge_stops_moved"] = stats.get("adjacent_wedge_stops_moved", 0) + (
         repair_adjacent_wedge_stop_after_notes_in_root(root)
@@ -5346,14 +5350,14 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     stats["backup_wedge_stops_moved"] = stats.get("backup_wedge_stops_moved", 0) + (
         repair_wedge_stops_after_same_staff_backup_in_root(root)
     )
-    try:
-        from omr_hitl_lib import amplify_wedge_spreads_for_visibility_in_root
-    except ImportError:
-        from scripts.omr_hitl_lib import amplify_wedge_spreads_for_visibility_in_root  # type: ignore
+    # 교차 마디 연속 hairpin을 마디마다 끊음 — MuseScore ContHeight 직선 방지(미리보기 미적용)
+    stats["leading_wedge_stops_reanchored"] += reanchor_leading_wedge_stops_in_root(root)
+    stats["cross_measure_wedges_split"] = stats.get("cross_measure_wedges_split", 0) + (
+        split_cross_measure_wedges_at_barlines_in_root(root)
+    )
     stats["wedge_spreads_amplified"] = stats.get("wedge_spreads_amplified", 0) + (
         amplify_wedge_spreads_for_visibility_in_root(root)
     )
-    stats["leading_wedge_stops_reanchored"] += reanchor_leading_wedge_stops_in_root(root)
     stats["octave_shift_stop_repaired"] += repair_octave_shift_stops_before_cross_staff_backup_in_root(
         root
     )

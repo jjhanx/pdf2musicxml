@@ -8861,6 +8861,99 @@ def repair_octave_shift_stops_before_cross_staff_backup_in_root(
     return n
 
 
+def repair_orphan_octave_shifts_in_root(root: ET.Element) -> int:
+    """닫히지 않은 octave-shift start를 시작 마디 마지막 음 뒤에서 닫거나 제거.
+
+    OSMD는 짝 없는 8va에서 calculateSingleOctaveShift → realValue 크래시.
+    MuseScore도 열린 8va가 곡 끝까지 이어진다. HITL로 stop만 지워진 경우 복구.
+    """
+    ns = _ns(root)
+    closed = 0
+    for part in root.findall(_q(ns, "part")):
+        open_shifts: dict[str, dict[str, Any]] = {}  # staff -> {measure, number, dir, placement}
+        for measure in part.findall(_q(ns, "measure")):
+            for el in list(measure):
+                if _local(el) != "direction":
+                    continue
+                otype = _octave_shift_type_of(el, ns)
+                if otype not in ("up", "down", "stop"):
+                    continue
+                st_n = _direction_effective_staff(measure, el, ns, 1)
+                st = str(st_n)
+                oel = _octave_shift_element(el, ns)
+                wnum = (oel.get("number") if oel is not None else None) or "1"
+                if otype in ("up", "down"):
+                    # 같은 staff에 미종료 start가 있으면 이전 것을 이 마디 직전에서 닫기
+                    if st in open_shifts:
+                        prev = open_shifts[st]
+                        prev_m = prev["measure"]
+                        notes = list_note_elements(prev_m, ns)
+                        last_i = _last_rhythmic_note_index_on_staff(notes, ns, int(prev["staff"]))
+                        if last_i >= 0:
+                            _insert_standalone_octave_shift(
+                                prev_m,
+                                ns,
+                                notes,
+                                otype="stop",
+                                staff_n=int(prev["staff"]),
+                                placement=prev.get("placement") or "above",
+                                after_note_index=last_i,
+                                shift_number=prev.get("number") or "1",
+                            )
+                            closed += 1
+                        else:
+                            prev_dir = prev.get("direction")
+                            if prev_dir is not None and prev_dir in list(prev_m):
+                                prev_m.remove(prev_dir)
+                                closed += 1
+                    open_shifts[st] = {
+                        "measure": measure,
+                        "direction": el,
+                        "number": wnum,
+                        "staff": st_n,
+                        "placement": el.get("placement") or "above",
+                    }
+                else:
+                    # stop — matching open
+                    if st in open_shifts and str(open_shifts[st].get("number") or "1") == str(wnum):
+                        open_shifts.pop(st, None)
+                    else:
+                        match = next(
+                            (
+                                k
+                                for k, info in open_shifts.items()
+                                if str(info.get("number") or "1") == str(wnum)
+                            ),
+                            None,
+                        )
+                        if match is not None:
+                            open_shifts.pop(match, None)
+        # part 끝 — 남은 open 닫기/제거
+        for st, info in list(open_shifts.items()):
+            m = info["measure"]
+            notes = list_note_elements(m, ns)
+            last_i = _last_rhythmic_note_index_on_staff(notes, ns, int(info["staff"]))
+            if last_i >= 0:
+                _insert_standalone_octave_shift(
+                    m,
+                    ns,
+                    notes,
+                    otype="stop",
+                    staff_n=int(info["staff"]),
+                    placement=info.get("placement") or "above",
+                    after_note_index=last_i,
+                    shift_number=info.get("number") or "1",
+                )
+                closed += 1
+            else:
+                d = info.get("direction")
+                if d is not None and d in list(m):
+                    m.remove(d)
+                    closed += 1
+            open_shifts.pop(st, None)
+    return closed
+
+
 def _insert_standalone_octave_shift(
     measure: ET.Element,
     ns: str,
@@ -10044,6 +10137,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     coerce_durs = coerce_note_durations_to_type_in_root(root)
     slurs = normalize_slurs_in_root(root)
     wedges = normalize_wedges_in_root(root)
+    orphan_oct = repair_orphan_octave_shifts_in_root(root)
     po_align = realign_play_order_column_timelines_in_root(root)
     if (
         chord_beams
@@ -10054,6 +10148,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
         or coerce_durs
         or slurs
         or wedges
+        or orphan_oct
         or po_align
     ):
         write_mxl_root(out_mxl, files, root_path, root)
@@ -14636,6 +14731,7 @@ def apply_fixes_file(
     wedges_normalized = 0
     if fixes_include_wedge_kind(fixes):
         wedges_normalized = normalize_wedges_in_root(root, only_measures=only)
+    orphan_octave_closed = repair_orphan_octave_shifts_in_root(root)
     chord_pitch_dupes = dedupe_identical_chord_pitches_in_root(root, only_measures=only)
     play_order_timeline_measures = realign_play_order_column_timelines_in_root(
         root, only_measures=only
@@ -14654,6 +14750,7 @@ def apply_fixes_file(
         "noteDurationsCoercedToType": note_durs_coerced,
         "slursNormalizedMeasures": slurs_normalized,
         "wedgesNormalizedMeasures": wedges_normalized,
+        "orphanOctaveShiftsClosed": orphan_octave_closed,
         "chordPitchDedupeMeasures": chord_pitch_dupes,
         "playOrderTimelineMeasures": play_order_timeline_measures,
     }

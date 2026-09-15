@@ -61,6 +61,7 @@ import {
   reorderMeasureNotesByPlayOrderForOsmdPreview,
 } from '../shared/musicXmlPlayOrder';
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from '../shared/musicXmlParse';
+import { demoteOctaveShiftsForOsmdPreview } from '../shared/musicXmlOctaveShiftOsmd';
 import type { ArticulationPreviewFix } from '../shared/musicXmlArticulationDistance';
 import {
   applyArticulationPlacementFixesToPreviewXml,
@@ -2057,21 +2058,25 @@ export function buildOsmdPreviewXml(
   if (options?.voiceSequentialMeasures?.length) {
     xml = applyVoiceSequentialPreviewToXml(xml, options.voiceSequentialMeasures);
   }
-  return xml;
+  // 페이지/성부 필터 후에도 짝 없는 8va가 남지 않게 — OSMD realValue 크래시 방지
+  return demoteOctaveShiftsForOsmdPreview(xml);
 }
 
 /**
  * OSMD가 잘린/단독 octave-shift 때문에 `realValue`(Fraction) 접근 크래시를 내는 경우가 있음
  * (예: 단일 파트 추출 후 방향 시작·끝 불일치 · Audiveres 내보내기).
  * 미리보기 전용으로 8바·선 표기만 빼 원곡 높이는 그대로 두고 레이아웃만 깨지지 않게 함.
+ *
+ * octave-shift demote는 다른 단계 실패와 무관하게 **항상** 적용한다.
  */
 function sanitizeMusicXmlForOsmd(
   xml: string,
   verbatim = false,
   faithfulEditorLayout = false,
 ): string {
+  // 다른 수리 단계가 throw 해도 8va demote는 유지
+  let out = demoteOctaveShiftsForOsmdPreview(xml);
   try {
-    let out = xml;
     const timelineOpts = { faithfulEditorLayout };
     // verbatim HITL도 동일 내용 clef 중복은 미리보기에서만 제거(의미 있는 G↔F 전환은 유지)
     if (!verbatim) {
@@ -2096,32 +2101,13 @@ function sanitizeMusicXmlForOsmd(
     const mxlMeasureLabels = buildMxlMeasureNumberAllowedMap(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, mxlMeasureLabels);
     out = injectMxlMeasureNumberDirectionsForOsmd(out);
-    const doc = parseMusicXmlDocument(out);
-    if (!doc) return xml;
-
-    const local = (el: Element) =>
-      typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
-
-    doc.querySelectorAll('*').forEach((el) => {
-      // OSMD calculateSingleOctaveShift → realValue 크래시 — 미리보기에서는 항상 제거.
-      // start만 보이는 "8va"/"8vb" words로 바꿔 HITL에서 존재 여부만 확인 가능하게.
-      if (local(el) === 'octave-shift') {
-        const typ = (el.getAttribute('type') || '').trim().toLowerCase();
-        const words = el.namespaceURI
-          ? doc.createElementNS(el.namespaceURI, 'words')
-          : doc.createElement('words');
-        if (typ === 'up') words.textContent = '8va';
-        else if (typ === 'down') words.textContent = '8vb';
-        else words.textContent = '';
-        el.replaceWith(words);
-      }
-    });
-
     // layout default-x는 OSMD engraver에 넘기지 않음 — data-osmd-layout-x만 SVG align용으로 유지
-    return stripDefaultXyKeepLayoutAttrsForOsmdPreview(serializeMusicXmlDocument(doc));
+    out = stripDefaultXyKeepLayoutAttrsForOsmdPreview(out);
   } catch {
-    return xml;
+    /* keep out (already demoted) */
   }
+  // 수리 중 다시 생긴/남은 octave-shift 최종 제거
+  return demoteOctaveShiftsForOsmdPreview(out);
 }
 
 const OSMD_RENDER_MIN_WIDTH = 56;

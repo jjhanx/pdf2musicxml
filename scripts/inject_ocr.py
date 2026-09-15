@@ -956,6 +956,130 @@ def load_ocr_items(json_in_path):
     return None
 
 
+def _local_tag(el: ET.Element) -> str:
+    t = el.tag
+    return t[t.index("}") + 1 :] if isinstance(t, str) and t.startswith("{") else str(t)
+
+
+def _credit_insert_index(root: ET.Element, ns: str) -> int:
+    """work / identification 다음에 credit을 둔다."""
+    kids = list(root)
+    last = -1
+    for i, el in enumerate(kids):
+        loc = _local_tag(el)
+        if loc in ("work", "movement-title", "identification", "defaults"):
+            last = i
+    return last + 1
+
+
+def _remove_credits_of_types(root: ET.Element, ns: str, types: set[str]) -> None:
+    for credit in list(root.findall(qname(ns, "credit"))):
+        ctype = ""
+        for child in credit:
+            if _local_tag(child) == "credit-type":
+                ctype = (child.text or "").strip().lower()
+                break
+        if ctype in types:
+            root.remove(credit)
+
+
+def _append_credit(
+    root: ET.Element,
+    ns: str,
+    *,
+    credit_type: str,
+    text: str,
+    default_x: str,
+    default_y: str,
+    font_size: str,
+    justify: str,
+    insert_at: int,
+) -> int:
+    credit = ET.Element(qname(ns, "credit"), page="1")
+    ct = ET.SubElement(credit, qname(ns, "credit-type"))
+    ct.text = credit_type
+    words = ET.SubElement(credit, qname(ns, "credit-words"))
+    words.set("default-x", default_x)
+    words.set("default-y", default_y)
+    words.set("font-size", font_size)
+    words.set("justify", justify)
+    words.set("valign", "top")
+    words.text = text
+    root.insert(insert_at, credit)
+    return insert_at + 1
+
+
+def _ensure_score_page_credits(
+    root: ET.Element,
+    ns: str,
+    *,
+    title: str,
+    composer: str,
+    lyricist: str,
+    arranger: str,
+    singer: str,
+    copyright_text: str,
+) -> None:
+    """악보 1페이지 상단 credit(제목·작곡가 등) — MuseScore가 파일 속성만으로는 안 그리는 경우 대비."""
+    managed = {"title", "composer", "lyricist", "arranger", "singer", "rights"}
+    if not any([title, composer, lyricist, arranger, singer, copyright_text]):
+        return
+    _remove_credits_of_types(root, ns, managed)
+    insert_at = _credit_insert_index(root, ns)
+    # MusicXML tenths — 세로 A4 대략 page-height 1545~1684
+    if title:
+        insert_at = _append_credit(
+            root,
+            ns,
+            credit_type="title",
+            text=title,
+            default_x="595",
+            default_y="1600",
+            font_size="22",
+            justify="center",
+            insert_at=insert_at,
+        )
+    y_meta = "1520"
+    if lyricist:
+        insert_at = _append_credit(
+            root,
+            ns,
+            credit_type="lyricist",
+            text=lyricist,
+            default_x="70",
+            default_y=y_meta,
+            font_size="10",
+            justify="left",
+            insert_at=insert_at,
+        )
+    right_bits = [x for x in (composer, arranger, singer) if x]
+    if right_bits:
+        # 작곡·편곡·가수를 오른쪽에 줄바꿈으로
+        insert_at = _append_credit(
+            root,
+            ns,
+            credit_type="composer",
+            text="\n".join(right_bits),
+            default_x="1120",
+            default_y=y_meta,
+            font_size="10",
+            justify="right",
+            insert_at=insert_at,
+        )
+    if copyright_text:
+        _append_credit(
+            root,
+            ns,
+            credit_type="rights",
+            text=copyright_text,
+            default_x="595",
+            default_y="40",
+            font_size="8",
+            justify="center",
+            insert_at=insert_at,
+        )
+
+
 def _is_valid_mxl_zip(path: str) -> bool:
     """빈 mkstemp·손상 파일·비-zip을 inject 입력으로 쓰지 않기 위한 검사."""
     try:
@@ -1138,35 +1262,47 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
             elif t == "copyright":
                 copyright_text += text + " "
 
+    title_text = title_text.strip()
+    composer_text = composer_text.strip()
+    lyricist_text = lyricist_text.strip()
+    arranger_text = arranger_text.strip()
+    singer_text = singer_text.strip()
+    copyright_text = copyright_text.strip()
+
     if title_text:
         work = root.find(qname(ns, "work"))
         if work is None:
-            work = ET.SubElement(root, qname(ns, "work"))
+            work = ET.Element(qname(ns, "work"))
             root.insert(0, work)
         work_title = work.find(qname(ns, "work-title"))
         if work_title is None:
             work_title = ET.SubElement(work, qname(ns, "work-title"))
-        work_title.text = title_text.strip()
+        work_title.text = title_text
 
     creator_blob = composer_text or lyricist_text or arranger_text or singer_text
     identification = root.find(qname(ns, "identification"))
     if identification is None and (creator_blob or copyright_text):
-        identification = ET.SubElement(root, qname(ns, "identification"))
+        identification = ET.Element(qname(ns, "identification"))
         idx_ins = 1 if root.find(qname(ns, "work")) is not None else 0
         root.insert(idx_ins, identification)
 
     if creator_blob:
         idf = root.find(qname(ns, "identification"))
         if idf is not None:
-            for t_name, val in [
-                ("composer", composer_text),
-                ("lyricist", lyricist_text),
-                ("arranger", arranger_text),
-                ("singer", singer_text),
-            ]:
+            want_types = {
+                "composer": composer_text,
+                "lyricist": lyricist_text,
+                "arranger": arranger_text,
+                "singer": singer_text,
+            }
+            for old in list(idf.findall(qname(ns, "creator"))):
+                t_old = (old.get("type") or "").strip().lower()
+                if t_old in want_types and want_types[t_old]:
+                    idf.remove(old)
+            for t_name, val in want_types.items():
                 if val:
                     creator = ET.SubElement(idf, qname(ns, "creator"), type=t_name)
-                    creator.text = val.strip()
+                    creator.text = val
 
     if copyright_text:
         idf = root.find(qname(ns, "identification"))
@@ -1174,7 +1310,19 @@ def inject_ocr(mxl_in_path, mxl_out_path, json_in_path):
             rights = idf.find(qname(ns, "rights"))
             if rights is None:
                 rights = ET.SubElement(idf, qname(ns, "rights"))
-            rights.text = copyright_text.strip()
+            rights.text = copyright_text
+
+    # MuseScore 악보 상단 표시용 — work/identification만으로는 페이지에 안 나오는 경우가 많음
+    _ensure_score_page_credits(
+        root,
+        ns,
+        title=title_text,
+        composer=composer_text,
+        lyricist=lyricist_text,
+        arranger=arranger_text,
+        singer=singer_text,
+        copyright_text=copyright_text,
+    )
 
     streams_by_part = collect_lyric_streams(ocr_data) if ocr_data else {}
     if streams_by_part and parts:

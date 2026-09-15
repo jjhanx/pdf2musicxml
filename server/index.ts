@@ -4410,7 +4410,18 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
           try {
             const updatedItems = JSON.parse(await fs.readFile(pymupdfReviewPath, 'utf8'));
             const manifest = JSON.parse(await fs.readFile(lyricManifestPath, 'utf8')) as Record<string, unknown>;
-            manifest.items = updatedItems;
+            const cleaned = Array.isArray(updatedItems)
+              ? updatedItems.filter((x: { type?: string }) => x && x.type !== '_manual_lyric_mask')
+              : [];
+            manifest.items = cleaned;
+            // inject는 pymupdfReviewItems를 우선 — items만 갱신하면 제목·작곡가 분류가 최종 MXL에 안 들어감
+            manifest.pymupdfReviewItems = cleaned;
+            const manualObj = Array.isArray(updatedItems)
+              ? updatedItems.find((x: { type?: string }) => x && x.type === '_manual_lyric_mask')
+              : undefined;
+            if (manualObj && typeof manualObj === 'object' && 'manualRects' in manualObj) {
+              manifest.manualLyricRects = (manualObj as { manualRects?: unknown }).manualRects;
+            }
             await fs.writeFile(lyricManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
             await syncScoreTitlePersistence(sessionRoot, lyricManifestPath);
             console.log(`[job ${jobId}] Updated lyric_manifest.json directly with submitted review items.`);

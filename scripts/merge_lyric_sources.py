@@ -732,6 +732,38 @@ def pymupdf_review_to_flat_inject_rows(
     return rows
 
 
+def _merge_meta_rows_from_items(
+    rows: list[dict[str, Any]], items: list[Any]
+) -> list[dict[str, Any]]:
+    """pymupdfReviewItems 우선 경로에서도 items에만 있는 제목·작곡가 등 메타를 보강."""
+    meta_types = {"title", "composer", "lyricist", "arranger", "singer", "copyright", "tempo"}
+    have: set[tuple[str, str]] = set()
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        t = str(r.get("type") or "")
+        if t in meta_types:
+            have.add((t, str(r.get("text") or "").strip()))
+    out = list(rows)
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        item["type"] = resolve_inject_type(item)
+        t = str(item.get("type") or "")
+        if t not in meta_types:
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        key = (t, text)
+        if key in have:
+            continue
+        out.insert(0, item)
+        have.add(key)
+    return out
+
+
 def manifest_to_flat_inject_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     """inject_ocr.py용 flat 배열 — PyMuPDF 검토가 있으면 그쪽만 사용(pdfplumber IoU 병합 제외)."""
     manifest = dict(manifest)
@@ -739,11 +771,14 @@ def manifest_to_flat_inject_rows(manifest: dict[str, Any]) -> list[dict[str, Any
     manual = manifest.get("manualLyricRects") or []
     sources = manifest.get("sources") or {}
     review_items = manifest.get("pymupdfReviewItems")
+    items = manifest.get("items") or []
     if sources.get("pymupdfReview") and isinstance(review_items, list) and review_items:
         rows = pymupdf_review_to_flat_inject_rows(review_items, manual)
+        # lyric_inject 등에서 items만 갱신된 경우 메타(제목·작곡) 유실 방지
+        if isinstance(items, list) and items:
+            rows = _merge_meta_rows_from_items(rows, items)
         return ensure_score_title_in_flat_rows(manifest, rows)
 
-    items = manifest.get("items") or []
     rows = [
         dict(x)
         for x in items

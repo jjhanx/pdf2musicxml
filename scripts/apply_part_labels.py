@@ -127,50 +127,87 @@ def _ensure_print_element(measure: ET.Element, ns: str) -> ET.Element:
     return print_el
 
 
-def _set_part_abbreviation_display(print_el: ET.Element, ns: str, abbrev: str) -> bool:
-    """print 아래 part-abbreviation-display를 보이게 설정."""
+def _ensure_named_child(parent: ET.Element, ns: str, local: str) -> ET.Element:
+    el = parent.find(_q(ns, local))
+    if el is not None:
+        return el
+    el = ET.Element(_q(ns, local))
+    # part-name 다음에 abbreviation이 오도록: name가 없으면 맨 앞, abbr는 name 뒤
+    if local == "part-abbreviation":
+        pn = parent.find(_q(ns, "part-name"))
+        if pn is not None:
+            idx = list(parent).index(pn) + 1
+            parent.insert(idx, el)
+            return el
+    parent.insert(0, el)
+    return el
+
+
+def _set_print_object_yes(el: ET.Element) -> bool:
+    if (el.get("print-object") or "").strip().lower() == "yes":
+        return False
+    el.set("print-object", "yes")
+    return True
+
+
+def _set_display_text_block(
+    print_el: ET.Element,
+    ns: str,
+    local: str,
+    text: str,
+    *,
+    print_object: str,
+) -> bool:
+    """print 아래 part-name-display / part-abbreviation-display 설정."""
     changed = False
-    pad = None
+    block = None
     for child in list(print_el):
-        if _local(child) == "part-abbreviation-display":
-            pad = child
+        if _local(child) == local:
+            block = child
             break
-    if pad is None:
-        pad = ET.SubElement(print_el, _q(ns, "part-abbreviation-display"))
+    if block is None:
+        block = ET.SubElement(print_el, _q(ns, local))
         changed = True
-    if (pad.get("print-object") or "").strip().lower() != "yes":
-        pad.set("print-object", "yes")
+    if (block.get("print-object") or "").strip().lower() != print_object:
+        block.set("print-object", print_object)
         changed = True
     display_text = None
-    for child in list(pad):
+    for child in list(block):
         if _local(child) == "display-text":
             display_text = child
             break
     if display_text is None:
-        display_text = ET.SubElement(pad, _q(ns, "display-text"))
+        display_text = ET.SubElement(block, _q(ns, "display-text"))
         changed = True
-    if (display_text.text or "").strip() != abbrev:
-        display_text.text = abbrev
+    if (display_text.text or "").strip() != text:
+        display_text.text = text
         changed = True
-    # 긴 이름은 시스템마다 반복하지 않음
-    for child in list(print_el):
-        if _local(child) == "part-name-display":
-            if (child.get("print-object") or "").strip().lower() != "no":
-                child.set("print-object", "no")
-                changed = True
-            break
-    else:
-        pnd = ET.SubElement(print_el, _q(ns, "part-name-display"))
-        pnd.set("print-object", "no")
+    return changed
+
+
+def _set_part_margin_label_display(print_el: ET.Element, ns: str, label: str) -> bool:
+    """오선 왼쪽 성부 라벨 — MuseScore가 읽는 name/abbrev display를 둘 다 켠다.
+
+    짧은 HITL 라벨(S/A/T/B/P)은 긴 악기명 반복이 아니므로 name-display도 yes.
+    """
+    changed = False
+    if _set_display_text_block(
+        print_el, ns, "part-abbreviation-display", label, print_object="yes"
+    ):
+        changed = True
+    if _set_display_text_block(
+        print_el, ns, "part-name-display", label, print_object="yes"
+    ):
         changed = True
     return changed
 
 
 def ensure_system_part_abbreviation_displays(root: ET.Element) -> int:
-    """시스템 시작·성부 구성이 바뀌는 마디에 오선 앞 약어(S/A/T/B/P)를 표시.
+    """시스템 시작·성부 구성이 바뀌는 마디에 오선 앞 성부 라벨(S/A/T/B/P)을 표시.
 
     S+A만 또는 T+B만 나오는 구간에서 파트 표시가 없으면 혼동되므로,
-    활성(실음) 성부 집합이 바뀌거나 new-system 때 각 파트의 part-abbreviation-display를 켠다.
+    활성(실음) 성부 집합이 바뀌거나 new-system 때 각 파트의
+    part-name-display·part-abbreviation-display를 켠다.
     """
     ns = _ns(root)
     part_list = root.find(_q(ns, "part-list"))
@@ -187,16 +224,17 @@ def ensure_system_part_abbreviation_displays(root: ET.Element) -> int:
         pn = sp.find(_q(ns, "part-name"))
         abbrev = (pa.text or "").strip() if pa is not None else ""
         name = (pn.text or "").strip() if pn is not None else ""
+        # 표시는 짧은 약어 우선(오선 앞)
         abbrev_by_id[pid] = abbrev or name or pid
-        if pa is not None:
-            if (pa.get("print-object") or "").strip().lower() != "yes":
-                pa.set("print-object", "yes")
+        if pa is not None and _set_print_object_yes(pa):
+            pass
+        if pn is not None and _set_print_object_yes(pn):
+            pass
 
     parts = [p for p in root if _local(p) == "part" and (p.get("id") or "") in abbrev_by_id]
     if not parts:
         return 0
 
-    # measure number → 활성(실음) 파트 id 집합
     measures_by_num: dict[str, list[tuple[ET.Element, ET.Element]]] = {}
     for part in parts:
         for measure in part:
@@ -218,7 +256,6 @@ def ensure_system_part_abbreviation_displays(root: ET.Element) -> int:
             for part, measure in entries
             if _part_has_pitched_notes(measure, ns)
         )
-        # 피아노(실음 있는 비보컬)도 표시 대상에 포함 — active에 이미 들어감
         is_first = i == 0
         system_start = any(
             _measure_is_system_start(measure, ns, is_first=is_first)
@@ -231,15 +268,103 @@ def ensure_system_part_abbreviation_displays(root: ET.Element) -> int:
                 abbrev = abbrev_by_id.get(pid)
                 if not abbrev:
                     continue
-                # 실음이 있거나, 같은 시스템에서 다른 성부가 노래하는 동안 쉼표만인 성부도
-                # 오선이 보이면 약어를 붙여 혼동을 줄인다.
                 print_el = _ensure_print_element(measure, ns)
-                if _set_part_abbreviation_display(print_el, ns, abbrev):
+                if _set_part_margin_label_display(print_el, ns, abbrev):
                     changed += 1
         if active:
             prev_active = active
         elif prev_active is None:
             prev_active = active
+    return changed
+
+
+def _part_staff_count(part: ET.Element, ns: str) -> int:
+    max_staff = 1
+    for measure in part:
+        if _local(measure) != "measure":
+            continue
+        for el in measure:
+            if _local(el) == "attributes":
+                staves = el.find(_q(ns, "staves"))
+                if staves is not None and (staves.text or "").strip().isdigit():
+                    max_staff = max(max_staff, int(staves.text.strip()))
+                for sd in el.findall(_q(ns, "staff-details")):
+                    num = (sd.get("number") or "1").strip()
+                    if num.isdigit():
+                        max_staff = max(max_staff, int(num))
+            if _local(el) == "note":
+                staff = el.findtext(_q(ns, "staff"))
+                if staff and staff.strip().isdigit():
+                    max_staff = max(max_staff, int(staff.strip()))
+    return max_staff
+
+
+def _set_staff_name_on_attributes(
+    attrs: ET.Element, ns: str, staff_number: int, name: str
+) -> bool:
+    changed = False
+    target = None
+    for sd in attrs.findall(_q(ns, "staff-details")):
+        num = (sd.get("number") or "1").strip() or "1"
+        if num == str(staff_number):
+            target = sd
+            break
+    if target is None:
+        target = ET.SubElement(attrs, _q(ns, "staff-details"))
+        target.set("number", str(staff_number))
+        changed = True
+    sn = target.find(_q(ns, "staff-name"))
+    if sn is None:
+        sn = ET.SubElement(target, _q(ns, "staff-name"))
+        changed = True
+    if (sn.text or "").strip() != name:
+        sn.text = name
+        changed = True
+    return changed
+
+
+def ensure_piano_staff_names(root: ET.Element, labels_by_index: list[str]) -> int:
+    """그랜드스태프 피아노 파트에 PR/PL staff-name을 넣어 오선별 라벨을 준다.
+
+    MuseScore는 단일 Piano 파트의 두 오선에 part-name이 하나만 붙으므로,
+    MusicXML `<staff-details><staff-name>`으로 윗·아랫줄을 구분한다.
+    """
+    ns = _ns(root)
+    part_list = root.find(_q(ns, "part-list"))
+    if part_list is None:
+        return 0
+    score_parts = [c for c in part_list if _local(c) == "score-part"]
+    changed = 0
+
+    for i, sp in enumerate(score_parts):
+        if i >= len(labels_by_index):
+            break
+        raw_lab = str(labels_by_index[i]).strip()
+        lab = raw_lab.upper()
+        is_piano = lab in ("P", "PR", "PL", "PIANO") or label_to_part_name(raw_lab) == "Piano"
+        if not is_piano:
+            continue
+        pid = sp.get("id") or ""
+        part = next((p for p in root if _local(p) == "part" and p.get("id") == pid), None)
+        if part is None or _part_staff_count(part, ns) < 2:
+            continue
+        upper, lower = "PR", "PL"
+        for measure in part:
+            if _local(measure) != "measure":
+                continue
+            attrs = None
+            for el in measure:
+                if _local(el) == "attributes":
+                    attrs = el
+                    break
+            if attrs is None:
+                attrs = ET.Element(_q(ns, "attributes"))
+                measure.insert(0, attrs)
+            if _set_staff_name_on_attributes(attrs, ns, 1, upper):
+                changed += 1
+            if _set_staff_name_on_attributes(attrs, ns, 2, lower):
+                changed += 1
+            break
     return changed
 
 
@@ -256,6 +381,7 @@ def _flatten_name_element(el: ET.Element, text: str) -> bool:
     changed = False
     for child in list(el):
         el.remove(child)
+        changed = True
     if _set_text(el, text):
         changed = True
     return changed
@@ -282,17 +408,25 @@ def _apply_names_to_score_part(
     display: str,
     abbrev: str,
     parents: dict[ET.Element, ET.Element],
+    ns: str,
 ) -> int:
     changed = 0
+    pn = _ensure_named_child(sp, ns, "part-name")
+    if _flatten_name_element(pn, display):
+        changed += 1
+    if _set_print_object_yes(pn):
+        changed += 1
+    pa = _ensure_named_child(sp, ns, "part-abbreviation")
+    if _flatten_name_element(pa, abbrev):
+        changed += 1
+    if _set_print_object_yes(pa):
+        changed += 1
+
     for el in sp.iter():
         loc = _local(el)
-        if loc == "part-name":
-            if _flatten_name_element(el, display):
-                changed += 1
-        elif loc == "part-abbreviation":
-            if _flatten_name_element(el, abbrev):
-                changed += 1
-        elif loc in _DISPLAY_NAME_TAGS - _NAME_CONTAINER_TAGS:
+        if loc in ("part-name", "part-abbreviation"):
+            continue
+        if loc in _DISPLAY_NAME_TAGS - _NAME_CONTAINER_TAGS:
             if _set_text(el, display):
                 changed += 1
         elif loc in _ABBREV_TAGS - _NAME_CONTAINER_TAGS:
@@ -325,8 +459,9 @@ def apply_part_labels_to_root(root: ET.Element, labels_by_index: list[str]) -> i
             break
         display = label_to_part_name(labels_by_index[i])
         abbrev = label_to_part_abbrev(labels_by_index[i], display)
-        changed += _apply_names_to_score_part(sp, display, abbrev, parents)
+        changed += _apply_names_to_score_part(sp, display, abbrev, parents, ns)
     changed += ensure_system_part_abbreviation_displays(root)
+    changed += ensure_piano_staff_names(root, labels_by_index)
     return changed
 
 

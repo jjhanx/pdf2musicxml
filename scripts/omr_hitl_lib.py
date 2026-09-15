@@ -8862,15 +8862,16 @@ def repair_octave_shift_stops_before_cross_staff_backup_in_root(
 
 
 def repair_orphan_octave_shifts_in_root(root: ET.Element) -> int:
-    """닫히지 않은 octave-shift start를 시작 마디 마지막 음 뒤에서 닫거나 제거.
+    """닫히지 않은 octave-shift start를 제거.
 
-    OSMD는 짝 없는 8va에서 calculateSingleOctaveShift → realValue 크래시.
-    MuseScore도 열린 8va가 곡 끝까지 이어진다. HITL로 stop만 지워진 경우 복구.
+    원본에 없는 고아 8va start에 stop을 붙여 완성하면 MuseScore에 가짜 8va가 남는다.
+    OSMD 미리보기는 demoteOctaveShiftsForOsmdPreview로 방어하므로, 저장/최종에서는
+    짝 없는 start를 지운다(HITL insert는 항상 stop을 붙임).
     """
     ns = _ns(root)
-    closed = 0
+    removed = 0
     for part in root.findall(_q(ns, "part")):
-        open_shifts: dict[str, dict[str, Any]] = {}  # staff -> {measure, number, dir, placement}
+        open_shifts: dict[str, dict[str, Any]] = {}
         for measure in part.findall(_q(ns, "measure")):
             for el in list(measure):
                 if _local(el) != "direction":
@@ -8883,39 +8884,28 @@ def repair_orphan_octave_shifts_in_root(root: ET.Element) -> int:
                 oel = _octave_shift_element(el, ns)
                 wnum = (oel.get("number") if oel is not None else None) or "1"
                 if otype in ("up", "down"):
-                    # 같은 staff에 미종료 start가 있으면 이전 것을 이 마디 직전에서 닫기
+                    # 이전 미종료 start가 있으면 제거 후 새 start 추적
                     if st in open_shifts:
                         prev = open_shifts[st]
-                        prev_m = prev["measure"]
-                        notes = list_note_elements(prev_m, ns)
-                        last_i = _last_rhythmic_note_index_on_staff(notes, ns, int(prev["staff"]))
-                        if last_i >= 0:
-                            _insert_standalone_octave_shift(
-                                prev_m,
-                                ns,
-                                notes,
-                                otype="stop",
-                                staff_n=int(prev["staff"]),
-                                placement=prev.get("placement") or "above",
-                                after_note_index=last_i,
-                                shift_number=prev.get("number") or "1",
-                            )
-                            closed += 1
-                        else:
-                            prev_dir = prev.get("direction")
-                            if prev_dir is not None and prev_dir in list(prev_m):
-                                prev_m.remove(prev_dir)
-                                closed += 1
+                        prev_dir = prev.get("direction")
+                        prev_m = prev.get("measure")
+                        if (
+                            prev_dir is not None
+                            and prev_m is not None
+                            and prev_dir in list(prev_m)
+                        ):
+                            prev_m.remove(prev_dir)
+                            removed += 1
                     open_shifts[st] = {
                         "measure": measure,
                         "direction": el,
                         "number": wnum,
                         "staff": st_n,
-                        "placement": el.get("placement") or "above",
                     }
                 else:
-                    # stop — matching open
-                    if st in open_shifts and str(open_shifts[st].get("number") or "1") == str(wnum):
+                    if st in open_shifts and str(open_shifts[st].get("number") or "1") == str(
+                        wnum
+                    ):
                         open_shifts.pop(st, None)
                     else:
                         match = next(
@@ -8928,30 +8918,44 @@ def repair_orphan_octave_shifts_in_root(root: ET.Element) -> int:
                         )
                         if match is not None:
                             open_shifts.pop(match, None)
-        # part 끝 — 남은 open 닫기/제거
-        for st, info in list(open_shifts.items()):
-            m = info["measure"]
-            notes = list_note_elements(m, ns)
-            last_i = _last_rhythmic_note_index_on_staff(notes, ns, int(info["staff"]))
-            if last_i >= 0:
-                _insert_standalone_octave_shift(
-                    m,
-                    ns,
-                    notes,
-                    otype="stop",
-                    staff_n=int(info["staff"]),
-                    placement=info.get("placement") or "above",
-                    after_note_index=last_i,
-                    shift_number=info.get("number") or "1",
-                )
-                closed += 1
-            else:
-                d = info.get("direction")
-                if d is not None and d in list(m):
-                    m.remove(d)
-                    closed += 1
-            open_shifts.pop(st, None)
-    return closed
+        for _st, info in list(open_shifts.items()):
+            d = info.get("direction")
+            m = info.get("measure")
+            if d is not None and m is not None and d in list(m):
+                m.remove(d)
+                removed += 1
+            open_shifts.pop(_st, None)
+    return removed
+
+
+def materialize_play_order_document_order_in_measure(
+    measure: ET.Element, ns: str
+) -> bool:
+    """연주순번이 있으면 XML 문서 순서를 순번에 맞게 재배치(MuseScore/최종 MXL).
+
+    미리보기는 reorderMeasureNotesByPlayOrderForOsmdPreview로 그리지만, 저장 MXL
+    문서 순서가 어긋나면 최종에서 2-1-4-3처럼 뒤집혀 보인다.
+    """
+    changed = False
+    for st in ("1", "2"):
+        if _normalize_staff_note_order(measure, ns, st):
+            changed = True
+    return changed
+
+
+def materialize_play_order_document_order_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
+        for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
+            if materialize_play_order_document_order_in_measure(measure, ns):
+                n += 1
+    return n
 
 
 def _insert_standalone_octave_shift(
@@ -10138,6 +10142,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     slurs = normalize_slurs_in_root(root)
     wedges = normalize_wedges_in_root(root)
     orphan_oct = repair_orphan_octave_shifts_in_root(root)
+    play_order_doc = materialize_play_order_document_order_in_root(root)
     po_align = realign_play_order_column_timelines_in_root(root)
     if (
         chord_beams
@@ -10149,6 +10154,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
         or slurs
         or wedges
         or orphan_oct
+        or play_order_doc
         or po_align
     ):
         write_mxl_root(out_mxl, files, root_path, root)
@@ -11476,6 +11482,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                 measure, ns, notes, staff, leader_i, order
             ):
                 changed = True
+        if materialize_play_order_document_order_in_measure(measure, ns):
+            changed = True
         return changed
 
     if kind == "addArticulation":
@@ -14732,6 +14740,9 @@ def apply_fixes_file(
     if fixes_include_wedge_kind(fixes):
         wedges_normalized = normalize_wedges_in_root(root, only_measures=only)
     orphan_octave_closed = repair_orphan_octave_shifts_in_root(root)
+    play_order_doc_measures = materialize_play_order_document_order_in_root(
+        root, only_measures=only
+    )
     chord_pitch_dupes = dedupe_identical_chord_pitches_in_root(root, only_measures=only)
     play_order_timeline_measures = realign_play_order_column_timelines_in_root(
         root, only_measures=only
@@ -14751,6 +14762,7 @@ def apply_fixes_file(
         "slursNormalizedMeasures": slurs_normalized,
         "wedgesNormalizedMeasures": wedges_normalized,
         "orphanOctaveShiftsClosed": orphan_octave_closed,
+        "playOrderDocumentOrderMeasures": play_order_doc_measures,
         "chordPitchDedupeMeasures": chord_pitch_dupes,
         "playOrderTimelineMeasures": play_order_timeline_measures,
     }

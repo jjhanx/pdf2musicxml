@@ -5079,6 +5079,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "dangling_timeline_removed": 0,
         "octave_shift_stop_repaired": 0,
         "orphan_octave_shifts_closed": 0,
+        "play_order_document_order_measures": 0,
         "sole_voice_to_one_measures": 0,
         "leading_wedge_stops_reanchored": 0,
         "chord_gap_directions_moved": 0,
@@ -5301,6 +5302,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     # 모든 rebuild/리듬 정리 이후 — PR 8va stop이 preamble·backup 뒤로 간 것 최종 복구
     try:
         from omr_hitl_lib import (
+            materialize_play_order_document_order_in_root,
             normalize_sole_staff_voices_to_one_in_root,
             reanchor_leading_wedge_stops_in_root,
             repair_directions_between_chord_notes_in_root,
@@ -5309,6 +5311,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         )
     except ImportError:
         from scripts.omr_hitl_lib import (  # type: ignore
+            materialize_play_order_document_order_in_root,
             normalize_sole_staff_voices_to_one_in_root,
             reanchor_leading_wedge_stops_in_root,
             repair_directions_between_chord_notes_in_root,
@@ -5324,6 +5327,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     stats["orphan_octave_shifts_closed"] = stats.get("orphan_octave_shifts_closed", 0) + (
         repair_orphan_octave_shifts_in_root(root)
     )
+    stats["play_order_document_order_measures"] = stats.get(
+        "play_order_document_order_measures", 0
+    ) + materialize_play_order_document_order_in_root(root)
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats

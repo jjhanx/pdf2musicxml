@@ -1310,6 +1310,29 @@ export function advanceWedgeStopsPastFollowingNoteInMeasure(measure: Element): v
     const idx = children.indexOf(stop);
     if (idx < 0) continue;
 
+    // Case A: stop이 화음 멤버(<chord/>) 앞에 끼인 경우 — 그 화음 꼬리 뒤로
+    const chordTail: Element[] = [];
+    for (let j = idx + 1; j < children.length; j += 1) {
+      const c = children[j]!;
+      const tag = xmlLocalName(c);
+      if (tag === 'backup') break;
+      if (tag === 'direction') continue;
+      if (tag !== 'note') break;
+      if (!noteMatchesPreviewStaff(c, staffN)) break;
+      if (c.querySelector(':scope > chord, :scope > *|chord') === null) break;
+      chordTail.push(c);
+    }
+    if (chordTail.length) {
+      const lastChord = chordTail[chordTail.length - 1]!;
+      stop.remove();
+      const after = lastChord.nextElementSibling;
+      if (after) measure.insertBefore(stop, after);
+      else measure.appendChild(stop);
+      stop.setAttribute(ADV, '1');
+      continue;
+    }
+
+    // Case B: stop 다음 리듬 음(화음 리더) 뒤로 — OSMD 한 음 일찍 종료 보정
     let nextNote: Element | null = null;
     for (let j = idx + 1; j < children.length; j += 1) {
       const c = children[j]!;

@@ -2406,6 +2406,12 @@ def _measure_standalone_directions_snapshot(measure: ET.Element, ns: str) -> lis
             row["octaveShiftNumber"] = octave_shift_num
         if anchor_idx is not None:
             row["anchorNoteIndex"] = anchor_idx
+        m_anchor = (direction.get(MEASURE_END_ANCHOR_ATTR) or "").strip().lower()
+        if m_anchor in ("start", "end"):
+            row["measureAnchor"] = m_anchor
+        elif _direction_is_at_measure_end(measure, direction):
+            # 레거시: attr 없이 마디 끝(뒤에 note/backup/forward 없음)
+            row["measureAnchor"] = "end"
         out.append(row)
     return out
 
@@ -3835,10 +3841,14 @@ def _move_attributes_out_of_chord_groups(measure: ET.Element, ns: str) -> bool:
     return changed
 
 
+MEASURE_END_ANCHOR_ATTR = "data-hitl-measure-anchor"
+
+
 def _insert_direction_at_staff_measure_start(
     measure: ET.Element, ns: str, new_dir: ET.Element, staff_n: int
 ) -> None:
     """마디 앞( afterNoteIndex=-1 ) — PL 등 staff≥2는 ⟨backup⟩ 직후(해당 줄 voice 시작)."""
+    new_dir.set(MEASURE_END_ANCHOR_ATTR, "start")
     if staff_n >= 2:
         children = list(measure)
         for i, child in enumerate(children):
@@ -3857,9 +3867,6 @@ def _insert_direction_at_staff_measure_start(
             measure.insert(i + 1, new_dir)
             return
     _insert_note_element(measure, ns, new_dir, -1, staff_n=staff_n)
-
-
-MEASURE_END_ANCHOR_ATTR = "data-hitl-measure-anchor"
 
 
 def _measure_end_layout_default_x(measure: ET.Element, ns: str) -> float:
@@ -4677,13 +4684,30 @@ def _apply_note_direction(
     dy = _calc_direction_default_y(pl, distance)
     if kind == "dynamics":
         tag = val.lower() or "p"
-        _attach_dynamics_to_note(note, ns, tag, pl)
-        # notations/dynamics에 default-y 및 distance 설정
-        for nots in note.findall(_q(ns, "notations")):
-            for dyn in nots.findall(_q(ns, "dynamics")):
-                dyn.set("placement", pl)
-                dyn.set("default-y", str(dy))
-                _set_direction_distance_on_el(dyn, distance)
+        # notations가 아니라 음 앞 <direction>으로 둠 — 마디「음표 없이」패널과 구분·OSMD 충돌 방지
+        _remove_note_dynamics(note, ns, detail=None)
+        staff_n = _note_staff_number(note, ns)
+        new_dir = _build_direction_element(
+            ns,
+            "dynamics",
+            tag,
+            staff_n=staff_n,
+            placement=pl,
+            distance=distance,
+        )
+        new_dir.set("default-y", str(dy))
+        _set_direction_distance_on_el(new_dir, distance)
+        # 음표 부착 — 마디 처음/끝 standalone 표시 제거
+        if MEASURE_END_ANCHOR_ATTR in new_dir.attrib:
+            del new_dir.attrib[MEASURE_END_ANCHOR_ATTR]
+        dtype = new_dir.find(_q(ns, "direction-type"))
+        if dtype is not None:
+            for child in dtype:
+                child.set("default-y", str(dy))
+                _set_direction_distance_on_el(child, distance)
+        _insert_before_note_element(measure, ns, new_dir, note_idx)
+        _attach_voice_to_direction_from_note(new_dir, ns, note)
+        _copy_layout_from_note_to_direction(new_dir, note)
         return True
     if not val and kind == "words":
         val = " "
@@ -14767,6 +14791,8 @@ def apply_fixes_file(
     wedges_normalized = 0
     if fixes_include_wedge_kind(fixes):
         wedges_normalized = normalize_wedges_in_root(root, only_measures=only)
+    # 화음 사이 wedge stop/dynamics — HITL 반영 시에도 직선(붕괴) hairpin 방지(전 악보)
+    chord_gap_dirs = repair_directions_between_chord_notes_in_root(root)
     orphan_octave_closed = repair_orphan_octave_shifts_in_root(root)
     play_order_doc_measures = materialize_play_order_document_order_in_root(
         root, only_measures=only
@@ -14789,6 +14815,7 @@ def apply_fixes_file(
         "noteDurationsCoercedToType": note_durs_coerced,
         "slursNormalizedMeasures": slurs_normalized,
         "wedgesNormalizedMeasures": wedges_normalized,
+        "chordGapDirectionsMoved": chord_gap_dirs,
         "orphanOctaveShiftsClosed": orphan_octave_closed,
         "playOrderDocumentOrderMeasures": play_order_doc_measures,
         "chordPitchDedupeMeasures": chord_pitch_dupes,

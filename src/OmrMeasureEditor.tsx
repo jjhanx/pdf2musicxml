@@ -395,6 +395,8 @@ export type MeasureDirectionEl = {
   octaveShiftNumber?: string | null;
   /** wedge start/stop이 붙은 음표 document-order #index */
   anchorNoteIndex?: number | null;
+  /** 마디 처음/끝 전용 standalone (`data-hitl-measure-anchor`) — 음표 부착 셈여림과 구분 */
+  measureAnchor?: 'start' | 'end' | string | null;
   /** `<notations><dynamics>` — 음표 #index에 붙음 */
   attachedToNoteIndex?: number;
   fromNoteDynamics?: boolean;
@@ -705,7 +707,12 @@ function MeasureNavigationEditor({
   }, [editStaffWithinPart, insertStaff]);
 
   const selected = NAVIGATION_INSERT_OPTIONS[navKind] ?? NAVIGATION_INSERT_OPTIONS[0];
-  const measureDynDirections = directions.filter((d) => isDynamicsDirection(d));
+  // 음표에 붙은 dynamics는 아래 음표 행에만 — 여기에는 마디 처음/끝 standalone만
+  const measureDynDirections = directions.filter((d) => {
+    if (!isDynamicsDirection(d)) return false;
+    const a = (d.measureAnchor || '').trim().toLowerCase();
+    return a === 'start' || a === 'end';
+  });
   const navOnlyDirections = directions.filter((d) => isNavigationDirection(d));
 
   useEffect(() => {
@@ -2572,7 +2579,10 @@ export function OmrMeasureEditor({
   const navigationDirections = useMemo(
     () =>
       measureDirections.filter(
-        (d) => isNavigationDirection(d) || isDynamicsDirection(d),
+        (d) =>
+          isNavigationDirection(d) ||
+          (isDynamicsDirection(d) &&
+            ['start', 'end'].includes((d.measureAnchor || '').trim().toLowerCase())),
       ),
     [measureDirections],
   );

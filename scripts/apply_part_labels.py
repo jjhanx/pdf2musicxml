@@ -311,6 +311,8 @@ def _set_staff_name_on_attributes(
             break
     if target is None:
         target = ET.SubElement(attrs, _q(ns, "staff-details"))
+        changed = True
+    if (target.get("number") or "").strip() != str(staff_number):
         target.set("number", str(staff_number))
         changed = True
     sn = target.find(_q(ns, "staff-name"))

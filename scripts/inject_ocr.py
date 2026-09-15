@@ -979,6 +979,8 @@ def _run_audiveris_mxl_fix(mxl_in_path, mxl_work_path) -> bool:
 
     _os.environ.setdefault("OMR_ENGINE", "audiveris")
     _os.environ.setdefault("AUDIVERIS_MXL_RHYTHM_FIX", "off")
+    # 미리보기와 동일 — slur 화음 이동·number 20+ 주입 금지(최종에서만 사라지던 회귀)
+    _os.environ.setdefault("AUDIVERIS_MXL_SLUR_FIX", "off")
     try:
         _scripts_dir = Path(__file__).resolve().parent
         if str(_scripts_dir) not in sys.path:

@@ -69,17 +69,30 @@ def main() -> None:
     src = extract_review()
     before = slur_pitch_keys(src)
 
-    # Default (final path without HITL flag): mutates — regression witness
+    # Explicit ON — regression witness (default is now off)
     on_path = OUT / "fix_slur_on.mxl"
     shutil.copy(src, on_path)
-    os.environ.pop("AUDIVERIS_MXL_SLUR_FIX", None)
+    os.environ["AUDIVERIS_MXL_SLUR_FIX"] = "on"
     fam.fix_mxl_file(on_path, on_path)
     after_on = slur_pitch_keys(on_path)
     lost_on = before - after_on
-    assert len(lost_on) > 0, "fixture should show slur pitch moves when slur fix on"
-    assert any(k[1] == "9" for k in lost_on) or any(
-        k[5] == "E5" and k[1] == "9" for k in lost_on
-    ) or len(lost_on) >= 10
+    # ON may move pitch attachments and/or inject number 20+ (MuseScore-invisible)
+    high_nums = [
+        k for k in after_on if k[4].isdigit() and int(k[4]) > 6
+    ]
+    assert len(lost_on) > 0 or len(high_nums) > 0, (
+        "fixture should mutate slurs when AUDIVERIS_MXL_SLUR_FIX=on",
+        len(lost_on),
+        len(high_nums),
+    )
+
+    # Default / unset — must preserve (preview↔final parity)
+    unset_path = OUT / "fix_slur_unset.mxl"
+    shutil.copy(src, unset_path)
+    os.environ.pop("AUDIVERIS_MXL_SLUR_FIX", None)
+    fam.fix_mxl_file(unset_path, unset_path)
+    lost_unset = before - slur_pitch_keys(unset_path)
+    assert lost_unset == set(), (len(lost_unset), list(sorted(lost_unset))[:20])
 
     # HITL-final parity: slur fix off — pitch attachments preserved
     off_path = OUT / "fix_slur_off.mxl"
@@ -95,7 +108,12 @@ def main() -> None:
 
     print(
         "hitl final slur parity ok",
-        {"lostWhenOn": len(lost_on), "lostWhenOff": len(lost_off)},
+        {
+            "lostWhenOn": len(lost_on),
+            "highNumsWhenOn": len(high_nums),
+            "lostWhenUnset": len(lost_unset),
+            "lostWhenOff": len(lost_off),
+        },
     )
 
 

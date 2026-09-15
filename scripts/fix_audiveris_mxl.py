@@ -55,14 +55,16 @@ def _strip_redundant_naturals_enabled() -> bool:
 
 
 def _slur_fix_enabled() -> bool:
-    """화음 slur 이동·continuation/chord slur 주입 — 기본 on.
+    """화음 slur 이동·continuation/chord slur 주입 — **기본 off**.
 
-    HITL 미리보기는 fix_audiveris_mxl 을 건너뛴다. 최종에서만 돌리면
-    `_normalize_slur_placements`가 기존 이음줄을 다른 화음 음으로 옮겨
-    미리보기와 달리 MuseScore에서 사라지거나 엉뚱하게 보인다.
-    HITL 이후 최종 후처리는 `AUDIVERIS_MXL_SLUR_FIX=off` 로 맞춘다.
+    HITL 미리보기는 `fix_audiveris_mxl` slur 변형을 쓰지 않는다. 기본 on이면
+    최종 `postprocess`·`inject_ocr`가 `_normalize_slur_placements`로 이음줄을
+    다른 화음 음으로 옮기거나 `number` 20+ 를 넣어 MuseScore에서 안 보이게 한다.
+    (미리보기엔 있던 이음줄이 최종 MXL에서만 사라지는 주원인.)
+
+    필요 시에만 `AUDIVERIS_MXL_SLUR_FIX=on`.
     """
-    return _env_truthy("AUDIVERIS_MXL_SLUR_FIX", default=True)
+    return _env_truthy("AUDIVERIS_MXL_SLUR_FIX", default=False)
 
 
 def _strip_invented_keys_enabled() -> bool:

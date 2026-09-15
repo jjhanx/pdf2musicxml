@@ -16,7 +16,7 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execCallback);
 
-/** fix_audiveris_mxl — 리듬 duration 변경은 기본 off(OMR 유지). */
+/** fix_audiveris_mxl — 리듬 duration 변경은 기본 off(OMR 유지). slur 화음 이동도 기본 off. */
 function pythonMxlFixEnv(
   sessionRoot?: string,
   opts?: { slurFix?: 'on' | 'off' },
@@ -26,11 +26,11 @@ function pythonMxlFixEnv(
     OMR_ENGINE: process.env.OMR_ENGINE?.trim() || 'audiveris',
     AI_OMR_BACKEND: process.env.AI_OMR_BACKEND?.trim() || 'homr',
     AUDIVERIS_MXL_RHYTHM_FIX: process.env.AUDIVERIS_MXL_RHYTHM_FIX ?? 'off',
+    // 명시 없을 때 off — inject_ocr·postprocess가 미리보기 이음줄을 깨지 않게
+    AUDIVERIS_MXL_SLUR_FIX: process.env.AUDIVERIS_MXL_SLUR_FIX ?? 'off',
   };
   if (opts?.slurFix) {
     env.AUDIVERIS_MXL_SLUR_FIX = opts.slurFix;
-  } else if (process.env.AUDIVERIS_MXL_SLUR_FIX) {
-    env.AUDIVERIS_MXL_SLUR_FIX = process.env.AUDIVERIS_MXL_SLUR_FIX;
   }
   if (sessionRoot) {
     const manifestPath = sessionLyricManifestPath(sessionRoot);
@@ -4513,8 +4513,13 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       for (const p of mxlForInject) {
         if (p.toLowerCase().endsWith('.mxl')) {
           console.log(`[job ${jobId}] Running inject_ocr.py for ${p} using ${pythonBin}`);
+          const skipSlur = await sessionShouldSkipAudiverisSlurFix(job.sessionRoot);
           const { stdout: stdoutInj, stderr: stderrInj } = await exec(
             `"${pythonBin}" "${scriptInject}" "${p}" "${p}" "${injectJsonPath}"`,
+            {
+              maxBuffer: 40 * 1024 * 1024,
+              env: pythonMxlFixEnv(job.sessionRoot, { slurFix: skipSlur ? 'off' : undefined }),
+            },
           );
           if (stdoutInj) console.log(`[job ${jobId}] inject_ocr.py Output:\n${stdoutInj}`);
           if (stderrInj) console.error(`[job ${jobId}] inject_ocr.py Error:\n${stderrInj}`);

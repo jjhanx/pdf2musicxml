@@ -20,11 +20,13 @@ import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
   buildPdfPageMeasureIndex,
   buildPdfPageSystemRows,
+  buildScoreSystemRows,
   filterMusicXmlToMeasureRange,
   inferPdfPageForMxlMeasure,
   lightOsmdPreviewMeasureRange,
   measureRangeFromPageIndex,
   normalizeToGlobalMeasureMxl,
+  systemOsmdPreviewMeasureRange,
   type MxlMeasureRange,
 } from '../shared/musicXmlMeasureRange';
 type ScorePartRow = ScorePartForPreview & {
@@ -278,6 +280,12 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   /** rawXml당 1회 — 페이지 넘김마다 전체 MusicXML DOM 재파싱 금지 */
   const pageMeasureIndex = useMemo(
     () => (rawXml ? buildPdfPageMeasureIndex(rawXml) : { pageStarts: [1], maxMeasure: 1 }),
+    [rawXml],
+  );
+
+  /** 벡터 HITL — `<print new-system>` 오선 줄 목록 (시스템 단위 OSMD) */
+  const scoreSystemRows = useMemo(
+    () => (rawXml ? buildScoreSystemRows(rawXml) : [[1]]),
     [rawXml],
   );
 
@@ -948,7 +956,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
               selectedMeasure.measureMxl,
               pageMeasureIndex.maxMeasure,
             )
-          : deferredPageMeasureRange);
+          : !imagePdfLight
+            ? systemOsmdPreviewMeasureRange(
+                scoreSystemRows,
+                selectedMeasure?.measureMxl ?? deferredPageMeasureRange.start,
+                pageMeasureIndex.maxMeasure,
+                1,
+              )
+            : deferredPageMeasureRange);
       const measureMxl = normalizeToGlobalMeasureMxl(info.measureMxl, range);
       if (!Number.isFinite(measureMxl) || measureMxl < 1) {
         setMeasureClickMsg(
@@ -984,6 +999,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       selectedMeasure,
       deferredPageMeasureRange,
       pageMeasureIndex.maxMeasure,
+      scoreSystemRows,
     ],
   );
 
@@ -1058,12 +1074,23 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         pageMeasureIndex.maxMeasure,
       );
     }
+    if (!imagePdfLight) {
+      const anchor =
+        selectedMeasure?.measureMxl ?? deferredPageMeasureRange.start;
+      return systemOsmdPreviewMeasureRange(
+        scoreSystemRows,
+        anchor,
+        pageMeasureIndex.maxMeasure,
+        1,
+      );
+    }
     return deferredPageMeasureRange;
   }, [
     imagePdfLight,
     selectedMeasure,
     deferredPageMeasureRange,
     pageMeasureIndex.maxMeasure,
+    scoreSystemRows,
   ]);
 
   const pdfPageSystemRows = useMemo(
@@ -1083,8 +1110,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     [imagePdfLight, navigateToMeasure, openMeasure, renderedPreviewRange],
   );
 
-  const deferredRangeStart = deferredPageMeasureRange.start;
-  const deferredRangeEnd = deferredPageMeasureRange.end;
+  const deferredRangeStart = renderedPreviewRange.start;
+  const deferredRangeEnd = renderedPreviewRange.end;
 
   /** 거리 드롭다운은 OSMD 재로드 없이 pending extraY만 적용. Accent는 음표에 남겨 VexFlow가 오선 옆에 그림(mf Direction과 섞지 않음). */
   const previewXml = useMemo(() => {
@@ -1102,8 +1129,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         faithfulEditorLayout: true,
       });
     }
-    const pageScoped = filterMusicXmlToMeasureRange(rawXml, deferredRangeStart, deferredRangeEnd);
-    return buildOsmdPreviewXml(pageScoped, scoreParts, activeStaffFilter, {
+    // 벡터 PDF: 선택(또는 페이지 첫) 시스템 + 앞뒤 이웃 마디, 전 성부 가능
+    const systemScoped = filterMusicXmlToMeasureRange(
+      rawXml,
+      deferredRangeStart,
+      deferredRangeEnd,
+    );
+    return buildOsmdPreviewXml(systemScoped, scoreParts, activeStaffFilter, {
       verbatim: true,
       faithfulEditorLayout: true,
     });
@@ -1120,7 +1152,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const osmdPreviewKey = imagePdfLight
     ? `osmd-light-m${selectedMeasure?.measureMxl ?? 0}-${renderedPreviewRange.end}-${staffFilter || 'none'}`
-    : `osmd-preview-p${deferredPage}-${staffFilter || 'all'}`;
+    : `osmd-sys-m${deferredRangeStart}-${deferredRangeEnd}-${staffFilter || 'all'}`;
 
   /** MXL 반영분(artPreviewFixes) + 대기분 — 대기가 같은 음표를 덮어씀 */
   const osmdArticulationFixes = useMemo(
@@ -1397,8 +1429,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 성부가 자동 선택됩니다.' : ''}
                 {' '}
                 <span style={{ color: '#666' }}>
-                  미리보기는 PDF {page}페이지 구간(MXL m.{pageMeasureRange.start}–{pageMeasureRange.end})만 OSMD로 그립니다.
-                  다른 페이지·전체 악보는 페이지 이동 또는 「MXL 새로고침」으로 확인하세요.
+                  벡터 PDF는 <strong>오선 한 줄(시스템)+앞뒤 이웃 마디</strong>를 OSMD로 그립니다
+                  (현재 m.{renderedPreviewRange.start}–{renderedPreviewRange.end}, 전 성부 가능).
+                  이미지 PDF처럼 마디 한두 개만 보지 않고, PDF 페이지 전체보다 가볍게 주변 맥락을 봅니다.
                 </span>
               </>
             )}

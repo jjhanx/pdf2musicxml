@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import {
   buildPdfPageMeasureIndex,
   buildPdfPageSystemRows,
+  buildScoreSystemRows,
   filterMusicXmlToMeasureRange,
   inferMeasureRangeForPdfPage,
   inferPdfPageForMxlMeasure,
@@ -10,6 +11,7 @@ import {
   measureRangeFromPageIndex,
   normalizeToGlobalMeasureMxl,
   resolveHitMeasureMxl,
+  systemOsmdPreviewMeasureRange,
 } from '../shared/musicXmlMeasureRange';
 import { affectedMeasuresFromFixes, expandMeasureMxlSpec } from '../shared/omrHitlAffectedMeasures';
 
@@ -54,6 +56,33 @@ const lightLast = lightOsmdPreviewMeasureRange(100, 100);
 if (lightLast.start !== 100 || lightLast.end !== 100) {
   throw new Error('last measure light preview should not invent m+1');
 }
+
+// 벡터 PDF: 시스템(+이웃) 범위
+const sysSample = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="3"><print new-system="yes"/><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="4"><note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="5"><note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="6"><print new-system="yes"/><note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+const rows = buildScoreSystemRows(sysSample);
+if (rows.length !== 3 || rows[1]!.join(',') !== '3,4,5') {
+  throw new Error(`system rows expected [[1,2],[3,4,5],[6]] got ${JSON.stringify(rows)}`);
+}
+const sysMid = systemOsmdPreviewMeasureRange(rows, 4, 6, 1);
+if (sysMid.start !== 2 || sysMid.end !== 6) {
+  throw new Error(`system+neighbor for m4 expected 2-6 got ${sysMid.start}-${sysMid.end}`);
+}
+const sysFirst = systemOsmdPreviewMeasureRange(rows, 1, 6, 1);
+if (sysFirst.start !== 1 || sysFirst.end !== 3) {
+  throw new Error(`system+neighbor for m1 expected 1-3 got ${sysFirst.start}-${sysFirst.end}`);
+}
+
 // 경량 2칸: OSMD가 중복/로컬 번호를 줘도 둘째 칸 → start+1
 if (resolveHitMeasureMxl(42, 0, lightPair) !== 42) {
   throw new Error('column 0 must map to start');
@@ -179,4 +208,4 @@ for (const m of expandMeasureMxlSpec('33-34')) {
   if (!keys.has(`P3:${m}`)) throw new Error(`missing P3 m${m}`);
 }
 
-console.log('OK page measure range + light pair preview + measure nav index + affected measures');
+console.log('OK page measure range + light pair + system(+neighbor) preview + measure nav index + affected measures');

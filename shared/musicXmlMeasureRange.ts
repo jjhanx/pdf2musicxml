@@ -336,6 +336,80 @@ export function lightOsmdPreviewMeasureRange(
 }
 
 /**
+ * 전곡 `<print new-system/new-page>` 기준 시스템(오선 한 줄) 마디 목록.
+ * part 1 기준 — 다성부 합창도 같은 줄 경계를 공유한다고 가정.
+ */
+export function buildScoreSystemRows(xml: string): number[][] {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return [[1]];
+    const part = findXmlParts(doc)[0];
+    if (!part) return [[1]];
+    const rows: number[][] = [];
+    let row: number[] = [];
+    for (const measure of [...part.children]) {
+      if (xmlLocalName(measure) !== 'measure') continue;
+      const mnum = parseMeasureNumber(measure);
+      if (mnum == null) continue;
+      let newSystem = false;
+      for (const child of [...measure.children]) {
+        if (xmlLocalName(child) !== 'print') continue;
+        if (child.getAttribute('new-system') === 'yes') newSystem = true;
+        if (child.getAttribute('new-page') === 'yes') newSystem = true;
+      }
+      if (newSystem && row.length) {
+        rows.push(row);
+        row = [];
+      }
+      row.push(mnum);
+    }
+    if (row.length) rows.push(row);
+    return rows.length ? rows : [[1]];
+  } catch {
+    return [[1]];
+  }
+}
+
+/**
+ * 벡터 PDF HITL OSMD 범위: 선택 마디가 속한 시스템(오선 한 줄) + 앞뒤 이웃 마디.
+ * 이미지 PDF 마디(+1)보다 넓고, PDF 페이지 전체보다 가벼움. 전 성부 표시와 함께 씀.
+ */
+export function systemOsmdPreviewMeasureRange(
+  systemRows: ReadonlyArray<ReadonlyArray<number>>,
+  selectedMxl: number,
+  maxMeasure: number,
+  neighborPad = 1,
+): MxlMeasureRange {
+  const m = Math.max(1, Math.floor(selectedMxl));
+  const max = Math.max(1, Math.floor(maxMeasure));
+  const pad = Math.max(0, Math.floor(neighborPad));
+  let row: ReadonlyArray<number> | null = null;
+  for (const r of systemRows) {
+    if (r.length && r[0]! <= m && r[r.length - 1]! >= m) {
+      row = r;
+      break;
+    }
+    // 비연속 measure@number 대비
+    if (r.includes(m)) {
+      row = r;
+      break;
+    }
+  }
+  if (!row || !row.length) {
+    return {
+      start: Math.max(1, m - pad),
+      end: Math.min(max, m + pad),
+    };
+  }
+  const sysStart = Math.min(...row);
+  const sysEnd = Math.max(...row);
+  return {
+    start: Math.max(1, sysStart - pad),
+    end: Math.min(max, sysEnd + pad),
+  };
+}
+
+/**
  * 경량 OSMD(선택+다음, span===2) 클릭: 왼쪽부터 칸 인덱스 → 전곡 마디.
  * OSMD가 로컬/중복 MeasureNumber를 줘도 둘째 칸은 항상 start+1.
  * 페이지 구간(span≠2)은 normalizeToGlobalMeasureMxl만 사용.

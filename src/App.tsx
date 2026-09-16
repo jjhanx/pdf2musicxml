@@ -2678,10 +2678,11 @@ bash scripts/install-font-separator-deps.sh`}
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              zIndex: 9998,
+              zIndex: 100006,
+              padding: '2vh 2vw',
             }}
           >
-            <div className="font-strip-modal">
+            <div className="font-strip-modal" role="dialog" aria-modal="true" aria-label="지울 폰트 크기 선택">
               <FontStripPanel jobId={fontStripJobId} onSubmitted={() => setFontStripJobId(null)} />
             </div>
           </div>,

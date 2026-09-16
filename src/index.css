@@ -358,6 +358,16 @@ button.btn-muted {
   word-break: break-all;
 }
 
+.font-strip-table input[type='checkbox'] {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  accent-color: #42a5f5;
+  color-scheme: light;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
 .font-strip-panel label {
   color: #e8eaed;
 }

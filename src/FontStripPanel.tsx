@@ -113,12 +113,20 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    let attempt = 0;
+    const load = async () => {
       setErr('');
       try {
         const r = await fetch(`/api/font-strip/${jobId}`, { cache: 'no-store' });
         if (!r.ok) {
-          const j = (await r.json()) as { error?: string };
+          const j = (await r.json().catch(() => ({}))) as { error?: string };
+          // extract→analyze 직후 폴링이 모달을 먼저 열면 통계 파일이 잠깐 없을 수 있음
+          if ((r.status === 404 || r.status === 400) && attempt < 8) {
+            attempt += 1;
+            await new Promise((res) => setTimeout(res, 400));
+            if (!cancelled) void load();
+            return;
+          }
           throw new Error(j.error || `HTTP ${r.status}`);
         }
         const data = (await r.json()) as FontStripStats;
@@ -132,7 +140,8 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
       }
-    })();
+    };
+    void load();
     return () => {
       cancelled = true;
     };
@@ -248,7 +257,16 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {(stats.entries ?? []).map((e) => {
+                {(stats.entries ?? []).length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ color: '#f0c14b', padding: '1rem' }}>
+                      추출된 폰트 크기 항목이 없습니다. PDF에 pdfplumber가 읽을 텍스트가 없거나
+                      추출이 비었을 수 있습니다. 사용자 범위로 pt를 직접 넣거나, 원본이 이미지 PDF인지
+                      확인해 주세요.
+                    </td>
+                  </tr>
+                ) : (
+                  (stats.entries ?? []).map((e) => {
                   const active = isSizeInRanges(e.sizePt, selected);
                   const likelyMusic = e.sizePt >= 20 && !e.hasHangul && !e.hasLatin;
                   return (
@@ -262,12 +280,17 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
                         .join(' ')}
                     >
                       <td>
-                        <input
-                          type="checkbox"
-                          checked={active}
-                          onChange={() => toggleSizeRow(e.sizePt)}
-                          title={likelyMusic ? '음표 글림일 수 있음 — 신중히 선택' : undefined}
-                        />
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            onChange={() => toggleSizeRow(e.sizePt)}
+                            title={likelyMusic ? '음표 글림일 수 있음 — 신중히 선택' : undefined}
+                          />
+                          <span style={{ fontSize: '0.8rem', color: active ? '#90caf9' : '#9aa0a6' }}>
+                            {active ? '제거' : '유지'}
+                          </span>
+                        </label>
                       </td>
                       <td>{e.sizePt}</td>
                       <td>{e.charCount}</td>
@@ -276,7 +299,8 @@ export function FontStripPanel({ jobId, onSubmitted, onCancel }: Props) {
                       <td className="font-strip-fontname">{e.fontnames?.join(', ') || '—'}</td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>

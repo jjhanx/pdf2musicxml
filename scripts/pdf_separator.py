@@ -959,8 +959,18 @@ def cmd_strip(args: argparse.Namespace) -> int:
 def cmd_analyze(args: argparse.Namespace) -> int:
     pages = load_extracted_pages(args.extracted_json)
     stats = analyze_font_sizes(pages)
-    json.dump(stats, sys.stdout, ensure_ascii=False, indent=2)
-    sys.stdout.write("\n")
+    # Windows cp949 콘솔에서 © 등 샘플이 UnicodeEncodeError → 서버 JSON.parse 실패·UI 빈 목록
+    out = sys.stdout
+    if hasattr(out, "reconfigure"):
+        try:
+            out.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    try:
+        json.dump(stats, out, ensure_ascii=False, indent=2)
+    except UnicodeEncodeError:
+        json.dump(stats, out, ensure_ascii=True, indent=2)
+    out.write("\n")
     return 0
 
 

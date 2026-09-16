@@ -74,13 +74,17 @@ const rows = buildScoreSystemRows(sysSample);
 if (rows.length !== 3 || rows[1]!.join(',') !== '3,4,5') {
   throw new Error(`system rows expected [[1,2],[3,4,5],[6]] got ${JSON.stringify(rows)}`);
 }
-const sysMid = systemOsmdPreviewMeasureRange(rows, 4, 6, 1);
-if (sysMid.start !== 2 || sysMid.end !== 6) {
-  throw new Error(`system+neighbor for m4 expected 2-6 got ${sysMid.start}-${sysMid.end}`);
+const sysMid = systemOsmdPreviewMeasureRange(rows, 4, 6, 0);
+if (sysMid.start !== 3 || sysMid.end !== 5) {
+  throw new Error(`system for m4 expected 3-5 got ${sysMid.start}-${sysMid.end}`);
 }
-const sysFirst = systemOsmdPreviewMeasureRange(rows, 1, 6, 1);
-if (sysFirst.start !== 1 || sysFirst.end !== 3) {
-  throw new Error(`system+neighbor for m1 expected 1-3 got ${sysFirst.start}-${sysFirst.end}`);
+const sysFirst = systemOsmdPreviewMeasureRange(rows, 1, 6, 0);
+if (sysFirst.start !== 1 || sysFirst.end !== 2) {
+  throw new Error(`system for m1 expected 1-2 got ${sysFirst.start}-${sysFirst.end}`);
+}
+const sysPad = systemOsmdPreviewMeasureRange(rows, 4, 6, 1);
+if (sysPad.start !== 2 || sysPad.end !== 6) {
+  throw new Error(`system+neighbor for m4 expected 2-6 got ${sysPad.start}-${sysPad.end}`);
 }
 
 // 경량 2칸: OSMD가 중복/로컬 번호를 줘도 둘째 칸 → start+1

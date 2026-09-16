@@ -961,7 +961,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 scoreSystemRows,
                 selectedMeasure?.measureMxl ?? deferredPageMeasureRange.start,
                 pageMeasureIndex.maxMeasure,
-                1,
+                0,
               )
             : deferredPageMeasureRange);
       const measureMxl = normalizeToGlobalMeasureMxl(info.measureMxl, range);
@@ -1011,29 +1011,44 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         Math.min(pageMeasureIndex.maxMeasure, Math.floor(measureMxlRaw)),
       );
       if (!Number.isFinite(measureMxl) || measureMxl < 1) return;
-      const staffIndex = staffFilter
+      // 벡터: 마디 선택 시 해당 시스템 전 성부 미리보기 — 성부 필터 해제
+      if (!imagePdfLight && staffFilter) {
+        setStaffFilter('');
+      }
+      const staffIndex = staffFilter && imagePdfLight
         ? Math.max(0, staffList.indexOf(staffFilter))
         : 0;
       const pdfPage = inferPdfPageForMxlMeasure(pageMeasureIndex, measureMxl);
       if (pdfPage !== page) {
         startPageTransition(() => setPage(Math.max(1, Math.min(pageCount, pdfPage))));
       }
+      const sysRange = !imagePdfLight
+        ? systemOsmdPreviewMeasureRange(
+            scoreSystemRows,
+            measureMxl,
+            pageMeasureIndex.maxMeasure,
+            0,
+          )
+        : { start: measureMxl, end: measureMxl };
       openMeasure(
         {
           measureMxl,
           staffIndex,
-          partId: staffFilter ? partIdForStaff(staffFilter) : null,
-          staffWithinPart: staffFilter
-            ? staffWithinPartForLabel(staffFilter) ?? undefined
-            : undefined,
+          partId: imagePdfLight && staffFilter ? partIdForStaff(staffFilter) : null,
+          staffWithinPart:
+            imagePdfLight && staffFilter
+              ? staffWithinPartForLabel(staffFilter) ?? undefined
+              : undefined,
         },
-        { start: measureMxl, end: measureMxl },
+        sysRange,
       );
-      if (!staffFilter && !editPartId) {
+      if (!imagePdfLight || (!staffFilter && !editPartId)) {
         setEditPartId(resolvePartIdForStaffIndex(staffIndex));
       }
       setMeasureClickMsg(
-        `마디 이동 · m.${measureMxl} → PDF p.${pdfPage} (구간 m.${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).start}–${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).end})`,
+        imagePdfLight
+          ? `마디 이동 · m.${measureMxl} → PDF p.${pdfPage} (구간 m.${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).start}–${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).end})`
+          : `마디 선택 · m.${measureMxl} → 시스템 m.${sysRange.start}–${sysRange.end} · 전체 성부 · PDF p.${pdfPage}`,
       );
     },
     [
@@ -1047,6 +1062,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       partIdForStaff,
       staffWithinPartForLabel,
       resolvePartIdForStaffIndex,
+      imagePdfLight,
+      scoreSystemRows,
     ],
   );
 
@@ -1075,13 +1092,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       );
     }
     if (!imagePdfLight) {
+      // 선택 마디가 속한 오선 한 줄(시스템)만 — 전 성부는 previewXml에서 staffFilter 무시
       const anchor =
         selectedMeasure?.measureMxl ?? deferredPageMeasureRange.start;
       return systemOsmdPreviewMeasureRange(
         scoreSystemRows,
         anchor,
         pageMeasureIndex.maxMeasure,
-        1,
+        0,
       );
     }
     return deferredPageMeasureRange;
@@ -1100,14 +1118,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const onOsmdMeasureClick = useCallback(
     (info: OsmdMeasureClickInfo) => {
-      if (imagePdfLight) {
-        // 열 매핑된 전곡 번호로 ◀마디와 동일하게 편집 패널·PDF 동기
-        navigateToMeasure(info.measureMxl);
-        return;
-      }
-      openMeasure(info, renderedPreviewRange);
+      // 이미지·벡터 모두 전곡 마디로 이동(벡터는 시스템+전체 성부 미리보기)
+      navigateToMeasure(info.measureMxl);
     },
-    [imagePdfLight, navigateToMeasure, openMeasure, renderedPreviewRange],
+    [navigateToMeasure],
   );
 
   const deferredRangeStart = renderedPreviewRange.start;
@@ -1129,13 +1143,13 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         faithfulEditorLayout: true,
       });
     }
-    // 벡터 PDF: 선택(또는 페이지 첫) 시스템 + 앞뒤 이웃 마디, 전 성부 가능
+    // 벡터 PDF: 선택 시스템만, 항상 전 성부(성부 필터는 편집 대상용 — OSMD는 전체)
     const systemScoped = filterMusicXmlToMeasureRange(
       rawXml,
       deferredRangeStart,
       deferredRangeEnd,
     );
-    return buildOsmdPreviewXml(systemScoped, scoreParts, activeStaffFilter, {
+    return buildOsmdPreviewXml(systemScoped, scoreParts, null, {
       verbatim: true,
       faithfulEditorLayout: true,
     });
@@ -1152,7 +1166,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const osmdPreviewKey = imagePdfLight
     ? `osmd-light-m${selectedMeasure?.measureMxl ?? 0}-${renderedPreviewRange.end}-${staffFilter || 'none'}`
-    : `osmd-sys-m${deferredRangeStart}-${deferredRangeEnd}-${staffFilter || 'all'}`;
+    : `osmd-sys-m${deferredRangeStart}-${deferredRangeEnd}-all`;
 
   /** MXL 반영분(artPreviewFixes) + 대기분 — 대기가 같은 음표를 덮어씀 */
   const osmdArticulationFixes = useMemo(
@@ -1429,9 +1443,9 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 {staffFilter === '' ? ' 전체 파트 보기에서는 클릭한 줄의 성부가 자동 선택됩니다.' : ''}
                 {' '}
                 <span style={{ color: '#666' }}>
-                  벡터 PDF는 <strong>오선 한 줄(시스템)+앞뒤 이웃 마디</strong>를 OSMD로 그립니다
-                  (현재 m.{renderedPreviewRange.start}–{renderedPreviewRange.end}, 전 성부 가능).
-                  이미지 PDF처럼 마디 한두 개만 보지 않고, PDF 페이지 전체보다 가볍게 주변 맥락을 봅니다.
+                  벡터 PDF는 마디를 고르면 <strong>그 마디가 속한 오선 한 줄(시스템)의 전체 성부</strong>를
+                  OSMD로 그립니다 (현재 m.{renderedPreviewRange.start}–{renderedPreviewRange.end}).
+                  성부 필터 버튼은 편집 대상 표시용이며, 미리보기는 항상 전 성부입니다.
                 </span>
               </>
             )}

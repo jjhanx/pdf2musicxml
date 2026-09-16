@@ -119,6 +119,7 @@ python _smoke/test_merge_audiveris_movements.py  # Audiveris mvt1+mvt2 이어 �
 
 | 현상 | 웹/스크립트로 | 사용자 |
 |------|----------------|--------|
+| 벡터 PDF 변환이 시작 직후 진행만 돌고 다음 UI 없음 | `font_separator`가 UI 없는 `deskew_save_needed`에서 대기. 벡터 경로는 deskew save 생략 → `part_labels_needed`. `python _smoke/test_font_separator_no_deskew_save_hang.py` | 서버 pull·재시작 후 같은 PDF 재변환 |
 | 빔 없는 세잇단 괄호(4분·2분+4분 등) | HITL 「세잇단 적용」+ **음표 길이 유지**(혼합 길이)·`fix_audiveris_mxl` bracket 규칙. 검증: `python _smoke/test_triplet_hitl.py` | 마디 편집에서 범위·기준 박자 지정 |
 | PL 세잇단 클릭 후 대기 목록이 안 생기거나 해제 버튼만 깜빡임 | 낙관적 스냅샷·자동 MXL 반영 제거. 적용 실패/건너뜀 시 서버가 대기 목록을 지우지 않음. `pendingFixesRef` 동기 갱신. `npx tsx _smoke/test_pending_fix_ref_sync.ts` · `npx tsx _smoke/test_hitl_pending_keep_on_skip.ts` | 「세잇단 적용」→ 대기 목록 확인 → 「MXL에 반영·미리보기」 |
 | PL 빔 세잇단이 적용돼도 미리보기에 안 보임 | Audiveris stem default-y 잔존 → 적용 시 제거. python _smoke/test_pl_m7_triplet_a3.py | #12 등에서 세잇단 적용 후 MXL 반영 |

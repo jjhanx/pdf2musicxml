@@ -3607,21 +3607,9 @@ async function executeJob(jobId: string, audiverisBin: string): Promise<void> {
       } catch (detectErr) {
         console.warn(`[job ${jobId}] Failed to detect part labels (ignoring):`, detectErr);
       }
-      
-      console.log(`[job ${jobId}] Pausing for deskew save...`);
-      setJobProgress(job, {
-        phase: 'hitl',
-        current: 0,
-        total: 1,
-        detail: '수평 보정 결과 다운로드 대기...',
-      });
-      job.status = 'deskew_save_needed';
-      await new Promise<void>((resolve, reject) => {
-        job.deskewSaveDeferred = { resolve, reject };
-      });
-      delete job.deskewSaveDeferred;
-      job.status = 'processing';
-      console.log(`[job ${jobId}] Deskew save confirmed, continuing...`);
+
+      // image_pdf만 deskew analyze → deskew UI → apply → 결과 저장 대기.
+      // font_separator(벡터 PDF)에서 저장 대기만 하면 UI가 안 열려 변환이 영원히 헛돈다.
 
       console.log(`[job ${jobId}] Pausing for early part label setup (성부 S/A/T/B…)…`);
       setJobProgress(job, {

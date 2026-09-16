@@ -9,6 +9,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "pdf_separator.py"
+VENV_PY = ROOT / "venv" / "Scripts" / "python.exe"
+if not VENV_PY.exists():
+    VENV_PY = ROOT / "venv" / "bin" / "python"
+PY = str(VENV_PY if VENV_PY.exists() else sys.executable)
 
 
 def main() -> None:
@@ -29,7 +33,7 @@ def main() -> None:
         env = {**dict(**{k: v for k, v in __import__("os").environ.items()}), "PYTHONUTF8": "1"}
         # Force a narrow encoding like Windows cp949 to ensure fallback still works
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "analyze", str(extracted)],
+            [PY, str(SCRIPT), "analyze", str(extracted)],
             capture_output=True,
             text=True,
             encoding="utf-8",

@@ -349,10 +349,103 @@ def build_rh_measure_from_misplaced(
     return out
 
 
-def merge_rh_into_piano_measure(piano_m: ET.Element, rh_m: ET.Element, ns: str) -> ET.Element:
+def _forward_timeline_duration(measure: ET.Element | None, ns: str) -> int:
+    """첫 `<backup>` 전까지 non-chord note·forward duration 합 (RH/LH 한 오선 길이)."""
+    if measure is None:
+        return 0
+    total = 0
+    for child in measure:
+        tag = _local(child)
+        if tag == "backup":
+            break
+        if tag == "forward":
+            try:
+                total += int((child.findtext(_q(ns, "duration")) or "0").strip() or 0)
+            except ValueError:
+                pass
+            continue
+        if tag != "note":
+            continue
+        if child.find(_q(ns, "chord")) is not None:
+            continue
+        if child.find(_q(ns, "grace")) is not None:
+            continue
+        try:
+            total += int((child.findtext(_q(ns, "duration")) or "0").strip() or 0)
+        except ValueError:
+            pass
+    return total
+
+
+def _fix_cross_staff_backup_duration(measure: ET.Element, ns: str) -> None:
+    """staff1 실제 길이에 맞춰 staff1→staff2 직전 backup을 고친다 (기본 divisions=4 오산 방지)."""
+    staff1_notes = []
+    staff2_notes = []
+    for n in measure.findall(_q(ns, "note")):
+        if n.find(_q(ns, "grace")) is not None:
+            continue
+        st = n.findtext(_q(ns, "staff")) or "1"
+        if st == "1":
+            staff1_notes.append(n)
+        elif st == "2":
+            staff2_notes.append(n)
+    if not staff1_notes or not staff2_notes:
+        return
+    children = list(measure)
+    last_s1 = -1
+    first_s2 = len(children)
+    for i, el in enumerate(children):
+        if el in staff1_notes:
+            last_s1 = max(last_s1, i)
+        elif el in staff2_notes:
+            first_s2 = min(first_s2, i)
+    if last_s1 < 0 or first_s2 >= len(children) or last_s1 >= first_s2:
+        return
+    # staff1-only forward walk (ignore staff2 that shouldn't appear before backup)
+    s1_dur = 0
+    for el in children[: first_s2]:
+        tag = _local(el)
+        if tag == "backup":
+            break
+        if tag == "forward":
+            try:
+                s1_dur += int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
+            except ValueError:
+                pass
+            continue
+        if tag != "note":
+            continue
+        if el.find(_q(ns, "chord")) is not None:
+            continue
+        if (el.findtext(_q(ns, "staff")) or "1") != "1":
+            continue
+        try:
+            s1_dur += int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
+        except ValueError:
+            pass
+    if s1_dur <= 0:
+        return
+    for i in range(last_s1 + 1, first_s2):
+        el = children[i]
+        if _local(el) == "backup":
+            dur_el = el.find(_q(ns, "duration"))
+            if dur_el is not None and dur_el.text != str(s1_dur):
+                dur_el.text = str(s1_dur)
+            break
+
+
+def merge_rh_into_piano_measure(
+    piano_m: ET.Element,
+    rh_m: ET.Element,
+    ns: str,
+    divisions: int | None = None,
+) -> ET.Element:
     """
     One MusicXML piano part: staff 1 = RH (G), staff 2 = existing LH (F).
     Prefer label `P` (not separate PR/PL parts) when reclaiming misplaced RH.
+
+    Backup duration must match RH timeline — never assume default divisions=4 (capacity 16)
+    when note durations are on another scale (e.g. half=24 → measure 48).
     """
     out = ET.Element(_q(ns, "measure"), number=piano_m.get("number") or rh_m.get("number") or "1")
     for k, v in piano_m.attrib.items():
@@ -373,6 +466,8 @@ def merge_rh_into_piano_measure(piano_m: ET.Element, rh_m: ET.Element, ns: str) 
         d_rh = rh_m.find(f"{_q(ns, 'attributes')}/{_q(ns, 'divisions')}")
         if d_rh is not None and d_rh.text:
             ET.SubElement(attrs, _q(ns, "divisions")).text = d_rh.text
+        elif divisions is not None and divisions > 0:
+            ET.SubElement(attrs, _q(ns, "divisions")).text = str(divisions)
     ET.SubElement(attrs, _q(ns, "staves")).text = "2"
     c1 = ET.SubElement(attrs, _q(ns, "clef"), number="1")
     ET.SubElement(c1, _q(ns, "sign")).text = "G"
@@ -382,28 +477,38 @@ def merge_rh_into_piano_measure(piano_m: ET.Element, rh_m: ET.Element, ns: str) 
     ET.SubElement(c2, _q(ns, "line")).text = "4"
     out.append(attrs)
 
-    # RH first (staff 1)
+    # RH first (staff 1) — drop any nested backup from source (we insert one after RH)
     for child in rh_m:
         tag = _local(child)
         if tag == "attributes":
             continue
         if tag == "barline":
             continue
+        if tag == "backup":
+            continue
         if tag == "note":
             n = copy.deepcopy(child)
             _set_note_staff(n, "1", ns)
             out.append(n)
-        elif tag in ("backup", "forward", "direction", "harmony", "print"):
+        elif tag in ("forward", "direction", "harmony", "print"):
             el = copy.deepcopy(child)
             if tag == "direction":
                 for st in el.findall(_q(ns, "staff")):
                     st.text = "1"
             out.append(el)
 
-    cap = _measure_capacity_duration(piano_m, ns)
-    # If RH already used backups, walk to end of RH timeline then backup full measure for LH
+    rh_dur = _forward_timeline_duration(rh_m, ns)
+    lh_dur = _forward_timeline_duration(piano_m, ns)
+    attr_cap = _measure_capacity_duration(out, ns)
+    # Prefer actual RH length; never use attr_cap alone when it underflows RH (div=4 default bug)
+    backup_dur = max(rh_dur, lh_dur, 1)
+    if attr_cap > backup_dur and rh_dur > 0 and attr_cap <= rh_dur * 2:
+        # only trust attr_cap when divisions look consistent with RH
+        if attrs.find(_q(ns, "divisions")) is not None:
+            backup_dur = max(backup_dur, attr_cap)
+
     b = ET.SubElement(out, _q(ns, "backup"))
-    ET.SubElement(b, _q(ns, "duration")).text = str(cap)
+    ET.SubElement(b, _q(ns, "duration")).text = str(backup_dur)
 
     # LH on staff 2 (voices shifted so they do not collide with RH 1–2)
     for child in piano_m:
@@ -411,6 +516,8 @@ def merge_rh_into_piano_measure(piano_m: ET.Element, rh_m: ET.Element, ns: str) 
         if tag == "attributes":
             continue
         if tag == "barline":
+            continue
+        if tag == "backup":
             continue
         if tag == "note":
             n = copy.deepcopy(child)
@@ -421,7 +528,7 @@ def merge_rh_into_piano_measure(piano_m: ET.Element, rh_m: ET.Element, ns: str) 
             elif n.find(_q(ns, "pitch")) is not None:
                 _set_note_voice(n, "5", ns)
             out.append(n)
-        elif tag in ("backup", "forward", "direction", "harmony"):
+        elif tag in ("forward", "direction", "harmony"):
             el = copy.deepcopy(child)
             if tag == "direction":
                 for st in el.findall(_q(ns, "staff")):
@@ -432,6 +539,7 @@ def merge_rh_into_piano_measure(piano_m: ET.Element, rh_m: ET.Element, ns: str) 
         if _local(child) == "barline":
             out.append(copy.deepcopy(child))
             break
+    _fix_cross_staff_backup_duration(out, ns)
     return out
 
 
@@ -894,7 +1002,9 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                     tb_rest = _measure_is_rest_only(t_m, ns) and _measure_is_rest_only(b_m, ns)
                     if tb_rest and _pair_looks_like_misplaced_piano_rh(s_m, a_m, piano_src_m, ns):
                         rh_built = build_rh_measure_from_misplaced(s_m, a_m, ns)
-                        reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, rh_built, ns)
+                        reclaimed_piano_m = merge_rh_into_piano_measure(
+                            piano_src_m, rh_built, ns, divisions=curr_divisions
+                        )
                         _empty_vocal_targets(
                             vocal_out_measures,
                             target_vocal_pids,
@@ -909,7 +1019,9 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                         )
                     elif sa_rest and _pair_looks_like_misplaced_piano_rh(t_m, b_m, piano_src_m, ns):
                         rh_built = build_rh_measure_from_misplaced(t_m, b_m, ns)
-                        reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, rh_built, ns)
+                        reclaimed_piano_m = merge_rh_into_piano_measure(
+                            piano_src_m, rh_built, ns, divisions=curr_divisions
+                        )
                         _empty_vocal_targets(
                             vocal_out_measures,
                             target_vocal_pids,
@@ -936,9 +1048,15 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 # 1 vocal staff active (e.g. Women m8~19 S&A, or Men m20~26 T&B)
                 src_pid, src_m = active_vocal[0]
 
-                # 피아노 LH만 Piano 파트에 있고 RH가 Voice 스태프에 앉은 경우:
-                # women/men·explicit T/B 휴리스틱으로 성악에 화음분리하지 않고 RH→피아노 staff 1.
-                if target_piano_pid and is_likely_misplaced_piano_rh(src_m, piano_src_m, ns):
+                # 금지: 가사 없는 Voice를 women/men·explicit로 S+A 또는 T+B에 화음분리.
+                # 피아노(LH)가 같은 마디에서 울리면 → RH는 피아노 staff1, 성악은 쉼표.
+                piano_lh_only = (
+                    target_piano_pid
+                    and piano_src_m is not None
+                    and not _measure_is_rest_only(piano_src_m, ns)
+                    and not _piano_measure_has_staff2(piano_src_m, ns)
+                )
+                if piano_lh_only and not _measure_has_lyrics(src_m, ns):
                     _empty_vocal_targets(
                         vocal_out_measures,
                         target_vocal_pids,
@@ -950,8 +1068,9 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                         new_div,
                         ns,
                     )
-                    if piano_src_m is not None:
-                        reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, src_m, ns)
+                    reclaimed_piano_m = merge_rh_into_piano_measure(
+                        piano_src_m, src_m, ns, divisions=curr_divisions
+                    )
                 else:
                     elements = list(src_m)
                     reg_info = measure_reg_cache.get(num, "women")
@@ -964,26 +1083,43 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                             if p_mapped and p_mapped in target_vocal_pids:
                                 assigned_pids.append(p_mapped)
                     elif reg_info == "men" and len(target_vocal_pids) >= 4:
-                        # Men unison/duet -> T (P3) and B (P4)
                         assigned_pids = target_vocal_pids[2:4]
                     elif len(target_vocal_pids) >= 2:
-                        # Women unison/duet -> S (P1) and A (P2)
                         assigned_pids = target_vocal_pids[:2]
                     else:
                         assigned_pids = target_vocal_pids[:1]
 
                     if not assigned_pids:
-                        assigned_pids = target_vocal_pids[:2] if len(target_vocal_pids) >= 2 else target_vocal_pids[:1]
+                        assigned_pids = (
+                            target_vocal_pids[:2] if len(target_vocal_pids) >= 2 else target_vocal_pids[:1]
+                        )
 
-                    split_res = split_measure_elements(elements, len(assigned_pids), ns=_q(ns, ""))
-                    for t_idx, t_pid in enumerate(assigned_pids):
-                        for el in split_res[t_idx]:
-                            vocal_out_measures[t_pid].append(copy.deepcopy(el))
+                    # 가사 없으면 2성 화음분리·복제 금지 — 한 성부에만 두고 나머지는 쉼표
+                    if not _measure_has_lyrics(src_m, ns) and len(assigned_pids) > 1:
+                        assigned_pids = assigned_pids[:1]
 
-                    # Non-assigned vocal parts receive full-measure rests
+                    if len(assigned_pids) == 1:
+                        vocal_out_measures[assigned_pids[0]] = copy.deepcopy(src_m)
+                    elif _measure_has_lyrics(src_m, ns) and not _measure_has_chord_or_multivoice(
+                        src_m, ns
+                    ):
+                        # 가사 있는 유니즌: 양 성부에 동일 복사 (화음분리 아님)
+                        for t_pid in assigned_pids:
+                            vocal_out_measures[t_pid] = copy.deepcopy(src_m)
+                    else:
+                        # 가사 있는 화음/다성만 기존 분리
+                        split_res = split_measure_elements(
+                            elements, len(assigned_pids), ns=_q(ns, "")
+                        )
+                        for t_idx, t_pid in enumerate(assigned_pids):
+                            for el in split_res[t_idx]:
+                                vocal_out_measures[t_pid].append(copy.deepcopy(el))
+
                     for t_pid in target_vocal_pids:
                         if t_pid not in assigned_pids:
-                            vocal_out_measures[t_pid] = create_empty_rest_measure(num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns)
+                            vocal_out_measures[t_pid] = create_empty_rest_measure(
+                                num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                            )
 
             elif len(active_vocal) == 2:
                 # 2 vocal staves active (Staff 1: S&A, Staff 2: T&B)
@@ -997,9 +1133,13 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                     rh_m, lh_m = (st1_m, st2_m) if a_avg >= b_avg else (st2_m, st1_m)
                     if piano_src_m is not None and not _measure_is_rest_only(piano_src_m, ns):
                         if is_likely_misplaced_piano_rh(rh_m, piano_src_m, ns):
-                            reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, rh_m, ns)
+                            reclaimed_piano_m = merge_rh_into_piano_measure(
+                                piano_src_m, rh_m, ns, divisions=curr_divisions
+                            )
                     else:
-                        reclaimed_piano_m = merge_rh_into_piano_measure(lh_m, rh_m, ns)
+                        reclaimed_piano_m = merge_rh_into_piano_measure(
+                            lh_m, rh_m, ns, divisions=curr_divisions
+                        )
                     _empty_vocal_targets(
                         vocal_out_measures,
                         target_vocal_pids,
@@ -1012,17 +1152,39 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                         ns,
                     )
                 elif len(target_vocal_pids) >= 4:
-                    split_sa = split_measure_elements(list(st1_m), 2, ns=_q(ns, ""))
-                    split_tb = split_measure_elements(list(st2_m), 2, ns=_q(ns, ""))
-
-                    for el in split_sa[0]:
-                        vocal_out_measures[target_vocal_pids[0]].append(copy.deepcopy(el))
-                    for el in split_sa[1]:
-                        vocal_out_measures[target_vocal_pids[1]].append(copy.deepcopy(el))
-                    for el in split_tb[0]:
-                        vocal_out_measures[target_vocal_pids[2]].append(copy.deepcopy(el))
-                    for el in split_tb[1]:
-                        vocal_out_measures[target_vocal_pids[3]].append(copy.deepcopy(el))
+                    # 가사 없는 스태프는 화음분리 금지 — 1:1 복사만
+                    if _measure_has_lyrics(st1_m, ns) and _measure_has_chord_or_multivoice(st1_m, ns):
+                        split_sa = split_measure_elements(list(st1_m), 2, ns=_q(ns, ""))
+                        for el in split_sa[0]:
+                            vocal_out_measures[target_vocal_pids[0]].append(copy.deepcopy(el))
+                        for el in split_sa[1]:
+                            vocal_out_measures[target_vocal_pids[1]].append(copy.deepcopy(el))
+                    else:
+                        vocal_out_measures[target_vocal_pids[0]] = copy.deepcopy(st1_m)
+                        if _measure_has_lyrics(st1_m, ns) and not _measure_has_chord_or_multivoice(
+                            st1_m, ns
+                        ):
+                            vocal_out_measures[target_vocal_pids[1]] = copy.deepcopy(st1_m)
+                        else:
+                            vocal_out_measures[target_vocal_pids[1]] = create_empty_rest_measure(
+                                num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                            )
+                    if _measure_has_lyrics(st2_m, ns) and _measure_has_chord_or_multivoice(st2_m, ns):
+                        split_tb = split_measure_elements(list(st2_m), 2, ns=_q(ns, ""))
+                        for el in split_tb[0]:
+                            vocal_out_measures[target_vocal_pids[2]].append(copy.deepcopy(el))
+                        for el in split_tb[1]:
+                            vocal_out_measures[target_vocal_pids[3]].append(copy.deepcopy(el))
+                    else:
+                        vocal_out_measures[target_vocal_pids[2]] = copy.deepcopy(st2_m)
+                        if _measure_has_lyrics(st2_m, ns) and not _measure_has_chord_or_multivoice(
+                            st2_m, ns
+                        ):
+                            vocal_out_measures[target_vocal_pids[3]] = copy.deepcopy(st2_m)
+                        else:
+                            vocal_out_measures[target_vocal_pids[3]] = create_empty_rest_measure(
+                                num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                            )
                 else:
                     vocal_out_measures[target_vocal_pids[0]] = copy.deepcopy(st1_m)
                     if len(target_vocal_pids) > 1:
@@ -1035,12 +1197,20 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
 
                 vocal_out_measures[target_vocal_pids[0]] = copy.deepcopy(st1_m)
                 vocal_out_measures[target_vocal_pids[1]] = copy.deepcopy(st2_m)
-                split_tb = split_measure_elements(list(st3_m), 2, ns=_q(ns, ""))
-                for el in split_tb[0]:
-                    vocal_out_measures[target_vocal_pids[2]].append(copy.deepcopy(el))
-                for el in split_tb[1]:
-                    vocal_out_measures[target_vocal_pids[3]].append(copy.deepcopy(el))
-
+                if _measure_has_lyrics(st3_m, ns) and _measure_has_chord_or_multivoice(st3_m, ns):
+                    split_tb = split_measure_elements(list(st3_m), 2, ns=_q(ns, ""))
+                    for el in split_tb[0]:
+                        vocal_out_measures[target_vocal_pids[2]].append(copy.deepcopy(el))
+                    for el in split_tb[1]:
+                        vocal_out_measures[target_vocal_pids[3]].append(copy.deepcopy(el))
+                else:
+                    vocal_out_measures[target_vocal_pids[2]] = copy.deepcopy(st3_m)
+                    if _measure_has_lyrics(st3_m, ns):
+                        vocal_out_measures[target_vocal_pids[3]] = copy.deepcopy(st3_m)
+                    else:
+                        vocal_out_measures[target_vocal_pids[3]] = create_empty_rest_measure(
+                            num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                        )
             else:
                 # 4 or more active vocal staves: 1-to-1 mapping
                 for idx, t_pid in enumerate(target_vocal_pids):
@@ -1055,6 +1225,9 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
             # Process Piano part(s)
             if target_piano_entries:
                 p_m = reclaimed_piano_m if reclaimed_piano_m is not None else piano_src_m
+                if p_m is not None:
+                    p_m = copy.deepcopy(p_m)
+                    _fix_cross_staff_backup_duration(p_m, ns)
                 if piano_split_pr_pl and p_m is not None:
                     # PR / PL as separate MusicXML parts (staff 1 / staff 2)
                     by_label = {lab: pid for pid, lab in target_piano_entries}
@@ -1084,7 +1257,7 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 elif target_piano_pid and target_piano_pid in new_parts:
                     # Single `P` (or lone PR): keep one part; RH/LH stay as staff 1/2 when present
                     if p_m is not None:
-                        new_parts[target_piano_pid].append(copy.deepcopy(p_m))
+                        new_parts[target_piano_pid].append(p_m)
                     else:
                         new_parts[target_piano_pid].append(
                             create_empty_rest_measure(

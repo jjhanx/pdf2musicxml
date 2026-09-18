@@ -262,6 +262,13 @@ def _pitched_on_staff(part: ET.Element, mnum: str, staff: str) -> list[str]:
     return out
 
 
+def _backup_durs(part: ET.Element, mnum: str) -> list[str]:
+    m = next((x for x in part.findall("{*}measure") if x.get("number") == mnum), None)
+    if m is None:
+        return []
+    return [el.findtext("{*}duration") or "" for el in m if el.tag.endswith("backup") or el.tag == "backup"]
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
@@ -284,6 +291,9 @@ def main() -> None:
         lh = _pitched_on_staff(parts["P5"], "1", "2")
         assert rh == ["A4", "C5", "A4"], f"RH must land on piano staff 1, got {rh}"
         assert lh == ["F3", "E2"], f"LH must stay on piano staff 2, got {lh}"
+        # half+half at divisions=4 → backup must be 16; with half=8 style notes backup matches RH
+        backs = _backup_durs(parts["P5"], "1")
+        assert backs and int(backs[0]) >= 8, f"cross-staff backup must follow RH length, got {backs}"
 
         src2 = td_path / "split.mxl"
         out2 = td_path / "split_out.mxl"
@@ -338,6 +348,39 @@ def main() -> None:
         lh6 = _pitched_on_staff(parts6["P5"], "8", "2")
         assert "C5" in rh6 and "C6" in rh6, f"RH on piano staff 1, got {rh6}"
         assert "G3" in lh6 and "C2" in lh6, f"LH on piano staff 2, got {lh6}"
+        backs6 = _backup_durs(parts6["P5"], "8")
+        assert backs6 == ["16"], f"m8 backup must equal RH leaders 8+8=16, got {backs6}"
+
+        # Real 5d832 pristine: note durs 24/12 with inherited div — backup must be 48 not 16
+        zip_5d = ROOT / "omr-work-5d832ef7.zip"
+        if zip_5d.is_file():
+            import zipfile as zf
+
+            with zf.ZipFile(zip_5d) as z:
+                prist = z.read("audiveris_pristine.mxl")
+            src_real = td_path / "5d832.mxl"
+            out_real = td_path / "5d832_out.mxl"
+            src_real.write_bytes(prist)
+            restructure_mxl(src_real, out_real, labels)
+            with zf.ZipFile(out_real) as mz:
+                name = next(n for n in mz.namelist() if n.endswith((".xml", ".musicxml")) and "META" not in n)
+                root_r = ET.fromstring(mz.read(name))
+            parts_r = {p.get("id"): p for p in root_r.findall("{*}part")}
+            for pid in ("P1", "P2", "P3", "P4"):
+                assert _pitched(parts_r[pid], "8") == [], f"5d832 {pid} m8 must be rest"
+            backs_r = _backup_durs(parts_r["P5"], "8")
+            assert backs_r == ["48"], f"5d832 m8 backup must be RH timeline 48, got {backs_r}"
+            print("5d832ef7 m8 backup=48 OK")
+
+        # explicit T/B mapping must NOT chord-split lyric-less RH onto T/B
+        src6b = td_path / "six_force.mxl"
+        out6b = td_path / "six_force_out.mxl"
+        src6b.write_bytes(_mxl_bytes(SRC_6VOICE_RH_LH))
+        restructure_mxl(src6b, out6b, labels_men)
+        root6b = _load_root(out6b)
+        parts6b = {p.get("id"): p for p in root6b.findall("part")}
+        assert _pitched(parts6b["P3"], "8") == []
+        assert _pitched(parts6b["P4"], "8") == []
 
     # Real zip regression if present
     zip_mxl = ROOT / "_smoke" / "_52386d65" / "audiveris_raw.mxl"

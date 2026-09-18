@@ -97,6 +97,8 @@ export function repairTimelineForOsmdPreview(
   out = dedupeIdenticalChordPitchesForOsmdPreview(out);
   // type·duration 불일치(예: half+dur=2)를 duration←type로 맞춘 뒤 slur 짝 정리
   out = coerceNoteDurationsToTypeForOsmdPreview(out);
+  // coerce가 duration을 키우면 다시 마디 capacity를 넘길 수 있음 → 한 번 더 clamp
+  out = capBackupDurationsForOsmdPreview(out);
   out = normalizeSlursForOsmdPreview(out);
   out = repairArticulationDefaultYForOsmdPreview(out);
   return out;
@@ -2241,6 +2243,8 @@ export function realignDefaultXFromStaffTimelineForOsmdPreview(xml: string): str
  *    grand staff에서 staff1(PR) 다음 backup 없이 staff2(PL)가 이어질 때 전역 cursor로 합산하면
  *    PL 음표 duration이 1로 뭉개져 미리보기에서 거의 안 보인다.
  * 2. <backup>은 직전 voice 스트림 cursor를 되돌린다(음수 시간·마디 스킵 방지).
+ * 3. cursor가 이미 capacity 이상이면 duration=1로 남기지 않고 음표/화음을 제거한다.
+ *    (남기면 OSMD가 다음 마디 칸으로 그림을 넘김 — 마디 편집 미리보기 침범)
  */
 export function capBackupDurationsForOsmdPreview(xml: string): string {
   try {
@@ -2278,6 +2282,23 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
           return v || lastVoice;
         };
 
+        const removeNoteAndChords = (leader: Element) => {
+          const siblings = [...measure.children];
+          const start = siblings.indexOf(leader);
+          if (start < 0) {
+            leader.remove();
+            return;
+          }
+          const group: Element[] = [leader];
+          for (let j = start + 1; j < siblings.length; j += 1) {
+            const next = siblings[j]!;
+            if (xmlLocalName(next) !== 'note') break;
+            if (next.querySelector(':scope > chord, :scope > *|chord') == null) break;
+            group.push(next);
+          }
+          for (const n of group) n.remove();
+        };
+
         for (const child of Array.from(measure.children)) {
           const tag = xmlLocalName(child);
           if (tag === 'note') {
@@ -2297,8 +2318,17 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
                 const dur = parseInt(durationEl.textContent || '0', 10);
                 if (!isNaN(dur) && dur > 0) {
                   let cursor = cursorByVoice.get(voice) ?? 0;
+                  // 이미 마디를 채운 뒤 duration=1로 남기면 OSMD가 다음 마디로 그림을 넘김
+                  if (cursor >= capacity) {
+                    removeNoteAndChords(child);
+                    continue;
+                  }
                   if (cursor + dur > capacity) {
-                    const cappedDur = Math.max(1, capacity - cursor);
+                    const cappedDur = capacity - cursor;
+                    if (cappedDur <= 0) {
+                      removeNoteAndChords(child);
+                      continue;
+                    }
                     durationEl.textContent = String(cappedDur);
                     lastLeaderCapped = true;
                     lastLeaderDur = cappedDur;

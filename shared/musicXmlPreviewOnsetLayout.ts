@@ -94,7 +94,8 @@ export function measureLengthUnits(measure: Element): number {
   // mid-score 마디·PR/PL prune 후 <divisions> 없음 → 기본 1이면 뒤 음이 432에 뭉쳐 소실·간격 왜곡
   if (divisions <= 0) return Math.max(1, timelineEnd);
   const fromTime = Math.max(1, Math.round((divisions * beats * 4) / beatType));
-  return Math.max(fromTime, timelineEnd);
+  // overfull timeline으로 분모를 키우면 default-x가 박자칸 밖으로 나가 다음 마디로 침범해 보임
+  return fromTime;
 }
 
 /** 미리보기 default-x 분모 — 박자표 길이와 실제 timeline 끝 중 큰 값. */

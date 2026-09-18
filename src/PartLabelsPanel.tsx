@@ -125,8 +125,14 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
       <p style={{ margin: '0 0 1rem', lineHeight: 1.55, fontSize: '0.92rem', color: '#333' }}>
         악보 정리(가사 제거)를 시작하기 전에 <strong>악보의 성부 구성(S/A/T/B 등)</strong>을 미리 알려주세요.
         이 초기 정보를 바탕으로 성부 위치를 추정하여 <strong>음표(오선 영역)가 지워지는 것을 방지</strong>합니다.
-        실제 악보에 쓰인 전체 성부 수에 맞춰 라벨을 지정하세요. 확정한 라벨은 
-        이후 OMR 과정과 <strong>최종 MXL part-name</strong>에 그대로 쓰입니다.
+        실제 악보에 쓰인 전체 성부 수에 맞춰 라벨을 지정하세요. 확정한 라벨은 이후 OMR 과정과{' '}
+        <strong>최종 MXL part-name</strong>에 그대로 쓰입니다.
+      </p>
+      <p style={{ margin: '0 0 1rem', lineHeight: 1.5, fontSize: '0.88rem', color: '#444' }}>
+        <strong>피아노:</strong> 오른손·왼손 그랜드스태프는 라벨 <strong>P 하나</strong>를 권장합니다(한
+        MusicXML 파트, staff 1=PR / staff 2=PL, 미리보기·필터만 PR·PL로 구분).{' '}
+        <strong>PR + PL</strong>은 OMR이 피아노를 <em>이미 두 파트로</em> 내보낸 경우에만 쓰세요. 성악
+        슬롯(S/A/T/B)에 피아노 음표를 나누어 넣지 않습니다.
       </p>
 
       {loading && <p>성부 정보 불러오는 중…</p>}
@@ -135,11 +141,11 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
       {!loading && slotCount > 0 && (
         <>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center' }}>
+            <button type="button" className="btn-muted" onClick={() => applyPreset(['S', 'A', 'T', 'B', 'P'])}>
+              합창+피아노 (S A T B P) ← 권장
+            </button>
             <button type="button" className="btn-muted" onClick={() => applyPreset(defaultPartLabels(6))}>
               합창+피아노 (S A T B PR PL)
-            </button>
-            <button type="button" className="btn-muted" onClick={() => applyPreset(['S', 'A', 'T', 'B', 'P'])}>
-              합창+피아노 (S A T B P)
             </button>
             <button
               type="button"

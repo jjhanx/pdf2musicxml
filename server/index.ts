@@ -699,6 +699,11 @@ function sessionAudiverisRawMxlPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'audiveris_raw.mxl');
 }
 
+/** Audiveris 직후 원본 — restructure/apply_part_labels가 raw를 덮어써도 진단·재라벨용으로 보존 */
+function sessionAudiverisPristineMxlPath(sessionRoot: string): string {
+  return path.join(sessionRoot, 'audiveris_pristine.mxl');
+}
+
 function sessionOmrHitlCheckpointPath(sessionRoot: string): string {
   return path.join(sessionRoot, 'omr_hitl_checkpoint.json');
 }
@@ -904,9 +909,15 @@ async function runOmrHitlAutoNormalize(
 
 async function ensureAudiverisRawBackup(scorePath: string, sessionRoot: string): Promise<void> {
   const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
-  if (fsSync.existsSync(rawPath)) return;
+  const pristinePath = sessionAudiverisPristineMxlPath(sessionRoot);
   if (!fsSync.existsSync(scorePath)) return;
-  await fs.copyFile(scorePath, rawPath);
+  if (!fsSync.existsSync(rawPath)) {
+    await fs.copyFile(scorePath, rawPath);
+  }
+  // pristine은 최초 1회만 — restructure 이후 raw를 다시 넣지 않음
+  if (!fsSync.existsSync(pristinePath)) {
+    await fs.copyFile(scorePath, pristinePath);
+  }
 }
 
 /** HITL·검토용 MXL을 세션 `audiveris_raw.mxl`과 동일하게 맞춤(후처리·baseline 오염 제거). */
@@ -1771,11 +1782,21 @@ async function applyPartLabelsToScoreFile(
   const restructureScript = path.join(__dirname, '..', 'scripts', 'restructure_mxl_parts.py');
   if (fsSync.existsSync(restructureScript)) {
     try {
+      const pristinePath = sessionAudiverisPristineMxlPath(sessionRoot);
+      const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
+      // raw에 라벨을 다시 적용할 때는 pristine(OMR 직후)에서 재구성해 이전 휴리스틱 오염을 피함
+      const restructureIn =
+        path.resolve(scorePath) === path.resolve(rawPath) && fsSync.existsSync(pristinePath)
+          ? pristinePath
+          : scorePath;
       await exec(
-        `"${pythonBin}" "${restructureScript}" "${scorePath}" "${scorePath}" "${labelsPath}"`,
+        `"${pythonBin}" "${restructureScript}" "${restructureIn}" "${scorePath}" "${labelsPath}"`,
         { maxBuffer: 16 * 1024 * 1024 },
       );
-      console.log(`restructure_mxl_parts completed for ${scorePath}`);
+      console.log(
+        `restructure_mxl_parts completed for ${scorePath}` +
+          (restructureIn !== scorePath ? ` (from pristine)` : ''),
+      );
     } catch (err) {
       console.warn(`restructure_mxl_parts failed (${scorePath}): ${err}`);
     }
@@ -6734,6 +6755,8 @@ app.post('/api/omr-hitl/:jobId/export-work/start', async (req, res) => {
       files.push({ abs: mxlPath, name: 'review.mxl' });
       const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
       if (fsSync.existsSync(rawPath)) files.push({ abs: rawPath, name: 'audiveris_raw.mxl' });
+      const pristinePath = sessionAudiverisPristineMxlPath(job.sessionRoot);
+      if (fsSync.existsSync(pristinePath)) files.push({ abs: pristinePath, name: 'audiveris_pristine.mxl' });
       const baselinePath = sessionHitlBaselineMxlPath(job.sessionRoot);
       if (fsSync.existsSync(baselinePath)) files.push({ abs: baselinePath, name: 'omr_hitl_baseline.mxl' });
       const fixesPath = sessionOmrHitlFixesPath(job.sessionRoot);

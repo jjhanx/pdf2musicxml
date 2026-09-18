@@ -80,6 +80,142 @@ def get_pitch_value(note, ns=""):
     alt_val = float(alter.text) * 0.1 if alter is not None and alter.text else 0.0
     return int(octave.text) * 7 + step_val + alt_val
 
+
+def _pitched_notes(measure: ET.Element, ns: str) -> list[ET.Element]:
+    return [n for n in measure.findall(_q(ns, "note")) if n.find(_q(ns, "pitch")) is not None]
+
+
+def _measure_has_lyrics(measure: ET.Element, ns: str) -> bool:
+    return any(n.find(_q(ns, "lyric")) is not None for n in measure.findall(_q(ns, "note")))
+
+
+def _measure_is_rest_only(measure: ET.Element | None, ns: str) -> bool:
+    if measure is None:
+        return True
+    return len(_pitched_notes(measure, ns)) == 0
+
+
+def _avg_pitch_value(notes: list[ET.Element], ns: str) -> float:
+    vals = [get_pitch_value(n, _q(ns, "")) for n in notes]
+    vals = [v for v in vals if v >= 0]
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def _pitched_signature(measure: ET.Element, ns: str) -> list[tuple]:
+    """Compare pitched content without caring about XML identity."""
+    out: list[tuple] = []
+    for n in _pitched_notes(measure, ns):
+        p = n.find(_q(ns, "pitch"))
+        if p is None:
+            continue
+        out.append(
+            (
+                p.findtext(_q(ns, "step")) or "",
+                p.findtext(_q(ns, "octave")) or "",
+                p.findtext(_q(ns, "alter")) or "",
+                n.findtext(_q(ns, "duration")) or "",
+                n.findtext(_q(ns, "type")) or "",
+                "1" if n.find(_q(ns, "chord")) is not None else "0",
+            )
+        )
+    return out
+
+
+def _measure_has_chord_or_multivoice(measure: ET.Element, ns: str) -> bool:
+    voices: set[str] = set()
+    for n in _pitched_notes(measure, ns):
+        if n.find(_q(ns, "chord")) is not None:
+            return True
+        voices.add(n.findtext(_q(ns, "voice")) or "1")
+    return len(voices) >= 2
+
+
+def _piano_measure_has_staff2(measure: ET.Element, ns: str) -> bool:
+    for n in measure.findall(_q(ns, "note")):
+        if (n.findtext(_q(ns, "staff")) or "1") == "2":
+            return True
+    return False
+
+
+def _piano_measure_has_f_clef(measure: ET.Element, ns: str) -> bool:
+    for clef in measure.findall(f".//{_q(ns, 'clef')}"):
+        if clef.findtext(_q(ns, "sign")) == "F":
+            return True
+    return False
+
+
+def is_likely_misplaced_piano_rh(
+    vocal_m: ET.Element | None,
+    piano_m: ET.Element | None,
+    ns: str,
+) -> bool:
+    """
+    Audiveris often puts piano RH on a Voice staff while LH stays on Piano (F clef, staff 1).
+    Restructure must not expand that RH onto S+A (overwriting rests).
+    """
+    if vocal_m is None or piano_m is None:
+        return False
+    if _measure_has_lyrics(vocal_m, ns):
+        return False
+    v_notes = _pitched_notes(vocal_m, ns)
+    p_notes = _pitched_notes(piano_m, ns)
+    if not v_notes or not p_notes:
+        return False
+    # True grand-staff piano already has RH on staff 2 — leave vocal alone
+    if _piano_measure_has_staff2(piano_m, ns):
+        return False
+    v_avg = _avg_pitch_value(v_notes, ns)
+    p_avg = _avg_pitch_value(p_notes, ns)
+    bass_piano = _piano_measure_has_f_clef(piano_m, ns) or p_avg <= 30.0
+    treble_vocal = v_avg >= 28.0
+    if bass_piano and treble_vocal and v_avg > p_avg + 3.0:
+        return True
+    if bass_piano and _measure_has_chord_or_multivoice(vocal_m, ns):
+        return True
+    return False
+
+
+def split_staff_measure(measure: ET.Element, staff_num: str, ns: str) -> ET.Element:
+    """Keep notes for one staff; drop the other staff's notes (for PR/PL as separate parts)."""
+    out = ET.Element(_q(ns, "measure"), number=measure.get("number") or "1")
+    for child in measure:
+        tag = _local(child)
+        if tag == "note":
+            st = child.findtext(_q(ns, "staff")) or "1"
+            if st != staff_num:
+                continue
+            n = copy.deepcopy(child)
+            st_el = n.find(_q(ns, "staff"))
+            if st_el is not None:
+                st_el.text = "1"
+            else:
+                ET.SubElement(n, _q(ns, "staff")).text = "1"
+            out.append(n)
+        elif tag in ("backup", "forward"):
+            out.append(copy.deepcopy(child))
+        elif tag == "attributes":
+            a = copy.deepcopy(child)
+            for staves in list(a.findall(_q(ns, "staves"))):
+                a.remove(staves)
+            for clef in list(a.findall(_q(ns, "clef"))):
+                num = clef.get("number") or "1"
+                if num != staff_num:
+                    a.remove(clef)
+                else:
+                    if "number" in clef.attrib:
+                        del clef.attrib["number"]
+            for sd in list(a.findall(_q(ns, "staff-details"))):
+                num = sd.get("number") or "1"
+                if num != staff_num:
+                    a.remove(sd)
+                elif "number" in sd.attrib:
+                    del sd.attrib["number"]
+            out.append(a)
+        else:
+            out.append(copy.deepcopy(child))
+    return out
+
+
 def split_measure_elements(measure_children, target_count, ns=""):
     """
     Split elements of one staff into `target_count` parts (e.g. 2 for S and A, or T and B).
@@ -325,14 +461,43 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 piano_src_pid = pid
                 break
 
-        if not piano_src_pid and len(parts_by_id) >= 5:
+        if not piano_src_pid:
+            # Audiveris part-name / instrument-name
+            for sp in root.findall(f".//{_q(ns, 'score-part')}"):
+                pid = sp.get("id")
+                names = " ".join(
+                    [
+                        (sp.findtext(_q(ns, "part-name")) or ""),
+                        (sp.findtext(f".//{_q(ns, 'instrument-name')}") or ""),
+                    ]
+                ).upper()
+                if "PIANO" in names or "PNO" in names:
+                    piano_src_pid = pid
+                    break
+
+        labels_want_piano = any(str(l).strip().upper() in _PIANO_DISPLAY_LABELS for l in labels)
+        if not piano_src_pid and labels_want_piano and len(parts_by_id) >= 2:
+            # Women+Men+Piano(1 staff) 등 — 마지막 파트를 피아노로
+            piano_src_pid = list(parts_by_id.keys())[-1]
+        elif not piano_src_pid and len(parts_by_id) >= 5:
             piano_src_pid = list(parts_by_id.keys())[-1]
 
         vocal_src_pids = [pid for pid in parts_by_id if pid != piano_src_pid]
 
         # Target vocal part IDs: P1, P2, P3, P4
         target_vocal_pids = [f"P{i+1}" for i, l in enumerate(labels) if l.upper() not in _PIANO_DISPLAY_LABELS]
-        target_piano_pid = next((f"P{i+1}" for i, l in enumerate(labels) if l.upper() in _PIANO_DISPLAY_LABELS), None)
+        # Preferred: one label `P` → one MusicXML part (RH/LH = staff 1/2, staff-name PR/PL in apply_part_labels).
+        # Alternative: `PR`+`PL` → two MusicXML parts split by staff.
+        target_piano_entries = [
+            (f"P{i+1}", str(l).strip().upper())
+            for i, l in enumerate(labels)
+            if str(l).strip().upper() in _PIANO_DISPLAY_LABELS
+        ]
+        target_piano_pid = target_piano_entries[0][0] if target_piano_entries else None
+        piano_split_pr_pl = (
+            len(target_piano_entries) >= 2
+            and {e[1] for e in target_piano_entries[:2]} >= {"PR", "PL"}
+        )
         if not target_vocal_pids and len(labels) >= 1:
             target_vocal_pids = [f"P{i+1}" for i in range(min(4, len(labels)))]
 
@@ -435,6 +600,10 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
 
             vocal_out_measures = {t_pid: ET.Element(_q(ns, "measure"), number=str(num)) for t_pid in target_vocal_pids}
 
+            piano_src_m = None
+            if piano_src_pid and piano_src_pid in parts_by_id:
+                piano_src_m = parts_by_id[piano_src_pid].find(f'./{_q(ns, "measure")}[@number="{num}"]')
+
             if already_split_satb:
                 # 1:1 — 각 성부 마디를 그대로 유지 (쉼표-only 성부 포함)
                 for idx, t_pid in enumerate(target_vocal_pids):
@@ -448,6 +617,59 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                         vocal_out_measures[t_pid] = create_empty_rest_measure(
                             num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
                         )
+                # 이전 휴리스틱이 피아노 RH를 S·A에 복제·화음분리해 둔 경우 복구.
+                # T·B 쉼 + 가사 없음 + 피아노(LH) 활성 + S/A가 트레블 반주 양상 → S·A 쉼표.
+                if (
+                    target_piano_pid
+                    and len(target_vocal_pids) >= 4
+                    and piano_src_m is not None
+                    and not _measure_is_rest_only(piano_src_m, ns)
+                ):
+                    s_m = vocal_out_measures.get(target_vocal_pids[0])
+                    a_m = vocal_out_measures.get(target_vocal_pids[1])
+                    t_m = vocal_out_measures.get(target_vocal_pids[2])
+                    b_m = vocal_out_measures.get(target_vocal_pids[3])
+                    if (
+                        s_m is not None
+                        and a_m is not None
+                        and not _measure_has_lyrics(s_m, ns)
+                        and not _measure_has_lyrics(a_m, ns)
+                        and _measure_is_rest_only(t_m, ns)
+                        and _measure_is_rest_only(b_m, ns)
+                        and (
+                            not _measure_is_rest_only(s_m, ns)
+                            or not _measure_is_rest_only(a_m, ns)
+                        )
+                    ):
+                        clear_sa = False
+                        if _pitched_signature(s_m, ns) and _pitched_signature(s_m, ns) == _pitched_signature(
+                            a_m, ns
+                        ):
+                            clear_sa = is_likely_misplaced_piano_rh(s_m, piano_src_m, ns)
+                        elif not _measure_is_rest_only(s_m, ns) and not _measure_is_rest_only(a_m, ns):
+                            clear_sa = is_likely_misplaced_piano_rh(
+                                s_m, piano_src_m, ns
+                            ) or is_likely_misplaced_piano_rh(a_m, piano_src_m, ns)
+                            if not clear_sa:
+                                s_avg = _avg_pitch_value(_pitched_notes(s_m, ns), ns)
+                                a_avg = _avg_pitch_value(_pitched_notes(a_m, ns), ns)
+                                p_avg = _avg_pitch_value(_pitched_notes(piano_src_m, ns), ns)
+                                clear_sa = (
+                                    s_avg >= 28.0
+                                    and a_avg >= 28.0
+                                    and p_avg <= 30.0
+                                    and (
+                                        _piano_measure_has_f_clef(piano_src_m, ns)
+                                        or not _piano_measure_has_staff2(piano_src_m, ns)
+                                    )
+                                )
+                        if clear_sa:
+                            vocal_out_measures[target_vocal_pids[0]] = create_empty_rest_measure(
+                                num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                            )
+                            vocal_out_measures[target_vocal_pids[1]] = create_empty_rest_measure(
+                                num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                            )
             # Distribute vocal notes
             elif len(active_vocal) == 0:
                 # All vocal parts silent (Piano Intro / Interlude)
@@ -461,37 +683,46 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
             elif len(active_vocal) == 1:
                 # 1 vocal staff active (e.g. Women m8~19 S&A, or Men m20~26 T&B)
                 src_pid, src_m = active_vocal[0]
-                elements = list(src_m)
-                reg_info = measure_reg_cache.get(num, "women")
 
-                assigned_pids = []
-                if reg_info.startswith("explicit:"):
-                    raw_tgts = reg_info[9:].split(",")
-                    for t in raw_tgts:
-                        p_mapped = label_to_pid.get(t.upper())
-                        if p_mapped and p_mapped in target_vocal_pids:
-                            assigned_pids.append(p_mapped)
-                elif reg_info == "men" and len(target_vocal_pids) >= 4:
-                    # Men unison/duet -> T (P3) and B (P4)
-                    assigned_pids = target_vocal_pids[2:4]
-                elif len(target_vocal_pids) >= 2:
-                    # Women unison/duet -> S (P1) and A (P2)
-                    assigned_pids = target_vocal_pids[:2]
+                # 피아노 LH만 Piano 파트에 있고 RH가 Voice 스태프에 앉은 경우:
+                # S/A로 복제하지 않고 성악은 쉼표 유지 (피아노 파트로 옮기지 않음 — 오인 방지).
+                if target_piano_pid and is_likely_misplaced_piano_rh(src_m, piano_src_m, ns):
+                    for t_pid in target_vocal_pids:
+                        vocal_out_measures[t_pid] = create_empty_rest_measure(
+                            num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                        )
                 else:
-                    assigned_pids = target_vocal_pids[:1]
+                    elements = list(src_m)
+                    reg_info = measure_reg_cache.get(num, "women")
 
-                if not assigned_pids:
-                    assigned_pids = target_vocal_pids[:2] if len(target_vocal_pids) >= 2 else target_vocal_pids[:1]
+                    assigned_pids = []
+                    if reg_info.startswith("explicit:"):
+                        raw_tgts = reg_info[9:].split(",")
+                        for t in raw_tgts:
+                            p_mapped = label_to_pid.get(t.upper())
+                            if p_mapped and p_mapped in target_vocal_pids:
+                                assigned_pids.append(p_mapped)
+                    elif reg_info == "men" and len(target_vocal_pids) >= 4:
+                        # Men unison/duet -> T (P3) and B (P4)
+                        assigned_pids = target_vocal_pids[2:4]
+                    elif len(target_vocal_pids) >= 2:
+                        # Women unison/duet -> S (P1) and A (P2)
+                        assigned_pids = target_vocal_pids[:2]
+                    else:
+                        assigned_pids = target_vocal_pids[:1]
 
-                split_res = split_measure_elements(elements, len(assigned_pids), ns=_q(ns, ""))
-                for t_idx, t_pid in enumerate(assigned_pids):
-                    for el in split_res[t_idx]:
-                        vocal_out_measures[t_pid].append(copy.deepcopy(el))
+                    if not assigned_pids:
+                        assigned_pids = target_vocal_pids[:2] if len(target_vocal_pids) >= 2 else target_vocal_pids[:1]
 
-                # Non-assigned vocal parts receive full-measure rests
-                for t_pid in target_vocal_pids:
-                    if t_pid not in assigned_pids:
-                        vocal_out_measures[t_pid] = create_empty_rest_measure(num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns)
+                    split_res = split_measure_elements(elements, len(assigned_pids), ns=_q(ns, ""))
+                    for t_idx, t_pid in enumerate(assigned_pids):
+                        for el in split_res[t_idx]:
+                            vocal_out_measures[t_pid].append(copy.deepcopy(el))
+
+                    # Non-assigned vocal parts receive full-measure rests
+                    for t_pid in target_vocal_pids:
+                        if t_pid not in assigned_pids:
+                            vocal_out_measures[t_pid] = create_empty_rest_measure(num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns)
 
             elif len(active_vocal) == 2:
                 # 2 vocal staves active (Staff 1: S&A, Staff 2: T&B)
@@ -539,16 +770,52 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 if t_pid in new_parts:
                     new_parts[t_pid].append(vocal_out_measures[t_pid])
 
-            # Process Piano part
-            if target_piano_pid and target_piano_pid in new_parts:
-                if piano_src_pid and piano_src_pid in parts_by_id:
-                    p_m = parts_by_id[piano_src_pid].find(f'./{_q(ns, "measure")}[@number="{num}"]')
+            # Process Piano part(s)
+            if target_piano_entries:
+                p_m = piano_src_m
+                if piano_split_pr_pl and p_m is not None:
+                    # PR / PL as separate MusicXML parts (staff 1 / staff 2)
+                    by_label = {lab: pid for pid, lab in target_piano_entries}
+                    pr_pid = by_label.get("PR") or target_piano_entries[0][0]
+                    pl_pid = by_label.get("PL") or (
+                        target_piano_entries[1][0] if len(target_piano_entries) > 1 else None
+                    )
+                    if pr_pid in new_parts:
+                        new_parts[pr_pid].append(split_staff_measure(p_m, "1", ns))
+                    if pl_pid and pl_pid in new_parts:
+                        if _piano_measure_has_staff2(p_m, ns):
+                            new_parts[pl_pid].append(split_staff_measure(p_m, "2", ns))
+                        else:
+                            new_parts[pl_pid].append(
+                                create_empty_rest_measure(
+                                    num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                                )
+                            )
+                    # Extra piano slots (rare): rest
+                    for pid, lab in target_piano_entries[2:]:
+                        if pid in new_parts:
+                            new_parts[pid].append(
+                                create_empty_rest_measure(
+                                    num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                                )
+                            )
+                elif target_piano_pid and target_piano_pid in new_parts:
+                    # Single `P` (or lone PR): keep one part; RH/LH stay as staff 1/2 when present
                     if p_m is not None:
                         new_parts[target_piano_pid].append(copy.deepcopy(p_m))
                     else:
-                        new_parts[target_piano_pid].append(create_empty_rest_measure(num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns))
-                else:
-                    new_parts[target_piano_pid].append(create_empty_rest_measure(num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns))
+                        new_parts[target_piano_pid].append(
+                            create_empty_rest_measure(
+                                num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                            )
+                        )
+                    for pid, _lab in target_piano_entries[1:]:
+                        if pid in new_parts:
+                            new_parts[pid].append(
+                                create_empty_rest_measure(
+                                    num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+                                )
+                            )
 
         # Normalize clefs for all vocal parts (ensure S/A are Treble, B is Bass)
         for i, label in enumerate(labels):

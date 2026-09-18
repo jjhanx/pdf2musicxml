@@ -417,6 +417,52 @@ def _ensure_staff_voice_backups(measure: ET.Element, ns: str, staff: str = "1") 
         i += 1
 
 
+def _promote_backup_staff1_secondary_to_staff2(measure: ET.Element, ns: str) -> int:
+    """grand staff인데 staff2 음이 없을 때: backup 뒤 staff1 다른 voice → staff2.
+
+    Audiveris LH가 staff1 voice2로 남으면 PL이 PR 자리에 보인다.
+    """
+    notes = [
+        n
+        for n in measure.findall(_q(ns, "note"))
+        if n.find(_q(ns, "grace")) is None
+    ]
+    if not notes:
+        return 0
+    if any((n.findtext(_q(ns, "staff")) or "1") == "2" for n in notes):
+        return 0
+    if not any(_local(el) == "backup" for el in measure):
+        return 0
+    changed = 0
+    seen_backup = False
+    voices_before: set[str] = set()
+    for el in list(measure):
+        tag = _local(el)
+        if tag == "backup":
+            seen_backup = True
+            continue
+        if tag != "note" or el.find(_q(ns, "grace")) is not None:
+            continue
+        st = el.findtext(_q(ns, "staff")) or "1"
+        v = (el.findtext(_q(ns, "voice")) or "1").strip() or "1"
+        if not seen_backup:
+            if st == "1":
+                voices_before.add(v)
+            continue
+        if st != "1":
+            continue
+        if voices_before and v in voices_before:
+            continue
+        _set_note_staff(el, "2", ns)
+        try:
+            vi = int(v)
+        except ValueError:
+            vi = 1
+        _set_note_voice(el, str(vi + 4) if vi < 5 else v, ns)
+        changed += 1
+    return changed
+
+
 def _forward_timeline_duration(measure: ET.Element | None, ns: str) -> int:
     """첫 `<backup>` 전까지 non-chord note·forward duration 합 (RH/LH 한 오선 길이)."""
     if measure is None:
@@ -1312,6 +1358,7 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 if p_m is not None:
                     p_m = copy.deepcopy(p_m)
                     _ensure_staff_voice_backups(p_m, ns, staff="1")
+                    _promote_backup_staff1_secondary_to_staff2(p_m, ns)
                     _fix_cross_staff_backup_duration(p_m, ns)
                 if piano_split_pr_pl and p_m is not None:
                     # PR / PL as separate MusicXML parts (staff 1 / staff 2)

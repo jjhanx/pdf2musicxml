@@ -4917,6 +4917,70 @@ def _normalize_grand_staff_voices_in_measure(measure: ET.Element, ns: str) -> in
     return 1 if _norm(measure, ns) else 0
 
 
+def _set_note_staff_number(note: ET.Element, ns: str, staff: str) -> None:
+    st = note.find(qname(ns, "staff"))
+    if st is None:
+        st = ET.SubElement(note, qname(ns, "staff"))
+    st.text = staff
+
+
+def _promote_backup_staff1_secondary_to_staff2(measure: ET.Element, ns: str) -> int:
+    """grand staff인데 음표가 전부 staff1일 때: backup 뒤 다른 voice → staff2.
+
+    Audiveris가 LH를 staff1 voice2(+backup)로 두면 OSMD/HITL에서 PL이 PR 자리에 그려진다.
+    이미 staff2 음이 있으면 건드리지 않음(RH 다성 backup 보존).
+    """
+    notes = [
+        n
+        for n in measure.findall(qname(ns, "note"))
+        if n.find(qname(ns, "grace")) is None and n.get("cue") != "yes"
+    ]
+    if not notes:
+        return 0
+    if any(_note_voice_staff(n, ns)[1] == "2" for n in notes):
+        return 0
+    if not any(local_tag(el) == "backup" for el in measure):
+        return 0
+
+    changed = 0
+    seen_backup = False
+    voices_before: set[str] = set()
+    for el in list(measure):
+        tag = local_tag(el)
+        if tag == "backup":
+            seen_backup = True
+            continue
+        if tag != "note":
+            continue
+        if el.find(qname(ns, "grace")) is not None or el.get("cue") == "yes":
+            continue
+        voice, staff = _note_voice_staff(el, ns)
+        v = voice or "1"
+        st = staff or "1"
+        if not seen_backup:
+            if st == "1":
+                voices_before.add(v)
+            continue
+        if st != "1":
+            continue
+        # backup 이후: 앞 구간과 다른 voice(또는 앞 voice 없음) → LH
+        if voices_before and v in voices_before:
+            continue
+        _set_note_staff_number(el, ns, "2")
+        vel = el.find(qname(ns, "voice"))
+        if vel is None:
+            vel = ET.SubElement(el, qname(ns, "voice"))
+        # staff2 대역(5+) — 기존 staff1 voice와 번호 충돌 방지
+        try:
+            vi = int(v)
+        except ValueError:
+            vi = 1
+        if vi < 5:
+            vel.text = str(vi + 4)
+        changed += 1
+    return changed
+
+
 def _rebuild_piano_grand_staff_measures(part: ET.Element, ns: str) -> int:
     from omr_hitl_lib import _rebuild_measure_flat_staffs
 
@@ -4924,6 +4988,10 @@ def _rebuild_piano_grand_staff_measures(part: ET.Element, ns: str) -> int:
     for _measure, _div, expected in _iter_measures_with_timing(part, ns):
         if not expected:
             continue
+        if _part_has_two_staves(part, ns):
+            promoted = _promote_backup_staff1_secondary_to_staff2(_measure, ns)
+            if promoted:
+                rebuilt += 1
         removed = _repair_piano_spurious_voices(_measure, ns, expected)
         if removed:
             _rebuild_measure_flat_staffs(_measure, ns)

@@ -1,5 +1,5 @@
 /**
- * Overfull voice must not leave duration=1 ghosts that OSMD draws into the next measure.
+ * HITL faithful: overfull notes stay editable (not cut). Non-faithful still clamps for display.
  * Run: npx tsx _smoke/test_overfull_no_spill_next_measure.ts
  */
 import assert from 'node:assert/strict';
@@ -8,6 +8,7 @@ import {
   capBackupDurationsForOsmdPreview,
   repairTimelineForOsmdPreview,
 } from '../shared/musicXmlTimelineCleanup.ts';
+import { collectMeasureTimingIssuesFromXml } from '../shared/musicXmlMeasureTiming.ts';
 import { previewLayoutLengthUnits } from '../shared/musicXmlPreviewOnsetLayout.ts';
 
 const dom = new JSDOM('<!DOCTYPE html><html></html>');
@@ -56,15 +57,22 @@ function noteCount(xml: string): number {
   return [...doc.querySelectorAll('measure note')].filter((n) => !n.querySelector('chord')).length;
 }
 
+// 표시 전용(non-faithful): capacity로 절단
 const capped = capBackupDurationsForOsmdPreview(overfull);
-assert.equal(voiceDurationSum(capped), 16, `voice sum must be capacity 16, got ${voiceDurationSum(capped)}`);
-assert.ok(noteCount(capped) <= 4, `overflow notes removed, got ${noteCount(capped)}`);
+assert.equal(voiceDurationSum(capped), 16, `display clamp sum 16, got ${voiceDurationSum(capped)}`);
+assert.ok(noteCount(capped) <= 4, `display clamp removes overflow, got ${noteCount(capped)}`);
 
-const repaired = repairTimelineForOsmdPreview(overfull, { faithfulEditorLayout: true });
-assert.equal(
-  voiceDurationSum(repaired),
-  16,
-  `repairTimeline voice sum must stay ≤16, got ${voiceDurationSum(repaired)}`,
+// HITL faithful: 음표 보존 + 타이밍 이슈 경고용
+const faithfulCap = capBackupDurationsForOsmdPreview(overfull, { preserveOverfullNotes: true });
+assert.equal(noteCount(faithfulCap), 6, `faithful keeps all notes, got ${noteCount(faithfulCap)}`);
+assert.equal(voiceDurationSum(faithfulCap), 24, `faithful keeps overfull sum, got ${voiceDurationSum(faithfulCap)}`);
+
+const faithful = repairTimelineForOsmdPreview(overfull, { faithfulEditorLayout: true });
+assert.equal(noteCount(faithful), 6, `repairTimeline faithful keeps notes, got ${noteCount(faithful)}`);
+const issues = collectMeasureTimingIssuesFromXml(faithful);
+assert.ok(
+  issues.some((i) => i.kind === 'overfull' && i.measureNumber === 4),
+  `expected overfull warning issue, got ${JSON.stringify(issues)}`,
 );
 
 const doc = new DOMParser().parseFromString(capped, 'text/xml');

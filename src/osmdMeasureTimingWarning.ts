@@ -137,8 +137,8 @@ export function applyMeasureTimingWarningsToOsmdHost(
     box.className = OVERLAY_CLASS;
     const tint =
       issue.kind === 'overfull'
-        ? 'rgba(198, 40, 40, 0.22)'
-        : 'rgba(198, 40, 40, 0.14)';
+        ? 'rgba(198, 40, 40, 0.32)'
+        : 'rgba(198, 40, 40, 0.16)';
     box.style.cssText = [
       'position:absolute',
       `left:${bounds.left}px`,
@@ -146,15 +146,97 @@ export function applyMeasureTimingWarningsToOsmdHost(
       `width:${bounds.width}px`,
       `height:${bounds.height}px`,
       `background:${tint}`,
-      'border:1px solid rgba(183, 28, 28, 0.45)',
+      'border:1.5px solid rgba(183, 28, 28, 0.65)',
       'border-radius:2px',
       'box-sizing:border-box',
       'pointer-events:none',
     ].join(';');
     box.title =
       issue.kind === 'overfull'
-        ? `마디 ${measureNumber}: 박자 초과 (${issue.actual}/${issue.expected})`
+        ? `마디 ${measureNumber}: 박자 초과 (${issue.actual}/${issue.expected}) — 음표는 유지, 앞·뒤 마디로 넘어가지 않게 잘림`
         : `마디 ${measureNumber}: 박자 부족 (${issue.actual}/${issue.expected})`;
     layer.appendChild(box);
+  });
+}
+
+function asGmRecord(gm: unknown): Record<string, unknown> | null {
+  return gm && typeof gm === 'object' ? (gm as Record<string, unknown>) : null;
+}
+
+function readBbSizeWidth(gm: unknown): number | null {
+  const rec = asGmRecord(gm);
+  if (!rec) return null;
+  const bb = asRecord(rec.PositionAndShape ?? rec.positionAndShape);
+  if (!bb) return null;
+  const size = asRecord(bb.Size ?? bb.size);
+  if (!size) return null;
+  const w = Number(size.width ?? size.Width);
+  return Number.isFinite(w) && w > 0.5 ? w : null;
+}
+
+function readBbSizeHeight(gm: unknown): number | null {
+  const rec = asGmRecord(gm);
+  if (!rec) return null;
+  const bb = asRecord(rec.PositionAndShape ?? rec.positionAndShape);
+  if (!bb) return null;
+  const size = asRecord(bb.Size ?? bb.size);
+  if (!size) return null;
+  const h = Number(size.height ?? size.Height);
+  return Number.isFinite(h) && h > 0.5 ? h : null;
+}
+
+/**
+ * HITL faithful 미리보기 — 마디 SVG를 할당 폭으로 clip해 overfull 그림이 앞·뒤 마디 칸을 침범하지 않게 함.
+ * 음표 XML은 유지(편집 가능). 저장 MXL 불변.
+ */
+export function clipOsmdMeasuresToAllocatedWidth(
+  host: HTMLElement,
+  osmd: OpenSheetMusicDisplay,
+): void {
+  const svg = host.querySelector('svg');
+  if (!svg || !osmd.IsReadyToRender()) return;
+
+  svg.querySelectorAll('clipPath[data-hitl-measure-clip]').forEach((el) => el.remove());
+  svg.querySelectorAll('[data-hitl-measure-clipped]').forEach((el) => {
+    el.removeAttribute('clip-path');
+    el.removeAttribute('data-hitl-measure-clipped');
+  });
+
+  let defs = svg.querySelector('defs');
+  if (!defs) {
+    defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    svg.insertBefore(defs, svg.firstChild);
+  }
+
+  let idx = 0;
+  forEachGraphicalMeasure(osmd, (gmRaw) => {
+    const rec = asGmRecord(gmRaw);
+    if (!rec || typeof rec.getSVGGElement !== 'function') return;
+    let g: Element | null = null;
+    try {
+      g = (rec.getSVGGElement as () => Element | null | undefined)() ?? null;
+    } catch {
+      g = null;
+    }
+    if (!g || g.namespaceURI !== 'http://www.w3.org/2000/svg') return;
+
+    const w = readBbSizeWidth(gmRaw);
+    if (w == null) return;
+    const h = readBbSizeHeight(gmRaw) ?? 50;
+    const id = `hitl-mclip-${idx}`;
+    idx += 1;
+    const cp = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+    cp.setAttribute('id', id);
+    cp.setAttribute('data-hitl-measure-clip', '1');
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    // 오선 위·아래 여유 — 가로만 마디 폭으로 제한
+    rect.setAttribute('x', '0');
+    rect.setAttribute('y', String(-Math.max(h, 40)));
+    rect.setAttribute('width', String(w));
+    rect.setAttribute('height', String(Math.max(h, 40) * 3));
+    cp.appendChild(rect);
+    defs!.appendChild(cp);
+    g.setAttribute('clip-path', `url(#${id})`);
+    g.setAttribute('data-hitl-measure-clipped', '1');
   });
 }

@@ -52,7 +52,7 @@ import {
   applyOsmdPolyphonicRestOffsets,
   patchOsmdPolyphonicRestVfpitch,
 } from './osmdRestPlacementFix';
-import { applyMeasureTimingWarningsToOsmdHost } from './osmdMeasureTimingWarning';
+import { applyMeasureTimingWarningsToOsmdHost, clipOsmdMeasuresToAllocatedWidth } from './osmdMeasureTimingWarning';
 import { collectMeasureTimingIssuesFromXml } from '../shared/musicXmlMeasureTiming';
 import type { MxlMeasureRange } from '../shared/musicXmlMeasureRange';
 import {
@@ -2443,11 +2443,17 @@ export function OsmdBlock({
           finalizeOsmdMeasureNumberPreview(host, osmd, undefined);
           if (faithfulEditorLayoutRef.current) {
             const issues = collectMeasureTimingIssuesFromXml(xmlRef.current);
+            clipOsmdMeasuresToAllocatedWidth(host, osmd);
             applyMeasureTimingWarningsToOsmdHost(host, osmd, issues);
           } else {
             host.querySelectorAll('.hitl-measure-timing-warning, .osmd-measure-timing-layer').forEach((el) =>
               el.remove(),
             );
+            host.querySelectorAll('svg [data-hitl-measure-clipped]').forEach((el) => {
+              el.removeAttribute('clip-path');
+              el.removeAttribute('data-hitl-measure-clipped');
+            });
+            host.querySelectorAll('svg clipPath[data-hitl-measure-clip]').forEach((el) => el.remove());
           }
         }
         const trigger = scrollToMeasureTriggerRef.current;

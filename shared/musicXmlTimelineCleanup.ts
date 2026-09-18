@@ -70,8 +70,16 @@ function removeDanglingTimelineInMeasure(measure: Element): void {
 
 /** OSMD/HITL 미리보기 timeline 정리 옵션 */
 export type RepairTimelineForOsmdPreviewOptions = {
-  /** HITL 마디 편집기 — 연주순번·voice·박자 그대로( clamp·forward pad 없음 ) */
+  /** HITL 마디 편집기 — 연주순번·voice·박자 그대로( overfull 음표 삭제·duration 강제 절단 없음 ) */
   faithfulEditorLayout?: boolean;
+};
+
+export type CapBackupDurationsOptions = {
+  /**
+   * true면 capacity 초과 음표를 제거·절단하지 않음(HITL 편집).
+   * 과도한 backup만 막아 음수 타임라인·마디 스킵을 방지.
+   */
+  preserveOverfullNotes?: boolean;
 };
 
 /** OSMD/HITL 미리보기 전용 — dangling timeline + `<print>`·Audiveris 레이아웃 힌트 제거(저장 MXL 불변). */
@@ -80,10 +88,13 @@ export function repairTimelineForOsmdPreview(
   options?: RepairTimelineForOsmdPreviewOptions,
 ): string {
   const faithful = options?.faithfulEditorLayout === true;
+  const capOpts: CapBackupDurationsOptions | undefined = faithful
+    ? { preserveOverfullNotes: true }
+    : undefined;
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
   out = capAbsurdTimelineDurationsForOsmdPreview(out);
-  // faithful에서도 backup 폭주를 막음 — 과도한 backup은 OSMD가 앞칸에 유령 쉼표를 그림
-  out = capBackupDurationsForOsmdPreview(out);
+  // faithful: backup 폭주만 차단. overfull 음표는 경고·clip으로 처리(편집 가능 유지).
+  out = capBackupDurationsForOsmdPreview(out, capOpts);
   out = stripPrintElementsForOsmdPreview(out);
   out = stripMeasureWidthAttributesForOsmdPreview(out);
   out = stripDefaultXyForOsmdPreview(out);
@@ -97,8 +108,8 @@ export function repairTimelineForOsmdPreview(
   out = dedupeIdenticalChordPitchesForOsmdPreview(out);
   // type·duration 불일치(예: half+dur=2)를 duration←type로 맞춘 뒤 slur 짝 정리
   out = coerceNoteDurationsToTypeForOsmdPreview(out);
-  // coerce가 duration을 키우면 다시 마디 capacity를 넘길 수 있음 → 한 번 더 clamp
-  out = capBackupDurationsForOsmdPreview(out);
+  // non-faithful만 coerce 후 재clamp. faithful은 음표 보존.
+  out = capBackupDurationsForOsmdPreview(out, capOpts);
   out = normalizeSlursForOsmdPreview(out);
   out = repairArticulationDefaultYForOsmdPreview(out);
   return out;
@@ -2238,15 +2249,16 @@ export function realignDefaultXFromStaffTimelineForOsmdPreview(xml: string): str
 }
 
 /**
- * OSMD/HITL 미리보기 전용 — 마디 박자 초과(Overfull Measure / Overflow) 및 음수 타임라인 방지.
- * 1. **voice별** cursor로 duration·<forward>를 clamp한다.
- *    grand staff에서 staff1(PR) 다음 backup 없이 staff2(PL)가 이어질 때 전역 cursor로 합산하면
- *    PL 음표 duration이 1로 뭉개져 미리보기에서 거의 안 보인다.
+ * OSMD/HITL 미리보기 전용 — 마디 박자 초과·음수 타임라인 방지.
+ * 1. **voice별** cursor로 duration·<forward>를 clamp한다(기본).
  * 2. <backup>은 직전 voice 스트림 cursor를 되돌린다(음수 시간·마디 스킵 방지).
- * 3. cursor가 이미 capacity 이상이면 duration=1로 남기지 않고 음표/화음을 제거한다.
- *    (남기면 OSMD가 다음 마디 칸으로 그림을 넘김 — 마디 편집 미리보기 침범)
+ * 3. `preserveOverfullNotes`면 capacity 초과 음표를 삭제·절단하지 않음(HITL 편집·붉은 경고·clip).
  */
-export function capBackupDurationsForOsmdPreview(xml: string): string {
+export function capBackupDurationsForOsmdPreview(
+  xml: string,
+  options?: CapBackupDurationsOptions,
+): string {
+  const preserveOverfull = options?.preserveOverfullNotes === true;
   try {
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return xml;
@@ -2318,12 +2330,12 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
                 const dur = parseInt(durationEl.textContent || '0', 10);
                 if (!isNaN(dur) && dur > 0) {
                   let cursor = cursorByVoice.get(voice) ?? 0;
-                  // 이미 마디를 채운 뒤 duration=1로 남기면 OSMD가 다음 마디로 그림을 넘김
-                  if (cursor >= capacity) {
+                  if (preserveOverfull) {
+                    cursorByVoice.set(voice, cursor + dur);
+                  } else if (cursor >= capacity) {
                     removeNoteAndChords(child);
                     continue;
-                  }
-                  if (cursor + dur > capacity) {
+                  } else if (cursor + dur > capacity) {
                     const cappedDur = capacity - cursor;
                     if (cappedDur <= 0) {
                       removeNoteAndChords(child);
@@ -2333,10 +2345,10 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
                     lastLeaderCapped = true;
                     lastLeaderDur = cappedDur;
                     cursor = capacity;
+                    cursorByVoice.set(voice, cursor);
                   } else {
-                    cursor += dur;
+                    cursorByVoice.set(voice, cursor + dur);
                   }
-                  cursorByVoice.set(voice, cursor);
                 }
               }
             }
@@ -2350,7 +2362,9 @@ export function capBackupDurationsForOsmdPreview(xml: string): string {
               const dur = parseInt(durationEl.textContent || '0', 10);
               if (!isNaN(dur) && dur > 0) {
                 let cursor = cursorByVoice.get(voice) ?? 0;
-                if (cursor >= capacity) {
+                if (preserveOverfull) {
+                  cursorByVoice.set(voice, cursor + dur);
+                } else if (cursor >= capacity) {
                   child.remove();
                 } else if (cursor + dur > capacity) {
                   const cappedDur = capacity - cursor;

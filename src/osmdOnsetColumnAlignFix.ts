@@ -768,7 +768,11 @@ function beamOuterTipYAtX(d: string, x: number, stemUp: boolean): number | null 
   return stemUp ? edges.outerMin : edges.outerMax;
 }
 
-function setStemTipY(stemEl: Element, tipY: number): void {
+/**
+ * 줄기 tip(음머리에서 먼 쪽)만 tipY로 옮긴다. base(음머리 쪽)는 절대 건드리지 않음.
+ * tipY 근접 휴리스틱(towardUp)은 tip이 base 쪽에 가까우면 밑동을 밀어 머리와 떨어뜨리므로 금지.
+ */
+function setStemTipY(stemEl: Element, tipY: number, stemUp: boolean): void {
   for (const path of stemEl.querySelectorAll('path')) {
     const d = path.getAttribute('d');
     if (!d) continue;
@@ -779,32 +783,76 @@ function setStemTipY(stemEl: Element, tipY: number): void {
     const x2 = m[3]!;
     const y2 = parseFloat(m[4]!);
     if (!Number.isFinite(y1) || !Number.isFinite(y2)) continue;
-    // tip = 음머리에서 먼 쪽(stem-up이면 min y)
-    const tipIsFirst = Math.abs(y1 - tipY) <= Math.abs(y2 - tipY) ? false : y1 < y2;
-    // 더 작은 y가 tip(stem-up)인지, 더 큰 y가 tip(stem-down)인지는 tipY가 어느 쪽에 가까운지로 결정
-    const upTip = Math.min(y1, y2);
-    const downTip = Math.max(y1, y2);
-    const towardUp = Math.abs(tipY - upTip) <= Math.abs(tipY - downTip);
-    if (towardUp) {
+    if (stemUp) {
+      // tip = min y
       if (y1 <= y2) path.setAttribute('d', `M${x1} ${tipY}L${x2} ${y2}`);
       else path.setAttribute('d', `M${x1} ${y1}L${x2} ${tipY}`);
     } else {
+      // tip = max y
       if (y1 >= y2) path.setAttribute('d', `M${x1} ${tipY}L${x2} ${y2}`);
       else path.setAttribute('d', `M${x1} ${y1}L${x2} ${tipY}`);
     }
-    void tipIsFirst;
   }
   for (const line of stemEl.querySelectorAll('line')) {
     const y1 = parseFloat(line.getAttribute('y1') ?? '');
     const y2 = parseFloat(line.getAttribute('y2') ?? '');
     if (!Number.isFinite(y1) || !Number.isFinite(y2)) continue;
-    const towardUp = Math.abs(tipY - Math.min(y1, y2)) <= Math.abs(tipY - Math.max(y1, y2));
-    if (towardUp) {
+    if (stemUp) {
       if (y1 <= y2) line.setAttribute('y1', String(tipY));
       else line.setAttribute('y2', String(tipY));
     } else if (y1 >= y2) line.setAttribute('y1', String(tipY));
     else line.setAttribute('y2', String(tipY));
   }
+}
+
+/** 줄기 base(음머리 쪽)만 baseY로 맞춘다. tip은 유지. */
+function setStemBaseY(stemEl: Element, baseY: number, stemUp: boolean): void {
+  for (const path of stemEl.querySelectorAll('path')) {
+    const d = path.getAttribute('d');
+    if (!d) continue;
+    const m = /^M\s*([-\d.eE+]+)\s+([-\d.eE+]+)\s*L\s*([-\d.eE+]+)\s+([-\d.eE+]+)/i.exec(d.trim());
+    if (!m) continue;
+    const x1 = m[1]!;
+    const y1 = parseFloat(m[2]!);
+    const x2 = m[3]!;
+    const y2 = parseFloat(m[4]!);
+    if (!Number.isFinite(y1) || !Number.isFinite(y2)) continue;
+    if (stemUp) {
+      // base = max y
+      if (y1 >= y2) path.setAttribute('d', `M${x1} ${baseY}L${x2} ${y2}`);
+      else path.setAttribute('d', `M${x1} ${y1}L${x2} ${baseY}`);
+    } else {
+      // base = min y
+      if (y1 <= y2) path.setAttribute('d', `M${x1} ${baseY}L${x2} ${y2}`);
+      else path.setAttribute('d', `M${x1} ${y1}L${x2} ${baseY}`);
+    }
+  }
+  for (const line of stemEl.querySelectorAll('line')) {
+    const y1 = parseFloat(line.getAttribute('y1') ?? '');
+    const y2 = parseFloat(line.getAttribute('y2') ?? '');
+    if (!Number.isFinite(y1) || !Number.isFinite(y2)) continue;
+    if (stemUp) {
+      if (y1 >= y2) line.setAttribute('y1', String(baseY));
+      else line.setAttribute('y2', String(baseY));
+    } else if (y1 <= y2) line.setAttribute('y1', String(baseY));
+    else line.setAttribute('y2', String(baseY));
+  }
+}
+
+/** VexFlow 고아 stem id `vf-auto123-stem` → stavenote id `vf-auto123`. */
+function stavenoteIdForOrphanStem(stemEl: Element): string | null {
+  const id = stemEl.id || '';
+  const m = /^(.*)-stem\d*$/i.exec(id);
+  return m?.[1] && m[1].length > 0 ? m[1] : null;
+}
+
+function noteheadPitchY(stavenote: Element): number | null {
+  const hd = stavenote.querySelector('.vf-notehead path')?.getAttribute('d');
+  if (!hd) return null;
+  const first = /M\s*[-\d.eE+]+\s+([-\d.eE+]+)/i.exec(hd);
+  if (!first) return null;
+  const y = parseFloat(first[1]!);
+  return Number.isFinite(y) ? y : null;
 }
 
 function snapStemTipsToBeamsInMeasure(measure: Element, tips: StemTip[]): void {
@@ -848,6 +896,8 @@ function snapStemTipsToBeamsInMeasure(measure: Element, tips: StemTip[]): void {
     // stem-up: tip이 더 작은 y. stem 길이가 충분하면 tipUp이 tipDown보다 빔에 가깝다.
     const stemUp = Math.abs(tipUp - best.midY) <= Math.abs(tipDown - best.midY);
     const actualTip = stemUp ? tipUp : tipDown;
+    const otherEnd = stemUp ? tipDown : tipUp;
+    if (Math.abs(best.midY - actualTip) > Math.abs(best.midY - otherEnd) + 2) continue;
     const targetY = beamOuterTipYAtX(best.d, tip.effectiveX, stemUp);
     if (targetY == null || !Number.isFinite(targetY)) continue;
     // 이미 바깥 가장자리에 닿거나 넘어가면 그대로(단축 금지 — 중앙 스냅이 끊김의)
@@ -858,7 +908,7 @@ function snapStemTipsToBeamsInMeasure(measure: Element, tips: StemTip[]): void {
       if (actualTip >= targetY - 1.2) continue;
       if (targetY - actualTip > 48) continue;
     }
-    setStemTipY(tip.el, targetY);
+    setStemTipY(tip.el, targetY, stemUp);
   }
 }
 
@@ -868,37 +918,65 @@ function syncVfEngravingInMeasure(measure: Element): void {
   ] as SVGGraphicsElement[];
   if (!stavenotes.length) return;
 
-  type NoteShift = { el: SVGGraphicsElement; naturalX: number; dx: number };
+  type NoteShift = { el: SVGGraphicsElement; naturalX: number; dx: number; hasInnerStem: boolean };
   const notes: NoteShift[] = [];
   for (const sn of stavenotes) {
     const dx = readElementTranslateX(sn);
     const center = noteheadCenterXInSvgRoot(sn) ?? restCenterXInSvgRoot(sn);
     if (center == null || !Number.isFinite(center)) continue;
-    notes.push({ el: sn, naturalX: center - dx, dx });
+    notes.push({
+      el: sn,
+      naturalX: center - dx,
+      dx,
+      hasInnerStem: !!sn.querySelector('.vf-stem, [class*="vf-stem"]'),
+    });
   }
   if (!notes.length) return;
 
   const stemTips = collectStemTipsInMeasure(measure);
 
-  // 형제(또는 고아) stem — 가장 가까운 note dx에 맞춤
-  const nearestNote = (x: number): NoteShift | null => {
+  // 고아 stem → 같은 id stavenote dx(같은 onset 다른 voice X-only 오매칭 방지)
+  const noteById = new Map(notes.map((n) => [n.el.id, n]));
+  const nearestNote = (stemEl: Element, x: number, stemBaseY: number): NoteShift | null => {
+    const id = stavenoteIdForOrphanStem(stemEl);
+    if (id) {
+      const byId = noteById.get(id);
+      if (byId) return byId;
+    }
     let best: NoteShift | null = null;
+    let bestScore = Infinity;
+    for (const n of notes) {
+      if (n.hasInnerStem) continue;
+      const dX = Math.abs(n.naturalX - x);
+      if (dX > 40) continue;
+      const pitch = noteheadPitchY(n.el);
+      const dY = pitch != null ? Math.abs(pitch - stemBaseY) : 20;
+      const score = dX + dY * 0.35;
+      if (score < bestScore) {
+        bestScore = score;
+        best = n;
+      }
+    }
+    if (best) return best;
+    let bestX: NoteShift | null = null;
     let bestDist = Infinity;
     for (const n of notes) {
       const d = Math.abs(n.naturalX - x);
       if (d < bestDist) {
         bestDist = d;
-        best = n;
+        bestX = n;
       }
     }
-    if (!best || bestDist > 40) return null;
-    return best;
+    if (!bestX || bestDist > 40) return null;
+    return bestX;
   };
 
   for (const tip of stemTips) {
     // stavenote 안 줄기는 부모 translate로 이미 이동 — 추가 translate 금지
     if (tip.el.closest('.vf-stavenote, .vf-staveNote')) continue;
-    const note = nearestNote(tip.naturalX);
+    // stem-up 고아 줄기의 밑동은 보통 max y (stem-down은 대개 stavenote 내부)
+    const baseY = Math.max(tip.y0, tip.y1);
+    const note = nearestNote(tip.el, tip.naturalX, baseY);
     if (!note) continue;
     const cur = readElementTranslateX(tip.el);
     const need = note.dx - cur;
@@ -1000,10 +1078,42 @@ function syncVfEngravingInMeasure(measure: Element): void {
   for (const beam of measure.querySelectorAll(':scope > .vf-beam, :scope > [class*="vf-beam"]')) {
     reshapeByStemTips(beam);
   }
-  // 빔 X 맞춤 후, 멤버 줄기 tip이 빔선에 닿도록 y를 연장/단축(끊겨 4분처럼 보이는 증상).
+  // 빔 X 맞춤 후, 멤버 줄기 tip이 빔선에 닿도록 y를 연장(끊겨 4분처럼 보이는 증상).
   snapStemTipsToBeamsInMeasure(measure, tipsAfter);
+  // tip 스냅/오매칭으로 밑동이 음머리에서 떨어진 고아 줄기 재부착
+  reattachOrphanStemBasesToNoteheads(measure, noteById);
   for (const tie of measure.querySelectorAll(':scope > .vf-stavetie, :scope > [class*="vf-tie"]')) {
     reshapeByStemTips(tie, 48);
+  }
+}
+
+/**
+ * 고아 stem 밑동을 짝 stavenote 음머리 pitch Y에 다시 붙인다.
+ * tip 스냅이 밑동을 밀었거나 align dx 오매칭으로 머리와 어긋난 경우를 복구.
+ */
+function reattachOrphanStemBasesToNoteheads(
+  measure: Element,
+  noteById: Map<string, { el: SVGGraphicsElement }>,
+): void {
+  for (const stem of measure.querySelectorAll(':scope > .vf-stem, :scope > [class*="vf-stem"]')) {
+    if (stem.closest('.vf-stavenote, .vf-staveNote')) continue;
+    const id = stavenoteIdForOrphanStem(stem);
+    if (!id) continue;
+    const note = noteById.get(id);
+    if (!note) continue;
+    const pitchY = noteheadPitchY(note.el);
+    if (pitchY == null) continue;
+    const yr = stemLocalYRange(stem);
+    if (!yr) continue;
+    const tipUp = yr.y0;
+    const tipDown = yr.y1;
+    if (tipDown - tipUp < 4) continue;
+    // pitch에 더 가까운 끝이 base. stem-up이면 base = max y.
+    const stemUp = Math.abs(tipDown - pitchY) <= Math.abs(tipUp - pitchY);
+    const curBase = stemUp ? tipDown : tipUp;
+    if (Math.abs(curBase - pitchY) < 0.6) continue;
+    if (Math.abs(curBase - pitchY) > 24) continue;
+    setStemBaseY(stem, pitchY, stemUp);
   }
 }
 

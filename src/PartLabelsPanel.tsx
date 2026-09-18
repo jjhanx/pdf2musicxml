@@ -129,10 +129,10 @@ export function PartLabelsPanel({ jobId, onSubmitted }: Props) {
         <strong>최종 MXL part-name</strong>에 그대로 쓰입니다.
       </p>
       <p style={{ margin: '0 0 1rem', lineHeight: 1.5, fontSize: '0.88rem', color: '#444' }}>
-        <strong>피아노:</strong> 오른손·왼손 그랜드스태프는 라벨 <strong>P 하나</strong>를 권장합니다(한
-        MusicXML 파트, staff 1=PR / staff 2=PL, 미리보기·필터만 PR·PL로 구분).{' '}
-        <strong>PR + PL</strong>은 OMR이 피아노를 <em>이미 두 파트로</em> 내보낸 경우에만 쓰세요. 성악
-        슬롯(S/A/T/B)에 피아노 음표를 나누어 넣지 않습니다.
+        <strong>피아노:</strong> 오른손·왼손은 라벨 <strong>P 하나</strong>로 충분합니다(한 MusicXML 파트,
+        staff 1=RH / staff 2=LH). OMR이 RH를 Voice에 올려도 후처리가 피아노로 되돌립니다.{' '}
+        <strong>PR + PL</strong>은 OMR이 피아노를 <em>이미 두 파트</em>로 내보낸 경우에만 쓰세요. 성악
+        슬롯(S/A/T/B)에 피아노 음을 나누어 넣지 않습니다.
       </p>
 
       {loading && <p>성부 정보 불러오는 중…</p>}

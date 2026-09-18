@@ -151,7 +151,7 @@ def is_likely_misplaced_piano_rh(
 ) -> bool:
     """
     Audiveris often puts piano RH on a Voice staff while LH stays on Piano (F clef, staff 1).
-    Restructure must not expand that RH onto S+A (overwriting rests).
+    Restructure must not expand that RH onto S+A (overwriting rests); reclaim onto piano instead.
     """
     if vocal_m is None or piano_m is None:
         return False
@@ -173,6 +173,181 @@ def is_likely_misplaced_piano_rh(
     if bass_piano and _measure_has_chord_or_multivoice(vocal_m, ns):
         return True
     return False
+
+
+def _measure_capacity_duration(
+    measure: ET.Element,
+    ns: str,
+    divisions: int = 4,
+    beats: int = 4,
+    beat_type: int = 4,
+) -> int:
+    attrs = measure.find(_q(ns, "attributes"))
+    div, b, bt = divisions, beats, beat_type
+    if attrs is not None:
+        d = attrs.findtext(_q(ns, "divisions"))
+        if d and d.strip().isdigit():
+            div = int(d.strip())
+        t_el = attrs.find(_q(ns, "time"))
+        if t_el is not None:
+            tb = t_el.findtext(_q(ns, "beats"))
+            tbt = t_el.findtext(_q(ns, "beat-type"))
+            if tb and tb.strip().isdigit():
+                b = int(tb.strip())
+            if tbt and tbt.strip().isdigit():
+                bt = int(tbt.strip())
+    return max(1, round(div * b * 4 / bt))
+
+
+def _set_note_staff(note: ET.Element, staff: str, ns: str) -> None:
+    st = note.find(_q(ns, "staff"))
+    if st is None:
+        ET.SubElement(note, _q(ns, "staff")).text = staff
+    else:
+        st.text = staff
+
+
+def _set_note_voice(note: ET.Element, voice: str, ns: str) -> None:
+    v = note.find(_q(ns, "voice"))
+    if v is None:
+        ET.SubElement(note, _q(ns, "voice")).text = voice
+    else:
+        v.text = voice
+
+
+def build_rh_measure_from_misplaced(
+    primary_m: ET.Element,
+    secondary_m: ET.Element | None,
+    ns: str,
+) -> ET.Element:
+    """
+    RH source may be one Voice staff, or S+A after a bad chord-split.
+    Identical S≡A → one copy; different pitched lines → voice 1 + voice 2 on staff 1.
+    """
+    if (
+        secondary_m is None
+        or _measure_is_rest_only(secondary_m, ns)
+        or _pitched_signature(primary_m, ns) == _pitched_signature(secondary_m, ns)
+    ):
+        return copy.deepcopy(primary_m)
+
+    out = ET.Element(_q(ns, "measure"), number=primary_m.get("number") or "1")
+    attrs = primary_m.find(_q(ns, "attributes"))
+    if attrs is not None:
+        out.append(copy.deepcopy(attrs))
+
+    for child in primary_m:
+        if _local(child) == "attributes":
+            continue
+        if _local(child) == "note":
+            n = copy.deepcopy(child)
+            _set_note_staff(n, "1", ns)
+            if n.find(_q(ns, "pitch")) is not None:
+                _set_note_voice(n, "1", ns)
+            out.append(n)
+        elif _local(child) in ("backup", "forward", "direction", "harmony"):
+            out.append(copy.deepcopy(child))
+
+    cap = _measure_capacity_duration(primary_m, ns)
+    b = ET.SubElement(out, _q(ns, "backup"))
+    ET.SubElement(b, _q(ns, "duration")).text = str(cap)
+
+    for child in secondary_m:
+        if _local(child) != "note":
+            continue
+        if child.find(_q(ns, "pitch")) is None:
+            continue
+        n = copy.deepcopy(child)
+        _set_note_staff(n, "1", ns)
+        _set_note_voice(n, "2", ns)
+        out.append(n)
+    return out
+
+
+def merge_rh_into_piano_measure(piano_m: ET.Element, rh_m: ET.Element, ns: str) -> ET.Element:
+    """
+    One MusicXML piano part: staff 1 = RH (G), staff 2 = existing LH (F).
+    Prefer label `P` (not separate PR/PL parts) when reclaiming misplaced RH.
+    """
+    out = ET.Element(_q(ns, "measure"), number=piano_m.get("number") or rh_m.get("number") or "1")
+    for k, v in piano_m.attrib.items():
+        if k != "number":
+            out.set(k, v)
+
+    attrs_src = piano_m.find(_q(ns, "attributes"))
+    if attrs_src is None:
+        attrs_src = rh_m.find(_q(ns, "attributes"))
+    attrs = copy.deepcopy(attrs_src) if attrs_src is not None else ET.Element(_q(ns, "attributes"))
+    for clef in list(attrs.findall(_q(ns, "clef"))):
+        attrs.remove(clef)
+    for staves in list(attrs.findall(_q(ns, "staves"))):
+        attrs.remove(staves)
+    for sd in list(attrs.findall(_q(ns, "staff-details"))):
+        attrs.remove(sd)
+    if attrs.find(_q(ns, "divisions")) is None:
+        d_rh = rh_m.find(f"{_q(ns, 'attributes')}/{_q(ns, 'divisions')}")
+        if d_rh is not None and d_rh.text:
+            ET.SubElement(attrs, _q(ns, "divisions")).text = d_rh.text
+    ET.SubElement(attrs, _q(ns, "staves")).text = "2"
+    c1 = ET.SubElement(attrs, _q(ns, "clef"), number="1")
+    ET.SubElement(c1, _q(ns, "sign")).text = "G"
+    ET.SubElement(c1, _q(ns, "line")).text = "2"
+    c2 = ET.SubElement(attrs, _q(ns, "clef"), number="2")
+    ET.SubElement(c2, _q(ns, "sign")).text = "F"
+    ET.SubElement(c2, _q(ns, "line")).text = "4"
+    out.append(attrs)
+
+    # RH first (staff 1)
+    for child in rh_m:
+        tag = _local(child)
+        if tag == "attributes":
+            continue
+        if tag == "barline":
+            continue
+        if tag == "note":
+            n = copy.deepcopy(child)
+            _set_note_staff(n, "1", ns)
+            out.append(n)
+        elif tag in ("backup", "forward", "direction", "harmony", "print"):
+            el = copy.deepcopy(child)
+            if tag == "direction":
+                for st in el.findall(_q(ns, "staff")):
+                    st.text = "1"
+            out.append(el)
+
+    cap = _measure_capacity_duration(piano_m, ns)
+    # If RH already used backups, walk to end of RH timeline then backup full measure for LH
+    b = ET.SubElement(out, _q(ns, "backup"))
+    ET.SubElement(b, _q(ns, "duration")).text = str(cap)
+
+    # LH on staff 2 (voices shifted so they do not collide with RH 1–2)
+    for child in piano_m:
+        tag = _local(child)
+        if tag == "attributes":
+            continue
+        if tag == "barline":
+            continue
+        if tag == "note":
+            n = copy.deepcopy(child)
+            _set_note_staff(n, "2", ns)
+            v = n.find(_q(ns, "voice"))
+            if v is not None and v.text and v.text.strip().isdigit():
+                v.text = str(int(v.text.strip()) + 4)
+            elif n.find(_q(ns, "pitch")) is not None:
+                _set_note_voice(n, "5", ns)
+            out.append(n)
+        elif tag in ("backup", "forward", "direction", "harmony"):
+            el = copy.deepcopy(child)
+            if tag == "direction":
+                for st in el.findall(_q(ns, "staff")):
+                    st.text = "2"
+            out.append(el)
+
+    for child in piano_m:
+        if _local(child) == "barline":
+            out.append(copy.deepcopy(child))
+            break
+    return out
 
 
 def split_staff_measure(measure: ET.Element, staff_num: str, ns: str) -> ET.Element:
@@ -603,6 +778,7 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
             piano_src_m = None
             if piano_src_pid and piano_src_pid in parts_by_id:
                 piano_src_m = parts_by_id[piano_src_pid].find(f'./{_q(ns, "measure")}[@number="{num}"]')
+            reclaimed_piano_m = None
 
             if already_split_satb:
                 # 1:1 — 각 성부 마디를 그대로 유지 (쉼표-only 성부 포함)
@@ -664,6 +840,11 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                                     )
                                 )
                         if clear_sa:
+                            rh_built = build_rh_measure_from_misplaced(s_m, a_m, ns)
+                            if piano_src_m is not None:
+                                reclaimed_piano_m = merge_rh_into_piano_measure(
+                                    piano_src_m, rh_built, ns
+                                )
                             vocal_out_measures[target_vocal_pids[0]] = create_empty_rest_measure(
                                 num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
                             )
@@ -685,12 +866,14 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 src_pid, src_m = active_vocal[0]
 
                 # 피아노 LH만 Piano 파트에 있고 RH가 Voice 스태프에 앉은 경우:
-                # S/A로 복제하지 않고 성악은 쉼표 유지 (피아노 파트로 옮기지 않음 — 오인 방지).
+                # S/A로 복제하지 않고, RH는 피아노 staff 1로 되돌림.
                 if target_piano_pid and is_likely_misplaced_piano_rh(src_m, piano_src_m, ns):
                     for t_pid in target_vocal_pids:
                         vocal_out_measures[t_pid] = create_empty_rest_measure(
                             num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
                         )
+                    if piano_src_m is not None:
+                        reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, src_m, ns)
                 else:
                     elements = list(src_m)
                     reg_info = measure_reg_cache.get(num, "women")
@@ -772,7 +955,7 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
 
             # Process Piano part(s)
             if target_piano_entries:
-                p_m = piano_src_m
+                p_m = reclaimed_piano_m if reclaimed_piano_m is not None else piano_src_m
                 if piano_split_pr_pl and p_m is not None:
                     # PR / PL as separate MusicXML parts (staff 1 / staff 2)
                     by_label = {lab: pid for pid, lab in target_piano_entries}

@@ -144,6 +144,21 @@ SRC_ALREADY_SPLIT = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+def _pitched_on_staff(part: ET.Element, mnum: str, staff: str) -> list[str]:
+    m = next((x for x in part.findall("{*}measure") if x.get("number") == mnum), None)
+    if m is None:
+        return []
+    out = []
+    for n in m.findall("{*}note"):
+        if (n.findtext("{*}staff") or "1") != staff:
+            continue
+        p = n.find("{*}pitch")
+        if p is None:
+            continue
+        out.append(f"{p.findtext('{*}step')}{p.findtext('{*}octave')}")
+    return out
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
@@ -162,7 +177,10 @@ def main() -> None:
         assert parts.keys() >= {"P1", "P2", "P3", "P4", "P5"}
         assert _pitched(parts["P1"], "1") == [], f"S should be rest, got {_pitched(parts['P1'], '1')}"
         assert _pitched(parts["P2"], "1") == [], f"A should be rest, got {_pitched(parts['P2'], '1')}"
-        assert _pitched(parts["P5"], "1") == ["F3", "E2"], "Piano LH must stay on P"
+        rh = _pitched_on_staff(parts["P5"], "1", "1")
+        lh = _pitched_on_staff(parts["P5"], "1", "2")
+        assert rh == ["A4", "C5", "A4"], f"RH must land on piano staff 1, got {rh}"
+        assert lh == ["F3", "E2"], f"LH must stay on piano staff 2, got {lh}"
 
         src2 = td_path / "split.mxl"
         out2 = td_path / "split_out.mxl"
@@ -172,7 +190,10 @@ def main() -> None:
         parts2 = {p.get("id"): p for p in root2.findall("part")}
         assert _pitched(parts2["P1"], "3") == [], f"repaired S should be rest, got {_pitched(parts2['P1'], '3')}"
         assert _pitched(parts2["P2"], "3") == [], f"repaired A should be rest, got {_pitched(parts2['P2'], '3')}"
-        assert _pitched(parts2["P5"], "3") == ["F3", "E2"]
+        rh2 = _pitched_on_staff(parts2["P5"], "3", "1")
+        lh2 = _pitched_on_staff(parts2["P5"], "3", "2")
+        assert rh2 == ["A4", "C5", "A4"], f"reclaimed RH on staff 1, got {rh2}"
+        assert lh2 == ["F3", "E2"], f"LH on staff 2, got {lh2}"
 
     # Real zip regression if present
     zip_mxl = ROOT / "_smoke" / "_52386d65" / "audiveris_raw.mxl"
@@ -191,7 +212,9 @@ def main() -> None:
             a3 = _pitched(parts["P2"], "3")
             assert s3 == [], f"52386d65 m3 S should clear RH pollution, got {s3}"
             assert a3 == [], f"52386d65 m3 A should clear RH pollution, got {a3}"
-            print("52386d65 m3 S/A cleared OK")
+            rh3 = _pitched_on_staff(parts["P5"], "3", "1")
+            assert "A4" in rh3 and "C5" in rh3, f"52386d65 m3 RH must be on P staff 1, got {rh3}"
+            print("52386d65 m3 S/A cleared, RH on piano OK")
 
     print("test_restructure_no_piano_rh_to_satb: OK")
 

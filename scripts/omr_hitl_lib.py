@@ -5384,7 +5384,15 @@ def _clean_orphan_beams_in_measure(measure: ET.Element, ns: str) -> bool:
                             if _strip_beams_from_note(r_note, ns, b_num):
                                 changed = True
                     active_run = [n]
-                elif val in ("continue", "forward hook", "backward hook"):
+                elif val in ("forward hook", "backward hook"):
+                    # 16분+점8분 등: 2차 빔이 hook 단독이면 정상 — begin 없이 지우면
+                    # OSMD가 점8분까지 2차 빔을 연장해 16분처럼 그린다.
+                    if active_run:
+                        for r_note in active_run:
+                            if _strip_beams_from_note(r_note, ns, b_num):
+                                changed = True
+                        active_run = []
+                elif val == "continue":
                     if not active_run:
                         if _strip_beams_from_note(n, ns, b_num):
                             changed = True
@@ -8032,6 +8040,8 @@ def _apply_beam_to_range(
 
     # 16분·32분 등은 요청 beamNumber 외에 상위 레벨도 같은 run으로 연결
     # (8분+16분+16분에서 beam 1만 있으면 2차 빔이 없어 끊긴 것처럼 보임)
+    # 16분+점8분처럼 상위 레벨이 한 음뿐이면 begin/end가 아니라 forward/backward hook
+    # (hook 없으면 OSMD가 2차 빔을 점8분까지 연장해 16분처럼 그림)
     max_level = max(
         (
             _beam_count_for_note_type(_note_written_type(notes[i], ns))
@@ -8048,9 +8058,9 @@ def _apply_beam_to_range(
             for i in pitched
             if _beam_count_for_note_type(_note_written_type(notes[i], ns)) >= b_idx
         ]
-        if len(level_idxs) < 2:
+        if not level_idxs:
             continue
-        runs: list[list[int]] = []
+        segments: list[list[int]] = []
         cur: list[int] = []
         for i in level_idxs:
             if not cur:
@@ -8060,16 +8070,40 @@ def _apply_beam_to_range(
             if pitched_pos[i] == pitched_pos[prev] + 1:
                 cur.append(i)
             else:
-                if len(cur) >= 2:
-                    runs.append(cur)
+                segments.append(cur)
                 cur = [i]
-        if len(cur) >= 2:
-            runs.append(cur)
-        for run in runs:
-            _set_beam_on_note(notes[run[0]], ns, b_idx, "begin")
-            for mid in run[1:-1]:
-                _set_beam_on_note(notes[mid], ns, b_idx, "continue")
-            _set_beam_on_note(notes[run[-1]], ns, b_idx, "end")
+        if cur:
+            segments.append(cur)
+        for seg in segments:
+            if len(seg) >= 2:
+                _set_beam_on_note(notes[seg[0]], ns, b_idx, "begin")
+                for mid in seg[1:-1]:
+                    _set_beam_on_note(notes[mid], ns, b_idx, "continue")
+                _set_beam_on_note(notes[seg[-1]], ns, b_idx, "end")
+            elif len(seg) == 1:
+                only = seg[0]
+                pos = pitched_pos[only]
+                prev_lower = (
+                    pos > 0
+                    and _beam_count_for_note_type(
+                        _note_written_type(notes[pitched[pos - 1]], ns)
+                    )
+                    < b_idx
+                )
+                next_lower = (
+                    pos < len(pitched) - 1
+                    and _beam_count_for_note_type(
+                        _note_written_type(notes[pitched[pos + 1]], ns)
+                    )
+                    < b_idx
+                )
+                if next_lower and not prev_lower:
+                    hook = "forward hook"
+                elif prev_lower and not next_lower:
+                    hook = "backward hook"
+                else:
+                    hook = "forward hook" if pos == 0 else "backward hook"
+                _set_beam_on_note(notes[only], ns, b_idx, hook)
 
     for idx in pitched:
         stem_el = notes[idx].find(_q(ns, "stem"))

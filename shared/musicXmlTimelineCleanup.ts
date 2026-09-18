@@ -953,8 +953,8 @@ export function ensureSecondaryBeamLevelsForOsmdPreview(xml: string): string {
             const levelNotes = run.filter(
               (n) => beamLevelForType(n.querySelector('type')?.textContent || '') >= bIdx,
             );
-            // 연속 구간
-            const runs: Element[][] = [];
+            // 연속 구간 (길이 1 = mixed rhythm hook)
+            const segs: Element[][] = [];
             let cur: Element[] = [];
             for (const n of levelNotes) {
               const idx = run.indexOf(n);
@@ -965,16 +965,35 @@ export function ensureSecondaryBeamLevelsForOsmdPreview(xml: string): string {
               const prevIdx = run.indexOf(cur[cur.length - 1]!);
               if (idx === prevIdx + 1) cur.push(n);
               else {
-                if (cur.length >= 2) runs.push(cur);
+                segs.push(cur);
                 cur = [n];
               }
             }
-            if (cur.length >= 2) runs.push(cur);
-            for (const seg of runs) {
-              if (seg.every((n) => noteBeamValue(n, bIdx))) continue;
-              setNoteBeam(seg[0]!, bIdx, 'begin');
-              for (const mid of seg.slice(1, -1)) setNoteBeam(mid, bIdx, 'continue');
-              setNoteBeam(seg[seg.length - 1]!, bIdx, 'end');
+            if (cur.length) segs.push(cur);
+            for (const seg of segs) {
+              if (seg.length >= 2) {
+                if (seg.every((n) => noteBeamValue(n, bIdx))) continue;
+                setNoteBeam(seg[0]!, bIdx, 'begin');
+                for (const mid of seg.slice(1, -1)) setNoteBeam(mid, bIdx, 'continue');
+                setNoteBeam(seg[seg.length - 1]!, bIdx, 'end');
+                changed = true;
+                continue;
+              }
+              if (seg.length !== 1) continue;
+              const only = seg[0]!;
+              if (noteBeamValue(only, bIdx)) continue;
+              const idx = run.indexOf(only);
+              const prevLower =
+                idx > 0 &&
+                beamLevelForType(run[idx - 1]!.querySelector('type')?.textContent || '') < bIdx;
+              const nextLower =
+                idx < run.length - 1 &&
+                beamLevelForType(run[idx + 1]!.querySelector('type')?.textContent || '') < bIdx;
+              let hook = 'forward hook';
+              if (nextLower && !prevLower) hook = 'forward hook';
+              else if (prevLower && !nextLower) hook = 'backward hook';
+              else if (idx > 0) hook = 'backward hook';
+              setNoteBeam(only, bIdx, hook);
               changed = true;
             }
           }

@@ -347,8 +347,11 @@ export function clipOsmdMeasuresToAllocatedWidth(
     const g = svgGElement(gmRaw);
     if (!g) return;
 
-    const bounds = measureBoundsPx(gmRaw, row[mi + 1], scale);
+    let bounds = measureBoundsPx(gmRaw, row[mi + 1], scale);
     if (!bounds) return;
+    // 빔·줄기 tip이 할당 폭 계산보다 살짝 밖이면 clip이 빔만 잘라 8분·16분이 4분처럼 보임.
+    // contain 이후에도 OSMD 빔이 stave 폭을 1~수 px 넘는 경우가 있어 빔 bbox만큼 가로를 확장.
+    bounds = expandBoundsForEngravingGlyphs(g, bounds);
     const wPx = bounds.right - bounds.left;
     if (wPx <= 0.5) return;
     // 세로는 거의 풀고 가로만 칸에 맞춤.
@@ -373,6 +376,31 @@ export function clipOsmdMeasuresToAllocatedWidth(
     g.setAttribute('clip-path', `url(#${id})`);
     g.setAttribute('data-hitl-measure-clipped', '1');
   });
+}
+
+/** 빔·줄기 path의 x 범위가 마디 bounds 밖이면 clip 가로를 그만큼 넓힘(음표 spill contain과 별개). */
+export function expandBoundsForEngravingGlyphs(
+  measureG: Element,
+  bounds: { left: number; right: number },
+): { left: number; right: number } {
+  let left = bounds.left;
+  let right = bounds.right;
+  const pad = 2;
+  for (const p of measureG.querySelectorAll('.vf-beam path, .vf-stem path, :scope > .vf-stem path')) {
+    const d = p.getAttribute('d') || '';
+    const xs: number[] = [];
+    const re = /[MmLl]\s*([-\d.eE+]+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(d))) {
+      const x = parseFloat(m[1]!);
+      if (Number.isFinite(x)) xs.push(x);
+    }
+    if (!xs.length) continue;
+    left = Math.min(left, Math.min(...xs) - pad);
+    right = Math.max(right, Math.max(...xs) + pad);
+  }
+  if (!(right > left)) return bounds;
+  return { left, right };
 }
 
 function staveBoundsPx(gm: unknown): { left: number; right: number } | null {

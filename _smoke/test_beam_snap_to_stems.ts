@@ -78,4 +78,15 @@ r = beamRange(beam2);
 assert.ok(Math.abs(r.left - 120) < 1.5, `beam follows translate, left=${r.left}`);
 assert.ok(Math.abs(r.right - 160) < 1.5, `beam follows translate, right=${r.right}`);
 
+// OSMD: first stem ~10px left of beam start (8th+16th stem-up) — pull beam to orphan stem
+measure.innerHTML = '';
+addStavenote(100, 0);
+addStavenote(120, 0);
+addStavenote(140, 0);
+const beam3 = addBeam(110, 140); // starts after first stem
+syncVfStemsAndBeamsAfterStavenoteAlign(host);
+r = beamRange(beam3);
+assert.ok(Math.abs(r.left - 100) < 1.5, `beam left pulls to orphan first stem, got ${r.left}`);
+assert.ok(Math.abs(r.right - 140) < 1.5, `beam right stays on last stem, got ${r.right}`);
+
 console.log('test_beam_snap_to_stems: OK');

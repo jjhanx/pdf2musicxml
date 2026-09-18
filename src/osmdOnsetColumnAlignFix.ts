@@ -621,7 +621,44 @@ type StemTip = {
   /** stavenote/stem translate 반영 후 x */
   effectiveX: number;
   dx: number;
+  /** 줄기 path의 min/max y (로컬, translate 미포함) */
+  y0: number;
+  y1: number;
 };
+
+function stemLocalYRange(stemEl: Element): { y0: number; y1: number } | null {
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (const path of stemEl.querySelectorAll('path')) {
+    const d = path.getAttribute('d');
+    if (!d) continue;
+    const ys = [...d.matchAll(/[MmLl]\s*[-\d.eE+]+\s+([-\d.eE+]+)/g)].map((m) => parseFloat(m[1]!));
+    for (const y of ys) {
+      if (!Number.isFinite(y)) continue;
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
+    }
+  }
+  for (const line of stemEl.querySelectorAll('line')) {
+    const a = parseFloat(line.getAttribute('y1') ?? '');
+    const b = parseFloat(line.getAttribute('y2') ?? '');
+    if (Number.isFinite(a)) {
+      y0 = Math.min(y0, a);
+      y1 = Math.max(y1, a);
+    }
+    if (Number.isFinite(b)) {
+      y0 = Math.min(y0, b);
+      y1 = Math.max(y1, b);
+    }
+  }
+  if (!Number.isFinite(y0) || !Number.isFinite(y1)) return null;
+  return { y0, y1 };
+}
+
+/** 줄기 샤프트가 빔 y 대역을 지나는지(다른 보표·성부 줄기 제외용). */
+function stemShaftCrossesBeamY(tip: StemTip, beamY: number, slop = 36): boolean {
+  return tip.y0 - slop <= beamY && tip.y1 + slop >= beamY;
+}
 
 function collectStemTipsInMeasure(measure: Element): StemTip[] {
   const tips: StemTip[] = [];
@@ -635,15 +672,163 @@ function collectStemTipsInMeasure(measure: Element): StemTip[] {
     seen.add(stem);
     const localX = stemLocalX(stem);
     if (localX == null) continue;
+    const yr = stemLocalYRange(stem);
+    if (!yr) continue;
     const totalTx = translateXUpTo(stem, measure);
     const sn = stem.closest('.vf-stavenote, .vf-staveNote');
     const snDx = sn && measure.contains(sn) ? readElementTranslateX(sn) : 0;
     // natural: stavenote dx만 제거(빔·sibling stem은 contain 전 좌표에 맞춤)
     const naturalX = localX + (totalTx - snDx);
     const effectiveX = localX + totalTx;
-    tips.push({ el: stem, naturalX, effectiveX, dx: snDx || readElementTranslateX(stem) });
+    tips.push({
+      el: stem,
+      naturalX,
+      effectiveX,
+      dx: snDx || readElementTranslateX(stem),
+      y0: yr.y0,
+      y1: yr.y1,
+    });
   }
   return tips;
+}
+
+/** 빔 폴리곤 중앙선의 y를 x에서 보간. */
+function beamCenterYAtX(d: string, x: number): number | null {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
+  if (!tokens?.length) return null;
+  let cmd = '';
+  let expectingX = true;
+  let curX = 0;
+  let curY = 0;
+  for (const tok of tokens) {
+    if (/^[MmLlHhVvCcSsQqTtAaZz]$/.test(tok)) {
+      cmd = tok;
+      expectingX = true;
+      continue;
+    }
+    const n = parseFloat(tok);
+    if (!Number.isFinite(n)) continue;
+    if (cmd === 'H' || cmd === 'h') {
+      curX = cmd === 'h' ? curX + n : n;
+      xs.push(curX);
+      ys.push(curY);
+      continue;
+    }
+    if (cmd === 'V' || cmd === 'v') {
+      curY = cmd === 'v' ? curY + n : n;
+      xs.push(curX);
+      ys.push(curY);
+      continue;
+    }
+    if (expectingX) {
+      curX = n;
+      expectingX = false;
+    } else {
+      curY = n;
+      expectingX = true;
+      xs.push(curX);
+      ys.push(curY);
+    }
+  }
+  if (xs.length < 2) return null;
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  if (right - left < 1) return null;
+  // 왼쪽·오른쪽 끝의 평균 y (빔 두께 중앙)
+  const leftYs = ys.filter((_, i) => Math.abs(xs[i]! - left) < 1.5);
+  const rightYs = ys.filter((_, i) => Math.abs(xs[i]! - right) < 1.5);
+  if (!leftYs.length || !rightYs.length) return null;
+  const yL = leftYs.reduce((a, b) => a + b, 0) / leftYs.length;
+  const yR = rightYs.reduce((a, b) => a + b, 0) / rightYs.length;
+  const t = Math.max(0, Math.min(1, (x - left) / (right - left)));
+  return yL + t * (yR - yL);
+}
+
+function setStemTipY(stemEl: Element, tipY: number): void {
+  for (const path of stemEl.querySelectorAll('path')) {
+    const d = path.getAttribute('d');
+    if (!d) continue;
+    const m = /^M\s*([-\d.eE+]+)\s+([-\d.eE+]+)\s*L\s*([-\d.eE+]+)\s+([-\d.eE+]+)/i.exec(d.trim());
+    if (!m) continue;
+    const x1 = m[1]!;
+    const y1 = parseFloat(m[2]!);
+    const x2 = m[3]!;
+    const y2 = parseFloat(m[4]!);
+    if (!Number.isFinite(y1) || !Number.isFinite(y2)) continue;
+    // tip = 음머리에서 먼 쪽(stem-up이면 min y)
+    const tipIsFirst = Math.abs(y1 - tipY) <= Math.abs(y2 - tipY) ? false : y1 < y2;
+    // 더 작은 y가 tip(stem-up)인지, 더 큰 y가 tip(stem-down)인지는 tipY가 어느 쪽에 가까운지로 결정
+    const upTip = Math.min(y1, y2);
+    const downTip = Math.max(y1, y2);
+    const towardUp = Math.abs(tipY - upTip) <= Math.abs(tipY - downTip);
+    if (towardUp) {
+      if (y1 <= y2) path.setAttribute('d', `M${x1} ${tipY}L${x2} ${y2}`);
+      else path.setAttribute('d', `M${x1} ${y1}L${x2} ${tipY}`);
+    } else {
+      if (y1 >= y2) path.setAttribute('d', `M${x1} ${tipY}L${x2} ${y2}`);
+      else path.setAttribute('d', `M${x1} ${y1}L${x2} ${tipY}`);
+    }
+    void tipIsFirst;
+  }
+  for (const line of stemEl.querySelectorAll('line')) {
+    const y1 = parseFloat(line.getAttribute('y1') ?? '');
+    const y2 = parseFloat(line.getAttribute('y2') ?? '');
+    if (!Number.isFinite(y1) || !Number.isFinite(y2)) continue;
+    const towardUp = Math.abs(tipY - Math.min(y1, y2)) <= Math.abs(tipY - Math.max(y1, y2));
+    if (towardUp) {
+      if (y1 <= y2) line.setAttribute('y1', String(tipY));
+      else line.setAttribute('y2', String(tipY));
+    } else if (y1 >= y2) line.setAttribute('y1', String(tipY));
+    else line.setAttribute('y2', String(tipY));
+  }
+}
+
+function snapStemTipsToBeamsInMeasure(measure: Element, tips: StemTip[]): void {
+  type BeamInfo = { d: string; left: number; right: number; w: number; midY: number };
+  const beams: BeamInfo[] = [];
+  for (const beam of measure.querySelectorAll(':scope > .vf-beam, :scope > [class*="vf-beam"]')) {
+    for (const path of beam.querySelectorAll('path')) {
+      const d = path.getAttribute('d');
+      if (!d) continue;
+      const xs = [...d.matchAll(/[MmLl]\s*([-\d.eE+]+)/g)].map((m) => parseFloat(m[1]!));
+      const ys = [...d.matchAll(/[MmLl]\s*[-\d.eE+]+\s+([-\d.eE+]+)/g)].map((m) => parseFloat(m[1]!));
+      if (xs.length < 2) continue;
+      const left = Math.min(...xs);
+      const right = Math.max(...xs);
+      const w = right - left;
+      if (w < 1) continue;
+      beams.push({
+        d,
+        left,
+        right,
+        w,
+        midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
+      });
+    }
+  }
+  if (!beams.length) return;
+
+  for (const tip of tips) {
+    const covering = beams.filter(
+      (b) =>
+        tip.effectiveX >= b.left - 6 &&
+        tip.effectiveX <= b.right + 6 &&
+        stemShaftCrossesBeamY(tip, b.midY, 80),
+    );
+    if (!covering.length) continue;
+    covering.sort((a, b) => b.w - a.w);
+    const best = covering[0]!;
+    const targetY = beamCenterYAtX(best.d, tip.effectiveX);
+    if (targetY == null || !Number.isFinite(targetY)) continue;
+    const tipUp = Math.min(tip.y0, tip.y1);
+    const tipDown = Math.max(tip.y0, tip.y1);
+    const actualTip = Math.abs(tipUp - targetY) <= Math.abs(tipDown - targetY) ? tipUp : tipDown;
+    if (Math.abs(actualTip - targetY) < 1.2) continue;
+    if (Math.abs(actualTip - targetY) > 80) continue;
+    setStemTipY(tip.el, targetY);
+  }
 }
 
 function syncVfEngravingInMeasure(measure: Element): void {
@@ -700,6 +885,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const d = path.getAttribute('d');
       if (!d) continue;
       const xs: number[] = [];
+      const ys: number[] = [];
       const xToks = d.match(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g);
       if (xToks) {
         for (const m of xToks) {
@@ -707,22 +893,49 @@ function syncVfEngravingInMeasure(measure: Element): void {
           if (Number.isFinite(n)) xs.push(n);
         }
       }
+      const yToks = d.match(/[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g);
+      if (yToks) {
+        for (const m of yToks) {
+          const parts = m.trim().split(/\s+/);
+          const n = parseFloat(parts[parts.length - 1]!);
+          if (Number.isFinite(n)) ys.push(n);
+        }
+      }
       if (xs.length < 2) continue;
       const oldLeft = Math.min(...xs);
       const oldRight = Math.max(...xs);
       if (oldRight - oldLeft < 1) continue;
+      const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
 
-      // 빔 span 안의 줄기(앞으로 삐져나온 빔: oldLeft가 줄기보다 왼쪽 → 줄기는 oldLeft~oldRight에 있음)
+      // 빔 span 안 줄기. y 대역으로 다른 보표 줄기 제외.
       let matched = tipsAfter.filter(
-        (t) => t.naturalX >= oldLeft - 4 && t.naturalX <= oldRight + 8,
+        (t) =>
+          t.naturalX >= oldLeft - 4 &&
+          t.naturalX <= oldRight + 8 &&
+          (ys.length === 0 || stemShaftCrossesBeamY(t, beamY)),
       );
+
+      // OSMD가 첫 음(특히 stem-up 8분+16분) 줄기를 빔 시작보다 ~10px 왼쪽에 두는 경우.
+      // oldLeft 기준 4~14px 왼쪽 orphan만 편입(2차 빔이 앞 8분 줄기까지 빨려가지 않게).
+      // y 필터는 적용하지 않음 — 첫 음 줄기가 빔보다 짧아 shaft가 빔 y에 안 닿아도 멤버로 인정.
+      if (matched.length >= 1) {
+        const orphans = tipsAfter.filter((t) => {
+          const gap = oldLeft - t.naturalX;
+          return gap > 4 && gap <= 14;
+        });
+        if (orphans.length) matched = [...orphans, ...matched];
+      }
+
       // 다른 voice 줄기가 span 앞에만 걸치면(거의 빔 밖) 제외 — 왼쪽 여유 4px만
       if (matched.length < 2) {
+        const yOk = (t: StemTip) => ys.length === 0 || stemShaftCrossesBeamY(t, beamY);
         const byLeft = tipsAfter
+          .filter(yOk)
           .slice()
           .sort((a, b) => Math.abs(a.naturalX - oldLeft) - Math.abs(b.naturalX - oldLeft));
         const leftTip = byLeft[0];
         const byRight = tipsAfter
+          .filter(yOk)
           .slice()
           .sort((a, b) => Math.abs(a.naturalX - oldRight) - Math.abs(b.naturalX - oldRight));
         const rightTip = byRight.find((t) => t !== leftTip) ?? byRight[0];
@@ -754,6 +967,8 @@ function syncVfEngravingInMeasure(measure: Element): void {
   for (const beam of measure.querySelectorAll(':scope > .vf-beam, :scope > [class*="vf-beam"]')) {
     reshapeByStemTips(beam);
   }
+  // 빔 X 맞춤 후, 멤버 줄기 tip이 빔선에 닿도록 y를 연장/단축(끊겨 4분처럼 보이는 증상).
+  snapStemTipsToBeamsInMeasure(measure, tipsAfter);
   for (const tie of measure.querySelectorAll(':scope > .vf-stavetie, :scope > [class*="vf-tie"]')) {
     reshapeByStemTips(tie, 48);
   }

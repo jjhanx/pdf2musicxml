@@ -1,11 +1,15 @@
 /**
  * Measure clip must not cut stem-up beams (narrow Y made 8ths look like quarters).
+ * Clip X also expands to include beam/stem glyphs so beams aren't shaved off.
  * Run: npx tsx _smoke/test_clip_keeps_beam_vertical.ts
  */
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { createRequire } from 'node:module';
-import { clipOsmdMeasuresToAllocatedWidth } from '../src/osmdMeasureTimingWarning';
+import {
+  clipOsmdMeasuresToAllocatedWidth,
+  expandBoundsForEngravingGlyphs,
+} from '../src/osmdMeasureTimingWarning';
 
 const require = createRequire(import.meta.url);
 const osmdPkg = require('opensheetmusicdisplay');
@@ -60,6 +64,20 @@ osmd.render();
 const beamsBefore = host.querySelectorAll('.vf-beam').length;
 assert.ok(beamsBefore >= 1, `expected beams before clip, got ${beamsBefore}`);
 
+{
+  const g = host.querySelector('g.vf-measure');
+  assert.ok(g, 'vf-measure');
+  const expanded = expandBoundsForEngravingGlyphs(g!, { left: 1000, right: 1010 });
+  assert.ok(
+    expanded.right - expanded.left > 20,
+    `expand widens for beams/stems, got ${expanded.left}..${expanded.right}`,
+  );
+  assert.ok(
+    expanded.left < 1000 || expanded.right > 1010,
+    `expand moves at least one edge, got ${expanded.left}..${expanded.right}`,
+  );
+}
+
 clipOsmdMeasuresToAllocatedWidth(host, osmd);
 
 const rect = host.querySelector('clipPath[data-hitl-measure-clip] rect');
@@ -69,11 +87,14 @@ const h = Number(rect!.getAttribute('height'));
 assert.ok(y <= -200, `clip y must be very negative to keep beams, got ${y}`);
 assert.ok(h >= 1000, `clip height must be tall, got ${h}`);
 
-// beam paths should remain with positive area
+const clipL = Number(rect!.getAttribute('x'));
+const clipR = clipL + Number(rect!.getAttribute('width'));
 for (const p of host.querySelectorAll('.vf-beam path')) {
   const d = p.getAttribute('d') || '';
   const xs = [...d.matchAll(/[MmLl]\s*([-\d.]+)/g)].map((m) => parseFloat(m[1]!));
   assert.ok(Math.max(...xs) - Math.min(...xs) > 2, 'beam path still has width');
+  assert.ok(Math.min(...xs) >= clipL - 0.5, `beam left inside clip, ${Math.min(...xs)} vs ${clipL}`);
+  assert.ok(Math.max(...xs) <= clipR + 0.5, `beam right inside clip, ${Math.max(...xs)} vs ${clipR}`);
 }
 
-console.log('test_clip_keeps_beam_vertical: OK', { beamsBefore, y, h });
+console.log('test_clip_keeps_beam_vertical: OK', { beamsBefore, y, h, clipL, clipR });

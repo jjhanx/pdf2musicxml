@@ -8029,6 +8029,48 @@ def _apply_beam_to_range(
         else:
             val = "continue"
         _set_beam_on_note(notes[idx], ns, beam_number, val)
+
+    # 16분·32분 등은 요청 beamNumber 외에 상위 레벨도 같은 run으로 연결
+    # (8분+16분+16분에서 beam 1만 있으면 2차 빔이 없어 끊긴 것처럼 보임)
+    max_level = max(
+        (
+            _beam_count_for_note_type(_note_written_type(notes[i], ns))
+            for i in pitched
+        ),
+        default=beam_number,
+    )
+    pitched_pos = {idx: pos for pos, idx in enumerate(pitched)}
+    for b_idx in range(1, max_level + 1):
+        if b_idx == beam_number:
+            continue
+        level_idxs = [
+            i
+            for i in pitched
+            if _beam_count_for_note_type(_note_written_type(notes[i], ns)) >= b_idx
+        ]
+        if len(level_idxs) < 2:
+            continue
+        runs: list[list[int]] = []
+        cur: list[int] = []
+        for i in level_idxs:
+            if not cur:
+                cur = [i]
+                continue
+            prev = cur[-1]
+            if pitched_pos[i] == pitched_pos[prev] + 1:
+                cur.append(i)
+            else:
+                if len(cur) >= 2:
+                    runs.append(cur)
+                cur = [i]
+        if len(cur) >= 2:
+            runs.append(cur)
+        for run in runs:
+            _set_beam_on_note(notes[run[0]], ns, b_idx, "begin")
+            for mid in run[1:-1]:
+                _set_beam_on_note(notes[mid], ns, b_idx, "continue")
+            _set_beam_on_note(notes[run[-1]], ns, b_idx, "end")
+
     for idx in pitched:
         stem_el = notes[idx].find(_q(ns, "stem"))
         if stem_el is not None:

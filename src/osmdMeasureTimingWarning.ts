@@ -351,10 +351,11 @@ export function clipOsmdMeasuresToAllocatedWidth(
     if (!bounds) return;
     const wPx = bounds.right - bounds.left;
     if (wPx <= 0.5) return;
-    const absY = readAbsY(gmRaw) ?? 0;
-    const hUnits = Math.max(readBbSizeHeight(gmRaw) ?? 12, 12);
-    const yPx = (absY - hUnits) * scale;
-    const hPx = hUnits * 4 * scale;
+    // 세로는 거의 풀고 가로만 칸에 맞춤.
+    // AbsolutePosition height·작은 y 여유는 stem-up 빔(오선 위)을 잘라
+    // 8분·16분이 빔 없이 4분처럼 보이게 만듦.
+    const yPx = -800;
+    const hPx = 2400;
 
     const id = `hitl-mclip-${idx}`;
     idx += 1;

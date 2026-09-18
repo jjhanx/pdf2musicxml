@@ -105,6 +105,7 @@ export function repairTimelineForOsmdPreview(
   }
   out = realignDefaultXFromStaffTimelineForOsmdPreview(out);
   out = stripChordBeamsForOsmdPreview(out);
+  out = ensureSecondaryBeamLevelsForOsmdPreview(out);
   out = dedupeIdenticalChordPitchesForOsmdPreview(out);
   // type·duration 불일치(예: half+dur=2)를 duration←type로 맞춘 뒤 slur 짝 정리
   out = coerceNoteDurationsToTypeForOsmdPreview(out);
@@ -864,6 +865,133 @@ export function stripChordBeamsForOsmdPreview(xml: string): string {
       }
     });
     return serializeMusicXmlDocument(doc);
+  } catch {
+    return xml;
+  }
+}
+
+function beamLevelForType(typeText: string): number {
+  const t = typeText.trim().toLowerCase();
+  if (t === 'eighth' || t === '8th') return 1;
+  if (t === '16th') return 2;
+  if (t === '32nd') return 3;
+  if (t === '64th') return 4;
+  if (t === '128th') return 5;
+  return 0;
+}
+
+function noteBeamValue(note: Element, number: number): string | null {
+  for (const b of note.querySelectorAll(':scope > beam, :scope > *|beam')) {
+    const n = parseInt(b.getAttribute('number') || '1', 10) || 1;
+    if (n === number) return (b.textContent || '').trim().toLowerCase();
+  }
+  return null;
+}
+
+function setNoteBeam(note: Element, number: number, value: string): void {
+  const doc = note.ownerDocument!;
+  let el: Element | null = null;
+  for (const b of note.querySelectorAll(':scope > beam, :scope > *|beam')) {
+    const n = parseInt(b.getAttribute('number') || '1', 10) || 1;
+    if (n === number) {
+      el = b;
+      break;
+    }
+  }
+  if (!el) {
+    el = doc.createElementNS(note.namespaceURI, 'beam');
+    el.setAttribute('number', String(number));
+    // staff 다음·notations 앞 (MusicXML 관례)
+    const notations = note.querySelector(':scope > notations, :scope > *|notations');
+    if (notations) note.insertBefore(el, notations);
+    else note.appendChild(el);
+  }
+  el.textContent = value;
+}
+
+/**
+ * 미리보기 전용 — beam 1 run 안의 16분+에 상위 beam number를 보강.
+ * 저장 MXL은 HITL applyBeam이 동일 규칙을 씀. 여기서는 기존 OMR(빔1만)도 OSMD가 2차 빔을 그리게.
+ */
+export function ensureSecondaryBeamLevelsForOsmdPreview(xml: string): string {
+  try {
+    const doc = parseMusicXmlDocument(xml);
+    if (!doc) return xml;
+    let changed = false;
+    for (const measure of doc.querySelectorAll('measure, *|measure')) {
+      const notes = [...measure.children].filter((c) => xmlLocalName(c) === 'note');
+      // staff|voice → leaders
+      const layers = new Map<string, Element[]>();
+      for (const n of notes) {
+        if (n.querySelector(':scope > chord, :scope > *|chord')) continue;
+        if (n.querySelector(':scope > rest, :scope > *|rest')) continue;
+        if (!noteBeamValue(n, 1)) continue;
+        const voice = n.querySelector(':scope > voice, :scope > *|voice')?.textContent?.trim() || '1';
+        const staff = n.querySelector(':scope > staff, :scope > *|staff')?.textContent?.trim() || '1';
+        const key = `${staff}|${voice}`;
+        const list = layers.get(key) ?? [];
+        list.push(n);
+        layers.set(key, list);
+      }
+      for (const layer of layers.values()) {
+        // beam 1 begin..end runs
+        let run: Element[] = [];
+        const flush = () => {
+          if (run.length < 2) {
+            run = [];
+            return;
+          }
+          const maxLevel = Math.max(
+            ...run.map((n) => beamLevelForType(n.querySelector('type')?.textContent || 'eighth')),
+            1,
+          );
+          for (let bIdx = 2; bIdx <= maxLevel; bIdx += 1) {
+            const levelNotes = run.filter(
+              (n) => beamLevelForType(n.querySelector('type')?.textContent || '') >= bIdx,
+            );
+            // 연속 구간
+            const runs: Element[][] = [];
+            let cur: Element[] = [];
+            for (const n of levelNotes) {
+              const idx = run.indexOf(n);
+              if (!cur.length) {
+                cur = [n];
+                continue;
+              }
+              const prevIdx = run.indexOf(cur[cur.length - 1]!);
+              if (idx === prevIdx + 1) cur.push(n);
+              else {
+                if (cur.length >= 2) runs.push(cur);
+                cur = [n];
+              }
+            }
+            if (cur.length >= 2) runs.push(cur);
+            for (const seg of runs) {
+              if (seg.every((n) => noteBeamValue(n, bIdx))) continue;
+              setNoteBeam(seg[0]!, bIdx, 'begin');
+              for (const mid of seg.slice(1, -1)) setNoteBeam(mid, bIdx, 'continue');
+              setNoteBeam(seg[seg.length - 1]!, bIdx, 'end');
+              changed = true;
+            }
+          }
+          run = [];
+        };
+        for (const n of layer) {
+          const v = noteBeamValue(n, 1);
+          if (v === 'begin') {
+            flush();
+            run = [n];
+          } else if ((v === 'continue' || v === 'end') && run.length) {
+            run.push(n);
+            if (v === 'end') flush();
+          } else {
+            flush();
+          }
+        }
+        flush();
+      }
+    }
+    return changed ? serializeMusicXmlDocument(doc) : xml;
   } catch {
     return xml;
   }

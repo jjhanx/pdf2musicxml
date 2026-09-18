@@ -121,4 +121,14 @@ assert.ok(
 );
 assert.ok(r.left > 155, `beam must stay near D3 stem, not D2, got ${r.left}`);
 
+// Short forward hook (16th→dotted 8th): must NOT stretch to the next stem (~20px away)
+measure.innerHTML = '';
+addStavenote(100, 0); // 16th
+addStavenote(122, 0); // dotted 8th
+const hook = addBeam(100, 111.5); // ~11.5px partial secondary
+syncVfStemsAndBeamsAfterStavenoteAlign(host);
+r = beamRange(hook);
+assert.ok(r.right - r.left < 16, `hook must stay short, got w=${r.right - r.left} (${r.left}..${r.right})`);
+assert.ok(r.right < 118, `hook must not reach dotted-8th stem at 122, got right=${r.right}`);
+
 console.log('test_beam_snap_to_stems: OK');

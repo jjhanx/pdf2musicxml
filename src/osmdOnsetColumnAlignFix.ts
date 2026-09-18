@@ -1018,6 +1018,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const oldLeft = Math.min(...xs);
       const oldRight = Math.max(...xs);
       if (oldRight - oldLeft < 1) continue;
+      const origW = oldRight - oldLeft;
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
 
       // 빔 span 안 줄기. y 대역으로 다른 보표·다른 방향(같은 x의 v6 등) 줄기 제외.
@@ -1032,7 +1033,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
       // (grand staff PL: 같은 onset의 stem-down v6가 4~14px 왼쪽에 있어도 y가 안 맞으면 제외 —
       //  예: m4 D3 빔이 D2 줄기로 빨려 깨지던 회귀)
       const stemAtBeamStart = matched.some((t) => Math.abs(t.naturalX - oldLeft) <= 4);
-      if (!stemAtBeamStart && matched.length >= 1) {
+      if (!stemAtBeamStart && matched.length >= 1 && origW >= 18) {
         const orphans = tipsAfter.filter((t) => {
           if (ys.length && !stemShaftCrossesBeamY(t, beamY)) return false;
           const gap = oldLeft - t.naturalX;
@@ -1041,8 +1042,11 @@ function syncVfEngravingInMeasure(measure: Element): void {
         if (orphans.length) matched = [...orphans, ...matched];
       }
 
-      // 다른 voice 줄기가 span 앞에만 걸치면(거의 빔 밖) 제외 — 왼쪽 여유 4px만
+      // 짧은 2차 빔(forward/backward hook, ~8–16px): pad fallback으로 옆 줄기를
+      // 끌어오면 16분+점8분에서 hook가 전 구간 2차 빔이 되어 점8분이 16분처럼 보임.
+      // (m5 PR 점8→16분 backward hook는 괜찮고, m4 PL 16분→점8 forward hook만 깨지던 이유)
       if (matched.length < 2) {
+        if (origW < 18) continue;
         const yOk = (t: StemTip) => ys.length === 0 || stemShaftCrossesBeamY(t, beamY);
         const byLeft = tipsAfter
           .filter(yOk)
@@ -1069,6 +1073,8 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const newLeft = Math.min(...matched.map((t) => t.effectiveX));
       const newRight = Math.max(...matched.map((t) => t.effectiveX));
       if (newRight - newLeft < 1) continue;
+      // hook·짧은 2차 빔을 1차 폭까지 늘리지 않음
+      if (newRight - newLeft > origW * 1.35 + 8) continue;
       if (Math.abs(newLeft - oldLeft) < 1.2 && Math.abs(newRight - oldRight) < 1.2) continue;
 
       const mapX = (x: number) => {

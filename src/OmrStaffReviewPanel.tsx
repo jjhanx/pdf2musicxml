@@ -263,10 +263,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [rangeImportOpen, setRangeImportOpen] = useState(false);
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
-  /** image_pdf 파이프라인 또는 omr-work manifest의 imagePdfOmrEngine — 경량 HITL */
-  const imagePdfLight =
-    summary?.pipelineMode === IMAGE_PDF_LIGHT_PIPELINE ||
-    Boolean(summary?.imagePdfOmrEngine);
+  /** 이미지 PDF 파이프라인만 경량 HITL(성부1+선택/다음 마디). imagePdfOmrEngine만으로는 판단하지 않음. */
+  const imagePdfLight = summary?.pipelineMode === IMAGE_PDF_LIGHT_PIPELINE;
   const pngSource =
     summary?.cleanScorePdf?.exists || summary?.audiverisInputPdf === 'clean_score'
       ? 'clean_score'

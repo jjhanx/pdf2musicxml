@@ -965,8 +965,10 @@ export default function App() {
     fd.append('debug', 'false');
     fd.append('startStage', opts?.startStage ?? 'full');
     fd.append('pipelineMode', opts?.pipelineMode ?? 'font_separator');
-    fd.append('imagePdfOmrEngine', 'audiveris');
-
+    // image_pdf 전용 필드 — 벡터(font_separator)에도 넣으면 summary가 경량 HITL로 오인했음
+    if ((opts?.pipelineMode ?? 'font_separator') === 'image_pdf') {
+      fd.append('imagePdfOmrEngine', 'audiveris');
+    }
     if (opts?.pipelineMode === 'font_separator') {
       fd.append('enablePymupdfReview', opts?.enablePymupdfReview !== false ? 'true' : 'false');
     }

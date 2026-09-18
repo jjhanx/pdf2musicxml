@@ -4699,7 +4699,7 @@ app.post('/api/convert', async (req, res) => {
   let debugField = false;
   let pauseAfterAudiverisField = false;
   let pipelineModeField: PipelineMode = 'font_separator';
-  let imagePdfOmrEngineField = 'ai';
+  let imagePdfOmrEngineField: string | undefined;
   let skipPaddleOcrField = true;
   let enablePymupdfReviewField = true;
   let enableOmrStaffReviewField = true;
@@ -4953,7 +4953,13 @@ app.post('/api/convert', async (req, res) => {
       job.isDebug = debugField;
       job.pauseAfterAudiveris = pauseAfterAudiverisField;
       job.pipelineMode = pipelineModeField;
-      job.imagePdfOmrEngine = imagePdfOmrEngineField;
+      // 벡터(font_separator)에 imagePdfOmrEngine을 남기면 diagnostic summary가
+      // image_pdf로 오인·경량 HITL(성부1+마디2)이 되던 회귀 방지
+      if (pipelineModeField === 'image_pdf') {
+        job.imagePdfOmrEngine = imagePdfOmrEngineField || 'audiveris';
+      } else {
+        delete job.imagePdfOmrEngine;
+      }
       job.skipPaddleOcr = skipPaddleOcrField;
       job.enablePymupdfReview = enablePymupdfReviewField;
       job.enableOmrStaffReview = enableOmrStaffReviewField;
@@ -5119,9 +5125,11 @@ app.get('/api/diagnostic/:jobId/summary', async (req, res) => {
   ]);
   const pageCountForUi = origCount ?? cleanCount ?? maskedCount ?? job.pdfPageCount ?? 1;
   const mxlPath = resolvePrimaryMxlPathForInspect(job);
-  // omr-work 재개 시 pipelineMode가 빠져도 deskewed/image engine이면 경량 HITL 유지
+  // omr-work 재개: pipelineMode가 비어 있을 때만 image_pdf로 추정.
+  // (예전엔 imagePdfOmrEngine만 있어도 font_separator를 image_pdf로 덮어써
+  //  벡터 HITL이 성부1+마디2 경량 모드로 떨어졌음 — convert가 엔진 필드를 항상 보냄)
   if (
-    job.pipelineMode !== 'image_pdf' &&
+    !job.pipelineMode &&
     (Boolean(job.imagePdfOmrEngine) ||
       fsSync.existsSync(path.join(job.sessionRoot, 'deskewed.pdf')))
   ) {

@@ -151,7 +151,7 @@ def is_likely_misplaced_piano_rh(
 ) -> bool:
     """
     Audiveris often puts piano RH on a Voice staff while LH stays on Piano (F clef, staff 1).
-    Restructure must not expand that RH onto S+A (overwriting rests); reclaim onto piano instead.
+    Restructure must not expand that RH onto S+A or T+B (overwriting rests); reclaim onto piano instead.
     """
     if vocal_m is None or piano_m is None:
         return False
@@ -161,7 +161,7 @@ def is_likely_misplaced_piano_rh(
     p_notes = _pitched_notes(piano_m, ns)
     if not v_notes or not p_notes:
         return False
-    # True grand-staff piano already has RH on staff 2 — leave vocal alone
+    # True grand-staff piano already has staff 2 — leave vocal alone
     if _piano_measure_has_staff2(piano_m, ns):
         return False
     v_avg = _avg_pitch_value(v_notes, ns)
@@ -173,6 +173,91 @@ def is_likely_misplaced_piano_rh(
     if bass_piano and _measure_has_chord_or_multivoice(vocal_m, ns):
         return True
     return False
+
+
+def _pair_looks_like_misplaced_piano_rh(
+    upper_m: ET.Element | None,
+    lower_m: ET.Element | None,
+    piano_m: ET.Element | None,
+    ns: str,
+) -> bool:
+    """
+    S·A or T·B pair polluted with piano RH (unison copy or chord-split), while piano holds LH.
+    """
+    if upper_m is None or lower_m is None or piano_m is None:
+        return False
+    if _measure_has_lyrics(upper_m, ns) or _measure_has_lyrics(lower_m, ns):
+        return False
+    if _measure_is_rest_only(upper_m, ns) and _measure_is_rest_only(lower_m, ns):
+        return False
+    if _measure_is_rest_only(piano_m, ns):
+        return False
+
+    u_sig = _pitched_signature(upper_m, ns)
+    l_sig = _pitched_signature(lower_m, ns)
+    if u_sig and u_sig == l_sig:
+        return is_likely_misplaced_piano_rh(upper_m, piano_m, ns)
+
+    if not _measure_is_rest_only(upper_m, ns) and not _measure_is_rest_only(lower_m, ns):
+        if is_likely_misplaced_piano_rh(upper_m, piano_m, ns) or is_likely_misplaced_piano_rh(
+            lower_m, piano_m, ns
+        ):
+            return True
+        u_avg = _avg_pitch_value(_pitched_notes(upper_m, ns), ns)
+        l_avg = _avg_pitch_value(_pitched_notes(lower_m, ns), ns)
+        p_avg = _avg_pitch_value(_pitched_notes(piano_m, ns), ns)
+        return (
+            u_avg >= 28.0
+            and l_avg >= 28.0
+            and p_avg <= 30.0
+            and (
+                _piano_measure_has_f_clef(piano_m, ns)
+                or not _piano_measure_has_staff2(piano_m, ns)
+            )
+        )
+
+    sole = upper_m if not _measure_is_rest_only(upper_m, ns) else lower_m
+    return is_likely_misplaced_piano_rh(sole, piano_m, ns)
+
+
+def is_complementary_piano_hands(
+    a_m: ET.Element | None,
+    b_m: ET.Element | None,
+    ns: str,
+) -> bool:
+    """Two lyric-less Voice staves that are really RH + LH (not S/A + T/B)."""
+    if a_m is None or b_m is None:
+        return False
+    if _measure_has_lyrics(a_m, ns) or _measure_has_lyrics(b_m, ns):
+        return False
+    if _measure_is_rest_only(a_m, ns) or _measure_is_rest_only(b_m, ns):
+        return False
+    a_avg = _avg_pitch_value(_pitched_notes(a_m, ns), ns)
+    b_avg = _avg_pitch_value(_pitched_notes(b_m, ns), ns)
+    if a_avg >= 28.0 and b_avg <= 30.0 and a_avg > b_avg + 3.0:
+        return True
+    if b_avg >= 28.0 and a_avg <= 30.0 and b_avg > a_avg + 3.0:
+        return True
+    return False
+
+
+def _empty_vocal_targets(
+    vocal_out_measures: dict[str, ET.Element],
+    target_vocal_pids: list[str],
+    num: str,
+    curr_divisions: int,
+    curr_beats: int,
+    curr_beat_type: int,
+    time_node: ET.Element | None,
+    new_div: bool,
+    ns: str,
+    only_pids: list[str] | None = None,
+) -> None:
+    targets = only_pids if only_pids is not None else target_vocal_pids
+    for t_pid in targets:
+        vocal_out_measures[t_pid] = create_empty_rest_measure(
+            num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
+        )
 
 
 def _measure_capacity_duration(
@@ -793,8 +878,8 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                         vocal_out_measures[t_pid] = create_empty_rest_measure(
                             num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
                         )
-                # 이전 휴리스틱이 피아노 RH를 S·A에 복제·화음분리해 둔 경우 복구.
-                # T·B 쉼 + 가사 없음 + 피아노(LH) 활성 + S/A가 트레블 반주 양상 → S·A 쉼표.
+                # 이전 휴리스틱이 피아노 RH를 S·A 또는 T·B에 화음분리·복제해 둔 경우 복구.
+                # 반대 성부 쌍이 쉼표이고 피아노에 LH만 있으면 RH를 staff 1로 되돌림.
                 if (
                     target_piano_pid
                     and len(target_vocal_pids) >= 4
@@ -805,52 +890,38 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                     a_m = vocal_out_measures.get(target_vocal_pids[1])
                     t_m = vocal_out_measures.get(target_vocal_pids[2])
                     b_m = vocal_out_measures.get(target_vocal_pids[3])
-                    if (
-                        s_m is not None
-                        and a_m is not None
-                        and not _measure_has_lyrics(s_m, ns)
-                        and not _measure_has_lyrics(a_m, ns)
-                        and _measure_is_rest_only(t_m, ns)
-                        and _measure_is_rest_only(b_m, ns)
-                        and (
-                            not _measure_is_rest_only(s_m, ns)
-                            or not _measure_is_rest_only(a_m, ns)
+                    sa_rest = _measure_is_rest_only(s_m, ns) and _measure_is_rest_only(a_m, ns)
+                    tb_rest = _measure_is_rest_only(t_m, ns) and _measure_is_rest_only(b_m, ns)
+                    if tb_rest and _pair_looks_like_misplaced_piano_rh(s_m, a_m, piano_src_m, ns):
+                        rh_built = build_rh_measure_from_misplaced(s_m, a_m, ns)
+                        reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, rh_built, ns)
+                        _empty_vocal_targets(
+                            vocal_out_measures,
+                            target_vocal_pids,
+                            num,
+                            curr_divisions,
+                            curr_beats,
+                            curr_beat_type,
+                            time_node,
+                            new_div,
+                            ns,
+                            only_pids=target_vocal_pids[:2],
                         )
-                    ):
-                        clear_sa = False
-                        if _pitched_signature(s_m, ns) and _pitched_signature(s_m, ns) == _pitched_signature(
-                            a_m, ns
-                        ):
-                            clear_sa = is_likely_misplaced_piano_rh(s_m, piano_src_m, ns)
-                        elif not _measure_is_rest_only(s_m, ns) and not _measure_is_rest_only(a_m, ns):
-                            clear_sa = is_likely_misplaced_piano_rh(
-                                s_m, piano_src_m, ns
-                            ) or is_likely_misplaced_piano_rh(a_m, piano_src_m, ns)
-                            if not clear_sa:
-                                s_avg = _avg_pitch_value(_pitched_notes(s_m, ns), ns)
-                                a_avg = _avg_pitch_value(_pitched_notes(a_m, ns), ns)
-                                p_avg = _avg_pitch_value(_pitched_notes(piano_src_m, ns), ns)
-                                clear_sa = (
-                                    s_avg >= 28.0
-                                    and a_avg >= 28.0
-                                    and p_avg <= 30.0
-                                    and (
-                                        _piano_measure_has_f_clef(piano_src_m, ns)
-                                        or not _piano_measure_has_staff2(piano_src_m, ns)
-                                    )
-                                )
-                        if clear_sa:
-                            rh_built = build_rh_measure_from_misplaced(s_m, a_m, ns)
-                            if piano_src_m is not None:
-                                reclaimed_piano_m = merge_rh_into_piano_measure(
-                                    piano_src_m, rh_built, ns
-                                )
-                            vocal_out_measures[target_vocal_pids[0]] = create_empty_rest_measure(
-                                num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
-                            )
-                            vocal_out_measures[target_vocal_pids[1]] = create_empty_rest_measure(
-                                num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
-                            )
+                    elif sa_rest and _pair_looks_like_misplaced_piano_rh(t_m, b_m, piano_src_m, ns):
+                        rh_built = build_rh_measure_from_misplaced(t_m, b_m, ns)
+                        reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, rh_built, ns)
+                        _empty_vocal_targets(
+                            vocal_out_measures,
+                            target_vocal_pids,
+                            num,
+                            curr_divisions,
+                            curr_beats,
+                            curr_beat_type,
+                            time_node,
+                            new_div,
+                            ns,
+                            only_pids=target_vocal_pids[2:4],
+                        )
             # Distribute vocal notes
             elif len(active_vocal) == 0:
                 # All vocal parts silent (Piano Intro / Interlude)
@@ -866,12 +937,19 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 src_pid, src_m = active_vocal[0]
 
                 # 피아노 LH만 Piano 파트에 있고 RH가 Voice 스태프에 앉은 경우:
-                # S/A로 복제하지 않고, RH는 피아노 staff 1로 되돌림.
+                # women/men·explicit T/B 휴리스틱으로 성악에 화음분리하지 않고 RH→피아노 staff 1.
                 if target_piano_pid and is_likely_misplaced_piano_rh(src_m, piano_src_m, ns):
-                    for t_pid in target_vocal_pids:
-                        vocal_out_measures[t_pid] = create_empty_rest_measure(
-                            num, curr_divisions, curr_beats, curr_beat_type, time_node, new_div, ns
-                        )
+                    _empty_vocal_targets(
+                        vocal_out_measures,
+                        target_vocal_pids,
+                        num,
+                        curr_divisions,
+                        curr_beats,
+                        curr_beat_type,
+                        time_node,
+                        new_div,
+                        ns,
+                    )
                     if piano_src_m is not None:
                         reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, src_m, ns)
                 else:
@@ -909,10 +987,31 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
 
             elif len(active_vocal) == 2:
                 # 2 vocal staves active (Staff 1: S&A, Staff 2: T&B)
+                # — 단, 가사 없는 RH+LH 한 쌍이면 피아노로 합치고 성악은 쉼표.
                 st1_pid, st1_m = active_vocal[0]
                 st2_pid, st2_m = active_vocal[1]
 
-                if len(target_vocal_pids) >= 4:
+                if target_piano_pid and is_complementary_piano_hands(st1_m, st2_m, ns):
+                    a_avg = _avg_pitch_value(_pitched_notes(st1_m, ns), ns)
+                    b_avg = _avg_pitch_value(_pitched_notes(st2_m, ns), ns)
+                    rh_m, lh_m = (st1_m, st2_m) if a_avg >= b_avg else (st2_m, st1_m)
+                    if piano_src_m is not None and not _measure_is_rest_only(piano_src_m, ns):
+                        if is_likely_misplaced_piano_rh(rh_m, piano_src_m, ns):
+                            reclaimed_piano_m = merge_rh_into_piano_measure(piano_src_m, rh_m, ns)
+                    else:
+                        reclaimed_piano_m = merge_rh_into_piano_measure(lh_m, rh_m, ns)
+                    _empty_vocal_targets(
+                        vocal_out_measures,
+                        target_vocal_pids,
+                        num,
+                        curr_divisions,
+                        curr_beats,
+                        curr_beat_type,
+                        time_node,
+                        new_div,
+                        ns,
+                    )
+                elif len(target_vocal_pids) >= 4:
                     split_sa = split_measure_elements(list(st1_m), 2, ns=_q(ns, ""))
                     split_tb = split_measure_elements(list(st2_m), 2, ns=_q(ns, ""))
 

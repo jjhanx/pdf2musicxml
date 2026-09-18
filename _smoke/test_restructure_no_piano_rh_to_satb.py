@@ -143,6 +143,109 @@ SRC_ALREADY_SPLIT = """<?xml version="1.0" encoding="UTF-8"?>
 </score-partwise>
 """
 
+# Already-split pollution on T/B (men heuristic chord-split), S/A rest, piano LH only
+SRC_TB_POLLUTED = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN"
+  "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>S</part-name></score-part>
+    <score-part id="P2"><part-name>A</part-name></score-part>
+    <score-part id="P3"><part-name>T</part-name></score-part>
+    <score-part id="P4"><part-name>B</part-name></score-part>
+    <score-part id="P5"><part-name>P</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="8">
+      <note><rest measure="yes"/><duration>16</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="8">
+      <note><rest measure="yes"/><duration>16</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P3">
+    <measure number="8">
+      <attributes><divisions>4</divisions><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>6</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><pitch><step>C</step><octave>6</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+  </part>
+  <part id="P4">
+    <measure number="8">
+      <attributes><divisions>4</divisions><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+  </part>
+  <part id="P5">
+    <measure number="8">
+      <attributes><divisions>4</divisions><clef><sign>F</sign><line>4</line></clef></attributes>
+      <note><pitch><step>G</step><octave>3</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><pitch><step>C</step><octave>2</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+    </measure>
+  </part>
+</score-partwise>
+"""
+
+# 6 Voice: RH on P5, LH on P6 — must not land on T/B even with explicit men mapping
+SRC_6VOICE_RH_LH = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN"
+  "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>Voice</part-name></score-part>
+    <score-part id="P2"><part-name>Voice</part-name></score-part>
+    <score-part id="P3"><part-name>Voice</part-name></score-part>
+    <score-part id="P4"><part-name>Voice</part-name></score-part>
+    <score-part id="P5"><part-name>Voice</part-name></score-part>
+    <score-part id="P6"><part-name>Voice</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="8">
+      <attributes><divisions>4</divisions></attributes>
+      <note><rest measure="yes"/><duration>16</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="8">
+      <note><rest measure="yes"/><duration>16</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P3">
+    <measure number="8">
+      <note><rest measure="yes"/><duration>16</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P4">
+    <measure number="8">
+      <note><rest measure="yes"/><duration>16</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P5">
+    <measure number="8">
+      <attributes><divisions>4</divisions><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><chord/><pitch><step>C</step><octave>6</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><chord/><pitch><step>C</step><octave>6</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+    </measure>
+  </part>
+  <part id="P6">
+    <measure number="8">
+      <attributes><divisions>4</divisions><clef><sign>F</sign><line>4</line></clef></attributes>
+      <note><pitch><step>G</step><octave>3</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><chord/><pitch><step>B</step><octave>3</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><chord/><pitch><step>C</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><pitch><step>C</step><octave>2</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+      <note><chord/><pitch><step>C</step><octave>3</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>
+    </measure>
+  </part>
+</score-partwise>
+"""
+
 
 def _pitched_on_staff(part: ET.Element, mnum: str, staff: str) -> list[str]:
     m = next((x for x in part.findall("{*}measure") if x.get("number") == mnum), None)
@@ -194,6 +297,47 @@ def main() -> None:
         lh2 = _pitched_on_staff(parts2["P5"], "3", "2")
         assert rh2 == ["A4", "C5", "A4"], f"reclaimed RH on staff 1, got {rh2}"
         assert lh2 == ["F3", "E2"], f"LH on staff 2, got {lh2}"
+
+        # T/B chord-split pollution → reclaim to piano, S/A/T/B rests
+        src_tb = td_path / "tb.mxl"
+        out_tb = td_path / "tb_out.mxl"
+        src_tb.write_bytes(_mxl_bytes(SRC_TB_POLLUTED))
+        restructure_mxl(src_tb, out_tb, labels)
+        root_tb = _load_root(out_tb)
+        parts_tb = {p.get("id"): p for p in root_tb.findall("part")}
+        for pid in ("P1", "P2", "P3", "P4"):
+            got = _pitched(parts_tb[pid], "8")
+            assert got == [], f"{pid} m8 should be rest after T/B reclaim, got {got}"
+        rh_tb = _pitched_on_staff(parts_tb["P5"], "8", "1")
+        lh_tb = _pitched_on_staff(parts_tb["P5"], "8", "2")
+        assert "C6" in rh_tb and "C5" in rh_tb, f"T/B RH must reclaim to staff 1, got {rh_tb}"
+        assert lh_tb == ["G3", "C2"], f"LH on staff 2, got {lh_tb}"
+
+        # 6-voice RH+LH with explicit T/B mapping must still reclaim (not invade T/B)
+        labels_men = td_path / "labels_men.json"
+        labels_men.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "labelsByIndex": ["S", "A", "T", "B", "P"],
+                    "sectionMappings": [{"measures": "8", "target": ["T", "B"]}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        src6 = td_path / "six.mxl"
+        out6 = td_path / "six_out.mxl"
+        src6.write_bytes(_mxl_bytes(SRC_6VOICE_RH_LH))
+        restructure_mxl(src6, out6, labels_men)
+        root6 = _load_root(out6)
+        parts6 = {p.get("id"): p for p in root6.findall("part")}
+        for pid in ("P1", "P2", "P3", "P4"):
+            got = _pitched(parts6[pid], "8")
+            assert got == [], f"{pid} must not receive piano RH under T/B mapping, got {got}"
+        rh6 = _pitched_on_staff(parts6["P5"], "8", "1")
+        lh6 = _pitched_on_staff(parts6["P5"], "8", "2")
+        assert "C5" in rh6 and "C6" in rh6, f"RH on piano staff 1, got {rh6}"
+        assert "G3" in lh6 and "C2" in lh6, f"LH on piano staff 2, got {lh6}"
 
     # Real zip regression if present
     zip_mxl = ROOT / "_smoke" / "_52386d65" / "audiveris_raw.mxl"

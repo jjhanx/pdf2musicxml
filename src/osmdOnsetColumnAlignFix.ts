@@ -815,7 +815,7 @@ function snapStemTipsToBeamsInMeasure(measure: Element, tips: StemTip[]): void {
       (b) =>
         tip.effectiveX >= b.left - 6 &&
         tip.effectiveX <= b.right + 6 &&
-        stemShaftCrossesBeamY(tip, b.midY, 80),
+        stemShaftCrossesBeamY(tip, b.midY, 36),
     );
     if (!covering.length) continue;
     covering.sort((a, b) => b.w - a.w);
@@ -826,7 +826,7 @@ function snapStemTipsToBeamsInMeasure(measure: Element, tips: StemTip[]): void {
     const tipDown = Math.max(tip.y0, tip.y1);
     const actualTip = Math.abs(tipUp - targetY) <= Math.abs(tipDown - targetY) ? tipUp : tipDown;
     if (Math.abs(actualTip - targetY) < 1.2) continue;
-    if (Math.abs(actualTip - targetY) > 80) continue;
+    if (Math.abs(actualTip - targetY) > 48) continue;
     setStemTipY(tip.el, targetY);
   }
 }
@@ -907,7 +907,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
       if (oldRight - oldLeft < 1) continue;
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
 
-      // 빔 span 안 줄기. y 대역으로 다른 보표 줄기 제외.
+      // 빔 span 안 줄기. y 대역으로 다른 보표·다른 방향(같은 x의 v6 등) 줄기 제외.
       let matched = tipsAfter.filter(
         (t) =>
           t.naturalX >= oldLeft - 4 &&
@@ -915,11 +915,13 @@ function syncVfEngravingInMeasure(measure: Element): void {
           (ys.length === 0 || stemShaftCrossesBeamY(t, beamY)),
       );
 
-      // OSMD가 첫 음(특히 stem-up 8분+16분) 줄기를 빔 시작보다 ~10px 왼쪽에 두는 경우.
-      // oldLeft 기준 4~14px 왼쪽 orphan만 편입(2차 빔이 앞 8분 줄기까지 빨려가지 않게).
-      // y 필터는 적용하지 않음 — 첫 음 줄기가 빔보다 짧아 shaft가 빔 y에 안 닿아도 멤버로 인정.
-      if (matched.length >= 1) {
+      // 빔 왼쪽 끝이 어떤 줄기 tip에도 안 닿을 때만 orphan 편입.
+      // (grand staff PL: 같은 onset의 stem-down v6가 4~14px 왼쪽에 있어도 y가 안 맞으면 제외 —
+      //  예: m4 D3 빔이 D2 줄기로 빨려 깨지던 회귀)
+      const stemAtBeamStart = matched.some((t) => Math.abs(t.naturalX - oldLeft) <= 4);
+      if (!stemAtBeamStart && matched.length >= 1) {
         const orphans = tipsAfter.filter((t) => {
+          if (ys.length && !stemShaftCrossesBeamY(t, beamY)) return false;
           const gap = oldLeft - t.naturalX;
           return gap > 4 && gap <= 14;
         });

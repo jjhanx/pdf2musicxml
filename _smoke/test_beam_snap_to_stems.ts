@@ -89,4 +89,36 @@ r = beamRange(beam3);
 assert.ok(Math.abs(r.left - 100) < 1.5, `beam left pulls to orphan first stem, got ${r.left}`);
 assert.ok(Math.abs(r.right - 140) < 1.5, `beam right stays on last stem, got ${r.right}`);
 
+// Parallel voice at same x-column but different Y (m4 PL D2 under D3 beam): must NOT pull beam
+measure.innerHTML = '';
+addStavenote(164, 0); // beam member (stem-up tip near y=10)
+addStavenote(182, 0);
+addStavenote(200, 0);
+// other-voice stem-down far below beam (y=40..70), ~10px left of beam start
+{
+  const sn = document.createElementNS(NS, 'g');
+  sn.setAttribute('class', 'vf-stavenote');
+  const stem = document.createElementNS(NS, 'g');
+  stem.setAttribute('class', 'vf-stem');
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', 'M153 40L153 70');
+  stem.appendChild(path);
+  const head = document.createElementNS(NS, 'g');
+  head.setAttribute('class', 'vf-notehead');
+  const hp = document.createElementNS(NS, 'path');
+  hp.setAttribute('d', 'M148 40L158 40');
+  head.appendChild(hp);
+  sn.appendChild(stem);
+  sn.appendChild(head);
+  measure.appendChild(sn);
+}
+const beam4 = addBeam(163, 200); // already on first real member stem at 164
+syncVfStemsAndBeamsAfterStavenoteAlign(host);
+r = beamRange(beam4);
+assert.ok(
+  Math.abs(r.left - 163) < 2 || Math.abs(r.left - 164) < 2,
+  `parallel-voice stem must not pull beam left to 153, got ${r.left}`,
+);
+assert.ok(r.left > 155, `beam must stay near D3 stem, not D2, got ${r.left}`);
+
 console.log('test_beam_snap_to_stems: OK');

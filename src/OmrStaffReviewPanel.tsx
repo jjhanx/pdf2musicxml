@@ -983,13 +983,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         staffList[normalized.staffIndex] ??
         `줄 ${normalized.staffIndex + 1}`;
       setMeasureClickMsg(`마디 선택됨 · m.${measureMxl} · ${staffLabel}`);
-      if (!staffFilter) {
-        setEditPartId(partId);
-      }
+      // 성부 필터와 무관하게 편집 대상은 클릭/이동한 파트(PR staff 포함)
+      if (partId) setEditPartId(partId);
       setEditorKey((k) => k + 1);
     },
     [
-      staffFilter,
       resolvePartIdForMeasure,
       labelForPartStaff,
       staffList,
@@ -1001,21 +999,49 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     ],
   );
 
-  /** PDF 이미지·수동 입력·◀마디 공통 — 마디 선택 + PDF 페이지 동기 */
+  /** PDF 이미지·수동 입력·OSMD 클릭·◀마디 공통 — 마디 선택 + PDF 페이지 동기 */
   const navigateToMeasure = useCallback(
-    (measureMxlRaw: number) => {
+    (
+      measureMxlRaw: number,
+      opts?: {
+        partId?: string | null;
+        staffWithinPart?: number | null;
+        staffIndex?: number;
+      },
+    ) => {
       const measureMxl = Math.max(
         1,
         Math.min(pageMeasureIndex.maxMeasure, Math.floor(measureMxlRaw)),
       );
       if (!Number.isFinite(measureMxl) || measureMxl < 1) return;
-      // 벡터: 마디 선택 시 해당 시스템 전 성부 미리보기 — 성부 필터 해제
+
+      // 성부 필터가 있으면 편집 대상으로 기억(벡터는 OSMD만 전체 성부로 풀어둠)
+      const filterPartId = staffFilter ? partIdForStaff(staffFilter) : null;
+      const filterStaffWithin = staffFilter ? staffWithinPartForLabel(staffFilter) : null;
+      const filterStaffIndex = staffFilter ? Math.max(0, staffList.indexOf(staffFilter)) : -1;
+
       if (!imagePdfLight && staffFilter) {
         setStaffFilter('');
       }
-      const staffIndex = staffFilter && imagePdfLight
-        ? Math.max(0, staffList.indexOf(staffFilter))
-        : 0;
+
+      const partId =
+        (opts?.partId?.trim() || null) ??
+        (imagePdfLight && staffFilter ? partIdForStaff(staffFilter) : null) ??
+        filterPartId;
+      const staffWithinPart =
+        opts?.staffWithinPart ??
+        (imagePdfLight && staffFilter
+          ? staffWithinPartForLabel(staffFilter)
+          : null) ??
+        filterStaffWithin;
+      const staffIndex =
+        opts?.staffIndex ??
+        (filterStaffIndex >= 0
+          ? filterStaffIndex
+          : imagePdfLight && staffFilter
+            ? Math.max(0, staffList.indexOf(staffFilter))
+            : 0);
+
       const pdfPage = inferPdfPageForMxlMeasure(pageMeasureIndex, measureMxl);
       if (pdfPage !== page) {
         startPageTransition(() => setPage(Math.max(1, Math.min(pageCount, pdfPage))));
@@ -1032,21 +1058,26 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         {
           measureMxl,
           staffIndex,
-          partId: imagePdfLight && staffFilter ? partIdForStaff(staffFilter) : null,
-          staffWithinPart:
-            imagePdfLight && staffFilter
-              ? staffWithinPartForLabel(staffFilter) ?? undefined
-              : undefined,
+          partId: partId || null,
+          staffWithinPart: staffWithinPart ?? undefined,
         },
         sysRange,
       );
-      if (!imagePdfLight || (!staffFilter && !editPartId)) {
+      if (partId) {
+        setEditPartId(partId);
+      } else if (imagePdfLight && !staffFilter && !editPartId) {
+        setEditPartId(resolvePartIdForStaffIndex(staffIndex));
+      } else if (!imagePdfLight && !partId) {
+        // 클릭/필터 정보 없을 때만 줄 인덱스 폴백(첫 성부로 강제하지 않도록 partId 우선)
         setEditPartId(resolvePartIdForStaffIndex(staffIndex));
       }
+      const staffLabel =
+        (partId && labelForPartStaff(partId, staffWithinPart)) ||
+        (staffFilter || staffList[staffIndex] || '');
       setMeasureClickMsg(
         imagePdfLight
-          ? `마디 이동 · m.${measureMxl} → PDF p.${pdfPage} (구간 m.${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).start}–${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).end})`
-          : `마디 선택 · m.${measureMxl} → 시스템 m.${sysRange.start}–${sysRange.end} · 전체 성부 · PDF p.${pdfPage}`,
+          ? `마디 이동 · m.${measureMxl}${staffLabel ? ` · ${staffLabel}` : ''} → PDF p.${pdfPage} (구간 m.${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).start}–${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).end})`
+          : `마디 선택 · m.${measureMxl}${staffLabel ? ` · ${staffLabel}` : ''} → 시스템 m.${sysRange.start}–${sysRange.end} · 전체 성부 · PDF p.${pdfPage}`,
       );
     },
     [
@@ -1060,6 +1091,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       partIdForStaff,
       staffWithinPartForLabel,
       resolvePartIdForStaffIndex,
+      labelForPartStaff,
       imagePdfLight,
       scoreSystemRows,
     ],
@@ -1077,7 +1109,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       const cur =
         selectedMeasure?.measureMxl ??
         (Number.isFinite(parsed) && parsed >= 1 ? parsed : pageMeasureRange.start);
-      navigateToMeasure(cur + delta);
+      navigateToMeasure(cur + delta, {
+        partId: selectedMeasure?.partId,
+        staffWithinPart: selectedMeasure?.staffWithinPart,
+        staffIndex: selectedMeasure?.staffIndex,
+      });
     },
     [selectedMeasure, manualMeasureMxl, pageMeasureRange.start, navigateToMeasure],
   );
@@ -1116,8 +1152,15 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
 
   const onOsmdMeasureClick = useCallback(
     (info: OsmdMeasureClickInfo) => {
-      // 이미지·벡터 모두 전곡 마디로 이동(벡터는 시스템+전체 성부 미리보기)
-      navigateToMeasure(info.measureMxl);
+      const fromPreview = info.partId?.trim()
+        ? resolveMusicXmlPartFromPreviewId(info.partId)
+        : null;
+      navigateToMeasure(info.measureMxl, {
+        partId: fromPreview?.partId || info.partId || null,
+        staffWithinPart:
+          fromPreview?.staffWithinPart ?? info.staffWithinPart ?? null,
+        staffIndex: info.staffIndex,
+      });
     },
     [navigateToMeasure],
   );

@@ -170,6 +170,24 @@ async function main() {
   );
   assert.ok(tipAfter < baseAfter - 10, 'stem must remain long enough to reach beam');
 
+  // 고아 stem dx 이동 후에도 1차 빔이 첫 줄기를 포함해야 함(끊김 회귀 방지)
+  const stemX = +m1[1]! + stemDx;
+  const beams = [...g.querySelectorAll(':scope > .vf-beam path')].map((p) => {
+    const d = p.getAttribute('d') || '';
+    const xs = [...d.matchAll(/[MmLl]\s*([-\d.]+)/g)].map((mm) => +mm[1]!);
+    return { left: Math.min(...xs), right: Math.max(...xs), w: Math.max(...xs) - Math.min(...xs) };
+  });
+  beams.sort((a, b) => b.w - a.w);
+  const primary = beams[0]!;
+  assert.ok(
+    stemX >= primary.left - 4 && stemX <= primary.right + 4,
+    `primary beam [${primary.left},${primary.right}] must cover first stem x=${stemX}`,
+  );
+  assert.ok(
+    Math.abs(stemX - primary.left) <= 6,
+    `primary beam left ${primary.left} must meet first stem ${stemX}`,
+  );
+
   console.log('test_m4_pl_stem_head_attach: OK', {
     noteId,
     noteDx,
@@ -177,6 +195,8 @@ async function main() {
     pitchY,
     baseAfter,
     tipAfter,
+    beamLeft: primary.left,
+    stemX,
   });
 }
 

@@ -677,14 +677,18 @@ function collectStemTipsInMeasure(measure: Element): StemTip[] {
     const totalTx = translateXUpTo(stem, measure);
     const sn = stem.closest('.vf-stavenote, .vf-staveNote');
     const snDx = sn && measure.contains(sn) ? readElementTranslateX(sn) : 0;
-    // natural: stavenote dx만 제거(빔·sibling stem은 contain 전 좌표에 맞춤)
-    const naturalX = localX + (totalTx - snDx);
+    const ownDx = readElementTranslateX(stem);
+    // natural: align/contain 이후 후처리 translate만 제거해 빔 path(원좌표)와 매칭.
+    // - stavenote 안 줄기 → 부모 note dx 제거
+    // - 고아 줄기 → 자체 dx 제거(id 짝으로 note와 같이 옮긴 뒤에도 빔 매칭이 깨지지 않게)
+    const postHocDx = sn && measure.contains(sn) ? snDx : ownDx;
+    const naturalX = localX + (totalTx - postHocDx);
     const effectiveX = localX + totalTx;
     tips.push({
       el: stem,
       naturalX,
       effectiveX,
-      dx: snDx || readElementTranslateX(stem),
+      dx: postHocDx,
       y0: yr.y0,
       y1: yr.y1,
     });

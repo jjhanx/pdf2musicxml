@@ -88,14 +88,17 @@ function domBoundsForGraphicMeasure(
       bottom = Math.max(bottom, r.bottom - hostRect.top);
     }
   }
-  if (!Number.isFinite(left) || right - left < 4 || bottom - top < 4) return null;
-  const padX = 4;
-  const padY = 6;
+  if (!Number.isFinite(left)) return null;
+  const w = right - left;
+  const h = bottom - top;
+  if (w < 1 || h < 1) return null;
+  const padX = Math.max(4, w * 0.1);
+  const padY = Math.max(3, h * 0.15);
   return {
-    left: Math.max(0, left - padX),
-    top: Math.max(0, top - padY),
-    width: right - left + padX * 2,
-    height: bottom - top + padY * 2,
+    left: left - padX,
+    top: top - padY,
+    width: w + padX * 2,
+    height: h + padY * 2,
   };
 }
 
@@ -163,6 +166,17 @@ function asGmRecord(gm: unknown): Record<string, unknown> | null {
   return gm && typeof gm === 'object' ? (gm as Record<string, unknown>) : null;
 }
 
+function readAbsX(gm: unknown): number | null {
+  const rec = asGmRecord(gm);
+  if (!rec) return null;
+  const bb = asRecord(rec.PositionAndShape ?? rec.positionAndShape);
+  if (!bb) return null;
+  const abs = asRecord(bb.AbsolutePosition ?? bb.absolutePosition);
+  if (!abs) return null;
+  const x = Number(abs.x ?? abs.X);
+  return Number.isFinite(x) ? x : null;
+}
+
 function readBbSizeWidth(gm: unknown): number | null {
   const rec = asGmRecord(gm);
   if (!rec) return null;
@@ -186,8 +200,40 @@ function readBbSizeHeight(gm: unknown): number | null {
 }
 
 /**
+ * 마디에 할당된 가로 폭(OSMD 단위).
+ * Size.width≤0(SkyBottomLine 실패)이어도 다음 마디 AbsolutePosition.x 간격으로 복구.
+ * 앞·뒤 마디 침범 clip의 공통 기준(곡·마디 하드코딩 없음).
+ */
+export function allocatedMeasureWidthOsmd(
+  gm: unknown,
+  nextGm: unknown | undefined,
+  fallbackWidth = 28,
+): number {
+  const absX = readAbsX(gm);
+  const nextX = nextGm != null ? readAbsX(nextGm) : null;
+  if (absX != null && nextX != null && nextX > absX + 0.5) {
+    return nextX - absX;
+  }
+  const sizeW = readBbSizeWidth(gm);
+  if (sizeW != null) return sizeW;
+  return Math.max(0.5, fallbackWidth);
+}
+
+function svgGElement(gm: unknown): Element | null {
+  const rec = asGmRecord(gm);
+  if (!rec || typeof rec.getSVGGElement !== 'function') return null;
+  try {
+    const g = (rec.getSVGGElement as () => Element | null | undefined)() ?? null;
+    if (!g || g.namespaceURI !== 'http://www.w3.org/2000/svg') return null;
+    return g;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * HITL faithful 미리보기 — 마디 SVG를 할당 폭으로 clip해 overfull 그림이 앞·뒤 마디 칸을 침범하지 않게 함.
- * 음표 XML은 유지(편집 가능). 저장 MXL 불변.
+ * Size.width≤0이어도 같은 오선 다음 마디 absX로 폭을 잡음(음표 XML 유지·저장 MXL 불변).
  */
 export function clipOsmdMeasuresToAllocatedWidth(
   host: HTMLElement,
@@ -209,19 +255,13 @@ export function clipOsmdMeasuresToAllocatedWidth(
   }
 
   let idx = 0;
-  forEachGraphicalMeasure(osmd, (gmRaw) => {
-    const rec = asGmRecord(gmRaw);
-    if (!rec || typeof rec.getSVGGElement !== 'function') return;
-    let g: Element | null = null;
-    try {
-      g = (rec.getSVGGElement as () => Element | null | undefined)() ?? null;
-    } catch {
-      g = null;
-    }
-    if (!g || g.namespaceURI !== 'http://www.w3.org/2000/svg') return;
+  forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
+    const g = svgGElement(gmRaw);
+    if (!g) return;
 
-    const w = readBbSizeWidth(gmRaw);
-    if (w == null) return;
+    const nextGm = row[mi + 1];
+    const w = allocatedMeasureWidthOsmd(gmRaw, nextGm);
+    if (w <= 0.5) return;
     const h = readBbSizeHeight(gmRaw) ?? 50;
     const id = `hitl-mclip-${idx}`;
     idx += 1;
@@ -229,7 +269,7 @@ export function clipOsmdMeasuresToAllocatedWidth(
     cp.setAttribute('id', id);
     cp.setAttribute('data-hitl-measure-clip', '1');
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    // 오선 위·아래 여유 — 가로만 마디 폭으로 제한
+    // 가로: 왼 바선(로컬 0) ~ 다음 마디 시작. 세로만 여유.
     rect.setAttribute('x', '0');
     rect.setAttribute('y', String(-Math.max(h, 40)));
     rect.setAttribute('width', String(w));

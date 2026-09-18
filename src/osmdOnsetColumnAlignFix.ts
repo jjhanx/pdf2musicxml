@@ -586,16 +586,64 @@ function mapSvgPathXs(d: string, mapX: (x: number) => number): string {
 }
 
 /**
- * play-order align은 `.vf-stavenote`만 translate한다.
+ * play-order align / contain은 `.vf-stavenote`만 translate한다.
  * VexFlow/OSMD는 빔 멤버의 줄기를 형제 `.vf-stem`으로, 빔을 `.vf-beam`으로 두어
  * 음머리만 밀리면 빔·줄기가 앞쪽(원래 자리)에 남아 끊긴 것처럼 보인다.
  * 같은 마디에서 줄기·빔(·이음줄)을 음표 shift에 맞춘다.
+ *
+ * 줄기 path 좌표와 빔 path는 같은 마디 사용자 좌표. stavenote translate만 반영하면
+ * 빔 왼쪽이 첫 줄기보다 앞으로 삐져나오는(또는 줄기와 떨어지는) 현상을 막는다.
  */
 export function syncVfStemsAndBeamsAfterStavenoteAlign(root: ParentNode): void {
   const measures = root.querySelectorAll?.('.vf-measure') ?? [];
   for (const measure of measures) {
     syncVfEngravingInMeasure(measure);
   }
+}
+
+/** 요소→마디까지 translate X 합. */
+function translateXUpTo(el: Element, stop: Element): number {
+  let tx = 0;
+  let cur: Element | null = el;
+  while (cur && cur !== stop) {
+    const tr = cur.getAttribute('transform') ?? '';
+    const tm = /translate\(\s*([-\d.]+)/.exec(tr);
+    if (tm) tx += parseFloat(tm[1]!);
+    cur = cur.parentElement;
+  }
+  return tx;
+}
+
+type StemTip = {
+  el: Element;
+  /** translate 제외한 path 기준 x (빔이 그려질 때 붙던 자리) */
+  naturalX: number;
+  /** stavenote/stem translate 반영 후 x */
+  effectiveX: number;
+  dx: number;
+};
+
+function collectStemTipsInMeasure(measure: Element): StemTip[] {
+  const tips: StemTip[] = [];
+  const seen = new Set<Element>();
+  const stemNodes = [
+    ...measure.querySelectorAll(':scope > .vf-stem, :scope > [class*="vf-stem"]'),
+    ...measure.querySelectorAll('.vf-stavenote .vf-stem, .vf-staveNote .vf-stem'),
+  ];
+  for (const stem of stemNodes) {
+    if (seen.has(stem)) continue;
+    seen.add(stem);
+    const localX = stemLocalX(stem);
+    if (localX == null) continue;
+    const totalTx = translateXUpTo(stem, measure);
+    const sn = stem.closest('.vf-stavenote, .vf-staveNote');
+    const snDx = sn && measure.contains(sn) ? readElementTranslateX(sn) : 0;
+    // natural: stavenote dx만 제거(빔·sibling stem은 contain 전 좌표에 맞춤)
+    const naturalX = localX + (totalTx - snDx);
+    const effectiveX = localX + totalTx;
+    tips.push({ el: stem, naturalX, effectiveX, dx: snDx || readElementTranslateX(stem) });
+  }
+  return tips;
 }
 
 function syncVfEngravingInMeasure(measure: Element): void {
@@ -614,6 +662,9 @@ function syncVfEngravingInMeasure(measure: Element): void {
   }
   if (!notes.length) return;
 
+  const stemTips = collectStemTipsInMeasure(measure);
+
+  // 형제(또는 고아) stem — 가장 가까운 note dx에 맞춤
   const nearestNote = (x: number): NoteShift | null => {
     let best: NoteShift | null = null;
     let bestDist = Infinity;
@@ -624,43 +675,26 @@ function syncVfEngravingInMeasure(measure: Element): void {
         best = n;
       }
     }
-    // 같은 마디 안 매칭 — 너무 멀면(다른 성부 잔여) 스킵
     if (!best || bestDist > 40) return null;
     return best;
   };
 
-  const stemEls = [
-    ...measure.querySelectorAll(':scope > .vf-stem, :scope > [class*="vf-stem"]'),
-  ] as SVGGraphicsElement[];
-  for (const stem of stemEls) {
-    const localX = stemLocalX(stem);
-    if (localX == null) continue;
-    const naturalX = svgUserXFromElement(stem, localX) - readElementTranslateX(stem);
-    const note = nearestNote(naturalX);
+  for (const tip of stemTips) {
+    // stavenote 안 줄기는 부모 translate로 이미 이동 — 추가 translate 금지
+    if (tip.el.closest('.vf-stavenote, .vf-staveNote')) continue;
+    const note = nearestNote(tip.naturalX);
     if (!note) continue;
-    const cur = readElementTranslateX(stem);
+    const cur = readElementTranslateX(tip.el);
     const need = note.dx - cur;
-    if (Math.abs(need) >= 0.01) applySvgTranslateX(stem, need, Math.abs(need) + 1);
+    if (Math.abs(need) >= 0.01) applySvgTranslateX(tip.el as SVGGraphicsElement, need, Math.abs(need) + 1);
   }
 
-  const reshapeByEndpoints = (el: Element, pad = 24): void => {
+  // stem tip 재수집(형제 stem translate 반영)
+  const tipsAfter = collectStemTipsInMeasure(measure);
+
+  const reshapeByStemTips = (el: Element, pad = 20): void => {
     const paths = [...el.querySelectorAll('path')];
     if (!paths.length) return;
-
-    type End = { naturalLocalX: number; dx: number };
-    const ends: End[] = [];
-    for (const stem of stemEls) {
-      const localX = stemLocalX(stem);
-      if (localX == null) continue;
-      ends.push({ naturalLocalX: localX, dx: readElementTranslateX(stem) });
-    }
-    if (ends.length < 2) {
-      for (const n of notes) {
-        // notehead user-x − 조상 보정 없이 dx만 씀
-        ends.push({ naturalLocalX: n.naturalX, dx: n.dx });
-      }
-    }
-    if (ends.length < 2) return;
 
     for (const path of paths) {
       const d = path.getAttribute('d');
@@ -678,31 +712,50 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const oldRight = Math.max(...xs);
       if (oldRight - oldLeft < 1) continue;
 
-      const leftEnd = ends
-        .slice()
-        .sort((a, b) => Math.abs(a.naturalLocalX - oldLeft) - Math.abs(b.naturalLocalX - oldLeft))[0]!;
-      const rightEnd = ends
-        .slice()
-        .sort((a, b) => Math.abs(a.naturalLocalX - oldRight) - Math.abs(b.naturalLocalX - oldRight))[0]!;
-      if (leftEnd === rightEnd) continue;
-      if (Math.abs(leftEnd.naturalLocalX - oldLeft) > pad && Math.abs(rightEnd.naturalLocalX - oldRight) > pad) {
-        continue;
+      // 빔 span 안의 줄기(앞으로 삐져나온 빔: oldLeft가 줄기보다 왼쪽 → 줄기는 oldLeft~oldRight에 있음)
+      let matched = tipsAfter.filter(
+        (t) => t.naturalX >= oldLeft - 4 && t.naturalX <= oldRight + 8,
+      );
+      // 다른 voice 줄기가 span 앞에만 걸치면(거의 빔 밖) 제외 — 왼쪽 여유 4px만
+      if (matched.length < 2) {
+        const byLeft = tipsAfter
+          .slice()
+          .sort((a, b) => Math.abs(a.naturalX - oldLeft) - Math.abs(b.naturalX - oldLeft));
+        const leftTip = byLeft[0];
+        const byRight = tipsAfter
+          .slice()
+          .sort((a, b) => Math.abs(a.naturalX - oldRight) - Math.abs(b.naturalX - oldRight));
+        const rightTip = byRight.find((t) => t !== leftTip) ?? byRight[0];
+        if (
+          leftTip &&
+          rightTip &&
+          leftTip !== rightTip &&
+          Math.abs(leftTip.naturalX - oldLeft) <= pad &&
+          Math.abs(rightTip.naturalX - oldRight) <= pad
+        ) {
+          matched = [leftTip, rightTip];
+        }
       }
-      if (Math.abs(leftEnd.dx) < 0.2 && Math.abs(rightEnd.dx) < 0.2) continue;
+      if (matched.length < 2) continue;
+
+      const newLeft = Math.min(...matched.map((t) => t.effectiveX));
+      const newRight = Math.max(...matched.map((t) => t.effectiveX));
+      if (newRight - newLeft < 1) continue;
+      if (Math.abs(newLeft - oldLeft) < 1.2 && Math.abs(newRight - oldRight) < 1.2) continue;
 
       const mapX = (x: number) => {
         const t = (x - oldLeft) / (oldRight - oldLeft);
-        return x + (1 - t) * leftEnd.dx + t * rightEnd.dx;
+        return newLeft + t * (newRight - newLeft);
       };
       path.setAttribute('d', mapSvgPathXs(d, mapX));
     }
   };
 
   for (const beam of measure.querySelectorAll(':scope > .vf-beam, :scope > [class*="vf-beam"]')) {
-    reshapeByEndpoints(beam);
+    reshapeByStemTips(beam);
   }
   for (const tie of measure.querySelectorAll(':scope > .vf-stavetie, :scope > [class*="vf-tie"]')) {
-    reshapeByEndpoints(tie, 48);
+    reshapeByStemTips(tie, 48);
   }
 }
 

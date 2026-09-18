@@ -457,7 +457,6 @@ export function containOsmdMeasureNotesInAllocatedWidth(
   if (!osmd.IsReadyToRender()) return;
   const scale = getOsmdUnitInPixels(osmd);
   const edgePad = Math.max(4, scale * 0.4);
-  let moved = false;
 
   forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
     const g = svgGElement(gmRaw);
@@ -473,15 +472,12 @@ export function containOsmdMeasureNotesInAllocatedWidth(
       if (x == null) continue;
       if (x < left) {
         applySvgTranslateXDelta(note, left - x);
-        moved = true;
       } else if (x > right) {
         applySvgTranslateXDelta(note, right - x);
-        moved = true;
       }
     }
   });
 
-  if (moved) {
-    syncVfStemsAndBeamsAfterStavenoteAlign(host);
-  }
+  // contain 이동 유무와 관계없이 빔을 줄기 끝에 맞춤(앞으로 삐져나옴·이탈 방지)
+  syncVfStemsAndBeamsAfterStavenoteAlign(host);
 }

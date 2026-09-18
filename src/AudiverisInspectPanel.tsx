@@ -52,7 +52,7 @@ import {
   applyOsmdPolyphonicRestOffsets,
   patchOsmdPolyphonicRestVfpitch,
 } from './osmdRestPlacementFix';
-import { applyMeasureTimingWarningsToOsmdHost, clipOsmdMeasuresToAllocatedWidth } from './osmdMeasureTimingWarning';
+import { applyMeasureTimingWarningsToOsmdHost, clipOsmdMeasuresToAllocatedWidth, containOsmdMeasureNotesInAllocatedWidth } from './osmdMeasureTimingWarning';
 import { collectMeasureTimingIssuesFromXml } from '../shared/musicXmlMeasureTiming';
 import type { MxlMeasureRange } from '../shared/musicXmlMeasureRange';
 import {
@@ -158,7 +158,10 @@ export function applyOsmdPreviewEngravingRules(
   // VexFlow align_rests는 다성부 쉼표를 동시 화음 쪽으로 끌어내려 display-step을 무시함
   r.AlignRests = 0;
   if (typeof r.DisplacedNoteMargin === 'number') r.DisplacedNoteMargin = 0.05;
-  if (typeof r.VoiceSpacingAddendVexflow === 'number') r.VoiceSpacingAddendVexflow = 2.0;
+  // 기본 3 — 2.0으로 줄이면 16분 밀집 마디가 앞·뒤 칸으로 넘치기 쉬움
+  if (typeof r.VoiceSpacingAddendVexflow === 'number') {
+    r.VoiceSpacingAddendVexflow = Math.max(r.VoiceSpacingAddendVexflow, 3.5);
+  }
   // 셈여림표(p, f, mf 등) 여백 — wedge 거리는 WedgePlacement* + XML distance
   rules.DynamicExpressionSpacer = 3.0;
   // 쐐기형 셈여림 — OSMD 기본(±1.5칸)에 맞추고 XML distance로 덮어씀(다성부는 patch로 inter-staff 중앙 배치 방지)
@@ -2443,7 +2446,9 @@ export function OsmdBlock({
           finalizeOsmdMeasureNumberPreview(host, osmd, undefined);
           if (faithfulEditorLayoutRef.current) {
             const issues = collectMeasureTimingIssuesFromXml(xmlRef.current);
-            clipOsmdMeasuresToAllocatedWidth(host, osmd, issues);
+            // 정원 마디도 첫 음이 앞 칸으로 넘칠 수 있음 → 전 마디 clip + 칸 밖 음표 안으로 복귀
+            containOsmdMeasureNotesInAllocatedWidth(host, osmd);
+            clipOsmdMeasuresToAllocatedWidth(host, osmd);
             applyMeasureTimingWarningsToOsmdHost(host, osmd, issues);
           } else {
             host.querySelectorAll('.hitl-measure-timing-warning, .osmd-measure-timing-layer').forEach((el) =>

@@ -6,6 +6,7 @@ import {
   measureMxlFromGraphic,
   partIdFromGraphic,
 } from './osmdMeasureClick';
+import { syncVfStemsAndBeamsAfterStavenoteAlign } from './osmdOnsetColumnAlignFix';
 
 const OVERLAY_CLASS = 'hitl-measure-timing-warning';
 
@@ -304,9 +305,12 @@ function readAbsY(gm: unknown): number | null {
 }
 
 /**
- * HITL faithful 미리보기 — overfull 마디 SVG를 할당 폭으로 clip해 이웃 칸 침범을 막음.
- * VexFlow `g.vf-measure`는 로컬 원점이 왼 바선이 아니라 오선 절대 좌표이므로
- * clip rect도 AbsolutePosition×unitInPixels 기준으로 둔다(x=0이면 오른쪽 마디가 통째로 사라짐).
+ * HITL faithful 미리보기 — 모든 마디 SVG를 할당 폭으로 clip해 이웃 칸 침범을 막음.
+ * (overfull만이 아니라 정원 마디도 첫 음이 앞 칸으로 넘칠 수 있음)
+ * VexFlow `g.vf-measure`는 오선 절대 좌표 → clip rect도 stave/AbsolutePosition 기준
+ * (x=0 고정 시 오른쪽 마디가 하얗게 사라짐).
+ *
+ * `issues`를 넘기면 overfull 마디만 clip(테스트용). 생략 시 전 마디.
  */
 export function clipOsmdMeasuresToAllocatedWidth(
   host: HTMLElement,
@@ -328,7 +332,6 @@ export function clipOsmdMeasuresToAllocatedWidth(
     svg.insertBefore(defs, svg.firstChild);
   }
 
-  // OSMD 시트 단위 → VexFlow path 좌표(줌은 SVG 크기/outer transform 쪽).
   const scale = getOsmdUnitInPixels(osmd);
   let idx = 0;
   forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
@@ -344,16 +347,12 @@ export function clipOsmdMeasuresToAllocatedWidth(
     const g = svgGElement(gmRaw);
     if (!g) return;
 
-    const absX = readAbsX(gmRaw);
-    if (absX == null) return;
+    const bounds = measureBoundsPx(gmRaw, row[mi + 1], scale);
+    if (!bounds) return;
+    const wPx = bounds.right - bounds.left;
+    if (wPx <= 0.5) return;
     const absY = readAbsY(gmRaw) ?? 0;
-    const nextGm = row[mi + 1];
-    const wUnits = allocatedMeasureWidthOsmd(gmRaw, nextGm);
-    if (wUnits <= 0.5) return;
     const hUnits = Math.max(readBbSizeHeight(gmRaw) ?? 12, 12);
-
-    const xPx = absX * scale;
-    const wPx = wUnits * scale;
     const yPx = (absY - hUnits) * scale;
     const hPx = hUnits * 4 * scale;
 
@@ -364,7 +363,7 @@ export function clipOsmdMeasuresToAllocatedWidth(
     cp.setAttribute('data-hitl-measure-clip', '1');
     cp.setAttribute('clipPathUnits', 'userSpaceOnUse');
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', String(xPx));
+    rect.setAttribute('x', String(bounds.left));
     rect.setAttribute('y', String(yPx));
     rect.setAttribute('width', String(wPx));
     rect.setAttribute('height', String(hPx));
@@ -373,4 +372,116 @@ export function clipOsmdMeasuresToAllocatedWidth(
     g.setAttribute('clip-path', `url(#${id})`);
     g.setAttribute('data-hitl-measure-clipped', '1');
   });
+}
+
+function staveBoundsPx(gm: unknown): { left: number; right: number } | null {
+  const rec = asGmRecord(gm);
+  if (!rec) return null;
+  const stave = asRecord(rec.stave ?? rec.Stave ?? rec.vfStave);
+  if (!stave) return null;
+  try {
+    const x =
+      typeof stave.getX === 'function'
+        ? Number((stave.getX as () => number).call(stave))
+        : Number(stave.x ?? stave.X);
+    const w =
+      typeof stave.getWidth === 'function'
+        ? Number((stave.getWidth as () => number).call(stave))
+        : Number(stave.width ?? stave.Width);
+    if (Number.isFinite(x) && Number.isFinite(w) && w > 8) {
+      return { left: x, right: x + w };
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+/** VexFlow path/AbsolutePosition과 같은 px 공간의 마디 [left,right]. */
+export function measureBoundsPx(
+  gm: unknown,
+  nextGm: unknown | undefined,
+  scale: number,
+): { left: number; right: number } | null {
+  const stave = staveBoundsPx(gm);
+  if (stave) return stave;
+  const absX = readAbsX(gm);
+  if (absX == null) return null;
+  const w = allocatedMeasureWidthOsmd(gm, nextGm);
+  if (w <= 0.5) return null;
+  return { left: absX * scale, right: (absX + w) * scale };
+}
+
+function readSvgTranslateX(el: Element): number {
+  const tr = el.getAttribute('transform') ?? '';
+  const m = /translate\(\s*([-\d.]+)/.exec(tr);
+  return m ? parseFloat(m[1]!) : 0;
+}
+
+function applySvgTranslateXDelta(el: Element, dx: number): void {
+  if (!Number.isFinite(dx) || Math.abs(dx) < 0.5) return;
+  const tr = el.getAttribute('transform') ?? '';
+  const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)/.exec(tr);
+  const ox = m ? parseFloat(m[1]!) : 0;
+  const oy = m && m[2] != null ? parseFloat(m[2]!) : 0;
+  const rest = tr.replace(/translate\(\s*[-\d.]+\s*(?:,\s*[-\d.]+)?\s*\)/, '').trim();
+  const prefix = `translate(${ox + dx}, ${oy})`;
+  el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
+}
+
+/** stavenote 글리프의 최소 x(기존 translate 반영). */
+export function stavenoteContentMinX(stavenote: Element): number | null {
+  let minX: number | null = null;
+  for (const p of stavenote.querySelectorAll('path')) {
+    const d = p.getAttribute('d') || '';
+    const re = /[MmLl]\s*([-\d.]+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(d))) {
+      const x = parseFloat(m[1]!);
+      if (!Number.isFinite(x)) continue;
+      minX = minX == null ? x : Math.min(minX, x);
+    }
+  }
+  if (minX == null) return null;
+  return minX + readSvgTranslateX(stavenote);
+}
+
+/**
+ * clip만 하면 칸 밖 음표가 잘려 사라질 수 있음 → 할당 폭 안으로 translate.
+ * 줄기·빔은 syncVfStemsAndBeamsAfterStavenoteAlign으로 맞춤.
+ */
+export function containOsmdMeasureNotesInAllocatedWidth(
+  host: HTMLElement,
+  osmd: OpenSheetMusicDisplay,
+): void {
+  if (!osmd.IsReadyToRender()) return;
+  const scale = getOsmdUnitInPixels(osmd);
+  const edgePad = Math.max(4, scale * 0.4);
+  let moved = false;
+
+  forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
+    const g = svgGElement(gmRaw);
+    if (!g) return;
+    const bounds = measureBoundsPx(gmRaw, row[mi + 1], scale);
+    if (!bounds) return;
+    const left = bounds.left + edgePad;
+    const right = bounds.right - edgePad;
+    if (right - left < 8) return;
+
+    for (const note of g.querySelectorAll('.vf-stavenote')) {
+      const x = stavenoteContentMinX(note);
+      if (x == null) continue;
+      if (x < left) {
+        applySvgTranslateXDelta(note, left - x);
+        moved = true;
+      } else if (x > right) {
+        applySvgTranslateXDelta(note, right - x);
+        moved = true;
+      }
+    }
+  });
+
+  if (moved) {
+    syncVfStemsAndBeamsAfterStavenoteAlign(host);
+  }
 }

@@ -692,8 +692,8 @@ function collectStemTipsInMeasure(measure: Element): StemTip[] {
   return tips;
 }
 
-/** 빔 폴리곤 중앙선의 y를 x에서 보간. */
-function beamCenterYAtX(d: string, x: number): number | null {
+/** 빔 path에서 좌·우 끝 y 목록을 보간해 x에서의 가장자리 y를 구한다. */
+function beamEdgeYsAtX(d: string, x: number): { outerMin: number; outerMax: number } | null {
   const xs: number[] = [];
   const ys: number[] = [];
   const tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
@@ -736,14 +736,36 @@ function beamCenterYAtX(d: string, x: number): number | null {
   const left = Math.min(...xs);
   const right = Math.max(...xs);
   if (right - left < 1) return null;
-  // 왼쪽·오른쪽 끝의 평균 y (빔 두께 중앙)
   const leftYs = ys.filter((_, i) => Math.abs(xs[i]! - left) < 1.5);
   const rightYs = ys.filter((_, i) => Math.abs(xs[i]! - right) < 1.5);
   if (!leftYs.length || !rightYs.length) return null;
-  const yL = leftYs.reduce((a, b) => a + b, 0) / leftYs.length;
-  const yR = rightYs.reduce((a, b) => a + b, 0) / rightYs.length;
   const t = Math.max(0, Math.min(1, (x - left) / (right - left)));
-  return yL + t * (yR - yL);
+  const minL = Math.min(...leftYs);
+  const maxL = Math.max(...leftYs);
+  const minR = Math.min(...rightYs);
+  const maxR = Math.max(...rightYs);
+  return {
+    outerMin: minL + t * (minR - minL),
+    outerMax: maxL + t * (maxR - maxL),
+  };
+}
+
+/** 빔 폴리곤 중앙선의 y를 x에서 보간(진단·호환용). */
+function beamCenterYAtX(d: string, x: number): number | null {
+  const edges = beamEdgeYsAtX(d, x);
+  if (!edges) return null;
+  return (edges.outerMin + edges.outerMax) / 2;
+}
+
+/**
+ * 줄기 tip이 닿아야 할 빔 **바깥 가장자리** y.
+ * stem-up → min y(음머리에서 먼 쪽), stem-down → max y.
+ * 중앙(center)에 맞추면 tip이 빔 두께 중간에 끝나 떠 있는 것처럼 보이고 4분음처럼 읽힌다.
+ */
+function beamOuterTipYAtX(d: string, x: number, stemUp: boolean): number | null {
+  const edges = beamEdgeYsAtX(d, x);
+  if (!edges) return null;
+  return stemUp ? edges.outerMin : edges.outerMax;
 }
 
 function setStemTipY(stemEl: Element, tipY: number): void {
@@ -818,15 +840,24 @@ function snapStemTipsToBeamsInMeasure(measure: Element, tips: StemTip[]): void {
         stemShaftCrossesBeamY(tip, b.midY, 36),
     );
     if (!covering.length) continue;
+    // 가장 넓은 빔 = 1차(primary). 2차는 tip을 음머리 쪽으로 당겨 끊겨 보이게 함.
     covering.sort((a, b) => b.w - a.w);
     const best = covering[0]!;
-    const targetY = beamCenterYAtX(best.d, tip.effectiveX);
-    if (targetY == null || !Number.isFinite(targetY)) continue;
     const tipUp = Math.min(tip.y0, tip.y1);
     const tipDown = Math.max(tip.y0, tip.y1);
-    const actualTip = Math.abs(tipUp - targetY) <= Math.abs(tipDown - targetY) ? tipUp : tipDown;
-    if (Math.abs(actualTip - targetY) < 1.2) continue;
-    if (Math.abs(actualTip - targetY) > 48) continue;
+    // stem-up: tip이 더 작은 y. stem 길이가 충분하면 tipUp이 tipDown보다 빔에 가깝다.
+    const stemUp = Math.abs(tipUp - best.midY) <= Math.abs(tipDown - best.midY);
+    const actualTip = stemUp ? tipUp : tipDown;
+    const targetY = beamOuterTipYAtX(best.d, tip.effectiveX, stemUp);
+    if (targetY == null || !Number.isFinite(targetY)) continue;
+    // 이미 바깥 가장자리에 닿거나 넘어가면 그대로(단축 금지 — 중앙 스냅이 끊김의)
+    if (stemUp) {
+      if (actualTip <= targetY + 1.2) continue;
+      if (actualTip - targetY > 48) continue;
+    } else {
+      if (actualTip >= targetY - 1.2) continue;
+      if (targetY - actualTip > 48) continue;
+    }
     setStemTipY(tip.el, targetY);
   }
 }

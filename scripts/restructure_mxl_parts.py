@@ -175,6 +175,40 @@ def is_likely_misplaced_piano_rh(
     return False
 
 
+def _piano_measure_is_lh_only_encoding(measure: ET.Element | None, ns: str) -> bool:
+    """피아노 마디가 LH만 있는 인코딩인지 (RH staff 없음).
+
+    - staff2 음만 있거나
+    - staff1만 있고 backup+다른 voice (Audiveris가 LH를 한 오선 다성으로 둔 경우)
+    staff1에 RH·staff2에 LH가 같이 있으면 False.
+    """
+    if measure is None or _measure_is_rest_only(measure, ns):
+        return False
+    s1 = []
+    s2 = []
+    voices_s1: set[str] = set()
+    for n in measure.findall(_q(ns, "note")):
+        if n.find(_q(ns, "grace")) is not None:
+            continue
+        if n.find(_q(ns, "pitch")) is None:
+            continue
+        st = n.findtext(_q(ns, "staff")) or "1"
+        v = (n.findtext(_q(ns, "voice")) or "1").strip() or "1"
+        if st == "2":
+            s2.append(n)
+        else:
+            s1.append(n)
+            voices_s1.add(v)
+    if s2 and not s1:
+        return True
+    if s2 and s1:
+        return False
+    if not s1:
+        return False
+    has_backup = any(_local(el) == "backup" for el in measure)
+    return has_backup and len(voices_s1) >= 2
+
+
 def _pair_looks_like_misplaced_piano_rh(
     upper_m: ET.Element | None,
     lower_m: ET.Element | None,
@@ -415,52 +449,6 @@ def _ensure_staff_voice_backups(measure: ET.Element, ns: str, staff: str = "1") 
             last_voice = voice
             need_backup_before_voice_change = True
         i += 1
-
-
-def _promote_backup_staff1_secondary_to_staff2(measure: ET.Element, ns: str) -> int:
-    """grand staff인데 staff2 음이 없을 때: backup 뒤 staff1 다른 voice → staff2.
-
-    Audiveris LH가 staff1 voice2로 남으면 PL이 PR 자리에 보인다.
-    """
-    notes = [
-        n
-        for n in measure.findall(_q(ns, "note"))
-        if n.find(_q(ns, "grace")) is None
-    ]
-    if not notes:
-        return 0
-    if any((n.findtext(_q(ns, "staff")) or "1") == "2" for n in notes):
-        return 0
-    if not any(_local(el) == "backup" for el in measure):
-        return 0
-    changed = 0
-    seen_backup = False
-    voices_before: set[str] = set()
-    for el in list(measure):
-        tag = _local(el)
-        if tag == "backup":
-            seen_backup = True
-            continue
-        if tag != "note" or el.find(_q(ns, "grace")) is not None:
-            continue
-        st = el.findtext(_q(ns, "staff")) or "1"
-        v = (el.findtext(_q(ns, "voice")) or "1").strip() or "1"
-        if not seen_backup:
-            if st == "1":
-                voices_before.add(v)
-            continue
-        if st != "1":
-            continue
-        if voices_before and v in voices_before:
-            continue
-        _set_note_staff(el, "2", ns)
-        try:
-            vi = int(v)
-        except ValueError:
-            vi = 1
-        _set_note_voice(el, str(vi + 4) if vi < 5 else v, ns)
-        changed += 1
-    return changed
 
 
 def _forward_timeline_duration(measure: ET.Element | None, ns: str) -> int:
@@ -980,8 +968,6 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
         elif not piano_src_pid and len(parts_by_id) >= 5:
             piano_src_pid = list(parts_by_id.keys())[-1]
 
-        vocal_src_pids = [pid for pid in parts_by_id if pid != piano_src_pid]
-
         # Target vocal part IDs: P1, P2, P3, P4
         target_vocal_pids = [f"P{i+1}" for i, l in enumerate(labels) if l.upper() not in _PIANO_DISPLAY_LABELS]
         # Preferred: one label `P` → one MusicXML part (RH/LH = staff 1/2, staff-name PR/PL in apply_part_labels).
@@ -998,6 +984,24 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
         )
         if not target_vocal_pids and len(labels) >= 1:
             target_vocal_pids = [f"P{i+1}" for i in range(min(4, len(labels)))]
+
+        part_ids = list(parts_by_id.keys())
+        # Audiveris가 grand staff를 RH·LH 두 Voice 파트로 두면 source parts = vocals + 2.
+        # 라벨은 SATB+P(1)인데 RH Voice를 성악으로 세면 active_vocal=3 → RH가 T로 들어간다.
+        # 음역 휴리스틱 없이: 파트 수 == 라벨 수+1 이고 단일 P 라벨이면 끝 두 파트를 피아노로만 본다.
+        piano_rh_src_pid = None
+        if (
+            target_piano_pid
+            and not piano_split_pr_pl
+            and len(part_ids) == len(labels) + 1
+            and len(target_vocal_pids) == len(labels) - len(target_piano_entries)
+            and len(part_ids) >= len(target_vocal_pids) + 2
+        ):
+            piano_rh_src_pid = part_ids[-2]
+            piano_src_pid = part_ids[-1]
+            vocal_src_pids = part_ids[:-2]
+        else:
+            vocal_src_pids = [pid for pid in part_ids if pid != piano_src_pid]
 
         label_to_pid = {l.upper(): f"P{i+1}" for i, l in enumerate(labels)}
 
@@ -1101,7 +1105,32 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
             piano_src_m = None
             if piano_src_pid and piano_src_pid in parts_by_id:
                 piano_src_m = parts_by_id[piano_src_pid].find(f'./{_q(ns, "measure")}[@number="{num}"]')
+            piano_rh_src_m = None
+            if piano_rh_src_pid and piano_rh_src_pid in parts_by_id:
+                piano_rh_src_m = parts_by_id[piano_rh_src_pid].find(
+                    f'./{_q(ns, "measure")}[@number="{num}"]'
+                )
             reclaimed_piano_m = None
+            # RH·LH가 이미 별도 Voice 파트면 성악 분배 전에 피아노로 합친다 (T/B 침입 방지).
+            if (
+                piano_rh_src_m is not None
+                and piano_src_m is not None
+                and not _measure_is_rest_only(piano_rh_src_m, ns)
+            ):
+                reclaimed_piano_m = merge_rh_into_piano_measure(
+                    piano_src_m, piano_rh_src_m, ns, divisions=curr_divisions
+                )
+                piano_src_m = reclaimed_piano_m
+            elif (
+                piano_rh_src_m is not None
+                and (piano_src_m is None or _measure_is_rest_only(piano_src_m, ns))
+                and not _measure_is_rest_only(piano_rh_src_m, ns)
+            ):
+                # LH 쉼표·RH만 있으면 RH를 staff1으로 두고 진행
+                reclaimed_piano_m = copy.deepcopy(piano_rh_src_m)
+                for n in reclaimed_piano_m.findall(_q(ns, "note")):
+                    _set_note_staff(n, "1", ns)
+                piano_src_m = reclaimed_piano_m
 
             if already_split_satb:
                 # 1:1 — 각 성부 마디를 그대로 유지 (쉼표-only 성부 포함)
@@ -1147,7 +1176,16 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                             ns,
                             only_pids=target_vocal_pids[:2],
                         )
-                    elif sa_rest and _pair_looks_like_misplaced_piano_rh(t_m, b_m, piano_src_m, ns):
+                    elif (
+                        sa_rest and _pair_looks_like_misplaced_piano_rh(t_m, b_m, piano_src_m, ns)
+                    ) or (
+                        # S/A가 울리는데 T/B만 가사 없이 울리고 피아노는 LH만 → PR이 T/B로 빠진 것
+                        not tb_rest
+                        and not _measure_has_lyrics(t_m, ns)
+                        and not _measure_has_lyrics(b_m, ns)
+                        and _piano_measure_is_lh_only_encoding(piano_src_m, ns)
+                        and (not _measure_is_rest_only(s_m, ns) or not _measure_is_rest_only(a_m, ns))
+                    ):
                         rh_built = build_rh_measure_from_misplaced(t_m, b_m, ns)
                         reclaimed_piano_m = merge_rh_into_piano_measure(
                             piano_src_m, rh_built, ns, divisions=curr_divisions
@@ -1358,7 +1396,6 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 if p_m is not None:
                     p_m = copy.deepcopy(p_m)
                     _ensure_staff_voice_backups(p_m, ns, staff="1")
-                    _promote_backup_staff1_secondary_to_staff2(p_m, ns)
                     _fix_cross_staff_backup_duration(p_m, ns)
                 if piano_split_pr_pl and p_m is not None:
                     # PR / PL as separate MusicXML parts (staff 1 / staff 2)

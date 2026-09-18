@@ -6336,18 +6336,6 @@ def normalize_measure_timelines_in_root(
             elif _measure_needs_cross_staff_backup(measure, ns):
                 if _strip_orphan_timeline_if_single_voice_per_staff(measure, ns):
                     touched = True
-            # grand staff인데 LH가 staff1 voice로만 남은 경우(예: m9 F2) → staff2
-            try:
-                from fix_audiveris_mxl import (
-                    _part_has_two_staves,
-                    _promote_backup_staff1_secondary_to_staff2,
-                )
-
-                if _part_has_two_staves(part, ns):
-                    if _promote_backup_staff1_secondary_to_staff2(measure, ns):
-                        touched = True
-            except Exception:
-                pass
             if normalize_grand_staff_voices_in_measure(measure, ns):
                 touched = True
             if repair_octave_shift_stops_before_cross_staff_backup_in_measure(measure, ns):

@@ -371,6 +371,14 @@ def main() -> None:
             backs_r = _backup_durs(parts_r["P5"], "8")
             assert backs_r == ["48"], f"5d832 m8 backup must be RH timeline 48, got {backs_r}"
             print("5d832ef7 m8 backup=48 OK")
+            # m9: S/A sound + RH/LH as P5/P6 — RH must stay on piano, not land on T
+            for pid in ("P3", "P4"):
+                assert _pitched(parts_r[pid], "9") == [], f"5d832 {pid} m9 must not get PR, got {_pitched(parts_r[pid], '9')}"
+            rh9 = _pitched_on_staff(parts_r["P5"], "9", "1")
+            lh9 = _pitched_on_staff(parts_r["P5"], "9", "2")
+            assert any(x.startswith("C4") for x in rh9), f"5d832 m9 RH on staff1, got {rh9}"
+            assert any(x.startswith(("F3", "E3", "F2")) for x in lh9), f"5d832 m9 LH on staff2, got {lh9}"
+            print("5d832ef7 m9 RH/LH on P, T/B clear OK")
 
         # explicit T/B mapping must NOT chord-split lyric-less RH onto T/B
         src6b = td_path / "six_force.mxl"

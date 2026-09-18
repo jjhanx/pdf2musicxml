@@ -292,14 +292,26 @@ function svgGElement(gm: unknown): Element | null {
   return null;
 }
 
+function readAbsY(gm: unknown): number | null {
+  const rec = asGmRecord(gm);
+  if (!rec) return null;
+  const bb = asRecord(rec.PositionAndShape ?? rec.positionAndShape);
+  if (!bb) return null;
+  const abs = asRecord(bb.AbsolutePosition ?? bb.absolutePosition);
+  if (!abs) return null;
+  const y = Number(abs.y ?? abs.Y);
+  return Number.isFinite(y) ? y : null;
+}
+
 /**
- * HITL faithful 미리보기 — 마디 SVG를 할당 폭으로 clip해 overfull 그림이 앞·뒤 마디 칸을 침범하지 않게 함.
- * Size.width≤0이어도 같은 오선 다음 마디 absX로 폭을 잡음(음표 XML 유지·저장 MXL 불변).
- * clip 대상은 GraphicalMeasure.getSVGGElement가 아니라 실제 `g.vf-measure`(음표 parent).
+ * HITL faithful 미리보기 — overfull 마디 SVG를 할당 폭으로 clip해 이웃 칸 침범을 막음.
+ * VexFlow `g.vf-measure`는 로컬 원점이 왼 바선이 아니라 오선 절대 좌표이므로
+ * clip rect도 AbsolutePosition×unitInPixels 기준으로 둔다(x=0이면 오른쪽 마디가 통째로 사라짐).
  */
 export function clipOsmdMeasuresToAllocatedWidth(
   host: HTMLElement,
   osmd: OpenSheetMusicDisplay,
+  issues?: readonly MeasureTimingIssue[],
 ): void {
   const svg = host.querySelector('svg');
   if (!svg || !osmd.IsReadyToRender()) return;
@@ -316,30 +328,46 @@ export function clipOsmdMeasuresToAllocatedWidth(
     svg.insertBefore(defs, svg.firstChild);
   }
 
-  const uip = getOsmdUnitInPixels(osmd);
+  // OSMD 시트 단위 → VexFlow path 좌표(줌은 SVG 크기/outer transform 쪽).
+  const scale = getOsmdUnitInPixels(osmd);
   let idx = 0;
   forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
+    if (issues !== undefined) {
+      const partId = partIdFromGraphic(gmRaw as Parameters<typeof partIdFromGraphic>[0]);
+      const measureNumber = measureMxlFromGraphic(
+        gmRaw as Parameters<typeof measureMxlFromGraphic>[0],
+      );
+      const issue = issueForGraphic(partId, measureNumber, issues);
+      if (!issue || issue.kind !== 'overfull') return;
+    }
+
     const g = svgGElement(gmRaw);
     if (!g) return;
 
+    const absX = readAbsX(gmRaw);
+    if (absX == null) return;
+    const absY = readAbsY(gmRaw) ?? 0;
     const nextGm = row[mi + 1];
     const wUnits = allocatedMeasureWidthOsmd(gmRaw, nextGm);
     if (wUnits <= 0.5) return;
-    const hUnits = readBbSizeHeight(gmRaw) ?? 50;
-    // OSMD AbsolutePosition/Size는 unit, VexFlow `g.vf-measure` 로컬 좌표는 px.
-    const wPx = wUnits * uip;
-    const hPx = Math.max(hUnits, 40) * uip;
+    const hUnits = Math.max(readBbSizeHeight(gmRaw) ?? 12, 12);
+
+    const xPx = absX * scale;
+    const wPx = wUnits * scale;
+    const yPx = (absY - hUnits) * scale;
+    const hPx = hUnits * 4 * scale;
+
     const id = `hitl-mclip-${idx}`;
     idx += 1;
     const cp = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
     cp.setAttribute('id', id);
     cp.setAttribute('data-hitl-measure-clip', '1');
+    cp.setAttribute('clipPathUnits', 'userSpaceOnUse');
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    // 가로: 왼 바선(로컬 0) ~ 다음 마디 시작. 세로만 여유.
-    rect.setAttribute('x', '0');
-    rect.setAttribute('y', String(-hPx));
+    rect.setAttribute('x', String(xPx));
+    rect.setAttribute('y', String(yPx));
     rect.setAttribute('width', String(wPx));
-    rect.setAttribute('height', String(hPx * 3));
+    rect.setAttribute('height', String(hPx));
     cp.appendChild(rect);
     defs!.appendChild(cp);
     g.setAttribute('clip-path', `url(#${id})`);

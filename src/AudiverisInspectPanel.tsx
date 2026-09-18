@@ -2443,7 +2443,7 @@ export function OsmdBlock({
           finalizeOsmdMeasureNumberPreview(host, osmd, undefined);
           if (faithfulEditorLayoutRef.current) {
             const issues = collectMeasureTimingIssuesFromXml(xmlRef.current);
-            clipOsmdMeasuresToAllocatedWidth(host, osmd);
+            clipOsmdMeasuresToAllocatedWidth(host, osmd, issues);
             applyMeasureTimingWarningsToOsmdHost(host, osmd, issues);
           } else {
             host.querySelectorAll('.hitl-measure-timing-warning, .osmd-measure-timing-layer').forEach((el) =>

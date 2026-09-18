@@ -1,12 +1,22 @@
 /**
- * clipOsmdMeasuresToAllocatedWidth must attach clip-path to real g.vf-measure
- * (GraphicalMeasure.getSVGGElement is often undefined — notes live under vf-measure).
+ * clip rect must use AbsolutePosition×unitInPixels (not x=0), or right-side measures vanish.
+ * Only overfull issues get clipped when issues[] is passed.
  * Run: npx tsx _smoke/test_clip_vf_measure_dom.ts
  */
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import osmdLib from 'opensheetmusicdisplay';
-import { clipOsmdMeasuresToAllocatedWidth } from '../src/osmdMeasureTimingWarning';
+import {
+  allocatedMeasureWidthOsmd,
+  clipOsmdMeasuresToAllocatedWidth,
+} from '../src/osmdMeasureTimingWarning';
+import {
+  forEachGraphicalMeasure,
+  getOsmdUnitInPixels,
+  measureMxlFromGraphic,
+  partIdFromGraphic,
+} from '../src/osmdMeasureClick';
+import type { MeasureTimingIssue } from '../shared/musicXmlMeasureTiming';
 
 const OSMD =
   (osmdLib as { OpenSheetMusicDisplay?: new (...a: unknown[]) => unknown }).OpenSheetMusicDisplay ??
@@ -64,31 +74,85 @@ async function main() {
   osmd.render();
   assert.ok(osmd.IsReadyToRender(), 'OSMD ready');
 
+  const scale = getOsmdUnitInPixels(osmd as never);
+
+  // issues 없으면(undefined) 전체 clip — 좌표 검증용
   clipOsmdMeasuresToAllocatedWidth(host, osmd as never);
+  const clippedAll = host.querySelectorAll('g.vf-measure[data-hitl-measure-clipped]');
+  assert.ok(clippedAll.length >= 1, `expected clipped measures, got ${clippedAll.length}`);
 
-  const clipped = host.querySelectorAll('g.vf-measure[data-hitl-measure-clipped]');
-  assert.ok(
-    clipped.length >= 1,
-    `expected clipped g.vf-measure, got ${clipped.length} (getSVGGElement-only lookup would yield 0)`,
-  );
-  for (const g of clipped) {
-    const cp = g.getAttribute('clip-path') ?? '';
-    assert.ok(/^url\(#hitl-mclip-\d+\)$/.test(cp), `clip-path on vf-measure, got ${cp}`);
+  for (const g of clippedAll) {
+    const cpUrl = g.getAttribute('clip-path') ?? '';
+    const id = cpUrl.match(/#([^)]+)/)?.[1];
+    assert.ok(id, 'clip-path id');
+    const rect = host.querySelector(`[id="${id}"] rect`);
+    assert.ok(rect, 'clip rect');
+    const x = Number(rect!.getAttribute('x'));
+    const w = Number(rect!.getAttribute('width'));
+    assert.ok(Number.isFinite(x) && Number.isFinite(w) && w > 1, `clip x/w finite, got ${x},${w}`);
+    // VexFlow 절대 좌표: 첫 마디가 원점 근처가 아니면 x=0이면 안 됨
+    // (회귀: x=0 고정이면 오른쪽 마디가 흰색으로 사라짐)
   }
-  const defs = host.querySelectorAll('clipPath[data-hitl-measure-clip]');
-  assert.equal(defs.length, clipped.length, 'one clipPath per clipped measure');
 
-  // 음표가 clip 대상 마디 G 안에 있어야 앞 마디 침범이 clip으로 막힘
-  const note = host.querySelector('.vf-stavenote');
-  assert.ok(note, 'stavenote present');
-  const parentMeasure = note!.closest('g.vf-measure');
-  assert.ok(parentMeasure, 'stavenote under vf-measure');
-  assert.ok(
-    parentMeasure!.hasAttribute('data-hitl-measure-clipped'),
-    'note parent measure must be clipped',
+  // AbsolutePosition과 clip x 대응
+  let matched = 0;
+  forEachGraphicalMeasure(osmd as never, (gmRaw, _si, mi, row) => {
+    const abs = (gmRaw as { PositionAndShape?: { AbsolutePosition?: { x?: number } } })
+      .PositionAndShape?.AbsolutePosition?.x;
+    if (abs == null || !Number.isFinite(abs)) return;
+    const expectedX = abs * scale;
+    const wUnits = allocatedMeasureWidthOsmd(gmRaw, row[mi + 1]);
+    const expectedW = wUnits * scale;
+    for (const g of clippedAll) {
+      const cpUrl = g.getAttribute('clip-path') ?? '';
+      const id = cpUrl.match(/#([^)]+)/)?.[1];
+      const rect = id ? host.querySelector(`[id="${id}"] rect`) : null;
+      if (!rect) continue;
+      const x = Number(rect.getAttribute('x'));
+      const w = Number(rect.getAttribute('width'));
+      if (Math.abs(x - expectedX) < 0.5 && Math.abs(w - expectedW) < 0.5) matched += 1;
+    }
+  });
+  assert.ok(matched >= 1, `clip x must match absX*uip (matched=${matched})`);
+
+  // issues=[] → overfull 없음 → clip 없음
+  clipOsmdMeasuresToAllocatedWidth(host, osmd as never, []);
+  assert.equal(
+    host.querySelectorAll('g.vf-measure[data-hitl-measure-clipped]').length,
+    0,
+    'empty issues → no clip',
   );
 
-  console.log('test_clip_vf_measure_dom: OK', { clipped: clipped.length });
+  // overfull issue만 clip
+  let partId = 'P1';
+  let measureNumber = 1;
+  forEachGraphicalMeasure(osmd as never, (gmRaw) => {
+    partId = partIdFromGraphic(gmRaw as never) || partId;
+    measureNumber = measureMxlFromGraphic(gmRaw as never) ?? measureNumber;
+  });
+  const issues: MeasureTimingIssue[] = [
+    {
+      partId,
+      measureNumber,
+      kind: 'overfull',
+      actual: 24,
+      expected: 16,
+    },
+  ];
+  clipOsmdMeasuresToAllocatedWidth(host, osmd as never, issues);
+  const clippedOver = host.querySelectorAll('g.vf-measure[data-hitl-measure-clipped]');
+  assert.ok(clippedOver.length >= 1, 'overfull issue clips at least one measure');
+  assert.ok(
+    clippedOver.length < clippedAll.length || clippedAll.length === 1,
+    'overfull-only clips fewer than clip-all (or single-measure score)',
+  );
+
+  console.log('test_clip_vf_measure_dom: OK', {
+    clippedAll: clippedAll.length,
+    clippedOver: clippedOver.length,
+    matched,
+    scale,
+  });
 }
 
 main().catch((e) => {

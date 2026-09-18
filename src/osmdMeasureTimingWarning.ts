@@ -2,6 +2,7 @@ import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import type { MeasureTimingIssue } from '../shared/musicXmlMeasureTiming';
 import {
   forEachGraphicalMeasure,
+  getOsmdUnitInPixels,
   measureMxlFromGraphic,
   partIdFromGraphic,
 } from './osmdMeasureClick';
@@ -219,21 +220,82 @@ export function allocatedMeasureWidthOsmd(
   return Math.max(0.5, fallbackWidth);
 }
 
+function isSvgElement(el: Element | null | undefined): el is Element {
+  return !!el && el.namespaceURI === 'http://www.w3.org/2000/svg';
+}
+
+function closestVfMeasure(el: Element | null | undefined): Element | null {
+  if (!el) return null;
+  if (typeof el.closest === 'function') {
+    const m = el.closest('g.vf-measure');
+    if (isSvgElement(m)) return m;
+  }
+  const cls = el.getAttribute?.('class') ?? '';
+  if (/\bvf-measure\b/.test(cls) && isSvgElement(el)) return el;
+  return null;
+}
+
+/**
+ * GraphicalMeasure → 실제 음표가 들어 있는 SVG `g.vf-measure`.
+ * OSMD `getSVGGElement()`는 버전/백엔드에 따라 undefined인 경우가 많아,
+ * stave / staffEntry 음표 DOM의 `closest('.vf-measure')`로 복구한다.
+ * (clip이 measure G에 걸려야 자식 `.vf-stavenote`가 앞 마디로 넘치지 않음)
+ */
 function svgGElement(gm: unknown): Element | null {
   const rec = asGmRecord(gm);
-  if (!rec || typeof rec.getSVGGElement !== 'function') return null;
-  try {
-    const g = (rec.getSVGGElement as () => Element | null | undefined)() ?? null;
-    if (!g || g.namespaceURI !== 'http://www.w3.org/2000/svg') return null;
-    return g;
-  } catch {
-    return null;
+  if (!rec) return null;
+
+  if (typeof rec.getSVGGElement === 'function') {
+    try {
+      const g = (rec.getSVGGElement as () => Element | null | undefined)() ?? null;
+      const m = closestVfMeasure(g) ?? (isSvgElement(g) ? g : null);
+      if (m) return m;
+    } catch {
+      /* fall through */
+    }
   }
+
+  const stave = asRecord(rec.stave ?? rec.Stave ?? rec.vfStave);
+  if (stave && typeof stave.getSVGElement === 'function') {
+    try {
+      const el = (stave.getSVGElement as () => Element | null | undefined)() ?? null;
+      const m = closestVfMeasure(el);
+      if (m) return m;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const entries = (rec.staffEntries ?? rec.StaffEntries) as unknown[] | undefined;
+  for (const entry of entries ?? []) {
+    const e = asRecord(entry);
+    const gves = (e?.graphicalVoiceEntries ?? e?.GraphicalVoiceEntries) as unknown[] | undefined;
+    for (const gve of gves ?? []) {
+      const gr = asRecord(gve);
+      const notes = (gr?.notes ?? gr?.Notes ?? gr?.graphicalNotes ?? gr?.GraphicalNotes) as
+        | unknown[]
+        | undefined;
+      for (const note of notes ?? []) {
+        const nr = asRecord(note);
+        if (!nr || typeof nr.getSVGGElement !== 'function') continue;
+        try {
+          const el = (nr.getSVGGElement as () => Element | null | undefined)() ?? null;
+          const m = closestVfMeasure(el);
+          if (m) return m;
+        } catch {
+          /* next note */
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
  * HITL faithful 미리보기 — 마디 SVG를 할당 폭으로 clip해 overfull 그림이 앞·뒤 마디 칸을 침범하지 않게 함.
  * Size.width≤0이어도 같은 오선 다음 마디 absX로 폭을 잡음(음표 XML 유지·저장 MXL 불변).
+ * clip 대상은 GraphicalMeasure.getSVGGElement가 아니라 실제 `g.vf-measure`(음표 parent).
  */
 export function clipOsmdMeasuresToAllocatedWidth(
   host: HTMLElement,
@@ -254,15 +316,19 @@ export function clipOsmdMeasuresToAllocatedWidth(
     svg.insertBefore(defs, svg.firstChild);
   }
 
+  const uip = getOsmdUnitInPixels(osmd);
   let idx = 0;
   forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
     const g = svgGElement(gmRaw);
     if (!g) return;
 
     const nextGm = row[mi + 1];
-    const w = allocatedMeasureWidthOsmd(gmRaw, nextGm);
-    if (w <= 0.5) return;
-    const h = readBbSizeHeight(gmRaw) ?? 50;
+    const wUnits = allocatedMeasureWidthOsmd(gmRaw, nextGm);
+    if (wUnits <= 0.5) return;
+    const hUnits = readBbSizeHeight(gmRaw) ?? 50;
+    // OSMD AbsolutePosition/Size는 unit, VexFlow `g.vf-measure` 로컬 좌표는 px.
+    const wPx = wUnits * uip;
+    const hPx = Math.max(hUnits, 40) * uip;
     const id = `hitl-mclip-${idx}`;
     idx += 1;
     const cp = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
@@ -271,9 +337,9 @@ export function clipOsmdMeasuresToAllocatedWidth(
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     // 가로: 왼 바선(로컬 0) ~ 다음 마디 시작. 세로만 여유.
     rect.setAttribute('x', '0');
-    rect.setAttribute('y', String(-Math.max(h, 40)));
-    rect.setAttribute('width', String(w));
-    rect.setAttribute('height', String(Math.max(h, 40) * 3));
+    rect.setAttribute('y', String(-hPx));
+    rect.setAttribute('width', String(wPx));
+    rect.setAttribute('height', String(hPx * 3));
     cp.appendChild(rect);
     defs!.appendChild(cp);
     g.setAttribute('clip-path', `url(#${id})`);

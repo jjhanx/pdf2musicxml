@@ -12,6 +12,7 @@ import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import {
   pruneCrossStaffTimelineForOsmdPreview,
   stampHitlSourceNoteIdentity,
+  fixCrossStaffBackupDurationsInXml,
 } from '../shared/musicXmlStaffPreview';
 import { removeRedundantCourtesyClefsForOsmd } from '../shared/musicXmlCourtesyClef';
 import {
@@ -2046,6 +2047,8 @@ export function buildOsmdPreviewXml(
   /** sound-only tempo는 OSMD가 첫 마디 음표를 버림 — metronome 보충 후 attributes 뒤로 */
   xml = ensureMetronomeOnSoundTempoDirectionsForOsmdPreview(xml);
   xml = repositionDirectionsBeforeAttributesForOsmdPreview(xml, { tempoOnly: true });
+  /** PR↔PL backup이 RH 길이보다 짧으면 PL·라벨이 어긋남 — split 전에 보정 */
+  xml = fixCrossStaffBackupDurationsInXml(xml);
   /** split·dynamics 변환 전에 timeline 정리 — orphan backup이 clone/part split에 복제되기 전 제거 */
   xml = repairTimelineForOsmdPreview(xml, timelineOpts);
   if (!verbatim) {

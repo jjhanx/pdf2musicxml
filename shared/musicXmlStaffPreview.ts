@@ -101,3 +101,80 @@ export function pruneCrossStaffTimelineForOsmdPreview(measure: Element, staffN: 
   }
 }
 
+/**
+ * staff1 실제 길이에 맞춰 staff1→staff2 직전 `<backup>`을 고친다.
+ * merge_rh가 divisions 기본(capacity 16)으로 backup을 쓰던 오산 — PL onset·라벨 어긋남 방지.
+ */
+export function fixCrossStaffBackupDurationsInXml(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    if (doc.querySelector('parsererror')) return xml;
+    const root = doc.documentElement;
+    if (!root) return xml;
+    for (const part of [...root.children].filter((c) => xmlLocalName(c) === 'part')) {
+      for (const measure of [...part.children].filter((c) => xmlLocalName(c) === 'measure')) {
+        fixCrossStaffBackupInMeasure(measure);
+      }
+    }
+    return new XMLSerializer().serializeToString(doc);
+  } catch {
+    return xml;
+  }
+}
+
+function fixCrossStaffBackupInMeasure(measure: Element): void {
+  const children = [...measure.children];
+  const staff1Notes: Element[] = [];
+  const staff2Notes: Element[] = [];
+  for (const child of children) {
+    if (xmlLocalName(child) !== 'note') continue;
+    if (child.querySelector(':scope > grace, :scope > *|grace')) continue;
+    const st = noteStaffN(child);
+    if (st === 1) staff1Notes.push(child);
+    else if (st === 2) staff2Notes.push(child);
+  }
+  if (!staff1Notes.length || !staff2Notes.length) return;
+
+  let lastS1 = -1;
+  let firstS2 = children.length;
+  for (let i = 0; i < children.length; i += 1) {
+    const el = children[i]!;
+    if (staff1Notes.includes(el)) lastS1 = Math.max(lastS1, i);
+    if (staff2Notes.includes(el)) firstS2 = Math.min(firstS2, i);
+  }
+  if (lastS1 < 0 || firstS2 >= children.length || lastS1 >= firstS2) return;
+
+  let s1Dur = 0;
+  for (const el of children.slice(0, firstS2)) {
+    const tag = xmlLocalName(el);
+    if (tag === 'backup') break;
+    if (tag === 'forward') {
+      const d = parseInt(
+        el.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
+        10,
+      );
+      if (Number.isFinite(d) && d > 0) s1Dur += d;
+      continue;
+    }
+    if (tag !== 'note') continue;
+    if (el.querySelector(':scope > chord, :scope > *|chord')) continue;
+    if (noteStaffN(el) !== 1) continue;
+    const d = parseInt(
+      el.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
+      10,
+    );
+    if (Number.isFinite(d) && d > 0) s1Dur += d;
+  }
+  if (s1Dur <= 0) return;
+
+  for (let i = lastS1 + 1; i < firstS2; i += 1) {
+    const el = children[i]!;
+    if (xmlLocalName(el) !== 'backup') continue;
+    const durEl = el.querySelector(':scope > duration, :scope > *|duration');
+    if (durEl && durEl.textContent?.trim() !== String(s1Dur)) {
+      durEl.textContent = String(s1Dur);
+    }
+    break;
+  }
+}
+

@@ -1,4 +1,5 @@
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
+import { fixCrossStaffBackupDurationsInXml } from './musicXmlStaffPreview';
 import {
   HITL_ART_DISTANCE_ATTR,
   normalizeArticulationDistanceTier,
@@ -92,6 +93,7 @@ export function repairTimelineForOsmdPreview(
     ? { preserveOverfullNotes: true }
     : undefined;
   let out = removeDanglingTimelineElementsForOsmdPreview(xml);
+  out = fixCrossStaffBackupDurationsInXml(out);
   out = capAbsurdTimelineDurationsForOsmdPreview(out);
   // faithful: backup 폭주만 차단. overfull 음표는 경고·clip으로 처리(편집 가능 유지).
   out = capBackupDurationsForOsmdPreview(out, capOpts);

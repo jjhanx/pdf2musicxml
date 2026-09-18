@@ -2348,6 +2348,19 @@ async function importOmrWorkFromExtractDir(
   const fixesAfterImport = await readOmrHitlFixes(sessionRoot);
   let stats: Awaited<ReturnType<typeof syncOmrReviewMxl>>;
   stats = await syncOmrReviewMxl(sessionRoot, scorePath, pythonBin);
+  // ZIP에 남은 잘못된 PR↔PL backup·RH 성부 침입은 라벨 재적용으로 고친다.
+  // (미리보기는 review.mxl을 읽으므로 inject 대상만이 아니라 review/raw에도 적용)
+  if (resolvePartLabelsJsonPath(sessionRoot)) {
+    const repairTargets = new Set<string>();
+    if (fsSync.existsSync(scorePath)) repairTargets.add(scorePath);
+    const reviewPath = sessionReviewMxlPath(sessionRoot);
+    if (fsSync.existsSync(reviewPath)) repairTargets.add(reviewPath);
+    const rawPath = sessionAudiverisRawMxlPath(sessionRoot);
+    if (fsSync.existsSync(rawPath)) repairTargets.add(rawPath);
+    for (const p of repairTargets) {
+      await applyPartLabelsToScoreFile(sessionRoot, p, pythonBin);
+    }
+  }
   await invalidateInspectScoreCache(sessionRoot);
   return {
     fixCount: fixesAfterImport.length,
@@ -2461,19 +2474,31 @@ async function enterOmrStaffHitlPhase(
   
   // 새 PDF(1~2단계 시작)이든 기존 ZIP(3~4단계 시작)이든,
   // OMR 검토 진입 전에 part_labels가 있으면 성부 라벨·재구성을 적용합니다.
-  // ZIP 재개 시에는 이미 HITL 교정된 inject 대상을 덮어쓰지 않습니다(raw 복사 금지).
+  // ZIP 재개 시: inject 대상뿐 아니라 canonical review.mxl에도 적용해야
+  // (미리보기·마디 편집이 review를 읽음) backup/RH 복구가 화면에 반영됩니다.
   const rawPath = sessionAudiverisRawMxlPath(job.sessionRoot);
   if (resolvePartLabelsJsonPath(job.sessionRoot)) {
     if (job.resumeOmrWorkZipPath) {
+      const labelTargets = new Set<string>();
       for (const p of mxlForInject) {
-        if (!isAudiverisMovementSplitPath(p)) {
-          await applyPartLabelsToScoreFile(job.sessionRoot, p, pythonBin);
-        }
+        if (!isAudiverisMovementSplitPath(p) && fsSync.existsSync(p)) labelTargets.add(p);
+      }
+      const reviewPath = sessionReviewMxlPath(job.sessionRoot);
+      if (fsSync.existsSync(reviewPath)) labelTargets.add(reviewPath);
+      if (fsSync.existsSync(rawPath)) labelTargets.add(rawPath);
+      const baselinePath = sessionHitlBaselineMxlPath(job.sessionRoot);
+      if (fsSync.existsSync(baselinePath)) labelTargets.add(baselinePath);
+      for (const p of labelTargets) {
+        await applyPartLabelsToScoreFile(job.sessionRoot, p, pythonBin);
       }
     } else if (fsSync.existsSync(rawPath)) {
       await applyPartLabelsToScoreFile(job.sessionRoot, rawPath, pythonBin);
       for (const p of mxlForInject) {
         if (p !== rawPath && !isAudiverisMovementSplitPath(p)) await fs.copyFile(rawPath, p);
+      }
+      const reviewPath = sessionReviewMxlPath(job.sessionRoot);
+      if (fsSync.existsSync(reviewPath) && path.resolve(reviewPath) !== path.resolve(rawPath)) {
+        await fs.copyFile(rawPath, reviewPath);
       }
     }
   }

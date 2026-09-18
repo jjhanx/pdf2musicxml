@@ -113,6 +113,8 @@ export function repairTimelineForOsmdPreview(
   out = coerceNoteDurationsToTypeForOsmdPreview(out);
   // non-faithful만 coerce 후 재clamp. faithful은 음표 보존.
   out = capBackupDurationsForOsmdPreview(out, capOpts);
+  // cap이 PR→PL backup을 voice cursor로 줄인 경우 staff1 길이로 재보정
+  out = fixCrossStaffBackupDurationsInXml(out);
   out = normalizeSlursForOsmdPreview(out);
   out = repairArticulationDefaultYForOsmdPreview(out);
   return out;
@@ -2516,12 +2518,31 @@ export function capBackupDurationsForOsmdPreview(
             if (durationEl) {
               const dur = parseInt(durationEl.textContent || '0', 10);
               if (!isNaN(dur)) {
-                let cursor = cursorByVoice.get(lastVoice) ?? 0;
-                if (dur > cursor) {
-                  durationEl.textContent = cursor.toString();
-                  cursorByVoice.set(lastVoice, 0);
+                // PR→PL cross-staff backup: staff2 음이 뒤에 있으면 voice cursor로 줄이지 않음.
+                // (divisions 오인 시 cursor≪RH 길이 → backup이 16 등으로 잘려 PL이 PR처럼 보임)
+                const sibs = [...measure.children];
+                const bIdx = sibs.indexOf(child);
+                let nextStaff: number | null = null;
+                for (let j = bIdx + 1; j < sibs.length; j += 1) {
+                  const n = sibs[j]!;
+                  if (xmlLocalName(n) !== 'note') continue;
+                  const stEl = n.querySelector(':scope > staff, :scope > *|staff');
+                  const st = parseInt(stEl?.textContent?.trim() ?? '1', 10);
+                  nextStaff = Number.isFinite(st) ? st : 1;
+                  break;
+                }
+                if (nextStaff === 2) {
+                  for (const k of [...cursorByVoice.keys()]) {
+                    cursorByVoice.set(k, 0);
+                  }
                 } else {
-                  cursorByVoice.set(lastVoice, cursor - dur);
+                  let cursor = cursorByVoice.get(lastVoice) ?? 0;
+                  if (dur > cursor) {
+                    durationEl.textContent = cursor.toString();
+                    cursorByVoice.set(lastVoice, 0);
+                  } else {
+                    cursorByVoice.set(lastVoice, cursor - dur);
+                  }
                 }
               }
             }

@@ -122,6 +122,40 @@ export function fixCrossStaffBackupDurationsInXml(xml: string): string {
   }
 }
 
+function timelineCursorUntil(measure: Element, endIdx: number): number {
+  let cursor = 0;
+  const children = [...measure.children];
+  for (let i = 0; i < endIdx && i < children.length; i += 1) {
+    const el = children[i]!;
+    const tag = xmlLocalName(el);
+    if (tag === 'backup') {
+      const d = parseInt(
+        el.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
+        10,
+      );
+      if (Number.isFinite(d)) cursor = Math.max(0, cursor - d);
+      continue;
+    }
+    if (tag === 'forward') {
+      const d = parseInt(
+        el.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
+        10,
+      );
+      if (Number.isFinite(d) && d > 0) cursor += d;
+      continue;
+    }
+    if (tag !== 'note') continue;
+    if (el.querySelector(':scope > chord, :scope > *|chord')) continue;
+    if (el.querySelector(':scope > grace, :scope > *|grace')) continue;
+    const d = parseInt(
+      el.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
+      10,
+    );
+    if (Number.isFinite(d) && d > 0) cursor += d;
+  }
+  return Math.max(0, cursor);
+}
+
 function fixCrossStaffBackupInMeasure(measure: Element): void {
   const children = [...measure.children];
   const staff1Notes: Element[] = [];
@@ -144,35 +178,14 @@ function fixCrossStaffBackupInMeasure(measure: Element): void {
   }
   if (lastS1 < 0 || firstS2 >= children.length || lastS1 >= firstS2) return;
 
-  let s1Dur = 0;
-  for (const el of children.slice(0, firstS2)) {
-    const tag = xmlLocalName(el);
-    if (tag === 'backup') break;
-    if (tag === 'forward') {
-      const d = parseInt(
-        el.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
-        10,
-      );
-      if (Number.isFinite(d) && d > 0) s1Dur += d;
-      continue;
-    }
-    if (tag !== 'note') continue;
-    if (el.querySelector(':scope > chord, :scope > *|chord')) continue;
-    if (noteStaffN(el) !== 1) continue;
-    const d = parseInt(
-      el.querySelector(':scope > duration, :scope > *|duration')?.textContent?.trim() ?? '0',
-      10,
-    );
-    if (Number.isFinite(d) && d > 0) s1Dur += d;
-  }
-  if (s1Dur <= 0) return;
-
   for (let i = lastS1 + 1; i < firstS2; i += 1) {
     const el = children[i]!;
     if (xmlLocalName(el) !== 'backup') continue;
+    const need = timelineCursorUntil(measure, i);
+    if (need <= 0) break;
     const durEl = el.querySelector(':scope > duration, :scope > *|duration');
-    if (durEl && durEl.textContent?.trim() !== String(s1Dur)) {
-      durEl.textContent = String(s1Dur);
+    if (durEl && durEl.textContent?.trim() !== String(need)) {
+      durEl.textContent = String(need);
     }
     break;
   }

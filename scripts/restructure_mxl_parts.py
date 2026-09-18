@@ -333,9 +333,10 @@ def build_rh_measure_from_misplaced(
         elif _local(child) in ("backup", "forward", "direction", "harmony"):
             out.append(copy.deepcopy(child))
 
-    cap = _measure_capacity_duration(primary_m, ns)
+    # 성부 전환 backup = 실제 voice1 cursor (attr capacity/divisions=4 오산 금지)
+    v1_cursor = _timeline_cursor_until(out, len(list(out)), ns)
     b = ET.SubElement(out, _q(ns, "backup"))
-    ET.SubElement(b, _q(ns, "duration")).text = str(cap)
+    ET.SubElement(b, _q(ns, "duration")).text = str(max(1, v1_cursor))
 
     for child in secondary_m:
         if _local(child) != "note":
@@ -347,6 +348,73 @@ def build_rh_measure_from_misplaced(
         _set_note_voice(n, "2", ns)
         out.append(n)
     return out
+
+
+def _ensure_staff_voice_backups(measure: ET.Element, ns: str, staff: str = "1") -> None:
+    """같은 staff에서 voice가 바뀌는데 사이에 backup이 없으면 cursor만큼 backup 삽입.
+
+    merge_rh가 성부 간 backup을 지우거나, 이미 깨진 마디를 고칠 때 쓴다.
+    backup이 없으면 v1+v2 duration이 이어져 cross-staff backup이 과대해지고 PL이 PR에 겹친다.
+    """
+    i = 0
+    cursor = 0
+    last_voice: str | None = None
+    need_backup_before_voice_change = False
+    while i < len(list(measure)):
+        children = list(measure)
+        el = children[i]
+        tag = _local(el)
+        if tag == "backup":
+            try:
+                cursor -= int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
+            except ValueError:
+                pass
+            cursor = max(0, cursor)
+            need_backup_before_voice_change = False
+            last_voice = None
+            i += 1
+            continue
+        if tag == "forward":
+            try:
+                cursor += int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
+            except ValueError:
+                pass
+            i += 1
+            continue
+        if tag != "note":
+            i += 1
+            continue
+        if el.find(_q(ns, "grace")) is not None:
+            i += 1
+            continue
+        st = el.findtext(_q(ns, "staff")) or "1"
+        if st != staff:
+            i += 1
+            continue
+        is_chord = el.find(_q(ns, "chord")) is not None
+        voice = (el.findtext(_q(ns, "voice")) or "1").strip() or "1"
+        if (
+            not is_chord
+            and last_voice is not None
+            and voice != last_voice
+            and need_backup_before_voice_change
+            and cursor > 0
+        ):
+            b = ET.Element(_q(ns, "backup"))
+            ET.SubElement(b, _q(ns, "duration")).text = str(cursor)
+            measure.insert(i, b)
+            cursor = 0
+            need_backup_before_voice_change = False
+            last_voice = None
+            continue
+        if not is_chord:
+            try:
+                cursor += int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
+            except ValueError:
+                pass
+            last_voice = voice
+            need_backup_before_voice_change = True
+        i += 1
 
 
 def _forward_timeline_duration(measure: ET.Element | None, ns: str) -> int:
@@ -377,8 +445,43 @@ def _forward_timeline_duration(measure: ET.Element | None, ns: str) -> int:
     return total
 
 
+def _timeline_cursor_until(measure: ET.Element, end_idx: int, ns: str) -> int:
+    """backup/forward·non-chord note를 반영한 cursor (end_idx 직전). 음수는 0으로 클램프."""
+    cursor = 0
+    for el in list(measure)[:end_idx]:
+        tag = _local(el)
+        if tag == "backup":
+            try:
+                cursor -= int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
+            except ValueError:
+                pass
+            cursor = max(0, cursor)
+            continue
+        if tag == "forward":
+            try:
+                cursor += int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
+            except ValueError:
+                pass
+            continue
+        if tag != "note":
+            continue
+        if el.find(_q(ns, "chord")) is not None:
+            continue
+        if el.find(_q(ns, "grace")) is not None:
+            continue
+        try:
+            cursor += int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
+        except ValueError:
+            pass
+    return max(0, cursor)
+
+
 def _fix_cross_staff_backup_duration(measure: ET.Element, ns: str) -> None:
-    """staff1 실제 길이에 맞춰 staff1→staff2 직전 backup을 고친다 (기본 divisions=4 오산 방지)."""
+    """staff1→staff2 직전 backup을 그때의 timeline cursor로 맞춘다.
+
+    성부 간 backup을 무시한 단순 합산은 다성 RH에서 cursor를 부풀리거나
+    (또는 첫 backup에서 끊겨) PL onset을 PR 위로 겹치게 만든다.
+    """
     staff1_notes = []
     staff2_notes = []
     for n in measure.findall(_q(ns, "note")):
@@ -401,37 +504,17 @@ def _fix_cross_staff_backup_duration(measure: ET.Element, ns: str) -> None:
             first_s2 = min(first_s2, i)
     if last_s1 < 0 or first_s2 >= len(children) or last_s1 >= first_s2:
         return
-    # staff1-only forward walk (ignore staff2 that shouldn't appear before backup)
-    s1_dur = 0
-    for el in children[: first_s2]:
-        tag = _local(el)
-        if tag == "backup":
-            break
-        if tag == "forward":
-            try:
-                s1_dur += int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
-            except ValueError:
-                pass
-            continue
-        if tag != "note":
-            continue
-        if el.find(_q(ns, "chord")) is not None:
-            continue
-        if (el.findtext(_q(ns, "staff")) or "1") != "1":
-            continue
-        try:
-            s1_dur += int((el.findtext(_q(ns, "duration")) or "0").strip() or 0)
-        except ValueError:
-            pass
-    if s1_dur <= 0:
-        return
     for i in range(last_s1 + 1, first_s2):
         el = children[i]
-        if _local(el) == "backup":
-            dur_el = el.find(_q(ns, "duration"))
-            if dur_el is not None and dur_el.text != str(s1_dur):
-                dur_el.text = str(s1_dur)
+        if _local(el) != "backup":
+            continue
+        need = _timeline_cursor_until(measure, i, ns)
+        if need <= 0:
             break
+        dur_el = el.find(_q(ns, "duration"))
+        if dur_el is not None and dur_el.text != str(need):
+            dur_el.text = str(need)
+        break
 
 
 def merge_rh_into_piano_measure(
@@ -477,38 +560,39 @@ def merge_rh_into_piano_measure(
     ET.SubElement(c2, _q(ns, "line")).text = "4"
     out.append(attrs)
 
-    # RH first (staff 1) — drop any nested backup from source (we insert one after RH)
+    # RH first (staff 1) — 성부 간 backup/forward는 유지 (지우면 v1+v2가 이어져 PL이 PR에 겹침)
     for child in rh_m:
         tag = _local(child)
         if tag == "attributes":
             continue
         if tag == "barline":
             continue
-        if tag == "backup":
-            continue
         if tag == "note":
             n = copy.deepcopy(child)
             _set_note_staff(n, "1", ns)
             out.append(n)
-        elif tag in ("forward", "direction", "harmony", "print"):
+        elif tag in ("backup", "forward", "direction", "harmony", "print"):
             el = copy.deepcopy(child)
             if tag == "direction":
                 for st in el.findall(_q(ns, "staff")):
                     st.text = "1"
             out.append(el)
 
-    rh_dur = _forward_timeline_duration(rh_m, ns)
-    lh_dur = _forward_timeline_duration(piano_m, ns)
-    attr_cap = _measure_capacity_duration(out, ns)
-    # Prefer actual RH length; never use attr_cap alone when it underflows RH (div=4 default bug)
-    backup_dur = max(rh_dur, lh_dur, 1)
-    if attr_cap > backup_dur and rh_dur > 0 and attr_cap <= rh_dur * 2:
-        # only trust attr_cap when divisions look consistent with RH
-        if attrs.find(_q(ns, "divisions")) is not None:
-            backup_dur = max(backup_dur, attr_cap)
+    _ensure_staff_voice_backups(out, ns, staff="1")
+
+    # cross-staff backup = RH 끝 cursor (다성이면 마지막 voice backup 이후의 cursor)
+    backup_dur = _timeline_cursor_until(out, len(list(out)), ns)
+    if backup_dur <= 0:
+        rh_dur = _forward_timeline_duration(rh_m, ns)
+        lh_dur = _forward_timeline_duration(piano_m, ns)
+        attr_cap = _measure_capacity_duration(out, ns)
+        backup_dur = max(rh_dur, lh_dur, 1)
+        if attr_cap > backup_dur and rh_dur > 0 and attr_cap <= rh_dur * 2:
+            if attrs.find(_q(ns, "divisions")) is not None:
+                backup_dur = max(backup_dur, attr_cap)
 
     b = ET.SubElement(out, _q(ns, "backup"))
-    ET.SubElement(b, _q(ns, "duration")).text = str(backup_dur)
+    ET.SubElement(b, _q(ns, "duration")).text = str(max(1, backup_dur))
 
     # LH on staff 2 (voices shifted so they do not collide with RH 1–2)
     for child in piano_m:
@@ -1227,6 +1311,7 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                 p_m = reclaimed_piano_m if reclaimed_piano_m is not None else piano_src_m
                 if p_m is not None:
                     p_m = copy.deepcopy(p_m)
+                    _ensure_staff_voice_backups(p_m, ns, staff="1")
                     _fix_cross_staff_backup_duration(p_m, ns)
                 if piano_split_pr_pl and p_m is not None:
                     # PR / PL as separate MusicXML parts (staff 1 / staff 2)

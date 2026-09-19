@@ -165,6 +165,7 @@ export function applyOsmdPreviewEngravingRules(
     r.VoiceSpacingAddendVexflow = Math.max(r.VoiceSpacingAddendVexflow, 3.5);
   }
   // Softmax↑ = duration 비례 간격(여유 폭이 있을 때). 최소폭 붕괴는 SVG onset layout align이 보정.
+  // 박자(duration) 비례 간격 — OSMD Softmax (SVG 전곡 재배치 없이 엔진에 맡김)
   if (typeof r.SoftmaxFactorVexFlow === 'number') {
     r.SoftmaxFactorVexFlow = Math.max(r.SoftmaxFactorVexFlow, 100);
   }

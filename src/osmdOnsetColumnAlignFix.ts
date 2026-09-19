@@ -2129,9 +2129,13 @@ function alignMeasureNotesByOnsetLayoutGrid(
   if (!partMeasureTargets.length) return false;
 
   const withinPart = staffWithinPartForIndex(partId, staffIndex);
-  const measureTargets = partMeasureTargets.filter((t) =>
-    targetStaffMatchesGraphic(withinPart, t.staff),
-  );
+  const soleStaffExtract = new Set(partMeasureTargets.map((t) => t.staff)).size === 1;
+  const measureTargets = partMeasureTargets.filter((t) => {
+    if (targetStaffMatchesGraphic(withinPart, t.staff)) return true;
+    // PR/PL split 후 XML staff가 1로 정규화된 경우
+    if (soleStaffExtract) return true;
+    return false;
+  });
   if (!measureTargets.length) return false;
 
   const xs = hits.map((h) => h.centerX);

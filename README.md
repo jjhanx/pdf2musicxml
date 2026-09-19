@@ -9,7 +9,7 @@ PDF 악보를 **Audiveris**로 변환해 **MusicXML(`.mxl` / `.musicxml`)** 로 
 
 ## 최근 변경 (Audiveris 기본 복귀)
 
-- **OSMD 미리보기 박자 간격**: Softmax·다성부 시스템에서 음표마다 Δx가 비슷해지는 문제를, render 후 **onset 비례 `data-osmd-layout-x` → 조표·박자 뒤 content box**(마디 공통 span, part-내 staffWithinPart 매칭)로 맞춥니다. 저장 MXL 불변. SoftmaxFactor≥100 보조. 회귀: `npx tsx _smoke/test_onset_layout_beat_spacing.ts`, `npx tsx _smoke/test_pr_pl_onset_beat_spacing.ts`, `npx tsx _smoke/test_fullscore_onset_spacing.ts`.
+- **OSMD 미리보기 박자 간격**: Softmax·다성부 시스템에서 음표마다 Δx가 비슷해지는 문제를, render 후 **onset 비례 `data-osmd-layout-x` → 시스템 content 폭(max(beat-type, 음표·쉼표 수))·마디 안 duration 비례**(마디 공통 span, part-내 staffWithinPart 매칭)로 맞춥니다. 저장 MXL 불변. SoftmaxFactor≥100 보조. 회귀: `npx tsx _smoke/test_onset_layout_beat_spacing.ts`, `npx tsx _smoke/test_pr_pl_onset_beat_spacing.ts`, `npx tsx _smoke/test_fullscore_onset_spacing.ts`.
 - **Audiveris mvt1/mvt2 병합**: 페이지마다 성부 수가 바뀌면 Audiveris가 `*.mvt1.mxl`·`*.mvt2.mxl`로 나누고, 예전 HITL은 첫 파일만 남겨 뒷 페이지 마디가 빠졌습니다. OMR 직후 같은 책의 악장 MXL을 마디 번호만 이어 붙여 한 악보로 만듭니다. `python _smoke/test_merge_audiveris_movements.py`.
 - **OMR 엔진 기본값 Audiveris**: `OMR_ENGINE` 미설정 시 **Audiveris CLI**로 MXL을 생성합니다. PDFtoMusic Pro(`OMR_ENGINE=pdftomusic`)는 **개인용 선택** — 상용 SaaS 자동화는 Myriad CLI 약관상 비권장.
 - **변환 방식 선택(웹 UI)**: 업로드 전 **변환 방식**을 고릅니다.

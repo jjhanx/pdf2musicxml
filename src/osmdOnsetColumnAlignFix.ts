@@ -481,38 +481,86 @@ function resolveContentLeftPx(osmd: OpenSheetMusicDisplay, gmRaw: unknown): numb
 }
 
 /**
- * 조표·박자 뒤 ~ 해당 마디 notehead 최우까지.
- * notehead min−pad를 origin으로 쓰면 onset0이 4/4·조표와 겹친다.
+ * 조표·박자 침범 시 notehead 구간을 통째로 우측 이동(폭 유지).
+ * 반환: placement에 쓸 [leftEdge, rightEdge] (아직 layout 그리드 미반영).
+ */
+function noteExtentClearedOfInstructions(
+  contentLeft: number | null,
+  minHit: number,
+  maxHit: number,
+  headPad: number,
+): { leftEdge: number; rightEdge: number } | null {
+  if (!(maxHit - minHit >= 8)) return null;
+  let leftEdge = minHit;
+  let rightEdge = maxHit;
+  if (contentLeft != null) {
+    const floor = contentLeft + headPad;
+    if (leftEdge < floor) {
+      const shift = floor - leftEdge;
+      leftEdge += shift;
+      rightEdge += shift;
+    }
+  }
+  return { leftEdge, rightEdge };
+}
+
+/**
+ * notehead 구간 [left,right]에 **실제 쓰인** layout-x 범위를 매핑.
+ * 항상 32..432 전체를 쓰면 마지막 음(예: 357)이 오른쪽 끝보다 왼쪽으로 당겨져 밀집해 보인다.
+ */
+function placementSpanFromExtentAndLayouts(
+  leftEdge: number,
+  rightEdge: number,
+  layoutXs: readonly number[],
+): { originX: number; spanPx: number } | null {
+  if (!(rightEdge - leftEdge >= 8) || !layoutXs.length) return null;
+  const lxMin = Math.min(...layoutXs);
+  const lxMax = Math.max(...layoutXs);
+  const f0 = Math.max(0, Math.min(1, (lxMin - LAYOUT_BASE_X) / LAYOUT_SPAN));
+  const f1 = Math.max(0, Math.min(1, (lxMax - LAYOUT_BASE_X) / LAYOUT_SPAN));
+  const fSpan = Math.max(1e-6, f1 - f0);
+  const spanPx = (rightEdge - leftEdge) / fSpan;
+  const originX = leftEdge - f0 * spanPx;
+  if (!(spanPx >= 8)) return null;
+  return { originX, spanPx };
+}
+
+/**
+ * 조표·박자 침범만 피하고 notehead 자연 span 폭은 유지.
+ * layoutXs가 있으면 그 범위↔notehead 구간 매핑, 없으면 32..432↔구간.
  */
 function contentSpanFromGraphicMeasure(
   osmd: OpenSheetMusicDisplay,
   gmRaw: unknown,
   hits: readonly { centerX: number }[],
+  layoutXs?: readonly number[],
 ): { originX: number; spanPx: number } | null {
   const scale = getOsmdUnitInPixels(osmd);
   const headPad = Math.max(2, scale * 0.35);
   const contentLeft = resolveContentLeftPx(osmd, gmRaw);
   const xs = hits.map((h) => h.centerX).filter((x) => Number.isFinite(x));
-  if (!xs.length) return null;
-  const maxHit = Math.max(...xs);
-  if (contentLeft != null) {
-    const originX = contentLeft + headPad;
-    const endX = Math.max(maxHit, originX + 16);
-    if (endX - originX >= 8) return { originX, spanPx: endX - originX };
-  }
-  return measureSpanFromHits(hits);
+  if (xs.length < 2) return null;
+  const ext = noteExtentClearedOfInstructions(contentLeft, Math.min(...xs), Math.max(...xs), headPad);
+  if (!ext) return measureSpanFromHits(hits);
+  const lxs = layoutXs?.length ? layoutXs : [LAYOUT_BASE_X, LAYOUT_BASE_X + LAYOUT_SPAN];
+  return placementSpanFromExtentAndLayouts(ext.leftEdge, ext.rightEdge, lxs) ?? measureSpanFromHits(hits);
 }
 
+type SharedMeasureExtent = {
+  leftEdge: number;
+  rightEdge: number;
+  /** 조표·박자 침범 해소용 공통 우측 시프트(모든 성부 동일, Softmax 간격 유지). */
+  rigidShiftPx: number;
+};
+
 /**
- * 같은 마디 번호의 전 성부가 동일 content span을 쓰도록 수집
- * (다성부 박자 세로 정렬 + 조표·박자 비침범).
+ * 같은 마디 번호 전 성부 notehead 합집합.
+ * 침범 시 폭을 줄이지 않고 rigidShiftPx만 계산(배치 시 통째 이동).
  */
-function collectSharedContentSpans(
-  osmd: OpenSheetMusicDisplay,
-): Map<number, { originX: number; spanPx: number }> {
+function collectSharedMeasureExtents(osmd: OpenSheetMusicDisplay): Map<number, SharedMeasureExtent> {
   const scale = getOsmdUnitInPixels(osmd);
   const headPad = Math.max(2, scale * 0.35);
-  type Acc = { contentLeft: number | null; maxHit: number };
+  type Acc = { contentLeft: number | null; minHit: number; maxHit: number };
   const acc = new Map<number, Acc>();
 
   forEachGraphicalMeasure(osmd, (gmRaw) => {
@@ -522,26 +570,62 @@ function collectSharedContentSpans(
     const hits = collectMeasureNoteHits(osmd, gmRaw);
     if (!hits.length) return;
     const cLeft = resolveContentLeftPx(osmd, gmRaw);
-    const maxHit = Math.max(...hits.map((h) => h.centerX));
+    const xs = hits.map((h) => h.centerX);
+    const minHit = Math.min(...xs);
+    const maxHit = Math.max(...xs);
     const prev = acc.get(measureNumber);
     if (!prev) {
-      acc.set(measureNumber, { contentLeft: cLeft, maxHit });
+      acc.set(measureNumber, { contentLeft: cLeft, minHit, maxHit });
       return;
     }
     if (cLeft != null) {
       prev.contentLeft = prev.contentLeft == null ? cLeft : Math.max(prev.contentLeft, cLeft);
     }
+    prev.minHit = Math.min(prev.minHit, minHit);
     prev.maxHit = Math.max(prev.maxHit, maxHit);
   });
 
-  const out = new Map<number, { originX: number; spanPx: number }>();
+  const out = new Map<number, SharedMeasureExtent>();
   for (const [mn, a] of acc) {
-    if (a.contentLeft == null) continue;
-    const originX = a.contentLeft + headPad;
-    const endX = Math.max(a.maxHit, originX + 16);
-    if (endX - originX >= 8) out.set(mn, { originX, spanPx: endX - originX });
+    if (a.maxHit - a.minHit < 8 && a.minHit === a.maxHit) {
+      // 단일음 마디
+      const floor = a.contentLeft != null ? a.contentLeft + headPad : a.minHit;
+      const shift = Math.max(0, floor - a.minHit);
+      out.set(mn, {
+        leftEdge: a.minHit + shift,
+        rightEdge: a.maxHit + shift,
+        rigidShiftPx: shift,
+      });
+      continue;
+    }
+    if (a.maxHit - a.minHit < 8) continue;
+    const floor = a.contentLeft != null ? a.contentLeft + headPad : a.minHit;
+    const rigidShiftPx = Math.max(0, floor - a.minHit);
+    out.set(mn, {
+      leftEdge: a.minHit + rigidShiftPx,
+      rightEdge: a.maxHit + rigidShiftPx,
+      rigidShiftPx,
+    });
   }
   return out;
+}
+
+/** 마디 공통 rigid shift — Softmax 상대 간격 유지한 채 조표·박자만 비킴. */
+function applyRigidShiftForMeasure(
+  osmd: OpenSheetMusicDisplay,
+  measureNumber: number,
+  shiftPx: number,
+): boolean {
+  if (!(shiftPx > 0.5)) return false;
+  let moved = false;
+  forEachGraphicalMeasure(osmd, (gmRaw) => {
+    if (measureMxlFromGraphic(gmRaw as never) !== measureNumber) return;
+    for (const h of collectMeasureNoteHits(osmd, gmRaw)) {
+      applySvgTranslateX(h.stavenote, shiftPx, Math.max(MAX_ONSET_ALIGN_SHIFT_PX, shiftPx + 20));
+      moved = true;
+    }
+  });
+  return moved;
 }
 
 /** OSMD 시스템 staffIndex → MusicXML part-내 staff(1=윗줄). 전곡에서 staffIndex≠XML staff. */
@@ -1946,23 +2030,24 @@ function alignPlayOrderAlignRefsToAnchorVoice(
 }
 
 /**
- * 전 마디·전 성부 — musical onset 비례 layout-x(32..432)를 content box에 재배치.
- * Softmax 최소폭 붕괴 보정. 저장 MXL·measure@width 불변.
- * staff: MusicXML part-내 staff(staffWithinPart). 시스템 staffIndex+1 오용 금지.
- * sharedSpan: 같은 마디 번호 전 성부 공통 (세로 박자 정렬 + 조표·박자 비침범).
+ * musical onset 비례 재배치.
+ * 마디 공통 notehead 구간(sharedExtent)에 **voice별 layout-x 범위**를 매핑 —
+ * 전 성부 layout 32..432를 쓰면 밀집 voice의 작은 Δlayout이 떡이 된다.
+ * Softmax 최소간격보다 조일 때만 해당 voice 건너뜀.
+ * rigid shift는 호출 전에 이미 적용된 상태.
  */
 function alignMeasureNotesByOnsetLayoutGrid(
   osmd: OpenSheetMusicDisplay,
   gmRaw: unknown,
   staffIndex: number,
   targets: readonly PreviewNoteLayoutTarget[],
-  sharedSpan?: { originX: number; spanPx: number } | null,
+  sharedExtent?: SharedMeasureExtent | null,
+  _measureLayoutXs?: readonly number[] | null,
 ): boolean {
   const partId = partIdFromGraphic(gmRaw as never);
   const measureNumber = measureMxlFromGraphic(gmRaw as never);
   if (!partId || measureNumber == null) return false;
 
-  for (const h of collectMeasureNoteHits(osmd, gmRaw)) clearStavenoteTranslateX(h.stavenote);
   const hits = collectMeasureNoteHits(osmd, gmRaw);
   if (!hits.length) return false;
 
@@ -1982,11 +2067,8 @@ function alignMeasureNotesByOnsetLayoutGrid(
   });
   if (!measureTargets.length) return false;
 
-  const measureSpan =
-    sharedSpan ?? contentSpanFromGraphicMeasure(osmd, gmRaw, hits) ?? measureSpanFromHits(hits);
-  if (!measureSpan) return false;
-
   type Column = { layoutX: number; pitchSet: string[]; expectHeads: number };
+  type Place = { stavenote: SVGGraphicsElement; centerX: number; layoutX: number };
   const voices = [...new Set(measureTargets.map((t) => t.voice))];
   let moved = false;
 
@@ -2021,6 +2103,7 @@ function alignMeasureNotesByOnsetLayoutGrid(
     if (!voiceHits.length) continue;
 
     const used = new Set<SVGGraphicsElement>();
+    const voicePlan: Place[] = [];
     for (const col of columns) {
       const candidates = voiceHits
         .filter((h) => !used.has(h.stavenote))
@@ -2035,17 +2118,59 @@ function alignMeasureNotesByOnsetLayoutGrid(
           )[0]!;
       }
       used.add(hit.stavenote);
-      if (Math.abs(hit.centerX - wantXFromLayoutGrid(measureSpan, col.layoutX)) > 0.5) moved = true;
-      alignStavenoteToTarget(hit.stavenote, col.layoutX, hit.centerX, measureSpan);
+      voicePlan.push({ stavenote: hit.stavenote, centerX: hit.centerX, layoutX: col.layoutX });
+    }
+    if (!voicePlan.length) continue;
+
+    const voiceLayouts = voicePlan.map((p) => p.layoutX);
+    let measureSpan: { originX: number; spanPx: number } | null = null;
+    if (sharedExtent && voicePlan.length >= 2) {
+      measureSpan = placementSpanFromExtentAndLayouts(
+        sharedExtent.leftEdge,
+        sharedExtent.rightEdge,
+        voiceLayouts,
+      );
+    }
+    if (!measureSpan) {
+      measureSpan =
+        contentSpanFromGraphicMeasure(osmd, gmRaw, hits, voiceLayouts) ??
+        measureSpanFromHits(hits);
+    }
+    if (!measureSpan) continue;
+
+    // 목표 X(layout 순) — Softmax 최소간격 미만이면 뒤 음을 오른쪽으로 밀어 떡 방지
+    const ordered = [...voicePlan].sort((a, b) => a.layoutX - b.layoutX || a.centerX - b.centerX);
+    const wantByNote = new Map<SVGGraphicsElement, number>();
+    const natXs = ordered.map((p) => p.centerX).sort((a, b) => a - b);
+    const natGaps = natXs.length >= 2 ? natXs.slice(1).map((x, i) => x - natXs[i]!) : [];
+    const minGap =
+      natGaps.length > 0 ? Math.max(8, Math.min(...natGaps)) : 8;
+    let prevWant = -Infinity;
+    for (const p of ordered) {
+      let want = wantXFromLayoutGrid(measureSpan, p.layoutX);
+      if (want < prevWant + minGap) want = prevWant + minGap;
+      wantByNote.set(p.stavenote, want);
+      prevWant = want;
+    }
+
+    for (const p of voicePlan) {
+      const want = wantByNote.get(p.stavenote) ?? wantXFromLayoutGrid(measureSpan, p.layoutX);
+      const dx = want - p.centerX;
+      if (Math.abs(dx) > 0.5) moved = true;
+      applySvgTranslateX(
+        p.stavenote,
+        dx,
+        Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2),
+      );
     }
   }
   return moved;
 }
 
-/** 조표·박자 영역 왼쪽에 남은 음표를 content origin 오른쪽으로 밀어냄(온음 등 단일음 포함). */
+/** 조표·박자 왼쪽에 남은 음표(단일음 등)만 floor 이상으로. */
 function pushNotesOutOfBeginInstructions(
   osmd: OpenSheetMusicDisplay,
-  sharedSpans: Map<number, { originX: number; spanPx: number }>,
+  sharedExtents: Map<number, SharedMeasureExtent>,
 ): boolean {
   let moved = false;
   forEachGraphicalMeasure(osmd, (gmRaw) => {
@@ -2053,13 +2178,11 @@ function pushNotesOutOfBeginInstructions(
     if (measureNumber == null) return;
     const hits = collectMeasureNoteHits(osmd, gmRaw);
     if (!hits.length) return;
-    const span =
-      sharedSpans.get(measureNumber) ?? contentSpanFromGraphicMeasure(osmd, gmRaw, hits);
-    if (!span) return;
+    const floor = sharedExtents.get(measureNumber)?.leftEdge;
+    if (floor == null) return;
     for (const h of hits) {
-      if (h.centerX + 0.5 >= span.originX) continue;
-      const dx = span.originX - h.centerX;
-      applySvgTranslateX(h.stavenote, dx, Math.max(MAX_ONSET_ALIGN_SHIFT_PX, span.spanPx * 2));
+      if (h.centerX + 0.5 >= floor) continue;
+      applySvgTranslateX(h.stavenote, floor - h.centerX, MAX_ONSET_ALIGN_SHIFT_PX * 2);
       moved = true;
     }
   });
@@ -2079,7 +2202,6 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   activeStaffWithinPartByIndex = buildStaffWithinPartByStaffIndex(osmd);
   let didAlign = false;
   try {
-    // 1) linkParallel·순번 참조·partial voice (특수 column)
     if (hints.length > 0) {
       alignLinkedParallelHintGroups(osmd, hints);
       didAlign = true;
@@ -2096,18 +2218,30 @@ export function alignOsmdPreviewNotesByOnsetColumn(
       });
       didAlign = true;
     }
-    // 2) 전곡 onset 비례 — content box에 layout-x 매핑 (마지막에 두어 덮어쓰지 않음)
-    const sharedSpans = collectSharedContentSpans(osmd);
+
+    const sharedExtents = collectSharedMeasureExtents(osmd);
+    for (const [mn, ext] of sharedExtents) {
+      if (applyRigidShiftForMeasure(osmd, mn, ext.rigidShiftPx)) didAlign = true;
+    }
+
+    const layoutsByMeasure = new Map<number, number[]>();
+    for (const t of targets) {
+      if (!Number.isFinite(t.defaultXTenths)) continue;
+      const list = layoutsByMeasure.get(t.measureNumber) ?? [];
+      list.push(t.defaultXTenths);
+      layoutsByMeasure.set(t.measureNumber, list);
+    }
     if (targets.length > 0) {
       forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
         const measureNumber = measureMxlFromGraphic(gmRaw as never);
-        const shared = measureNumber != null ? sharedSpans.get(measureNumber) : undefined;
-        if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets, shared)) {
+        const extent = measureNumber != null ? sharedExtents.get(measureNumber) : undefined;
+        const lxs = measureNumber != null ? layoutsByMeasure.get(measureNumber) : undefined;
+        if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets, extent, lxs)) {
           didAlign = true;
         }
       });
     }
-    if (pushNotesOutOfBeginInstructions(osmd, sharedSpans)) didAlign = true;
+    if (pushNotesOutOfBeginInstructions(osmd, sharedExtents)) didAlign = true;
   } finally {
     activeStaffWithinPartByIndex = null;
   }

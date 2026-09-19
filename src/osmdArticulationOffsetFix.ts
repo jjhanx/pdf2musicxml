@@ -883,15 +883,15 @@ function pendingHaveMultiArtOnSameNote(fixes: ArticulationPreviewFix[]): boolean
 }
 
 function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
-  const base = targetPartId.replace(/__PR$|__PL$/, '');
+  if (graphicPartId === targetPartId) return true;
+  const tBase = targetPartId.replace(/__PR$|__PL$/, '');
   const gBase = graphicPartId.replace(/__PR$|__PL$/, '');
-  return (
-    graphicPartId === targetPartId ||
-    graphicPartId === base ||
-    graphicPartId === `${base}__PR` ||
-    graphicPartId === `${base}__PL` ||
-    gBase === base
-  );
+  if (gBase !== tBase) return false;
+  const tSplit = targetPartId !== tBase;
+  const gSplit = graphicPartId !== gBase;
+  // 둘 다 __PR/__PL 이면 접미사까지 일치해야 함(PR≠PL)
+  if (tSplit && gSplit) return false;
+  return true;
 }
 
 /** MusicXML `<staff>` — 파트 내 줄 번호 (OSMD staffline index 아님). */

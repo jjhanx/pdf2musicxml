@@ -498,15 +498,15 @@ function alignStavenoteToTarget(
 type LayoutTarget = { defaultXTenths: number; playOrder: number | null; pitch: string; voice: string };
 
 function partIdsMatch(graphicPartId: string, targetPartId: string): boolean {
-  const base = targetPartId.replace(/__PR$|__PL$/, '');
+  if (graphicPartId === targetPartId) return true;
+  const tBase = targetPartId.replace(/__PR$|__PL$/, '');
   const gBase = graphicPartId.replace(/__PR$|__PL$/, '');
-  return (
-    graphicPartId === targetPartId ||
-    graphicPartId === base ||
-    graphicPartId === `${base}__PR` ||
-    graphicPartId === `${base}__PL` ||
-    gBase === base
-  );
+  if (gBase !== tBase) return false;
+  const tSplit = targetPartId !== tBase;
+  const gSplit = graphicPartId !== gBase;
+  // 둘 다 __PR/__PL 이면 접미사까지 일치해야 함(PR≠PL). 한쪽만 split이면 base 공유 허용.
+  if (tSplit && gSplit) return false;
+  return true;
 }
 
 /** XML `<staff>` vs OSMD staffIndex+1. PL/PR split 추출 시 XML은 `<staff>2</staff>` 유지, OSMD는 sole staffIndex 0. REGRESSION: test_partial_voice_regression.ts */
@@ -1821,9 +1821,9 @@ function alignPlayOrderAlignRefsToAnchorVoice(
  * OSMD/VexFlow Softmax는 마디가 최소폭에 붙으면 음표마다 비슷한 Δx를 줘 박자 간격이 깨짐(다성부 m13 등).
  * 저장 MXL·measure@width는 불변. 폭 확장은 하지 않음(다음 마디 침범 방지).
  *
- * staff 매칭: 그랜드스태프(XML staff 1+2)는 **엄격**. PL/PR 단독(XML staff 하나만)일 때만
- * OSMD staffIndex 0에 느슨 매칭.
- * sharedSpan: 같은 part·마디의 양 오선 notehead를 합친 span — 박·성부 세로 정렬.
+ * staff 매칭: 그랜드스태프(XML staff 1+2)는 엄격. 단일 오선 part(PR/PL split)는
+ * OSMD staffIndex와 XML staff가 달라도 매칭(시스템 행에서 PL이 staffIdx 1일 수 있음).
+ * sharedSpan: 같은 base part·마디(PR+PL 합침) notehead span — 박자 세로 정렬.
  */
 function alignMeasureNotesByOnsetLayoutGrid(
   osmd: OpenSheetMusicDisplay,
@@ -1847,11 +1847,14 @@ function alignMeasureNotesByOnsetLayoutGrid(
   });
   if (partMeasureTargets.length < 2) return false;
 
+  // 그랜드스태프(staff 1+2)는 엄격 매칭. 단일 오선 part(PR/PL split)는
+  // OSMD staffIndex가 시스템 행에서 0이 아닐 수 있음(PL → staffIdx 1) —
+  // XML staff(변환 후 1)와 달라도 같은 part면 매칭.
   const soleStaffExtract = new Set(partMeasureTargets.map((t) => t.staff)).size === 1;
   const graphicStaff = staffIndex + 1;
   const measureTargets = partMeasureTargets.filter((t) => {
     if (t.staff === graphicStaff) return true;
-    if (soleStaffExtract && graphicStaff === 1) return true;
+    if (soleStaffExtract) return true;
     return false;
   });
   if (measureTargets.length < 2) return false;
@@ -1919,7 +1922,9 @@ function alignMeasureNotesByOnsetLayoutGrid(
   return moved;
 }
 
-/** part|measure → 양 오선 notehead를 합친 SVG span (박자 세로 정렬용). */
+
+/** part|measure → 양 오선 notehead를 합친 SVG span (박자 세로 정렬용).
+ * PR/PL split part는 base id로 묶어 같은 마디 폭을 공유(PL 4분음이 PR 박에 맞춤). */
 function collectSharedOnsetLayoutSpans(
   osmd: OpenSheetMusicDisplay,
 ): Map<string, { originX: number; spanPx: number }> {
@@ -1931,7 +1936,8 @@ function collectSharedOnsetLayoutSpans(
     for (const h of collectMeasureNoteHits(osmd, gmRaw)) clearStavenoteTranslateX(h.stavenote);
     const hits = collectMeasureNoteHits(osmd, gmRaw);
     if (!hits.length) return;
-    const key = `${partId}|${measureNumber}`;
+    const baseId = partId.replace(/__PR$|__PL$/, '');
+    const key = `${baseId}|${measureNumber}`;
     const list = hitsByKey.get(key) ?? [];
     for (const h of hits) list.push({ centerX: h.centerX });
     hitsByKey.set(key, list);
@@ -1961,8 +1967,9 @@ export function alignOsmdPreviewNotesByOnsetColumn(
     forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
       const partId = partIdFromGraphic(gmRaw as never);
       const measureNumber = measureMxlFromGraphic(gmRaw as never);
+      const baseId = partId?.replace(/__PR$|__PL$/, '') ?? '';
       const shared =
-        partId && measureNumber != null ? sharedSpans.get(`${partId}|${measureNumber}`) : undefined;
+        baseId && measureNumber != null ? sharedSpans.get(`${baseId}|${measureNumber}`) : undefined;
       if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets, shared)) {
         didAlign = true;
       }

@@ -1258,7 +1258,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
     }
   }
 
-  const reshapeByStemTips = (el: Element, pad = 20): void => {
+  const reshapeByStemTips = (el: Element, pad = 8): void => {
     // path는 로컬 좌표, el translate는 별도 → 목표 x는 effectiveX - beamTx (이중 이동 방지).
     // 평행 시프트 후에도 OSMD가 남긴 tip inset(±1px)을 여기서 맞춘다.
     const beamTx = readElementTranslateX(el as SVGGraphicsElement);
@@ -1294,59 +1294,102 @@ function syncVfEngravingInMeasure(measure: Element): void {
       // 8분 연결 빔은 종종 14–17px라 18 임계면 놓쳐 끝이 어긋남.
       if (origW < 12) continue;
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
+      const yOk = (t: StemTip) => ys.length === 0 || stemShaftCrossesBeamY(t, beamY);
 
-      // 빔 span 안 줄기. y 대역으로 다른 보표·다른 방향(같은 x의 v6 등) 줄기 제외.
+      // 1차: OSMD 원좌표(naturalX)↔path. 2차 align: path가 이미 remesh돼 effectiveX로 매칭.
       let matched = tipsAfter.filter(
-        (t) =>
-          t.naturalX >= oldLeft - 4 &&
-          t.naturalX <= oldRight + 8 &&
-          (ys.length === 0 || stemShaftCrossesBeamY(t, beamY)),
+        (t) => t.naturalX >= oldLeft - 4 && t.naturalX <= oldRight + 4 && yOk(t),
       );
+      let matchByEffective = false;
+      if (matched.length < 2) {
+        matched = tipsAfter.filter(
+          (t) => t.effectiveX >= oldLeft - 4 && t.effectiveX <= oldRight + 4 && yOk(t),
+        );
+        matchByEffective = matched.length >= 2;
+      }
 
       // 빔 왼쪽 끝이 어떤 줄기 tip에도 안 닿을 때만 orphan 편입.
       // (grand staff PL: 같은 onset의 stem-down v6가 4~14px 왼쪽에 있어도 y가 안 맞으면 제외 —
       //  예: m4 D3 빔이 D2 줄기로 빨려 깨지던 회귀)
-      const stemAtBeamStart = matched.some((t) => Math.abs(t.naturalX - oldLeft) <= 4);
-      if (!stemAtBeamStart && matched.length >= 1) {
-        const orphans = tipsAfter.filter((t) => {
-          if (ys.length && !stemShaftCrossesBeamY(t, beamY)) return false;
-          const gap = oldLeft - t.naturalX;
-          return gap > 4 && gap <= 14;
-        });
-        if (orphans.length) matched = [...orphans, ...matched];
+      if (!matchByEffective) {
+        const stemAtBeamStart = matched.some((t) => Math.abs(t.naturalX - oldLeft) <= 4);
+        if (!stemAtBeamStart && matched.length >= 1) {
+          const orphans = tipsAfter.filter((t) => {
+            if (!yOk(t)) return false;
+            const gap = oldLeft - t.naturalX;
+            return gap > 4 && gap <= 14;
+          });
+          if (orphans.length) matched = [...orphans, ...matched];
+        }
       }
 
       // 다른 voice 줄기가 span 앞에만 걸치면(거의 빔 밖) 제외 — 왼쪽 여유 4px만
       if (matched.length < 2) {
-        const yOk = (t: StemTip) => ys.length === 0 || stemShaftCrossesBeamY(t, beamY);
+        const refX = (t: StemTip) => (matchByEffective ? t.effectiveX : t.naturalX);
         const byLeft = tipsAfter
           .filter(yOk)
           .slice()
-          .sort((a, b) => Math.abs(a.naturalX - oldLeft) - Math.abs(b.naturalX - oldLeft));
-        const leftTip = byLeft[0];
+          .sort((a, b) => Math.abs(refX(a) - oldLeft) - Math.abs(refX(b) - oldLeft));
+        const leftCand = byLeft[0];
         const byRight = tipsAfter
           .filter(yOk)
           .slice()
-          .sort((a, b) => Math.abs(a.naturalX - oldRight) - Math.abs(b.naturalX - oldRight));
-        const rightTip = byRight.find((t) => t !== leftTip) ?? byRight[0];
+          .sort((a, b) => Math.abs(refX(a) - oldRight) - Math.abs(refX(b) - oldRight));
+        const rightCand = byRight.find((t) => t !== leftCand) ?? byRight[0];
         if (
-          leftTip &&
-          rightTip &&
-          leftTip !== rightTip &&
-          Math.abs(leftTip.naturalX - oldLeft) <= pad &&
-          Math.abs(rightTip.naturalX - oldRight) <= pad
+          leftCand &&
+          rightCand &&
+          leftCand !== rightCand &&
+          Math.abs(refX(leftCand) - oldLeft) <= pad &&
+          Math.abs(refX(rightCand) - oldRight) <= pad
         ) {
-          matched = [leftTip, rightTip];
+          matched = [leftCand, rightCand];
         }
       }
       if (matched.length < 2) continue;
 
+      // 양끝만 — span 안 모든 줄기 min/max를 쓰면 2차/부분 빔이 1차 전체로 늘어나 깨짐(m9 S/A/PR).
+      const tipRef = (t: StemTip) => (matchByEffective ? t.effectiveX : t.naturalX);
+      let leftTip = matched[0]!;
+      let rightTip = matched[0]!;
+      let leftDist = Infinity;
+      let rightDist = Infinity;
+      for (const t of matched) {
+        const dL = Math.abs(tipRef(t) - oldLeft);
+        const dR = Math.abs(tipRef(t) - oldRight);
+        if (dL < leftDist - 0.05 || (Math.abs(dL - leftDist) <= 0.05 && tipRef(t) < tipRef(leftTip))) {
+          leftDist = dL;
+          leftTip = t;
+        }
+        if (dR < rightDist - 0.05 || (Math.abs(dR - rightDist) <= 0.05 && tipRef(t) > tipRef(rightTip))) {
+          rightDist = dR;
+          rightTip = t;
+        }
+      }
+      const minRef = Math.min(...matched.map(tipRef));
+      const maxRef = Math.max(...matched.map(tipRef));
+      // 빔이 멤버보다 왼쪽/오른쪽으로 삐져나온 경우(OSMD overhang) → 맨 끝 멤버로 스냅
+      const leftOverhang = oldLeft < minRef - 2;
+      const rightOverhang = oldRight > maxRef + 2;
+      if (leftOverhang) {
+        leftTip = matched.reduce((a, b) => (tipRef(a) <= tipRef(b) ? a : b));
+        leftDist = Math.abs(tipRef(leftTip) - oldLeft);
+      }
+      if (rightOverhang) {
+        rightTip = matched.reduce((a, b) => (tipRef(a) >= tipRef(b) ? a : b));
+        rightDist = Math.abs(tipRef(rightTip) - oldRight);
+      }
+      if (leftTip === rightTip) continue;
+      // 끝이 원래 빔 끝에서 너무 멀면 오매칭(overhang 스냅·orphan 4–14px는 허용)
+      if (!leftOverhang && leftDist > 12) continue;
+      if (!rightOverhang && rightDist > 12) continue;
+
       // path 목표는 화면 effectiveX. reshape 후 빔 translate X는 지워 이중 가산 방지.
-      const newLeft = Math.min(...matched.map((t) => t.effectiveX));
-      const newRight = Math.max(...matched.map((t) => t.effectiveX));
+      const newLeft = Math.min(leftTip.effectiveX, rightTip.effectiveX);
+      const newRight = Math.max(leftTip.effectiveX, rightTip.effectiveX);
       if (newRight - newLeft < 1) continue;
-      // 1차 빔도 과도하게 늘리지 않음(옆 voice 줄기로 빨려 들어가는 경우)
-      if (newRight - newLeft > origW * 1.5 + 12) continue;
+      // 1차도 과도 확장 금지(옆 voice·다른 빔 줄기 오매칭)
+      if (newRight - newLeft > origW * 1.35 + 8) continue;
       if (
         Math.abs(newLeft - (oldLeft + beamTx)) < 0.35 &&
         Math.abs(newRight - (oldRight + beamTx)) < 0.35 &&

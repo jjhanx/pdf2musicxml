@@ -134,4 +134,18 @@ assert.ok(
   `hook must stay unstretched, got ${r.left}..${r.right} w=${r.right - r.left}`,
 );
 
+// Secondary beam (partial): must follow its own endpoints, not stretch to primary's first stem
+measure.innerHTML = '';
+addStavenote(100, 0);
+addStavenote(130, 0);
+addStavenote(160, 0);
+addBeam(100, 160); // primary
+const secondary = addBeam(130, 160); // 2차 — span 안 1번 줄기가 있어도 끝만
+syncVfStemsAndBeamsAfterStavenoteAlign(host);
+r = beamRange(secondary);
+assert.ok(
+  Math.abs(r.left - 130) < 1.5 && Math.abs(r.right - 160) < 1.5,
+  `secondary must not stretch to primary start, got ${r.left}..${r.right}`,
+);
+
 console.log('test_beam_snap_to_stems: OK');

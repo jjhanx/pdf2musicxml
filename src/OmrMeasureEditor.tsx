@@ -2288,6 +2288,8 @@ export function OmrMeasureEditor({
   /** 음자리표 변경/삽입 시 음높이: keep=유지, remap=오선 위치 유지·pitch 변환.
    * OMR clef 오인 교정이 많아 기본은 remap(오선 위치 유지). */
   const [clefPitchMode, setClefPitchMode] = useState<'keep' | 'remap'>('remap');
+  /** 마디 머리 조표(fifths). 0=C/Am */
+  const [keyFifths, setKeyFifths] = useState(0);
 
   const handleApplyClef = useCallback(
     (sign: 'G' | 'F', line: 2 | 4) => {
@@ -2337,6 +2339,65 @@ export function OmrMeasureEditor({
       onAddFix,
     ],
   );
+
+  const keyScopeRange = useCallback((): { rangeStr: string; scopeLabel: string } => {
+    if (clefScope === 'all') return { rangeStr: '1-999', scopeLabel: '1마디부터 곡 전체' };
+    if (clefScope === 'range') {
+      const a = Math.min(clefStartMeasure, clefEndMeasure);
+      const b = Math.max(clefStartMeasure, clefEndMeasure);
+      return { rangeStr: `${a}-${b}`, scopeLabel: `${a}–${b}마디` };
+    }
+    return { rangeStr: String(measureMxl), scopeLabel: `${measureMxl}마디` };
+  }, [clefScope, clefStartMeasure, clefEndMeasure, measureMxl]);
+
+  const handleApplyKey = useCallback(() => {
+    const { rangeStr, scopeLabel } = keyScopeRange();
+    const f = Math.max(-7, Math.min(7, Math.floor(keyFifths)));
+    const keyLabel =
+      f === 0
+        ? 'C장조 / A단조 (조표 없음·♮)'
+        : f > 0
+          ? `${'♯'.repeat(f)} (${f}♯)`
+          : `${'♭'.repeat(Math.abs(f))} (${Math.abs(f)}♭)`;
+    const fix: OmrHitlFix = {
+      id: newFixId(),
+      kind: 'setMeasureKey',
+      partId,
+      measureMxl: rangeStr,
+      fifths: f,
+      staff: editStaffWithinPart ?? undefined,
+      removeSubsequentKeys: clefScope !== 'single',
+      detail: `${staffLabel ? `${staffLabel} ` : ''}조표 ${keyLabel} (${scopeLabel} · 마디 머리·음자리표와 함께)`,
+    };
+    onAddFix(fix);
+    setFixMsg(
+      `✅ ${staffLabel ? `${staffLabel} ` : ''}${scopeLabel} 머리에 조표 ${keyLabel} 등록. 「MXL에 반영·미리보기」로 적용하세요.`,
+    );
+  }, [
+    keyScopeRange,
+    keyFifths,
+    partId,
+    editStaffWithinPart,
+    clefScope,
+    staffLabel,
+    onAddFix,
+  ]);
+
+  const handleRemoveKey = useCallback(() => {
+    const { rangeStr, scopeLabel } = keyScopeRange();
+    const fix: OmrHitlFix = {
+      id: newFixId(),
+      kind: 'removeMeasureKey',
+      partId,
+      measureMxl: rangeStr,
+      staff: editStaffWithinPart ?? undefined,
+      detail: `${staffLabel ? `${staffLabel} ` : ''}조표 제거 (${scopeLabel} 머리)`,
+    };
+    onAddFix(fix);
+    setFixMsg(
+      `✅ ${staffLabel ? `${staffLabel} ` : ''}${scopeLabel} 머리 조표 제거 등록. 「MXL에 반영·미리보기」로 적용하세요.`,
+    );
+  }, [keyScopeRange, partId, editStaffWithinPart, staffLabel, onAddFix]);
 
   const measureMxlStr = String(measureMxl);
 
@@ -3293,6 +3354,61 @@ export function OmrMeasureEditor({
             <span>𝄢</span>
             <span>낮은음자리표 (Bass F) 로 변경</span>
           </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 14,
+            paddingTop: 12,
+            borderTop: '1px dashed #cbd5e1',
+          }}
+        >
+          <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>
+            <strong>조표(키)</strong> — 마디 맨 앞 음자리표와 같은 머리 attributes에 넣습니다(악보에서는 음자리표 뒤에 보임).
+            OMR이 조표를 빠뜨렸을 때 위에서 고른 <strong>적용 범위</strong>로 삽입·변경합니다.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: '0.86rem' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>조표:</span>
+              <select
+                value={keyFifths}
+                onChange={(e) => setKeyFifths(parseInt(e.target.value, 10) || 0)}
+                style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #94a3b8' }}
+              >
+                <option value={0}>없음 · C / Am (♮)</option>
+                <option value={1}>1♯ · G / Em</option>
+                <option value={2}>2♯ · D / Bm</option>
+                <option value={3}>3♯ · A / F♯m</option>
+                <option value={4}>4♯ · E / C♯m</option>
+                <option value={5}>5♯ · B / G♯m</option>
+                <option value={6}>6♯ · F♯ / D♯m</option>
+                <option value={7}>7♯ · C♯ / A♯m</option>
+                <option value={-1}>1♭ · F / Dm</option>
+                <option value={-2}>2♭ · B♭ / Gm</option>
+                <option value={-3}>3♭ · E♭ / Cm</option>
+                <option value={-4}>4♭ · A♭ / Fm</option>
+                <option value={-5}>5♭ · D♭ / B♭m</option>
+                <option value={-6}>6♭ · G♭ / E♭m</option>
+                <option value={-7}>7♭ · C♭ / A♭m</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ padding: '5px 12px', fontSize: '0.86rem' }}
+              onClick={() => handleApplyKey()}
+            >
+              조표 삽입·변경
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              style={{ padding: '5px 12px', fontSize: '0.86rem' }}
+              onClick={() => handleRemoveKey()}
+            >
+              이 범위 머리 조표 제거
+            </button>
+          </div>
         </div>
       </div>
       {editStaffWithinPart != null ? (

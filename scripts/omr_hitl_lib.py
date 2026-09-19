@@ -9784,6 +9784,217 @@ def _ensure_header_clef_on_staff(
     return changed
 
 
+def _key_targets_staff(key: ET.Element, staff_n: int | None) -> bool:
+    """key@number가 staff에 맞는지. number 없음 = 전 보표(항상 매칭)."""
+    if staff_n is None:
+        return True
+    kn = key.get("number")
+    if kn is None or not str(kn).strip():
+        return True
+    try:
+        return int(str(kn).strip()) == int(staff_n)
+    except ValueError:
+        return str(kn).strip() == str(staff_n)
+
+
+def _header_attributes_blocks(measure: ET.Element) -> list[ET.Element]:
+    """첫 note 이전 attributes 블록들."""
+    out: list[ET.Element] = []
+    for child in list(measure):
+        if _local(child) == "note":
+            break
+        if _local(child) == "attributes":
+            out.append(child)
+    return out
+
+
+def _insert_key_element_in_attributes(
+    attrs: ET.Element, ns: str, key_el: ET.Element
+) -> None:
+    """MusicXML attributes 관례 순서: divisions 뒤 · time/staves/clef 앞.
+
+    악보에서는 음자리표 뒤에 조표가 보이지만, XML에서는 key가 clef보다 앞이다.
+    """
+    children = list(attrs)
+    insert_at = 0
+    for i, child in enumerate(children):
+        loc = _local(child)
+        if loc in ("footnote", "level", "divisions", "key"):
+            insert_at = i + 1
+        elif loc in (
+            "time",
+            "staves",
+            "part-symbol",
+            "instruments",
+            "clef",
+            "staff-details",
+            "transpose",
+            "directive",
+            "measure-style",
+        ):
+            break
+    attrs.insert(insert_at, key_el)
+
+
+def _ensure_header_key(
+    measure: ET.Element,
+    ns: str,
+    fifths: int,
+    *,
+    mode: str | None = None,
+    staff_n: int | None = None,
+) -> bool:
+    """마디 머리(첫 음 전) attributes에 <key><fifths>…</fifths></key> 삽입·갱신.
+
+    음자리표(clef)와 같은 머리 블록에 두어 마디 맨 앞 조표로 보이게 한다.
+    """
+    pre = _header_attributes_blocks(measure)
+    changed = False
+    if not pre:
+        header = ET.Element(_q(ns, "attributes"))
+        measure.insert(0, header)
+        pre = [header]
+        changed = True
+
+    target: ET.Element | None = None
+    target_attrs: ET.Element | None = None
+    for attrs in pre:
+        for key in attrs.findall(_q(ns, "key")):
+            if not _key_targets_staff(key, staff_n):
+                continue
+            # number 없는 key 우선, 없으면 staff 번호 일치
+            kn = key.get("number")
+            if kn is None or not str(kn).strip():
+                target = key
+                target_attrs = attrs
+                break
+            if staff_n is not None and str(kn).strip() == str(staff_n):
+                target = key
+                target_attrs = attrs
+                break
+        if target is not None:
+            break
+
+    if target is None:
+        target = ET.Element(_q(ns, "key"))
+        if staff_n is not None and int(staff_n) > 1:
+            target.set("number", str(staff_n))
+        _insert_key_element_in_attributes(pre[0], ns, target)
+        target_attrs = pre[0]
+        changed = True
+    elif staff_n is not None and int(staff_n) > 1:
+        kn = target.get("number")
+        if kn is None or not str(kn).strip():
+            # 전보표 key를 staff 전용으로 바꾸지 않음 — 그대로 fifths만 갱신
+            pass
+
+    fifths_el = target.find(_q(ns, "fifths"))
+    if fifths_el is None:
+        fifths_el = ET.SubElement(target, _q(ns, "fifths"))
+        changed = True
+    if (fifths_el.text or "").strip() != str(int(fifths)):
+        fifths_el.text = str(int(fifths))
+        changed = True
+
+    mode_el = target.find(_q(ns, "mode"))
+    mode_norm = (mode or "").strip().lower() or None
+    if mode_norm:
+        if mode_el is None:
+            mode_el = ET.SubElement(target, _q(ns, "mode"))
+            changed = True
+        if (mode_el.text or "").strip().lower() != mode_norm:
+            mode_el.text = mode_norm
+            changed = True
+    elif mode_el is not None:
+        target.remove(mode_el)
+        changed = True
+
+    _ = target_attrs  # lint: kept for clarity
+    return changed
+
+
+def _remove_header_keys(
+    measure: ET.Element, ns: str, *, staff_n: int | None = None
+) -> bool:
+    """마디 머리 key 제거(이후 마디가 앞 조표를 이어받게)."""
+    changed = False
+    for attrs in _header_attributes_blocks(measure):
+        for key in list(attrs.findall(_q(ns, "key"))):
+            if not _key_targets_staff(key, staff_n):
+                continue
+            attrs.remove(key)
+            changed = True
+        if len(list(attrs)) == 0 and attrs in list(measure):
+            measure.remove(attrs)
+            changed = True
+    return changed
+
+
+def _apply_set_measure_key(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
+    """마디 맨 앞(음자리표와 같은 머리 attributes)에 조표 삽입·변경."""
+    part_id = str(fix.get("partId") or "").strip()
+    measure_spec = str(fix.get("measureMxl") or "").strip()
+    staff_raw = fix.get("staff")
+    try:
+        staff_n = int(staff_raw) if staff_raw is not None and str(staff_raw).strip() != "" else None
+    except (TypeError, ValueError):
+        staff_n = None
+    remove_subsequent = bool(fix.get("removeSubsequentKeys", True))
+    mode = fix.get("keyMode") or fix.get("mode")
+    mode_s = str(mode).strip() if mode not in (None, "") else None
+
+    part = find_part(root, ns, part_id)
+    if part is None or not measure_spec:
+        return False
+    measures = part.findall(_q(ns, "measure"))
+    if not measures:
+        return False
+
+    if "-" in measure_spec:
+        parts = measure_spec.split("-", 1)
+        try:
+            start_n = int(parts[0].strip())
+            end_n = int(parts[1].strip())
+            target_measures = [
+                m
+                for m in measures
+                if m.get("number")
+                and str(m.get("number")).isdigit()
+                and start_n <= int(m.get("number")) <= end_n
+            ]
+        except ValueError:
+            target_measures = [m for m in measures if m.get("number") == measure_spec]
+    else:
+        target_measures = [m for m in measures if m.get("number") == measure_spec]
+
+    if not target_measures:
+        return False
+
+    kind = str(fix.get("kind") or "")
+    if kind == "removeMeasureKey":
+        changed = False
+        for m in target_measures:
+            if _remove_header_keys(m, ns, staff_n=staff_n):
+                changed = True
+        return changed
+
+    try:
+        fifths = int(fix.get("fifths"))
+    except (TypeError, ValueError):
+        return False
+    if fifths < -7 or fifths > 7:
+        return False
+
+    changed = _ensure_header_key(
+        target_measures[0], ns, fifths, mode=mode_s, staff_n=staff_n
+    )
+    if remove_subsequent and len(target_measures) > 1:
+        for m in target_measures[1:]:
+            if _remove_header_keys(m, ns, staff_n=staff_n):
+                changed = True
+    return changed
+
+
 def _ensure_measure_start_clef_on_staff(
     measure: ET.Element, ns: str, staff_n: int, sign: str, line: int
 ) -> bool:
@@ -10897,6 +11108,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
     if kind in ("setMeasureClef", "setPartClef"):
         return _apply_set_measure_clef(root, ns, fix)
+
+    if kind in ("setMeasureKey", "removeMeasureKey"):
+        return _apply_set_measure_key(root, ns, fix)
 
     if kind == "insertClef":
         return _apply_insert_clef(root, ns, fix)
@@ -14967,6 +15181,8 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "setOctaveShiftSpan",
         "setMeasureClef",
         "setPartClef",
+        "setMeasureKey",
+        "removeMeasureKey",
         "insertClef",
         "removeClef",
         "copyMeasureContent",

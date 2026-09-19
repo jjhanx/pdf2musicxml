@@ -127,6 +127,12 @@ export type OmrHitlFix = {
    * false/생략=음높이 유지(오선 그림 위치가 바뀔 수 있음).
    */
   remapStaffPitches?: boolean;
+  /** setMeasureKey — MusicXML `<fifths>` (-7…7). 양수=♯, 음수=♭ */
+  fifths?: number;
+  /** setMeasureKey — optional major/minor */
+  keyMode?: string;
+  /** setMeasureKey — 범위 적용 시 이후 마디 머리 key 제거(앞 조표 상속) */
+  removeSubsequentKeys?: boolean;
   /** barline — left | right | middle */
   barlineLocation?: 'left' | 'right' | 'middle' | string;
   /** forward=열림 도돌이 · backward=닫힘 도돌이 */
@@ -144,6 +150,8 @@ export type OmrHitlFix = {
 export const FIX_KIND_LABEL: Record<string, string> = {
   setMeasureClef: '음자리표 변경',
   setPartClef: '음자리표 변경',
+  setMeasureKey: '조표(키) 삽입·변경',
+  removeMeasureKey: '조표 제거',
   insertClef: '마디 중간 음자리표',
   removeClef: '마디 중간 음자리표 삭제',
   copyMeasureContent: '마디 파트 복사/이동',
@@ -244,6 +252,8 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.afterClefIndex ?? '',
     fix.clefIndex ?? '',
     fix.clefScope ?? '',
+    fix.fifths ?? '',
+    fix.keyMode ?? '',
     fix.leaderNoteIndex ?? '',
     fix.tieEnd ?? '',
     fix.slurEnd ?? '',
@@ -314,6 +324,21 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
           (f.afterNoteIndex ?? null) === afterNote &&
           (f.afterClefIndex ?? null) === afterClef &&
           (f.clefSign ?? 'G') === (next.clefSign ?? 'G')
+        ),
+    );
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
+  // 같은 파트·마디(범위)·staff 조표는 최신으로 교체
+  if (next.kind === 'setMeasureKey' || next.kind === 'removeMeasureKey') {
+    const mxl = String(next.measureMxl);
+    const staff = next.staff ?? null;
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          (f.kind === 'setMeasureKey' || f.kind === 'removeMeasureKey') &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl &&
+          (f.staff ?? null) === staff
         ),
     );
     return [...filtered, { ...next, id: next.id || newFixId() }];
@@ -577,6 +602,16 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     if (fix.clefSign) parts.push(fix.clefSign === 'F' ? '𝄢 F' : fix.clefSign === 'G' ? '𝄞 G' : fix.clefSign);
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
     if (fix.remapStaffPitches) parts.push('오선위치유지·음높이변환');
+  }
+  if (fix.kind === 'setMeasureKey' || fix.kind === 'removeMeasureKey') {
+    if (fix.fifths != null && Number.isFinite(fix.fifths)) {
+      const f = Math.floor(fix.fifths);
+      if (f === 0) parts.push('C / Am (조표 없음)');
+      else if (f > 0) parts.push(`${f}♯`);
+      else parts.push(`${Math.abs(f)}♭`);
+    }
+    if (fix.keyMode) parts.push(fix.keyMode);
+    if (fix.staff != null) parts.push(`staff ${fix.staff}`);
   }
   if (fix.kind === 'removeClef' && fix.clefIndex != null) {
     if (fix.clefScope === 'header') parts.push('마디 머리');

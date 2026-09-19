@@ -1302,16 +1302,46 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
       const yOk = (t: StemTip) => ys.length === 0 || stemShaftCrossesBeamY(t, beamY);
 
-      // 1차: OSMD 원좌표(naturalX)↔path. 2차 align: path가 이미 remesh돼 effectiveX로 매칭.
-      let matched = tipsAfter.filter(
+      // Softmax path↔naturalX(1차 remesh 직후). 이미 reshape된 path↔effectiveX(2차 align).
+      // naturalX를 항상 우선하면 remesh된 path 구간에 Softmax 좌표만 겹치는 줄기만
+      // 잡혀 1차가 16–16만 남거나(m13 T/B), 옆 그룹 effective로 늘어남(m13 PR).
+      const byNatural = tipsAfter.filter(
         (t) => t.naturalX >= oldLeft - 4 && t.naturalX <= oldRight + 4 && yOk(t),
       );
-      let matchByEffective = false;
-      if (matched.length < 2) {
-        matched = tipsAfter.filter(
-          (t) => t.effectiveX >= oldLeft - 4 && t.effectiveX <= oldRight + 4 && yOk(t),
-        );
-        matchByEffective = matched.length >= 2;
+      const byEffective = tipsAfter.filter(
+        (t) => t.effectiveX >= oldLeft - 4 && t.effectiveX <= oldRight + 4 && yOk(t),
+      );
+      const endErr = (tips: StemTip[], ref: (t: StemTip) => number): number => {
+        if (tips.length < 2) return Infinity;
+        const xs = tips.map(ref);
+        return Math.abs(Math.min(...xs) - oldLeft) + Math.abs(Math.max(...xs) - oldRight);
+      };
+      const natErr = endErr(byNatural, (t) => t.naturalX);
+      const effErr = endErr(byEffective, (t) => t.effectiveX);
+      let matched: StemTip[];
+      let matchByEffective: boolean;
+      if (byNatural.length >= 2 && byEffective.length >= 2) {
+        // Softmax path: natural 우선(effective 구간 안 옆음 유입 방지).
+        // 이미 reshape된 path: effective 양끝 오차가 명확히 작을 때만 전환.
+        if (effErr < natErr - 0.5) {
+          matched = byEffective;
+          matchByEffective = true;
+        } else if (byNatural.length > byEffective.length && natErr <= effErr + 8) {
+          matched = byNatural;
+          matchByEffective = false;
+        } else {
+          matched = byNatural;
+          matchByEffective = false;
+        }
+      } else if (byNatural.length >= 2) {
+        matched = byNatural;
+        matchByEffective = false;
+      } else if (byEffective.length >= 2) {
+        matched = byEffective;
+        matchByEffective = true;
+      } else {
+        matched = [];
+        matchByEffective = false;
       }
 
       if (!matchByEffective) {
@@ -1394,16 +1424,25 @@ function syncVfEngravingInMeasure(measure: Element): void {
         newRight = Math.max(leftTip.effectiveX, rightTip.effectiveX);
       }
       if (newRight - newLeft < 1) continue;
-      const maxGrow = primary ? origW * 2.5 + 20 : origW * 1.35 + 8;
+      const maxGrow = primary
+        ? matchByEffective
+          ? origW * 1.2 + 4 // 이미 sync된 path — 옆 그룹으로 늘어남 금지
+          : origW * 2.5 + 20
+        : origW * 1.35 + 8;
       if (newRight - newLeft > maxGrow) continue;
-      // 2회 align: 이미 remesh된 path에 effectiveX 매칭만 됐을 때 더 줄이지 않음
+      // 이미 remesh·reshape되어 양끝이 줄기에 붙은 path: 멤버 일부만 남아 붕괴 금지.
+      // Softmax path의 앞쪽 overhang 수축(70→100)은 alreadyFit=false 라서 허용.
       if (
         matchByEffective &&
         primary &&
         origW >= 16 &&
         newRight - newLeft < origW * 0.65
       ) {
-        continue;
+        const minEff = Math.min(...matched.map((t) => t.effectiveX));
+        const maxEff = Math.max(...matched.map((t) => t.effectiveX));
+        const alreadyFit =
+          Math.abs(oldLeft - minEff) <= 4 && Math.abs(oldRight - maxEff) <= 4;
+        if (alreadyFit) continue;
       }
       if (
         Math.abs(newLeft - (oldLeft + beamTx)) < 0.35 &&

@@ -2271,9 +2271,9 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   activeStaffWithinPartByIndex = buildStaffWithinPartByStaffIndex(osmd);
   let didAlign = false;
   try {
-    // 박자(duration) 간격: Softmax 자연 폭 안에서 layout-x 비례.
-    // 마디 AbsolutePosition/SVG g 이동은 하지 않음(오선·빔 단절 방지).
-    // hook/이음줄은 syncVf가 note dx에 맞춰 translate.
+    // 박자 간격은 SoftmaxFactor≥100에 맡김.
+    // Softmax 자연 폭에 layout-x를 다시 우겨 넣으면 음표가 떡이 되고 빔이 붕괴함.
+    // SVG는 연주순번·linkParallel·조표 침범 평행 시프트(+hook 추종)만.
     if (hints.length > 0) {
       alignLinkedParallelHintGroups(osmd, hints);
       didAlign = true;
@@ -2290,15 +2290,7 @@ export function alignOsmdPreviewNotesByOnsetColumn(
       });
       didAlign = true;
     }
-    // Softmax 자연 notehead 구간 안에서만 duration(layout-x) 비례 — 마디 g 이동 없음
-    if (targets.length > 0) {
-      forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
-        if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets)) {
-          didAlign = true;
-        }
-      });
-    }
-    // Softmax/배치가 조표·박자 영역으로 침범할 때만 평행 시프트
+    // Softmax/배치가 조표·박자 영역으로 침범할 때만 평행 시프트(빔·hook 동반)
     if (pushNotesOutOfBeginInstructions(osmd)) didAlign = true;
   } finally {
     activeStaffWithinPartByIndex = null;

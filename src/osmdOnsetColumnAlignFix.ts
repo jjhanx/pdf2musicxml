@@ -8,7 +8,14 @@ import {
   parsePlayOrderSpec,
   type PreviewNoteLayoutTarget,
 } from '../shared/musicXmlPlayOrder';
-import { forEachGraphicalMeasure, getOsmdUnitInPixels, measureMxlFromGraphic, partIdFromGraphic, staffWithinPartFromPreviewPartId } from './osmdMeasureClick';
+import { allocatedMeasureWidthOsmd } from './osmdMeasureTimingWarning';
+import {
+  forEachGraphicalMeasure,
+  getOsmdUnitInPixels,
+  measureMxlFromGraphic,
+  partIdFromGraphic,
+  staffWithinPartFromPreviewPartId,
+} from './osmdMeasureClick';
 
 /** XML default-x grid (shared/musicXmlPreviewOnsetLayout PREVIEW_LAYOUT_*). */
 const LAYOUT_BASE_X = 32;
@@ -484,11 +491,106 @@ function resolveContentLeftPx(osmd: OpenSheetMusicDisplay, gmRaw: unknown): numb
 }
 
 /**
+ * 같은 part에서 다음 마디 GraphicalMeasure (시스템 row에 없어도).
+ * Size.width≤0·row 끝 단독 마디에서 contentRight 복구용.
+ */
+function findNextMeasureGraphicOnPart(
+  osmd: OpenSheetMusicDisplay,
+  gmRaw: unknown,
+): unknown | null {
+  const mnum = measureMxlFromGraphic(gmRaw as never);
+  const partId = partIdFromGraphic(gmRaw as never);
+  if (mnum == null || !partId) return null;
+  let found: unknown | null = null;
+  forEachGraphicalMeasure(osmd, (gm) => {
+    if (found) return;
+    if (partIdFromGraphic(gm as never) !== partId) return;
+    if (measureMxlFromGraphic(gm as never) === mnum + 1) found = gm;
+  });
+  return found;
+}
+
+/**
+ * 마디 내용 오른쪽 끝(다음 마디 경계·stave width·Size, endInstructions 제외) px.
+ * Softmax notehead max만 쓰면 마지막 음이 마디선에 붙어 remesh 후에도 여백이 없음.
+ * 시스템 row에 다음 칸이 없어도(part 다음 마디 AbsolutePosition) 복구.
+ */
+function resolveContentRightPx(
+  osmd: OpenSheetMusicDisplay,
+  gmRaw: unknown,
+  nextGm?: unknown | null,
+): number | null {
+  const scale = getOsmdUnitInPixels(osmd);
+  const gm = asRecord(gmRaw);
+  const eiRaw = gm?.endInstructionsWidth ?? gm?.EndInstructionsWidth;
+  const ei = typeof eiRaw === 'number' && Number.isFinite(eiRaw) ? Math.max(0, eiRaw) : 0;
+
+  // VexFlow stave (SkyBottomLine Size 실패 시에도 폭이 있을 수 있음) — px
+  const stave = asRecord(gm?.stave ?? gm?.Stave ?? gm?.vfStave);
+  if (stave) {
+    try {
+      const sx =
+        typeof stave.getX === 'function'
+          ? Number((stave.getX as () => number).call(stave))
+          : Number(stave.x ?? stave.X);
+      const sw =
+        typeof stave.getWidth === 'function'
+          ? Number((stave.getWidth as () => number).call(stave))
+          : Number(stave.width ?? stave.Width);
+      if (Number.isFinite(sx) && Number.isFinite(sw) && sw > 8) {
+        return sx + sw;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const pos = asRecord(gm?.PositionAndShape ?? gm?.positionAndShape);
+  const abs = asRecord(pos?.AbsolutePosition ?? pos?.absolutePosition);
+  const absX =
+    typeof abs?.x === 'number' && Number.isFinite(abs.x)
+      ? abs.x
+      : typeof abs?.X === 'number' && Number.isFinite(abs.X)
+        ? abs.X
+        : null;
+  if (absX == null) return null;
+
+  let next = nextGm ?? null;
+  if (next == null) {
+    const cand = findNextMeasureGraphicOnPart(osmd, gmRaw);
+    if (cand != null) {
+      const npos = asRecord(asRecord(cand)?.PositionAndShape ?? asRecord(cand)?.positionAndShape);
+      const nabs = asRecord(npos?.AbsolutePosition ?? npos?.absolutePosition);
+      const nextX =
+        typeof nabs?.x === 'number' && Number.isFinite(nabs.x)
+          ? nabs.x
+          : typeof nabs?.X === 'number' && Number.isFinite(nabs.X)
+            ? nabs.X
+            : null;
+      // 다음 시스템으로 넘어가 absX가 리셋되면 폭 계산에 쓰지 않음
+      if (nextX != null && nextX > absX + 0.5) next = cand;
+    }
+  }
+  const w = allocatedMeasureWidthOsmd(gmRaw, next ?? undefined);
+  // next도 Size도 없으면 fallback 28 — Softmax max 유지가 나음(좁은 폭으로 우겨넣기 방지)
+  if (next == null) {
+    const size = asRecord(pos?.Size ?? pos?.size);
+    const wRaw = size?.width ?? size?.Width;
+    const sizeOk = typeof wRaw === 'number' && Number.isFinite(wRaw) && wRaw > 0.5;
+    if (!sizeOk) return null;
+  }
+  if (!(w > 0.5)) return null;
+  return (absX + w - ei) * scale;
+}
+
+/**
  * 조표·박자 침범 시 notehead 구간을 통째로 우측 이동(폭 유지).
+ * contentRight가 있으면 오른쪽을 마디 끝−여백까지 확장(마지막 음·혼합 박자 remesh용).
  * 반환: placement에 쓸 [leftEdge, rightEdge] (아직 layout 그리드 미반영).
  */
 function noteExtentClearedOfInstructions(
   contentLeft: number | null,
+  contentRight: number | null,
   minHit: number,
   maxHit: number,
   headPad: number,
@@ -504,6 +606,19 @@ function noteExtentClearedOfInstructions(
       rightEdge += shift;
     }
   }
+  if (contentRight != null) {
+    const trailPad = Math.max(headPad * 2.2, 10);
+    const ceil = contentRight - trailPad;
+    if (ceil > leftEdge + 8) {
+      // Softmax max에 붙이지 않고 마디 내용폭까지 펼쳐 duration 비율·끝 여백 확보
+      rightEdge = ceil;
+    }
+  } else {
+    // 시스템 끝 단독 마디 등 contentRight 불명: Softmax span 안에서만 끝 여백
+    const trailPad = Math.max(headPad * 2.2, 10);
+    if (rightEdge - leftEdge > trailPad + 8) rightEdge -= trailPad;
+  }
+  if (!(rightEdge - leftEdge >= 8)) return null;
   return { leftEdge, rightEdge };
 }
 
@@ -531,19 +646,27 @@ function placementSpanFromExtentAndLayouts(
 /**
  * 조표·박자 침범만 피하고 notehead 자연 span 폭은 유지.
  * layoutXs가 있으면 그 범위↔notehead 구간 매핑, 없으면 32..432↔구간.
+ * contentRightPx가 있으면 Softmax max 대신 마디 끝−여백을 오른쪽으로 씀.
  */
 function contentSpanFromGraphicMeasure(
   osmd: OpenSheetMusicDisplay,
   gmRaw: unknown,
   hits: readonly { centerX: number }[],
   layoutXs?: readonly number[],
+  contentRightPx?: number | null,
 ): { originX: number; spanPx: number } | null {
   const scale = getOsmdUnitInPixels(osmd);
   const headPad = Math.max(2, scale * 0.35);
   const contentLeft = resolveContentLeftPx(osmd, gmRaw);
   const xs = hits.map((h) => h.centerX).filter((x) => Number.isFinite(x));
   if (xs.length < 2) return null;
-  const ext = noteExtentClearedOfInstructions(contentLeft, Math.min(...xs), Math.max(...xs), headPad);
+  const ext = noteExtentClearedOfInstructions(
+    contentLeft,
+    contentRightPx ?? null,
+    Math.min(...xs),
+    Math.max(...xs),
+    headPad,
+  );
   if (!ext) return measureSpanFromHits(hits);
   const lxs = layoutXs?.length ? layoutXs : [LAYOUT_BASE_X, LAYOUT_BASE_X + LAYOUT_SPAN];
   return placementSpanFromExtentAndLayouts(ext.leftEdge, ext.rightEdge, lxs) ?? measureSpanFromHits(hits);
@@ -2392,14 +2515,16 @@ function alignPlayOrderAlignRefsToAnchorVoice(
 
 /**
  * Softmax notehead 구간 안에서 layout-x(duration) 비례 재배치.
- * **실제 쓰인** layout-x 구간만 notehead [min,max]에 매핑(32..432 전체 우겨넣기 금지 —
- * 앞쪽 밀집·떡·빔 붕괴 원인). 마디 g·바로는 건드리지 않음. syncVf가 빔·hook 맞춤.
+ * **실제 쓰인** layout-x 구간만 [minHit, 마디끝−여백]에 매핑(32..432 전체 우겨넣기 금지 —
+ * 앞쪽 밀집·떡·빔 붕괴 원인). Softmax max만 쓰면 마지막 음이 마디선에 포개짐.
+ * 마디 g·바로는 건드리지 않음. syncVf가 빔·hook 맞춤.
  */
 function alignMeasureNotesByOnsetLayoutGrid(
   osmd: OpenSheetMusicDisplay,
   gmRaw: unknown,
   staffIndex: number,
   targets: readonly PreviewNoteLayoutTarget[],
+  contentRightPx?: number | null,
 ): boolean {
   const partId = partIdFromGraphic(gmRaw as never);
   const measureNumber = measureMxlFromGraphic(gmRaw as never);
@@ -2430,7 +2555,13 @@ function alignMeasureNotesByOnsetLayoutGrid(
   if (!measureTargets.length) return false;
 
   const layoutXs = measureTargets.map((t) => t.defaultXTenths);
-  const measureSpan = contentSpanFromGraphicMeasure(osmd, gmRaw, hits, layoutXs);
+  const measureSpan = contentSpanFromGraphicMeasure(
+    osmd,
+    gmRaw,
+    hits,
+    layoutXs,
+    contentRightPx,
+  );
   if (!measureSpan) return false;
 
   type Column = { layoutX: number; pitchSet: string[]; expectHeads: number };
@@ -2564,8 +2695,10 @@ export function alignOsmdPreviewNotesByOnsetColumn(
     const remeshDone = onsetRemeshDoneByOsmd.get(osmd) === true;
     if (targets.length > 0 && !remeshDone) {
       let remeshed = false;
-      forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
-        if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets)) {
+      forEachGraphicalMeasure(osmd, (gmRaw, staffIndex, measureIndex, row) => {
+        const nextGm = row[measureIndex + 1] ?? null;
+        const contentRight = resolveContentRightPx(osmd, gmRaw, nextGm);
+        if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets, contentRight)) {
           remeshed = true;
           didAlign = true;
         }

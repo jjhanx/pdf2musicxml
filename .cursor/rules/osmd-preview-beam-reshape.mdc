@@ -1,0 +1,54 @@
+---
+description: OSMD 미리보기 빔 reshape·remesh — 회귀 금지 규칙
+globs:
+  - src/osmdOnsetColumnAlignFix.ts
+  - src/AudiverisInspectPanel.tsx
+  - _smoke/test_*beam*.ts
+  - _smoke/test_double_align*.ts
+  - _smoke/test_primary_beam*.ts
+  - _smoke/test_onset_layout*.ts
+---
+
+# OSMD 미리보기 — 빔 reshape / onset remesh
+
+UI는 `alignOsmdPreviewNotesByOnsetColumn`을 **렌더당 2회** 호출한다(over-cap 수렴). remesh·빔 sync 규칙을 깨면 m13 T/B 8–16–16 붕괴·PR 점8–16↔다음 8분 오연결이 재발한다.
+
+## 고정 순서
+
+1. **duration remesh** (`alignMeasureNotesByOnsetLayoutGrid`) — Softmax left…**마디 끝−여백** 안·**실제 사용 layout-x**만 매핑. **`onsetRemeshDoneByOsmd`로 렌더당 1회**.
+2. 연주순번·partial voice·조표 침범 시프트.
+3. **`syncVfStemsAndBeamsAfterStavenoteAlign`** — 매 align마다 가능(idempotent여야 함).
+
+## 빔 reshape — 하지 말 것
+
+| 금지 | 이유 |
+| --- | --- |
+| 2회째 remesh | 이미 reshape된 path에 Softmax naturalX를 다시 맞춰 1차 빔이 ~9–14px로 붕괴 |
+| path 매칭을 **naturalX만** 우선 | remesh된 path 구간에 Softmax 좌표만 겹치는 줄기(16–16)만 잡혀 8분 탈락; Softmax 구간 안 옆 그룹 음이 effective로 끌려와 잘못된 빔 |
+| Softmax max에 마지막 음 고정 | 혼합 박자 비율 찌그러짐·마지막 음이 마디선에 포개짐 |
+| 2차 빔에 min/max(전체 멤버) | 1차까지 늘어남 |
+| hook(&lt;12px) reshape | 옆 줄기 붙어 전 구간 2차로 보임 — translate·안쪽 flip만 |
+| 마디 SVG AbsolutePosition 이동으로 간격 보정 | 보표·클립 붕괴 |
+| 저장 MXL / 곡·마디 하드코딩 | 미리보기 SVG만 |
+
+## 빔 reshape — 해야 할 것
+
+- **path 양끝 오차**로 natural vs effective 선택: Softmax path → natural(멤버·orphan pull); 이미 reshape된 path → effective가 명확히 나을 때만.
+- **1차** = 매칭 멤버 effectiveX min/max. **2차** = 원래 양끝에 가까운 줄기만.
+- 재동기(effective) 시 **과대 신장·이미 맞는 path의 과수축** 가드.
+- hook는 1차 중심 쪽으로 `flipOutwardHooksTowardPrimary`.
+- remesh 오른쪽 = 다음 마디 AbsolutePosition − 여백(Size.width≤0이어도 동작).
+
+## 회귀 (수정 후 필수)
+
+```text
+npx tsx _smoke/test_double_align_primary_no_shrink.ts
+npx tsx _smoke/test_double_align_secondary_beam.ts
+npx tsx _smoke/test_primary_beam_and_hook_inward.ts
+npx tsx _smoke/test_beam_snap_to_stems.ts
+npx tsx _smoke/test_onset_layout_beat_spacing.ts
+```
+
+증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」.
+
+상세: `docs/악보_변환_품질_가이드.md` (박자 간격·OSMD 연주순번 align 후 빔 끊김).

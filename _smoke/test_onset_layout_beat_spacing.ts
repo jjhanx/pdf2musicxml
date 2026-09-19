@@ -229,14 +229,30 @@ async function main(): Promise<void> {
   }
 
   if (afterV1 == null) throw new Error('no after CV');
-  // duration remesh(실제 layout 구간 매핑) — Softmax만보다 CV 개선
-  if (afterV1 > 0.35) {
+  // duration remesh(실제 layout 구간 + 마디 끝 여백) — Softmax만보다 CV 개선
+  if (afterV1 > 0.28) {
     throw new Error(`m13 v1 beat spacing CV too high: ${afterV1}`);
   }
-  if (afterV5 != null && afterV5 > 0.35) {
+  if (afterV5 != null && afterV5 > 0.28) {
     throw new Error(`m13 v5 beat spacing CV too high: ${afterV5}`);
   }
-  console.log('OK onset layout beat spacing (duration remesh in Softmax span)');
+
+  // 끝 여백: Softmax span 수축 또는 contentRight — 마지막 간격 rate가 앞과 같으면(CV) 충분
+  const rates: number[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const dOn = sorted[i]![0] - sorted[i - 1]![0];
+    const dX = sorted[i]![1] - sorted[i - 1]![1];
+    if (dOn > 1e-6) rates.push(dX / dOn);
+  }
+  if (rates.length >= 2) {
+    const lastRate = rates[rates.length - 1]!;
+    const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
+    const rel = Math.abs(lastRate - mean) / Math.abs(mean);
+    console.log(`  last-interval rate relErr=${rel.toFixed(3)}`);
+    if (rel > 0.08) throw new Error(`last interval not duration-proportional: relErr=${rel}`);
+  }
+
+  console.log('OK onset layout beat spacing (duration remesh + trailing margin)');
 }
 
 main().catch((e) => {

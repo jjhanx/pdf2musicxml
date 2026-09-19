@@ -105,32 +105,28 @@ def test_m13_survives_rebuild() -> None:
     assert any(c for _p, _v, c in after), f"expected <chord/> members: {after}"
 
 
-def test_m13_pl_underfull_bass_merges() -> None:
-    """PL v5 quarters + v6 half at same x → chord (avoids note-before-key)."""
+def test_m13_pl_half_bass_not_merged() -> None:
+    """PL v5 quarter + v6 half(same x) — 의도적 다성, chord merge 금지."""
     m = _load_measure("omr-work-c181066c.zip", "P5", "13")
     ns = _ns(m)
-    before_pl = {
-        _note_voice_staff(n, ns)[0]
-        for n in list_note_elements(m, ns)
-        if _note_voice_staff(n, ns)[1] == "2"
-    }
-    assert before_pl == {"5", "6"}, before_pl
-    assert merge_homophonic_parallel_voices_in_measure(m, ns)
-    after = [
-        (_note_pitch_key(n, ns), _note_voice_staff(n, ns)[0], n.find(f"{{{ns}}}chord" if ns else "chord") is not None)
+    # Only PL staff merge check: run pairs logic via full measure merge
+    # PR may still merge; ensure PL v6 half survives.
+    merge_homophonic_parallel_voices_in_measure(m, ns)
+    pl = [
+        n
         for n in list_note_elements(m, ns)
         if _note_voice_staff(n, ns)[1] == "2"
     ]
-    voices = {v for _p, v, _c in after}
-    assert voices == {"5"}, f"expected single PL voice, got {voices}: {after}"
-    assert any(p == ("F", 2, 0) and c for p, _v, c in after), after
-    # chord member duration follows F3 quarter leader
-    for n in list_note_elements(m, ns):
-        if _note_pitch_key(n, ns) == ("F", 2, 0):
-            assert _note_duration(n, ns) == 12, _note_duration(n, ns)
+    voices = {_note_voice_staff(n, ns)[0] for n in pl}
+    assert "6" in voices, f"v6 half bass must remain, got {voices}"
+    f2 = next(n for n in pl if _note_pitch_key(n, ns) == ("F", 2, 0))
+    assert f2.find(f"{{{ns}}}chord" if ns else "chord") is None
+    assert _note_duration(f2, ns) == 24
+    assert _note_voice_staff(f2, ns)[0] == "6"
 
 
-def test_synthetic_underfull_bass() -> None:
+def test_synthetic_half_under_quarter_not_merged() -> None:
+    """HITL로 v6에 2분 추가한 경우 — 4분과 박자 다르면 화음으로 합치지 않음."""
     ns = ""
     m = ET.Element("measure", number="1")
 
@@ -152,6 +148,38 @@ def test_synthetic_underfull_bass() -> None:
     ET.SubElement(b, "duration").text = "24"
     note("F", "2", "6", "32.00", "24", "half")
 
+    assert not merge_homophonic_parallel_voices_in_measure(m, ns)
+    voices = {
+        n.find("voice").text
+        for n in m.findall("note")
+        if n.find("staff") is not None and n.find("staff").text == "2"
+    }
+    assert voices == {"5", "6"}
+
+
+def test_synthetic_underfull_same_duration_merges() -> None:
+    """앞에만 같은 박·같은 x인 짧은 층은 화음으로 흡수."""
+    ns = ""
+    m = ET.Element("measure", number="1")
+
+    def note(step: str, octv: str, voice: str, dx: str, dur: str, typ: str) -> None:
+        n = ET.SubElement(m, "note")
+        n.set("default-x", dx)
+        p = ET.SubElement(n, "pitch")
+        ET.SubElement(p, "step").text = step
+        ET.SubElement(p, "octave").text = octv
+        ET.SubElement(n, "duration").text = dur
+        ET.SubElement(n, "voice").text = voice
+        ET.SubElement(n, "type").text = typ
+        ET.SubElement(n, "stem").text = "up" if voice == "5" else "down"
+        ET.SubElement(n, "staff").text = "2"
+
+    note("F", "3", "5", "32.00", "12", "quarter")
+    note("F", "3", "5", "132.00", "12", "quarter")
+    b = ET.SubElement(m, "backup")
+    ET.SubElement(b, "duration").text = "24"
+    note("F", "2", "6", "32.00", "12", "quarter")
+
     assert merge_homophonic_parallel_voices_in_measure(m, ns)
     voices = {
         n.find("voice").text
@@ -161,7 +189,6 @@ def test_synthetic_underfull_bass() -> None:
     assert voices == {"5"}
     f2 = next(n for n in m.findall("note") if n.find("pitch/octave").text == "2")
     assert f2.find("chord") is not None
-    assert f2.find("duration").text == "12"
 
 
 def test_m16_different_x_not_merged() -> None:
@@ -225,9 +252,10 @@ def test_synthetic_same_x_chord() -> None:
 
 if __name__ == "__main__":
     test_synthetic_same_x_chord()
-    test_synthetic_underfull_bass()
+    test_synthetic_half_under_quarter_not_merged()
+    test_synthetic_underfull_same_duration_merges()
     test_m13_pr_merges_to_chords()
     test_m13_survives_rebuild()
-    test_m13_pl_underfull_bass_merges()
+    test_m13_pl_half_bass_not_merged()
     test_m16_different_x_not_merged()
     print("ok")

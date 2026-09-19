@@ -6294,40 +6294,28 @@ def _chord_group_notes_from_leader(
 def _homophonic_parallel_voice_pairs(
     measure: ET.Element, ns: str, staff: str, primary: str, secondary: str
 ) -> list[tuple[ET.Element, list[ET.Element]]] | None:
-    """primary·secondary가 같은 onset·default-x로 짝이면 (leader, sec_notes) 목록.
+    """primary·secondary가 같은 onset·duration·default-x로 짝이면 (leader, sec_notes).
 
-    1) 전 구간 길이·박자 일치 (전형적인 Audiveris 화음 분리)
-    2) secondary가 underfull prefix — 모든 secondary 리더가 primary와 같은
-       onset·x (박자는 달라도 됨). PL 앞에만 남는 옥타브 베이스(F2 half + F3
-       quarter)처럼 OSMD가 조표 왼쪽에 그리는 가짜 2성부를 화음으로 흡수.
+    - 전 구간 길이 일치: 전형적인 Audiveris 화음 분리
+    - secondary가 더 짧은 prefix: 같은 박·같은 x인 음만 화음으로 흡수
+      (박자가 다르면 진짜 다성 — 예: v5 4분 + v6 2분 베이스는 유지)
 
-    쉼표↔실음 혼재·x 불일치면 None(진짜 다성부).
+    쉼표↔실음 혼재·x 불일치면 None.
     """
     pri = _voice_local_onset_leaders(measure, ns, staff, primary)
     sec = _voice_local_onset_leaders(measure, ns, staff, secondary)
     if len(pri) < 1 or len(sec) < 1:
         return None
+    if len(sec) > len(pri):
+        return None
 
     pri_by_onset = {onset: note for onset, note in pri}
-    require_same_dur = len(pri) == len(sec)
-    if not require_same_dur:
-        # underfull / prefix only — secondary shorter than primary
-        if len(sec) >= len(pri):
-            return None
-        sec_pitched = [
-            sn
-            for _so, sn in sec
-            if sn.find(_q(ns, "rest")) is None and not _is_grace_or_cue(sn, ns)
-        ]
-        if not sec_pitched:
-            return None
-
     pairs: list[tuple[ET.Element, list[ET.Element]]] = []
     for so, sn in sec:
         pn = pri_by_onset.get(so)
         if pn is None:
             return None
-        if require_same_dur and _note_duration(pn, ns) != _note_duration(sn, ns):
+        if _note_duration(pn, ns) != _note_duration(sn, ns):
             return None
         pri_rest = pn.find(_q(ns, "rest")) is not None
         sec_rest = sn.find(_q(ns, "rest")) is not None

@@ -9,8 +9,7 @@ import {
   type PreviewNoteLayoutTarget,
 } from '../shared/musicXmlPlayOrder';
 import { forEachGraphicalMeasure, forEachOsmdSystem, getOsmdUnitInPixels, measureMxlFromGraphic, partIdFromGraphic, staffWithinPartFromPreviewPartId } from './osmdMeasureClick';
-import { collectMeasureSpacingWeightsFromXml } from '../shared/musicXmlMeasureSpacingWeights';
-import { setOsmdPreviewAllocatedExtents, getOsmdPreviewAllocatedExtents, type OsmdPreviewMeasureExtent } from './osmdPreviewMeasureExtents';
+import { setOsmdPreviewAllocatedExtents, type OsmdPreviewMeasureExtent } from './osmdPreviewMeasureExtents';
 
 /** XML default-x grid (shared/musicXmlPreviewOnsetLayout PREVIEW_LAYOUT_*). */
 const LAYOUT_BASE_X = 32;
@@ -550,80 +549,12 @@ function contentSpanFromGraphicMeasure(
 
 type SharedMeasureExtent = OsmdPreviewMeasureExtent;
 
-/** GraphicalMeasure → g.vf-measure (timingWarning과 동일 휴리스틱, 순환 import 회피). */
-function measureSvgG(gmRaw: unknown): Element | null {
-  const gm = asRecord(gmRaw);
-  if (!gm) return null;
-  if (typeof gm.getSVGGElement === 'function') {
-    try {
-      const el = (gm.getSVGGElement as () => Element | null | undefined)() ?? null;
-      if (el) {
-        const m =
-          typeof el.closest === 'function' ? el.closest('g.vf-measure') : null;
-        if (m) return m;
-        if (/\bvf-measure\b/.test(el.getAttribute?.('class') ?? '')) return el;
-      }
-    } catch {
-      /* */
-    }
-  }
-  const stave = asRecord(gm.stave ?? gm.Stave ?? gm.vfStave);
-  if (stave && typeof stave.getSVGElement === 'function') {
-    try {
-      const el = (stave.getSVGElement as () => Element | null | undefined)() ?? null;
-      const m = el && typeof el.closest === 'function' ? el.closest('g.vf-measure') : null;
-      if (m) return m;
-    } catch {
-      /* */
-    }
-  }
-  const entries = (gm.staffEntries ?? gm.StaffEntries) as unknown[] | undefined;
-  for (const entry of entries ?? []) {
-    const e = asRecord(entry);
-    const gves = (e?.graphicalVoiceEntries ?? e?.GraphicalVoiceEntries) as unknown[] | undefined;
-    for (const gve of gves ?? []) {
-      const gr = asRecord(gve);
-      const notes = (gr?.notes ?? gr?.Notes ?? gr?.graphicalNotes ?? gr?.GraphicalNotes) as
-        | unknown[]
-        | undefined;
-      for (const note of notes ?? []) {
-        const nr = asRecord(note);
-        if (!nr || typeof nr.getSVGGElement !== 'function') continue;
-        try {
-          const el = (nr.getSVGGElement as () => Element | null | undefined)() ?? null;
-          const m = el && typeof el.closest === 'function' ? el.closest('g.vf-measure') : null;
-          if (m) return m;
-        } catch {
-          /* */
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function applyMeasureGroupTranslateX(el: Element, dx: number): void {
-  if (!Number.isFinite(dx) || Math.abs(dx) < 0.5) return;
-  const tr = el.getAttribute('transform') ?? '';
-  const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)/.exec(tr);
-  const ox = m ? parseFloat(m[1]!) : 0;
-  const oy = m && m[2] != null ? parseFloat(m[2]!) : 0;
-  const rest = tr.replace(/translate\(\s*[-\d.]+\s*(?:,\s*[-\d.]+)?\s*\)/, '').trim();
-  const prefix = `translate(${ox + dx}, ${oy})`;
-  el.setAttribute('transform', rest ? `${prefix} ${rest}` : prefix);
-}
-
-/** 최소 슬롯당 px — 밀집 마디가 Softmax보다 넓어질 여지. */
-const MIN_PX_PER_SPACING_SLOT = 16;
-
 /**
- * 시스템(한 줄) content 폭을 max(beat-type, 음표·쉼표 수) 비율로 재배분하고
- * 마디 AbsolutePosition·SVG g를 이동해 바로 위치를 맞춘다.
+ * OSMD가 그린 마디 content 칸 [조표·박자 뒤 → 다음 바로]을 그대로 사용.
+ * 마디 SVG/AbsolutePosition은 옮기지 않음(오선·빔 단절 방지).
+ * 마디 안 음표만 duration(layout-x) 비례로 재배치.
  */
-function collectSystemAllocatedExtents(
-  osmd: OpenSheetMusicDisplay,
-  weightsByMeasure: Map<number, number>,
-): Map<number, SharedMeasureExtent> {
+function collectOsmdContentExtents(osmd: OpenSheetMusicDisplay): Map<number, SharedMeasureExtent> {
   const scale = getOsmdUnitInPixels(osmd);
   const headPad = Math.max(2, scale * 0.35);
   const out = new Map<number, SharedMeasureExtent>();
@@ -632,15 +563,6 @@ function collectSystemAllocatedExtents(
     const row = rows.find((r) => r.length > 0) ?? rows[0];
     if (!row?.length) return;
 
-    type Slot = {
-      mn: number;
-      absStart: number;
-      contentLeft: number;
-      slotEnd: number;
-      instructionW: number;
-      osmdContentW: number;
-    };
-    const slots: Slot[] = [];
     for (let i = 0; i < row.length; i++) {
       const gm = row[i]!;
       const mn = measureMxlFromGraphic(gm as never);
@@ -678,121 +600,24 @@ function collectSystemAllocatedExtents(
         }
         slotEnd = Math.max(maxHit + headPad, (cLeft ?? absX * scale) + scale * 4);
       }
-      if (cLeft == null || slotEnd == null || absX == null) continue;
-      const absStart = absX * scale;
-      const instructionW = Math.max(0, cLeft - absStart);
-      const osmdContentW = Math.max(8, slotEnd - cLeft);
-      slots.push({ mn, absStart, contentLeft: cLeft, slotEnd, instructionW, osmdContentW });
-    }
-    if (slots.length < 1) return;
-
-    const weights = slots.map((s) => Math.max(1, weightsByMeasure.get(s.mn) ?? 4));
-    const sumW = weights.reduce((a, b) => a + b, 0) || 1;
-    const contentPool = slots.reduce((a, s) => a + s.osmdContentW, 0);
-    // 이상 폭 = max(비율 배분, 슬롯당 최소 px). 합이 pool보다 크면 pool에 맞춰 축소.
-    const ideal = weights.map((w) =>
-      Math.max(MIN_PX_PER_SPACING_SLOT * w, (contentPool * w) / sumW),
-    );
-    const sumIdeal = ideal.reduce((a, b) => a + b, 0) || 1;
-    const scaleFit = sumIdeal > contentPool ? contentPool / sumIdeal : 1;
-    const allocW = ideal.map((w) => Math.max(16, w * scaleFit));
-
-    // 바로 위치 재배치: 첫 마디 abs 유지, 이후는 누적
-    let cursorAbs = slots[0]!.absStart;
-    for (let i = 0; i < slots.length; i++) {
-      const s = slots[i]!;
-      const newAbs = i === 0 ? s.absStart : cursorAbs;
-      const newContent = newAbs + s.instructionW;
-      const newEnd = newContent + allocW[i]!;
-      const shiftPx = newAbs - s.absStart;
-      const leftEdge = newContent + headPad;
-      const rightEdge = newEnd - headPad;
-      out.set(s.mn, {
-        leftEdge,
-        rightEdge,
-        measureShiftPx: shiftPx,
-      });
-      cursorAbs = newEnd;
+      if (cLeft == null || slotEnd == null) continue;
+      const leftEdge = cLeft + headPad;
+      const rightEdge = Math.max(leftEdge + 16, slotEnd - headPad);
+      // 같은 마디 번호는 전 성부 공통 — content 구간 교집합(가장 좁은 칸)
+      const prev = out.get(mn);
+      if (!prev) {
+        out.set(mn, { leftEdge, rightEdge, measureShiftPx: 0 });
+      } else {
+        out.set(mn, {
+          leftEdge: Math.max(prev.leftEdge, leftEdge),
+          rightEdge: Math.min(prev.rightEdge, rightEdge),
+          measureShiftPx: 0,
+        });
+      }
     }
   });
 
   return out;
-}
-
-/** 배분된 마디 폭에 맞게 AbsolutePosition·stave·SVG g를 이동. */
-function applyAllocatedMeasureGeometry(
-  osmd: OpenSheetMusicDisplay,
-  extents: Map<number, SharedMeasureExtent>,
-): void {
-  const scale = getOsmdUnitInPixels(osmd);
-  forEachGraphicalMeasure(osmd, (gmRaw) => {
-    const mn = measureMxlFromGraphic(gmRaw as never);
-    if (mn == null) return;
-    const ext = extents.get(mn);
-    if (!ext) return;
-    const shift = ext.measureShiftPx;
-    const gm = asRecord(gmRaw);
-    if (!gm) return;
-
-    const pos = asRecord(gm.PositionAndShape ?? gm.positionAndShape);
-    const abs = asRecord(pos?.AbsolutePosition ?? pos?.absolutePosition);
-    if (abs && Math.abs(shift) >= 0.5) {
-      if (typeof abs.x === 'number') abs.x += shift / scale;
-      else if (typeof abs.X === 'number') abs.X += shift / scale;
-    }
-    const size = asRecord(pos?.Size ?? pos?.size);
-    if (size) {
-      const wPx = Math.max(8, ext.rightEdge - ext.leftEdge + 2 * Math.max(2, scale * 0.35));
-      const biRaw = gm.beginInstructionsWidth ?? gm.BeginInstructionsWidth;
-      const bi = typeof biRaw === 'number' && Number.isFinite(biRaw) ? Math.max(0, biRaw) : 0;
-      const totalW = bi + wPx / scale;
-      if (typeof size.width === 'number') size.width = totalW;
-      else if (typeof size.Width === 'number') size.Width = totalW;
-    }
-
-    const stave = asRecord(gm.stave ?? gm.Stave ?? gm.vfStave);
-    if (stave) {
-      const newW = Math.max(8, ext.rightEdge - ext.leftEdge);
-      try {
-        if (typeof stave.setWidth === 'function') {
-          (stave.setWidth as (w: number) => void)(newW);
-        } else if (typeof stave.width === 'number') {
-          stave.width = newW;
-        }
-        if (Math.abs(shift) >= 0.5) {
-          if (typeof stave.setX === 'function') {
-            const cur =
-              typeof stave.getX === 'function'
-                ? Number((stave.getX as () => number)())
-                : Number(stave.x ?? 0);
-            if (Number.isFinite(cur)) (stave.setX as (x: number) => void)(cur + shift);
-          } else if (typeof stave.x === 'number') {
-            stave.x += shift;
-          }
-        }
-      } catch {
-        /* */
-      }
-    }
-    const g = measureSvgG(gmRaw);
-    if (g && Math.abs(shift) >= 0.5) applyMeasureGroupTranslateX(g, shift);
-  });
-}
-
-/** 이전 pass 마디 시프트를 되돌려 Softmax 원위치로(재align 시 이중 이동 방지). */
-function resetAllocatedMeasureGeometry(osmd: OpenSheetMusicDisplay): void {
-  const prev = getOsmdPreviewAllocatedExtents(osmd);
-  if (!prev?.size) return;
-  const reversed = new Map<number, SharedMeasureExtent>();
-  for (const [mn, ext] of prev) {
-    reversed.set(mn, {
-      leftEdge: ext.leftEdge,
-      rightEdge: ext.rightEdge,
-      measureShiftPx: -ext.measureShiftPx,
-    });
-  }
-  applyAllocatedMeasureGeometry(osmd, reversed);
-  setOsmdPreviewAllocatedExtents(osmd, new Map());
 }
 
 /** OSMD 시스템 staffIndex → MusicXML part-내 staff(1=윗줄). 전곡에서 staffIndex≠XML staff. */
@@ -2399,10 +2224,8 @@ export function alignOsmdPreviewNotesByOnsetColumn(
       didAlign = true;
     }
 
-    resetAllocatedMeasureGeometry(osmd);
-    const weightsByMeasure = xml ? collectMeasureSpacingWeightsFromXml(xml) : new Map<number, number>();
-    const sharedExtents = collectSystemAllocatedExtents(osmd, weightsByMeasure);
-    applyAllocatedMeasureGeometry(osmd, sharedExtents);
+    // OSMD 마디 칸은 그대로 — 음표만 duration 비례 배치(마디 g 이동 금지: 오선·빔 단절)
+    const sharedExtents = collectOsmdContentExtents(osmd);
     setOsmdPreviewAllocatedExtents(osmd, sharedExtents);
 
     const layoutsByMeasure = new Map<number, number[]>();
@@ -2422,7 +2245,6 @@ export function alignOsmdPreviewNotesByOnsetColumn(
         }
       });
     }
-    if (sharedExtents.size > 0) didAlign = true;
     if (pushNotesOutOfBeginInstructions(osmd, sharedExtents)) didAlign = true;
   } finally {
     activeStaffWithinPartByIndex = null;

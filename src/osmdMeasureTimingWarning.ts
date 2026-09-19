@@ -7,7 +7,6 @@ import {
   partIdFromGraphic,
 } from './osmdMeasureClick';
 import { syncVfStemsAndBeamsAfterStavenoteAlign } from './osmdOnsetColumnAlignFix';
-import { getOsmdPreviewAllocatedExtent } from './osmdPreviewMeasureExtents';
 
 const OVERLAY_CLASS = 'hitl-measure-timing-warning';
 
@@ -437,24 +436,10 @@ export function measureBoundsPx(
   gm: unknown,
   nextGm: unknown | undefined,
   scale: number,
-  osmd?: OpenSheetMusicDisplay | null,
+  _osmd?: OpenSheetMusicDisplay | null,
 ): { left: number; right: number } | null {
-  // onset align이 가중치로 재배분한 폭이 있으면 그걸 우선(contain이 Softmax 바로 다시 뭉개지 않게)
-  if (osmd) {
-    const mn = measureMxlFromGraphic(gm as Parameters<typeof measureMxlFromGraphic>[0]);
-    const ext = mn != null ? getOsmdPreviewAllocatedExtent(osmd, mn) : null;
-    if (ext && ext.rightEdge - ext.leftEdge >= 8) {
-      const bi = (() => {
-        const rec = asGmRecord(gm);
-        const biRaw = rec?.beginInstructionsWidth ?? rec?.BeginInstructionsWidth;
-        return typeof biRaw === 'number' && Number.isFinite(biRaw) ? Math.max(0, biRaw) * scale : 0;
-      })();
-      return {
-        left: ext.leftEdge - bi - Math.max(2, scale * 0.35),
-        right: ext.rightEdge + Math.max(2, scale * 0.35),
-      };
-    }
-  }
+  // Softmax/OSMD stave·AbsolutePosition만 사용.
+  // onset align 배분 폭으로 바꾸면 clip/contain이 오선·빔과 어긋나 마디가 끊긴다.
   const stave = staveBoundsPx(gm);
   if (stave) return stave;
   const absX = readAbsX(gm);

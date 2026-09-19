@@ -186,7 +186,7 @@ async function main(): Promise<void> {
       const cv = spacingCv(map);
       if (cv == null) continue;
       report.push(`${pid} v${vid} onsets=${map.size} cv=${cv.toFixed(3)}`);
-      if (cv > 0.55) failures.push(`${pid} v${vid} spacing CV ${cv.toFixed(3)} > 0.55`);
+      if (cv > 0.4) failures.push(`${pid} v${vid} spacing CV ${cv.toFixed(3)} > 0.4`);
     }
   });
 

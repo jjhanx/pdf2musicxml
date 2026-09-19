@@ -229,14 +229,14 @@ async function main(): Promise<void> {
   }
 
   if (afterV1 == null) throw new Error('no after CV');
-  // Softmax 간격 — SVG duration 재배치로 CV를 억지로 0 만들지 않음(음표 떡·빔 붕괴 방지)
-  if (afterV1 > 0.55) {
-    throw new Error(`m13 v1 Softmax beat spacing CV too high: ${afterV1}`);
+  // duration remesh(실제 layout 구간 매핑) — Softmax만보다 CV 개선
+  if (afterV1 > 0.35) {
+    throw new Error(`m13 v1 beat spacing CV too high: ${afterV1}`);
   }
-  if (afterV5 != null && afterV5 > 0.45) {
-    throw new Error(`m13 v5 Softmax beat spacing CV too high: ${afterV5}`);
+  if (afterV5 != null && afterV5 > 0.35) {
+    throw new Error(`m13 v5 beat spacing CV too high: ${afterV5}`);
   }
-  console.log('OK onset layout beat spacing (Softmax, no SVG remesh)');
+  console.log('OK onset layout beat spacing (duration remesh in Softmax span)');
 }
 
 main().catch((e) => {

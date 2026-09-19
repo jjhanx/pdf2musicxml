@@ -207,8 +207,8 @@ async function main(): Promise<void> {
     after?.toFixed(3),
   );
   if (gaps.length < 3) throw new Error(`expected 3 PL quarter gaps, got ${gaps.length}`);
-  // Softmax 최소간격 — 완전 균등 CV는 요구하지 않음
-  if (after == null || after > 0.4) {
+  // duration remesh — 4분 균등에 가깝게
+  if (after == null || after > 0.25) {
     throw new Error(`PL m13 quarter gaps too uneven: cv=${after} gaps=${gaps.join(',')}`);
   }
 

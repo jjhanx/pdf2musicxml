@@ -1223,7 +1223,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
           midX = (left + right) / 2;
         }
       }
-      if (midX == null || width >= 18) return null;
+      if (midX == null || width >= 12) return null;
       // 줄기 tip 우선
       let bestTip: StemTip | null = null;
       let bestTipD = Infinity;
@@ -1259,8 +1259,9 @@ function syncVfEngravingInMeasure(measure: Element): void {
   }
 
   const reshapeByStemTips = (el: Element, pad = 20): void => {
-    // 이미 평행 translate 했으면 path reshape 불필요(이중 이동 방지)
-    if (parallelDx != null && Math.abs(parallelDx) >= 0.5) return;
+    // path는 로컬 좌표, el translate는 별도 → 목표 x는 effectiveX - beamTx (이중 이동 방지).
+    // 평행 시프트 후에도 OSMD가 남긴 tip inset(±1px)을 여기서 맞춘다.
+    const beamTx = readElementTranslateX(el as SVGGraphicsElement);
     const paths = [...el.querySelectorAll('path')];
     if (!paths.length) return;
 
@@ -1289,8 +1290,9 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const oldRight = Math.max(...xs);
       if (oldRight - oldLeft < 1) continue;
       const origW = oldRight - oldLeft;
-      // Partial / hook beams (~8–16px): reshape 금지(위에서 translate로 처리)
-      if (origW < 18) continue;
+      // Partial / hook beams (~8–12px): reshape 금지(위에서 translate로 처리).
+      // 8분 연결 빔은 종종 14–17px라 18 임계면 놓쳐 끝이 어긋남.
+      if (origW < 12) continue;
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
 
       // 빔 span 안 줄기. y 대역으로 다른 보표·다른 방향(같은 x의 v6 등) 줄기 제외.
@@ -1339,18 +1341,26 @@ function syncVfEngravingInMeasure(measure: Element): void {
       }
       if (matched.length < 2) continue;
 
+      // path 목표는 화면 effectiveX. reshape 후 빔 translate X는 지워 이중 가산 방지.
       const newLeft = Math.min(...matched.map((t) => t.effectiveX));
       const newRight = Math.max(...matched.map((t) => t.effectiveX));
       if (newRight - newLeft < 1) continue;
       // 1차 빔도 과도하게 늘리지 않음(옆 voice 줄기로 빨려 들어가는 경우)
       if (newRight - newLeft > origW * 1.5 + 12) continue;
-      if (Math.abs(newLeft - oldLeft) < 1.2 && Math.abs(newRight - oldRight) < 1.2) continue;
+      if (
+        Math.abs(newLeft - (oldLeft + beamTx)) < 0.35 &&
+        Math.abs(newRight - (oldRight + beamTx)) < 0.35 &&
+        Math.abs(beamTx) < 0.35
+      ) {
+        continue;
+      }
 
       const mapX = (x: number) => {
         const t = (x - oldLeft) / (oldRight - oldLeft);
         return newLeft + t * (newRight - newLeft);
       };
       path.setAttribute('d', mapSvgPathXs(d, mapX));
+      if (Math.abs(beamTx) >= 0.01) clearStavenoteTranslateX(el as SVGGraphicsElement);
     }
   };
 
@@ -1389,7 +1399,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
           width = Math.max(width, right - left);
           midX = (left + right) / 2;
         }
-        if (midX == null || width >= 18) return null;
+        if (midX == null || width >= 12) return null;
         let best: NoteShift | null = null;
         let bestD = Infinity;
         for (const n of notes) {
@@ -2101,8 +2111,9 @@ function alignPlayOrderAlignRefsToAnchorVoice(
 }
 
 /**
- * Softmax가 그린 notehead [min,max] 구간 안에서만 layout-x(duration) 비례 재배치.
- * 마디 g·바로는 건드리지 않음. 이후 syncVf가 빔·hook을 맞춤.
+ * Softmax notehead 구간 안에서 layout-x(duration) 비례 재배치.
+ * **실제 쓰인** layout-x 구간만 notehead [min,max]에 매핑(32..432 전체 우겨넣기 금지 —
+ * 앞쪽 밀집·떡·빔 붕괴 원인). 마디 g·바로는 건드리지 않음. syncVf가 빔·hook 맞춤.
  */
 function alignMeasureNotesByOnsetLayoutGrid(
   osmd: OpenSheetMusicDisplay,
@@ -2138,17 +2149,9 @@ function alignMeasureNotesByOnsetLayoutGrid(
   });
   if (!measureTargets.length) return false;
 
-  const xs = hits.map((h) => h.centerX);
-  const leftEdge = Math.min(...xs);
-  const rightEdge = Math.max(...xs);
-  if (rightEdge - leftEdge < 8) return false;
-
-  // Softmax 자연 구간에 전체 duration 그리드(32..432) 매핑
-  const contentLeft = resolveContentLeftPx(osmd, gmRaw);
-  const floor = contentLeft != null ? contentLeft + Math.max(2, getOsmdUnitInPixels(osmd) * 0.35) : leftEdge;
-  const originX = Math.max(leftEdge, floor);
-  const spanPx = Math.max(8, rightEdge - originX);
-  const measureSpan = { originX, spanPx };
+  const layoutXs = measureTargets.map((t) => t.defaultXTenths);
+  const measureSpan = contentSpanFromGraphicMeasure(osmd, gmRaw, hits, layoutXs);
+  if (!measureSpan) return false;
 
   type Column = { layoutX: number; pitchSet: string[]; expectHeads: number };
   type Place = { stavenote: SVGGraphicsElement; centerX: number; layoutX: number };
@@ -2211,7 +2214,11 @@ function alignMeasureNotesByOnsetLayoutGrid(
       if (want < prevWant + 0.5) want = prevWant + 0.5;
       const dx = want - p.centerX;
       if (Math.abs(dx) > 0.5) moved = true;
-      applySvgTranslateX(p.stavenote, dx, Math.max(MAX_ONSET_ALIGN_SHIFT_PX, spanPx * 2));
+      applySvgTranslateX(
+        p.stavenote,
+        dx,
+        Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2),
+      );
       prevWant = want;
     }
   }
@@ -2271,9 +2278,15 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   activeStaffWithinPartByIndex = buildStaffWithinPartByStaffIndex(osmd);
   let didAlign = false;
   try {
-    // 박자 간격은 SoftmaxFactor≥100에 맡김.
-    // Softmax 자연 폭에 layout-x를 다시 우겨 넣으면 음표가 떡이 되고 빔이 붕괴함.
-    // SVG는 연주순번·linkParallel·조표 침범 평행 시프트(+hook 추종)만.
+    // Softmax notehead 폭 안에서 duration(layout-x) 재배치.
+    // 실제 사용 layout 구간만 매핑(32..432 전체 우겨넣기 금지). 이후 syncVf가 빔 맞춤.
+    if (targets.length > 0) {
+      forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
+        if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets)) {
+          didAlign = true;
+        }
+      });
+    }
     if (hints.length > 0) {
       alignLinkedParallelHintGroups(osmd, hints);
       didAlign = true;

@@ -164,7 +164,7 @@ export function applyOsmdPreviewEngravingRules(
   if (typeof r.VoiceSpacingAddendVexflow === 'number') {
     r.VoiceSpacingAddendVexflow = Math.max(r.VoiceSpacingAddendVexflow, 3.5);
   }
-  // Softmax↑ = duration 비례 간격(여유 폭이 있을 때). SVG layout-x 재배치는 빔·음표 붕괴를 유발해 쓰지 않음.
+  // Softmax↑ = duration 비례 보조. SVG는 Softmax notehead 폭 안·실제 layout 구간만 remesh.
   if (typeof r.SoftmaxFactorVexFlow === 'number') {
     r.SoftmaxFactorVexFlow = Math.max(r.SoftmaxFactorVexFlow, 100);
   }

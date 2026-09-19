@@ -178,7 +178,7 @@ async function main(): Promise<void> {
     noteDxSample = noteDxs[0];
     for (const beam of mg.querySelectorAll('.vf-beam')) {
       const w = beamPathWidth(beam);
-      if (w == null || w >= 18) continue;
+      if (w == null || w >= 12) continue;
       shortHooks += 1;
       const bdx = readTx(beam);
       const nearest = noteDxs.reduce((best, d) =>

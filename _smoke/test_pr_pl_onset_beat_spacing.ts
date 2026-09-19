@@ -207,9 +207,8 @@ async function main(): Promise<void> {
     after?.toFixed(3),
   );
   if (gaps.length < 3) throw new Error(`expected 3 PL quarter gaps, got ${gaps.length}`);
-  // Softmax 최소간격으로 완전 균등은 아님 — 극단적 편차만 거부
-  if (after == null || after > 0.35) {
-    throw new Error(`PL m13 quarter gaps too uneven: cv=${after} gaps=${gaps.join(',')}`);
+  if (after == null || after > 0.08) {
+    throw new Error(`PL m13 quarter gaps not equal: cv=${after} gaps=${gaps.join(',')}`);
   }
 
   // 조표·박자(beginInstructions)와 첫 음 겹침 금지 + PR/PL beat0 세로 정렬

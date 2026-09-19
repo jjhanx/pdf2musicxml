@@ -657,6 +657,16 @@ function clearStavenoteTranslateX(svg: SVGGraphicsElement): void {
   else svg.removeAttribute('transform');
 }
 
+/** 마디 안 고아 빔·이음줄·줄기·보조선 translate 제거(음표 재배치 전). */
+function clearMeasureEngravingTranslates(measureG: Element): void {
+  for (const el of measureG.querySelectorAll(
+    ':scope > .vf-beam, :scope > .vf-stavetie, :scope > .vf-stem, :scope > .vf-ledgers, :scope > [class*="vf-beam"], :scope > [class*="vf-tie"], :scope > [class*="vf-stem"], :scope > [class*="vf-ledgers"]',
+  )) {
+    if (el.closest('.vf-stavenote, .vf-staveNote')) continue;
+    clearStavenoteTranslateX(el as SVGGraphicsElement);
+  }
+}
+
 function readElementTranslateX(el: Element): number {
   const tr = el.getAttribute('transform') ?? '';
   const m = /translate\(\s*([-\d.]+)/.exec(tr);
@@ -1165,7 +1175,92 @@ function syncVfEngravingInMeasure(measure: Element): void {
   // stem tip 재수집(형제 stem translate 반영)
   const tipsAfter = collectStemTipsInMeasure(measure);
 
+  // 평행 시프트(조표 침범 등): 모든 note dx가 같으면 빔·이음줄도 같은 dx로 옮김
+  // (짧은 hook은 reshape 스킵이라 안 따라가면 "온쉼표/빔 파편"처럼 남음)
+  const noteDxs = notes.map((n) => n.dx);
+  const dxMin = Math.min(...noteDxs);
+  const dxMax = Math.max(...noteDxs);
+  const parallelDx = noteDxs.length > 0 && dxMax - dxMin < 1.0 ? (dxMin + dxMax) / 2 : null;
+
+  const translateOrphanEngraving = (el: Element, dx: number): void => {
+    if (Math.abs(dx) < 0.01) return;
+    const cur = readElementTranslateX(el as SVGGraphicsElement);
+    const need = dx - cur;
+    if (Math.abs(need) >= 0.01) {
+      applySvgTranslateX(el as SVGGraphicsElement, need, Math.abs(need) + 1);
+    }
+  };
+
+  if (parallelDx != null && Math.abs(parallelDx) >= 0.5) {
+    for (const beam of measure.querySelectorAll('.vf-beam, [class*="vf-beam"]')) {
+      if (beam.closest('.vf-stavenote, .vf-staveNote')) continue;
+      translateOrphanEngraving(beam, parallelDx);
+    }
+    for (const tie of measure.querySelectorAll('.vf-stavetie, [class*="vf-tie"]')) {
+      if (tie.closest('.vf-stavenote, .vf-staveNote')) continue;
+      translateOrphanEngraving(tie, parallelDx);
+    }
+  } else {
+    // 짧은 hook/이음줄: reshape 대신 가장 가까운 줄기/음표 dx로 translate
+    const shortEngravingDx = (el: Element): number | null => {
+      const paths = [...el.querySelectorAll('path')];
+      let midX: number | null = null;
+      let width = 0;
+      for (const path of paths) {
+        const d = path.getAttribute('d');
+        if (!d) continue;
+        const xs: number[] = [];
+        const xToks = d.match(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g);
+        if (!xToks) continue;
+        for (const m of xToks) {
+          const n = parseFloat(m.replace(/[MmLl]\s*/, ''));
+          if (Number.isFinite(n)) xs.push(n);
+        }
+        if (xs.length >= 1) {
+          const left = Math.min(...xs);
+          const right = Math.max(...xs);
+          width = Math.max(width, right - left);
+          midX = (left + right) / 2;
+        }
+      }
+      if (midX == null || width >= 18) return null;
+      // 줄기 tip 우선
+      let bestTip: StemTip | null = null;
+      let bestTipD = Infinity;
+      for (const t of tipsAfter) {
+        const d = Math.abs(t.naturalX - midX);
+        if (d < bestTipD) {
+          bestTipD = d;
+          bestTip = t;
+        }
+      }
+      if (bestTip && bestTipD < 48) return bestTip.dx;
+      let best: NoteShift | null = null;
+      let bestD = Infinity;
+      for (const n of notes) {
+        const d = Math.abs(n.naturalX - midX);
+        if (d < bestD) {
+          bestD = d;
+          best = n;
+        }
+      }
+      return best && bestD < 64 ? best.dx : null;
+    };
+    for (const beam of measure.querySelectorAll('.vf-beam, [class*="vf-beam"]')) {
+      if (beam.closest('.vf-stavenote, .vf-staveNote')) continue;
+      const dx = shortEngravingDx(beam);
+      if (dx != null) translateOrphanEngraving(beam, dx);
+    }
+    for (const tie of measure.querySelectorAll('.vf-stavetie, [class*="vf-tie"]')) {
+      if (tie.closest('.vf-stavenote, .vf-staveNote')) continue;
+      const dx = shortEngravingDx(tie);
+      if (dx != null) translateOrphanEngraving(tie, dx);
+    }
+  }
+
   const reshapeByStemTips = (el: Element, pad = 20): void => {
+    // 이미 평행 translate 했으면 path reshape 불필요(이중 이동 방지)
+    if (parallelDx != null && Math.abs(parallelDx) >= 0.5) return;
     const paths = [...el.querySelectorAll('path')];
     if (!paths.length) return;
 
@@ -1194,9 +1289,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const oldRight = Math.max(...xs);
       if (oldRight - oldLeft < 1) continue;
       const origW = oldRight - oldLeft;
-      // Partial / hook beams (~8–16px): OSMD already drew them correctly.
-      // Recruiting the next stem (16th→dotted 8th) turns the hook into a full
-      // secondary beam so the dotted 8th looks like a 16th. Never reshape these.
+      // Partial / hook beams (~8–16px): reshape 금지(위에서 translate로 처리)
       if (origW < 18) continue;
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
 
@@ -1261,15 +1354,55 @@ function syncVfEngravingInMeasure(measure: Element): void {
     }
   };
 
-  for (const beam of measure.querySelectorAll(':scope > .vf-beam, :scope > [class*="vf-beam"]')) {
+  for (const beam of measure.querySelectorAll('.vf-beam, [class*="vf-beam"]')) {
     reshapeByStemTips(beam);
   }
   // 빔 X 맞춤 후, 멤버 줄기 tip이 빔선에 닿도록 y를 연장(끊겨 4분처럼 보이는 증상).
   snapStemTipsToBeamsInMeasure(measure, tipsAfter);
   // tip 스냅/오매칭으로 밑동이 음머리에서 떨어진 고아 줄기 재부착
   reattachOrphanStemBasesToNoteheads(measure, noteById);
-  for (const tie of measure.querySelectorAll(':scope > .vf-stavetie, :scope > [class*="vf-tie"]')) {
+  for (const tie of measure.querySelectorAll('.vf-stavetie, [class*="vf-tie"]')) {
     reshapeByStemTips(tie, 48);
+  }
+
+  // reshape 후에도 남은 짧은 hook — 가장 가까운 음표 dx로 한 번 더
+  if (!(parallelDx != null && Math.abs(parallelDx) >= 0.5)) {
+    for (const beam of measure.querySelectorAll('.vf-beam, [class*="vf-beam"]')) {
+      if (beam.closest('.vf-stavenote, .vf-staveNote')) continue;
+      const dx = (() => {
+        const paths = [...beam.querySelectorAll('path')];
+        let midX: number | null = null;
+        let width = 0;
+        for (const path of paths) {
+          const d = path.getAttribute('d');
+          if (!d) continue;
+          const xs: number[] = [];
+          const xToks = d.match(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g);
+          if (!xToks) continue;
+          for (const m of xToks) {
+            const n = parseFloat(m.replace(/[MmLl]\s*/, ''));
+            if (Number.isFinite(n)) xs.push(n);
+          }
+          if (!xs.length) continue;
+          const left = Math.min(...xs);
+          const right = Math.max(...xs);
+          width = Math.max(width, right - left);
+          midX = (left + right) / 2;
+        }
+        if (midX == null || width >= 18) return null;
+        let best: NoteShift | null = null;
+        let bestD = Infinity;
+        for (const n of notes) {
+          const d = Math.abs(n.naturalX - midX);
+          if (d < bestD) {
+            bestD = d;
+            best = n;
+          }
+        }
+        return best && bestD < 80 ? best.dx : null;
+      })();
+      if (dx != null) translateOrphanEngraving(beam, dx);
+    }
   }
 }
 
@@ -1967,6 +2100,120 @@ function alignPlayOrderAlignRefsToAnchorVoice(
   }
 }
 
+/**
+ * Softmax가 그린 notehead [min,max] 구간 안에서만 layout-x(duration) 비례 재배치.
+ * 마디 g·바로는 건드리지 않음. 이후 syncVf가 빔·hook을 맞춤.
+ */
+function alignMeasureNotesByOnsetLayoutGrid(
+  osmd: OpenSheetMusicDisplay,
+  gmRaw: unknown,
+  staffIndex: number,
+  targets: readonly PreviewNoteLayoutTarget[],
+): boolean {
+  const partId = partIdFromGraphic(gmRaw as never);
+  const measureNumber = measureMxlFromGraphic(gmRaw as never);
+  if (!partId || measureNumber == null) return false;
+
+  for (const h of collectMeasureNoteHits(osmd, gmRaw)) clearStavenoteTranslateX(h.stavenote);
+  const hits0 = collectMeasureNoteHits(osmd, gmRaw);
+  const measureG0 = hits0[0]?.stavenote.closest('.vf-measure');
+  if (measureG0) clearMeasureEngravingTranslates(measureG0);
+  const hits = collectMeasureNoteHits(osmd, gmRaw);
+  if (hits.length < 2) return false;
+
+  const partMeasureTargets = targets.filter((t) => {
+    if (t.measureNumber !== measureNumber) return false;
+    if (!partIdsMatch(partId, t.partId)) return false;
+    return Number.isFinite(t.defaultXTenths);
+  });
+  if (!partMeasureTargets.length) return false;
+
+  const withinPart = staffWithinPartForIndex(partId, staffIndex);
+  const measureTargets = partMeasureTargets.filter((t) =>
+    targetStaffMatchesGraphic(withinPart, t.staff),
+  );
+  if (!measureTargets.length) return false;
+
+  const xs = hits.map((h) => h.centerX);
+  const leftEdge = Math.min(...xs);
+  const rightEdge = Math.max(...xs);
+  if (rightEdge - leftEdge < 8) return false;
+
+  // Softmax 자연 구간에 전체 duration 그리드(32..432) 매핑
+  const contentLeft = resolveContentLeftPx(osmd, gmRaw);
+  const floor = contentLeft != null ? contentLeft + Math.max(2, getOsmdUnitInPixels(osmd) * 0.35) : leftEdge;
+  const originX = Math.max(leftEdge, floor);
+  const spanPx = Math.max(8, rightEdge - originX);
+  const measureSpan = { originX, spanPx };
+
+  type Column = { layoutX: number; pitchSet: string[]; expectHeads: number };
+  type Place = { stavenote: SVGGraphicsElement; centerX: number; layoutX: number };
+  let moved = false;
+
+  for (const voice of [...new Set(measureTargets.map((t) => t.voice))]) {
+    const voiceTargets = measureTargets.filter((t) => t.voice === voice);
+    const colMap = new Map<string, Column>();
+    for (const t of voiceTargets) {
+      const key = t.defaultXTenths.toFixed(2);
+      const col = colMap.get(key);
+      if (!col) {
+        colMap.set(key, {
+          layoutX: t.defaultXTenths,
+          pitchSet: [t.pitch],
+          expectHeads: t.pitch === 'REST' ? 0 : 1,
+        });
+      } else if (!col.pitchSet.includes(t.pitch)) {
+        col.pitchSet.push(t.pitch);
+        if (t.pitch !== 'REST') col.expectHeads += 1;
+      }
+    }
+    const columns = [...colMap.values()].sort((a, b) => a.layoutX - b.layoutX);
+    if (!columns.length) continue;
+
+    const voiceHits = hits
+      .filter((h) => h.voice === voice)
+      .sort((a, b) => {
+        if (a.timestamp != null && b.timestamp != null && Math.abs(a.timestamp - b.timestamp) > 1e-4) {
+          return a.timestamp - b.timestamp;
+        }
+        return a.centerX - b.centerX;
+      });
+    if (!voiceHits.length) continue;
+
+    const used = new Set<SVGGraphicsElement>();
+    const voicePlan: Place[] = [];
+    for (const col of columns) {
+      const candidates = voiceHits
+        .filter((h) => !used.has(h.stavenote))
+        .filter((h) => col.pitchSet.some((p) => hitHasPitch(h, p)));
+      if (!candidates.length) continue;
+      let hit = candidates[0]!;
+      if (col.expectHeads > 1) {
+        hit =
+          candidates.find((c) => Math.abs(c.heads - col.expectHeads) === 0) ??
+          [...candidates].sort(
+            (a, b) => Math.abs(a.heads - col.expectHeads) - Math.abs(b.heads - col.expectHeads),
+          )[0]!;
+      }
+      used.add(hit.stavenote);
+      voicePlan.push({ stavenote: hit.stavenote, centerX: hit.centerX, layoutX: col.layoutX });
+    }
+    if (voicePlan.length < 2) continue;
+
+    const ordered = [...voicePlan].sort((a, b) => a.layoutX - b.layoutX || a.centerX - b.centerX);
+    let prevWant = -Infinity;
+    for (const p of ordered) {
+      let want = wantXFromLayoutGrid(measureSpan, p.layoutX);
+      if (want < prevWant + 0.5) want = prevWant + 0.5;
+      const dx = want - p.centerX;
+      if (Math.abs(dx) > 0.5) moved = true;
+      applySvgTranslateX(p.stavenote, dx, Math.max(MAX_ONSET_ALIGN_SHIFT_PX, spanPx * 2));
+      prevWant = want;
+    }
+  }
+  return moved;
+}
+
 /** 조표·박자(beginInstructions) 왼쪽으로 침범한 음표만 평행 이동 — Softmax 상대 간격 유지. */
 function pushNotesOutOfBeginInstructions(osmd: OpenSheetMusicDisplay): boolean {
   let moved = false;
@@ -1985,6 +2232,24 @@ function pushNotesOutOfBeginInstructions(osmd: OpenSheetMusicDisplay): boolean {
       applySvgTranslateX(h.stavenote, dx, MAX_ONSET_ALIGN_SHIFT_PX * 2);
       moved = true;
     }
+    // 짧은 hook·이음줄은 sync reshape를 건너뛰므로 여기서 같이 평행 이동
+    // (안 옮기면 온쉼표/빔 파편처럼 남음)
+    const measureG =
+      hits[0]!.stavenote.closest('.vf-measure') ??
+      hits[0]!.stavenote.parentElement;
+    if (measureG) {
+      for (const el of measureG.querySelectorAll(
+        ':scope > .vf-beam, :scope > .vf-stavetie, :scope > [class*="vf-beam"], :scope > [class*="vf-tie"]',
+      )) {
+        applySvgTranslateX(el as SVGGraphicsElement, dx, MAX_ONSET_ALIGN_SHIFT_PX * 2);
+      }
+      for (const el of measureG.querySelectorAll(
+        ':scope > .vf-stem, :scope > [class*="vf-stem"], :scope > .vf-ledgers, :scope > [class*="vf-ledgers"]',
+      )) {
+        if (el.closest('.vf-stavenote, .vf-staveNote')) continue;
+        applySvgTranslateX(el as SVGGraphicsElement, dx, MAX_ONSET_ALIGN_SHIFT_PX * 2);
+      }
+    }
   });
   return moved;
 }
@@ -2002,8 +2267,9 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   activeStaffWithinPartByIndex = buildStaffWithinPartByStaffIndex(osmd);
   let didAlign = false;
   try {
-    // 박자(duration) 간격: SoftmaxFactorVexFlow≥100 + VoiceSpacingAddend≥3.5 가 OSMD에 맡김.
-    // 전곡 layout-x SVG 재배치는 오선·빔·보조선을 깨뜨려 사용하지 않음.
+    // 박자(duration) 간격: Softmax 자연 폭 안에서 layout-x 비례.
+    // 마디 AbsolutePosition/SVG g 이동은 하지 않음(오선·빔 단절 방지).
+    // hook/이음줄은 syncVf가 note dx에 맞춰 translate.
     if (hints.length > 0) {
       alignLinkedParallelHintGroups(osmd, hints);
       didAlign = true;
@@ -2020,7 +2286,15 @@ export function alignOsmdPreviewNotesByOnsetColumn(
       });
       didAlign = true;
     }
-    // Softmax가 조표·박자 영역으로 침범할 때만 평행 시프트
+    // Softmax 자연 notehead 구간 안에서만 duration(layout-x) 비례 — 마디 g 이동 없음
+    if (targets.length > 0) {
+      forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
+        if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets)) {
+          didAlign = true;
+        }
+      });
+    }
+    // Softmax/배치가 조표·박자 영역으로 침범할 때만 평행 시프트
     if (pushNotesOutOfBeginInstructions(osmd)) didAlign = true;
   } finally {
     activeStaffWithinPartByIndex = null;

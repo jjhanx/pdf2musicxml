@@ -6294,19 +6294,40 @@ def _chord_group_notes_from_leader(
 def _homophonic_parallel_voice_pairs(
     measure: ET.Element, ns: str, staff: str, primary: str, secondary: str
 ) -> list[tuple[ET.Element, list[ET.Element]]] | None:
-    """primary·secondary가 전 구간 같은 onset·duration·default-x면 (leader, sec_notes) 목록.
+    """primary·secondary가 같은 onset·default-x로 짝이면 (leader, sec_notes) 목록.
 
-    하나라도 어긋나거나 쉼표↔실음이 섞이면 None(진짜 다성부).
+    1) 전 구간 길이·박자 일치 (전형적인 Audiveris 화음 분리)
+    2) secondary가 underfull prefix — 모든 secondary 리더가 primary와 같은
+       onset·x (박자는 달라도 됨). PL 앞에만 남는 옥타브 베이스(F2 half + F3
+       quarter)처럼 OSMD가 조표 왼쪽에 그리는 가짜 2성부를 화음으로 흡수.
+
+    쉼표↔실음 혼재·x 불일치면 None(진짜 다성부).
     """
     pri = _voice_local_onset_leaders(measure, ns, staff, primary)
     sec = _voice_local_onset_leaders(measure, ns, staff, secondary)
-    if len(pri) < 1 or len(pri) != len(sec):
+    if len(pri) < 1 or len(sec) < 1:
         return None
-    pairs: list[tuple[ET.Element, list[ET.Element]]] = []
-    for (po, pn), (so, sn) in zip(pri, sec):
-        if po != so:
+
+    pri_by_onset = {onset: note for onset, note in pri}
+    require_same_dur = len(pri) == len(sec)
+    if not require_same_dur:
+        # underfull / prefix only — secondary shorter than primary
+        if len(sec) >= len(pri):
             return None
-        if _note_duration(pn, ns) != _note_duration(sn, ns):
+        sec_pitched = [
+            sn
+            for _so, sn in sec
+            if sn.find(_q(ns, "rest")) is None and not _is_grace_or_cue(sn, ns)
+        ]
+        if not sec_pitched:
+            return None
+
+    pairs: list[tuple[ET.Element, list[ET.Element]]] = []
+    for so, sn in sec:
+        pn = pri_by_onset.get(so)
+        if pn is None:
+            return None
+        if require_same_dur and _note_duration(pn, ns) != _note_duration(sn, ns):
             return None
         pri_rest = pn.find(_q(ns, "rest")) is not None
         sec_rest = sn.find(_q(ns, "rest")) is not None
@@ -6322,6 +6343,28 @@ def _homophonic_parallel_voice_pairs(
             return None
         pairs.append((pn, _chord_group_notes_from_leader(measure, ns, sn)))
     return pairs if pairs else None
+
+
+def _sync_chord_member_duration_to_leader(
+    member: ET.Element, leader: ET.Element, ns: str
+) -> None:
+    """화음 멤버 duration·type·dot를 리더에 맞춤(MusicXML·OSMD)."""
+    lead_dur = _note_duration(leader, ns)
+    dur_el = member.find(_q(ns, "duration"))
+    if dur_el is None:
+        dur_el = ET.SubElement(member, _q(ns, "duration"))
+    dur_el.text = str(lead_dur)
+    lead_type = leader.find(_q(ns, "type"))
+    mem_type = member.find(_q(ns, "type"))
+    if lead_type is not None and lead_type.text:
+        if mem_type is None:
+            mem_type = ET.SubElement(member, _q(ns, "type"))
+        mem_type.text = lead_type.text
+    for dot in list(member.findall(_q(ns, "dot"))):
+        member.remove(dot)
+    for _ in leader.findall(_q(ns, "dot")):
+        ET.SubElement(member, _q(ns, "dot"))
+    _sort_note_children(member, ns)
 
 
 def _merge_sec_notes_into_primary_chord(
@@ -6364,6 +6407,7 @@ def _merge_sec_notes_into_primary_chord(
         _set_note_voice_staff(note, ns, primary_voice, staff)
         _ensure_chord_tag(note, ns)
         _strip_beams_from_note(note, ns, None)
+        _sync_chord_member_duration_to_leader(note, primary_leader, ns)
         if stem_dir:
             s = note.find(_q(ns, "stem"))
             if s is None:

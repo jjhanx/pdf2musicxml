@@ -850,13 +850,34 @@ function stavenoteIdForOrphanStem(stemEl: Element): string | null {
   return m?.[1] && m[1].length > 0 ? m[1] : null;
 }
 
+/** 음머리 path 첫 M의 Y — 화음은 여러 머리가 있으므로 stem 방향별 base용은 noteheadStemBaseY 사용. */
+function noteheadPitchYs(stavenote: Element): number[] {
+  const ys: number[] = [];
+  for (const path of stavenote.querySelectorAll('.vf-notehead path, [class*="vf-notehead"] path')) {
+    const hd = path.getAttribute('d');
+    if (!hd) continue;
+    const first = /M\s*[-\d.eE+]+\s+([-\d.eE+]+)/i.exec(hd);
+    if (!first) continue;
+    const y = parseFloat(first[1]!);
+    if (Number.isFinite(y)) ys.push(y);
+  }
+  return ys;
+}
+
 function noteheadPitchY(stavenote: Element): number | null {
-  const hd = stavenote.querySelector('.vf-notehead path')?.getAttribute('d');
-  if (!hd) return null;
-  const first = /M\s*[-\d.eE+]+\s+([-\d.eE+]+)/i.exec(hd);
-  if (!first) return null;
-  const y = parseFloat(first[1]!);
-  return Number.isFinite(y) ? y : null;
+  const ys = noteheadPitchYs(stavenote);
+  return ys.length ? ys[0]! : null;
+}
+
+/**
+ * 줄기 밑동이 붙어야 할 음머리 Y.
+ * stem-up → 가장 아래 머리(max Y), stem-down → 가장 위 머리(min Y).
+ * 첫 머리만 쓰면 화음(C4+F4)에서 밑동이 아랫음으로 끌려 윗음 줄기가 끊긴다.
+ */
+function noteheadStemBaseY(stavenote: Element, stemUp: boolean): number | null {
+  const ys = noteheadPitchYs(stavenote);
+  if (!ys.length) return null;
+  return stemUp ? Math.max(...ys) : Math.min(...ys);
 }
 
 function snapStemTipsToBeamsInMeasure(measure: Element, tips: StemTip[]): void {
@@ -953,8 +974,11 @@ function syncVfEngravingInMeasure(measure: Element): void {
       if (n.hasInnerStem) continue;
       const dX = Math.abs(n.naturalX - x);
       if (dX > 40) continue;
-      const pitch = noteheadPitchY(n.el);
-      const dY = pitch != null ? Math.abs(pitch - stemBaseY) : 20;
+      const ys = noteheadPitchYs(n.el);
+      const dY =
+        ys.length > 0
+          ? Math.min(...ys.map((y) => Math.abs(y - stemBaseY)))
+          : 20;
       const score = dX + dY * 0.35;
       if (score < bestScore) {
         bestScore = score;
@@ -1112,15 +1136,19 @@ function reattachOrphanStemBasesToNoteheads(
     if (!id) continue;
     const note = noteById.get(id);
     if (!note) continue;
-    const pitchY = noteheadPitchY(note.el);
-    if (pitchY == null) continue;
+    const headYs = noteheadPitchYs(note.el);
+    if (!headYs.length) continue;
     const yr = stemLocalYRange(stem);
     if (!yr) continue;
     const tipUp = yr.y0;
     const tipDown = yr.y1;
     if (tipDown - tipUp < 4) continue;
-    // pitch에 더 가까운 끝이 base. stem-up이면 base = max y.
-    const stemUp = Math.abs(tipDown - pitchY) <= Math.abs(tipUp - pitchY);
+    // 음머리에 더 가까운 끝이 base → 그걸로 줄기 방향 판별(화음 여러 머리 허용)
+    const distUp = Math.min(...headYs.map((y) => Math.abs(y - tipUp)));
+    const distDown = Math.min(...headYs.map((y) => Math.abs(y - tipDown)));
+    const stemUp = distDown <= distUp;
+    const pitchY = noteheadStemBaseY(note.el, stemUp);
+    if (pitchY == null) continue;
     const curBase = stemUp ? tipDown : tipUp;
     if (Math.abs(curBase - pitchY) < 0.6) continue;
     if (Math.abs(curBase - pitchY) > 24) continue;

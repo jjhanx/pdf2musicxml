@@ -1816,6 +1816,134 @@ function alignPlayOrderAlignRefsToAnchorVoice(
   }
 }
 
+/**
+ * 전 마디·전 성부 — musical onset 비례 layout-x(32..432)를 기존 notehead span에 재배치.
+ * OSMD/VexFlow Softmax는 마디가 최소폭에 붙으면 음표마다 비슷한 Δx를 줘 박자 간격이 깨짐(다성부 m13 등).
+ * 저장 MXL·measure@width는 불변. 폭 확장은 하지 않음(다음 마디 침범 방지).
+ *
+ * staff 매칭: 그랜드스태프(XML staff 1+2)는 **엄격**. PL/PR 단독(XML staff 하나만)일 때만
+ * OSMD staffIndex 0에 느슨 매칭.
+ * sharedSpan: 같은 part·마디의 양 오선 notehead를 합친 span — 박·성부 세로 정렬.
+ */
+function alignMeasureNotesByOnsetLayoutGrid(
+  osmd: OpenSheetMusicDisplay,
+  gmRaw: unknown,
+  staffIndex: number,
+  targets: readonly PreviewNoteLayoutTarget[],
+  sharedSpan?: { originX: number; spanPx: number } | null,
+): boolean {
+  const partId = partIdFromGraphic(gmRaw as never);
+  const measureNumber = measureMxlFromGraphic(gmRaw as never);
+  if (!partId || measureNumber == null) return false;
+
+  for (const h of collectMeasureNoteHits(osmd, gmRaw)) clearStavenoteTranslateX(h.stavenote);
+  const hits = collectMeasureNoteHits(osmd, gmRaw);
+  if (hits.length < 2) return false;
+
+  const partMeasureTargets = targets.filter((t) => {
+    if (t.measureNumber !== measureNumber) return false;
+    if (!partIdsMatch(partId, t.partId)) return false;
+    return Number.isFinite(t.defaultXTenths);
+  });
+  if (partMeasureTargets.length < 2) return false;
+
+  const soleStaffExtract = new Set(partMeasureTargets.map((t) => t.staff)).size === 1;
+  const graphicStaff = staffIndex + 1;
+  const measureTargets = partMeasureTargets.filter((t) => {
+    if (t.staff === graphicStaff) return true;
+    if (soleStaffExtract && graphicStaff === 1) return true;
+    return false;
+  });
+  if (measureTargets.length < 2) return false;
+
+  const distinctX = new Set(measureTargets.map((t) => t.defaultXTenths.toFixed(2)));
+  if (distinctX.size < 2) return false;
+
+  const measureSpan = sharedSpan ?? measureSpanFromHits(hits);
+  if (!measureSpan) return false;
+
+  type Column = { layoutX: number; pitchSet: string[]; expectHeads: number };
+  const voices = [...new Set(measureTargets.map((t) => t.voice))];
+  let moved = false;
+
+  for (const voice of voices) {
+    const voiceTargets = measureTargets.filter((t) => t.voice === voice);
+    const colMap = new Map<string, Column>();
+    for (const t of voiceTargets) {
+      const key = t.defaultXTenths.toFixed(2);
+      const col = colMap.get(key);
+      if (!col) {
+        colMap.set(key, {
+          layoutX: t.defaultXTenths,
+          pitchSet: [t.pitch],
+          expectHeads: t.pitch === 'REST' ? 0 : 1,
+        });
+      } else if (!col.pitchSet.includes(t.pitch)) {
+        col.pitchSet.push(t.pitch);
+        if (t.pitch !== 'REST') col.expectHeads += 1;
+      }
+    }
+    const columns = [...colMap.values()].sort((a, b) => a.layoutX - b.layoutX);
+    if (columns.length < 1) continue;
+
+    const voiceHits = hits
+      .filter((h) => h.voice === voice)
+      .sort((a, b) => {
+        if (a.timestamp != null && b.timestamp != null && Math.abs(a.timestamp - b.timestamp) > 1e-4) {
+          return a.timestamp - b.timestamp;
+        }
+        return a.centerX - b.centerX;
+      });
+    if (!voiceHits.length) continue;
+
+    const used = new Set<SVGGraphicsElement>();
+    for (const col of columns) {
+      const candidates = voiceHits
+        .filter((h) => !used.has(h.stavenote))
+        .filter((h) => col.pitchSet.some((p) => hitHasPitch(h, p)));
+      if (!candidates.length) continue;
+      let hit = candidates[0]!;
+      if (col.expectHeads > 1) {
+        hit =
+          candidates.find((c) => Math.abs(c.heads - col.expectHeads) === 0) ??
+          [...candidates].sort(
+            (a, b) => Math.abs(a.heads - col.expectHeads) - Math.abs(b.heads - col.expectHeads),
+          )[0]!;
+      }
+      used.add(hit.stavenote);
+      const wantX = wantXFromLayoutGrid(measureSpan, col.layoutX);
+      if (Math.abs(hit.centerX - wantX) > 0.5) moved = true;
+      alignStavenoteToTarget(hit.stavenote, col.layoutX, hit.centerX, measureSpan);
+    }
+  }
+  return moved;
+}
+
+/** part|measure → 양 오선 notehead를 합친 SVG span (박자 세로 정렬용). */
+function collectSharedOnsetLayoutSpans(
+  osmd: OpenSheetMusicDisplay,
+): Map<string, { originX: number; spanPx: number }> {
+  const hitsByKey = new Map<string, { centerX: number }[]>();
+  forEachGraphicalMeasure(osmd, (gmRaw) => {
+    const partId = partIdFromGraphic(gmRaw as never);
+    const measureNumber = measureMxlFromGraphic(gmRaw as never);
+    if (!partId || measureNumber == null) return;
+    for (const h of collectMeasureNoteHits(osmd, gmRaw)) clearStavenoteTranslateX(h.stavenote);
+    const hits = collectMeasureNoteHits(osmd, gmRaw);
+    if (!hits.length) return;
+    const key = `${partId}|${measureNumber}`;
+    const list = hitsByKey.get(key) ?? [];
+    for (const h of hits) list.push({ centerX: h.centerX });
+    hitsByKey.set(key, list);
+  });
+  const out = new Map<string, { originX: number; spanPx: number }>();
+  for (const [key, hits] of hitsByKey) {
+    const span = measureSpanFromHits(hits);
+    if (span) out.set(key, span);
+  }
+  return out;
+}
+
 export function alignOsmdPreviewNotesByOnsetColumn(
   osmd: OpenSheetMusicDisplay,
   previewXml?: string | null,
@@ -1826,8 +1954,21 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   const hasAlignRef = targets.some((t) => t.playOrderAlign != null && t.playOrderAlign !== '');
   const hasPartialVoicePlayOrder = measureHasPartialVoicePlayOrder(targets);
 
-  // linkParallel + voice-순번 참조(5-6) + partial voice(명시 po + timeline 앵커 voice)만 SVG 보정.
   let didAlign = false;
+  // 1) 전곡 onset 비례 박자 간격 (layout-x → SVG). Softmax 최소폭 붕괴 보정.
+  if (targets.length > 0) {
+    const sharedSpans = collectSharedOnsetLayoutSpans(osmd);
+    forEachGraphicalMeasure(osmd, (gmRaw, staffIndex) => {
+      const partId = partIdFromGraphic(gmRaw as never);
+      const measureNumber = measureMxlFromGraphic(gmRaw as never);
+      const shared =
+        partId && measureNumber != null ? sharedSpans.get(`${partId}|${measureNumber}`) : undefined;
+      if (alignMeasureNotesByOnsetLayoutGrid(osmd, gmRaw, staffIndex, targets, shared)) {
+        didAlign = true;
+      }
+    });
+  }
+  // 2) linkParallel·순번 참조·partial voice — 기존 특수 column 보정
   if (hints.length > 0) {
     alignLinkedParallelHintGroups(osmd, hints);
     didAlign = true;

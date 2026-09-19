@@ -149,6 +149,7 @@ export function applyOsmdPreviewEngravingRules(
   const r = rules as OpenSheetMusicDisplay['EngravingRules'] & {
     DisplacedNoteMargin?: number;
     VoiceSpacingAddendVexflow?: number;
+    SoftmaxFactorVexFlow?: number;
     RepetitionEndInstructionXShiftAsPercentOfStaveWidth?: number;
     RenderMultipleRestMeasures?: boolean;
     AutoGenerateMultipleRestMeasuresFromRestMeasures?: boolean;
@@ -162,6 +163,10 @@ export function applyOsmdPreviewEngravingRules(
   // 기본 3 — 2.0으로 줄이면 16분 밀집 마디가 앞·뒤 칸으로 넘치기 쉬움
   if (typeof r.VoiceSpacingAddendVexflow === 'number') {
     r.VoiceSpacingAddendVexflow = Math.max(r.VoiceSpacingAddendVexflow, 3.5);
+  }
+  // Softmax↑ = duration 비례 간격(여유 폭이 있을 때). 최소폭 붕괴는 SVG onset layout align이 보정.
+  if (typeof r.SoftmaxFactorVexFlow === 'number') {
+    r.SoftmaxFactorVexFlow = Math.max(r.SoftmaxFactorVexFlow, 100);
   }
   // 셈여림표(p, f, mf 등) 여백 — wedge 거리는 WedgePlacement* + XML distance
   rules.DynamicExpressionSpacer = 3.0;

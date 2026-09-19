@@ -3488,6 +3488,28 @@ def _infer_voice_stem_from_neighbors(
     return voice, stem
 
 
+def _polyphonic_stem_for_voice_on_staff(
+    notes: list[ET.Element], ns: str, staff_n: int, voice: str
+) -> str:
+    """의도적 다성부 — 오선에서 낮은 voice 번호=up, 나머지=down."""
+    voices = {voice}
+    for note in notes:
+        if note.find(_q(ns, "chord")) is not None:
+            continue
+        if note.find(_q(ns, "pitch")) is None and note.find(_q(ns, "rest")) is None:
+            continue
+        v, st = _note_voice_staff(note, ns)
+        try:
+            st_n = int(st) if str(st).isdigit() else (_note_staff_number(note, ns) or 1)
+        except ValueError:
+            st_n = _note_staff_number(note, ns) or 1
+        if st_n != staff_n:
+            continue
+        voices.add(v)
+    ordered = sorted(voices, key=lambda v: int(v) if v.isdigit() else 999)
+    return "up" if ordered and ordered[0] == voice else "down"
+
+
 def _infer_stem_from_pitch(step: str, octave: int) -> str:
     """오선 중간(B4) 기준으로 stem 방향 추정 — OSMD·악보 관례."""
     try:
@@ -10941,7 +10963,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     files, root_path, root = load_mxl_root(out_mxl)
     chord_beams = cleanup_chord_beams_in_root(root)
     coalesce = coalesce_spurious_parallel_voices_in_root(root)
-    homophonic = merge_homophonic_parallel_voices_in_root(root)
+    # 의도적 다성부(HITL voice)는 chord로 합치지 않음 — fix_audiveris/OMR 자동 정리만.
     timelines = normalize_measure_timelines_in_root(root)
     play_orders = normalize_play_orders_including_rests_in_root(root)
     dynamics = normalize_dynamics_in_root(root)
@@ -10951,10 +10973,10 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     orphan_oct = repair_orphan_octave_shifts_in_root(root)
     play_order_doc = materialize_play_order_document_order_in_root(root)
     po_align = realign_play_order_column_timelines_in_root(root)
+    multivoice_stems = normalize_multivoice_stems_in_root(root)
     if (
         chord_beams
         or coalesce
-        or homophonic
         or timelines
         or play_orders
         or dynamics
@@ -10964,6 +10986,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
         or orphan_oct
         or play_order_doc
         or po_align
+        or multivoice_stems
     ):
         write_mxl_root(out_mxl, files, root_path, root)
 
@@ -11446,12 +11469,16 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         else:
             leader_i = _chord_leader_index(notes, ns, idx)
             group_indices = [leader_i, *_chord_follower_indices(notes, ns, leader_i)]
+        staff_n = _note_staff_number(note, ns) or 1
+        stem = _polyphonic_stem_for_voice_on_staff(notes, ns, staff_n, voice_val)
         for gi in group_indices:
             n = notes[gi]
             v_el = n.find(_q(ns, "voice"))
             if v_el is None:
                 v_el = ET.SubElement(n, _q(ns, "voice"))
             v_el.text = voice_val
+            if n.find(_q(ns, "pitch")) is not None and stem in ("up", "down"):
+                _set_note_stem(n, ns, stem, hitl_lock=True)
             _sort_note_children(n, ns)
         _strip_orphan_timeline_if_single_voice_per_staff(measure, ns)
         _normalize_measure_note_engraving(part, ns, measure)
@@ -13315,6 +13342,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         voice, stem = _infer_voice_stem_from_neighbors(notes, ns, insert_after_idx, staff_n)
         if voice_override:
             voice = voice_override
+            # 의도적 다른 성부 — 이웃 stem 복사 대신 다성 관례(낮은 voice=up)
+            stem = _polyphonic_stem_for_voice_on_staff(notes, ns, staff_n, voice)
         alter = fix.get("pitchAlter")
         alter_n: int | None = None
         if alter is not None and alter != "":
@@ -13334,6 +13363,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             stem=stem,
             dot_count=dot_count,
         )
+        if voice_override and stem in ("up", "down"):
+            _set_note_stem(new_note, ns, stem, hitl_lock=True)
         _assign_insert_layout_defaults(
             new_note, anchor, following, staff_notes=staff_notes, ns=ns
         )
@@ -15212,7 +15243,8 @@ def rebuild_measure_timeline_clean(
     _dedupe_identical_pitches_in_chord_groups(measure, ns)
     _move_attributes_out_of_chord_groups(measure, ns)
     coalesce_spurious_parallel_voices_in_measure(measure, ns, part)
-    merge_homophonic_parallel_voices_in_measure(measure, ns, part)
+    # 같은 x·같은 박 병렬 voice → chord 병합은 fix_audiveris / OMR 자동 정리만.
+    # HITL rebuild에서 하면 의도적으로 넣은 다른 voice가 화음에 흡수됨.
     for st in ("1", "2"):
         _merge_forward_coarse_layer_on_staff(measure, ns, st, part)
     for st in ("1", "2"):
@@ -15254,7 +15286,7 @@ def _rebuild_one_staff_timeline(
     _coalesce_spurious_parallel_voices_on_staff(
         measure, ns, staff, divisions=divisions, measure_len=measure_len
     )
-    _merge_homophonic_parallel_voices_on_staff(measure, ns, staff)
+    # 화음 병합은 HITL rebuild에서 하지 않음(의도적 다성부·줄기 구분 유지).
     _merge_forward_coarse_layer_on_staff(measure, ns, staff, part)
     _merge_staff_voices_if_non_overlapping(measure, ns, staff)
     _rebuild_staff_voice_block(measure, ns, staff)
@@ -15551,9 +15583,8 @@ def apply_fixes_file(
     rest_play_order_measures = normalize_play_orders_including_rests_in_root(root)
     multivoice_stem_measures = normalize_multivoice_stems_in_root(root, only_measures=only)
     coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root, only_measures=only)
-    homophonic_voice_measures = merge_homophonic_parallel_voices_in_root(
-        root, only_measures=only
-    )
+    # HITL 반영 시 같은 x·박 병렬을 chord로 합치지 않음 — 의도적 다른 voice는
+    # normalize_multivoice_stems로 줄기 반대로 구분.
     timeline_measures = normalize_measure_timelines_in_root(root, only_measures=only)
     dynamics_normalized = normalize_dynamics_in_root(root, only_measures=only)
     note_durs_coerced = coerce_note_durations_to_type_in_root(root)
@@ -15594,7 +15625,6 @@ def apply_fixes_file(
         "restPlayOrderMeasuresNormalized": rest_play_order_measures,
         "multivoiceStemMeasuresNormalized": multivoice_stem_measures,
         "coalesceVoiceMeasures": max(coalesce_voice_measures, timeline_measures),
-        "homophonicChordMeasures": homophonic_voice_measures,
         "dynamicsNormalizedMeasures": dynamics_normalized,
         "noteDurationsCoercedToType": note_durs_coerced,
         "slursNormalizedMeasures": slurs_normalized,

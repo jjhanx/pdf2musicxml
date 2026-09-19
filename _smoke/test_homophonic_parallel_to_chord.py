@@ -96,13 +96,24 @@ def test_m13_pr_merges_to_chords() -> None:
 
 
 def test_m13_survives_rebuild() -> None:
+    """HITL rebuild must NOT chord-merge — intentional multi-voice kept."""
     m = _load_measure("omr-work-c181066c.zip", "P5", "13")
     ns = _ns(m)
     rebuild_measure_timeline_clean(m, ns, None)
     after = _staff1_summary(m, ns)
     voices = {v for _p, v, _c in after}
-    assert voices == {"1"}, f"rebuild must chord-merge, got {voices}: {after}"
-    assert any(c for _p, _v, c in after), f"expected <chord/> members: {after}"
+    assert voices == {"1", "2"}, f"rebuild must keep PR voices, got {voices}: {after}"
+
+
+def test_m13_explicit_merge_still_chords() -> None:
+    """OMR 정리 경로(명시 merge)는 여전히 화음으로 합침."""
+    m = _load_measure("omr-work-c181066c.zip", "P5", "13")
+    ns = _ns(m)
+    assert merge_homophonic_parallel_voices_in_measure(m, ns)
+    after = _staff1_summary(m, ns)
+    voices = {v for _p, v, _c in after}
+    assert voices == {"1"}, f"explicit merge must chordify PR, got {voices}: {after}"
+    assert any(c for _p, _v, c in after)
 
 
 def test_m13_pl_half_bass_not_merged() -> None:
@@ -256,6 +267,7 @@ if __name__ == "__main__":
     test_synthetic_underfull_same_duration_merges()
     test_m13_pr_merges_to_chords()
     test_m13_survives_rebuild()
+    test_m13_explicit_merge_still_chords()
     test_m13_pl_half_bass_not_merged()
     test_m16_different_x_not_merged()
     print("ok")

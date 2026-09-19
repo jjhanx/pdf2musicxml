@@ -124,6 +124,28 @@ if (inferPdfPageForMxlMeasure(idx, 1) !== 1 || inferPdfPageForMxlMeasure(idx, 33
 if (inferPdfPageForMxlMeasure(idx, 40) !== 2 || inferPdfPageForMxlMeasure(idx, 41) !== 3) {
   throw new Error('inferPdfPageForMxlMeasure boundary failed');
 }
+// print new-page가 없으면 PDF 페이지 수로 균등 분할
+const noBreaks = buildPdfPageMeasureIndex(`<?xml version="1.0"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1"><note><rest/><duration>4</duration></note></measure>
+    <measure number="50"><note><rest/><duration>4</duration></note></measure>
+    <measure number="100"><note><rest/><duration>4</duration></note></measure>
+  </part>
+</score-partwise>`);
+if (noBreaks.pageStarts.length !== 1) {
+  throw new Error(`expected single pageStart got ${noBreaks.pageStarts.join(',')}`);
+}
+if (inferPdfPageForMxlMeasure(noBreaks, 1, 4) !== 1) {
+  throw new Error('even-split page1 failed');
+}
+if (inferPdfPageForMxlMeasure(noBreaks, 50, 4) !== 2) {
+  throw new Error(`even-split mid expected 2 got ${inferPdfPageForMxlMeasure(noBreaks, 50, 4)}`);
+}
+if (inferPdfPageForMxlMeasure(noBreaks, 100, 4) !== 4) {
+  throw new Error(`even-split last expected 4 got ${inferPdfPageForMxlMeasure(noBreaks, 100, 4)}`);
+}
 
 const r2 = inferMeasureRangeForPdfPage(sample, 2);
 if (r2.start !== 33 || r2.end !== 40) {

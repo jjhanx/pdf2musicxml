@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildOsmdPreviewXml,
   buildStaffFilterEntries,
@@ -226,7 +226,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [policy, setPolicy] = useState<OmrPolicy | null>(null);
   const [page, setPage] = useState(1);
   const [staffFilter, setStaffFilter] = useState('');
-  const [pagePending, startPageTransition] = useTransition();
   const [loadErr, setLoadErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [pendingFixes, setPendingFixes] = useState<OmrHitlFix[]>([]);
@@ -324,6 +323,17 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const pageStartsKey = pageMeasureIndex.pageStarts.join(',');
   const lastPageScrollMxlRef = useRef(0);
 
+  /** 선택 마디 → 왼쪽 clean_score 페이지 (navigateToMeasure 외 경로·레이스 대비) */
+  useEffect(() => {
+    const m = selectedMeasure?.measureMxl;
+    if (m == null || m < 1 || !rawXml) return;
+    const pdfPage = Math.max(
+      1,
+      Math.min(pageCount, inferPdfPageForMxlMeasure(pageMeasureIndex, m, pageCount)),
+    );
+    setPage((cur) => (cur === pdfPage ? cur : pdfPage));
+  }, [selectedMeasure?.measureMxl, pageMeasureIndex, pageCount, rawXml]);
+
   useEffect(() => {
     if (!rawXml || page < 1) return;
     if (imagePdfLight) return; // 마디 단위 미리보기 — 페이지 스크롤 대상 불필요
@@ -368,16 +378,22 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const goToPage = useCallback(
     (next: number) => {
       const clamped = Math.max(1, Math.min(pageCount, next));
-      startPageTransition(() => {
-        setPage(clamped);
-        // 이미지 PDF: 페이지 넘김 시 이전 마디 OSMD를 비워 메인 스레드 부담을 줄임
-        if (imagePdfLight) {
-          setSelectedMeasure(null);
-          setMeasureClickMsg('');
-        }
-      });
+      setPage(clamped);
+      // 이미지 PDF: 페이지 넘김 시 이전 마디 OSMD를 비워 메인 스레드 부담을 줄임
+      if (imagePdfLight) {
+        setSelectedMeasure(null);
+        setMeasureClickMsg('');
+        return;
+      }
+      // 벡터: PDF 페이지와 선택 마디를 맞춤 — 미리보기·왼쪽 clean_score가 어긋나지 않게
+      const start = measureRangeFromPageIndex(pageMeasureIndex, clamped).start;
+      setSelectedMeasure({ measureMxl: start, staffIndex: 0, partId: null });
+      setManualMeasureMxl(String(start));
+      setMeasureClickMsg(
+        `PDF p.${clamped} · 이 페이지 첫 마디 m.${start} (m.${measureRangeFromPageIndex(pageMeasureIndex, clamped).start}–${measureRangeFromPageIndex(pageMeasureIndex, clamped).end})`,
+      );
     },
-    [pageCount, imagePdfLight],
+    [pageCount, imagePdfLight, pageMeasureIndex],
   );
 
   const refreshScoreXml = useCallback(async (opts?: { skipSync?: boolean }) => {
@@ -1042,9 +1058,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
             ? Math.max(0, staffList.indexOf(staffFilter))
             : 0);
 
-      const pdfPage = inferPdfPageForMxlMeasure(pageMeasureIndex, measureMxl);
-      if (pdfPage !== page) {
-        startPageTransition(() => setPage(Math.max(1, Math.min(pageCount, pdfPage))));
+      const pdfPage = inferPdfPageForMxlMeasure(pageMeasureIndex, measureMxl, pageCount);
+      const clampedPage = Math.max(1, Math.min(pageCount, pdfPage));
+      // 왼쪽 clean_score PNG는 transition 없이 즉시 — 미리보기 마디 이동과 같은 프레임에 맞춤
+      if (clampedPage !== page) {
+        setPage(clampedPage);
       }
       const sysRange = !imagePdfLight
         ? systemOsmdPreviewMeasureRange(
@@ -1074,10 +1092,11 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       const staffLabel =
         (partId && labelForPartStaff(partId, staffWithinPart)) ||
         (staffFilter || staffList[staffIndex] || '');
+      const pageRange = measureRangeFromPageIndex(pageMeasureIndex, clampedPage);
       setMeasureClickMsg(
         imagePdfLight
-          ? `마디 이동 · m.${measureMxl}${staffLabel ? ` · ${staffLabel}` : ''} → PDF p.${pdfPage} (구간 m.${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).start}–${measureRangeFromPageIndex(pageMeasureIndex, pdfPage).end})`
-          : `마디 선택 · m.${measureMxl}${staffLabel ? ` · ${staffLabel}` : ''} → 시스템 m.${sysRange.start}–${sysRange.end} · 전체 성부 · PDF p.${pdfPage}`,
+          ? `마디 이동 · m.${measureMxl}${staffLabel ? ` · ${staffLabel}` : ''} → PDF p.${clampedPage} (구간 m.${pageRange.start}–${pageRange.end})`
+          : `마디 선택 · m.${measureMxl}${staffLabel ? ` · ${staffLabel}` : ''} → 시스템 m.${sysRange.start}–${sysRange.end} · 전체 성부 · PDF p.${clampedPage}`,
       );
     },
     [
@@ -1319,7 +1338,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         </button>
         <span style={{ fontWeight: 600 }}>
           {page} / {pageCount}
-          {pagePending || deferredPage !== page ? (
+          {deferredPage !== page ? (
             <span style={{ marginLeft: 6, fontSize: '0.8rem', color: '#666', fontWeight: 500 }}>
               미리보기 갱신 중…
             </span>

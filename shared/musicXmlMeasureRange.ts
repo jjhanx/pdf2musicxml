@@ -63,10 +63,13 @@ export function measureRangeFromPageIndex(
   return { start, end: Math.max(start, nextStart - 1) };
 }
 
-/** MXL 마디 → PDF 페이지 (1-based). 인덱스 없으면 1. */
+/** MXL 마디 → PDF 페이지 (1-based). 인덱스 없으면 1.
+ * pdfPageCount가 print new-page보다 많고 pageStarts가 사실상 1뿐이면 마디를 균등 분할.
+ */
 export function inferPdfPageForMxlMeasure(
   indexOrXml: PdfPageMeasureIndex | string,
   measureMxl: number,
+  pdfPageCount?: number,
 ): number {
   const index =
     typeof indexOrXml === 'string' ? buildPdfPageMeasureIndex(indexOrXml) : indexOrXml;
@@ -77,6 +80,15 @@ export function inferPdfPageForMxlMeasure(
     if (start <= m) page = i + 1;
     else break;
   }
+  const pdfPages =
+    typeof pdfPageCount === 'number' && Number.isFinite(pdfPageCount)
+      ? Math.max(1, Math.floor(pdfPageCount))
+      : 0;
+  if (pdfPages > 1 && index.pageStarts.length <= 1 && index.maxMeasure > 1) {
+    const t = (m - 1) / index.maxMeasure;
+    return Math.min(pdfPages, Math.max(1, Math.floor(t * pdfPages) + 1));
+  }
+  if (pdfPages > 1) return Math.min(pdfPages, page);
   return page;
 }
 

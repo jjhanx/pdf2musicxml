@@ -18,6 +18,7 @@ import { applySlurDistanceFixesToPreviewXml } from '../shared/musicXmlSlurDistan
 import type { OsmdMeasureClickInfo } from './osmdMeasureClick';
 import { resolvePartDisplayLabels } from './partLabelOptions';
 import {
+  alignPageMeasureIndexToPdfCount,
   buildPdfPageMeasureIndex,
   buildPdfPageSystemRows,
   buildScoreSystemRows,
@@ -275,9 +276,14 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const deferredPage = useDeferredValue(page);
 
   /** rawXml당 1회 — 페이지 넘김마다 전체 MusicXML DOM 재파싱 금지 */
-  const pageMeasureIndex = useMemo(
+  const pageMeasureIndexRaw = useMemo(
     () => (rawXml ? buildPdfPageMeasureIndex(rawXml) : { pageStarts: [1], maxMeasure: 1 }),
     [rawXml],
+  );
+  /** PDF pageCountForUi와 길이 일치 — 미리보기↔clean_score 양방향 동기화의 단일 인덱스 */
+  const pageMeasureIndex = useMemo(
+    () => alignPageMeasureIndexToPdfCount(pageMeasureIndexRaw, pageCount),
+    [pageMeasureIndexRaw, pageCount],
   );
 
   /** 벡터 HITL — `<print new-system>` 오선 줄 목록 (시스템 단위 OSMD) */
@@ -327,9 +333,10 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   useEffect(() => {
     const m = selectedMeasure?.measureMxl;
     if (m == null || m < 1 || !rawXml) return;
+    // pageMeasureIndex는 이미 pageCount에 align됨 — pdfPageCount 인자는 생략해도 동일
     const pdfPage = Math.max(
       1,
-      Math.min(pageCount, inferPdfPageForMxlMeasure(pageMeasureIndex, m, pageCount)),
+      Math.min(pageCount, inferPdfPageForMxlMeasure(pageMeasureIndex, m)),
     );
     setPage((cur) => (cur === pdfPage ? cur : pdfPage));
   }, [selectedMeasure?.measureMxl, pageMeasureIndex, pageCount, rawXml]);
@@ -337,7 +344,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   useEffect(() => {
     if (!rawXml || page < 1) return;
     if (imagePdfLight) return; // 마디 단위 미리보기 — 페이지 스크롤 대상 불필요
-    const mxl = pageMeasureIndex.pageStarts[Math.min(page, pageMeasureIndex.pageStarts.length) - 1] ?? 1;
+    const mxl = pageMeasureIndex.pageStarts[page - 1] ?? 1;
     if (mxl < 1) return;
     if (lastPageScrollMxlRef.current === mxl) return;
     lastPageScrollMxlRef.current = mxl;
@@ -374,27 +381,6 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       }
     };
   }, [imagePdfLight, page, pageCount, jobId, pngSource, pngDpi]);
-
-  const goToPage = useCallback(
-    (next: number) => {
-      const clamped = Math.max(1, Math.min(pageCount, next));
-      setPage(clamped);
-      // 이미지 PDF: 페이지 넘김 시 이전 마디 OSMD를 비워 메인 스레드 부담을 줄임
-      if (imagePdfLight) {
-        setSelectedMeasure(null);
-        setMeasureClickMsg('');
-        return;
-      }
-      // 벡터: PDF 페이지와 선택 마디를 맞춤 — 미리보기·왼쪽 clean_score가 어긋나지 않게
-      const start = measureRangeFromPageIndex(pageMeasureIndex, clamped).start;
-      setSelectedMeasure({ measureMxl: start, staffIndex: 0, partId: null });
-      setManualMeasureMxl(String(start));
-      setMeasureClickMsg(
-        `PDF p.${clamped} · 이 페이지 첫 마디 m.${start} (m.${measureRangeFromPageIndex(pageMeasureIndex, clamped).start}–${measureRangeFromPageIndex(pageMeasureIndex, clamped).end})`,
-      );
-    },
-    [pageCount, imagePdfLight, pageMeasureIndex],
-  );
 
   const refreshScoreXml = useCallback(async (opts?: { skipSync?: boolean }) => {
     setXmlLoading(true);
@@ -1116,6 +1102,16 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
     ],
   );
 
+  /** PDF◀▶ / 페이지 입력 — 해당 페이지 첫 마디로 미리보기·선택도 맞춤 (양방향) */
+  const goToPage = useCallback(
+    (next: number) => {
+      const clamped = Math.max(1, Math.min(pageCount, next));
+      const start = measureRangeFromPageIndex(pageMeasureIndex, clamped).start;
+      navigateToMeasure(start);
+    },
+    [pageCount, pageMeasureIndex, navigateToMeasure],
+  );
+
   const openManualMeasure = useCallback(() => {
     const measureMxl = parseInt(manualMeasureMxl.trim(), 10);
     if (!Number.isFinite(measureMxl) || measureMxl < 1) return;
@@ -1165,8 +1161,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   ]);
 
   const pdfPageSystemRows = useMemo(
-    () => (rawXml ? buildPdfPageSystemRows(rawXml, page) : []),
-    [rawXml, page],
+    () => (rawXml ? buildPdfPageSystemRows(rawXml, page, pageCount) : []),
+    [rawXml, page, pageCount],
   );
 
   const onOsmdMeasureClick = useCallback(

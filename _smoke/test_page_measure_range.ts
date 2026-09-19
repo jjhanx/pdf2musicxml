@@ -1,6 +1,7 @@
 /** PDF 페이지 구간·HITL affected measure — 증분 미리보기 회귀 */
 import { JSDOM } from 'jsdom';
 import {
+  alignPageMeasureIndexToPdfCount,
   buildPdfPageMeasureIndex,
   buildPdfPageSystemRows,
   buildScoreSystemRows,
@@ -145,6 +146,35 @@ if (inferPdfPageForMxlMeasure(noBreaks, 50, 4) !== 2) {
 }
 if (inferPdfPageForMxlMeasure(noBreaks, 100, 4) !== 4) {
   throw new Error(`even-split last expected 4 got ${inferPdfPageForMxlMeasure(noBreaks, 100, 4)}`);
+}
+
+// PDF 페이지 수 ≠ new-page 수 → align 후 양방향이 같은 pageStarts 길이
+const aligned4 = alignPageMeasureIndexToPdfCount(noBreaks, 4);
+if (aligned4.pageStarts.length !== 4) {
+  throw new Error(`align length expected 4 got ${aligned4.pageStarts.length}`);
+}
+for (let p = 1; p <= 4; p += 1) {
+  const start = measureRangeFromPageIndex(aligned4, p).start;
+  const back = inferPdfPageForMxlMeasure(aligned4, start);
+  if (back !== p) {
+    throw new Error(`round-trip page ${p} start m.${start} → page ${back}`);
+  }
+}
+// new-page 3장 vs PDF 3장 — 그대로 유지
+const alignedMatch = alignPageMeasureIndexToPdfCount(idx, 3);
+if (alignedMatch.pageStarts.join(',') !== '1,33,41') {
+  throw new Error(`matched align should keep new-page got ${alignedMatch.pageStarts.join(',')}`);
+}
+// new-page 3장 vs PDF 5장 — 균등 분할로 길이 맞춤(되돌아가기 방지)
+const alignedExpand = alignPageMeasureIndexToPdfCount(idx, 5);
+if (alignedExpand.pageStarts.length !== 5) {
+  throw new Error(`expand align length expected 5 got ${alignedExpand.pageStarts.length}`);
+}
+for (let p = 1; p <= 5; p += 1) {
+  const start = measureRangeFromPageIndex(alignedExpand, p).start;
+  if (inferPdfPageForMxlMeasure(alignedExpand, start) !== p) {
+    throw new Error(`expand round-trip failed at page ${p}`);
+  }
 }
 
 const r2 = inferMeasureRangeForPdfPage(sample, 2);

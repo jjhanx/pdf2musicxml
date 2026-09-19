@@ -43,7 +43,7 @@ export function buildPdfPageMeasureIndex(xml: string): PdfPageMeasureIndex {
         if (xmlLocalName(child) !== 'print') continue;
         if (child.getAttribute('new-page') !== 'yes') continue;
         // MusicXML: new-page는 보통 새 페이지 첫 마디에 있음 → 그 마디가 페이지 시작
-        pageStarts.push(mnum);
+        if (pageStarts[pageStarts.length - 1] !== mnum) pageStarts.push(mnum);
       }
     }
     return { pageStarts, maxMeasure: Math.max(1, maxMeasure) };
@@ -52,27 +52,71 @@ export function buildPdfPageMeasureIndex(xml: string): PdfPageMeasureIndex {
   }
 }
 
+/**
+ * clean_score/원본 PDF 페이지 수와 MusicXML `new-page` 개수가 다를 때
+ * pageStarts 길이를 pdfPageCount에 맞춘다 (양방향 페이지↔마디 동기화용).
+ *
+ * - 개수가 같으면 MusicXML `<print new-page>` 경계를 그대로 씀
+ * - 다르면 마디를 PDF 페이지 수로 균등 분할 (한쪽만 바꾸다 다른 쪽이 되돌아가는 레이스 방지)
+ */
+export function alignPageMeasureIndexToPdfCount(
+  index: PdfPageMeasureIndex,
+  pdfPageCount: number,
+): PdfPageMeasureIndex {
+  const n = Math.max(1, Math.floor(pdfPageCount) || 1);
+  const maxMeasure = Math.max(1, index.maxMeasure);
+  const src =
+    index.pageStarts.length > 0
+      ? index.pageStarts.filter((m, i, arr) => i === 0 || m > (arr[i - 1] ?? 0))
+      : [1];
+  if (src[0] !== 1) src.unshift(1);
+
+  if (src.length === n) {
+    return { pageStarts: src, maxMeasure };
+  }
+
+  const starts: number[] = [];
+  for (let i = 0; i < n; i += 1) {
+    starts.push(Math.min(maxMeasure, Math.floor((i * maxMeasure) / n) + 1));
+  }
+  starts[0] = 1;
+  for (let i = 1; i < starts.length; i += 1) {
+    if (starts[i]! <= starts[i - 1]! && starts[i - 1]! < maxMeasure) {
+      starts[i] = starts[i - 1]! + 1;
+    }
+  }
+  return { pageStarts: starts, maxMeasure };
+}
+
 export function measureRangeFromPageIndex(
   index: PdfPageMeasureIndex,
   pdfPage: number,
 ): { start: number; end: number } {
   const pageN = Math.max(1, Math.floor(pdfPage));
   const starts = index.pageStarts;
-  const start = starts[Math.min(pageN, starts.length) - 1] ?? 1;
-  const nextStart = starts[pageN] ?? index.maxMeasure + 1;
+  if (!starts.length) return { start: 1, end: Math.max(1, index.maxMeasure) };
+  const idx = Math.min(pageN, starts.length) - 1;
+  const start = starts[idx] ?? 1;
+  const nextStart = starts[idx + 1] ?? index.maxMeasure + 1;
   return { start, end: Math.max(start, nextStart - 1) };
 }
 
-/** MXL 마디 → PDF 페이지 (1-based). 인덱스 없으면 1.
- * pdfPageCount가 print new-page보다 많고 pageStarts가 사실상 1뿐이면 마디를 균등 분할.
- */
+/** MXL 마디 → PDF 페이지 (1-based). 인덱스의 pageStarts만 사용(이미 PDF 수에 align된 것을 권장). */
 export function inferPdfPageForMxlMeasure(
   indexOrXml: PdfPageMeasureIndex | string,
   measureMxl: number,
   pdfPageCount?: number,
 ): number {
-  const index =
+  const raw =
     typeof indexOrXml === 'string' ? buildPdfPageMeasureIndex(indexOrXml) : indexOrXml;
+  const pdfPages =
+    typeof pdfPageCount === 'number' && Number.isFinite(pdfPageCount) && pdfPageCount >= 1
+      ? Math.floor(pdfPageCount)
+      : raw.pageStarts.length;
+  const index =
+    pdfPages !== raw.pageStarts.length
+      ? alignPageMeasureIndexToPdfCount(raw, pdfPages)
+      : raw;
   const m = Math.max(1, Math.floor(measureMxl));
   let page = 1;
   for (let i = 0; i < index.pageStarts.length; i += 1) {
@@ -80,16 +124,7 @@ export function inferPdfPageForMxlMeasure(
     if (start <= m) page = i + 1;
     else break;
   }
-  const pdfPages =
-    typeof pdfPageCount === 'number' && Number.isFinite(pdfPageCount)
-      ? Math.max(1, Math.floor(pdfPageCount))
-      : 0;
-  if (pdfPages > 1 && index.pageStarts.length <= 1 && index.maxMeasure > 1) {
-    const t = (m - 1) / index.maxMeasure;
-    return Math.min(pdfPages, Math.max(1, Math.floor(t * pdfPages) + 1));
-  }
-  if (pdfPages > 1) return Math.min(pdfPages, page);
-  return page;
+  return Math.min(Math.max(1, index.pageStarts.length), page);
 }
 
 /**
@@ -99,9 +134,10 @@ export function inferPdfPageForMxlMeasure(
 export function buildPdfPageSystemRows(
   xml: string,
   pdfPage: number,
+  pdfPageCount?: number,
 ): number[][] {
   try {
-    const range = inferMeasureRangeForPdfPage(xml, pdfPage);
+    const range = inferMeasureRangeForPdfPage(xml, pdfPage, pdfPageCount);
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return [[range.start]];
     const part = findXmlParts(doc)[0];
@@ -154,9 +190,14 @@ export function maxMxlMeasureNumber(xml: string): number {
 export function inferMeasureRangeForPdfPage(
   xml: string,
   pdfPage: number,
+  pdfPageCount?: number,
 ): { start: number; end: number } {
-  // 호환: 호출마다 파싱 — UI는 buildPdfPageMeasureIndex + measureRangeFromPageIndex 권장
-  return measureRangeFromPageIndex(buildPdfPageMeasureIndex(xml), pdfPage);
+  const raw = buildPdfPageMeasureIndex(xml);
+  const index =
+    typeof pdfPageCount === 'number' && Number.isFinite(pdfPageCount) && pdfPageCount >= 1
+      ? alignPageMeasureIndexToPdfCount(raw, Math.floor(pdfPageCount))
+      : raw;
+  return measureRangeFromPageIndex(index, pdfPage);
 }
 
 /** 마디 머리 attributes에 staff별 clef가 있는지 */

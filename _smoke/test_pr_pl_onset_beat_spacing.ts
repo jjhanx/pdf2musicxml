@@ -17,7 +17,7 @@ import {
   alignOsmdPreviewNotesByOnsetColumn,
   registerOsmdPreviewXmlForAlign,
 } from '../src/osmdOnsetColumnAlignFix';
-import { forEachGraphicalMeasure, measureMxlFromGraphic, partIdFromGraphic } from '../src/osmdMeasureClick';
+import { forEachGraphicalMeasure, getOsmdUnitInPixels, measureMxlFromGraphic, partIdFromGraphic } from '../src/osmdMeasureClick';
 import { pruneCrossStaffTimelineForOsmdPreview } from '../shared/musicXmlStaffPreview';
 
 const OSMD =
@@ -210,6 +210,58 @@ async function main(): Promise<void> {
   if (after == null || after > 0.05) {
     throw new Error(`PL m13 quarter gaps not equal: cv=${after} gaps=${gaps.join(',')}`);
   }
+
+  // 조표·박자(beginInstructions)와 첫 음 겹침 금지 + PR/PL beat0 세로 정렬
+  const scale = getOsmdUnitInPixels(osmd);
+  let plFirst: number | null = null;
+  let prFirst: number | null = null;
+  let contentLeft: number | null = null;
+  forEachGraphicalMeasure(osmd, (gm) => {
+    if (measureMxlFromGraphic(gm) !== 13) return;
+    const pid = partIdFromGraphic(gm);
+    const bi = (gm as any).beginInstructionsWidth ?? 0;
+    const abs = ((gm as any).PositionAndShape ?? (gm as any).positionAndShape)?.AbsolutePosition;
+    if (abs?.x != null) contentLeft = (abs.x + bi) * scale;
+    const xs: number[] = [];
+    const seen = new Set<SVGGraphicsElement>();
+    for (const se of (gm as any).staffEntries ?? []) {
+      for (const gve of se.graphicalVoiceEntries ?? []) {
+        for (const gn of gve.notes ?? []) {
+          const src = gn.sourceNote ?? gn.SourceNote;
+          let el: SVGGraphicsElement | null = null;
+          try {
+            el = osmd.EngravingRules?.GNote?.(src)?.getSVGGElement?.() ?? null;
+          } catch {
+            /* */
+          }
+          if (!el) continue;
+          const sn = el.classList?.contains?.('vf-stavenote')
+            ? el
+            : (el.closest?.('.vf-stavenote') as SVGGraphicsElement | null);
+          if (!sn || seen.has(sn)) continue;
+          seen.add(sn);
+          const x = noteheadCenterX(sn);
+          if (x != null) xs.push(x);
+        }
+      }
+    }
+    if (!xs.length) return;
+    const first = Math.min(...xs);
+    if (pid === 'P5__PL') plFirst = first;
+    if (pid === 'P5__PR') prFirst = first;
+  });
+  if (plFirst == null || contentLeft == null) throw new Error('missing PL/contentLeft probe');
+  console.log('PL first vs contentLeft', plFirst.toFixed(1), contentLeft.toFixed(1));
+  if (plFirst + 0.5 < contentLeft) {
+    throw new Error(`PL overlaps time/key: first=${plFirst} contentLeft=${contentLeft}`);
+  }
+  if (prFirst != null && prFirst + 0.5 < contentLeft) {
+    throw new Error(`PR overlaps time/key: first=${prFirst} contentLeft=${contentLeft}`);
+  }
+  if (prFirst != null && Math.abs(prFirst - plFirst) > 8) {
+    throw new Error(`PR/PL beat-0 misaligned: PR=${prFirst} PL=${plFirst}`);
+  }
+
   console.log('OK pr/pl onset beat spacing');
 }
 

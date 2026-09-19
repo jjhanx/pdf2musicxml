@@ -10,6 +10,7 @@ from omr_hitl_lib import (  # noqa: E402
     coalesce_spurious_parallel_voices_in_root,
     coerce_note_durations_to_type_in_root,
     load_mxl_root,
+    merge_homophonic_parallel_voices_in_root,
     normalize_dynamics_in_root,
     normalize_measure_timelines_in_root,
     normalize_multivoice_stems_in_root,
@@ -30,6 +31,7 @@ def main() -> int:
     try:
         files, root_path, root = load_mxl_root(mxl_path)
         n = coalesce_spurious_parallel_voices_in_root(root)
+        n_chord = merge_homophonic_parallel_voices_in_root(root)
         n_rebuild = normalize_measure_timelines_in_root(root)
         n_oshift = repair_octave_shift_stops_before_cross_staff_backup_in_root(root)
         n_stem = normalize_multivoice_stems_in_root(root)
@@ -42,6 +44,7 @@ def main() -> int:
         n_po_align = realign_play_order_column_timelines_in_root(root)
         if (
             n
+            or n_chord
             or n_rebuild
             or n_oshift
             or n_stem
@@ -59,6 +62,7 @@ def main() -> int:
                     "coalesceVoiceMeasures": max(
                         n, n_rebuild, n_wedges, n_oshift, n_dur, n_slurs
                     ),
+                    "homophonicChordMeasures": n_chord,
                     "multivoiceStemMeasures": n_stem,
                     "playOrderTimelineMeasures": n_po_align,
                     "octaveShiftStopRepaired": n_oshift,

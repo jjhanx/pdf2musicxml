@@ -6249,6 +6249,202 @@ def coalesce_spurious_parallel_voices_in_root(
     return n
 
 
+# Audiveris가 화음을 같은 default-x·같은 박자의 병렬 voice로 나눈 경우.
+# m16처럼 x가 다른 자연 다성부(E5@70 / F5@69)는 합치지 않음.
+_HOMOPHONIC_SAME_X_EPS = 0.01
+
+
+def _voice_local_onset_leaders(
+    measure: ET.Element, ns: str, staff: str, voice: str
+) -> list[tuple[int, ET.Element]]:
+    """한 voice의 (onset, leader) — backup 블록과 무관하게 voice-local cursor."""
+    cursor = 0
+    out: list[tuple[int, ET.Element]] = []
+    for el in list(measure):
+        if _local(el) != "note":
+            continue
+        if el.find(_q(ns, "chord")) is not None or _is_grace_or_cue(el, ns):
+            continue
+        v, st = _note_voice_staff(el, ns)
+        if st != staff or v != voice:
+            continue
+        out.append((cursor, el))
+        cursor += _note_duration(el, ns)
+    return out
+
+
+def _chord_group_notes_from_leader(
+    measure: ET.Element, ns: str, leader: ET.Element
+) -> list[ET.Element]:
+    children = list(measure)
+    try:
+        idx = children.index(leader)
+    except ValueError:
+        return [leader]
+    group = [leader]
+    for el in children[idx + 1 :]:
+        if _local(el) != "note":
+            break
+        if el.find(_q(ns, "chord")) is None:
+            break
+        group.append(el)
+    return group
+
+
+def _homophonic_parallel_voice_pairs(
+    measure: ET.Element, ns: str, staff: str, primary: str, secondary: str
+) -> list[tuple[ET.Element, list[ET.Element]]] | None:
+    """primary·secondary가 전 구간 같은 onset·duration·default-x면 (leader, sec_notes) 목록.
+
+    하나라도 어긋나거나 쉼표↔실음이 섞이면 None(진짜 다성부).
+    """
+    pri = _voice_local_onset_leaders(measure, ns, staff, primary)
+    sec = _voice_local_onset_leaders(measure, ns, staff, secondary)
+    if len(pri) < 1 or len(pri) != len(sec):
+        return None
+    pairs: list[tuple[ET.Element, list[ET.Element]]] = []
+    for (po, pn), (so, sn) in zip(pri, sec):
+        if po != so:
+            return None
+        if _note_duration(pn, ns) != _note_duration(sn, ns):
+            return None
+        pri_rest = pn.find(_q(ns, "rest")) is not None
+        sec_rest = sn.find(_q(ns, "rest")) is not None
+        if pri_rest and sec_rest:
+            continue
+        if pri_rest or sec_rest:
+            return None
+        px = _parse_default_x(pn)
+        sx = _parse_default_x(sn)
+        if px is None or sx is None:
+            return None
+        if abs(px - sx) >= _HOMOPHONIC_SAME_X_EPS:
+            return None
+        pairs.append((pn, _chord_group_notes_from_leader(measure, ns, sn)))
+    return pairs if pairs else None
+
+
+def _merge_sec_notes_into_primary_chord(
+    measure: ET.Element,
+    ns: str,
+    primary_leader: ET.Element,
+    sec_notes: list[ET.Element],
+    *,
+    primary_voice: str,
+    staff: str,
+) -> bool:
+    """secondary 음(화음 포함)을 primary 리더 직후 chord 멤버로 옮긴다."""
+    if not sec_notes:
+        return False
+    primary_group = _chord_group_notes_from_leader(measure, ns, primary_leader)
+    keeper_pitches = {
+        key
+        for n in primary_group
+        if (key := _note_pitch_key(n, ns)) is not None
+    }
+    children = list(measure)
+    try:
+        insert_after = children.index(primary_group[-1])
+    except ValueError:
+        return False
+
+    stem_el = primary_leader.find(_q(ns, "stem"))
+    stem_dir = (stem_el.text or "").strip() if stem_el is not None and stem_el.text else None
+
+    changed = False
+    for note in sec_notes:
+        key = _note_pitch_key(note, ns)
+        if key is not None and key in keeper_pitches:
+            if note in list(measure):
+                measure.remove(note)
+                changed = True
+            continue
+        if note in list(measure):
+            measure.remove(note)
+        _set_note_voice_staff(note, ns, primary_voice, staff)
+        _ensure_chord_tag(note, ns)
+        _strip_beams_from_note(note, ns, None)
+        if stem_dir:
+            s = note.find(_q(ns, "stem"))
+            if s is None:
+                s = ET.SubElement(note, _q(ns, "stem"))
+            s.text = stem_dir
+        _sort_note_children(note, ns)
+        insert_after += 1
+        measure.insert(insert_after, note)
+        if key is not None:
+            keeper_pitches.add(key)
+        changed = True
+    return changed
+
+
+def _merge_homophonic_parallel_voices_on_staff(
+    measure: ET.Element, ns: str, staff: str
+) -> bool:
+    """Audiveris 가짜 병렬 voice(같은 x·같은 박) → 한 voice의 `<chord/>`.
+
+    하지 않는 것: x가 다른 자연 다성부, 박자·onset이 다른 층, 쉼표↔실음 혼재.
+    """
+    meta = _staff_voice_layer_meta(measure, ns, staff)
+    voices = sorted(meta.keys(), key=lambda v: int(v) if v.isdigit() else 999)
+    if len(voices) < 2:
+        return False
+    primary = voices[0]
+    changed = False
+    for secondary in voices[1:]:
+        pairs = _homophonic_parallel_voice_pairs(
+            measure, ns, staff, primary, secondary
+        )
+        if pairs is None:
+            continue
+        for primary_leader, sec_notes in pairs:
+            if _merge_sec_notes_into_primary_chord(
+                measure,
+                ns,
+                primary_leader,
+                sec_notes,
+                primary_voice=primary,
+                staff=staff,
+            ):
+                changed = True
+    if not changed:
+        return False
+    _rebuild_staff_voice_block(measure, ns, staff, primary_voice=primary)
+    notes = list_note_elements(measure, ns)
+    _strip_chord_member_beams(notes, ns)
+    _dedupe_identical_pitches_in_chord_groups(measure, ns)
+    _fix_chord_tag_consistency(notes, ns)
+    _sync_all_chord_groups(notes, ns)
+    return True
+
+
+def merge_homophonic_parallel_voices_in_measure(
+    measure: ET.Element, ns: str, part: ET.Element | None = None
+) -> bool:
+    del part  # API 대칭(coalesce) — divisions 불필요
+    changed = False
+    for staff in ("1", "2"):
+        if _merge_homophonic_parallel_voices_on_staff(measure, ns, staff):
+            changed = True
+    return changed
+
+
+def merge_homophonic_parallel_voices_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
+    """전 악보 — 화음으로 담을 수 있는 가짜 병렬 voice를 chord로 병합. 변경 마디 수."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
+        for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
+            if merge_homophonic_parallel_voices_in_measure(measure, ns, part):
+                n += 1
+    return n
+
+
 def _measure_needs_cross_staff_backup(measure: ET.Element, ns: str) -> bool:
     """PR+PL이 있는데 staff1→staff2 전환 `<backup>`이 없으면 True."""
     saw_s1 = False
@@ -10713,6 +10909,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     files, root_path, root = load_mxl_root(out_mxl)
     chord_beams = cleanup_chord_beams_in_root(root)
     coalesce = coalesce_spurious_parallel_voices_in_root(root)
+    homophonic = merge_homophonic_parallel_voices_in_root(root)
     timelines = normalize_measure_timelines_in_root(root)
     play_orders = normalize_play_orders_including_rests_in_root(root)
     dynamics = normalize_dynamics_in_root(root)
@@ -10725,6 +10922,7 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     if (
         chord_beams
         or coalesce
+        or homophonic
         or timelines
         or play_orders
         or dynamics
@@ -14982,6 +15180,7 @@ def rebuild_measure_timeline_clean(
     _dedupe_identical_pitches_in_chord_groups(measure, ns)
     _move_attributes_out_of_chord_groups(measure, ns)
     coalesce_spurious_parallel_voices_in_measure(measure, ns, part)
+    merge_homophonic_parallel_voices_in_measure(measure, ns, part)
     for st in ("1", "2"):
         _merge_forward_coarse_layer_on_staff(measure, ns, st, part)
     for st in ("1", "2"):
@@ -15023,6 +15222,7 @@ def _rebuild_one_staff_timeline(
     _coalesce_spurious_parallel_voices_on_staff(
         measure, ns, staff, divisions=divisions, measure_len=measure_len
     )
+    _merge_homophonic_parallel_voices_on_staff(measure, ns, staff)
     _merge_forward_coarse_layer_on_staff(measure, ns, staff, part)
     _merge_staff_voices_if_non_overlapping(measure, ns, staff)
     _rebuild_staff_voice_block(measure, ns, staff)
@@ -15319,6 +15519,9 @@ def apply_fixes_file(
     rest_play_order_measures = normalize_play_orders_including_rests_in_root(root)
     multivoice_stem_measures = normalize_multivoice_stems_in_root(root, only_measures=only)
     coalesce_voice_measures = coalesce_spurious_parallel_voices_in_root(root, only_measures=only)
+    homophonic_voice_measures = merge_homophonic_parallel_voices_in_root(
+        root, only_measures=only
+    )
     timeline_measures = normalize_measure_timelines_in_root(root, only_measures=only)
     dynamics_normalized = normalize_dynamics_in_root(root, only_measures=only)
     note_durs_coerced = coerce_note_durations_to_type_in_root(root)
@@ -15359,6 +15562,7 @@ def apply_fixes_file(
         "restPlayOrderMeasuresNormalized": rest_play_order_measures,
         "multivoiceStemMeasuresNormalized": multivoice_stem_measures,
         "coalesceVoiceMeasures": max(coalesce_voice_measures, timeline_measures),
+        "homophonicChordMeasures": homophonic_voice_measures,
         "dynamicsNormalizedMeasures": dynamics_normalized,
         "noteDurationsCoercedToType": note_durs_coerced,
         "slursNormalizedMeasures": slurs_normalized,

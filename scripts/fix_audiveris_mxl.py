@@ -5081,6 +5081,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "orphan_octave_shifts_closed": 0,
         "play_order_document_order_measures": 0,
         "grand_staff_voices_normalized": 0,
+        "homophonic_chord_merged": 0,
         "sole_voice_to_one_measures": 0,
         "leading_wedge_stops_reanchored": 0,
         "chord_gap_directions_moved": 0,
@@ -5307,6 +5308,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     try:
         from omr_hitl_lib import (
             materialize_play_order_document_order_in_root,
+            merge_homophonic_parallel_voices_in_root,
             normalize_grand_staff_voices_in_root,
             normalize_sole_staff_voices_to_one_in_root,
             reanchor_leading_wedge_stops_in_root,
@@ -5317,6 +5319,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     except ImportError:
         from scripts.omr_hitl_lib import (  # type: ignore
             materialize_play_order_document_order_in_root,
+            merge_homophonic_parallel_voices_in_root,
             normalize_grand_staff_voices_in_root,
             normalize_sole_staff_voices_to_one_in_root,
             reanchor_leading_wedge_stops_in_root,
@@ -5329,6 +5332,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     stats["grand_staff_voices_normalized"] = stats.get("grand_staff_voices_normalized", 0) + (
         normalize_grand_staff_voices_in_root(root)
     )
+    stats["homophonic_chord_merged"] = merge_homophonic_parallel_voices_in_root(root)
     stats["chord_gap_directions_moved"] += repair_directions_between_chord_notes_in_root(root)
     try:
         from omr_hitl_lib import (

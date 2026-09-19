@@ -7,6 +7,7 @@ import {
   partIdFromGraphic,
 } from './osmdMeasureClick';
 import { syncVfStemsAndBeamsAfterStavenoteAlign } from './osmdOnsetColumnAlignFix';
+import { getOsmdPreviewAllocatedExtent } from './osmdPreviewMeasureExtents';
 
 const OVERLAY_CLASS = 'hitl-measure-timing-warning';
 
@@ -242,6 +243,11 @@ function closestVfMeasure(el: Element | null | undefined): Element | null {
  * stave / staffEntry 음표 DOM의 `closest('.vf-measure')`로 복구한다.
  * (clip이 measure G에 걸려야 자식 `.vf-stavenote`가 앞 마디로 넘치지 않음)
  */
+/** GraphicalMeasure → `g.vf-measure` (onset align·contain·clip 공용). */
+export function osmdGraphicalMeasureSvgG(gm: unknown): Element | null {
+  return svgGElement(gm);
+}
+
 function svgGElement(gm: unknown): Element | null {
   const rec = asGmRecord(gm);
   if (!rec) return null;
@@ -347,7 +353,7 @@ export function clipOsmdMeasuresToAllocatedWidth(
     const g = svgGElement(gmRaw);
     if (!g) return;
 
-    let bounds = measureBoundsPx(gmRaw, row[mi + 1], scale);
+    let bounds = measureBoundsPx(gmRaw, row[mi + 1], scale, osmd);
     if (!bounds) return;
     // 빔·줄기 tip이 할당 폭 계산보다 살짝 밖이면 clip이 빔만 잘라 8분·16분이 4분처럼 보임.
     // contain 이후에도 OSMD 빔이 stave 폭을 1~수 px 넘는 경우가 있어 빔 bbox만큼 가로를 확장.
@@ -431,7 +437,24 @@ export function measureBoundsPx(
   gm: unknown,
   nextGm: unknown | undefined,
   scale: number,
+  osmd?: OpenSheetMusicDisplay | null,
 ): { left: number; right: number } | null {
+  // onset align이 가중치로 재배분한 폭이 있으면 그걸 우선(contain이 Softmax 바로 다시 뭉개지 않게)
+  if (osmd) {
+    const mn = measureMxlFromGraphic(gm as Parameters<typeof measureMxlFromGraphic>[0]);
+    const ext = mn != null ? getOsmdPreviewAllocatedExtent(osmd, mn) : null;
+    if (ext && ext.rightEdge - ext.leftEdge >= 8) {
+      const bi = (() => {
+        const rec = asGmRecord(gm);
+        const biRaw = rec?.beginInstructionsWidth ?? rec?.BeginInstructionsWidth;
+        return typeof biRaw === 'number' && Number.isFinite(biRaw) ? Math.max(0, biRaw) * scale : 0;
+      })();
+      return {
+        left: ext.leftEdge - bi - Math.max(2, scale * 0.35),
+        right: ext.rightEdge + Math.max(2, scale * 0.35),
+      };
+    }
+  }
   const stave = staveBoundsPx(gm);
   if (stave) return stave;
   const absX = readAbsX(gm);
@@ -490,20 +513,34 @@ export function containOsmdMeasureNotesInAllocatedWidth(
   forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
     const g = svgGElement(gmRaw);
     if (!g) return;
-    const bounds = measureBoundsPx(gmRaw, row[mi + 1], scale);
+    const bounds = measureBoundsPx(gmRaw, row[mi + 1], scale, osmd);
     if (!bounds) return;
     const left = bounds.left + edgePad;
     const right = bounds.right - edgePad;
     if (right - left < 8) return;
 
-    for (const note of g.querySelectorAll('.vf-stavenote')) {
+    // duration 배치가 만든 상대 간격 유지 — 칸 밖만 평행 이동(한쪽으로 몰아 떡 만들지 않음)
+    const notes = [...g.querySelectorAll('.vf-stavenote')];
+    let minX = Infinity;
+    let maxX = -Infinity;
+    const xs: { el: Element; x: number }[] = [];
+    for (const note of notes) {
       const x = stavenoteContentMinX(note);
       if (x == null) continue;
-      if (x < left) {
-        applySvgTranslateXDelta(note, left - x);
-      } else if (x > right) {
-        applySvgTranslateXDelta(note, right - x);
-      }
+      xs.push({ el: note, x });
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+    }
+    if (!xs.length || !Number.isFinite(minX) || !Number.isFinite(maxX)) return;
+    let dx = 0;
+    if (minX < left) dx = left - minX;
+    else if (maxX > right) dx = right - maxX;
+    // 폭이 칸보다 넓으면 균등 스케일 대신 왼쪽에 맞추고 오른쪽 spill은 clip에 맡김
+    if (maxX + dx - (minX + dx) > right - left + 1 && minX + dx < left) {
+      dx = left - minX;
+    }
+    if (Math.abs(dx) >= 0.5) {
+      for (const n of xs) applySvgTranslateXDelta(n.el, dx);
     }
   });
 

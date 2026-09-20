@@ -6142,6 +6142,43 @@ def _staff_voice_layer_meta(
     return out
 
 
+def _infer_staff_voice_forward_prefixes(
+    measure: ET.Element, ns: str, staff: str, measure_len: int
+) -> dict[str, int]:
+    """보조 voice의 문서 global onset → rebuild 시 `<forward>` prefix.
+
+    HITL로 voice2를 voice1 뒤에 순차로 넣으면 backup이 없어 global onset이 늦다.
+    rebuild가 이를 무시하면 보조 성부가 마디 앞(onset 0)으로 끌려가거나,
+    마디 길이 밖 onset이면 미리보기에서 사라진 것처럼 보인다.
+    """
+    out = dict(_collect_voice_forward_prefix(measure, ns))
+    meta = _staff_voice_layer_meta(measure, ns, staff)
+    if len(meta) < 2:
+        return out
+    onsets = _musicxml_leader_onsets(measure, ns)
+    voices = sorted(meta.keys(), key=lambda v: int(v) if v.isdigit() else 999)
+    primary = voices[0]
+    _p0, _pd, p_leaders = meta[primary]
+    last_pri_onset = max((onsets.get(n, 0) for n in p_leaders), default=0)
+    for v in voices[1:]:
+        if out.get(v, 0) > 0:
+            continue
+        _s0, s_dur, s_leaders = meta[v]
+        if not s_leaders:
+            continue
+        min_onset = min(onsets.get(n, 0) for n in s_leaders)
+        if min_onset <= 0:
+            continue
+        if measure_len > 0 and min_onset >= measure_len:
+            # 마디 끝·밖(voice1을 가득 채운 뒤 삽입) → 마지막 primary 박에 맞춤
+            min_onset = last_pri_onset
+        if measure_len > 0 and s_dur > 0 and min_onset + s_dur > measure_len:
+            min_onset = max(0, measure_len - s_dur)
+        if min_onset > 0:
+            out[v] = min_onset
+    return out
+
+
 def _coalesce_spurious_parallel_voices_on_staff(
     measure: ET.Element,
     ns: str,
@@ -6437,8 +6474,15 @@ def _merge_homophonic_parallel_voices_on_staff(
 ) -> bool:
     """Audiveris 가짜 병렬 voice(같은 x·같은 박) → 한 voice의 `<chord/>`.
 
-    하지 않는 것: x가 다른 자연 다성부, 박자·onset이 다른 층, 쉼표↔실음 혼재.
+    하지 않는 것: x가 다른 자연 다성부, 박자·onset이 다른 층, 쉼표↔실음 혼재,
+    HITL 줄기 잠금·연주순번이 있는 의도적 다성.
     """
+    for note in list_note_elements(measure, ns):
+        _v, st = _note_voice_staff(note, ns)
+        if st != staff:
+            continue
+        if _read_play_order_ref(note) or _stem_hitl_locked(note, ns):
+            return False
     meta = _staff_voice_layer_meta(measure, ns, staff)
     voices = sorted(meta.keys(), key=lambda v: int(v) if v.isdigit() else 999)
     if len(voices) < 2:
@@ -14801,7 +14845,14 @@ def _rebuild_staff_voice_block(
 
 def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
     """backup·다중 voice가 있는 마디 — 같은 (voice, staff) 음표들을 연속된 타임라인 스트림으로 통합 및 정렬."""
-    voice_forward = _collect_voice_forward_prefix(measure, ns)
+    voice_forward = dict(_collect_voice_forward_prefix(measure, ns))
+    divisions, beats, beat_type = _measure_divisions_beats(measure, ns, None)
+    measure_len = _measure_length_units(divisions, beats, beat_type)
+    for st in ("1", "2"):
+        inferred = _infer_staff_voice_forward_prefixes(measure, ns, st, measure_len)
+        for v, fwd in inferred.items():
+            if fwd > 0 and voice_forward.get(v, 0) <= 0:
+                voice_forward[v] = fwd
     start_elements: list[ET.Element] = []
     end_elements: list[ET.Element] = []
     note_attachments: dict[ET.Element, list[ET.Element]] = {}
@@ -15303,7 +15354,8 @@ def _rebuild_one_staff_timeline(
     # 화음 병합은 HITL rebuild에서 하지 않음(의도적 다성부·줄기 구분 유지).
     _merge_forward_coarse_layer_on_staff(measure, ns, staff, part)
     _merge_staff_voices_if_non_overlapping(measure, ns, staff)
-    _rebuild_staff_voice_block(measure, ns, staff)
+    voice_forward = _infer_staff_voice_forward_prefixes(measure, ns, staff, measure_len)
+    _rebuild_staff_voice_block(measure, ns, staff, voice_forward=voice_forward)
     _repair_same_staff_backup_before_forward(measure, ns)
     _align_staves_timeline(measure, ns)
     notes_after = list_note_elements(measure, ns)

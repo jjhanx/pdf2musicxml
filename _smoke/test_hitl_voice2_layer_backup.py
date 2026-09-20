@@ -69,17 +69,31 @@ def _last_staff1_leader(measure: ET.Element, ns: str) -> int:
 def _assert_voice2_with_backup(measure: ET.Element, ns: str, pitch: str) -> None:
     snap = _snap(measure, ns)
     assert f"v2/st1:{pitch}" in snap, snap
-    # voice1 … backup … voice2 … backup … staff2
+    # voice1 … backup … [forward …] voice2 … backup … staff2
     assert "backup(" in snap, snap
     v1_end = snap.rfind("v1/st1:")
     v2_pos = snap.find("v2/st1:")
     assert v1_end >= 0 and v2_pos > v1_end, snap
     between = snap[v1_end:v2_pos]
     assert "backup(" in between, f"no voice-layer backup before voice2: {snap}"
+    # 마디 끝 삽입 → forward로 끝 박에 남아야 함(앞으로 끌려가지 않음)
+    assert "forward(" in between, f"expected forward before end-inserted voice2: {snap}"
     # PR→PL backup still present
     st2 = snap.find("v5/st2:")
     assert st2 > v2_pos, snap
     assert "backup(" in snap[v2_pos:st2], f"no cross-staff backup before PL: {snap}"
+    # voice2 default-x should not be the first column only — onset near end
+    from scripts.omr_hitl_lib import _musicxml_leader_onsets, _note_duration
+
+    onsets = _musicxml_leader_onsets(measure, ns)
+    v2_notes = [
+        n
+        for n in list_note_elements(measure, ns)
+        if _note_voice_staff(n, ns) == ("2", "1") and n.find(_q(ns, "chord")) is None
+    ]
+    assert v2_notes, snap
+    onset = onsets.get(v2_notes[0], -1)
+    assert onset >= 24, f"voice2 onset too early ({onset}): {snap}"
 
 
 def test_insert_voice2_keeps_note_and_backups() -> None:

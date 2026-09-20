@@ -15,10 +15,12 @@ UI는 `alignOsmdPreviewNotesByOnsetColumn`을 **렌더당 2회** 호출한다(ov
 
 ## 고정 순서
 
-1. **duration remesh** (`alignMeasureNotesByOnsetLayoutGrid`) — Softmax left…**마디 끝−여백** 안·**실제 사용 layout-x**만 매핑. **`onsetRemeshDoneAtZoom`으로 같은 zoom당 1회**(zoom 변경 시 재remesh). AbsolutePosition→px는 **`unitInPixels × zoom`**(빼먹으면 기본 60%에서 마지막 음이 마디선과 겹침).
-2. 연주순번·partial voice·조표 침범 시프트.
-3. **`syncVfStemsAndBeamsAfterStavenoteAlign`** — 매 align마다 가능(idempotent여야 함).
+1. **시스템 열 폭 재배분** (`reallocateOsmdSystemMeasureWidthsByDensity`) — onset 밀도 비례. **같은 zoom당 1회**. remesh보다 먼저.
+2. **duration remesh** (`alignMeasureNotesByOnsetLayoutGrid`) — Softmax left…**마디 끝−여백** 안·**실제 사용 layout-x**만 매핑. **`onsetRemeshDoneAtZoom`으로 같은 zoom당 1회**(zoom 변경 시 재remesh). AbsolutePosition→px는 **`unitInPixels × zoom`**(빼먹으면 기본 60%에서 마지막 음이 마디선과 겹침).
+3. 연주순번·partial voice·조표 침범 시프트.
+4. **`syncVfStemsAndBeamsAfterStavenoteAlign`** — 매 align마다 가능(idempotent여야 함).
 
+EngravingRules: SoftmaxFactorVexFlow≥200, VoiceSpacingAddendVexflow≥5.
 ## 빔 reshape — 하지 말 것
 
 | 금지 | 이유 |
@@ -44,6 +46,7 @@ UI는 `alignOsmdPreviewNotesByOnsetColumn`을 **렌더당 2회** 호출한다(ov
 ## 회귀 (수정 후 필수)
 
 ```text
+npx tsx _smoke/test_allocate_measure_widths_by_density.ts
 npx tsx _smoke/test_double_align_primary_no_shrink.ts
 npx tsx _smoke/test_double_align_secondary_beam.ts
 npx tsx _smoke/test_primary_beam_and_hook_inward.ts
@@ -52,6 +55,6 @@ npx tsx _smoke/test_onset_layout_beat_spacing.ts
 npx tsx _smoke/test_zoom_remesh_trailing.ts
 ```
 
-증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」「기본 60% zoom에서 마디선 겹침·박자 비율 붕괴」.
+증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」「기본 60% zoom에서 마디선 겹침·박자 비율 붕괴」「밀집 마디가 좁아 붙임줄·표식이 안 보임」.
 
 상세: `docs/악보_변환_품질_가이드.md` (박자 간격·OSMD 연주순번 align 후 빔 끊김).

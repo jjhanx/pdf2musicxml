@@ -162,11 +162,11 @@ export function applyOsmdPreviewEngravingRules(
   if (typeof r.DisplacedNoteMargin === 'number') r.DisplacedNoteMargin = 0.05;
   // 기본 3 — 2.0으로 줄이면 16분 밀집 마디가 앞·뒤 칸으로 넘치기 쉬움
   if (typeof r.VoiceSpacingAddendVexflow === 'number') {
-    r.VoiceSpacingAddendVexflow = Math.max(r.VoiceSpacingAddendVexflow, 3.5);
+    r.VoiceSpacingAddendVexflow = Math.max(r.VoiceSpacingAddendVexflow, 5);
   }
-  // Softmax↑ = duration 비례 보조. SVG는 Softmax notehead 폭 안·실제 layout 구간만 remesh.
+  // Softmax↑ = duration 비례·마디 폭 여유. 밀집 마디는 시스템 재배분+SVG remesh가 이어 받음.
   if (typeof r.SoftmaxFactorVexFlow === 'number') {
-    r.SoftmaxFactorVexFlow = Math.max(r.SoftmaxFactorVexFlow, 100);
+    r.SoftmaxFactorVexFlow = Math.max(r.SoftmaxFactorVexFlow, 200);
   }
   // 셈여림표(p, f, mf 등) 여백 — wedge 거리는 WedgePlacement* + XML distance
   rules.DynamicExpressionSpacer = 3.0;

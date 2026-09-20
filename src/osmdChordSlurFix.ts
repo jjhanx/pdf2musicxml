@@ -21,6 +21,8 @@ type BoundingBoxLike = {
   AbsolutePosition: PointLike;
   BorderTop: number;
   BorderBottom: number;
+  BorderLeft?: number;
+  BorderRight?: number;
 };
 
 type GraphicalNoteLike = {
@@ -104,20 +106,71 @@ function noteheadAnchorY(
   return y + bb.BorderBottom + headOffset;
 }
 
-function shiftBezierY(
+/** 음머리 가로 중심 — AbsolutePosition + BorderLeft/Right (이격·반대쪽 머리 포함). */
+export function noteheadCenterX(gNote: GraphicalNoteLike): number {
+  const bb = gNote.PositionAndShape;
+  bb.calculateAbsolutePosition();
+  const x = bb.AbsolutePosition.x;
+  const left = typeof bb.BorderLeft === 'number' && Number.isFinite(bb.BorderLeft) ? bb.BorderLeft : 0;
+  const right = typeof bb.BorderRight === 'number' && Number.isFinite(bb.BorderRight) ? bb.BorderRight : 0;
+  if (left !== 0 || right !== 0) return x + (left + right) / 2;
+  return x;
+}
+
+/** voice entry에 실음 2개 이상이면 화음(줄기 방향 무관). */
+export function voiceEntryIsChord(note: SlurNoteLike | undefined): boolean {
+  if (!note?.ParentVoiceEntry?.Notes?.length) return false;
+  const pitched = note.ParentVoiceEntry.Notes.filter(
+    (n) => !(typeof n.isRest === 'function' && n.isRest()),
+  );
+  return pitched.length >= 2;
+}
+
+/**
+ * 시작·끝 음머리 중심에 bezier 끝점을 맞출 dx/dy.
+ * 화음마다 한 번 고정 시프트하지 않고, slur가 가리키는 StartNote/EndNote GNote만 사용.
+ */
+export function bezierDeltasToNoteheads(
+  gSlur: Pick<GraphicalSlurLike, 'bezierStartPt' | 'bezierEndPt'>,
+  gStart: GraphicalNoteLike,
+  gEnd: GraphicalNoteLike,
+  placement: number,
+  headOffset: number,
+  opts?: { snapX?: boolean },
+): { dyStart: number; dyEnd: number; dxStart: number; dxEnd: number } {
+  const wantStartY = noteheadAnchorY(gStart, placement, headOffset);
+  const wantEndY = noteheadAnchorY(gEnd, placement, headOffset);
+  const dyStart = wantStartY - gSlur.bezierStartPt.y;
+  const dyEnd = wantEndY - gSlur.bezierEndPt.y;
+  if (opts?.snapX === false) {
+    return { dyStart, dyEnd, dxStart: 0, dxEnd: 0 };
+  }
+  const wantStartX = noteheadCenterX(gStart);
+  const wantEndX = noteheadCenterX(gEnd);
+  return {
+    dyStart,
+    dyEnd,
+    dxStart: wantStartX - gSlur.bezierStartPt.x,
+    dxEnd: wantEndX - gSlur.bezierEndPt.x,
+  };
+}
+
+function shiftBezier(
   gSlur: GraphicalSlurLike,
   dyStart: number,
   dyEnd: number,
-  dx: number,
+  dxStart: number,
+  dxEnd: number,
 ): void {
   gSlur.bezierStartPt.y += dyStart;
-  gSlur.bezierStartPt.x += dx;
-  gSlur.bezierStartControlPt.y += dyStart * 0.88;
-  gSlur.bezierStartControlPt.x += dx * 0.55;
-  gSlur.bezierEndControlPt.y += dyEnd * 0.88;
-  gSlur.bezierEndControlPt.x += dx * 0.55;
+  gSlur.bezierStartPt.x += dxStart;
   gSlur.bezierEndPt.y += dyEnd;
-  gSlur.bezierEndPt.x += dx;
+  gSlur.bezierEndPt.x += dxEnd;
+  gSlur.bezierStartControlPt.y += dyStart * 0.88;
+  gSlur.bezierEndControlPt.y += dyEnd * 0.88;
+  // 제어점도 각 끝 음머리에 가깝게 — 곡선 중심이 머리–머리 중점에 오도록
+  gSlur.bezierStartControlPt.x += dxStart * 0.7 + dxEnd * 0.15;
+  gSlur.bezierEndControlPt.x += dxEnd * 0.7 + dxStart * 0.15;
 }
 
 function noteOrVoiceIsBeamed(note: SlurNoteLike | undefined): boolean {
@@ -147,8 +200,9 @@ export function beamSlurClearanceDy(
 }
 
 /**
- * stem-up 2성부 화음 — slur bezier를 XML이 붙인 음(E4 below / G4 above)의 GNote 위치로 재정렬.
- * load() 직후·render() 직전에 호출 (drawSlur가 bezierStartPt 등을 그대로 사용).
+ * 화음(또는 표와 겹치는) slur — 각 StartNote/EndNote 음머리 중심(X·Y)에 bezier를 맞춤.
+ * 화음 전체 고정 X 시프트 금지(반대쪽·이격 머리가 있으면 세 줄이 한쪽으로 몰림).
+ * load() 직후·render() 직전 (drawSlur가 bezierStartPt 등을 그대로 사용).
  */
 export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): void {
   const sheet = osmd.GraphicSheet as GraphicSheetLike | undefined;
@@ -158,7 +212,6 @@ export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): 
   if (!rules) return;
   const unit = (rules as { unit?: number }).unit ?? 10;
   const headOffset = (rules.SlurNoteHeadYOffset ?? 0.136) * unit;
-  const headShiftX = -0.42 * unit;
 
   for (const page of sheet.MusicPages) {
     for (const system of page.MusicSystems) {
@@ -169,16 +222,13 @@ export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): 
           const endNote = slur?.EndNote;
           if (!startNote || !endNote) continue;
 
-          const voiceEntry = startNote.ParentVoiceEntry;
-          const pitched = voiceEntry?.Notes
-            ? voiceEntry.Notes.filter((n) => !(typeof n.isRest === 'function' && n.isRest()))
-            : [];
-          const isChord = pitched.length >= 2 && voiceEntry.StemDirection === STEM_UP;
+          const startChord = voiceEntryIsChord(startNote);
+          const endChord = voiceEntryIsChord(endNote);
           const endArts = (endNote as unknown as { Articulations?: unknown[] }).Articulations ?? [];
           const startArts = (startNote as unknown as { Articulations?: unknown[] }).Articulations ?? [];
           const hasArticulationConflict = endArts.length > 0 || startArts.length > 0;
 
-          if (!isChord && !hasArticulationConflict) continue;
+          if (!startChord && !endChord && !hasArticulationConflict) continue;
 
           const placement = slur.PlacementXml ?? gSlur.placement ?? PLACEMENT_BELOW;
           if (placement !== PLACEMENT_ABOVE && placement !== PLACEMENT_BELOW) continue;
@@ -192,14 +242,26 @@ export function retargetGraphicalChordSlurBeziers(osmd: OpenSheetMusicDisplay): 
             continue;
           }
 
-          const wantStartY = noteheadAnchorY(gStart, placement, headOffset);
-          const wantEndY = noteheadAnchorY(gEnd, placement, headOffset);
-          const dyStart = wantStartY - gSlur.bezierStartPt.y;
-          const dyEnd = wantEndY - gSlur.bezierEndPt.y;
+          const snapX = startChord || endChord;
+          const { dyStart, dyEnd, dxStart, dxEnd } = bezierDeltasToNoteheads(
+            gSlur,
+            gStart,
+            gEnd,
+            placement,
+            headOffset,
+            { snapX },
+          );
 
-          if (Math.abs(dyStart) < 0.02 && Math.abs(dyEnd) < 0.02) continue;
+          if (
+            Math.abs(dyStart) < 0.02 &&
+            Math.abs(dyEnd) < 0.02 &&
+            Math.abs(dxStart) < 0.02 &&
+            Math.abs(dxEnd) < 0.02
+          ) {
+            continue;
+          }
 
-          shiftBezierY(gSlur, dyStart, dyEnd, headShiftX);
+          shiftBezier(gSlur, dyStart, dyEnd, dxStart, dxEnd);
           // 화음 재정렬 후 빔 이격 플래그 초기화 — 아래에서 다시 적용
           gSlur._hitlBeamClearanceApplied = false;
           gSlur._hitlBeamClearanceSpacesApplied = 0;
@@ -244,7 +306,7 @@ export function nudgeGraphicalSlursAwayFromBeams(osmd: OpenSheetMusicDisplay): v
           const previousSpaces = gSlur._hitlBeamClearanceApplied ? (gSlur._hitlBeamClearanceSpacesApplied ?? 0) : 0;
           const dy = beamSlurClearanceDy(placement, unit, desiredSpaces) - beamSlurClearanceDy(placement, unit, previousSpaces);
           if (Math.abs(dy) < 0.01) continue;
-          shiftBezierY(gSlur, dy, dy, 0);
+          shiftBezier(gSlur, dy, dy, 0, 0);
           gSlur._hitlBeamClearanceApplied = true;
           gSlur._hitlBeamClearanceSpacesApplied = desiredSpaces;
         }

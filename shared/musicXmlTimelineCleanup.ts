@@ -2318,17 +2318,47 @@ function measureHasInterleavedVoices(measure: Element): boolean {
   return false;
 }
 
+/** 각 보조 voice의 첫 리더 음 앞에 backup이 있으면(성부 층 분리) true. */
+function measureHasSeparatingVoiceBackups(measure: Element, voices: string[]): boolean {
+  if (voices.length < 2) return true;
+  const children = [...measure.children];
+  const primary = voices[0]!;
+  const firstSeen = new Set<string>();
+  for (let i = 0; i < children.length; i += 1) {
+    const el = children[i]!;
+    if (xmlLocalName(el) !== 'note' || el.querySelector('chord, *|chord') !== null) continue;
+    const v = noteVoiceNumber(el);
+    if (!voices.includes(v) || firstSeen.has(v)) continue;
+    firstSeen.add(v);
+    if (v === primary) continue;
+    let j = i - 1;
+    while (j >= 0) {
+      const tag = xmlLocalName(children[j]!);
+      if (tag === 'backup') break;
+      if (tag === 'note' || tag === 'forward') return false;
+      j -= 1;
+    }
+    if (j < 0) return false;
+  }
+  return true;
+}
+
 /**
- * OSMD split-staff 미리보기 — interleaved voice를 MusicXML 관례( voice1 전체 → backup → voice2 … )로
+ * OSMD split-staff 미리보기 — 다중 voice를 MusicXML 관례( voice1 전체 → backup → voice2 … )로
  * 재배치해 동시 onset 음(F4·E5 등)이 같은 staff column에 그려지게 함(저장 MXL 불변).
+ * interleaved뿐 아니라 voice만 바꾸고 backup이 없는 순차 배치도 여기서 고친다
+ * (보조 성부가 마디 끝에 붙어 OSMD에서 사라진 것처럼 보이던 문제).
  * backup 뒤 voice 없는 forward는 다음 음 성부에 붙이고, backup 앞·뒤에 같은 voice가
  * 겹치면(성부 coalesce 후 REST+멜로디) 앞쪽을 버려 이음줄·박자 붕괴를 막는다.
  */
 export function normalizeMultiVoiceLayersForOsmdPreview(measure: Element): boolean {
-  if (!measureHasInterleavedVoices(measure)) return false;
   const byVoice = collectVoiceLayerBlocks(measure);
   const voices = [...byVoice.keys()].sort((a, b) => (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99));
   if (voices.length < 2) return false;
+  // 이미 voice 블록이 backup으로 분리·비交错면 DOM 재작성 생략
+  if (!measureHasInterleavedVoices(measure) && measureHasSeparatingVoiceBackups(measure, voices)) {
+    return false;
+  }
 
   const gluedExtras = new Set<Element>();
   for (const blocks of byVoice.values()) {

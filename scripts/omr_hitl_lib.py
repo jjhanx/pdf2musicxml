@@ -14677,6 +14677,16 @@ def _find_staff_block_span(measure: ET.Element, ns: str, staff: str) -> tuple[in
                 start = i
             end = i
         elif start is not None and loc in ("backup", "forward"):
+            # PR→PL cross-staff backup은 이 staff 블록에 넣지 않음.
+            # (넣으면 rebuild_staff_voice_block이 성부 간 backup으로 흡수해 PL 앞 backup이 사라짐)
+            next_note_staff: str | None = None
+            for j in range(i + 1, len(children)):
+                if _local(children[j]) != "note":
+                    continue
+                next_note_staff = _note_voice_staff(children[j], ns)[1]
+                break
+            if next_note_staff is not None and next_note_staff != staff:
+                break
             if end is not None and i <= end + 3:
                 end = i
         elif start is not None and loc == "note" and _note_voice_staff(el, ns)[1] != staff:
@@ -15098,7 +15108,11 @@ def _align_staves_timeline(measure: ET.Element, ns: str) -> None:
             dur_el = el.find(_q(ns, "duration"))
             if dur_el is not None:
                 dur_el.text = str(staff1_duration)
-            break
+            return
+    # staff1 다성 rebuild 등으로 PR→PL backup이 없으면 삽입
+    backup_el = ET.Element(_q(ns, "backup"))
+    ET.SubElement(backup_el, _q(ns, "duration")).text = str(staff1_duration)
+    measure.insert(first_s2_idx, backup_el)
 
 
 def _normalize_staff_note_order(measure: ET.Element, ns: str, staff: str) -> bool:
@@ -15409,9 +15423,10 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "removeTriplet",
     }
     # direction·템포만 추가·삭제·수정 — 음표 timeline·default-x·voice를 건드리지 않음
+    # setNoteVoice는 skip하지 않음: voice만 바꾸면 backup 없이 순차 배치되어 OSMD에서
+    # 보조 성부가 마디 끝(또는 밖)에 그려져 「사라진 것처럼」 보임 → staff timeline rebuild 필요.
     skip_rebuild_kinds = {
         "linkParallelOnsets",
-        "setNoteVoice",
         "setNoteStem",
         "unifyStaffVoices",
         "setPlayOrder",

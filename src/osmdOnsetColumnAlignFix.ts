@@ -16,10 +16,6 @@ import {
   partIdFromGraphic,
   staffWithinPartFromPreviewPartId,
 } from './osmdMeasureClick';
-import {
-  clearOsmdSystemWidthReallocFlag,
-  reallocateOsmdSystemMeasureWidthsByDensity,
-} from './osmdSystemMeasureWidthFix';
 
 /** AbsolutePosition(OSMD unit) → SVG path와 같은 px. notehead 좌표는 zoom이 반영됨. */
 function osmdSvgScale(osmd: OpenSheetMusicDisplay): number {
@@ -43,7 +39,6 @@ const onsetRemeshDoneAtZoom = new WeakMap<OpenSheetMusicDisplay, number>();
 export function registerOsmdPreviewXmlForAlign(osmd: OpenSheetMusicDisplay, xml: string): void {
   previewXmlByOsmd.set(osmd, xml);
   onsetRemeshDoneAtZoom.delete(osmd);
-  clearOsmdSystemWidthReallocFlag(osmd);
 }
 
 export function getOsmdPreviewXml(osmd: OpenSheetMusicDisplay): string | null {
@@ -2711,17 +2706,13 @@ export function alignOsmdPreviewNotesByOnsetColumn(
     // Softmax notehead 폭 안에서 duration(layout-x) 재배치.
     // 실제 사용 layout 구간만 매핑. **같은 zoom당 1회** — 2회째 remesh는 빔 붕괴,
     // zoom만 바꾸고 remesh를 안 하면 Softmax 간격·마디선 겹침이 그대로 남음.
+    // 시스템 열 SVG·AbsolutePosition 재배분은 오선·마디선·clip이 깨지므로 하지 않음(101d772).
     const zoomNow =
       typeof (osmd as { zoom?: number }).zoom === 'number' &&
       Number.isFinite((osmd as { zoom?: number }).zoom) &&
       ((osmd as { zoom?: number }).zoom as number) > 0
         ? ((osmd as { zoom?: number }).zoom as number)
         : 1;
-    // 밀집 마디 칸을 넓힌 뒤 remesh — contentRight가 새 AbsolutePosition/stave를 씀
-    if (reallocateOsmdSystemMeasureWidthsByDensity(osmd, targets)) {
-      onsetRemeshDoneAtZoom.delete(osmd);
-      didAlign = true;
-    }
     const remeshAt = onsetRemeshDoneAtZoom.get(osmd);
     const remeshDone = remeshAt != null && Math.abs(remeshAt - zoomNow) < 1e-6;
     if (targets.length > 0 && !remeshDone) {

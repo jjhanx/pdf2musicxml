@@ -164,7 +164,8 @@ export function applyOsmdPreviewEngravingRules(
   if (typeof r.VoiceSpacingAddendVexflow === 'number') {
     r.VoiceSpacingAddendVexflow = Math.max(r.VoiceSpacingAddendVexflow, 5);
   }
-  // Softmax↑ = duration 비례·마디 폭 여유. 밀집 마디는 시스템 재배분+SVG remesh가 이어 받음.
+  // Softmax↑ = OSMD가 밀집 마디에 더 넓은 Softmax 칸을 줌. 렌더 후 SVG·AbsolutePosition
+  // 재배분은 오선·마디선·clip이 깨지므로 쓰지 않음(101d772).
   if (typeof r.SoftmaxFactorVexFlow === 'number') {
     r.SoftmaxFactorVexFlow = Math.max(r.SoftmaxFactorVexFlow, 200);
   }

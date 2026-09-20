@@ -39,6 +39,7 @@ import {
   applyOsmdSlurDistanceOffsets,
   prepareGraphicalSlursForOsmdPreview,
   registerOsmdPreviewXmlForSlurs,
+  snapOsmdChordSlurSvgToNoteheads,
 } from './osmdChordSlurFix';
 import {
   applyOsmdArticulationOffsets,
@@ -2573,6 +2574,7 @@ export function OsmdBlock({
             // render 직후 동기 align — rAF만 기다리면 autoResize/후속 paint가 transform을 덮어쓸 수 있음
             syncOnsetColumnAlign(h, o);
             applyOsmdSlurDistanceOffsets(h, o);
+            snapOsmdChordSlurSvgToNoteheads(h, o);
             applyOsmdArticulationOffsets(h, o);
             applyOsmdPolyphonicRestOffsets(h, o);
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
@@ -2585,6 +2587,7 @@ export function OsmdBlock({
             window.setTimeout(() => {
               if (stale() || !hostRef.current || osmdRef.current !== o) return;
               applyOsmdSlurDistanceOffsets(hostRef.current, o);
+              snapOsmdChordSlurSvgToNoteheads(hostRef.current, o);
               applyOsmdArticulationOffsets(hostRef.current, o);
               const hh = hostRef.current;
               if (hh) {
@@ -2711,12 +2714,14 @@ export function OsmdBlock({
             finalizeOsmdMeasureNumberPreview(h, o, undefined);
             syncOnsetColumnAlign(h, o);
             applyOsmdSlurDistanceOffsets(h, o);
+            snapOsmdChordSlurSvgToNoteheads(h, o);
             applyOsmdArticulationOffsets(h, o);
             applyOsmdPolyphonicRestOffsets(h, o);
             applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
             window.setTimeout(() => {
               if (gen !== xmlGenRef.current || !hostRef.current || osmdRef.current !== o) return;
               applyOsmdSlurDistanceOffsets(hostRef.current, o);
+              snapOsmdChordSlurSvgToNoteheads(hostRef.current, o);
               applyOsmdArticulationOffsets(hostRef.current, o);
             }, 50);
           },
@@ -2757,12 +2762,14 @@ export function OsmdBlock({
         finalizeOsmdMeasureNumberPreview(h, o, undefined);
         syncOnsetColumnAlign(h, o);
         applyOsmdSlurDistanceOffsets(h, o);
+            snapOsmdChordSlurSvgToNoteheads(h, o);
         applyOsmdArticulationOffsets(h, o);
         applyOsmdPolyphonicRestOffsets(h, o);
         applyOsmdDynamicsOffsets(h, o, hintXmlRef.current || xml, articulationFixesRef.current);
         window.setTimeout(() => {
           if (gen !== xmlGenRef.current || !hostRef.current || osmdRef.current !== o) return;
           applyOsmdSlurDistanceOffsets(hostRef.current, o);
+              snapOsmdChordSlurSvgToNoteheads(hostRef.current, o);
           applyOsmdArticulationOffsets(hostRef.current, o);
         }, 50);
       },
@@ -2809,6 +2816,7 @@ export function OsmdBlock({
           finalizeOsmdMeasureNumberPreview(h, o, undefined);
           syncOnsetColumnAlign(h, o);
           applyOsmdSlurDistanceOffsets(h, o);
+            snapOsmdChordSlurSvgToNoteheads(h, o);
         } catch (e) {
           console.warn('[osmd] pending slur distance refresh skipped:', e);
         }

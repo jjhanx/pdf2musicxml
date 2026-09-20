@@ -697,3 +697,181 @@ export function applyOsmdSlurDistanceOffsets(host: HTMLElement, osmd: OpenSheetM
   host.setAttribute('data-hitl-slur-shifted', String(shifted));
   return shifted;
 }
+
+function ancestorTranslateSum(el: Element): { x: number; y: number } {
+  let x = 0;
+  let y = 0;
+  let n: Element | null = el;
+  while (n) {
+    const tr = n.getAttribute('transform') || '';
+    const m = /translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?/.exec(tr);
+    if (m) {
+      x += parseFloat(m[1]!);
+      y += parseFloat(m[2] || '0');
+    }
+    n = n.parentElement;
+  }
+  return { x, y };
+}
+
+type NoteheadCenter = { cx: number; cy: number; el: Element };
+
+/** `.vf-notehead` path의 가로·세로 중심(조상 translate 포함). */
+export function noteheadCentersInStavenote(stavenote: Element): NoteheadCenter[] {
+  const out: NoteheadCenter[] = [];
+  for (const head of stavenote.querySelectorAll('.vf-notehead')) {
+    const path = head.tagName.toLowerCase() === 'path' ? head : head.querySelector('path');
+    if (!path) continue;
+    const d = path.getAttribute('d') || '';
+    const { xs, ys } = svgPathXYValues(d);
+    if (!xs.length || !ys.length) continue;
+    const t = ancestorTranslateSum(path);
+    out.push({
+      cx: (Math.min(...xs) + Math.max(...xs)) / 2 + t.x,
+      cy: (Math.min(...ys) + Math.max(...ys)) / 2 + t.y,
+      el: head,
+    });
+  }
+  return out;
+}
+
+function curvePathExtent(path: SVGPathElement): {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+} | null {
+  const d = path.getAttribute('d') || '';
+  const { xs, ys } = svgPathXYValues(d);
+  if (xs.length < 2 || ys.length < 2) return null;
+  const t = ancestorTranslateSum(path);
+  return {
+    minX: Math.min(...xs) + t.x,
+    maxX: Math.max(...xs) + t.x,
+    minY: Math.min(...ys) + t.y,
+    maxY: Math.max(...ys) + t.y,
+  };
+}
+
+/**
+ * 화음 멤버별 이음줄 SVG — OSMD/VexFlow는 화음 AbsolutePosition.x·곡선을 공통으로 두어
+ * 이격(오른쪽) 머리에서 세 줄이 한쪽으로 몰린다. 렌더(·remesh) 후 각 `.vf-curve`를
+ * 대응 음머리 중심 X·Y에 맞춘다. 저장 MXL 불변.
+ */
+export function snapOsmdChordSlurSvgToNoteheads(
+  host: HTMLElement,
+  osmd?: OpenSheetMusicDisplay | null,
+): number {
+  const chordStaves = [...host.querySelectorAll('.vf-stavenote')]
+    .map((sn) => ({ sn, heads: noteheadCentersInStavenote(sn) }))
+    .filter((c) => c.heads.length >= 2);
+  if (chordStaves.length < 1) return 0;
+
+  const curves = slurSvgPaths(host);
+  if (!curves.length) return 0;
+
+  const staffSpacePx = (osmd ? staffSpacePxFromHost(host, osmd) : 0) || 10;
+  let fixed = 0;
+  const usedPaths = new Set<SVGPathElement>();
+
+  type CurveInfo = { path: SVGPathElement; minX: number; maxX: number; minY: number; maxY: number };
+  const infos: CurveInfo[] = [];
+  for (const path of curves) {
+    const ext = curvePathExtent(path);
+    if (!ext || ext.maxX - ext.minX < 4) continue;
+    infos.push({ path, ...ext });
+  }
+
+  const groups: CurveInfo[][] = [];
+  for (const info of infos) {
+    let g = groups.find((gg) => {
+      const ref = gg[0]!;
+      return (
+        Math.abs(ref.minX - info.minX) < staffSpacePx * 1.2 &&
+        Math.abs(ref.maxX - info.maxX) < staffSpacePx * 1.2
+      );
+    });
+    if (!g) {
+      g = [];
+      groups.push(g);
+    }
+    g.push(info);
+  }
+
+  for (const group of groups) {
+    if (!group.length) continue;
+    const ref = group[0]!;
+    const left = chordStaves
+      .filter((c) => {
+        const xs = c.heads.map((h) => h.cx);
+        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        return (
+          Math.abs(cx - ref.minX) < staffSpacePx * 3.5 ||
+          (cx <= ref.minX + staffSpacePx && cx >= ref.minX - staffSpacePx * 4)
+        );
+      })
+      .sort((a, b) => {
+        const ca =
+          (Math.min(...a.heads.map((h) => h.cx)) + Math.max(...a.heads.map((h) => h.cx))) / 2;
+        const cb =
+          (Math.min(...b.heads.map((h) => h.cx)) + Math.max(...b.heads.map((h) => h.cx))) / 2;
+        return Math.abs(ca - ref.minX) - Math.abs(cb - ref.minX);
+      })[0];
+    const right = chordStaves
+      .filter((c) => {
+        if (left && c.sn === left.sn) return false;
+        const xs = c.heads.map((h) => h.cx);
+        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        return (
+          Math.abs(cx - ref.maxX) < staffSpacePx * 3.5 ||
+          (cx >= ref.maxX - staffSpacePx && cx <= ref.maxX + staffSpacePx * 4)
+        );
+      })
+      .sort((a, b) => {
+        const ca =
+          (Math.min(...a.heads.map((h) => h.cx)) + Math.max(...a.heads.map((h) => h.cx))) / 2;
+        const cb =
+          (Math.min(...b.heads.map((h) => h.cx)) + Math.max(...b.heads.map((h) => h.cx))) / 2;
+        return Math.abs(ca - ref.maxX) - Math.abs(cb - ref.maxX);
+      })[0];
+    if (!left || !right) continue;
+
+    const leftHeads = [...left.heads].sort((a, b) => b.cy - a.cy);
+    const rightHeads = [...right.heads].sort((a, b) => b.cy - a.cy);
+    const n = Math.min(group.length, leftHeads.length, rightHeads.length);
+    if (n < 1) continue;
+
+    for (let i = 0; i < n; i += 1) {
+      const info = group[i]!;
+      if (usedPaths.has(info.path)) continue;
+      const a = leftHeads[i]!;
+      const b = rightHeads[i]!;
+      const d = info.path.getAttribute('d') || '';
+      if (!d) continue;
+      const { xs, ys } = svgPathXYValues(d);
+      if (xs.length < 2 || ys.length < 2) continue;
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      if (!(maxX > minX)) continue;
+      const tPath = ancestorTranslateSum(info.path);
+      const targetMinX = a.cx - tPath.x;
+      const targetMaxX = b.cx - tPath.x;
+      let next = mapSvgPathAbsoluteXs(
+        d,
+        (x) => targetMinX + ((x - minX) / (maxX - minX)) * (targetMaxX - targetMinX),
+      );
+      const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const headMidY = (a.cy + b.cy) / 2 - tPath.y;
+      const above = midY <= headMidY;
+      const wantMidY = headMidY + (above ? -staffSpacePx * 0.85 : staffSpacePx * 0.85);
+      const dy = wantMidY - midY;
+      if (Math.abs(dy) > 0.5) next = shiftSvgPathAbsoluteYs(next, dy);
+      info.path.setAttribute('d', next);
+      info.path.setAttribute('data-hitl-chord-slur-snap', '1');
+      usedPaths.add(info.path);
+      fixed += 1;
+    }
+  }
+  if (fixed > 0) host.setAttribute('data-hitl-chord-slur-snap', String(fixed));
+  return fixed;
+}

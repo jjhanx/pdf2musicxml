@@ -17,17 +17,28 @@ import {
   staffWithinPartFromPreviewPartId,
 } from './osmdMeasureClick';
 
+/** AbsolutePosition(OSMD unit) → SVG path와 같은 px. notehead 좌표는 zoom이 반영됨. */
+function osmdSvgScale(osmd: OpenSheetMusicDisplay): number {
+  const zoom =
+    typeof (osmd as { zoom?: number }).zoom === 'number' &&
+    Number.isFinite((osmd as { zoom?: number }).zoom) &&
+    ((osmd as { zoom?: number }).zoom as number) > 0
+      ? ((osmd as { zoom?: number }).zoom as number)
+      : 1;
+  return getOsmdUnitInPixels(osmd) * zoom;
+}
+
 /** XML default-x grid (shared/musicXmlPreviewOnsetLayout PREVIEW_LAYOUT_*). */
 const LAYOUT_BASE_X = 32;
 const LAYOUT_SPAN = 400;
 
 const previewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
-/** 같은 render에서 align 2회 호출 시 duration remesh는 1회만. */
-const onsetRemeshDoneByOsmd = new WeakMap<OpenSheetMusicDisplay, boolean>();
+/** remesh를 완료한 zoom. 같은 zoom에서 align 2회여도 1회만; zoom 바뀌면 다시 remesh. */
+const onsetRemeshDoneAtZoom = new WeakMap<OpenSheetMusicDisplay, number>();
 
 export function registerOsmdPreviewXmlForAlign(osmd: OpenSheetMusicDisplay, xml: string): void {
   previewXmlByOsmd.set(osmd, xml);
-  onsetRemeshDoneByOsmd.delete(osmd);
+  onsetRemeshDoneAtZoom.delete(osmd);
 }
 
 export function getOsmdPreviewXml(osmd: OpenSheetMusicDisplay): string | null {
@@ -459,7 +470,7 @@ function measureSpanFromHits(hits: readonly { centerX: number }[]): { originX: n
  * Size/stave.width는 jsdom·일부 렌더에서 ≤0이라 쓰지 않음.
  */
 function resolveContentLeftPx(osmd: OpenSheetMusicDisplay, gmRaw: unknown): number | null {
-  const scale = getOsmdUnitInPixels(osmd);
+  const scale = osmdSvgScale(osmd);
   const gm = asRecord(gmRaw);
   const biRaw = gm?.beginInstructionsWidth ?? gm?.BeginInstructionsWidth;
   const bi = typeof biRaw === 'number' && Number.isFinite(biRaw) ? Math.max(0, biRaw) : 0;
@@ -486,6 +497,7 @@ function resolveContentLeftPx(osmd: OpenSheetMusicDisplay, gmRaw: unknown): numb
     }
   }
   if (sx == null && typeof stave?.x === 'number' && Number.isFinite(stave.x)) sx = stave.x;
+  // stave x는 이미 SVG path와 같은 px(zoom 반영) — bi만 OSMD unit
   if (sx != null) return sx + bi * scale;
   return null;
 }
@@ -520,12 +532,12 @@ function resolveContentRightPx(
   gmRaw: unknown,
   nextGm?: unknown | null,
 ): number | null {
-  const scale = getOsmdUnitInPixels(osmd);
+  const scale = osmdSvgScale(osmd);
   const gm = asRecord(gmRaw);
   const eiRaw = gm?.endInstructionsWidth ?? gm?.EndInstructionsWidth;
   const ei = typeof eiRaw === 'number' && Number.isFinite(eiRaw) ? Math.max(0, eiRaw) : 0;
 
-  // VexFlow stave (SkyBottomLine Size 실패 시에도 폭이 있을 수 있음) — px
+  // VexFlow stave — 이미 SVG path와 같은 px(zoom 반영). AbsolutePosition과 혼용 금지.
   const stave = asRecord(gm?.stave ?? gm?.Stave ?? gm?.vfStave);
   if (stave) {
     try {
@@ -607,15 +619,17 @@ function noteExtentClearedOfInstructions(
     }
   }
   if (contentRight != null) {
-    const trailPad = Math.max(headPad * 2.2, 10);
+    // 끝 여백: 고정 px만이 아니라 마디 폭 비율(줌·폭에 비례)
+    const spanHint = Math.max(maxHit - minHit, contentRight - (contentLeft ?? minHit));
+    const trailPad = Math.max(headPad * 2.5, spanHint * 0.06, 12);
     const ceil = contentRight - trailPad;
     if (ceil > leftEdge + 8) {
-      // Softmax max에 붙이지 않고 마디 내용폭까지 펼쳐 duration 비율·끝 여백 확보
       rightEdge = ceil;
     }
   } else {
-    // 시스템 끝 단독 마디 등 contentRight 불명: Softmax span 안에서만 끝 여백
-    const trailPad = Math.max(headPad * 2.2, 10);
+    // contentRight 불명: Softmax span 안에서 끝 여백(폭 비율)
+    const span = rightEdge - leftEdge;
+    const trailPad = Math.max(headPad * 2.5, span * 0.06, 12);
     if (rightEdge - leftEdge > trailPad + 8) rightEdge -= trailPad;
   }
   if (!(rightEdge - leftEdge >= 8)) return null;
@@ -655,7 +669,7 @@ function contentSpanFromGraphicMeasure(
   layoutXs?: readonly number[],
   contentRightPx?: number | null,
 ): { originX: number; spanPx: number } | null {
-  const scale = getOsmdUnitInPixels(osmd);
+  const scale = osmdSvgScale(osmd);
   const headPad = Math.max(2, scale * 0.35);
   const contentLeft = resolveContentLeftPx(osmd, gmRaw);
   const xs = hits.map((h) => h.centerX).filter((x) => Number.isFinite(x));
@@ -2644,7 +2658,7 @@ function pushNotesOutOfBeginInstructions(osmd: OpenSheetMusicDisplay): boolean {
     if (!hits.length) return;
     const floor = resolveContentLeftPx(osmd, gmRaw);
     if (floor == null) return;
-    const headPad = Math.max(2, getOsmdUnitInPixels(osmd) * 0.35);
+    const headPad = Math.max(2, osmdSvgScale(osmd) * 0.35);
     const limit = floor + headPad;
     let minX = Infinity;
     for (const h of hits) minX = Math.min(minX, h.centerX);
@@ -2690,9 +2704,16 @@ export function alignOsmdPreviewNotesByOnsetColumn(
   let didAlign = false;
   try {
     // Softmax notehead 폭 안에서 duration(layout-x) 재배치.
-    // 실제 사용 layout 구간만 매핑. **렌더당 1회만** — 2회째 remesh는 이미 reshape된
-    // 빔 path에 Softmax naturalX를 다시 맞춰 1차 빔이 9px까지 붕괴함(m13 T/B).
-    const remeshDone = onsetRemeshDoneByOsmd.get(osmd) === true;
+    // 실제 사용 layout 구간만 매핑. **같은 zoom당 1회** — 2회째 remesh는 빔 붕괴,
+    // zoom만 바꾸고 remesh를 안 하면 Softmax 간격·마디선 겹침이 그대로 남음.
+    const zoomNow =
+      typeof (osmd as { zoom?: number }).zoom === 'number' &&
+      Number.isFinite((osmd as { zoom?: number }).zoom) &&
+      ((osmd as { zoom?: number }).zoom as number) > 0
+        ? ((osmd as { zoom?: number }).zoom as number)
+        : 1;
+    const remeshAt = onsetRemeshDoneAtZoom.get(osmd);
+    const remeshDone = remeshAt != null && Math.abs(remeshAt - zoomNow) < 1e-6;
     if (targets.length > 0 && !remeshDone) {
       let remeshed = false;
       forEachGraphicalMeasure(osmd, (gmRaw, staffIndex, measureIndex, row) => {
@@ -2703,7 +2724,7 @@ export function alignOsmdPreviewNotesByOnsetColumn(
           didAlign = true;
         }
       });
-      if (remeshed) onsetRemeshDoneByOsmd.set(osmd, true);
+      if (remeshed) onsetRemeshDoneAtZoom.set(osmd, zoomNow);
     }
     if (hints.length > 0) {
       alignLinkedParallelHintGroups(osmd, hints);

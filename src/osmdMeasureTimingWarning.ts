@@ -337,7 +337,13 @@ export function clipOsmdMeasuresToAllocatedWidth(
     svg.insertBefore(defs, svg.firstChild);
   }
 
-  const scale = getOsmdUnitInPixels(osmd);
+  const zoom =
+    typeof (osmd as { zoom?: number }).zoom === 'number' &&
+    Number.isFinite((osmd as { zoom?: number }).zoom) &&
+    ((osmd as { zoom?: number }).zoom as number) > 0
+      ? ((osmd as { zoom?: number }).zoom as number)
+      : 1;
+  const scale = getOsmdUnitInPixels(osmd) * zoom;
   let idx = 0;
   forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
     if (issues !== undefined) {
@@ -492,7 +498,13 @@ export function containOsmdMeasureNotesInAllocatedWidth(
   osmd: OpenSheetMusicDisplay,
 ): void {
   if (!osmd.IsReadyToRender()) return;
-  const scale = getOsmdUnitInPixels(osmd);
+  const zoom =
+    typeof (osmd as { zoom?: number }).zoom === 'number' &&
+    Number.isFinite((osmd as { zoom?: number }).zoom) &&
+    ((osmd as { zoom?: number }).zoom as number) > 0
+      ? ((osmd as { zoom?: number }).zoom as number)
+      : 1;
+  const scale = getOsmdUnitInPixels(osmd) * zoom;
   const edgePad = Math.max(4, scale * 0.4);
 
   forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {

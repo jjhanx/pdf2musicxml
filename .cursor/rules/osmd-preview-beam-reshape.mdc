@@ -15,7 +15,7 @@ UI는 `alignOsmdPreviewNotesByOnsetColumn`을 **렌더당 2회** 호출한다(ov
 
 ## 고정 순서
 
-1. **duration remesh** (`alignMeasureNotesByOnsetLayoutGrid`) — Softmax left…**마디 끝−여백** 안·**실제 사용 layout-x**만 매핑. **`onsetRemeshDoneByOsmd`로 렌더당 1회**.
+1. **duration remesh** (`alignMeasureNotesByOnsetLayoutGrid`) — Softmax left…**마디 끝−여백** 안·**실제 사용 layout-x**만 매핑. **`onsetRemeshDoneAtZoom`으로 같은 zoom당 1회**(zoom 변경 시 재remesh). AbsolutePosition→px는 **`unitInPixels × zoom`**(빼먹으면 기본 60%에서 마지막 음이 마디선과 겹침).
 2. 연주순번·partial voice·조표 침범 시프트.
 3. **`syncVfStemsAndBeamsAfterStavenoteAlign`** — 매 align마다 가능(idempotent여야 함).
 
@@ -23,7 +23,9 @@ UI는 `alignOsmdPreviewNotesByOnsetColumn`을 **렌더당 2회** 호출한다(ov
 
 | 금지 | 이유 |
 | --- | --- |
-| 2회째 remesh | 이미 reshape된 path에 Softmax naturalX를 다시 맞춰 1차 빔이 ~9–14px로 붕괴 |
+| 2회째 remesh(같은 zoom) | 이미 reshape된 path에 Softmax naturalX를 다시 맞춰 1차 빔이 ~9–14px로 붕괴 |
+| zoom 바뀐 뒤 remesh 스킵 | Softmax 간격·마디선 겹침이 그대로; remesh 플래그는 zoom과 함께 기록 |
+| AbsolutePosition×unitInPixels만(zoom 누락) | notehead SVG는 zoom 반영 — 기본 확대에서 contentRight가 실제 마디선보다 오른쪽으로 잡혀 겹침 |
 | path 매칭을 **naturalX만** 우선 | remesh된 path 구간에 Softmax 좌표만 겹치는 줄기(16–16)만 잡혀 8분 탈락; Softmax 구간 안 옆 그룹 음이 effective로 끌려와 잘못된 빔 |
 | Softmax max에 마지막 음 고정 | 혼합 박자 비율 찌그러짐·마지막 음이 마디선에 포개짐 |
 | 2차 빔에 min/max(전체 멤버) | 1차까지 늘어남 |
@@ -47,8 +49,9 @@ npx tsx _smoke/test_double_align_secondary_beam.ts
 npx tsx _smoke/test_primary_beam_and_hook_inward.ts
 npx tsx _smoke/test_beam_snap_to_stems.ts
 npx tsx _smoke/test_onset_layout_beat_spacing.ts
+npx tsx _smoke/test_zoom_remesh_trailing.ts
 ```
 
-증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」.
+증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」「기본 60% zoom에서 마디선 겹침·박자 비율 붕괴」.
 
 상세: `docs/악보_변환_품질_가이드.md` (박자 간격·OSMD 연주순번 align 후 빔 끊김).

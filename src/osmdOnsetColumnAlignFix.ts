@@ -965,54 +965,6 @@ function stemShaftCrossesBeamY(tip: StemTip, beamY: number, slop = 36): boolean 
   return tip.y0 - slop <= beamY && tip.y1 + slop >= beamY;
 }
 
-/**
- * Softmax/OSMD SVG 좌표는 zoom에 비례한다. hook 폭만 줄기 간격으로 스케일한다.
- * pad·orphan·stem 매칭 등은 고정 px를 유지한다(키우면 다른 성부 줄기를 끌어와
- * 멀쩡한 마디가 깨진다).
- */
-type BeamSyncTol = {
-  hookMaxW: number;
-  yBandTol: number;
-  orphanPullMax: number;
-  endTol: number;
-  pad: number;
-  tipDistMax: number;
-  leftDistMax: number;
-  shaftSlop: number;
-};
-
-function medianPositiveGap(xsSorted: number[]): number | null {
-  const gaps: number[] = [];
-  for (let i = 1; i < xsSorted.length; i++) {
-    const g = xsSorted[i]! - xsSorted[i - 1]!;
-    if (g > 1) gaps.push(g);
-  }
-  if (!gaps.length) return null;
-  gaps.sort((a, b) => a - b);
-  return gaps[Math.floor(gaps.length / 2)]!;
-}
-
-function beamSyncTolFromTips(tips: StemTip[]): BeamSyncTol {
-  const REF = 25;
-  const xs = [
-    ...new Set(tips.map((t) => Math.round(t.effectiveX * 10) / 10)),
-  ].sort((a, b) => a - b);
-  const gap = medianPositiveGap(xs) ?? REF;
-  return {
-    // Softmax forward hook는 종종 ~0.6×다음음 간격(예: 11.5px @ gap18).
-    // 0.55는 그 hook을 2차로 늘려 점8분이 16분처럼 보임 — 0.68 사용.
-    // 2차(16–16)는 ≈1×간격이라 여전히 reshape.
-    hookMaxW: Math.max(4, gap * 0.68),
-    yBandTol: 12,
-    orphanPullMax: 14,
-    endTol: 4,
-    pad: 8,
-    tipDistMax: 48,
-    leftDistMax: 12,
-    shaftSlop: 36,
-  };
-}
-
 function collectStemTipsInMeasure(measure: Element): StemTip[] {
   const tips: StemTip[] = [];
   const seen = new Set<Element>();
@@ -1386,7 +1338,6 @@ function syncVfEngravingInMeasure(measure: Element): void {
 
   // stem tip 재수집(형제 stem translate 반영)
   const tipsAfter = collectStemTipsInMeasure(measure);
-  const tol = beamSyncTolFromTips(tipsAfter);
 
   // 평행 시프트(조표 침범 등): 모든 note dx가 같으면 빔·이음줄도 같은 dx로 옮김
   // (짧은 hook은 reshape 스킵이라 안 따라가면 "온쉼표/빔 파편"처럼 남음)
@@ -1436,7 +1387,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
           midX = (left + right) / 2;
         }
       }
-      if (midX == null || width >= tol.hookMaxW) return null;
+      if (midX == null || width >= 12) return null;
       // 줄기 tip 우선
       let bestTip: StemTip | null = null;
       let bestTipD = Infinity;
@@ -1447,7 +1398,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
           bestTip = t;
         }
       }
-      if (bestTip && bestTipD < tol.tipDistMax) return bestTip.dx;
+      if (bestTip && bestTipD < 48) return bestTip.dx;
       let best: NoteShift | null = null;
       let bestD = Infinity;
       for (const n of notes) {
@@ -1475,7 +1426,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
     el: Element,
     opts: { pad?: number; mode: 'primary' | 'secondary' },
   ): void => {
-    const pad = opts.pad ?? tol.pad;
+    const pad = opts.pad ?? 8;
     const primary = opts.mode === 'primary';
     // path는 로컬 좌표, el translate는 별도.
     const beamTx = readElementTranslateX(el as SVGGraphicsElement);
@@ -1507,26 +1458,19 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const oldRight = Math.max(...xs);
       if (oldRight - oldLeft < 1) continue;
       const origW = oldRight - oldLeft;
-      // Partial / hook beams: reshape 금지(위에서 translate로 처리).
-      if (origW < tol.hookMaxW) continue;
+      // Partial / hook beams (~8–12px): reshape 금지(위에서 translate로 처리).
+      if (origW < 12) continue;
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
-      const yOk = (t: StemTip) =>
-        ys.length === 0 || stemShaftCrossesBeamY(t, beamY, tol.shaftSlop);
+      const yOk = (t: StemTip) => ys.length === 0 || stemShaftCrossesBeamY(t, beamY);
 
       // Softmax path↔naturalX(1차 remesh 직후). 이미 reshape된 path↔effectiveX(2차 align).
       // naturalX를 항상 우선하면 remesh된 path 구간에 Softmax 좌표만 겹치는 줄기만
       // 잡혀 1차가 16–16만 남거나(m13 T/B), 옆 그룹 effective로 늘어남(m13 PR).
       const byNatural = tipsAfter.filter(
-        (t) =>
-          t.naturalX >= oldLeft - tol.endTol &&
-          t.naturalX <= oldRight + tol.endTol &&
-          yOk(t),
+        (t) => t.naturalX >= oldLeft - 4 && t.naturalX <= oldRight + 4 && yOk(t),
       );
       const byEffective = tipsAfter.filter(
-        (t) =>
-          t.effectiveX >= oldLeft - tol.endTol &&
-          t.effectiveX <= oldRight + tol.endTol &&
-          yOk(t),
+        (t) => t.effectiveX >= oldLeft - 4 && t.effectiveX <= oldRight + 4 && yOk(t),
       );
       const endErr = (tips: StemTip[], ref: (t: StemTip) => number): number => {
         if (tips.length < 2) return Infinity;
@@ -1543,7 +1487,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
         if (effErr < natErr - 0.5) {
           matched = byEffective;
           matchByEffective = true;
-        } else if (byNatural.length > byEffective.length && natErr <= effErr + tol.pad) {
+        } else if (byNatural.length > byEffective.length && natErr <= effErr + 8) {
           matched = byNatural;
           matchByEffective = false;
         } else {
@@ -1562,14 +1506,12 @@ function syncVfEngravingInMeasure(measure: Element): void {
       }
 
       if (!matchByEffective) {
-        const stemAtBeamStart = matched.some(
-          (t) => Math.abs(t.naturalX - oldLeft) <= tol.endTol,
-        );
+        const stemAtBeamStart = matched.some((t) => Math.abs(t.naturalX - oldLeft) <= 4);
         if (!stemAtBeamStart && matched.length >= 1) {
           const orphans = tipsAfter.filter((t) => {
             if (!yOk(t)) return false;
             const gap = oldLeft - t.naturalX;
-            return gap > tol.endTol && gap <= tol.orphanPullMax;
+            return gap > 4 && gap <= 14;
           });
           if (orphans.length) matched = [...orphans, ...matched];
         }
@@ -1637,8 +1579,8 @@ function syncVfEngravingInMeasure(measure: Element): void {
           rightDist = Math.abs(tipRef(rightTip) - oldRight);
         }
         if (leftTip === rightTip) continue;
-        if (!leftOverhang && leftDist > tol.leftDistMax) continue;
-        if (!rightOverhang && rightDist > tol.leftDistMax) continue;
+        if (!leftOverhang && leftDist > 12) continue;
+        if (!rightOverhang && rightDist > 12) continue;
         newLeft = Math.min(leftTip.effectiveX, rightTip.effectiveX);
         newRight = Math.max(leftTip.effectiveX, rightTip.effectiveX);
       }
@@ -1660,8 +1602,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
         const minEff = Math.min(...matched.map((t) => t.effectiveX));
         const maxEff = Math.max(...matched.map((t) => t.effectiveX));
         const alreadyFit =
-          Math.abs(oldLeft - minEff) <= tol.endTol &&
-          Math.abs(oldRight - maxEff) <= tol.endTol;
+          Math.abs(oldLeft - minEff) <= 4 && Math.abs(oldRight - maxEff) <= 4;
         if (alreadyFit) continue;
       }
       if (
@@ -1716,7 +1657,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
       });
     }
     for (const g of geoms) {
-      if (g.w < tol.hookMaxW) {
+      if (g.w < 12) {
         beamClass.set(g.el, 'hook');
         continue;
       }
@@ -1724,7 +1665,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
         (o) =>
           o.el !== g.el &&
           o.w > g.w + 2 &&
-          Math.abs(o.midY - g.midY) < tol.yBandTol &&
+          Math.abs(o.midY - g.midY) < 12 &&
           o.left < g.right - 2 &&
           o.right > g.left + 2,
       );
@@ -1742,7 +1683,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
   // tip 스냅/오매칭으로 밑동이 음머리에서 떨어진 고아 줄기 재부착
   reattachOrphanStemBasesToNoteheads(measure, noteById);
   for (const tie of measure.querySelectorAll('.vf-stavetie, [class*="vf-tie"]')) {
-    reshapeByStemTips(tie, { mode: 'secondary', pad: tol.tipDistMax });
+    reshapeByStemTips(tie, { mode: 'secondary', pad: 48 });
   }
 
   // reshape 후에도 남은 짧은 hook — 가장 가까운 음표 dx로 한 번 더
@@ -1769,7 +1710,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
           width = Math.max(width, right - left);
           midX = (left + right) / 2;
         }
-        if (midX == null || width >= tol.hookMaxW) return null;
+        if (midX == null || width >= 12) return null;
         // 줄기에 붙은 쪽(끝) 우선 — mid보다 tip에 가까운 줄기 dx
         let bestTip: StemTip | null = null;
         let bestTipD = Infinity;
@@ -1780,7 +1721,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
             bestTip = t;
           }
         }
-        if (bestTip && bestTipD < tol.tipDistMax) return bestTip.dx;
+        if (bestTip && bestTipD < 48) return bestTip.dx;
         let best: NoteShift | null = null;
         let bestD = Infinity;
         for (const n of notes) {
@@ -1797,7 +1738,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
   }
 
   // hook을 줄기에 맞춘 뒤, 1차 빔 바깥쪽을 향하면 뒤집기
-  flipOutwardHooksTowardPrimary(measure, collectStemTipsInMeasure(measure), beamClass, tol);
+  flipOutwardHooksTowardPrimary(measure, collectStemTipsInMeasure(measure), beamClass);
 }
 
 /**
@@ -1808,7 +1749,6 @@ function flipOutwardHooksTowardPrimary(
   measure: Element,
   tips: StemTip[],
   beamClass: Map<Element, 'primary' | 'secondary' | 'hook'>,
-  tol: BeamSyncTol,
 ): void {
   type Prim = { left: number; right: number; midY: number; center: number };
   const primaries: Prim[] = [];
@@ -1864,8 +1804,7 @@ function flipOutwardHooksTowardPrimary(
     const left = Math.min(...xs) + btx;
     const right = Math.max(...xs) + btx;
     const w = right - left;
-    // beamClass가 hook이면 폭 상한은 이미 tol.hookMaxW — 고정 12px 재검사 금지
-    if (w < 1) continue;
+    if (w < 4 || w >= 12) continue;
     const midY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
 
     // 어느 끝이 줄기에 붙는지

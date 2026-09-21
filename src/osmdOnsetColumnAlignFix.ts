@@ -992,6 +992,17 @@ function hookMaxWidthFromTips(tips: StemTip[]): number {
   return Math.max(5, Math.min(12, gap * 0.65));
 }
 
+/** remesh·2차 align 후에도 같은 hook→줄기 tip을 따라가도록 (SVG 재생성 시 WeakMap 자연 소멸) */
+const hookAttachedStemByBeam = new WeakMap<Element, Element>();
+/** 최초 Softmax 부착이 왼쪽 끝인지 — remesh 후 tip이 멀리 가도 자유단을 뒤집지 않음 */
+const hookAttachLeftByBeam = new WeakMap<Element, boolean>();
+
+/**
+ * Softmax(또는 최초 natural 매칭) 빔 span — path가 remesh 좌표로 바뀐 뒤에도
+ * naturalX 매칭에 써서 tip effective를 따라가도록 한다.
+ */
+const beamNaturalSpanByEl = new WeakMap<Element, { left: number; right: number }>();
+
 /**
  * 16분 꼬리(hook): 폭·방향 유지한 채 **부착 끝**을 줄기 tip에 맞춘다.
  * 부착 끝 = Softmax 1차 span 기준(reshape 전). 넓은 1차: 중심에서 먼 쪽;
@@ -1077,6 +1088,32 @@ function anchorHookBeamsToStemTips(
         gapHint != null ? Math.max(3, gapHint * 0.35) : 8,
       );
 
+      // 이전 sync에서 잠근 tip이 있으면 remesh dx만 추종 (멀리 밀려도 옆 줄기로 재선택 금지)
+      // 부착 끝은 Softmax 때 기억한 쪽 유지 — tip이 멀리 가면 가까운 끝으로 바꾸면 forward hook가 뒤집혀 옆 줄기에 붙음
+      const lockedStem = hookAttachedStemByBeam.get(el);
+      if (lockedStem) {
+        const lockedTip = tips.find((t) => t.el === lockedStem);
+        if (lockedTip && stemShaftCrossesBeamY(lockedTip, beamY)) {
+          const storedSide = hookAttachLeftByBeam.get(el);
+          const attachLeft =
+            storedSide != null
+              ? storedSide
+              : Math.abs(lockedTip.effectiveX - visL) <= Math.abs(lockedTip.effectiveX - visR);
+          const attachVis = attachLeft ? visL : visR;
+          const shift = lockedTip.effectiveX - attachVis;
+          if (Math.abs(shift) >= 0.35 || Math.abs(beamTx) >= 0.35) {
+            path.setAttribute(
+              'd',
+              mapSvgPathXs(d, (x) => x + beamTx + shift),
+            );
+            if (Math.abs(beamTx) >= 0.01) clearStavenoteTranslateX(el as SVGGraphicsElement);
+          }
+          continue;
+        }
+        hookAttachedStemByBeam.delete(el);
+        hookAttachLeftByBeam.delete(el);
+      }
+
       // 덮는 1차 빔(점8–16 그룹). 다음 8분 1차로 오인하지 않게 mid 우선.
       let coverPrim: Prim | null = null;
       let bestPrimScore = Infinity;
@@ -1094,52 +1131,55 @@ function anchorHookBeamsToStemTips(
       type Cand = { tip: StemTip; d: number; dNat: number };
       let bestL: Cand | null = null;
       let bestR: Cand | null = null;
-      for (const t of tips) {
-        if (!stemShaftCrossesBeamY(t, beamY)) continue;
-        // Softmax span에 beam parallelDx가 섞이면 naturalX(16분)가 밖으로 밀림 → eff도 허용
-        if (coverPrim) {
+      const considerTip = (t: StemTip, requireInPrim: boolean): void => {
+        if (!stemShaftCrossesBeamY(t, beamY)) return;
+        if (requireInPrim && coverPrim) {
           const edge = Math.min(3, Math.max(1.2, (coverPrim.right - coverPrim.left) * 0.1));
           const inNat =
             t.naturalX >= coverPrim.left - edge && t.naturalX <= coverPrim.right + edge;
           const inEff =
             t.effectiveX >= coverPrim.left - edge && t.effectiveX <= coverPrim.right + edge;
-          if (!inNat && !inEff) continue;
+          if (!inNat && !inEff) return;
         }
         const dNatL = Math.abs(t.naturalX - left);
         const dNatR = Math.abs(t.naturalX - right);
-        const dL = Math.min(dNatL, Math.abs(t.effectiveX - visL));
-        const dR = Math.min(dNatR, Math.abs(t.effectiveX - visR));
+        const dEffL = Math.abs(t.effectiveX - visL);
+        const dEffR = Math.abs(t.effectiveX - visR);
+        // Softmax 정체성: natural이 hook Softmax 끝에서 멀면 effective만 가깝다고 붙이지 않음
+        // (contain 평행 후 Softmax286 tip이 Softmax178 hook vis에 겹쳐 m14 꼬리 오부착)
+        const softMaxSlop = Math.max(40, (gapHint ?? 12) * 2.5);
+        const dL = dNatL <= softMaxSlop ? Math.min(dNatL, dEffL) : dNatL;
+        const dR = dNatR <= softMaxSlop ? Math.min(dNatR, dEffR) : dNatR;
         if (dL <= attachSlop && (!bestL || dL < bestL.d)) bestL = { tip: t, d: dL, dNat: dNatL };
         if (dR <= attachSlop && (!bestR || dR < bestR.d)) bestR = { tip: t, d: dR, dNat: dNatR };
+      };
+      for (const t of tips) considerTip(t, true);
+      // remesh 후 tip effective가 Softmax 1차 밖으로 나가면 후보 0 → 꼬리 고아화. 완화.
+      if (!bestL && !bestR) {
+        for (const t of tips) considerTip(t, false);
       }
 
       let bestTip: StemTip | null = null;
       let attachLeft = true;
-      // 2차 align: 이미 tip에 붙어 있으면 Softmax 판별 재실행 금지.
-      // tol은 hook 폭에 비례 — 작은 zoom에서 자유단이 점8 effective에 2px 이내여도 keepL로 오인하지 않음
+      // 이미 tip에 붙은 끝은 coverPrim 밖이어도 유지(2차 align remesh 추종).
+      // 단, Softmax 자유단이 옆 줄기(점8)에 alreadyTol로 닿아 있어도 부착으로 쓰지 않음 —
+      // 한쪽만 near이면 Softmax natural 후보(bestL/bestR)를 우선한다.
       const alreadyTol = Math.min(2.25, Math.max(0.75, w * 0.28));
       type Near = { tip: StemTip; d: number };
       let nearL: Near | null = null;
       let nearR: Near | null = null;
       for (const t of tips) {
         if (!stemShaftCrossesBeamY(t, beamY)) continue;
-        if (coverPrim) {
-          const edge = Math.min(3, Math.max(1.2, (coverPrim.right - coverPrim.left) * 0.1));
-          const inNat =
-            t.naturalX >= coverPrim.left - edge && t.naturalX <= coverPrim.right + edge;
-          const inEff =
-            t.effectiveX >= coverPrim.left - edge && t.effectiveX <= coverPrim.right + edge;
-          if (!inNat && !inEff) continue;
-        }
         const dL = Math.abs(t.effectiveX - visL);
         const dR = Math.abs(t.effectiveX - visR);
         if (dL <= alreadyTol && (!nearL || dL < nearL.d)) nearL = { tip: t, d: dL };
         if (dR <= alreadyTol && (!nearR || dR < nearR.d)) nearR = { tip: t, d: dR };
       }
-      if (nearL && !nearR) {
+      const preferNaturalAttach = !!(bestL || bestR);
+      if (nearL && !nearR && !preferNaturalAttach) {
         attachLeft = true;
         bestTip = nearL.tip;
-      } else if (nearR && !nearL) {
+      } else if (nearR && !nearL && !preferNaturalAttach) {
         attachLeft = false;
         bestTip = nearR.tip;
       } else {
@@ -1168,11 +1208,39 @@ function anchorHookBeamsToStemTips(
         } else if (bestR) {
           attachLeft = false;
           bestTip = bestR.tip;
+        } else if (nearL && !nearR) {
+          attachLeft = true;
+          bestTip = nearL.tip;
+        } else if (nearR && !nearL) {
+          attachLeft = false;
+          bestTip = nearR.tip;
+        } else if (nearL && nearR) {
+          // 양끝 이미 tip: Softmax/remesh 직후 — 더 가까운 쪽
+          attachLeft = nearL.d <= nearR.d;
+          bestTip = attachLeft ? nearL.tip : nearR.tip;
+        }
+      }
+      // remesh로 tip만 멀리 이동·줄기 재생성으로 lock 소실 시: 같은 y 최근 tip으로 재스냅
+      if (!bestTip) {
+        let rescue: { tip: StemTip; d: number; left: boolean } | null = null;
+        const rescueSlop = Math.max(48, (gapHint ?? 12) * 3, w * 5);
+        for (const t of tips) {
+          if (!stemShaftCrossesBeamY(t, beamY)) continue;
+          const dL = Math.abs(t.effectiveX - visL);
+          const dR = Math.abs(t.effectiveX - visR);
+          if (dL <= rescueSlop && (!rescue || dL < rescue.d)) rescue = { tip: t, d: dL, left: true };
+          if (dR <= rescueSlop && (!rescue || dR < rescue.d)) rescue = { tip: t, d: dR, left: false };
+        }
+        if (rescue) {
+          bestTip = rescue.tip;
+          attachLeft = rescue.left;
         }
       }
       if (!bestTip) continue;
       const attachVis = attachLeft ? visL : visR;
       const shift = bestTip.effectiveX - attachVis;
+      hookAttachedStemByBeam.set(el, bestTip.el);
+      hookAttachLeftByBeam.set(el, attachLeft);
       if (Math.abs(shift) < 0.35 && Math.abs(beamTx) < 0.35) continue;
       path.setAttribute(
         'd',
@@ -1498,10 +1566,12 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const byId = noteById.get(id);
       if (byId) return byId;
     }
+    // Softmax 고아 줄기(naturalX=원좌표)는 remesh된 음머리(natural≈effective)에 매칭.
+    // 예전에 “속줄기 없는 음”만 1순위로 보면, Softmax X에서 먼 빈 음표에 붙어
+    // 16분 꼬리가 앞 그룹 줄기로 끌림(m4 PL Softmax217→199). 속줄기 페널티만 두고 최단 dX 우선.
     let best: NoteShift | null = null;
     let bestScore = Infinity;
     for (const n of notes) {
-      if (n.hasInnerStem) continue;
       const dX = Math.abs(n.naturalX - x);
       if (dX > 40) continue;
       const ys = noteheadPitchYs(n.el);
@@ -1509,7 +1579,8 @@ function syncVfEngravingInMeasure(measure: Element): void {
         ys.length > 0
           ? Math.min(...ys.map((y) => Math.abs(y - stemBaseY)))
           : 20;
-      const score = dX + dY * 0.35;
+      const stemPenalty = n.hasInnerStem ? 6 : 0;
+      const score = dX + dY * 0.35 + stemPenalty;
       if (score < bestScore) {
         bestScore = score;
         best = n;
@@ -1598,6 +1669,8 @@ function syncVfEngravingInMeasure(measure: Element): void {
           }
         }
       }
+      // 짧은 hook는 평행 dx로 밀면 Softmax 자유단이 옆 tip에 닿아 alreadyTol이
+      // 부착 끝을 뒤집음(m4 forward→점8). tip lock + attachSide로만 추종.
       if (bw > 0 && bw < hookMaxW) continue;
       // 이미 effective tip에 붙은 1·2차 빔은 재평행 금지(2차 align에서 dx 중복 → hook 오부착)
       const btx = readElementTranslateX(beam as SVGGraphicsElement);
@@ -1707,25 +1780,47 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
       const yOk = (t: StemTip) => ys.length === 0 || stemShaftCrossesBeamY(t, beamY);
 
+      // Softmax span 기억: remesh 후 path가 tip 좌표로 바뀌어도 natural 매칭 유지
+      const storedNat = beamNaturalSpanByEl.get(el);
+      const matchL = storedNat?.left ?? oldLeft;
+      const matchR = storedNat?.right ?? oldRight;
+
       // Softmax path↔naturalX(1차 remesh 직후). 이미 reshape된 path↔effectiveX(2차 align).
       // naturalX를 항상 우선하면 remesh된 path 구간에 Softmax 좌표만 겹치는 줄기만
       // 잡혀 1차가 16–16만 남거나(m13 T/B), 옆 그룹 effective로 늘어남(m13 PR).
+      // 고아 stem: OSMD가 줄기를 stavenote 밖에 둠 — Softmax natural만 맞는 고아를 빼면
+      // 1차 빔이 Softmax에 남고 16분 꼬리만 remesh tip을 따라가 옆 줄기에 붙은 것처럼 보임(m4 PL).
+      const inNote = (t: StemTip) => !!t.el.closest('.vf-stavenote, .vf-staveNote');
+      const beamableStem = (t: StemTip) =>
+        inNote(t) || !!stavenoteIdForOrphanStem(t.el);
       const byNatural = tipsAfter.filter(
-        (t) => t.naturalX >= oldLeft - 4 && t.naturalX <= oldRight + 4 && yOk(t),
+        (t) =>
+          beamableStem(t) &&
+          t.naturalX >= matchL - 4 &&
+          t.naturalX <= matchR + 4 &&
+          yOk(t),
       );
       const byEffective = tipsAfter.filter(
-        (t) => t.effectiveX >= oldLeft - 4 && t.effectiveX <= oldRight + 4 && yOk(t),
+        (t) =>
+          beamableStem(t) &&
+          t.effectiveX >= oldLeft - 4 &&
+          t.effectiveX <= oldRight + 4 &&
+          yOk(t),
       );
-      const endErr = (tips: StemTip[], ref: (t: StemTip) => number): number => {
+      const endErr = (tips: StemTip[], ref: (t: StemTip) => number, l: number, r: number): number => {
         if (tips.length < 2) return Infinity;
         const xs = tips.map(ref);
-        return Math.abs(Math.min(...xs) - oldLeft) + Math.abs(Math.max(...xs) - oldRight);
+        return Math.abs(Math.min(...xs) - l) + Math.abs(Math.max(...xs) - r);
       };
-      const natErr = endErr(byNatural, (t) => t.naturalX);
-      const effErr = endErr(byEffective, (t) => t.effectiveX);
+      const natErr = endErr(byNatural, (t) => t.naturalX, matchL, matchR);
+      const effErr = endErr(byEffective, (t) => t.effectiveX, oldLeft, oldRight);
       let matched: StemTip[];
       let matchByEffective: boolean;
-      if (byNatural.length >= 2 && byEffective.length >= 2) {
+      // Softmax span이 기억돼 있으면 remesh된 path effective 매칭보다 natural 추종 우선
+      if (storedNat && byNatural.length >= 2) {
+        matched = byNatural;
+        matchByEffective = false;
+      } else if (byNatural.length >= 2 && byEffective.length >= 2) {
         // Softmax path: natural 우선(effective 구간 안 옆음 유입 방지).
         // 이미 reshape된 path: effective 양끝 오차가 명확히 작을 때만 전환.
         if (effErr < natErr - 0.5) {
@@ -1750,11 +1845,11 @@ function syncVfEngravingInMeasure(measure: Element): void {
       }
 
       if (!matchByEffective) {
-        const stemAtBeamStart = matched.some((t) => Math.abs(t.naturalX - oldLeft) <= 4);
+        const stemAtBeamStart = matched.some((t) => Math.abs(t.naturalX - matchL) <= 4);
         if (!stemAtBeamStart && matched.length >= 1) {
           const orphans = tipsAfter.filter((t) => {
-            if (!yOk(t)) return false;
-            const gap = oldLeft - t.naturalX;
+            if (!yOk(t) || !beamableStem(t)) return false;
+            const gap = matchL - t.naturalX;
             return gap > 4 && gap <= 14;
           });
           if (orphans.length) matched = [...orphans, ...matched];
@@ -1763,27 +1858,33 @@ function syncVfEngravingInMeasure(measure: Element): void {
 
       if (matched.length < 2) {
         const refX = (t: StemTip) => (matchByEffective ? t.effectiveX : t.naturalX);
+        const targetL = matchByEffective ? oldLeft : matchL;
+        const targetR = matchByEffective ? oldRight : matchR;
         const byLeft = tipsAfter
-          .filter(yOk)
+          .filter((t) => yOk(t) && beamableStem(t))
           .slice()
-          .sort((a, b) => Math.abs(refX(a) - oldLeft) - Math.abs(refX(b) - oldLeft));
+          .sort((a, b) => Math.abs(refX(a) - targetL) - Math.abs(refX(b) - targetL));
         const leftCand = byLeft[0];
         const byRight = tipsAfter
-          .filter(yOk)
+          .filter((t) => yOk(t) && beamableStem(t))
           .slice()
-          .sort((a, b) => Math.abs(refX(a) - oldRight) - Math.abs(refX(b) - oldRight));
+          .sort((a, b) => Math.abs(refX(a) - targetR) - Math.abs(refX(b) - targetR));
         const rightCand = byRight.find((t) => t !== leftCand) ?? byRight[0];
         if (
           leftCand &&
           rightCand &&
           leftCand !== rightCand &&
-          Math.abs(refX(leftCand) - oldLeft) <= pad &&
-          Math.abs(refX(rightCand) - oldRight) <= pad
+          Math.abs(refX(leftCand) - targetL) <= pad &&
+          Math.abs(refX(rightCand) - targetR) <= pad
         ) {
           matched = [leftCand, rightCand];
         }
       }
       if (matched.length < 2) continue;
+
+      if (!matchByEffective && !storedNat) {
+        beamNaturalSpanByEl.set(el, { left: matchL, right: matchR });
+      }
 
       const tipRef = (t: StemTip) => (matchByEffective ? t.effectiveX : t.naturalX);
       let newLeft: number;
@@ -1906,7 +2007,34 @@ function syncVfEngravingInMeasure(measure: Element): void {
       });
     }
     for (const g of geoms) {
-      if (g.w < hookMaxW) {
+      const yOk = (t: StemTip) => stemShaftCrossesBeamY(t, g.midY);
+      const leftOnTip = tipsAfter.some(
+        (t) => yOk(t) && Math.abs(t.effectiveX - g.left) <= 2.75,
+      );
+      const rightOnTip = tipsAfter.some(
+        (t) => yOk(t) && Math.abs(t.effectiveX - g.right) <= 2.75,
+      );
+      // remesh 후 gap↓로 Softmax hook(≤12)이 hookMaxW를 넘겨도, 한쪽 tip만 닿으면 hook 유지
+      // tip에서 떨어진 Softmax hook(고아)도 hook로 두어 rescue 스냅 대상이 되게 함
+      const oneEndedHook = g.w <= 12 && g.w >= 2 && leftOnTip !== rightOnTip;
+      const orphanShortHook = g.w <= 12 && g.w >= 2 && !leftOnTip && !rightOnTip;
+      if (g.w < hookMaxW || oneEndedHook || orphanShortHook) {
+        // remesh로 짧아진 2차(양 끝 tip + 더 넓은 1차 아래)만 secondary.
+        // Softmax hook가 좁아진 점8–16 간격을 뚫고 양 tip에 닿아도 hook 유지.
+        if (!oneEndedHook && !orphanShortHook && leftOnTip && rightOnTip && g.w >= 5) {
+          const underWider = geoms.some(
+            (o) =>
+              o.el !== g.el &&
+              o.w > g.w + 2 &&
+              Math.abs(o.midY - g.midY) < 12 &&
+              o.left < g.right - 2 &&
+              o.right > g.left + 2,
+          );
+          if (underWider) {
+            beamClass.set(g.el, 'secondary');
+            continue;
+          }
+        }
         beamClass.set(g.el, 'hook');
         continue;
       }
@@ -1918,6 +2046,20 @@ function syncVfEngravingInMeasure(measure: Element): void {
           o.left < g.right - 2 &&
           o.right > g.left + 2,
       );
+      // Softmax hook(≤12)가 remesh로 짧아진 1차보다 길어 primary로 승격되지 않게
+      if (!underWider && g.w <= 12) {
+        const overlapsSibling = geoms.some(
+          (o) =>
+            o.el !== g.el &&
+            Math.abs(o.midY - g.midY) < 12 &&
+            o.left < g.right - 1 &&
+            o.right > g.left + 1,
+        );
+        if (overlapsSibling) {
+          beamClass.set(g.el, 'hook');
+          continue;
+        }
+      }
       const kind = underWider ? 'secondary' : 'primary';
       beamClass.set(g.el, kind);
       if (kind === 'primary') {
@@ -2235,13 +2377,8 @@ function normalizeHookLengthsInPrimaryGroups(
   }
 
   for (const [, group] of byPrim) {
-    // 단독 hook(m4 forward 등)은 Softmax 길이를 유지 — 16–8–16처럼 같은 1차 아래 꼬리가 2개+일 때만
-    if (group.length < 2) continue;
     const minHookW = Math.min(...group.map((h) => h.w));
     const maxHookW = Math.max(...group.map((h) => h.w));
-    // 이미 비슷하면 건드리지 않음 (단독 Softmax hook 회귀와 동일 취지)
-    if (maxHookW <= minHookW * 1.25 && maxHookW - minHookW < 2) continue;
-
     const prim = primaries[group[0]!.primIdx]!;
     const gapsInward: number[] = [];
     for (const h of group) {
@@ -2265,10 +2402,17 @@ function normalizeHookLengthsInPrimaryGroups(
       }
       if (nextStem != null) gapsInward.push(Math.abs(nextStem - h.attach));
     }
-    // 균일·짧게: 그룹 최단 기준, 이웃 8분 간격의 40%를 넘지 않게 캡
     const gapCap =
       gapsInward.length > 0 ? Math.min(...gapsInward.map((g) => g * 0.4)) : minHookW;
-    let targetW = Math.min(minHookW, gapCap);
+    // 단독 Softmax hook: 자유단이 이웃 줄기에 거의 닿을 때만 단축 (단순 gap×0.4는 Softmax 11.5 정상 꼬리까지 자름)
+    const uneven = group.length >= 2 && (maxHookW > minHookW * 1.25 || maxHookW - minHookW >= 2);
+    const solitaryOvershoot =
+      group.length === 1 &&
+      gapsInward.length > 0 &&
+      minHookW >= Math.min(...gapsInward) - 2.5;
+    if (!uneven && !solitaryOvershoot) continue;
+
+    let targetW = uneven ? Math.min(minHookW, gapCap) : gapCap;
     targetW = Math.max(4, Math.min(targetW, 11));
 
     for (const h of group) {
@@ -3212,13 +3356,12 @@ export function alignOsmdPreviewNotesByOnsetColumn(
     activeStaffWithinPartByIndex = null;
   }
 
-  if (didAlign) {
-    const host =
-      (osmd as unknown as { container?: ParentNode | null }).container ??
-      (osmd as unknown as { root?: ParentNode | null }).root ??
-      null;
-    if (host) syncVfStemsAndBeamsAfterStavenoteAlign(host);
-  }
+  // remesh가 스킵돼도 다른 시프트·이전 sync 이후 tip 이동을 hook가 따라가도록 항상 sync
+  const host =
+    (osmd as unknown as { container?: ParentNode | null }).container ??
+    (osmd as unknown as { root?: ParentNode | null }).root ??
+    null;
+  if (host) syncVfStemsAndBeamsAfterStavenoteAlign(host);
 }
 
 export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHint): number {

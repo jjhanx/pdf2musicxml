@@ -1837,6 +1837,8 @@ function syncVfEngravingInMeasure(measure: Element): void {
 
   // hook을 줄기에 맞춘 뒤, 1차 빔 바깥쪽을 향하면 뒤집기
   flipOutwardHooksTowardPrimary(measure, collectStemTipsInMeasure(measure), beamClass);
+  // 16–8–16 등: 같은 1차 안 hook 길이를 짧게·균일하게 (한쪽만 길면 8분이 16분처럼 보임)
+  normalizeHookLengthsInPrimaryGroups(measure, collectStemTipsInMeasure(measure), beamClass);
 }
 
 /**
@@ -1953,6 +1955,196 @@ function flipOutwardHooksTowardPrimary(
       'd',
       mapSvgPathXs(d, (x) => 2 * attachLocal - x),
     );
+  }
+}
+
+/**
+ * 같은 1차 빔 아래 16분 꼬리(hook) 길이를 짧게·균일하게.
+ * Softmax/remesh로 한쪽 hook만 이웃 8분까지 거의 닿으면 두 줄 빔처럼 보인다.
+ * 부착 tip은 유지하고 자유단만 줄인다 — 옆 줄기로 reshape하지 않음.
+ */
+function normalizeHookLengthsInPrimaryGroups(
+  measure: Element,
+  tips: StemTip[],
+  beamClass: Map<Element, 'primary' | 'secondary' | 'hook'>,
+): void {
+  type Prim = { left: number; right: number; midY: number; center: number };
+  const primaries: Prim[] = [];
+  for (const [el, kind] of beamClass) {
+    if (kind !== 'primary') continue;
+    const path = el.querySelector('path');
+    const d = path?.getAttribute('d');
+    if (!d) continue;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
+      const n = parseFloat(m[1]!);
+      if (Number.isFinite(n)) xs.push(n);
+    }
+    for (const m of d.matchAll(
+      /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
+    )) {
+      const n = parseFloat(m[1]!);
+      if (Number.isFinite(n)) ys.push(n);
+    }
+    if (xs.length < 2) continue;
+    const btx = readElementTranslateX(el as SVGGraphicsElement);
+    const left = Math.min(...xs) + btx;
+    const right = Math.max(...xs) + btx;
+    primaries.push({
+      left,
+      right,
+      midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
+      center: (left + right) / 2,
+    });
+  }
+  if (!primaries.length || !tips.length) return;
+
+  const tipXs = [
+    ...new Set(tips.map((t) => Math.round(t.effectiveX * 10) / 10)),
+  ].sort((a, b) => a - b);
+
+  type HookInfo = {
+    path: SVGPathElement;
+    el: Element;
+    left: number;
+    right: number;
+    w: number;
+    midY: number;
+    attach: number;
+    free: number;
+    primIdx: number;
+  };
+  const hooks: HookInfo[] = [];
+
+  for (const [el, kind] of beamClass) {
+    if (kind !== 'hook') continue;
+    if (el.closest('.vf-stavenote, .vf-staveNote')) continue;
+    const path = el.querySelector('path') as SVGPathElement | null;
+    const d = path?.getAttribute('d');
+    if (!path || !d) continue;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
+      const n = parseFloat(m[1]!);
+      if (Number.isFinite(n)) xs.push(n);
+    }
+    for (const m of d.matchAll(
+      /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
+    )) {
+      const n = parseFloat(m[1]!);
+      if (Number.isFinite(n)) ys.push(n);
+    }
+    if (xs.length < 2) continue;
+    const btx = readElementTranslateX(el as SVGGraphicsElement);
+    const left = Math.min(...xs) + btx;
+    const right = Math.max(...xs) + btx;
+    const w = right - left;
+    if (w < 2) continue;
+    const midY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
+
+    let attach = left;
+    let free = right;
+    let bestStemD = Infinity;
+    for (const t of tips) {
+      const dL = Math.abs(t.effectiveX - left);
+      const dR = Math.abs(t.effectiveX - right);
+      if (dL < bestStemD) {
+        bestStemD = dL;
+        attach = left;
+        free = right;
+      }
+      if (dR < bestStemD) {
+        bestStemD = dR;
+        attach = right;
+        free = left;
+      }
+    }
+    if (bestStemD > 5) continue;
+
+    let primIdx = -1;
+    let bestPrimScore = Infinity;
+    for (let i = 0; i < primaries.length; i++) {
+      const p = primaries[i]!;
+      if (Math.abs(p.midY - midY) > 14) continue;
+      const contains = attach >= p.left - 6 && attach <= p.right + 6;
+      if (!contains) continue;
+      const score = Math.abs(attach - p.center);
+      if (score < bestPrimScore) {
+        bestPrimScore = score;
+        primIdx = i;
+      }
+    }
+    if (primIdx < 0) continue;
+    hooks.push({ path, el, left, right, w, midY, attach, free, primIdx });
+  }
+
+  const byPrim = new Map<number, HookInfo[]>();
+  for (const h of hooks) {
+    const list = byPrim.get(h.primIdx) ?? [];
+    list.push(h);
+    byPrim.set(h.primIdx, list);
+  }
+
+  for (const [, group] of byPrim) {
+    // 단독 hook(m4 forward 등)은 Softmax 길이를 유지 — 16–8–16처럼 같은 1차 아래 꼬리가 2개+일 때만
+    if (group.length < 2) continue;
+    const minHookW = Math.min(...group.map((h) => h.w));
+    const maxHookW = Math.max(...group.map((h) => h.w));
+    // 이미 비슷하면 건드리지 않음 (단독 Softmax hook 회귀와 동일 취지)
+    if (maxHookW <= minHookW * 1.25 && maxHookW - minHookW < 2) continue;
+
+    const prim = primaries[group[0]!.primIdx]!;
+    const gapsInward: number[] = [];
+    for (const h of group) {
+      const inward = Math.sign(prim.center - h.attach) || 1;
+      let nextStem: number | null = null;
+      if (inward > 0) {
+        for (const x of tipXs) {
+          if (x > h.attach + 2) {
+            nextStem = x;
+            break;
+          }
+        }
+      } else {
+        for (let i = tipXs.length - 1; i >= 0; i--) {
+          const x = tipXs[i]!;
+          if (x < h.attach - 2) {
+            nextStem = x;
+            break;
+          }
+        }
+      }
+      if (nextStem != null) gapsInward.push(Math.abs(nextStem - h.attach));
+    }
+    // 균일·짧게: 그룹 최단 기준, 이웃 8분 간격의 40%를 넘지 않게 캡
+    const gapCap =
+      gapsInward.length > 0 ? Math.min(...gapsInward.map((g) => g * 0.4)) : minHookW;
+    let targetW = Math.min(minHookW, gapCap);
+    targetW = Math.max(4, Math.min(targetW, 11));
+
+    for (const h of group) {
+      if (Math.abs(h.w - targetW) < 0.6) continue;
+      if (h.w < targetW - 0.5) continue; // 짧은 쪽은 늘리지 않음(8분 침범 방지)
+      const btx = readElementTranslateX(h.el as SVGGraphicsElement);
+      const d = h.path.getAttribute('d');
+      if (!d) continue;
+      const oldLeft = h.left - btx;
+      const oldRight = h.right - btx;
+      const attachLocal = h.attach - btx;
+      const freeDir = Math.sign(h.free - h.attach) || 1;
+      const newAttach = attachLocal;
+      const newFree = attachLocal + freeDir * targetW;
+      const newLeft = Math.min(newAttach, newFree);
+      const newRight = Math.max(newAttach, newFree);
+      if (newRight - newLeft < 1) continue;
+      const mapX = (x: number) => {
+        const t = (x - oldLeft) / (oldRight - oldLeft);
+        return newLeft + t * (newRight - newLeft);
+      };
+      h.path.setAttribute('d', mapSvgPathXs(d, mapX));
+      if (Math.abs(btx) >= 0.01) clearStavenoteTranslateX(h.el as SVGGraphicsElement);
+    }
   }
 }
 

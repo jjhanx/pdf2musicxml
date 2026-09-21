@@ -965,55 +965,83 @@ function stemShaftCrossesBeamY(tip: StemTip, beamY: number, slop = 36): boolean 
   return tip.y0 - slop <= beamY && tip.y1 + slop >= beamY;
 }
 
+/** 인접 줄기 간격 중앙값(SVG 좌표). zoom이 줄면 Softmax 간격·꼬리 폭이 같이 줄어든다. */
+function medianAdjacentStemGap(tips: StemTip[]): number | null {
+  const xs = [
+    ...new Set(tips.map((t) => Math.round(t.effectiveX * 10) / 10)),
+  ].sort((a, b) => a - b);
+  if (xs.length < 2) return null;
+  const gaps: number[] = [];
+  for (let i = 1; i < xs.length; i++) {
+    const g = xs[i]! - xs[i - 1]!;
+    if (g >= 3 && g <= 80) gaps.push(g);
+  }
+  if (!gaps.length) return null;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)]!;
+}
+
 /**
- * hook vs 2차: 고정 12px (줄기간격 스케일 금지 — m9 8–16–16 2차가 hook로 잡혀 붕괴).
+ * hook vs 2차: 인접 줄기 간격의 ~65%(5–12px).
+ * 고정 12px는 작은 zoom에서 점8–16 1차(폭≈간격)까지 hook로 오분류해
+ * 16분 꼬리가 다음 8분 빔에 붙은 것처럼 보인다. pad/orphan 매칭 px는 그대로.
  */
-function hookMaxWidthFromTips(_tips: StemTip[]): number {
-  return 12;
+function hookMaxWidthFromTips(tips: StemTip[]): number {
+  const gap = medianAdjacentStemGap(tips);
+  if (gap == null) return 12;
+  return Math.max(5, Math.min(12, gap * 0.65));
 }
 
 /**
  * 16분 꼬리(hook): 폭·방향 유지한 채 **부착 끝**을 줄기 tip에 맞춘다.
- * 부착 끝 = 덮는 1차 빔 중심에서 **먼** 쪽(16분→점8 forward hook는 왼쪽=16분).
- * 자유단에 가까운 옆 줄기(점8)로 붙이지 않는다.
+ * 부착 끝 = Softmax 1차 span 기준(reshape 전). 넓은 1차: 중심에서 먼 쪽;
+ * 짧은 점8–16 1차: Softmax natural 거리가 가까운 끝(자유단→점8 오인 방지).
  */
 function anchorHookBeamsToStemTips(
   measure: Element,
   tips: StemTip[],
   beamClass: Map<Element, 'primary' | 'secondary' | 'hook'>,
+  primarySoftmaxSpans: Map<
+    Element,
+    { left: number; right: number; midY: number; center: number }
+  >,
 ): void {
   if (!tips.length) return;
 
   type Prim = { left: number; right: number; midY: number; center: number };
-  const primaries: Prim[] = [];
-  for (const [el, kind] of beamClass) {
-    if (kind !== 'primary') continue;
-    const path = el.querySelector('path');
-    const d = path?.getAttribute('d');
-    if (!d) continue;
-    const xs: number[] = [];
-    const ys: number[] = [];
-    for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
-      const n = parseFloat(m[1]!);
-      if (Number.isFinite(n)) xs.push(n);
+  const primaries: Prim[] = [...primarySoftmaxSpans.values()];
+  if (!primaries.length) {
+    for (const [el, kind] of beamClass) {
+      if (kind !== 'primary') continue;
+      const path = el.querySelector('path');
+      const d = path?.getAttribute('d');
+      if (!d) continue;
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
+        const n = parseFloat(m[1]!);
+        if (Number.isFinite(n)) xs.push(n);
+      }
+      for (const m of d.matchAll(
+        /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
+      )) {
+        const n = parseFloat(m[1]!);
+        if (Number.isFinite(n)) ys.push(n);
+      }
+      if (xs.length < 2) continue;
+      const btx = readElementTranslateX(el as SVGGraphicsElement);
+      const left = Math.min(...xs) + btx;
+      const right = Math.max(...xs) + btx;
+      primaries.push({
+        left,
+        right,
+        midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
+        center: (left + right) / 2,
+      });
     }
-    for (const m of d.matchAll(
-      /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
-    )) {
-      const n = parseFloat(m[1]!);
-      if (Number.isFinite(n)) ys.push(n);
-    }
-    if (xs.length < 2) continue;
-    const btx = readElementTranslateX(el as SVGGraphicsElement);
-    const left = Math.min(...xs) + btx;
-    const right = Math.max(...xs) + btx;
-    primaries.push({
-      left,
-      right,
-      midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
-      center: (left + right) / 2,
-    });
   }
+
+  const gapHint = medianAdjacentStemGap(tips);
 
   for (const [el, kind] of beamClass) {
     if (kind !== 'hook') continue;
@@ -1042,51 +1070,105 @@ function anchorHookBeamsToStemTips(
       const visR = right + beamTx;
       const midVis = (visL + visR) / 2;
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
-      const attachSlop = Math.max(8, (right - left) * 0.55);
+      const w = right - left;
+      // 작은 zoom에서 고정 8px slop이 다음 8분 줄기까지 잡아 꼬리가 옆 빔에 붙음
+      const attachSlop = Math.min(
+        Math.max(3, w * 0.55),
+        gapHint != null ? Math.max(3, gapHint * 0.35) : 8,
+      );
 
-      type Cand = { tip: StemTip; d: number };
+      // 덮는 1차 빔(점8–16 그룹). 다음 8분 1차로 오인하지 않게 mid 우선.
+      let coverPrim: Prim | null = null;
+      let bestPrimScore = Infinity;
+      for (const p of primaries) {
+        if (Math.abs(p.midY - beamY) > 14) continue;
+        const edge = Math.min(4, Math.max(1.5, (p.right - p.left) * 0.12));
+        if (!(visL < p.right + edge && visR > p.left - edge)) continue;
+        const score = Math.abs(p.center - midVis);
+        if (score < bestPrimScore) {
+          bestPrimScore = score;
+          coverPrim = p;
+        }
+      }
+
+      type Cand = { tip: StemTip; d: number; dNat: number };
       let bestL: Cand | null = null;
       let bestR: Cand | null = null;
       for (const t of tips) {
         if (!stemShaftCrossesBeamY(t, beamY)) continue;
-        const dL = Math.min(Math.abs(t.naturalX - left), Math.abs(t.effectiveX - visL));
-        const dR = Math.min(Math.abs(t.naturalX - right), Math.abs(t.effectiveX - visR));
-        if (dL <= attachSlop && (!bestL || dL < bestL.d)) bestL = { tip: t, d: dL };
-        if (dR <= attachSlop && (!bestR || dR < bestR.d)) bestR = { tip: t, d: dR };
+        // Softmax span에 beam parallelDx가 섞이면 naturalX(16분)가 밖으로 밀림 → eff도 허용
+        if (coverPrim) {
+          const edge = Math.min(3, Math.max(1.2, (coverPrim.right - coverPrim.left) * 0.1));
+          const inNat =
+            t.naturalX >= coverPrim.left - edge && t.naturalX <= coverPrim.right + edge;
+          const inEff =
+            t.effectiveX >= coverPrim.left - edge && t.effectiveX <= coverPrim.right + edge;
+          if (!inNat && !inEff) continue;
+        }
+        const dNatL = Math.abs(t.naturalX - left);
+        const dNatR = Math.abs(t.naturalX - right);
+        const dL = Math.min(dNatL, Math.abs(t.effectiveX - visL));
+        const dR = Math.min(dNatR, Math.abs(t.effectiveX - visR));
+        if (dL <= attachSlop && (!bestL || dL < bestL.d)) bestL = { tip: t, d: dL, dNat: dNatL };
+        if (dR <= attachSlop && (!bestR || dR < bestR.d)) bestR = { tip: t, d: dR, dNat: dNatR };
       }
 
       let bestTip: StemTip | null = null;
       let attachLeft = true;
-      const both =
-        bestL &&
-        bestR &&
-        bestL.tip !== bestR.tip &&
-        Math.abs(bestL.d - bestR.d) < 4;
-      if (both) {
-        // 양 끝 모두 줄기 후보(16분←→점8) — 1차 중심에서 먼 쪽=부착(forward→16분)
-        let primCenter: number | null = null;
-        let bestPrimScore = Infinity;
-        for (const p of primaries) {
-          if (Math.abs(p.midY - beamY) > 14) continue;
-          if (!(visL < p.right + 6 && visR > p.left - 6)) continue;
-          const score = Math.abs(p.center - midVis);
-          if (score < bestPrimScore) {
-            bestPrimScore = score;
-            primCenter = p.center;
-          }
+      // 2차 align: 이미 tip에 붙어 있으면 Softmax 판별 재실행 금지.
+      // tol은 hook 폭에 비례 — 작은 zoom에서 자유단이 점8 effective에 2px 이내여도 keepL로 오인하지 않음
+      const alreadyTol = Math.min(2.25, Math.max(0.75, w * 0.28));
+      type Near = { tip: StemTip; d: number };
+      let nearL: Near | null = null;
+      let nearR: Near | null = null;
+      for (const t of tips) {
+        if (!stemShaftCrossesBeamY(t, beamY)) continue;
+        if (coverPrim) {
+          const edge = Math.min(3, Math.max(1.2, (coverPrim.right - coverPrim.left) * 0.1));
+          const inNat =
+            t.naturalX >= coverPrim.left - edge && t.naturalX <= coverPrim.right + edge;
+          const inEff =
+            t.effectiveX >= coverPrim.left - edge && t.effectiveX <= coverPrim.right + edge;
+          if (!inNat && !inEff) continue;
         }
-        if (primCenter != null) {
-          attachLeft = Math.abs(visL - primCenter) >= Math.abs(visR - primCenter);
-        } else {
-          attachLeft = bestL!.d <= bestR!.d;
-        }
-        bestTip = attachLeft ? bestL!.tip : bestR!.tip;
-      } else if (bestL && (!bestR || bestL.d <= bestR.d)) {
+        const dL = Math.abs(t.effectiveX - visL);
+        const dR = Math.abs(t.effectiveX - visR);
+        if (dL <= alreadyTol && (!nearL || dL < nearL.d)) nearL = { tip: t, d: dL };
+        if (dR <= alreadyTol && (!nearR || dR < nearR.d)) nearR = { tip: t, d: dR };
+      }
+      if (nearL && !nearR) {
         attachLeft = true;
-        bestTip = bestL.tip;
-      } else if (bestR) {
+        bestTip = nearL.tip;
+      } else if (nearR && !nearL) {
         attachLeft = false;
-        bestTip = bestR.tip;
+        bestTip = nearR.tip;
+      } else {
+        const both =
+          bestL &&
+          bestR &&
+          bestL.tip !== bestR.tip &&
+          Math.abs(bestL.d - bestR.d) < 4;
+        if (both) {
+          const primW = coverPrim ? coverPrim.right - coverPrim.left : 0;
+          const widePrimary =
+            coverPrim != null &&
+            primW > Math.max(w * 2.8, (gapHint ?? 12) * 1.35);
+          if (widePrimary) {
+            // 넓은 Softmax 1차: forward hook가 점8 쪽으로 밀림 → 중심에서 먼 쪽=16분
+            const primCenter = coverPrim!.center;
+            attachLeft = Math.abs(visL - primCenter) >= Math.abs(visR - primCenter);
+          } else {
+            // 짧은 점8–16 Softmax 1차: Softmax natural 기준 가까운 끝=부착
+            attachLeft = bestL!.dNat <= bestR!.dNat;
+          }
+          bestTip = attachLeft ? bestL!.tip : bestR!.tip;
+        } else if (bestL && (!bestR || bestL.d <= bestR.d)) {
+          attachLeft = true;
+          bestTip = bestL.tip;
+        } else if (bestR) {
+          attachLeft = false;
+          bestTip = bestR.tip;
+        }
       }
       if (!bestTip) continue;
       const attachVis = attachLeft ? visL : visR;
@@ -1498,15 +1580,32 @@ function syncVfEngravingInMeasure(measure: Element): void {
       if (beam.closest('.vf-stavenote, .vf-staveNote')) continue;
       // 짧은 hook는 평행 dx로 또 밀면 2차 align에서 옆 줄기로 간다 → tip 고정만
       let bw = 0;
+      let left = 0;
+      let right = 0;
       for (const path of beam.querySelectorAll('path')) {
         const d = path.getAttribute('d');
         if (!d) continue;
         const xs = [...d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)].map((m) =>
           parseFloat(m[1]!),
         );
-        if (xs.length >= 2) bw = Math.max(bw, Math.max(...xs) - Math.min(...xs));
+        if (xs.length >= 2) {
+          const lo = Math.min(...xs);
+          const hi = Math.max(...xs);
+          if (hi - lo > bw) {
+            bw = hi - lo;
+            left = lo;
+            right = hi;
+          }
+        }
       }
       if (bw > 0 && bw < hookMaxW) continue;
+      // 이미 effective tip에 붙은 1·2차 빔은 재평행 금지(2차 align에서 dx 중복 → hook 오부착)
+      const btx = readElementTranslateX(beam as SVGGraphicsElement);
+      const visL = left + btx;
+      const visR = right + btx;
+      const tipNear = (x: number) =>
+        tipsAfter.some((t) => Math.abs(t.effectiveX - x) <= 3);
+      if (bw >= hookMaxW && tipNear(visL) && tipNear(visR)) continue;
       translateOrphanEngraving(beam, parallelDx);
     }
     for (const tie of measure.querySelectorAll('.vf-stavetie, [class*="vf-tie"]')) {
@@ -1769,6 +1868,11 @@ function syncVfEngravingInMeasure(measure: Element): void {
 
   type BeamClass = 'primary' | 'secondary' | 'hook';
   const beamClass = new Map<Element, BeamClass>();
+  /** classify 시점 Softmax 1차 span — reshape 후에도 hook 부착 판별에 사용 */
+  const primarySoftmaxSpans = new Map<
+    Element,
+    { left: number; right: number; midY: number; center: number }
+  >();
   {
     type G = { el: Element; left: number; right: number; w: number; midY: number };
     const geoms: G[] = [];
@@ -1814,7 +1918,16 @@ function syncVfEngravingInMeasure(measure: Element): void {
           o.left < g.right - 2 &&
           o.right > g.left + 2,
       );
-      beamClass.set(g.el, underWider ? 'secondary' : 'primary');
+      const kind = underWider ? 'secondary' : 'primary';
+      beamClass.set(g.el, kind);
+      if (kind === 'primary') {
+        primarySoftmaxSpans.set(g.el, {
+          left: g.left,
+          right: g.right,
+          midY: g.midY,
+          center: (g.left + g.right) / 2,
+        });
+      }
     }
   }
 
@@ -1831,14 +1944,24 @@ function syncVfEngravingInMeasure(measure: Element): void {
     reshapeByStemTips(tie, { mode: 'secondary', pad: 48 });
   }
 
-  // hook: 옆 줄기로 늘리지 않고, 부착 끝을 줄기 tip에 강체 고정 (zoom/remesh 후 들뜸 방지)
+  // hook: Softmax 1차 span 기준으로 부착 줄기 선택(reshape된 짧은 1차에 속지 않음)
   const tipsForHooks = collectStemTipsInMeasure(measure);
-  anchorHookBeamsToStemTips(measure, tipsForHooks, beamClass);
+  anchorHookBeamsToStemTips(measure, tipsForHooks, beamClass, primarySoftmaxSpans);
 
   // hook을 줄기에 맞춘 뒤, 1차 빔 바깥쪽을 향하면 뒤집기
-  flipOutwardHooksTowardPrimary(measure, collectStemTipsInMeasure(measure), beamClass);
+  flipOutwardHooksTowardPrimary(
+    measure,
+    collectStemTipsInMeasure(measure),
+    beamClass,
+    primarySoftmaxSpans,
+  );
   // 16–8–16 등: 같은 1차 안 hook 길이를 짧게·균일하게 (한쪽만 길면 8분이 16분처럼 보임)
-  normalizeHookLengthsInPrimaryGroups(measure, collectStemTipsInMeasure(measure), beamClass);
+  normalizeHookLengthsInPrimaryGroups(
+    measure,
+    collectStemTipsInMeasure(measure),
+    beamClass,
+    primarySoftmaxSpans,
+  );
 }
 
 /**
@@ -1849,36 +1972,44 @@ function flipOutwardHooksTowardPrimary(
   measure: Element,
   tips: StemTip[],
   beamClass: Map<Element, 'primary' | 'secondary' | 'hook'>,
+  primarySoftmaxSpans?: Map<
+    Element,
+    { left: number; right: number; midY: number; center: number }
+  >,
 ): void {
   type Prim = { left: number; right: number; midY: number; center: number };
-  const primaries: Prim[] = [];
-  for (const [el, kind] of beamClass) {
-    if (kind !== 'primary') continue;
-    const path = el.querySelector('path');
-    const d = path?.getAttribute('d');
-    if (!d) continue;
-    const xs: number[] = [];
-    const ys: number[] = [];
-    for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
-      const n = parseFloat(m[1]!);
-      if (Number.isFinite(n)) xs.push(n);
+  const primaries: Prim[] = primarySoftmaxSpans?.size
+    ? [...primarySoftmaxSpans.values()]
+    : [];
+  if (!primaries.length) {
+    for (const [el, kind] of beamClass) {
+      if (kind !== 'primary') continue;
+      const path = el.querySelector('path');
+      const d = path?.getAttribute('d');
+      if (!d) continue;
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
+        const n = parseFloat(m[1]!);
+        if (Number.isFinite(n)) xs.push(n);
+      }
+      for (const m of d.matchAll(
+        /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
+      )) {
+        const n = parseFloat(m[1]!);
+        if (Number.isFinite(n)) ys.push(n);
+      }
+      if (xs.length < 2) continue;
+      const btx = readElementTranslateX(el as SVGGraphicsElement);
+      const left = Math.min(...xs) + btx;
+      const right = Math.max(...xs) + btx;
+      primaries.push({
+        left,
+        right,
+        midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
+        center: (left + right) / 2,
+      });
     }
-    for (const m of d.matchAll(
-      /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
-    )) {
-      const n = parseFloat(m[1]!);
-      if (Number.isFinite(n)) ys.push(n);
-    }
-    if (xs.length < 2) continue;
-    const btx = readElementTranslateX(el as SVGGraphicsElement);
-    const left = Math.min(...xs) + btx;
-    const right = Math.max(...xs) + btx;
-    primaries.push({
-      left,
-      right,
-      midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
-      center: (left + right) / 2,
-    });
   }
   if (!primaries.length || !tips.length) return;
 
@@ -1933,7 +2064,8 @@ function flipOutwardHooksTowardPrimary(
     let bestPrimScore = Infinity;
     for (const p of primaries) {
       if (Math.abs(p.midY - midY) > 14) continue;
-      const contains = attachVis >= p.left - 6 && attachVis <= p.right + 6;
+      const edge = Math.min(4, Math.max(1.5, (p.right - p.left) * 0.12));
+      const contains = attachVis >= p.left - edge && attachVis <= p.right + edge;
       const dist = contains
         ? 0
         : Math.min(Math.abs(attachVis - p.left), Math.abs(attachVis - p.right));
@@ -1944,6 +2076,14 @@ function flipOutwardHooksTowardPrimary(
       }
     }
     if (!bestPrim) continue;
+
+    // 작은 zoom: 다음 8분 1차가 edge로 침범해도, 꼬리 mid가 그 그룹 밖이면 스킵
+    if (
+      !(left < bestPrim.right + 2 && right > bestPrim.left - 2) &&
+      Math.abs((left + right) / 2 - bestPrim.center) > (bestPrim.right - bestPrim.left) * 0.55
+    ) {
+      continue;
+    }
 
     const freeDir = Math.sign(freeVis - attachVis);
     const inwardDir = Math.sign(bestPrim.center - attachVis);
@@ -1967,36 +2107,44 @@ function normalizeHookLengthsInPrimaryGroups(
   measure: Element,
   tips: StemTip[],
   beamClass: Map<Element, 'primary' | 'secondary' | 'hook'>,
+  primarySoftmaxSpans?: Map<
+    Element,
+    { left: number; right: number; midY: number; center: number }
+  >,
 ): void {
   type Prim = { left: number; right: number; midY: number; center: number };
-  const primaries: Prim[] = [];
-  for (const [el, kind] of beamClass) {
-    if (kind !== 'primary') continue;
-    const path = el.querySelector('path');
-    const d = path?.getAttribute('d');
-    if (!d) continue;
-    const xs: number[] = [];
-    const ys: number[] = [];
-    for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
-      const n = parseFloat(m[1]!);
-      if (Number.isFinite(n)) xs.push(n);
+  const primaries: Prim[] = primarySoftmaxSpans?.size
+    ? [...primarySoftmaxSpans.values()]
+    : [];
+  if (!primaries.length) {
+    for (const [el, kind] of beamClass) {
+      if (kind !== 'primary') continue;
+      const path = el.querySelector('path');
+      const d = path?.getAttribute('d');
+      if (!d) continue;
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
+        const n = parseFloat(m[1]!);
+        if (Number.isFinite(n)) xs.push(n);
+      }
+      for (const m of d.matchAll(
+        /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
+      )) {
+        const n = parseFloat(m[1]!);
+        if (Number.isFinite(n)) ys.push(n);
+      }
+      if (xs.length < 2) continue;
+      const btx = readElementTranslateX(el as SVGGraphicsElement);
+      const left = Math.min(...xs) + btx;
+      const right = Math.max(...xs) + btx;
+      primaries.push({
+        left,
+        right,
+        midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
+        center: (left + right) / 2,
+      });
     }
-    for (const m of d.matchAll(
-      /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
-    )) {
-      const n = parseFloat(m[1]!);
-      if (Number.isFinite(n)) ys.push(n);
-    }
-    if (xs.length < 2) continue;
-    const btx = readElementTranslateX(el as SVGGraphicsElement);
-    const left = Math.min(...xs) + btx;
-    const right = Math.max(...xs) + btx;
-    primaries.push({
-      left,
-      right,
-      midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
-      center: (left + right) / 2,
-    });
   }
   if (!primaries.length || !tips.length) return;
 

@@ -35,6 +35,7 @@ EngravingRules: SoftmaxFactorVexFlow≥200, VoiceSpacingAddendVexflow≥5.
 | **고정 hookMaxW=12만** 사용 | 작은 zoom에서 점8–16 1차(폭≈간격)가 hook로 오분류 → 꼬리가 다음 8분 빔에 붙음. **간격×0.65(5–12)** 만 허용 |
 | **폭≤12 Softmax 1차를 Softmax hook 겹침만으로 hook 강등** | coverPrim 소실 → forward 꼬리가 확대에 따라 점8에 붙음. **양 tip 1차는 유지** |
 | **Softmax hook(>hookMaxW)에 parallelDx** | 확대 시 Softmax 자유단이 점8 tip에 닿아 오부착. **hookClassCeil=max(12,간격×0.75)** 미만은 평행 dx 스킵 |
+| **align 후 rAF에서 contain만 재적용** | 음표만 이동·빔/꼬리는 Softmax tip에 잔류 → 확대 시 16분 꼬리가 옆 음에 붙은 것처럼 보임. **contain/clip → align** 순서 고정 |
 | **이미 tip에 맞은 1·2차에 parallelDx 재적용** | 2차 align에서 1차가 밀려 Softmax span 오인 → hook가 점8/다음 음에 재부착 |
 | **단독 Softmax hook 길이를 gap×비율로 일괄 단축** | m4 forward·zoom tip 고정 회귀 — 균일화는 **같은 1차 아래 hook 2개+·불균일일 때만** |
 | Softmax path 매칭에서 **id 있는 고아 stem 제외** | 1차는 Softmax에 남고 16분 꼬리만 remesh tip 추종 → 앞 그룹에 붙은 것처럼 보임(m4 PL / m14 PR) |
@@ -48,7 +49,7 @@ EngravingRules: SoftmaxFactorVexFlow≥200, VoiceSpacingAddendVexflow≥5.
 - **path 양끝 오차**로 natural vs effective 선택: Softmax path → natural(멤버·orphan pull); 이미 reshape된 path → effective가 명확히 나을 때만.
 - **1차** = 매칭 멤버 effectiveX min/max. **2차** = 원래 양끝에 가까운 줄기만.
 - 재동기(effective) 시 **과대 신장·이미 맞는 path의 과수축** 가드.
-- hook: **hookMaxW = 인접간격×0.65(5–12)** · **hookClassCeil=max(12,간격×0.75)**(분류·평행 dx) · **부착 끝→줄기 tip**(+**Softmax-left tip**·**attachSide lock**). Softmax 1차 span 기준. 양 tip 1차는 Softmax hook 겹침만으로 hook 강등 금지. **id 있는 고아 stem** Softmax natural 매칭. Softmax hook(<ceil) parallelDx 스킵. pad·orphan·매칭 px 고정. `flipOutwardHooksTowardPrimary` → **`normalizeHookLengthsInPrimaryGroups`**: 같은 1차 아래 hook≥2·불균일일 때만 단축.
+- hook: **hookMaxW = 인접간격×0.65(5–12)** · **hookClassCeil=max(12,간격×0.75)**(분류·평행 dx) · **부착 끝→줄기 tip**(+**Softmax-left tip**·**attachSide lock**). Softmax 1차 span 기준. 양 tip 1차는 Softmax hook 겹침만으로 hook 강등 금지. **id 있는 고아 stem** Softmax natural 매칭. Softmax hook(<ceil) parallelDx 스킵. **UI는 contain/clip 후 align**. pad·orphan·매칭 px 고정. `flipOutwardHooksTowardPrimary` → **`normalizeHookLengthsInPrimaryGroups`**: 같은 1차 아래 hook≥2·불균일일 때만 단축.
 - remesh 오른쪽 = 다음 마디 AbsolutePosition − 여백(Size.width≤0이어도 동작).
 
 ## 회귀 (수정 후 필수)
@@ -63,6 +64,7 @@ npx tsx _smoke/test_beam_hook_stem_anchor_zoom.ts
 npx tsx _smoke/test_hook_length_uniform_16_8_16.ts
 npx tsx _smoke/test_dotted8_16_hook_low_zoom_next_beam.ts
 npx tsx _smoke/test_forward_hook_zoom_stable_on_16th.ts
+npx tsx _smoke/test_contain_before_beam_sync.ts
 npx tsx _smoke/test_hook_follow_remeshed_tip.ts
 npx tsx _smoke/test_orphan_stem_primary_hook_remesh.ts
 npx tsx _smoke/test_beam_snap_to_stems.ts

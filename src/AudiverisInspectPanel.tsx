@@ -2426,8 +2426,14 @@ export function OsmdBlock({
     );
   }, [syncPartLabelOverlay]);
 
-  const syncOnsetColumnAlign = useCallback((_host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => {
+  const syncOnsetColumnAlign = useCallback((host: HTMLDivElement, osmd: OpenSheetMusicDisplay) => {
     try {
+      // contain/clip이 음표 dx를 옮긴 뒤 빔·꼬리를 tip에 맞춤.
+      // align 먼저 하고 rAF에서 contain하면 Softmax 꼬리가 예전 tip에 남아 확대 시 오부착.
+      if (faithfulEditorLayoutRef.current) {
+        containOsmdMeasureNotesInAllocatedWidth(host, osmd);
+        clipOsmdMeasuresToAllocatedWidth(host, osmd);
+      }
       // WeakMap(register) 우선 — sanitize 후 XML. prop xml은 sanitize 전이라 column이 어긋날 수 있음.
       // 2회: over-cap 클램프 후 재측정해 같은 po column으로 수렴 (po2 [F4,Bb4]↔E5).
       alignOsmdPreviewNotesByOnsetColumn(osmd);
@@ -2445,7 +2451,7 @@ export function OsmdBlock({
         const host = hostRef.current;
         const osmd = osmdRef.current;
         if (host && osmd?.IsReadyToRender()) {
-          // align은 afterOsmdRenderSync에서 선행. 여기서 재align하면 표 path 이동이 덮일 수 있음.
+          // contain/clip+align은 afterOsmdRenderSync에서 선행. 여기서 재align하면 표 path 이동이 덮일 수 있음.
           applyOsmdArticulationOffsets(host, osmd);
           applyOsmdDynamicsOffsets(
             host,
@@ -2456,9 +2462,7 @@ export function OsmdBlock({
           finalizeOsmdMeasureNumberPreview(host, osmd, undefined);
           if (faithfulEditorLayoutRef.current) {
             const issues = collectMeasureTimingIssuesFromXml(xmlRef.current);
-            // 정원 마디도 첫 음이 앞 칸으로 넘칠 수 있음 → 전 마디 clip + 칸 밖 음표 안으로 복귀
-            containOsmdMeasureNotesInAllocatedWidth(host, osmd);
-            clipOsmdMeasuresToAllocatedWidth(host, osmd);
+            // contain/clip은 syncOnsetColumnAlign에서 이미 적용 — 경고만 갱신
             applyMeasureTimingWarningsToOsmdHost(host, osmd, issues);
           } else {
             host.querySelectorAll('.hitl-measure-timing-warning, .osmd-measure-timing-layer').forEach((el) =>

@@ -754,9 +754,12 @@ function curvePathExtent(path: SVGPathElement): {
 }
 
 /**
- * 화음 멤버별 이음줄 SVG — OSMD/VexFlow는 화음 AbsolutePosition.x·곡선을 공통으로 두어
- * 이격(오른쪽) 머리에서 세 줄이 한쪽으로 몰린다. 렌더(·remesh) 후 각 `.vf-curve`를
- * 대응 음머리 중심 X·Y에 맞춘다. 저장 MXL 불변.
+ * 화음 멤버별 이음줄 SVG — OSMD/VexFlow는 AbsolutePosition.x·곡선을 화음 공통으로 두어
+ * 이격 머리에서 여러 줄이 한 X에 겹친다. **같은 span에 곡선이 2개 이상**일 때만
+ * 각 `.vf-curve`를 멤버 음머리 중심 X에 맞춘다.
+ *
+ * Y는 곡선이 거의 같은 y에 겹쳐 있을 때만 머리 쌍으로 분산한다(이미 떨어진 단일 이음줄은 건드리지 않음).
+ * 저장 MXL 불변.
  */
 export function snapOsmdChordSlurSvgToNoteheads(
   host: HTMLElement,
@@ -767,7 +770,7 @@ export function snapOsmdChordSlurSvgToNoteheads(
     .filter((c) => c.heads.length >= 2);
   if (chordStaves.length < 1) return 0;
 
-  const curves = slurSvgPaths(host);
+  const curves = slurSvgPaths(host).filter((p) => !p.hasAttribute('data-hitl-chord-slur-snap'));
   if (!curves.length) return 0;
 
   const staffSpacePx = (osmd ? staffSpacePxFromHost(host, osmd) : 0) || 10;
@@ -799,16 +802,14 @@ export function snapOsmdChordSlurSvgToNoteheads(
   }
 
   for (const group of groups) {
-    if (!group.length) continue;
+    // 평행 화음 멤버 slur만 — 단일 곡선은 OSMD 배치 유지(오선 밖 Y 밀림 방지)
+    if (group.length < 2) continue;
     const ref = group[0]!;
     const left = chordStaves
       .filter((c) => {
         const xs = c.heads.map((h) => h.cx);
         const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-        return (
-          Math.abs(cx - ref.minX) < staffSpacePx * 3.5 ||
-          (cx <= ref.minX + staffSpacePx && cx >= ref.minX - staffSpacePx * 4)
-        );
+        return Math.abs(cx - ref.minX) < staffSpacePx * 3.5;
       })
       .sort((a, b) => {
         const ca =
@@ -822,10 +823,7 @@ export function snapOsmdChordSlurSvgToNoteheads(
         if (left && c.sn === left.sn) return false;
         const xs = c.heads.map((h) => h.cx);
         const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-        return (
-          Math.abs(cx - ref.maxX) < staffSpacePx * 3.5 ||
-          (cx >= ref.maxX - staffSpacePx && cx <= ref.maxX + staffSpacePx * 4)
-        );
+        return Math.abs(cx - ref.maxX) < staffSpacePx * 3.5;
       })
       .sort((a, b) => {
         const ca =
@@ -835,11 +833,22 @@ export function snapOsmdChordSlurSvgToNoteheads(
         return Math.abs(ca - ref.maxX) - Math.abs(cb - ref.maxX);
       })[0];
     if (!left || !right) continue;
+    const leftStaff = left.sn.closest('.staffline, [class*="staffline"]');
+    const rightStaff = right.sn.closest('.staffline, [class*="staffline"]');
+    if (leftStaff && rightStaff && leftStaff !== rightStaff) continue;
 
     const leftHeads = [...left.heads].sort((a, b) => b.cy - a.cy);
     const rightHeads = [...right.heads].sort((a, b) => b.cy - a.cy);
     const n = Math.min(group.length, leftHeads.length, rightHeads.length);
-    if (n < 1) continue;
+    if (n < 2) continue;
+
+    const leftSpread = Math.max(...leftHeads.map((h) => h.cx)) - Math.min(...leftHeads.map((h) => h.cx));
+    const rightSpread =
+      Math.max(...rightHeads.map((h) => h.cx)) - Math.min(...rightHeads.map((h) => h.cx));
+    const needXSnap = leftSpread > 2 || rightSpread > 2;
+
+    const groupMidYs = group.map((g) => (g.minY + g.maxY) / 2);
+    const yStack = Math.max(...groupMidYs) - Math.min(...groupMidYs) < staffSpacePx * 0.35;
 
     for (let i = 0; i < n; i += 1) {
       const info = group[i]!;
@@ -854,18 +863,32 @@ export function snapOsmdChordSlurSvgToNoteheads(
       const maxX = Math.max(...xs);
       if (!(maxX > minX)) continue;
       const tPath = ancestorTranslateSum(info.path);
-      const targetMinX = a.cx - tPath.x;
-      const targetMaxX = b.cx - tPath.x;
-      let next = mapSvgPathAbsoluteXs(
-        d,
-        (x) => targetMinX + ((x - minX) / (maxX - minX)) * (targetMaxX - targetMinX),
-      );
-      const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
-      const headMidY = (a.cy + b.cy) / 2 - tPath.y;
-      const above = midY <= headMidY;
-      const wantMidY = headMidY + (above ? -staffSpacePx * 0.85 : staffSpacePx * 0.85);
-      const dy = wantMidY - midY;
-      if (Math.abs(dy) > 0.5) next = shiftSvgPathAbsoluteYs(next, dy);
+      let next = d;
+      if (needXSnap) {
+        const targetMinX = a.cx - tPath.x;
+        const targetMaxX = b.cx - tPath.x;
+        next = mapSvgPathAbsoluteXs(
+          next,
+          (x) => targetMinX + ((x - minX) / (maxX - minX)) * (targetMaxX - targetMinX),
+        );
+      }
+      if (yStack) {
+        const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const headMidY = (a.cy + b.cy) / 2 - tPath.y;
+        // 이미 머리 근처에 있으면 유지 — 멀리 끌어가지 않음
+        if (Math.abs(midY - headMidY) < staffSpacePx * 4) {
+          const above = midY <= headMidY + staffSpacePx * 0.25;
+          const wantMidY = headMidY + (above ? -staffSpacePx * 0.85 : staffSpacePx * 0.85);
+          const dy = wantMidY - midY;
+          if (Math.abs(dy) > 0.5 && Math.abs(dy) < staffSpacePx * 3) {
+            next = shiftSvgPathAbsoluteYs(next, dy);
+          }
+        }
+      }
+      if (next === d) {
+        usedPaths.add(info.path);
+        continue;
+      }
       info.path.setAttribute('d', next);
       info.path.setAttribute('data-hitl-chord-slur-snap', '1');
       usedPaths.add(info.path);

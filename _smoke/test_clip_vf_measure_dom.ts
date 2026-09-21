@@ -65,12 +65,28 @@ const xml = `<?xml version="1.0"?>
 async function main() {
   assert.ok(OSMD, 'OpenSheetMusicDisplay export');
   const host = document.getElementById('host') as HTMLElement;
+  Object.defineProperty(host, 'clientWidth', { get: () => 1200, configurable: true });
+  Object.defineProperty(host, 'offsetWidth', { get: () => 1200, configurable: true });
+  host.getBoundingClientRect = () =>
+    ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      bottom: 400,
+      right: 1200,
+      width: 1200,
+      height: 400,
+      toJSON() {},
+    }) as DOMRect;
   const osmd = new OSMD!(host, { autoResize: false, backend: 'svg', drawTitle: false }) as {
     load: (x: string) => Promise<unknown>;
     render: () => void;
     IsReadyToRender: () => boolean;
+    EngravingRules?: { PageFormat?: { width?: number } };
   };
   await osmd.load(xml);
+  if (osmd.EngravingRules?.PageFormat) osmd.EngravingRules.PageFormat.width = 1200;
   osmd.render();
   assert.ok(osmd.IsReadyToRender(), 'OSMD ready');
 

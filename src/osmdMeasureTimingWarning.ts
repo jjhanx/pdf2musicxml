@@ -310,6 +310,49 @@ function readAbsY(gm: unknown): number | null {
 }
 
 /**
+ * 마디 clip의 세로 범위 — 가로는 칸만 제한하고 세로는 페이지 전체를 덮어야 함.
+ * 고정 y=-800/h=2400 이면 긴 악보 아래쪽 system에서 S·A만 남고 T/B/PR/PL이
+ * 하얗게 잘림(한 system이 밴드 경계를 가로지를 때 A 하반부만 잘리기도 함).
+ */
+export function measureClipVerticalBandPx(svg: Element): { y: number; height: number } {
+  const vb = svg.getAttribute('viewBox');
+  if (vb) {
+    const parts = vb
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+      const minY = parts[1]!;
+      const vbH = parts[3]!;
+      if (vbH > 1) {
+        const pad = Math.max(4000, vbH * 0.5);
+        return { y: minY - pad, height: vbH + pad * 2 };
+      }
+    }
+  }
+  const hAttr = Number(svg.getAttribute('height'));
+  if (Number.isFinite(hAttr) && hAttr > 1) {
+    const pad = Math.max(4000, hAttr);
+    return { y: -pad, height: hAttr + pad * 2 };
+  }
+  // viewBox/height 미정 — 세로 사실상 무제한(가로만 제한)
+  return { y: -1e6, height: 2e6 };
+}
+
+function svgViewBoxWidth(svg: Element): number {
+  const vb = svg.getAttribute('viewBox');
+  if (vb) {
+    const parts = vb
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    if (parts.length === 4 && Number.isFinite(parts[2])) return parts[2]!;
+  }
+  const w = Number(svg.getAttribute('width'));
+  return Number.isFinite(w) ? w : 0;
+}
+
+/**
  * HITL faithful 미리보기 — 모든 마디 SVG를 할당 폭으로 clip해 이웃 칸 침범을 막음.
  * (overfull만이 아니라 정원 마디도 첫 음이 앞 칸으로 넘칠 수 있음)
  * VexFlow `g.vf-measure`는 오선 절대 좌표 → clip rect도 stave/AbsolutePosition 기준
@@ -331,6 +374,9 @@ export function clipOsmdMeasuresToAllocatedWidth(
     el.removeAttribute('data-hitl-measure-clipped');
   });
 
+  // 컨테이너 폭 0 → OSMD가 모든 마디를 왼쪽에 겹침. 그때 clip하면 악보 전체가 하얗게 사라짐.
+  if (svgViewBoxWidth(svg) <= 1) return;
+
   let defs = svg.querySelector('defs');
   if (!defs) {
     defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
@@ -344,6 +390,7 @@ export function clipOsmdMeasuresToAllocatedWidth(
       ? ((osmd as { zoom?: number }).zoom as number)
       : 1;
   const scale = getOsmdUnitInPixels(osmd) * zoom;
+  const { y: yPx, height: hPx } = measureClipVerticalBandPx(svg);
   let idx = 0;
   forEachGraphicalMeasure(osmd, (gmRaw, _si, mi, row) => {
     if (issues !== undefined) {
@@ -365,11 +412,7 @@ export function clipOsmdMeasuresToAllocatedWidth(
     bounds = expandBoundsForEngravingGlyphs(g, bounds);
     const wPx = bounds.right - bounds.left;
     if (wPx <= 0.5) return;
-    // 세로는 거의 풀고 가로만 칸에 맞춤.
-    // AbsolutePosition height·작은 y 여유는 stem-up 빔(오선 위)을 잘라
-    // 8분·16분이 빔 없이 4분처럼 보이게 만듦.
-    const yPx = -800;
-    const hPx = 2400;
+    // 세로는 viewBox 전체(+여유). 고정 2400px는 아래 system·아래 성부를 잘라 하얗게 만듦.
 
     const id = `hitl-mclip-${idx}`;
     idx += 1;

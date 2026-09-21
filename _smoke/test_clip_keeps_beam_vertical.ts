@@ -57,8 +57,24 @@ const xml = `<?xml version="1.0"?>
 </score-partwise>`;
 
 const host = document.getElementById('host')!;
+Object.defineProperty(host, 'clientWidth', { get: () => 900, configurable: true });
+Object.defineProperty(host, 'offsetWidth', { get: () => 900, configurable: true });
+host.getBoundingClientRect = () =>
+  ({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    bottom: 400,
+    right: 900,
+    width: 900,
+    height: 400,
+    toJSON() {},
+  }) as DOMRect;
 const osmd = new OpenSheetMusicDisplay(host, { autoResize: false, backend: 'svg', drawTitle: false });
 await osmd.load(xml);
+const rules = osmd.EngravingRules as { PageFormat?: { width?: number } };
+if (rules.PageFormat) rules.PageFormat.width = 900;
 osmd.render();
 
 const beamsBefore = host.querySelectorAll('.vf-beam').length;

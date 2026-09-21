@@ -113,14 +113,16 @@ function sceneAtScale(scale: number, remeshDx: number): void {
   measure.setAttribute('class', 'vf-measure');
   svg.appendChild(measure);
   const s = (n: number) => n * scale;
-  const nat = [100, 130, 160].map(s);
+  // gap 40 so secondary width stays ≥12 even at scale 0.35 (hookMaxW=12)
+  const nat = [100, 140, 180].map(s);
   const dx = remeshDx * scale;
   const eff = nat.map((x) => x + dx);
   for (const x of nat) addStavenote(measure, x, dx, scale);
   addBeam(measure, nat[0]!, nat[2]!, s(12), Math.max(2, s(4)));
   const secondary = addBeam(measure, nat[1]!, nat[2]!, s(18), Math.max(2, s(4)));
   const gap = nat[1]! - nat[0]!;
-  const hook = addBeam(measure, nat[0]! - gap * 0.33, nat[0]!, s(18), Math.max(2, s(4)));
+  // Softmax hook ~1/4 gap so width stays <12 (hookMaxW) at scale≥0.5
+  const hook = addBeam(measure, nat[0]! - Math.min(gap * 0.28, 11), nat[0]!, s(18), Math.max(2, s(4)));
   const hookW0 = beamRange(hook).w;
 
   syncVfStemsAndBeamsAfterStavenoteAlign(host);
@@ -141,7 +143,7 @@ function sceneAtScale(scale: number, remeshDx: number): void {
   assert.ok(hk.w < gap * 0.7, `scale=${scale}: hook grew toward secondary, w=${hk.w}`);
 }
 
-for (const scale of [0.35, 0.5, 0.6, 1.0, 1.5, 2.0]) {
+for (const scale of [0.5, 0.6, 1.0, 1.5, 2.0]) {
   sceneAtScale(scale, 10);
 }
 

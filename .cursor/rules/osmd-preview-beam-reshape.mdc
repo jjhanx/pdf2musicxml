@@ -41,7 +41,7 @@ EngravingRules: SoftmaxFactorVexFlow≥200, VoiceSpacingAddendVexflow≥5.
 - **path 양끝 오차**로 natural vs effective 선택: Softmax path → natural(멤버·orphan pull); 이미 reshape된 path → effective가 명확히 나을 때만.
 - **1차** = 매칭 멤버 effectiveX min/max. **2차** = 원래 양끝에 가까운 줄기만.
 - 재동기(effective) 시 **과대 신장·이미 맞는 path의 과수축** 가드.
-- hook: **hookMaxW=줄기간격×0.68**(분류만) + **부착 끝을 줄기 tip에 강체 고정**(`anchorHookBeamsToStemTips`). pad·orphan·매칭 px는 고정. 1차 중심 쪽으로 `flipOutwardHooksTowardPrimary`.
+- hook: **고정 hookMaxW=12**(간격 스케일 금지) + **부착 끝→줄기 tip** 강체 고정. 양 끝 줄기 후보가 있으면 1차 중심에서 먼 쪽=부착(점8로 붙지 않음). pad·orphan·매칭 px는 고정. `flipOutwardHooksTowardPrimary`.
 - remesh 오른쪽 = 다음 마디 AbsolutePosition − 여백(Size.width≤0이어도 동작).
 
 ## 회귀 (수정 후 필수)
@@ -51,12 +51,14 @@ npx tsx _smoke/test_allocate_measure_widths_by_density.ts
 npx tsx _smoke/test_double_align_primary_no_shrink.ts
 npx tsx _smoke/test_double_align_secondary_beam.ts
 npx tsx _smoke/test_primary_beam_and_hook_inward.ts
+npx tsx _smoke/test_m4_forward_hook_and_m9_secondary.ts
 npx tsx _smoke/test_beam_hook_stem_anchor_zoom.ts
 npx tsx _smoke/test_beam_snap_to_stems.ts
+npx tsx _smoke/test_chord_slur_resnap_after_stem_bias.ts
 npx tsx _smoke/test_onset_layout_beat_spacing.ts
 npx tsx _smoke/test_zoom_remesh_trailing.ts
 ```
 
-증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」「기본 60% zoom에서 마디선 겹침·박자 비율 붕괴」「확대에 따라 16분 꼬리 들뜸」「렌더 후 마디 SVG 이동으로 흰 블록·마디선 소실」.
+증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」「기본 60% zoom에서 마디선 겹침·박자 비율 붕괴」「m4 PL 꼬리가 점8에 붙음」「m9 8–16–16이 16–16–8처럼 보임」「화음 붙임줄 오른쪽 치우침」「렌더 후 마디 SVG 이동으로 흰 블록·마디선 소실」.
 
 상세: `docs/악보_변환_품질_가이드.md` (박자 간격·OSMD 연주순번 align 후 빔 끊김).

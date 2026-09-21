@@ -965,35 +965,17 @@ function stemShaftCrossesBeamY(tip: StemTip, beamY: number, slop = 36): boolean 
   return tip.y0 - slop <= beamY && tip.y1 + slop >= beamY;
 }
 
-function medianPositiveGap(xsSorted: number[]): number | null {
-  const gaps: number[] = [];
-  for (let i = 1; i < xsSorted.length; i++) {
-    const g = xsSorted[i]! - xsSorted[i - 1]!;
-    if (g > 1) gaps.push(g);
-  }
-  if (!gaps.length) return null;
-  gaps.sort((a, b) => a - b);
-  return gaps[Math.floor(gaps.length / 2)]!;
-}
-
 /**
- * hook vs 2차 분류용 폭만 줄기 간격에 비례 (zoom 불변).
- * pad·orphan·stem↔note 매칭은 절대 바꾸지 않는다(일괄 스케일 → m4 PR 회귀).
- * Softmax forward hook ≈0.6×다음음 간격(예: 11.5@gap18) → 0.68.
+ * hook vs 2차: 고정 12px (줄기간격 스케일 금지 — m9 8–16–16 2차가 hook로 잡혀 붕괴).
  */
-function hookMaxWidthFromTips(tips: StemTip[]): number {
-  const REF = 25;
-  const xs = [
-    ...new Set(tips.map((t) => Math.round(t.effectiveX * 10) / 10)),
-  ].sort((a, b) => a - b);
-  const gap = medianPositiveGap(xs) ?? REF;
-  return Math.max(4, gap * 0.68);
+function hookMaxWidthFromTips(_tips: StemTip[]): number {
+  return 12;
 }
 
 /**
- * 16분 꼬리(hook): 폭·방향을 유지한 채 **부착 끝만** 줄기 tip(effectiveX)에 맞춘다.
- * remesh 후 Softmax 좌표/translate만으로는 줄기와 떨어져 zoom에 따라 붙었다 떨어진다.
- * 옆 줄기로 늘리지 않는다(점8분이 16분처럼 보이는 회귀 방지).
+ * 16분 꼬리(hook): 폭·방향 유지한 채 **부착 끝**을 줄기 tip에 맞춘다.
+ * 부착 끝 = 덮는 1차 빔 중심에서 **먼** 쪽(16분→점8 forward hook는 왼쪽=16분).
+ * 자유단에 가까운 옆 줄기(점8)로 붙이지 않는다.
  */
 function anchorHookBeamsToStemTips(
   measure: Element,
@@ -1001,6 +983,38 @@ function anchorHookBeamsToStemTips(
   beamClass: Map<Element, 'primary' | 'secondary' | 'hook'>,
 ): void {
   if (!tips.length) return;
+
+  type Prim = { left: number; right: number; midY: number; center: number };
+  const primaries: Prim[] = [];
+  for (const [el, kind] of beamClass) {
+    if (kind !== 'primary') continue;
+    const path = el.querySelector('path');
+    const d = path?.getAttribute('d');
+    if (!d) continue;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
+      const n = parseFloat(m[1]!);
+      if (Number.isFinite(n)) xs.push(n);
+    }
+    for (const m of d.matchAll(
+      /[MmLl]\s*[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g,
+    )) {
+      const n = parseFloat(m[1]!);
+      if (Number.isFinite(n)) ys.push(n);
+    }
+    if (xs.length < 2) continue;
+    const btx = readElementTranslateX(el as SVGGraphicsElement);
+    const left = Math.min(...xs) + btx;
+    const right = Math.max(...xs) + btx;
+    primaries.push({
+      left,
+      right,
+      midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
+      center: (left + right) / 2,
+    });
+  }
+
   for (const [el, kind] of beamClass) {
     if (kind !== 'hook') continue;
     if (el.closest('.vf-stavenote, .vf-staveNote')) continue;
@@ -1026,34 +1040,58 @@ function anchorHookBeamsToStemTips(
       if (right - left < 1) continue;
       const visL = left + beamTx;
       const visR = right + beamTx;
+      const midVis = (visL + visR) / 2;
       const beamY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
+      const attachSlop = Math.max(8, (right - left) * 0.55);
 
-      let bestTip: StemTip | null = null;
-      let bestD = Infinity;
-      let attachLeft = true;
-      // Softmax 부착은 naturalX 기준 수 px. remesh 후 effective만 보면 dx만큼 떨어져 오매칭·스킵됨.
-      const attachSlop = Math.max(6, (right - left) * 0.4);
+      type Cand = { tip: StemTip; d: number };
+      let bestL: Cand | null = null;
+      let bestR: Cand | null = null;
       for (const t of tips) {
         if (!stemShaftCrossesBeamY(t, beamY)) continue;
         const dL = Math.min(Math.abs(t.naturalX - left), Math.abs(t.effectiveX - visL));
         const dR = Math.min(Math.abs(t.naturalX - right), Math.abs(t.effectiveX - visR));
-        if (dL <= attachSlop && dL < bestD) {
-          bestD = dL;
-          bestTip = t;
-          attachLeft = true;
-        }
-        if (dR <= attachSlop && dR < bestD) {
-          bestD = dR;
-          bestTip = t;
-          attachLeft = false;
-        }
+        if (dL <= attachSlop && (!bestL || dL < bestL.d)) bestL = { tip: t, d: dL };
+        if (dR <= attachSlop && (!bestR || dR < bestR.d)) bestR = { tip: t, d: dR };
       }
-      if (!bestTip || bestD > 48) continue;
+
+      let bestTip: StemTip | null = null;
+      let attachLeft = true;
+      const both =
+        bestL &&
+        bestR &&
+        bestL.tip !== bestR.tip &&
+        Math.abs(bestL.d - bestR.d) < 4;
+      if (both) {
+        // 양 끝 모두 줄기 후보(16분←→점8) — 1차 중심에서 먼 쪽=부착(forward→16분)
+        let primCenter: number | null = null;
+        let bestPrimScore = Infinity;
+        for (const p of primaries) {
+          if (Math.abs(p.midY - beamY) > 14) continue;
+          if (!(visL < p.right + 6 && visR > p.left - 6)) continue;
+          const score = Math.abs(p.center - midVis);
+          if (score < bestPrimScore) {
+            bestPrimScore = score;
+            primCenter = p.center;
+          }
+        }
+        if (primCenter != null) {
+          attachLeft = Math.abs(visL - primCenter) >= Math.abs(visR - primCenter);
+        } else {
+          attachLeft = bestL!.d <= bestR!.d;
+        }
+        bestTip = attachLeft ? bestL!.tip : bestR!.tip;
+      } else if (bestL && (!bestR || bestL.d <= bestR.d)) {
+        attachLeft = true;
+        bestTip = bestL.tip;
+      } else if (bestR) {
+        attachLeft = false;
+        bestTip = bestR.tip;
+      }
+      if (!bestTip) continue;
       const attachVis = attachLeft ? visL : visR;
-      // 항상 remesh된 tip(effective)에 맞춤
       const shift = bestTip.effectiveX - attachVis;
       if (Math.abs(shift) < 0.35 && Math.abs(beamTx) < 0.35) continue;
-      // 강체 이동: 폭·방향 유지, 부착점→줄기 tip. path에 bake하고 translate 제거.
       path.setAttribute(
         'd',
         mapSvgPathXs(d, (x) => x + beamTx + shift),

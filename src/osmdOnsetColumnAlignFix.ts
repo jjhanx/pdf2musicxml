@@ -598,6 +598,8 @@ function resolveContentRightPx(
 /**
  * 조표·박자 침범 시 notehead 구간을 통째로 우측 이동(폭 유지).
  * contentRight가 있으면 오른쪽을 마디 끝−여백까지 확장(마지막 음·혼합 박자 remesh용).
+ * layoutXs가 있으면 끝 여백을 **마지막 음 onset→마디 끝(layout)** 비율로 잡아
+ * 같은 박자 간격만큼 뒤에 남김(4분×4에서 마지막이 마디선에 붙지 않게).
  * 반환: placement에 쓸 [leftEdge, rightEdge] (아직 layout 그리드 미반영).
  */
 function noteExtentClearedOfInstructions(
@@ -606,6 +608,7 @@ function noteExtentClearedOfInstructions(
   minHit: number,
   maxHit: number,
   headPad: number,
+  layoutXs?: readonly number[],
 ): { leftEdge: number; rightEdge: number } | null {
   if (!(maxHit - minHit >= 8)) return null;
   let leftEdge = minHit;
@@ -618,38 +621,52 @@ function noteExtentClearedOfInstructions(
       rightEdge += shift;
     }
   }
+  const spanHint = Math.max(maxHit - minHit, (contentRight ?? maxHit) - (contentLeft ?? minHit));
+  let trailPad = Math.max(headPad * 2.5, spanHint * 0.06, 12);
+  // Softmax-only(contentRight 없음): layout 남은 박 비율로 끝 여백.
+  // contentRight가 있으면 placementSpan이 마디 끝(432)까지 매핑하므로 여기선 작은 pad만.
+  if (contentRight == null && layoutXs && layoutXs.length >= 1) {
+    const lxMin = Math.min(...layoutXs);
+    const lxMax = Math.max(...layoutXs);
+    const layoutEnd = LAYOUT_BASE_X + LAYOUT_SPAN;
+    const used = Math.max(1e-6, lxMax - lxMin);
+    const remain = Math.max(0, layoutEnd - lxMax);
+    if (remain > 1e-3) {
+      const durationTrail = spanHint * (remain / (used + remain));
+      trailPad = Math.max(trailPad, durationTrail);
+    }
+  }
   if (contentRight != null) {
-    // 끝 여백: 고정 px만이 아니라 마디 폭 비율(줌·폭에 비례)
-    const spanHint = Math.max(maxHit - minHit, contentRight - (contentLeft ?? minHit));
-    const trailPad = Math.max(headPad * 2.5, spanHint * 0.06, 12);
     const ceil = contentRight - trailPad;
     if (ceil > leftEdge + 8) {
       rightEdge = ceil;
     }
-  } else {
-    // contentRight 불명: Softmax span 안에서 끝 여백(폭 비율)
-    const span = rightEdge - leftEdge;
-    const trailPad = Math.max(headPad * 2.5, span * 0.06, 12);
-    if (rightEdge - leftEdge > trailPad + 8) rightEdge -= trailPad;
+  } else if (rightEdge - leftEdge > trailPad + 8) {
+    rightEdge -= trailPad;
   }
   if (!(rightEdge - leftEdge >= 8)) return null;
   return { leftEdge, rightEdge };
 }
 
 /**
- * notehead 구간 [left,right]에 **실제 쓰인** layout-x 범위를 매핑.
- * 항상 32..432 전체를 쓰면 마지막 음(예: 357)이 오른쪽 끝보다 왼쪽으로 당겨져 밀집해 보인다.
+ * notehead 구간 [left,right]에 layout-x 범위를 매핑.
+ * extendToMeasureEnd: 실제 쓰인 lxMax만이 아니라 **마디 layout 끝(432)** 까지 분모에 넣어
+ * 마지막 음 onset이 rightEdge에 붙지 않고, 뒤쪽에 같은 박 간격(남은 layout)만큼 남김.
+ * Softmax-only(좁은 notehead span)에서는 extend 금지 — 32..432 매핑이 음을 밀집시킴.
  */
-function placementSpanFromExtentAndLayouts(
+export function placementSpanFromExtentAndLayouts(
   leftEdge: number,
   rightEdge: number,
   layoutXs: readonly number[],
+  extendToMeasureEnd = false,
 ): { originX: number; spanPx: number } | null {
   if (!(rightEdge - leftEdge >= 8) || !layoutXs.length) return null;
   const lxMin = Math.min(...layoutXs);
   const lxMax = Math.max(...layoutXs);
+  const layoutEnd = LAYOUT_BASE_X + LAYOUT_SPAN;
+  const lxEnd = extendToMeasureEnd ? Math.max(lxMax, layoutEnd) : lxMax;
   const f0 = Math.max(0, Math.min(1, (lxMin - LAYOUT_BASE_X) / LAYOUT_SPAN));
-  const f1 = Math.max(0, Math.min(1, (lxMax - LAYOUT_BASE_X) / LAYOUT_SPAN));
+  const f1 = Math.max(0, Math.min(1, (lxEnd - LAYOUT_BASE_X) / LAYOUT_SPAN));
   const fSpan = Math.max(1e-6, f1 - f0);
   const spanPx = (rightEdge - leftEdge) / fSpan;
   const originX = leftEdge - f0 * spanPx;
@@ -660,7 +677,8 @@ function placementSpanFromExtentAndLayouts(
 /**
  * 조표·박자 침범만 피하고 notehead 자연 span 폭은 유지.
  * layoutXs가 있으면 그 범위↔notehead 구간 매핑, 없으면 32..432↔구간.
- * contentRightPx가 있으면 Softmax max 대신 마디 끝−여백을 오른쪽으로 씀.
+ * contentRightPx가 있으면 Softmax max 대신 마디 끝−여백을 오른쪽으로 쓰고,
+ * layout 매핑을 마디 끝까지 확장해 마지막 음 뒤 박자 여유를 남김.
  */
 function contentSpanFromGraphicMeasure(
   osmd: OpenSheetMusicDisplay,
@@ -674,16 +692,22 @@ function contentSpanFromGraphicMeasure(
   const contentLeft = resolveContentLeftPx(osmd, gmRaw);
   const xs = hits.map((h) => h.centerX).filter((x) => Number.isFinite(x));
   if (xs.length < 2) return null;
+  const hasContentRight =
+    contentRightPx != null && Number.isFinite(contentRightPx) && contentRightPx > 0;
   const ext = noteExtentClearedOfInstructions(
     contentLeft,
-    contentRightPx ?? null,
+    hasContentRight ? contentRightPx! : null,
     Math.min(...xs),
     Math.max(...xs),
     headPad,
+    layoutXs,
   );
   if (!ext) return measureSpanFromHits(hits);
   const lxs = layoutXs?.length ? layoutXs : [LAYOUT_BASE_X, LAYOUT_BASE_X + LAYOUT_SPAN];
-  return placementSpanFromExtentAndLayouts(ext.leftEdge, ext.rightEdge, lxs) ?? measureSpanFromHits(hits);
+  return (
+    placementSpanFromExtentAndLayouts(ext.leftEdge, ext.rightEdge, lxs, hasContentRight) ??
+    measureSpanFromHits(hits)
+  );
 }
 
 /** OSMD 시스템 staffIndex → MusicXML part-내 staff(1=윗줄). 전곡에서 staffIndex≠XML staff. */

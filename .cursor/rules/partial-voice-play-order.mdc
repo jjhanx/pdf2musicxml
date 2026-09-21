@@ -19,7 +19,7 @@ globs:
 
 ## 미리보기 3층 (순서·역할 고정)
 
-1. **`applyPlayOrderLayoutToMeasure`** — 명시·timeline 기본 순번 모두로 `poColumnOnset` 계산 → layout-x.
+1. **`applyPlayOrderLayoutToMeasure`** — layout-x. **병행 성부**(첫 음 onset=0)는 **musical onset(박자)**; **partial**(첫 음 onset>0)만 staff:po column(다른 voice 포함)에 snap. onset은 MusicXML 단일 커서(`collectStaffNoteOnsets`).
 2. **`realignMeasureTimelineToPlayOrderColumnsForOsmdPreview`** — `faithfulEditorLayout` 전용. 명시 po voice의 forward 감소·필요 시 이전 음 duration trim(미리보기 XML만). **앞에 `<forward>`가 없는 병행 성부는 cross-voice 열 맞추려고 duration을 자르지 않음**(half 절삭 → 슬러 bezier 뒤집힘 방지). `repairTimelineForOsmdPreview`에서 `reorder` **직후** 호출.
 3. **`alignPartialVoiceExplicitPlayOrderColumns`** + **`targetStaffMatchesGraphic`** — (2) 후에도 남는 gap만 SVG 보조. PL/PR 필터 시 XML `<staff>2</staff>` ↔ OSMD sole staffIndex 0 매칭 필수.
 
@@ -42,9 +42,10 @@ HITL에서 같은 연주순번을 달아도 backup/forward·앞 음 duration이 
 
 ```bash
 npx tsx _smoke/test_partial_voice_regression.ts
+npx tsx _smoke/test_parallel_half_play_order_musical_onset.ts
 python _smoke/test_play_order_timeline_realign_persist.py
 ```
 
-개별: `test_partial_voice_play_order_column.ts` · `test_partial_voice_timeline_realign.ts` · `test_partial_voice_osmd_align.ts` · `test_c0b3_m50_pl_slur_bezier.ts`(미리보기 병행 half trim 금지)
+개별: `test_partial_voice_play_order_column.ts` · `test_partial_voice_timeline_realign.ts` · `test_partial_voice_osmd_align.ts` · `test_c0b3_m50_pl_slur_bezier.ts`(미리보기 병행 half trim 금지) · `test_parallel_half_play_order_musical_onset.ts`(병행 2분≠4분 순번 column)
 
 **미리보기 XML ≠ 저장 MXL.** OSMD 경로는 저장을 바꾸지 않음. 저장·최종 onset 맞춤은 Python `realign_play_order_column_timelines_in_root`만.

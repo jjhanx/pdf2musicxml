@@ -6,7 +6,12 @@
  */
 import { parseMusicXmlDocument, serializeMusicXmlDocument } from './musicXmlParse';
 import { collectVoiceParallelNoteOnsets } from './musicXmlTimelineCleanup';
-import { defaultXFromOnset, previewLayoutLengthUnits, OSMD_LAYOUT_X_ATTR } from './musicXmlPreviewOnsetLayout';
+import {
+  defaultXFromOnset,
+  previewLayoutLengthUnits,
+  OSMD_LAYOUT_X_ATTR,
+  collectStaffNoteOnsets,
+} from './musicXmlPreviewOnsetLayout';
 
 const xmlLocalName = (el: Element) =>
   typeof el.localName === 'string' ? el.localName.toLowerCase() : String(el.tagName).toLowerCase();
@@ -674,10 +679,14 @@ export function realignPlayOrderColumnTimelinesInXml(xml: string): string {
 }
 
 export function applyPlayOrderLayoutToMeasure(measure: Element): void {
-  // 연주순번이 layout 권위 — timeline onset이 어긋나도 같은 순번 column을 지우지 않음
+  // 병행 성부 layout은 **musical onset(박자)** 권위.
+  // staff:po 최소 onset에 묶으면 voice5 4분 순번2와 voice6 2분 순번2가 같은 열이 됨(d3dd m9 PL).
+  // partial(첫 음 onset>0 · 앞 forward)만 column snap.
+  // onset은 MusicXML 단일 커서(`collectStaffNoteOnsets`) — voice별 커서면 backup 뒤
+  // voice 없는 forward가 앞 성부에 붙어 partial onset이 0으로 붕괴함.
   ensureRestPlayOrdersInMeasure(measure);
   const layoutLen = Math.max(1, previewLayoutLengthUnits(measure));
-  const onsets = collectVoiceParallelNoteOnsets(measure);
+  const onsets = collectStaffNoteOnsets(measure);
 
   const staves = new Set<number>();
   for (const leader of allLeadersInMeasure(measure)) {
@@ -692,11 +701,22 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     return timelineDefaults.get(leader) ?? null;
   };
 
+  const firstOnsetByVoice = new Map<string, number>();
+  for (const leader of allLeadersInMeasure(measure)) {
+    const v = noteVoiceNumber(leader);
+    const o = onsets.get(leader) ?? 0;
+    const prev = firstOnsetByVoice.get(v);
+    if (prev == null || o < prev) firstOnsetByVoice.set(v, o);
+  }
+  const partialVoices = new Set<string>();
+  for (const [v, o] of firstOnsetByVoice) {
+    if (o > 0.01) partialVoices.add(v);
+  }
+
   const poColumnOnset = new Map<string, number>();
   for (const leader of allLeadersInMeasure(measure)) {
     const staff = noteStaffNumber(leader);
-    // 명시·timeline 기본 순번 모두 column 후보 — voice2만 po=1인데 voice1 기본 1열이
-    // 빠지면 partial voice가 자기 musical onset에 붙는 문제(예: d60 m33 PL).
+    // 명시·timeline 기본 순번 모두 column 후보 — partial voice가 앵커 열에 맞출 때
     const po = effectiveOrder(leader);
     if (po == null) continue;
     const key = `${staff}:${po}`;
@@ -704,7 +724,6 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     const prev = poColumnOnset.get(key);
     poColumnOnset.set(key, prev == null ? onset : Math.min(prev, onset));
   }
-  // 참조 대상 순번 열이 비어 있지 않게
   for (const leader of allLeadersInMeasure(measure)) {
     const ref = readPlayOrderRef(leader);
     if (!ref) continue;
@@ -713,15 +732,19 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
     if (!poColumnOnset.has(key)) poColumnOnset.set(key, 0);
   }
 
-  // staff별 순번 → musical onset(박자 누적). 균등 column grid는 쓰지 않음 — 편집기 순번·박자 그대로.
   for (const leader of allLeadersInMeasure(measure)) {
     const musicalOnset = onsets.get(leader) ?? 0;
     const staff = noteStaffNumber(leader);
+    const voice = noteVoiceNumber(leader);
     const spec = readPlayOrderSpec(leader);
     let layoutOnset = musicalOnset;
     if (spec?.kind === 'order') {
-      const key = `${staff}:${spec.order}`;
-      layoutOnset = poColumnOnset.get(key) ?? musicalOnset;
+      if (partialVoices.has(voice)) {
+        const key = `${staff}:${spec.order}`;
+        layoutOnset = poColumnOnset.get(key) ?? musicalOnset;
+      } else {
+        layoutOnset = musicalOnset;
+      }
     } else if (spec?.kind === 'ref') {
       layoutOnset =
         layoutOnsetForAnchorInMeasure(measure, staff, spec.voice, spec.order) ?? musicalOnset;

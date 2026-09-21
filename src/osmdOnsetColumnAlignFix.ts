@@ -1114,14 +1114,34 @@ function anchorHookBeamsToStemTips(
         hookAttachLeftByBeam.delete(el);
       }
 
-      // 덮는 1차 빔(점8–16 그룹). 다음 8분 1차로 오인하지 않게 mid 우선.
+      // 덮는 1차 빔. remesh 후 Softmax 앞 그룹 path에 vis가 걸치면 오인 —
+      // hook 끝 근처 tip Softmax natural이 들어가는 Softmax 1차 우선.
       let coverPrim: Prim | null = null;
       let bestPrimScore = Infinity;
+      const tipNatsNearHook: number[] = [];
+      for (const t of tips) {
+        if (!stemShaftCrossesBeamY(t, beamY)) continue;
+        if (
+          Math.abs(t.naturalX - left) <= Math.max(attachSlop, 8) ||
+          Math.abs(t.naturalX - right) <= Math.max(attachSlop, 8) ||
+          Math.abs(t.effectiveX - visL) <= attachSlop ||
+          Math.abs(t.effectiveX - visR) <= attachSlop
+        ) {
+          tipNatsNearHook.push(t.naturalX);
+        }
+      }
       for (const p of primaries) {
         if (Math.abs(p.midY - beamY) > 14) continue;
         const edge = Math.min(4, Math.max(1.5, (p.right - p.left) * 0.12));
-        if (!(visL < p.right + edge && visR > p.left - edge)) continue;
-        const score = Math.abs(p.center - midVis);
+        const containsNat = tipNatsNearHook.some(
+          (n) => n >= p.left - edge && n <= p.right + edge,
+        );
+        const containsVis = visL < p.right + edge && visR > p.left - edge;
+        if (!containsNat && !containsVis) continue;
+        const ref = tipNatsNearHook.length
+          ? tipNatsNearHook.reduce((a, b) => a + b, 0) / tipNatsNearHook.length
+          : midVis;
+        const score = containsNat ? Math.abs(p.center - ref) * 0.01 : 40 + Math.abs(p.center - midVis);
         if (score < bestPrimScore) {
           bestPrimScore = score;
           coverPrim = p;
@@ -1188,19 +1208,45 @@ function anchorHookBeamsToStemTips(
           bestR &&
           bestL.tip !== bestR.tip &&
           Math.abs(bestL.d - bestR.d) < 4;
-        if (both) {
-          const primW = coverPrim ? coverPrim.right - coverPrim.left : 0;
-          const widePrimary =
-            coverPrim != null &&
-            primW > Math.max(w * 2.8, (gapHint ?? 12) * 1.35);
-          if (widePrimary) {
-            // 넓은 Softmax 1차: forward hook가 점8 쪽으로 밀림 → 중심에서 먼 쪽=16분
-            const primCenter = coverPrim!.center;
-            attachLeft = Math.abs(visL - primCenter) >= Math.abs(visR - primCenter);
-          } else {
-            // 짧은 점8–16 Softmax 1차: Softmax natural 기준 가까운 끝=부착
-            attachLeft = bestL!.dNat <= bestR!.dNat;
+        if (both && coverPrim) {
+          // Softmax hook 양 끝이 가리키는 Softmax 1차 끝 tip — 왼쪽 Softmax 끝이 고르는 tip을
+          // 부착으로 (forward: 16분, Softmax가 꼬리를 점8로 밀어도). remesh center 금지.
+          let leftPrimTip: StemTip | null = null;
+          let rightPrimTip: StemTip | null = null;
+          const edge = Math.min(4, Math.max(1.5, (coverPrim.right - coverPrim.left) * 0.12));
+          const members = tips.filter((t) => {
+            if (!stemShaftCrossesBeamY(t, beamY)) return false;
+            const inNat =
+              t.naturalX >= coverPrim!.left - edge && t.naturalX <= coverPrim!.right + edge;
+            const inEff =
+              t.effectiveX >= coverPrim!.left - edge && t.effectiveX <= coverPrim!.right + edge;
+            return inNat || inEff;
+          });
+          if (members.length >= 2) {
+            leftPrimTip = members.reduce((a, b) => (a.naturalX <= b.naturalX ? a : b));
+            rightPrimTip = members.reduce((a, b) => (a.naturalX >= b.naturalX ? a : b));
           }
+          if (leftPrimTip && rightPrimTip && leftPrimTip !== rightPrimTip) {
+            const tipNearSoftmaxX = (x: number) =>
+              Math.abs(x - leftPrimTip!.naturalX) <= Math.abs(x - rightPrimTip!.naturalX)
+                ? leftPrimTip!
+                : rightPrimTip!;
+            const tipFromSoftmaxLeft = tipNearSoftmaxX(left);
+            const tipFromSoftmaxRight = tipNearSoftmaxX(right);
+            // Softmax 양 끝이 다른 tip을 가리키면 왼쪽 Softmax 쪽 tip=부착(forward 16분)
+            bestTip =
+              tipFromSoftmaxLeft === tipFromSoftmaxRight
+                ? tipFromSoftmaxLeft
+                : tipFromSoftmaxLeft;
+            attachLeft =
+              Math.abs(left - bestTip.naturalX) <= Math.abs(right - bestTip.naturalX);
+          } else {
+            const primCenter = coverPrim.center;
+            attachLeft = Math.abs(left - primCenter) >= Math.abs(right - primCenter);
+            bestTip = attachLeft ? bestL!.tip : bestR!.tip;
+          }
+        } else if (both) {
+          attachLeft = bestL!.dNat <= bestR!.dNat;
           bestTip = attachLeft ? bestL!.tip : bestR!.tip;
         } else if (bestL && (!bestR || bestL.d <= bestR.d)) {
           attachLeft = true;
@@ -1629,6 +1675,9 @@ function syncVfEngravingInMeasure(measure: Element): void {
   const tipsAfter = collectStemTipsInMeasure(measure);
   // hook/2차 분류용만 — pad·orphan·매칭 px는 건드리지 않음
   const hookMaxW = hookMaxWidthFromTips(tipsAfter);
+  const gapHintEarly = medianAdjacentStemGap(tipsAfter);
+  // Softmax forward hook는 zoom↑ 시 hookMaxW를 넘김 — 평행 dx 상한도 같이 키움
+  const hookClassCeil = Math.max(12, gapHintEarly != null ? gapHintEarly * 0.75 : 12);
 
   // 평행 시프트(조표 침범 등): 모든 note dx가 같으면 빔·이음줄도 같은 dx로 옮김
   // (짧은 hook은 reshape 스킵이라 안 따라가면 "온쉼표/빔 파편"처럼 남음)
@@ -1669,9 +1718,9 @@ function syncVfEngravingInMeasure(measure: Element): void {
           }
         }
       }
-      // 짧은 hook는 평행 dx로 밀면 Softmax 자유단이 옆 tip에 닿아 alreadyTol이
-      // 부착 끝을 뒤집음(m4 forward→점8). tip lock + attachSide로만 추종.
-      if (bw > 0 && bw < hookMaxW) continue;
+      // Softmax hook(폭≤hookClassCeil)는 평행 dx로 밀면 Softmax 자유단이 옆 tip에 닿아
+      // alreadyTol/bestR이 부착을 점8로 뒤집음. tip lock + attachSide로만 추종.
+      if (bw > 0 && bw < hookClassCeil) continue;
       // 이미 effective tip에 붙은 1·2차 빔은 재평행 금지(2차 align에서 dx 중복 → hook 오부착)
       const btx = readElementTranslateX(beam as SVGGraphicsElement);
       const visL = left + btx;
@@ -2006,6 +2055,8 @@ function syncVfEngravingInMeasure(measure: Element): void {
         midY: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
       });
     }
+    // Softmax 꼬리는 zoom↑ 시 픽셀 폭이 hookMaxW(≤12)를 넘김 — 고정 12면 secondary로
+    // remesh되어 점8까지 늘어남. 인접 간격 기준으로 Softmax hook 상한을 키움.
     for (const g of geoms) {
       const yOk = (t: StemTip) => stemShaftCrossesBeamY(t, g.midY);
       const leftOnTip = tipsAfter.some(
@@ -2014,14 +2065,21 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const rightOnTip = tipsAfter.some(
         (t) => yOk(t) && Math.abs(t.effectiveX - g.right) <= 2.75,
       );
-      // remesh 후 gap↓로 Softmax hook(≤12)이 hookMaxW를 넘겨도, 한쪽 tip만 닿으면 hook 유지
+      // remesh로 Softmax 1차가 hookMaxW 아래로 짧아져도 Softmax span이 넓으면 1차 유지
+      // (아니면 flip/coverPrim이 앞 그룹을 고르고 forward 꼬리가 뒤집힘 — zoom마다 16↔점8)
+      const storedSpan = beamNaturalSpanByEl.get(g.el);
+      const softW = storedSpan ? storedSpan.right - storedSpan.left : 0;
+      const classW = softW > g.w + 1 ? softW : g.w;
+      // remesh 후 Softmax hook이 hookMaxW를 넘겨도, 한쪽 tip만 닿으면 hook 유지
       // tip에서 떨어진 Softmax hook(고아)도 hook로 두어 rescue 스냅 대상이 되게 함
-      const oneEndedHook = g.w <= 12 && g.w >= 2 && leftOnTip !== rightOnTip;
-      const orphanShortHook = g.w <= 12 && g.w >= 2 && !leftOnTip && !rightOnTip;
-      if (g.w < hookMaxW || oneEndedHook || orphanShortHook) {
+      const oneEndedHook =
+        classW <= hookClassCeil && classW >= 2 && leftOnTip !== rightOnTip;
+      const orphanShortHook =
+        classW <= hookClassCeil && classW >= 2 && !leftOnTip && !rightOnTip;
+      if (classW < hookMaxW || oneEndedHook || orphanShortHook) {
         // remesh로 짧아진 2차(양 끝 tip + 더 넓은 1차 아래)만 secondary.
         // Softmax hook가 좁아진 점8–16 간격을 뚫고 양 tip에 닿아도 hook 유지.
-        if (!oneEndedHook && !orphanShortHook && leftOnTip && rightOnTip && g.w >= 5) {
+        if (!oneEndedHook && !orphanShortHook && leftOnTip && rightOnTip && classW >= 5) {
           const underWider = geoms.some(
             (o) =>
               o.el !== g.el &&
@@ -2046,8 +2104,10 @@ function syncVfEngravingInMeasure(measure: Element): void {
           o.left < g.right - 2 &&
           o.right > g.left + 2,
       );
-      // Softmax hook(≤12)가 remesh로 짧아진 1차보다 길어 primary로 승격되지 않게
-      if (!underWider && g.w <= 12) {
+      // Softmax hook(≤ceil)가 remesh로 짧아진 1차보다 길어 primary로 승격되지 않게.
+      // 단 양 tip에 닿는 빔은 진짜 1차 — 작은 zoom에서 Softmax 1차(≤12)가 Softmax hook과
+      // 겹친다고 hook로 강등되면 coverPrim이 비어 forward 꼬리가 점8에 붙음.
+      if (!underWider && classW <= hookClassCeil && !(leftOnTip && rightOnTip)) {
         const overlapsSibling = geoms.some(
           (o) =>
             o.el !== g.el &&
@@ -2063,11 +2123,16 @@ function syncVfEngravingInMeasure(measure: Element): void {
       const kind = underWider ? 'secondary' : 'primary';
       beamClass.set(g.el, kind);
       if (kind === 'primary') {
+        // Softmax span(reshape가 기억)이 있으면 hook center에 사용 — classify에서 쓰지 않음
+        // (classify 때 쓰면 reshape natural 강제 매칭으로 tip remesh가 스킵됨)
+        const stored = storedSpan;
+        const left = stored?.left ?? g.left;
+        const right = stored?.right ?? g.right;
         primarySoftmaxSpans.set(g.el, {
-          left: g.left,
-          right: g.right,
+          left,
+          right,
           midY: g.midY,
-          center: (g.left + g.right) / 2,
+          center: (left + right) / 2,
         });
       }
     }
@@ -2201,17 +2266,35 @@ function flipOutwardHooksTowardPrimary(
     }
     if (bestStemD > 4) continue;
 
+    // remesh 후 attachVis만 보면 Softmax 앞 그룹 1차 오른끝에 속해 forward hook가 뒤집힘.
+    // 부착 tip Softmax natural이 들어가는 1차(Softmax span)를 우선.
+    let attachTipNat: number | null = null;
+    for (const t of tips) {
+      if (!stemShaftCrossesBeamY(t, midY)) continue;
+      if (Math.abs(t.effectiveX - attachVis) <= 3) {
+        attachTipNat = t.naturalX;
+        break;
+      }
+    }
+
     // 같은 y 대역의 1차 빔 중 줄기를 포함하는(또는 가장 가까운) 그룹
     let bestPrim: Prim | null = null;
     let bestPrimScore = Infinity;
     for (const p of primaries) {
       if (Math.abs(p.midY - midY) > 14) continue;
       const edge = Math.min(4, Math.max(1.5, (p.right - p.left) * 0.12));
-      const contains = attachVis >= p.left - edge && attachVis <= p.right + edge;
+      const contains =
+        attachTipNat != null
+          ? attachTipNat >= p.left - edge && attachTipNat <= p.right + edge
+          : attachVis >= p.left - edge && attachVis <= p.right + edge;
       const dist = contains
         ? 0
-        : Math.min(Math.abs(attachVis - p.left), Math.abs(attachVis - p.right));
-      const score = contains ? Math.abs(attachVis - p.center) * 0.01 : 40 + dist;
+        : attachTipNat != null
+          ? Math.min(Math.abs(attachTipNat - p.left), Math.abs(attachTipNat - p.right))
+          : Math.min(Math.abs(attachVis - p.left), Math.abs(attachVis - p.right));
+      const score = contains
+        ? Math.abs((attachTipNat ?? attachVis) - p.center) * 0.01
+        : 40 + dist;
       if (score < bestPrimScore) {
         bestPrimScore = score;
         bestPrim = p;

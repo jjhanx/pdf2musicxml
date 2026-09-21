@@ -31,7 +31,7 @@ EngravingRules: SoftmaxFactorVexFlow≥200, VoiceSpacingAddendVexflow≥5.
 | path 매칭을 **naturalX만** 우선 | remesh된 path 구간에 Softmax 좌표만 겹치는 줄기(16–16)만 잡혀 8분 탈락; Softmax 구간 안 옆 그룹 음이 effective로 끌려와 잘못된 빔 |
 | Softmax max에 마지막 음 고정 | 혼합 박자 비율 찌그러짐·마지막 음이 마디선에 포개짐 |
 | 2차 빔에 min/max(전체 멤버) | 1차까지 늘어남 |
-| hook(&lt;12px) reshape | 옆 줄기 붙어 전 구간 2차로 보임 — translate·안쪽 flip만 |
+| hook reshape / **고정 px hook&lt;12** | 옆 줄기 붙어 전 구간 2차·**zoom에 따라 2차↔꼬리 오분류** — 줄기 간격×0.55로 hookMaxW, translate·안쪽 flip만 |
 | 마디 SVG AbsolutePosition 이동으로 간격 보정 | 보표·클립 붕괴 |
 | 저장 MXL / 곡·마디 하드코딩 | 미리보기 SVG만 |
 
@@ -40,7 +40,7 @@ EngravingRules: SoftmaxFactorVexFlow≥200, VoiceSpacingAddendVexflow≥5.
 - **path 양끝 오차**로 natural vs effective 선택: Softmax path → natural(멤버·orphan pull); 이미 reshape된 path → effective가 명확히 나을 때만.
 - **1차** = 매칭 멤버 effectiveX min/max. **2차** = 원래 양끝에 가까운 줄기만.
 - 재동기(effective) 시 **과대 신장·이미 맞는 path의 과수축** 가드.
-- hook는 1차 중심 쪽으로 `flipOutwardHooksTowardPrimary`.
+- hook/2차 분류·pad·orphan pull은 **마디 줄기 간격**으로 스케일(`beamSyncTolFromTips`). hook는 1차 중심 쪽으로 `flipOutwardHooksTowardPrimary`.
 - remesh 오른쪽 = 다음 마디 AbsolutePosition − 여백(Size.width≤0이어도 동작).
 
 ## 회귀 (수정 후 필수)
@@ -50,11 +50,12 @@ npx tsx _smoke/test_allocate_measure_widths_by_density.ts
 npx tsx _smoke/test_double_align_primary_no_shrink.ts
 npx tsx _smoke/test_double_align_secondary_beam.ts
 npx tsx _smoke/test_primary_beam_and_hook_inward.ts
+npx tsx _smoke/test_beam_hook_zoom_stable.ts
 npx tsx _smoke/test_beam_snap_to_stems.ts
 npx tsx _smoke/test_onset_layout_beat_spacing.ts
 npx tsx _smoke/test_zoom_remesh_trailing.ts
 ```
 
-증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」「기본 60% zoom에서 마디선 겹침·박자 비율 붕괴」「렌더 후 마디 SVG 이동으로 흰 블록·마디선 소실」.
+증상 재현: 「pass2 primary 수축」「8–8→다음 그룹 신장」「Softmax 1차가 무빔 왼쪽 음 흡수」「마지막 음 마디선 포개짐」「기본 60% zoom에서 마디선 겹침·박자 비율 붕괴」「확대 비율에 따라 16분 꼬리/2차 빔 깨짐」「렌더 후 마디 SVG 이동으로 흰 블록·마디선 소실」.
 
 상세: `docs/악보_변환_품질_가이드.md` (박자 간격·OSMD 연주순번 align 후 빔 끊김).

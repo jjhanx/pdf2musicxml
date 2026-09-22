@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -373,6 +374,11 @@ def strip_font_ranges(
 
         pdf.save(output_pdf_path, linearize=True)
 
+    try:
+        remove_measure_number_circles(output_pdf_path)
+    except Exception as e:
+        print(f"[pdf_separator] Measure circle removal failed: {e}", file=sys.stderr)
+
     if replace_triplet_pua:
         try:
             replace_f073_triplets(output_pdf_path)
@@ -380,6 +386,49 @@ def strip_font_ranges(
             print(f"[pdf_separator] Triplet replacement failed: {e}", file=sys.stderr)
 
     print(f" -> {output_pdf_path}", file=sys.stderr)
+
+
+def remove_measure_number_circles(pdf_path: str) -> int:
+    """시스템 시작 마디 번호를 감싼 벡터 원(circle)을 제거하여 Audiveris의 높은 덧줄 고스트 음표(A6 등) 오인식을 방지."""
+    import fitz
+    if not os.path.exists(pdf_path):
+        return 0
+    doc = fitz.open(pdf_path)
+    removed_count = 0
+    temp_path = pdf_path + ".mcirc.tmp"
+    try:
+        for page in doc:
+            drawings = page.get_drawings()
+            page_circles = 0
+            for d in drawings:
+                r = d.get("rect")
+                if not r:
+                    continue
+                # 시스템 좌측 마디 번호 원: 가로/세로 15~25pt, 곡선 4개
+                if (
+                    r.x0 < 120
+                    and 15.0 <= r.width <= 25.0
+                    and 15.0 <= r.height <= 25.0
+                    and len(d.get("items") or []) == 4
+                    and all(it[0] == "c" for it in d["items"])
+                ):
+                    annot_rect = fitz.Rect(r.x0 - 0.3, r.y0 - 0.3, r.x1 + 0.3, r.y1 + 0.3)
+                    page.add_redact_annot(annot_rect, fill=None)
+                    page_circles += 1
+                    removed_count += 1
+            if page_circles > 0:
+                page.apply_redactions(images=0, graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED, text=0)
+        if removed_count > 0:
+            doc.save(temp_path, deflate=True, garbage=3)
+    except Exception as e:
+        print(f"[pdf_separator] remove_measure_number_circles failed: {e}", file=sys.stderr)
+        return 0
+    finally:
+        doc.close()
+    if removed_count > 0 and os.path.exists(temp_path):
+        os.replace(temp_path, pdf_path)
+        print(f"[pdf_separator] Removed {removed_count} measure number circles", file=sys.stderr)
+    return removed_count
 
 
 def _sample_text(chars: list[str], max_len: int = 48) -> str:

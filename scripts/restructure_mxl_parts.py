@@ -233,22 +233,15 @@ def _pair_looks_like_misplaced_piano_rh(
         return is_likely_misplaced_piano_rh(upper_m, piano_m, ns)
 
     if not _measure_is_rest_only(upper_m, ns) and not _measure_is_rest_only(lower_m, ns):
-        if is_likely_misplaced_piano_rh(upper_m, piano_m, ns) or is_likely_misplaced_piano_rh(
-            lower_m, piano_m, ns
-        ):
-            return True
+        # T/B 성부인데 둘 다 G clef에 고음역(>= 34.0, C5 부근 옥타브)으로 피아노 RH가 분리된 경우만 예외 인정
         u_avg = _avg_pitch_value(_pitched_notes(upper_m, ns), ns)
         l_avg = _avg_pitch_value(_pitched_notes(lower_m, ns), ns)
-        p_avg = _avg_pitch_value(_pitched_notes(piano_m, ns), ns)
-        return (
-            u_avg >= 28.0
-            and l_avg >= 28.0
-            and p_avg <= 30.0
-            and (
-                _piano_measure_has_f_clef(piano_m, ns)
-                or not _piano_measure_has_staff2(piano_m, ns)
+        if u_avg >= 35.0 and l_avg >= 34.0:
+            return is_likely_misplaced_piano_rh(upper_m, piano_m, ns) and is_likely_misplaced_piano_rh(
+                lower_m, piano_m, ns
             )
-        )
+        # 정상적인 합창 2부 화음(S+A 또는 T+B)은 성악 파트 유지
+        return False
 
     sole = upper_m if not _measure_is_rest_only(upper_m, ns) else lower_m
     return is_likely_misplaced_piano_rh(sole, piano_m, ns)
@@ -1147,8 +1140,10 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                         )
                 # 이전 휴리스틱이 피아노 RH를 S·A 또는 T·B에 화음분리·복제해 둔 경우 복구.
                 # 반대 성부 쌍이 쉼표이고 피아노에 LH만 있으면 RH를 staff 1로 되돌림.
+                # 단, 피아노 RH가 이미 별도 파트(piano_rh_src_pid)로 존재하면 절대 성악에서 탈취하지 않음.
                 if (
                     target_piano_pid
+                    and piano_rh_src_pid is None
                     and len(target_vocal_pids) >= 4
                     and piano_src_m is not None
                     and not _measure_is_rest_only(piano_src_m, ns)
@@ -1176,16 +1171,7 @@ def restructure_mxl(mxl_in: Path, mxl_out: Path, labels_path: Path):
                             ns,
                             only_pids=target_vocal_pids[:2],
                         )
-                    elif (
-                        sa_rest and _pair_looks_like_misplaced_piano_rh(t_m, b_m, piano_src_m, ns)
-                    ) or (
-                        # S/A가 울리는데 T/B만 가사 없이 울리고 피아노는 LH만 → PR이 T/B로 빠진 것
-                        not tb_rest
-                        and not _measure_has_lyrics(t_m, ns)
-                        and not _measure_has_lyrics(b_m, ns)
-                        and _piano_measure_is_lh_only_encoding(piano_src_m, ns)
-                        and (not _measure_is_rest_only(s_m, ns) or not _measure_is_rest_only(a_m, ns))
-                    ):
+                    elif sa_rest and _pair_looks_like_misplaced_piano_rh(t_m, b_m, piano_src_m, ns):
                         rh_built = build_rh_measure_from_misplaced(t_m, b_m, ns)
                         reclaimed_piano_m = merge_rh_into_piano_measure(
                             piano_src_m, rh_built, ns, divisions=curr_divisions

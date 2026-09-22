@@ -10963,6 +10963,34 @@ _MEASURE_BODY_COPY_TAGS = frozenset(
 )
 
 
+def _re_namespace_tree(elem: ET.Element, old_ns: str, new_ns: str) -> None:
+    old_prefix = f"{{{old_ns}}}" if old_ns else ""
+    new_prefix = f"{{{new_ns}}}" if new_ns else ""
+    if old_prefix:
+        if elem.tag.startswith(old_prefix):
+            elem.tag = new_prefix + elem.tag[len(old_prefix):]
+    elif new_prefix:
+        elem.tag = new_prefix + elem.tag
+    for child in elem:
+        _re_namespace_tree(child, old_ns, new_ns)
+
+
+def _scale_durations_in_measure(measure: ET.Element, ns: str, scale: float) -> None:
+    if abs(scale - 1.0) < 1e-6:
+        return
+    for tag_name in ("note", "backup", "forward"):
+        for el in measure.findall(_q(ns, tag_name)):
+            dur_el = el.find(_q(ns, "duration"))
+            if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
+                scaled = max(1, int(round(int(dur_el.text.strip()) * scale)))
+                dur_el.text = str(scaled)
+    for attr in measure.findall(_q(ns, "attributes")):
+        div_el = attr.find(_q(ns, "divisions"))
+        if div_el is not None and div_el.text and div_el.text.strip().isdigit():
+            scaled_div = max(1, int(round(int(div_el.text.strip()) * scale)))
+            div_el.text = str(scaled_div)
+
+
 def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[str, Any]:
     """import-work와 동일 규칙으로 omr-work ZIP 디렉터리 → 편집 반영 MXL 1개 생성."""
     import shutil
@@ -10972,12 +11000,13 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
     raw = work_dir / "audiveris_raw.mxl"
     fixes_path = work_dir / "omr_hitl_fixes.json"
 
-    if baseline.is_file():
-        shutil.copyfile(baseline, out_mxl)
-        source_score = "baseline"
-    elif review.is_file():
+    # review.mxl이 사용자의 최신 교정본(HITL canonical)이므로 최우선 사용
+    if review.is_file():
         shutil.copyfile(review, out_mxl)
         source_score = "review"
+    elif baseline.is_file():
+        shutil.copyfile(baseline, out_mxl)
+        source_score = "baseline"
     elif raw.is_file():
         shutil.copyfile(raw, out_mxl)
         source_score = "raw"
@@ -10985,24 +11014,17 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
         raise ValueError("omr-work ZIP에 MXL(review/baseline/raw)이 없습니다")
 
     manual_edit = False
-    if review.is_file():
-        if not baseline.is_file():
-            manual_edit = True
-        else:
-            try:
-                manual_edit = review.read_bytes() != baseline.read_bytes()
-            except OSError:
-                manual_edit = False
+    if review.is_file() and baseline.is_file():
+        try:
+            manual_edit = review.read_bytes() != baseline.read_bytes()
+        except OSError:
+            manual_edit = False
 
-    fix_count = 0
-    if manual_edit:
-        shutil.copyfile(review, out_mxl)
-        source_score = "review"
-    else:
-        fixes = load_fixes_json(fixes_path) if fixes_path.is_file() else []
-        fix_count = len(fixes)
-        if fixes:
-            apply_fixes_file(out_mxl, fixes)
+    fixes = load_fixes_json(fixes_path) if fixes_path.is_file() else []
+    fix_count = len(fixes)
+    if fixes and not manual_edit and baseline.is_file():
+        # review와 baseline이 동일하고 미적용 fixes가 있는 경우 적용
+        apply_fixes_file(out_mxl, fixes)
 
     files, root_path, root = load_mxl_root(out_mxl)
     chord_beams = cleanup_chord_beams_in_root(root)
@@ -11042,19 +11064,46 @@ def finalize_omr_work_score_for_import(work_dir: Path, out_mxl: Path) -> dict[st
 
 
 def _replace_measure_in_part(
-    dst_part: ET.Element, dst_num: str, src_m: ET.Element, ns: str, *, rebuild: bool = False
+    dst_part: ET.Element,
+    dst_num: str,
+    src_m: ET.Element,
+    ns_dst: str,
+    ns_src: str = "",
+    dst_divisions: int = 1,
+    src_divisions: int = 1,
+    *,
+    rebuild: bool = False,
 ) -> bool:
-    """출처 `<measure>` 전체를 deep-copy해 대상 마디 번호만 맞춘 뒤 교체."""
-    dst_m = find_measure(dst_part, ns, dst_num)
+    """출처 `<measure>` 내용을 deep-copy해 대상 마디 번호·레이아웃(<print>)·divisions에 맞춰 교체."""
+    dst_m = find_measure(dst_part, ns_dst, dst_num)
     if dst_m is None:
         return False
     idx = list(dst_part).index(dst_m)
+    # 대상 악보의 현재 페이지/시스템 나눔 레이아웃(<print>) 보존
+    dst_prints = [copy.deepcopy(p) for p in dst_m.findall(_q(ns_dst, "print"))]
+
     new_m = copy.deepcopy(src_m)
     new_m.set("number", dst_num)
+
+    # 네임스페이스 통일
+    if ns_dst != ns_src:
+        _re_namespace_tree(new_m, ns_src, ns_dst)
+
+    # divisions 차이가 있으면 duration 비례 스케일링
+    if src_divisions > 0 and dst_divisions > 0 and src_divisions != dst_divisions:
+        _scale_durations_in_measure(new_m, ns_dst, dst_divisions / src_divisions)
+
+    # 대상 악보의 <print> 레이아웃 유지 (출처 악보의 인위적 개행 덮어쓰기 방지)
+    if dst_prints:
+        for p in new_m.findall(_q(ns_dst, "print")):
+            new_m.remove(p)
+        for i, p in enumerate(dst_prints):
+            new_m.insert(i, p)
+
     dst_part.remove(dst_m)
     dst_part.insert(idx, new_m)
     if rebuild:
-        rebuild_measure_timeline_clean(new_m, ns, dst_part)
+        rebuild_measure_timeline_clean(new_m, ns_dst, dst_part)
     return True
 
 
@@ -11084,7 +11133,7 @@ def _aligned_part_pairs(
     for sp in src_parts:
         pid = sp.get("id")
         dp = dst_by_id.get(pid) if pid else None
-        if dp is None and len(dst_parts) == len(src_parts):
+        if dp is None:
             idx = src_parts.index(sp)
             if 0 <= idx < len(dst_parts):
                 dp = dst_parts[idx]
@@ -11126,7 +11175,11 @@ def copy_measure_range_all_parts_in_root(
             if src_m is None or dst_m is None:
                 stats["measuresSkipped"] += 1
                 continue
-            if not _replace_measure_in_part(dst_part, dst_num, src_m, ns_dst):
+            src_div, _, _ = _effective_divisions_and_time(src_part, ns_src, src_m)
+            dst_div, _, _ = _effective_divisions_and_time(dst_part, ns_dst, dst_m)
+            if not _replace_measure_in_part(
+                dst_part, dst_num, src_m, ns_dst, ns_src, dst_div, src_div
+            ):
                 stats["measuresSkipped"] += 1
                 continue
             part_copied += 1

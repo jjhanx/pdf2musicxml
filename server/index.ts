@@ -793,13 +793,15 @@ async function persistCanonicalScoreAfterHitlEdit(
     baselineOwnsEdits: true,
     totalHitlApplied: Math.max(cp.totalHitlApplied ?? 0, 1),
   });
-  const preInject = job?.preInjectMxlPaths?.[0];
-  if (
-    preInject &&
-    fsSync.existsSync(preInject) &&
-    path.resolve(preInject) !== path.resolve(scorePath)
-  ) {
-    await fs.copyFile(scorePath, preInject);
+  const preInjectPaths = job?.preInjectMxlPaths ?? [];
+  for (const preInject of preInjectPaths) {
+    if (
+      preInject &&
+      fsSync.existsSync(preInject) &&
+      path.resolve(preInject) !== path.resolve(scorePath)
+    ) {
+      await fs.copyFile(scorePath, preInject);
+    }
   }
 }
 
@@ -1479,7 +1481,13 @@ async function copyMeasureRangeFromOmrWorkFile(
     await fs.mkdir(tempSession, { recursive: true });
     await extractZipArchive(sourceZipPath, extractDir, pythonBin);
 
-    await importOmrWorkFromExtractDir(
+    // 임시 세션이 audiveris_raw로 롤백되지 않도록 checkpoint 사전 방어
+    await writeOmrHitlCheckpoint(tempSession, {
+      baselineOwnsEdits: true,
+      totalHitlApplied: 1,
+    });
+
+    const importResult = await importOmrWorkFromExtractDir(
       tempSession,
       extractDir,
       tempScore,
@@ -1487,18 +1495,26 @@ async function copyMeasureRangeFromOmrWorkFile(
       undefined,
       { mxlOnly: true },
     );
-    const syncStats = await syncOmrReviewMxl(tempSession, tempScore, pythonBin);
 
-    const { stdout, stderr } = await exec(
-      `"${pythonBin}" "${script}" "${dstScorePath}" "${tempScore}" --from ${srcStart} --to ${srcEnd}${targetArg} --prepared-source`,
-      { maxBuffer: 8 * 1024 * 1024 },
-    );
-    const line = String(stdout).trim();
-    if (stderr?.trim()) {
-      console.warn(`copy_measure_range_from_omr_work stderr (${dstScorePath}): ${stderr.trim()}`);
+    let stdoutText = '';
+    let stderrText = '';
+    if (fsSync.existsSync(tempScore)) {
+      try {
+        const res = await exec(
+          `"${pythonBin}" "${script}" "${dstScorePath}" "${tempScore}" --from ${srcStart} --to ${srcEnd}${targetArg} --prepared-source`,
+          { maxBuffer: 8 * 1024 * 1024 },
+        );
+        stdoutText = String(res.stdout).trim();
+        stderrText = String(res.stderr || '').trim();
+      } catch (execErr: any) {
+        if (execErr?.stdout) {
+          stdoutText = String(execErr.stdout).trim();
+        }
+        stderrText = String(execErr?.stderr || execErr?.message || '').trim();
+      }
     }
-    if (!line) return null;
-    const parsed = JSON.parse(line) as {
+
+    let parsed: {
       parts?: number;
       measuresCopied?: number;
       measuresSkipped?: number;
@@ -1506,11 +1522,43 @@ async function copyMeasureRangeFromOmrWorkFile(
       sourceEnd?: number;
       targetStart?: number;
       sourceScore?: string;
-    };
+    } | null = null;
+
+    if (stdoutText) {
+      try {
+        parsed = JSON.parse(stdoutText);
+      } catch {}
+    }
+
+    // fallback: prepared-source로 복사된 마디가 0개이거나 실패한 경우, 원본 ZIP에서 직접 복사 시도
+    if (!parsed || (parsed.measuresCopied ?? 0) <= 0) {
+      try {
+        const res = await exec(
+          `"${pythonBin}" "${script}" "${dstScorePath}" "${sourceZipPath}" --from ${srcStart} --to ${srcEnd}${targetArg}`,
+          { maxBuffer: 8 * 1024 * 1024 },
+        );
+        const fbOut = String(res.stdout).trim();
+        if (fbOut) {
+          parsed = JSON.parse(fbOut);
+        }
+      } catch (fbErr: any) {
+        if (fbErr?.stdout) {
+          try {
+            parsed = JSON.parse(String(fbErr.stdout).trim());
+          } catch {}
+        }
+      }
+    }
+
+    if (stderrText) {
+      console.warn(`copy_measure_range_from_omr_work stderr (${dstScorePath}): ${stderrText}`);
+    }
+    if (!parsed) return null;
+
     console.log(
-      `[omr-hitl] measure-range import via import-work+sync (${dstScorePath}): sync=${syncStats.syncMode} parts=${parsed.parts ?? 0} measures=${parsed.measuresCopied ?? 0}`,
+      `[omr-hitl] measure-range import (${dstScorePath}): parts=${parsed.parts ?? 0} measures=${parsed.measuresCopied ?? 0}`,
     );
-    return { ...parsed, syncMode: syncStats.syncMode };
+    return { ...parsed, syncMode: importResult.stats?.syncMode };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`copyMeasureRangeFromOmrWorkFile failed (${dstScorePath}): ${msg}`);
@@ -6956,6 +7004,7 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
   const bb = busboy({ headers: req.headers, limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
   let zipPath: string | null = null;
   let importErr: string | null = null;
+  let uploadPromise: Promise<void> | null = null;
   bb.on('file', (_name, file, info) => {
     if (!info.filename.toLowerCase().endsWith('.zip')) {
       importErr = 'ZIP 파일만 업로드할 수 있습니다';
@@ -6964,13 +7013,20 @@ app.post('/api/omr-hitl/:jobId/import-work', async (req, res) => {
     }
     zipPath = path.join(job.sessionRoot, `_import_${Date.now()}.zip`);
     const ws = createWriteStream(zipPath);
-    file.pipe(ws);
+    uploadPromise = pipeline(file, ws);
   });
   bb.on('error', (err) => {
     importErr = String(err);
   });
   bb.on('finish', () => {
     void (async () => {
+      if (uploadPromise) {
+        try {
+          await uploadPromise;
+        } catch (e) {
+          importErr = e instanceof Error ? e.message : String(e);
+        }
+      }
       if (importErr) {
         res.status(400).json({ error: importErr });
         return;
@@ -7034,6 +7090,7 @@ app.post('/api/omr-hitl/:jobId/import-measure-range', async (req, res) => {
   });
   let zipPath: string | null = null;
   let importErr: string | null = null;
+  let uploadPromise: Promise<void> | null = null;
   let sourceStart = 0;
   let sourceEnd = 0;
   let targetStart: number | undefined;
@@ -7054,13 +7111,20 @@ app.post('/api/omr-hitl/:jobId/import-measure-range', async (req, res) => {
     }
     zipPath = path.join(job.sessionRoot, `_import_range_${Date.now()}.zip`);
     const ws = createWriteStream(zipPath);
-    file.pipe(ws);
+    uploadPromise = pipeline(file, ws);
   });
   bb.on('error', (err) => {
     importErr = String(err);
   });
   bb.on('finish', () => {
     void (async () => {
+      if (uploadPromise) {
+        try {
+          await uploadPromise;
+        } catch (e) {
+          importErr = e instanceof Error ? e.message : String(e);
+        }
+      }
       if (importErr) {
         res.status(400).json({ error: importErr });
         return;

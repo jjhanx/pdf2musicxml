@@ -257,8 +257,8 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const importWorkInputRef = useRef<HTMLInputElement>(null);
   const importRangeInputRef = useRef<HTMLInputElement>(null);
   const [workMsg, setWorkMsg] = useState('');
-  const [rangeImportStart, setRangeImportStart] = useState(33);
-  const [rangeImportEnd, setRangeImportEnd] = useState(65);
+  const [rangeImportStart, setRangeImportStart] = useState(1);
+  const [rangeImportEnd, setRangeImportEnd] = useState(16);
   const [rangeImportTargetStart, setRangeImportTargetStart] = useState<number | ''>('');
   const [rangeImportOpen, setRangeImportOpen] = useState(false);
 
@@ -844,8 +844,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
           stats?: { parts?: number; measuresCopied?: number; measuresSkipped?: number; targetStart?: number };
         };
         if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-        await refreshScoreXml({ skipSync: true });
-        setPreviewRevision((n) => n + 1);
+        await refreshPanelAfterWorkImport();
         const st = j.stats;
         const tgt =
           st?.targetStart != null && st.targetStart !== rangeImportStart
@@ -865,7 +864,7 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
       rangeImportStart,
       rangeImportEnd,
       rangeImportTargetStart,
-      refreshScoreXml,
+      refreshPanelAfterWorkImport,
     ],
   );
 
@@ -1787,6 +1786,20 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
                 />
                 <span style={{ color: '#64748b', fontSize: '0.8rem' }}>(비우면 출처와 동일)</span>
               </label>
+              {selectedMeasure ? (
+                <button
+                  type="button"
+                  className="btn-muted"
+                  style={{ padding: '2px 6px', fontSize: '0.8rem' }}
+                  onClick={() => {
+                    setRangeImportStart(selectedMeasure.measureMxl);
+                    setRangeImportEnd(selectedMeasure.measureMxl);
+                  }}
+                  title="현재 선택된 마디 번호로 시작·끝 마디를 설정합니다"
+                >
+                  선택 마디(m.{selectedMeasure.measureMxl})
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="btn-muted"

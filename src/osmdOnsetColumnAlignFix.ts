@@ -2329,7 +2329,11 @@ function flipOutwardHooksTowardPrimary(
     }
 
     const freeDir = Math.sign(freeVis - attachVis);
-    const inwardDir = Math.sign(bestPrim.center - attachVis);
+    // 1차 center는 Softmax(natural) 좌표. attachVis는 align 후 화면 좌표라
+    // 그룹이 오른쪽으로 밀리면 center가 첫 줄기보다 왼쪽이 되어 forward 꼬리가 바깥으로 뒤집힌다.
+    const attachRef =
+      primarySoftmaxSpans?.size && attachTipNat != null ? attachTipNat : attachVis;
+    const inwardDir = Math.sign(bestPrim.center - attachRef);
     if (freeDir === 0 || inwardDir === 0 || freeDir === inwardDir) continue;
 
     // path 로컬에서 부착점 기준 좌우 반전

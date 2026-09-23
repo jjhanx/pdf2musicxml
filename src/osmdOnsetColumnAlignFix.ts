@@ -274,7 +274,23 @@ type NoteHit = {
 function isRestGraphicNote(gn: Record<string, unknown>): boolean {
   const src = asRecord(gn.sourceNote ?? gn.SourceNote);
   if (!src) return false;
-  if (src.isRest === true || src.IsRest === true) return true;
+  if (typeof src.isRest === 'function') {
+    try {
+      if ((src.isRest as () => boolean)()) return true;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (typeof src.IsRest === 'function') {
+    try {
+      if ((src.IsRest as () => boolean)()) return true;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (src.isRest === true || src.IsRest === true || src.isRestFlag === true || src.IsRestFlag === true) {
+    return true;
+  }
   const restFlag = src.rest ?? src.Rest;
   if (restFlag === true) return true;
   if (asRecord(restFlag)) return true;
@@ -284,24 +300,31 @@ function isRestGraphicNote(gn: Record<string, unknown>): boolean {
 function restCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
   const restEl =
     (stavenote.querySelector('.vf-rest') as SVGGraphicsElement | null) ??
-    (stavenote.querySelector('[class*="rest"]') as SVGGraphicsElement | null);
+    (stavenote.querySelector('[class*="rest"]') as SVGGraphicsElement | null) ??
+    stavenote;
   if (restEl) {
     try {
-      const box = restEl.getBBox();
-      if (box && Number.isFinite(box.x) && Number.isFinite(box.width)) {
+      const box = restEl.getBBox?.();
+      if (box && Number.isFinite(box.x) && Number.isFinite(box.width) && box.width > 0) {
         return svgUserXFromElement(restEl, box.x + box.width / 2);
       }
     } catch {
-      /* getBBox can throw on detached nodes */
+      /* getBBox can throw on detached nodes / JSDOM */
     }
-  }
-  try {
-    const box = stavenote.getBBox();
-    if (box && Number.isFinite(box.x) && Number.isFinite(box.width)) {
-      return svgUserXFromElement(stavenote, box.x + box.width / 2);
+    for (const path of restEl.querySelectorAll('path')) {
+      const d = path.getAttribute('d');
+      if (!d) continue;
+      const xs: number[] = [];
+      for (const m of d.matchAll(/[MmLl]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)) {
+        const n = parseFloat(m[1]!);
+        if (Number.isFinite(n)) xs.push(n);
+      }
+      if (xs.length > 0) {
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        return svgUserXFromElement(path, (minX + maxX) / 2);
+      }
     }
-  } catch {
-    /* ignore */
   }
   return null;
 }
@@ -335,8 +358,8 @@ function collectMeasureNoteHits(osmd: OpenSheetMusicDisplay, gmRaw: unknown): No
       for (const gnRaw of (gve.notes ?? gve.Notes ?? []) as unknown[]) {
         const gn = asRecord(gnRaw);
         if (!gn) continue;
-        const pitchRaw = pitchFromGraphicNote(gn);
-        const rest = !pitchRaw && isRestGraphicNote(gn);
+        const rest = isRestGraphicNote(gn);
+        const pitchRaw = rest ? null : pitchFromGraphicNote(gn);
         if (!pitchRaw && !rest) continue;
         const pitch = rest ? 'REST' : pitchRaw!;
         const voice = voiceFromGraphicNote(gn) ?? '1';
@@ -747,6 +770,8 @@ function wantXFromLayoutGrid(
 const MIN_PLAY_ORDER_COLUMN_PX = 36;
 /** 4분음(박) 하나에 해당하는 최소 가로 폭 — po4(4분)→po5 간격이 8분 간격의 ~2배가 되게. */
 const MIN_PX_PER_QUARTER = 52;
+/** 음표·쉼표 간 최소 시각적 안전 간격(px) — 16분 쉼표 등 짧은 박자라도 다음 요소와 겹치지 않도록 보장 */
+export const MIN_NOTE_REST_GAP_PX = 24;
 
 /**
  * content box(조표·박자 뒤)를 쓰되, 박자·순번 수에 맞춰 최소 폭으로 **오른쪽** 확장.
@@ -3241,6 +3266,28 @@ function alignMeasureNotesByOnsetLayoutGrid(
   );
   if (!measureSpan) return false;
 
+  // 마디 내 서로 다른 온셋(layout-x) 간 최소 간격 계산 (tenths)
+  // part 전체 마디 온셋(partMeasureTargets)을 기준으로 하여 동일 마디 내 다른 stave/voice와도 일관된 스팬 산출
+  const partLayoutXs = [
+    ...new Set(partMeasureTargets.map((t) => Math.round(t.defaultXTenths * 100) / 100)),
+  ].sort((a, b) => a - b);
+  let minOnsetDeltaTenths = Infinity;
+  for (let i = 1; i < partLayoutXs.length; i++) {
+    const d = partLayoutXs[i]! - partLayoutXs[i - 1]!;
+    if (d > 0.01 && d < minOnsetDeltaTenths) {
+      minOnsetDeltaTenths = d;
+    }
+  }
+
+  // 박자 비례 거리 유지를 위해 전체 measureSpan을 필요한 만큼 비례 확장
+  // 아무리 짧은 박자(16분 쉼표/음표 등)라도 최소한의 거리(MIN_NOTE_REST_GAP_PX)를 확보
+  if (Number.isFinite(minOnsetDeltaTenths) && minOnsetDeltaTenths > 0) {
+    const minRequiredSpan = (MIN_NOTE_REST_GAP_PX / minOnsetDeltaTenths) * LAYOUT_SPAN;
+    if (measureSpan.spanPx < minRequiredSpan) {
+      measureSpan.spanPx = minRequiredSpan;
+    }
+  }
+
   type Column = { layoutX: number; pitchSet: string[]; expectHeads: number };
   type Place = { stavenote: SVGGraphicsElement; centerX: number; layoutX: number };
   let moved = false;
@@ -3297,9 +3344,12 @@ function alignMeasureNotesByOnsetLayoutGrid(
 
     const ordered = [...voicePlan].sort((a, b) => a.layoutX - b.layoutX || a.centerX - b.centerX);
     let prevWant = -Infinity;
+    let prevLayoutX = -Infinity;
     for (const p of ordered) {
       let want = wantXFromLayoutGrid(measureSpan, p.layoutX);
-      if (want < prevWant + 0.5) want = prevWant + 0.5;
+      const isNewOnset = p.layoutX > prevLayoutX + 0.01;
+      const minStep = isNewOnset ? MIN_NOTE_REST_GAP_PX : 0.5;
+      if (want < prevWant + minStep) want = prevWant + minStep;
       const dx = want - p.centerX;
       if (Math.abs(dx) > 0.5) moved = true;
       applySvgTranslateX(
@@ -3308,6 +3358,7 @@ function alignMeasureNotesByOnsetLayoutGrid(
         Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2),
       );
       prevWant = want;
+      prevLayoutX = p.layoutX;
     }
   }
   return moved;

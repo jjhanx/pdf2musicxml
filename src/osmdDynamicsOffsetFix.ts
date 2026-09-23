@@ -22,11 +22,10 @@ import { applyArticulationShiftY } from './osmdArticulationOffsetFix';
 /** patch_osmd_navigation_labels — below dynamics 기본 여백(staff-space). */
 const OSMD_DYNAMICS_BASELINE_BELOW_SPACES = 2.5;
 /**
- * above: OSMD 패치(+3.8)와 달리 wedge 옆 mf는 오선에 붙어 그려지는 경우가 있다.
- * HITL N칸을 “OSMD 기본 3.8 대비 델타”로 보면 distance 1~4가 거의 무반응·고착으로 보인다.
- * 기본을 0으로 두면 N칸만큼 항상 오선에서 멀어져 거리 UI가 동작한다.
+ * above: OSMD 패치(-3.8)에 의해 렌더링되므로, N칸 요청 시 3.8칸을 기준으로 델타를 계산하여
+ * 오선 윗줄(또는 상단 음표) 기준 N칸 거리에 정확히 배치한다.
  */
-const OSMD_DYNAMICS_BASELINE_ABOVE_SPACES = 0;
+const OSMD_DYNAMICS_BASELINE_ABOVE_SPACES = 3.8;
 
 const previewXmlByOsmd = new WeakMap<OpenSheetMusicDisplay, string>();
 
@@ -45,9 +44,15 @@ function isDomElement(v: unknown): v is Element {
 function labelTextFromExpression(expr: Record<string, unknown>): string {
   const label = asRecord(expr.Label ?? expr.label);
   const text = label?.text ?? label?.Text ?? label?.Label;
-  if (typeof text === 'string') return text.trim();
+  if (typeof text === 'string' && text.trim()) return text.trim();
   const lab = label?.label ?? label?.Label;
-  return typeof lab === 'string' ? lab.trim() : '';
+  if (typeof lab === 'string' && lab.trim()) return lab.trim();
+  const node = label?.SVGNode ?? label?.svgNode;
+  if (node && typeof node === 'object') {
+    const t = (node as Element).textContent?.trim();
+    if (t) return t;
+  }
+  return '';
 }
 
 function labelSvgFromExpression(expr: Record<string, unknown>): Element | null {
@@ -183,7 +188,7 @@ function shiftDynamicsTextsFromDom(
   const needShift = hints.filter((h) => dynamicsHintNeedsOsmdPreviewShift(h));
   if (!needShift.length) return 0;
   const texts = [...host.querySelectorAll('text')].filter((el) => {
-    if (used.has(el)) return false;
+    if (used.has(el) || (el.parentElement && used.has(el.parentElement))) return false;
     const t = normalizeDynText(el.textContent || '');
     return t.length > 0 && HITL_DYNAMICS_TAG_NAMES.has(t);
   });
@@ -282,6 +287,7 @@ export function applyOsmdDynamicsOffsets(
           if (!svg) continue;
           applyArticulationShiftY(svg, extraY);
           usedElements.add(svg);
+          for (const ch of svg.querySelectorAll('text')) usedElements.add(ch);
           shifted += 1;
         }
       }

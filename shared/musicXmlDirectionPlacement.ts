@@ -268,10 +268,7 @@ export function dynamicsHintNeedsOsmdPreviewShift(h: {
   distance?: string | null;
   defaultY?: number | null;
 }): boolean {
-  const d = (h.distance || '').trim().toLowerCase();
-  if (d && d !== 'auto') return true;
-  const mag = Math.abs(h.defaultY ?? 0);
-  return mag >= 10 && mag <= 100 && mag % 10 === 0;
+  return Number.isFinite(h.staffSpaces) && h.staffSpaces > 0;
 }
 
 function medianStaffSpaces(values: number[]): number {

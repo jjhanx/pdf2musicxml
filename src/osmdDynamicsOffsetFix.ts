@@ -208,22 +208,44 @@ function shiftDynamicsTextsFromDom(
   return shifted;
 }
 
+function partIdFromStaffLine(sl: Record<string, unknown>): string {
+  const fromPart = String(sl.partId ?? sl.PartId ?? (sl.parentPart as Record<string, unknown>)?.id ?? '');
+  if (fromPart) return fromPart;
+  const ps = (sl.parentStaff ?? sl.ParentStaff) as Record<string, unknown> | undefined;
+  const pi = (ps?.parentInstrument ?? ps?.ParentInstrument) as Record<string, unknown> | undefined;
+  const idStr = pi?.idString ?? pi?.IdString;
+  if (typeof idStr === 'string' && idStr.trim()) return idStr.trim();
+  const pm = asRecord(sl.parentMeasure ?? sl.ParentMeasure);
+  if (pm) {
+    const pid = partIdFromGraphic(pm as Parameters<typeof partIdFromGraphic>[0]);
+    if (pid) return pid;
+  }
+  return '';
+}
+
 function staffWithinPartFromStaffLine(
   osmd: OpenSheetMusicDisplay,
   staffLine: Record<string, unknown>,
   staffIndex: number,
 ): number {
   const fromPart = staffWithinPartFromPartId(
-    String(staffLine.partId ?? staffLine.PartId ?? staffLine.parentPart?.id ?? ''),
+    String(staffLine.partId ?? staffLine.PartId ?? (staffLine.parentPart as Record<string, unknown>)?.id ?? ''),
   );
   if (fromPart != null) return fromPart;
+  const ps = (staffLine.parentStaff ?? staffLine.ParentStaff) as Record<string, unknown> | undefined;
+  const pi = (ps?.parentInstrument ?? ps?.ParentInstrument) as Record<string, unknown> | undefined;
+  const staves = ((pi?.staves ?? pi?.Staves) as unknown[]) || [];
+  if (ps && staves.length > 0) {
+    const idx = staves.indexOf(ps);
+    if (idx >= 0) return idx + 1;
+  }
   const pm = asRecord(staffLine.parentMeasure ?? staffLine.ParentMeasure);
   if (pm) {
     const pid = partIdFromGraphic(pm as Parameters<typeof partIdFromGraphic>[0]);
     const fromPm = pid ? staffWithinPartFromPartId(pid) : null;
     if (fromPm != null) return fromPm;
   }
-  return staffIndex + 1;
+  return 1;
 }
 
 export function applyOsmdDynamicsOffsets(
@@ -260,6 +282,7 @@ export function applyOsmdDynamicsOffsets(
         if (!sl) continue;
         const linePx = staffSpaceFromStaffLine(sl, staffSpacePx);
         const staffWithinPart = staffWithinPartFromStaffLine(osmd, sl, staffIndex);
+        const partIdFromSl = partIdFromStaffLine(sl);
         const exprs = (sl?.AbstractExpressions ?? sl?.abstractExpressions ?? []) as unknown[];
         for (const exprRaw of exprs) {
           const expr = asRecord(exprRaw);
@@ -269,7 +292,9 @@ export function applyOsmdDynamicsOffsets(
 
           const pm = asRecord(expr.parentMeasure ?? expr.ParentMeasure);
           const measureMxl = pm ? measureMxlFromGraphic(pm as Parameters<typeof measureMxlFromGraphic>[0]) : null;
-          const partId = pm ? partIdFromGraphic(pm as Parameters<typeof partIdFromGraphic>[0]) ?? '' : '';
+          const partId =
+            (pm ? partIdFromGraphic(pm as Parameters<typeof partIdFromGraphic>[0]) : null) ||
+            partIdFromSl;
           if (measureMxl == null || !partId) continue;
 
           const svg = labelSvgFromExpression(expr);

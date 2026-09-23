@@ -87,7 +87,7 @@ export function articulationStaffSpacesFromHint(
   const fromAttr = parseArticulationStaffSpaces(distance);
   if (fromAttr != null) return fromAttr;
   const mag = Math.abs(defaultY ?? 0);
-  if (mag > 0 && mag <= 200) return mag / ARTICULATION_STAFF_GAP_BASE;
+  if (mag >= 10 && mag <= 200 && mag % 10 === 0) return mag / ARTICULATION_STAFF_GAP_BASE;
   return articulationTierMultiplier('auto');
 }
 

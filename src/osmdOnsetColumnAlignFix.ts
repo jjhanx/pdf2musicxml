@@ -2013,12 +2013,12 @@ function syncVfEngravingInMeasure(measure: Element): void {
     // remesh되어 점8까지 늘어남. 인접 간격 기준으로 Softmax hook 상한을 키움.
     for (const g of geoms) {
       const yOk = (t: StemTip) => stemShaftCrossesBeamY(t, g.midY);
-      const leftOnTip = tipsAfter.some(
-        (t) => yOk(t) && Math.abs(t.effectiveX - g.left) <= 2.75,
-      );
-      const rightOnTip = tipsAfter.some(
-        (t) => yOk(t) && Math.abs(t.effectiveX - g.right) <= 2.75,
-      );
+      const onAnyTip = (x: number) =>
+        tipsAfter.some(
+          (t) => yOk(t) && (Math.abs(t.effectiveX - x) <= 2.75 || Math.abs(t.naturalX - x) <= 2.75),
+        );
+      const leftOnTip = onAnyTip(g.left);
+      const rightOnTip = onAnyTip(g.right);
       // remesh로 Softmax 1차가 hookMaxW 아래로 짧아져도 Softmax span이 넓으면 1차 유지
       // (아니면 flip/coverPrim이 앞 그룹을 고르고 forward 꼬리가 뒤집힘 — zoom마다 16↔점8)
       const storedSpan = beamNaturalSpanByEl.get(g.el);
@@ -2037,12 +2037,16 @@ function syncVfEngravingInMeasure(measure: Element): void {
         // 2차 pass에서 secondary remesh로 16–8에 늘어나지 않게 함.
         if (!oneEndedHook && !orphanShortHook && leftOnTip && rightOnTip && classW >= 5) {
           const tipNear = (x: number) =>
-            tipsAfter.find((t) => yOk(t) && Math.abs(t.effectiveX - x) <= 2.75);
+            tipsAfter.find(
+              (t) => yOk(t) && (Math.abs(t.effectiveX - x) <= 2.75 || Math.abs(t.naturalX - x) <= 2.75),
+            );
           const tL = tipNear(g.left);
           const tR = tipNear(g.right);
           if (tL && tR && tL !== tR) {
             const tipSpan = Math.abs(tR.effectiveX - tL.effectiveX);
-            if (classW < tipSpan - 2.5) {
+            const natSpan = Math.abs(tR.naturalX - tL.naturalX);
+            const refSpan = Math.max(tipSpan, natSpan);
+            if (classW < refSpan - 2.5) {
               beamClass.set(g.el, 'hook');
               continue;
             }
@@ -2091,7 +2095,9 @@ function syncVfEngravingInMeasure(measure: Element): void {
       // 아니면 Softmax hook 유지(아니면 Softmax 16–8 Softmax secondary로 remesh됨).
       if (underWider && classW <= Math.max(hookClassCeil, (gapHintEarly ?? 12) * 0.95)) {
         const tipNear = (x: number) =>
-          tipsAfter.find((t) => yOk(t) && Math.abs(t.effectiveX - x) <= 2.75);
+          tipsAfter.find(
+            (t) => yOk(t) && (Math.abs(t.effectiveX - x) <= 2.75 || Math.abs(t.naturalX - x) <= 2.75),
+          );
         const tL = tipNear(g.left);
         const tR = tipNear(g.right);
         const tipSpan =

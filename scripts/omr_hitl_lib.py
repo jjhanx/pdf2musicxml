@@ -1551,6 +1551,12 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
             ftype = (ferm.get("type") or "upright").strip() or "upright"
             placement = ferm.get("placement")
             fermatas.append(f"{ftype}({placement})" if placement else ftype)
+    lyrics: list[str] = []
+    for lyric_el in note.findall(_q(ns, "lyric")):
+        txt_el = lyric_el.find(_q(ns, "text"))
+        if txt_el is not None and txt_el.text:
+            lyrics.append(txt_el.text.strip())
+    lyric_text = " ".join(lyrics) if lyrics else None
     dx = _parse_default_x(note)
     return {
         "index": index,
@@ -1588,6 +1594,8 @@ def note_snapshot(note: ET.Element, ns: str, index: int) -> dict[str, Any]:
         "articulations": articulations,
         "ornaments": ornaments,
         "fermatas": fermatas,
+        "lyricText": lyric_text,
+        "lyrics": lyrics,
         "defaultX": round(dx, 2) if dx is not None else None,
         "playOrder": _read_play_order(note),
         "playOrderAlign": (lambda r: f"{r[0]}-{r[1]}" if r else None)(_read_play_order_ref(note)),
@@ -12171,6 +12179,57 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             return False
         return _clear_note_direction(measure, notes, note_idx, ns)
 
+    if kind == "removeLyric":
+        note_raw = fix.get("noteIndex")
+        if note_raw is not None:
+            try:
+                note_idx = int(note_raw)
+            except (TypeError, ValueError):
+                return False
+            if 0 <= note_idx < len(notes):
+                target_note = notes[note_idx]
+                removed = False
+                for lyr in list(target_note.findall(_q(ns, "lyric"))):
+                    target_note.remove(lyr)
+                    removed = True
+                return removed
+            return False
+        else:
+            removed = False
+            for n in notes:
+                for lyr in list(n.findall(_q(ns, "lyric"))):
+                    n.remove(lyr)
+                    removed = True
+            return removed
+
+    if kind == "setNoteLyric":
+        try:
+            note_idx = int(fix.get("noteIndex"))
+        except (TypeError, ValueError):
+            return False
+        if not (0 <= note_idx < len(notes)):
+            return False
+        target_note = notes[note_idx]
+        new_text = str(fix.get("text") or fix.get("detail") or "").strip()
+        lyrs = target_note.findall(_q(ns, "lyric"))
+        if not new_text:
+            for lyr in lyrs:
+                target_note.remove(lyr)
+            return True
+        if lyrs:
+            txt_el = lyrs[0].find(_q(ns, "text"))
+            if txt_el is None:
+                txt_el = ET.SubElement(lyrs[0], _q(ns, "text"))
+            txt_el.text = new_text
+        else:
+            lyr = ET.SubElement(target_note, _q(ns, "lyric"))
+            syl = ET.SubElement(lyr, _q(ns, "syllabic"))
+            syl.text = "single"
+            txt_el = ET.SubElement(lyr, _q(ns, "text"))
+            txt_el.text = new_text
+            _sort_note_children(target_note, ns)
+        return True
+
     if kind in ("setNoteDirection", "addNoteDirection"):
         direction_type = str(fix.get("directionType") or "words").strip().lower()
         direction_value = str(fix.get("directionValue") or fix.get("detail") or "").strip()
@@ -15694,6 +15753,8 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "removeDirection",
         "removeSpuriousDirection",
         "setMeasureDirectionText",
+        "removeLyric",
+        "setNoteLyric",
         "addNoteDirection",
         "removeNoteDirection",
         "setNoteDirection",

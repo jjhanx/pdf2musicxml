@@ -225,6 +225,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   removeBeam: '빔(연결줄) 해제',
   setMeasureTempo: '마디 템포 설정',
   removeMeasureTempo: '마디 템포 삭제',
+  removeLyric: '가사 찌꺼기 삭제',
+  setNoteLyric: '가사 수정/입력',
   insertEmptyMeasureBefore: '빈 마디 삽입(앞)',
   insertEmptyMeasureAfter: '빈 마디 삽입(뒤)',
 };

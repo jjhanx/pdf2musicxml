@@ -473,6 +473,9 @@ export type MeasureNoteEl = {
   playOrderAlign?: string | null;
   /** voice timeline 기본 연주순번 — UI에는 document order만 표시 */
   defaultPlayOrder?: number | null;
+  /** 음표 가사(lyric) — OMR 텍스트 찌꺼기 판별 및 편집용 */
+  lyricText?: string | null;
+  lyrics?: string[];
   /** UI 표시용 — playOrderAlign ?? playOrder ?? defaultPlayOrder */
   displayPlayOrder?: number | string | null;
 };
@@ -2756,6 +2759,10 @@ export function OmrMeasureEditor({
     );
   }, [displayElements]);
 
+  const lyricNotes = useMemo(() => {
+    return displayElements.filter(isMeasureNoteEl).filter((n) => Boolean(n.lyricText || (n.lyrics && n.lyrics.length > 0)));
+  }, [displayElements]);
+
   const measureDirections = snapshot?.measureDirections ?? [];
   const navigationDirections = useMemo(
     () =>
@@ -3762,6 +3769,71 @@ export function OmrMeasureEditor({
           >
             마디 내 숨표(,) 일괄 제거 ({breathMarkNotes.length}건)
           </button>
+        </div>
+      )}
+
+      {lyricNotes.length > 0 && (
+        <div
+          className="omr-measure-lyric-alert-panel"
+          style={{
+            marginBottom: '0.85rem',
+            padding: '0.65rem 0.75rem',
+            background: '#fff3e0',
+            borderRadius: 6,
+            border: '1px solid #ffb74d',
+          }}
+        >
+          <div style={{ fontWeight: 700, color: '#e65100', marginBottom: 4 }}>
+            가사 (Lyric / 텍스트 찌꺼기) — {lyricNotes.length}건 감지
+          </div>
+          <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
+            {partStaveCount > 1 || (staffLabel || '').includes('피아노') || (staffLabel || '').includes('P')
+              ? '피아노 보표(PR/PL) 사이에 글자 찌꺼기(예: ‘flL 등)가 보이는 경우, OMR이 인식한 가사(lyric) 찌꺼기입니다. 아래에서 삭제하세요.'
+              : '음표에 붙은 가사입니다. 찌꺼기 문자는 삭제하거나 수정하세요.'}
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {lyricNotes.map((n) => (
+              <span
+                key={`lyric-note-${n.index}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: '#fff',
+                  padding: '3px 8px',
+                  borderRadius: 4,
+                  border: '1px solid #ffcc80',
+                  fontSize: '0.86rem',
+                }}
+              >
+                <strong>#{n.index}</strong> ({n.pitch ?? n.kind}): <code style={{ color: '#d84315', fontWeight: 700 }}>"{n.lyricText}"</code>
+                <button
+                  type="button"
+                  className="omr-hitl-fix-btn"
+                  style={{ background: '#ffebee', borderColor: '#ef9a9a', color: '#c62828', padding: '1px 6px', fontSize: '0.8rem' }}
+                  onClick={() => {
+                    pushFix({ kind: 'removeLyric', noteIndex: n.index });
+                    setFixMsg(`음표 #${n.index} 가사("${n.lyricText}") 삭제 대기 등록 → 「MXL에 반영·미리보기」`);
+                  }}
+                >
+                  삭제
+                </button>
+              </span>
+            ))}
+            <button
+              type="button"
+              className="omr-hitl-fix-btn"
+              style={{ background: '#d32f2f', borderColor: '#b71c1c', color: '#fff', fontWeight: 600 }}
+              onClick={() => {
+                for (const n of lyricNotes) {
+                  pushFix({ kind: 'removeLyric', noteIndex: n.index });
+                }
+                setFixMsg(`마디 내 가사 찌꺼기 ${lyricNotes.length}건 전체 삭제 대기 등록 → 「MXL에 반영·미리보기」`);
+              }}
+            >
+              마디 내 가사 찌꺼기 전체 일괄 삭제 ({lyricNotes.length}건)
+            </button>
+          </div>
         </div>
       )}
 
@@ -5938,6 +6010,37 @@ function MeasureNoteEditor({
               화음 {chordDrafts.length}개 추가
             </button>
           </div>
+        </div>
+      ) : null}
+      {el.kind === 'note' && (el.lyricText || (el.lyrics && el.lyrics.length > 0)) ? (
+        <div
+          className="omr-measure-lyric-row"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '4px 8px',
+            background: '#fff3e0',
+            borderRadius: 4,
+            border: '1px solid #ffe0b2',
+            marginTop: 4,
+            marginBottom: 6,
+          }}
+        >
+          <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#e65100' }}>
+            가사(Lyric):
+          </span>
+          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#bf360c' }}>
+            "{el.lyricText}"
+          </span>
+          <button
+            type="button"
+            className="omr-hitl-fix-btn"
+            style={{ background: '#ffebee', borderColor: '#ef9a9a', color: '#c62828', padding: '2px 8px' }}
+            onClick={() => onFix({ kind: 'removeLyric', noteIndex: el.index })}
+          >
+            가사 삭제
+          </button>
         </div>
       ) : null}
       <button

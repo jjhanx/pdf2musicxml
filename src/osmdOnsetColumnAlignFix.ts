@@ -3266,28 +3266,6 @@ function alignMeasureNotesByOnsetLayoutGrid(
   );
   if (!measureSpan) return false;
 
-  // 마디 내 서로 다른 온셋(layout-x) 간 최소 간격 계산 (tenths)
-  // part 전체 마디 온셋(partMeasureTargets)을 기준으로 하여 동일 마디 내 다른 stave/voice와도 일관된 스팬 산출
-  const partLayoutXs = [
-    ...new Set(partMeasureTargets.map((t) => Math.round(t.defaultXTenths * 100) / 100)),
-  ].sort((a, b) => a - b);
-  let minOnsetDeltaTenths = Infinity;
-  for (let i = 1; i < partLayoutXs.length; i++) {
-    const d = partLayoutXs[i]! - partLayoutXs[i - 1]!;
-    if (d > 0.01 && d < minOnsetDeltaTenths) {
-      minOnsetDeltaTenths = d;
-    }
-  }
-
-  // 박자 비례 거리 유지를 위해 전체 measureSpan을 필요한 만큼 비례 확장
-  // 아무리 짧은 박자(16분 쉼표/음표 등)라도 최소한의 거리(MIN_NOTE_REST_GAP_PX)를 확보
-  if (Number.isFinite(minOnsetDeltaTenths) && minOnsetDeltaTenths > 0) {
-    const minRequiredSpan = (MIN_NOTE_REST_GAP_PX / minOnsetDeltaTenths) * LAYOUT_SPAN;
-    if (measureSpan.spanPx < minRequiredSpan) {
-      measureSpan.spanPx = minRequiredSpan;
-    }
-  }
-
   type Column = { layoutX: number; pitchSet: string[]; expectHeads: number };
   type Place = { stavenote: SVGGraphicsElement; centerX: number; layoutX: number };
   let moved = false;
@@ -3344,12 +3322,9 @@ function alignMeasureNotesByOnsetLayoutGrid(
 
     const ordered = [...voicePlan].sort((a, b) => a.layoutX - b.layoutX || a.centerX - b.centerX);
     let prevWant = -Infinity;
-    let prevLayoutX = -Infinity;
     for (const p of ordered) {
       let want = wantXFromLayoutGrid(measureSpan, p.layoutX);
-      const isNewOnset = p.layoutX > prevLayoutX + 0.01;
-      const minStep = isNewOnset ? MIN_NOTE_REST_GAP_PX : 0.5;
-      if (want < prevWant + minStep) want = prevWant + minStep;
+      if (want < prevWant + 0.5) want = prevWant + 0.5;
       const dx = want - p.centerX;
       if (Math.abs(dx) > 0.5) moved = true;
       applySvgTranslateX(
@@ -3358,7 +3333,6 @@ function alignMeasureNotesByOnsetLayoutGrid(
         Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2),
       );
       prevWant = want;
-      prevLayoutX = p.layoutX;
     }
   }
   return moved;

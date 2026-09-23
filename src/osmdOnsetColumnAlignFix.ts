@@ -2019,6 +2019,35 @@ function syncVfEngravingInMeasure(measure: Element): void {
         );
       const leftOnTip = onAnyTip(g.left);
       const rightOnTip = onAnyTip(g.right);
+
+      const tipNearNat = (x: number) =>
+        tipsAfter.find((t) => yOk(t) && Math.abs(t.naturalX - x) <= 1.2);
+      const tipNearEff = (x: number) =>
+        tipsAfter.find((t) => yOk(t) && Math.abs(t.effectiveX - x) <= 1.2);
+      const tL_nat = tipNearNat(g.left);
+      const tR_nat = tipNearNat(g.right);
+      const tL_eff = tipNearEff(g.left);
+      const tR_eff = tipNearEff(g.right);
+      const connectsTwoStems =
+        (tL_nat != null && tR_nat != null && tL_nat !== tR_nat) ||
+        (tL_eff != null && tR_eff != null && tL_eff !== tR_eff);
+
+      const underWiderEarly = geoms.some(
+        (o) =>
+          o.el !== g.el &&
+          o.w > g.w + 2 &&
+          Math.abs(o.midY - g.midY) < 12 &&
+          o.left < g.right - 2 &&
+          o.right > g.left + 2,
+      );
+
+      // 1차 빔 아래에서 두 줄기를 잇는 빔(natural 또는 effective 좌표에서 양 끝이 줄기에 닿음)은
+      // 좁은 간격이나 줄기 오프셋으로 인해 hook으로 오분류되지 않고 확실한 2차 빔으로 분류.
+      if (connectsTwoStems && underWiderEarly) {
+        beamClass.set(g.el, 'secondary');
+        continue;
+      }
+
       // remesh로 Softmax 1차가 hookMaxW 아래로 짧아져도 Softmax span이 넓으면 1차 유지
       // (아니면 flip/coverPrim이 앞 그룹을 고르고 forward 꼬리가 뒤집힘 — zoom마다 16↔점8)
       const storedSpan = beamNaturalSpanByEl.get(g.el);

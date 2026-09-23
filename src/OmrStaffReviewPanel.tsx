@@ -39,6 +39,8 @@ const IMAGE_PDF_LIGHT_PIPELINE = 'image_pdf';
 const PNG_DPI_DEFAULT = 156;
 const PNG_DPI_IMAGE_LIGHT = 72;
 const PNG_MAX_SIDE_IMAGE_LIGHT = 1200;
+const OMR_PDF_COL_WIDTH_STORAGE_KEY = 'omr_staff_review_pdf_col_width';
+const DEFAULT_PDF_COL_WIDTH = 390;
 
 /** PDF 페이지 PNG — src 교체만으로 멈추지 않게 선로드 + 로딩 표시. */
 function DiagnosticPagePng(props: {
@@ -261,6 +263,25 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
   const [rangeImportEnd, setRangeImportEnd] = useState(16);
   const [rangeImportTargetStart, setRangeImportTargetStart] = useState<number | ''>('');
   const [rangeImportOpen, setRangeImportOpen] = useState(false);
+
+  const [pdfColWidth, setPdfColWidth] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem(OMR_PDF_COL_WIDTH_STORAGE_KEY));
+      if (Number.isFinite(v) && v >= 280 && v <= 600) return v;
+    } catch {
+      /* ignore */
+    }
+    return DEFAULT_PDF_COL_WIDTH;
+  });
+
+  const changePdfColWidth = useCallback((w: number) => {
+    setPdfColWidth(w);
+    try {
+      localStorage.setItem(OMR_PDF_COL_WIDTH_STORAGE_KEY, String(w));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const pageCount = Math.max(1, summary?.pageCountForUi ?? 1);
   /** 이미지 PDF 파이프라인만 경량 HITL(성부1+선택/다음 마디). imagePdfOmrEngine만으로는 판단하지 않음. */
@@ -1375,10 +1396,45 @@ export function OmrStaffReviewPanel({ jobId, onContinue, continuing }: Props) {
         ) : null}
       </div>
 
-      <div className="omr-compare-row">
-        <div className="omr-compare-col">
-          <div style={{ fontSize: '0.88rem', marginBottom: 6, fontWeight: 600, color: '#333' }}>
-            PDF ({pngSource === 'clean_score' ? 'clean_score' : '원본'}) · p.{page} · {pngDpi} DPI
+      <div
+        className="omr-compare-row"
+        style={{ '--omr-pdf-col-width': `${pdfColWidth}px` } as React.CSSProperties}
+      >
+        <div className="omr-compare-col omr-compare-col--pdf">
+          <div className="omr-pdf-preview-head">
+            <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#333' }}>
+              PDF ({pngSource === 'clean_score' ? 'clean_score' : '원본'}) · p.{page} · {pngDpi} DPI
+            </span>
+            <div
+              className="omr-pdf-col-width-controls"
+              title="왼쪽 PDF 화면 폭 조절 (줄어든 만큼 오른쪽 MXL 화면이 넓어집니다)"
+            >
+              <span style={{ fontSize: '0.76rem', color: '#666', marginRight: 2 }}>폭</span>
+              <button
+                type="button"
+                className={pdfColWidth === 330 ? 'btn-active' : 'btn-muted'}
+                style={{ padding: '2px 7px', fontSize: '0.74rem', minWidth: 'auto', borderRadius: 4 }}
+                onClick={() => changePdfColWidth(330)}
+              >
+                좁게
+              </button>
+              <button
+                type="button"
+                className={pdfColWidth === 390 ? 'btn-active' : 'btn-muted'}
+                style={{ padding: '2px 7px', fontSize: '0.74rem', minWidth: 'auto', borderRadius: 4 }}
+                onClick={() => changePdfColWidth(390)}
+              >
+                보통
+              </button>
+              <button
+                type="button"
+                className={pdfColWidth === 460 ? 'btn-active' : 'btn-muted'}
+                style={{ padding: '2px 7px', fontSize: '0.74rem', minWidth: 'auto', borderRadius: 4 }}
+                onClick={() => changePdfColWidth(460)}
+              >
+                넓게
+              </button>
+            </div>
           </div>
           <div className="omr-pdf-frame">
             <div className="omr-pdf-page-hit-root">

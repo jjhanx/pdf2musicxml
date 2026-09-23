@@ -592,7 +592,7 @@ button.btn-muted {
   width: 100%;
   border: 1px solid #bbb;
   border-radius: 6px;
-  background: #eceff1;
+  background: #ffffff;
   overflow: auto;
   max-height: min(68vh, 900px);
 }
@@ -672,7 +672,7 @@ button.btn-muted {
 
 .modal-light .omr-compare-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(300px, var(--omr-pdf-col-width, 390px)) 1fr;
   gap: 0.85rem 1rem;
   align-items: start;
 }
@@ -683,8 +683,33 @@ button.btn-muted {
   }
 }
 
+.modal-light .omr-compare-col--pdf {
+  min-width: 0;
+}
+
 .modal-light .omr-compare-col--mxl {
   min-width: 0;
+}
+
+.modal-light .omr-pdf-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 0.75rem;
+  margin-bottom: 6px;
+}
+
+.modal-light .omr-pdf-col-width-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.modal-light .omr-pdf-col-width-controls button.btn-active {
+  background: #2563eb;
+  color: #fff;
+  border: 1px solid #1d4ed8;
 }
 
 .modal-light .omr-mxl-preview-head {

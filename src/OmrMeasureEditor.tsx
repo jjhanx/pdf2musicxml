@@ -978,7 +978,7 @@ function MeasureNavigationEditor({
               <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
                 dir #{d.directionIndex}
                 {d.measureAnchor ? ` · ${d.measureAnchor === 'start' ? '마디 처음' : '마디 끝'}` : ' · 마디 중간(독립)'}
-                {d.staff != null ? ` · staff ${d.staff}` : ''}
+                {d.staff != null ? ` · staff ${d.staff}` : ((partStaveCount ?? 1) > 1 ? ' · 보표 사이(PR/PL 공통)' : '')}
               </span>
               <strong>{d.directionValue || d.text || 'dynamics'}</strong>
               <select
@@ -988,12 +988,33 @@ function MeasureNavigationEditor({
                     kind: 'setDirectionPlacement',
                     directionIndex: d.directionIndex,
                     placement: e.target.value as 'above' | 'below',
+                    distance: d.distance ?? undefined,
                   })
                 }
                 style={{ fontSize: '0.82rem', padding: '1px 4px' }}
+                title="위치 (위/아래)"
               >
                 <option value="above">위</option>
                 <option value="below">아래</option>
+              </select>
+              <select
+                value={articulationDistanceSelectValue(d.distance, d.defaultY)}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setDirectionPlacement',
+                    directionIndex: d.directionIndex,
+                    placement: (d.placement || 'below') as 'above' | 'below',
+                    distance: e.target.value,
+                  })
+                }
+                style={{ fontSize: '0.82rem', padding: '1px 4px' }}
+                title="거리 (칸수)"
+              >
+                {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <button
                 type="button"
@@ -1505,11 +1526,13 @@ function MeasureDirectionsEditor({
   directions,
   measureMxl,
   directionSourcePartId,
+  partStaveCount,
   onFix,
 }: {
   directions: MeasureDirectionEl[];
   measureMxl: number;
   directionSourcePartId?: string;
+  partStaveCount?: number;
   onFix: (partial: FixPartial) => void;
 }) {
   const [edits, setEdits] = useState<Record<number, string>>({});
@@ -1524,9 +1547,6 @@ function MeasureDirectionsEditor({
 
   if (!directions.length) return null;
 
-  const textDirections = directions.filter((d) => !isNavigationDirection(d));
-  if (!textDirections.length) return null;
-
   return (
     <div
       className="omr-measure-directions-panel"
@@ -1538,105 +1558,134 @@ function MeasureDirectionsEditor({
         border: '1px solid #ffe082',
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: 6 }}>마디 텍스트 (제목·OCR 찌끼)</div>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>마디 텍스트 및 독립 기호 (제목·OCR 찌끼·독립 셈여림)</div>
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', lineHeight: 1.45, color: '#444' }}>
-        OMR이 넣은 <code>&lt;direction&gt;&lt;words&gt;</code> 입니다. clean_score에 남은 제목 한글·숫자 찌끼를{' '}
-        <strong>삭제</strong>하거나 올바른 제목으로 <strong>고친 뒤</strong> 「MXL에 반영·미리보기」를 누르세요.
+        OMR이 넣은 <code>&lt;direction&gt;</code>(텍스트 words 또는 독립 셈여림/기호)입니다. clean_score에 남은 한글·글자·기호 찌끼를{' '}
+        <strong>삭제</strong>하거나 올바른 내용으로 <strong>고친 뒤</strong> 「MXL에 반영·미리보기」를 누르세요.
         {measureMxl === 1 ? ' 1마디 상단 제목은 여기서 지우는 경우가 많습니다.' : ''}
         {directionSourcePartId ?
           ` (제목 direction은 part ${directionSourcePartId}에 저장됩니다.)`
         : ''}
       </p>
       <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {textDirections.map((d) => (
-          <li
-            key={`dir-${d.directionIndex}`}
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 8,
-              alignItems: 'center',
-              padding: '0.35rem 0',
-              borderBottom: '1px solid #ffe082',
-            }}
-          >
-            <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
-              dir #{d.directionIndex}
-              {d.staff != null ? ` · staff ${d.staff}` : ''}
-            </span>
-            <input
-              type="text"
-              value={edits[d.directionIndex] ?? d.text}
-              onChange={(e) =>
-                setEdits((prev) => ({
-                  ...prev,
-                  [d.directionIndex]: e.target.value,
-                }))
-              }
-              style={{ flex: '1 1 12rem', minWidth: '8rem', padding: '0.35rem 0.5rem' }}
-            />
-            <select
-              value={d.placement || 'above'}
-              onChange={(e) =>
-                onFix({
-                  kind: 'setDirectionPlacement',
-                  directionIndex: d.directionIndex,
-                  placement: e.target.value as 'above' | 'below',
-                  distance: d.distance ?? undefined,
-                })
-              }
-              style={{ fontSize: '0.82rem', padding: '0.35rem 0.4rem' }}
-              title="위치 (위/아래)"
+        {directions.map((d) => {
+          const isDyn = isDynamicsDirection(d);
+          const staffLabel =
+            d.staff != null
+              ? `staff ${d.staff}`
+              : (partStaveCount ?? 1) > 1
+                ? '보표 사이(PR/PL 공통)'
+                : '';
+          return (
+            <li
+              key={`dir-${d.directionIndex}`}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                padding: '0.35rem 0',
+                borderBottom: '1px solid #ffe082',
+              }}
             >
-              <option value="above">위 (above)</option>
-              <option value="below">아래 (below)</option>
-            </select>
-            <select
-              value={articulationDistanceSelectValue(d.distance, d.defaultY)}
-              onChange={(e) =>
-                onFix({
-                  kind: 'setDirectionPlacement',
-                  directionIndex: d.directionIndex,
-                  placement: (d.placement || 'above') as 'above' | 'below',
-                  distance: e.target.value,
-                })
-              }
-              style={{ fontSize: '0.82rem', padding: '0.35rem 0.4rem' }}
-              title="거리 (칸수)"
-            >
-              {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="omr-hitl-fix-btn"
-              onClick={() =>
-                onFix({
-                  kind: 'setMeasureDirectionText',
-                  directionIndex: d.directionIndex,
-                  text: (edits[d.directionIndex] ?? d.text).trim(),
-                })
-              }
-            >
-              텍스트 적용
-            </button>
-            <button
-              type="button"
-              className="omr-hitl-fix-btn"
-              onClick={() =>
-                onFix({
-                  kind: 'removeDirection',
-                  directionIndex: d.directionIndex,
-                })
-              }
-            >
-              삭제
-            </button>
-          </li>
-        ))}
+              <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
+                dir #{d.directionIndex}
+                {staffLabel ? ` · ${staffLabel}` : ''}
+                {d.measureAnchor ? ` · ${d.measureAnchor === 'start' ? '마디 처음' : '마디 끝'}` : isDyn ? ' · 독립 기호' : ''}
+              </span>
+              {isDyn ? (
+                <span
+                  style={{
+                    display: 'inline-block',
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    background: '#e3f2fd',
+                    color: '#1565c0',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                  }}
+                  title="어느 음표에도 속하지 않는 독립 셈여림 기호"
+                >
+                  셈여림 {d.directionValue || d.text}
+                </span>
+              ) : null}
+              <input
+                type="text"
+                value={edits[d.directionIndex] ?? d.text}
+                placeholder={isDyn ? `(기호: ${d.directionValue || d.text} → 텍스트 입력 시 변환)` : '텍스트 입력'}
+                onChange={(e) =>
+                  setEdits((prev) => ({
+                    ...prev,
+                    [d.directionIndex]: e.target.value,
+                  }))
+                }
+                style={{ flex: '1 1 12rem', minWidth: '8rem', padding: '0.35rem 0.5rem' }}
+              />
+              <select
+                value={d.placement || 'above'}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setDirectionPlacement',
+                    directionIndex: d.directionIndex,
+                    placement: e.target.value as 'above' | 'below',
+                    distance: d.distance ?? undefined,
+                  })
+                }
+                style={{ fontSize: '0.82rem', padding: '0.35rem 0.4rem' }}
+                title="위치 (위/아래)"
+              >
+                <option value="above">위 (above)</option>
+                <option value="below">아래 (below)</option>
+              </select>
+              <select
+                value={articulationDistanceSelectValue(d.distance, d.defaultY)}
+                onChange={(e) =>
+                  onFix({
+                    kind: 'setDirectionPlacement',
+                    directionIndex: d.directionIndex,
+                    placement: (d.placement || 'above') as 'above' | 'below',
+                    distance: e.target.value,
+                  })
+                }
+                style={{ fontSize: '0.82rem', padding: '0.35rem 0.4rem' }}
+                title="거리 (칸수)"
+              >
+                {ARTICULATION_DISTANCE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                onClick={() =>
+                  onFix({
+                    kind: 'setMeasureDirectionText',
+                    directionIndex: d.directionIndex,
+                    text: (edits[d.directionIndex] ?? d.text).trim(),
+                  })
+                }
+                title="텍스트로 변경하거나 내용 수정"
+              >
+                {isDyn ? '텍스트로 변경' : '텍스트 적용'}
+              </button>
+              <button
+                type="button"
+                className="omr-hitl-fix-btn"
+                style={{ background: '#ffebee', borderColor: '#ef9a9a', color: '#c62828' }}
+                onClick={() =>
+                  onFix({
+                    kind: 'removeDirection',
+                    directionIndex: d.directionIndex,
+                  })
+                }
+              >
+                삭제
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -2714,7 +2763,8 @@ export function OmrMeasureEditor({
         (d) =>
           isNavigationDirection(d) ||
           (isDynamicsDirection(d) &&
-            ['start', 'end'].includes((d.measureAnchor || '').trim().toLowerCase())),
+            (d.attachedToNoteIndex == null ||
+              ['start', 'end'].includes((d.measureAnchor || '').trim().toLowerCase()))),
       ),
     [measureDirections],
   );
@@ -2723,7 +2773,7 @@ export function OmrMeasureEditor({
       measureDirections.filter(
         (d) =>
           !isNavigationDirection(d) &&
-          !isDynamicsDirection(d) &&
+          (!isDynamicsDirection(d) || d.attachedToNoteIndex == null) &&
           !isWedgeDirection(d) &&
           !isOctaveShiftDirection(d),
       ),
@@ -3658,6 +3708,7 @@ export function OmrMeasureEditor({
             directions={textDirections}
             measureMxl={measureMxl}
             directionSourcePartId={snapshot.directionSourcePartId}
+            partStaveCount={partStaveCount}
             onFix={pushFix}
           />
           <MeasureTempoEditor

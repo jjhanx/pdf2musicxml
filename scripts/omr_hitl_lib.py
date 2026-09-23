@@ -12040,6 +12040,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         reh = dtype.find(_q(ns, "rehearsal"))
         target = words if words is not None else reh
         if target is None:
+            for old_dyn in list(dtype.findall(_q(ns, "dynamics"))):
+                dtype.remove(old_dyn)
             words = ET.SubElement(dtype, _q(ns, "words"))
             target = words
         target.text = new_text

@@ -8,7 +8,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from 'react';
-import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import { OpenSheetMusicDisplay, RhythmInstruction } from 'opensheetmusicdisplay';
 import {
   pruneCrossStaffTimelineForOsmdPreview,
   stampHitlSourceNoteIdentity,
@@ -2196,6 +2196,54 @@ function appendOsmdWidthHint(host: HTMLDivElement) {
   host.insertBefore(d, host.firstChild);
 }
 
+/** 마디 XML에 명시적인 <time> 태그가 선언되어 있는지 검사 */
+export function xmlMeasureHasExplicitTime(xml: string, measureNum: number | string): boolean {
+  if (!xml) return false;
+  const targetNum = String(measureNum).trim();
+  const measureRegex = new RegExp(
+    `<measure\\b[^>]*\\bnumber=["']${targetNum}["'][^>]*>([\\s\\S]*?)</measure>`,
+    'gi',
+  );
+  let match: RegExpExecArray | null;
+  while ((match = measureRegex.exec(xml)) !== null) {
+    const content = match[1];
+    if (/<time\b[^>]*>[\s\S]*?<\/time>/i.test(content)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 미리보기 슬라이스에서 악보 전체 첫 마디(m1)가 아닌 시작 마디에 OSMD가
+ * 기본 4/4 박자표를 강제 주입하여 표시하는 것을 억제.
+ * 실제 악보에서 박자가 변경되는 마디(<time>이 명시된 마디)나 1마디는 정상 표시 유지.
+ */
+export function suppressOsmdSpuriousTimeSignatures(
+  osmd: OpenSheetMusicDisplay,
+  xml?: string,
+): void {
+  const sheet = osmd.Sheet;
+  if (!sheet || !sheet.SourceMeasures || !sheet.SourceMeasures.length) return;
+  const sm0 = sheet.SourceMeasures[0];
+  if (!sm0) return;
+  const mNum = sm0.MeasureNumberXML;
+  if (mNum === 1 || mNum === '1') return;
+
+  if (xml && xmlMeasureHasExplicitTime(xml, mNum)) {
+    return;
+  }
+
+  for (const entry of sm0.FirstInstructionsStaffEntries ?? []) {
+    if (!entry?.Instructions) continue;
+    for (const inst of entry.Instructions) {
+      if (inst instanceof RhythmInstruction) {
+        inst.PrintObject = false;
+      }
+    }
+  }
+}
+
 /**
  * Wait for nonzero layout width then call OSMD.render; catch layout bugs realValue/octave-shift.
  * ResizeObserver retries if the modal column stayed at ~0 CSS width briefly.
@@ -2236,6 +2284,8 @@ function scheduleOsmdRender(opts: {
       enforceOsmdPreviewMeasureNumberRules(osmd);
       // OSMD는 voice≠1 쉼표를 아래로 밀거나 align_rests로 화음에 붙임 — render 전 vfpitch 고정
       patchOsmdPolyphonicRestVfpitch(osmd);
+      // 악보 전체 첫 마디(m1)가 아닌 슬라이스 시작 마디에 OSMD가 주입한 기본 박자표 억제 (실제 박자 변경 마디는 유지)
+      suppressOsmdSpuriousTimeSignatures(osmd, wedgeRulesXml);
       try {
         prepareGraphicalSlursForOsmdPreview(osmd);
       } catch (e) {

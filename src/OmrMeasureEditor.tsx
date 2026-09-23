@@ -707,11 +707,11 @@ function MeasureNavigationEditor({
   }, [editStaffWithinPart, insertStaff]);
 
   const selected = NAVIGATION_INSERT_OPTIONS[navKind] ?? NAVIGATION_INSERT_OPTIONS[0];
-  // 음표에 붙은 dynamics는 아래 음표 행에만 — 여기에는 마디 처음/끝 standalone만
+  // 음표에 붙은 dynamics는 아래 음표 행에만 — 여기에는 음표에 붙지 않은 마디 수준 standalone 전체(처음/끝 및 마디 중간 orphan 포함)
   const measureDynDirections = directions.filter((d) => {
     if (!isDynamicsDirection(d)) return false;
-    const a = (d.measureAnchor || '').trim().toLowerCase();
-    return a === 'start' || a === 'end';
+    if (d.attachedToNoteIndex != null) return false;
+    return true;
   });
   const navOnlyDirections = directions.filter((d) => isNavigationDirection(d));
 
@@ -977,6 +977,7 @@ function MeasureNavigationEditor({
             >
               <span style={{ fontSize: '0.82rem', color: '#666', minWidth: 72 }}>
                 dir #{d.directionIndex}
+                {d.measureAnchor ? ` · ${d.measureAnchor === 'start' ? '마디 처음' : '마디 끝'}` : ' · 마디 중간(독립)'}
                 {d.staff != null ? ` · staff ${d.staff}` : ''}
               </span>
               <strong>{d.directionValue || d.text || 'dynamics'}</strong>
@@ -2290,6 +2291,11 @@ export function OmrMeasureEditor({
   const [clefPitchMode, setClefPitchMode] = useState<'keep' | 'remap'>('remap');
   /** 마디 머리 조표(fifths). 0=C/Am */
   const [keyFifths, setKeyFifths] = useState(0);
+  /** 마디 머리 박자표 프리셋 */
+  const [timePreset, setTimePreset] = useState<string>('4/4');
+  const [customBeats, setCustomBeats] = useState<string>('4');
+  const [customBeatType, setCustomBeatType] = useState<string>('4');
+  const [timeApplyAllParts, setTimeApplyAllParts] = useState<boolean>(true);
 
   const handleApplyClef = useCallback(
     (sign: 'G' | 'F', line: 2 | 4) => {
@@ -2398,6 +2404,71 @@ export function OmrMeasureEditor({
       `✅ ${staffLabel ? `${staffLabel} ` : ''}${scopeLabel} 머리 조표 제거 등록. 「MXL에 반영·미리보기」로 적용하세요.`,
     );
   }, [keyScopeRange, partId, editStaffWithinPart, staffLabel, onAddFix]);
+
+  const handleApplyTime = useCallback(() => {
+    let beats = 4;
+    let beatType = 4;
+    let symbol: string | undefined = undefined;
+    if (timePreset === 'custom') {
+      beats = parseInt(customBeats, 10) || 4;
+      beatType = parseInt(customBeatType, 10) || 4;
+    } else if (timePreset === '4/4_common') {
+      beats = 4;
+      beatType = 4;
+      symbol = 'common';
+    } else if (timePreset === '2/2_cut') {
+      beats = 2;
+      beatType = 2;
+      symbol = 'cut';
+    } else {
+      const [b, bt] = timePreset.split('/').map((s) => parseInt(s, 10));
+      beats = b || 4;
+      beatType = bt || 4;
+    }
+
+    const { rangeStr, scopeLabel } = keyScopeRange();
+    const timeLabel = `${beats}/${beatType}${symbol ? ` (${symbol})` : ''}`;
+    const fix: OmrHitlFix = {
+      id: newFixId(),
+      kind: 'setMeasureTime',
+      partId,
+      measureMxl: rangeStr,
+      beats,
+      beatType,
+      timeSymbol: symbol,
+      applyToAllParts: timeApplyAllParts,
+      detail: `${timeApplyAllParts ? '전체 파트 · ' : staffLabel ? `${staffLabel} ` : ''}박자표 ${timeLabel} (${scopeLabel} 머리)`,
+    };
+    onAddFix(fix);
+    setFixMsg(
+      `✅ ${timeApplyAllParts ? '전체 파트 · ' : staffLabel ? `${staffLabel} ` : ''}${scopeLabel} 머리에 박자표 ${timeLabel} 등록. 「MXL에 반영·미리보기」로 적용하세요.`,
+    );
+  }, [
+    timePreset,
+    customBeats,
+    customBeatType,
+    timeApplyAllParts,
+    keyScopeRange,
+    partId,
+    staffLabel,
+    onAddFix,
+  ]);
+
+  const handleRemoveTime = useCallback(() => {
+    const { rangeStr, scopeLabel } = keyScopeRange();
+    const fix: OmrHitlFix = {
+      id: newFixId(),
+      kind: 'removeMeasureTime',
+      partId,
+      measureMxl: rangeStr,
+      applyToAllParts: timeApplyAllParts,
+      detail: `${timeApplyAllParts ? '전체 파트 · ' : staffLabel ? `${staffLabel} ` : ''}박자표 제거 (${scopeLabel} 머리)`,
+    };
+    onAddFix(fix);
+    setFixMsg(
+      `✅ ${timeApplyAllParts ? '전체 파트 · ' : staffLabel ? `${staffLabel} ` : ''}${scopeLabel} 머리 박자표 제거 등록. 「MXL에 반영·미리보기」로 적용하세요.`,
+    );
+  }, [keyScopeRange, partId, timeApplyAllParts, staffLabel, onAddFix]);
 
   const measureMxlStr = String(measureMxl);
 
@@ -3407,6 +3478,85 @@ export function OmrMeasureEditor({
               onClick={() => handleRemoveKey()}
             >
               이 범위 머리 조표 제거
+            </button>
+          </div>
+        </div>
+        <div
+          style={{
+            marginTop: 14,
+            paddingTop: 12,
+            borderTop: '1px dashed #cbd5e1',
+          }}
+        >
+          <p className="omr-measure-editor-hint" style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#475569' }}>
+            <strong>박자표</strong> — 마디 맨 앞 머리 attributes에 넣습니다.
+            중간에 박자가 바뀌는 경우나 OMR이 박자표를 누락/오인식했을 때 위 <strong>적용 범위</strong>로 삽입·변경하거나 제거합니다.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: '0.86rem' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>박자:</span>
+              <select
+                value={timePreset}
+                onChange={(e) => setTimePreset(e.target.value)}
+                style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #94a3b8' }}
+              >
+                <option value="4/4">4/4</option>
+                <option value="4/4_common">4/4 (Common C)</option>
+                <option value="3/4">3/4</option>
+                <option value="2/4">2/4</option>
+                <option value="6/8">6/8</option>
+                <option value="9/8">9/8</option>
+                <option value="12/8">12/8</option>
+                <option value="3/8">3/8</option>
+                <option value="2/2">2/2</option>
+                <option value="2/2_cut">2/2 (Cut C|)</option>
+                <option value="custom">직접 입력...</option>
+              </select>
+            </label>
+            {timePreset === 'custom' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <input
+                  type="number"
+                  value={customBeats}
+                  onChange={(e) => setCustomBeats(e.target.value)}
+                  style={{ width: 44, padding: '3px 6px', borderRadius: 4, border: '1px solid #94a3b8' }}
+                  min={1}
+                  max={32}
+                />
+                /
+                <input
+                  type="number"
+                  value={customBeatType}
+                  onChange={(e) => setCustomBeatType(e.target.value)}
+                  style={{ width: 44, padding: '3px 6px', borderRadius: 4, border: '1px solid #94a3b8' }}
+                  min={1}
+                  max={64}
+                />
+              </span>
+            ) : null}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.82rem', color: '#334155' }}>
+              <input
+                type="checkbox"
+                checked={timeApplyAllParts}
+                onChange={(e) => setTimeApplyAllParts(e.target.checked)}
+              />
+              전체 파트 적용
+            </label>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ padding: '5px 12px', fontSize: '0.86rem' }}
+              onClick={() => handleApplyTime()}
+            >
+              박자표 삽입·변경
+            </button>
+            <button
+              type="button"
+              className="btn-muted"
+              style={{ padding: '5px 12px', fontSize: '0.86rem' }}
+              onClick={() => handleRemoveTime()}
+            >
+              이 범위 머리 박자표 제거
             </button>
           </div>
         </div>

@@ -133,6 +133,12 @@ export type OmrHitlFix = {
   keyMode?: string;
   /** setMeasureKey — 범위 적용 시 이후 마디 머리 key 제거(앞 조표 상속) */
   removeSubsequentKeys?: boolean;
+  /** setMeasureTime — 박자표 beats (분자) */
+  beats?: number | string;
+  /** setMeasureTime — 박자표 beat-type (분모) */
+  beatType?: number | string;
+  /** setMeasureTime — MusicXML time symbol (예: 'common', 'cut') */
+  timeSymbol?: string;
   /** barline — left | right | middle */
   barlineLocation?: 'left' | 'right' | 'middle' | string;
   /** forward=열림 도돌이 · backward=닫힘 도돌이 */
@@ -152,6 +158,8 @@ export const FIX_KIND_LABEL: Record<string, string> = {
   setPartClef: '음자리표 변경',
   setMeasureKey: '조표(키) 삽입·변경',
   removeMeasureKey: '조표 제거',
+  setMeasureTime: '박자표 삽입·변경',
+  removeMeasureTime: '박자표 제거',
   insertClef: '마디 중간 음자리표',
   removeClef: '마디 중간 음자리표 삭제',
   copyMeasureContent: '마디 파트 복사/이동',
@@ -339,6 +347,19 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
           f.partId === next.partId &&
           String(f.measureMxl) === mxl &&
           (f.staff ?? null) === staff
+        ),
+    );
+    return [...filtered, { ...next, id: next.id || newFixId() }];
+  }
+  // 같은 파트·마디(범위) 박자표는 최신으로 교체
+  if (next.kind === 'setMeasureTime' || next.kind === 'removeMeasureTime') {
+    const mxl = String(next.measureMxl);
+    const filtered = fixes.filter(
+      (f) =>
+        !(
+          (f.kind === 'setMeasureTime' || f.kind === 'removeMeasureTime') &&
+          f.partId === next.partId &&
+          String(f.measureMxl) === mxl
         ),
     );
     return [...filtered, { ...next, id: next.id || newFixId() }];
@@ -612,6 +633,13 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     }
     if (fix.keyMode) parts.push(fix.keyMode);
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
+  }
+  if (fix.kind === 'setMeasureTime' || fix.kind === 'removeMeasureTime') {
+    if (fix.beats != null && fix.beatType != null) {
+      parts.push(`${fix.beats}/${fix.beatType}`);
+    }
+    if (fix.timeSymbol) parts.push(fix.timeSymbol);
+    if (fix.applyToAllParts) parts.push('전체 파트');
   }
   if (fix.kind === 'removeClef' && fix.clefIndex != null) {
     if (fix.clefScope === 'header') parts.push('마디 머리');

@@ -10289,6 +10289,156 @@ def _apply_set_measure_key(root: ET.Element, ns: str, fix: dict[str, Any]) -> bo
     return changed
 
 
+def _insert_time_element_in_attributes(attrs: ET.Element, ns: str, time_el: ET.Element) -> None:
+    children = list(attrs)
+    insert_at = len(children)
+    before_tags = {
+        "staves",
+        "part-symbol",
+        "instruments",
+        "clef",
+        "staff-details",
+        "transpose",
+        "directive",
+        "measure-style",
+    }
+    for idx, c in enumerate(children):
+        if _local(c) in before_tags:
+            insert_at = idx
+            break
+    attrs.insert(insert_at, time_el)
+
+
+def _ensure_header_time(
+    measure: ET.Element,
+    ns: str,
+    beats: str | int,
+    beat_type: str | int,
+    *,
+    symbol: str | None = None,
+) -> bool:
+    """마디 머리(첫 음 전) attributes에 <time> 삽입·갱신."""
+    pre = _header_attributes_blocks(measure)
+    changed = False
+    if not pre:
+        header = ET.Element(_q(ns, "attributes"))
+        measure.insert(0, header)
+        pre = [header]
+        changed = True
+
+    time_el = pre[0].find(_q(ns, "time"))
+    if time_el is None:
+        time_el = ET.Element(_q(ns, "time"))
+        _insert_time_element_in_attributes(pre[0], ns, time_el)
+        changed = True
+
+    if symbol:
+        if time_el.get("symbol") != symbol:
+            time_el.set("symbol", symbol)
+            changed = True
+    elif "symbol" in time_el.attrib:
+        del time_el.attrib["symbol"]
+        changed = True
+
+    beats_el = time_el.find(_q(ns, "beats"))
+    if beats_el is None:
+        beats_el = ET.Element(_q(ns, "beats"))
+        time_el.insert(0, beats_el)
+        changed = True
+    if (beats_el.text or "").strip() != str(beats):
+        beats_el.text = str(beats)
+        changed = True
+
+    bt_el = time_el.find(_q(ns, "beat-type"))
+    if bt_el is None:
+        bt_el = ET.SubElement(time_el, _q(ns, "beat-type"))
+        changed = True
+    if (bt_el.text or "").strip() != str(beat_type):
+        bt_el.text = str(beat_type)
+        changed = True
+
+    return changed
+
+
+def _remove_header_times(measure: ET.Element, ns: str) -> bool:
+    """마디 머리 time 제거(이후 마디가 앞 박자표를 상속)."""
+    changed = False
+    for attrs in _header_attributes_blocks(measure):
+        for time_el in list(attrs.findall(_q(ns, "time"))):
+            attrs.remove(time_el)
+            changed = True
+        if len(list(attrs)) == 0 and attrs in list(measure):
+            measure.remove(attrs)
+            changed = True
+    return changed
+
+
+def _apply_set_measure_time(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
+    """마디 머리(첫 음 전) attributes에 박자표(<time>) 삽입·변경 또는 제거."""
+    part_id = str(fix.get("partId") or "").strip()
+    measure_spec = str(fix.get("measureMxl") or "").strip()
+    apply_all = bool(fix.get("applyToAllParts", True))
+
+    if not measure_spec:
+        return False
+
+    parts_to_apply = []
+    if apply_all:
+        parts_to_apply = list(root.findall(_q(ns, "part")))
+    else:
+        p = find_part(root, ns, part_id)
+        if p is not None:
+            parts_to_apply = [p]
+
+    if not parts_to_apply:
+        return False
+
+    kind = str(fix.get("kind") or "")
+    changed = False
+
+    for part in parts_to_apply:
+        measures = part.findall(_q(ns, "measure"))
+        if "-" in measure_spec:
+            parts_str = measure_spec.split("-", 1)
+            try:
+                start_n = int(parts_str[0].strip())
+                end_n = int(parts_str[1].strip())
+                target_measures = [
+                    m
+                    for m in measures
+                    if m.get("number")
+                    and str(m.get("number")).isdigit()
+                    and start_n <= int(m.get("number")) <= end_n
+                ]
+            except ValueError:
+                target_measures = [m for m in measures if m.get("number") == measure_spec]
+        else:
+            target_measures = [m for m in measures if m.get("number") == measure_spec]
+
+        if not target_measures:
+            continue
+
+        if kind == "removeMeasureTime":
+            for m in target_measures:
+                if _remove_header_times(m, ns):
+                    changed = True
+        else:
+            beats = fix.get("beats")
+            beat_type = fix.get("beatType")
+            if beats is None or beat_type is None:
+                continue
+            symbol = fix.get("timeSymbol")
+            symbol_s = str(symbol).strip() if symbol not in (None, "") else None
+            if _ensure_header_time(target_measures[0], ns, beats, beat_type, symbol=symbol_s):
+                changed = True
+            if len(target_measures) > 1:
+                for m in target_measures[1:]:
+                    if _remove_header_times(m, ns):
+                        changed = True
+
+    return changed
+
+
 def _ensure_measure_start_clef_on_staff(
     measure: ET.Element, ns: str, staff_n: int, sign: str, line: int
 ) -> bool:
@@ -11461,6 +11611,9 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
 
     if kind in ("setMeasureKey", "removeMeasureKey"):
         return _apply_set_measure_key(root, ns, fix)
+
+    if kind in ("setMeasureTime", "removeMeasureTime"):
+        return _apply_set_measure_time(root, ns, fix)
 
     if kind == "insertClef":
         return _apply_insert_clef(root, ns, fix)
@@ -15567,6 +15720,8 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
         "setPartClef",
         "setMeasureKey",
         "removeMeasureKey",
+        "setMeasureTime",
+        "removeMeasureTime",
         "insertClef",
         "removeClef",
         "copyMeasureContent",

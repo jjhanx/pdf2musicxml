@@ -41,7 +41,7 @@ import {
   registerOsmdPreviewXmlForSlurs,
   snapOsmdChordSlurSvgToNoteheads,
 } from './osmdChordSlurFix';
-import { snapOsmdTiesToNoteheads } from './osmdTieFix';
+import { renderOsmdTieStubs, snapOsmdTiesToNoteheads } from './osmdTieFix';
 import {
   applyOsmdArticulationOffsets,
   applyPendingArticulationOffsetsOnly,
@@ -2490,6 +2490,7 @@ export function OsmdBlock({
       alignOsmdPreviewNotesByOnsetColumn(osmd);
       alignOsmdPreviewNotesByOnsetColumn(osmd);
       snapOsmdTiesToNoteheads(host, osmd);
+      renderOsmdTieStubs(host, osmd);
       if (faithfulEditorLayoutRef.current) {
         clipOsmdMeasuresToAllocatedWidth(host, osmd);
       }
@@ -2507,6 +2508,7 @@ export function OsmdBlock({
         const osmd = osmdRef.current;
         if (host && osmd?.IsReadyToRender()) {
           snapOsmdTiesToNoteheads(host, osmd);
+          renderOsmdTieStubs(host, osmd);
           applyOsmdArticulationOffsets(host, osmd);
           applyOsmdDynamicsOffsets(
             host,
@@ -2648,6 +2650,7 @@ export function OsmdBlock({
               applyOsmdSlurDistanceOffsets(hostRef.current, o);
               snapOsmdChordSlurSvgToNoteheads(hostRef.current, o);
               snapOsmdTiesToNoteheads(hostRef.current, o);
+              renderOsmdTieStubs(hostRef.current, o);
               applyOsmdArticulationOffsets(hostRef.current, o);
               const hh = hostRef.current;
               if (hh) {
@@ -2783,6 +2786,7 @@ export function OsmdBlock({
               applyOsmdSlurDistanceOffsets(hostRef.current, o);
               snapOsmdChordSlurSvgToNoteheads(hostRef.current, o);
               snapOsmdTiesToNoteheads(hostRef.current, o);
+              renderOsmdTieStubs(hostRef.current, o);
               applyOsmdArticulationOffsets(hostRef.current, o);
             }, 50);
           },
@@ -2832,6 +2836,7 @@ export function OsmdBlock({
           applyOsmdSlurDistanceOffsets(hostRef.current, o);
           snapOsmdChordSlurSvgToNoteheads(hostRef.current, o);
           snapOsmdTiesToNoteheads(hostRef.current, o);
+          renderOsmdTieStubs(hostRef.current, o);
           applyOsmdArticulationOffsets(hostRef.current, o);
         }, 50);
       },
@@ -2880,6 +2885,7 @@ export function OsmdBlock({
           applyOsmdSlurDistanceOffsets(h, o);
             snapOsmdChordSlurSvgToNoteheads(h, o);
             snapOsmdTiesToNoteheads(h, o);
+            renderOsmdTieStubs(h, o);
         } catch (e) {
           console.warn('[osmd] pending slur distance refresh skipped:', e);
         }

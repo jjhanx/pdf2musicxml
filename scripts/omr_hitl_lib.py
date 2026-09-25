@@ -11692,6 +11692,8 @@ def _apply_copy_measure_content(root: ET.Element, ns: str, fix: dict[str, Any]) 
     from_part_id = str(fix.get("fromPartId") or fix.get("partId") or "").strip()
     to_part_ids = list(fix.get("toPartIds") or ([fix["toPartId"]] if fix.get("toPartId") else []))
     to_part_ids = [str(p).strip() for p in to_part_ids if str(p).strip()]
+    if not to_part_ids and from_part_id:
+        to_part_ids = [from_part_id]
     measure_spec = str(fix.get("measureMxl") or "").strip()
     to_measure_spec = str(fix.get("toMeasureMxl") or "").strip() or None
     if not from_part_id or not to_part_ids or not measure_spec:
@@ -11759,6 +11761,26 @@ def _apply_copy_measure_content(root: ET.Element, ns: str, fix: dict[str, Any]) 
             cloned = [copy.deepcopy(c) for c in src_music_elements]
             if is_split_eligible:
                 cloned = _filter_elements_for_split(cloned, ns, voice_layer=idx)
+
+            src_div, _, _ = _measure_divisions_beats(src_m, ns, from_part)
+            dst_div, _, _ = _measure_divisions_beats(dst_m, ns, to_part)
+            if src_div > 0 and dst_div > 0 and src_div != dst_div:
+                ratio = dst_div / src_div
+                for el in cloned:
+                    for dur in el.findall(f".//{_q(ns, 'duration')}"):
+                        if dur.text and dur.text.strip():
+                            try:
+                                val = int(dur.text.strip())
+                                dur.text = str(max(1, int(round(val * ratio))))
+                            except ValueError:
+                                pass
+                    for off in el.findall(f".//{_q(ns, 'offset')}"):
+                        if off.text and off.text.strip():
+                            try:
+                                val = int(off.text.strip())
+                                off.text = str(int(round(val * ratio)))
+                            except ValueError:
+                                pass
 
             if staff_scoped:
                 _normalize_copied_staff_numbers(

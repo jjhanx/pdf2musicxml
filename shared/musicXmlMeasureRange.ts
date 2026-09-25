@@ -224,6 +224,7 @@ function ensureHeadClef(
   staffN: number,
   sign: string,
   line: number,
+  oct?: number,
 ): void {
   if (headAttrsHasClefForStaff(measure, staffN)) return;
   const attrs = ensureHeadAttributes(doc, measure);
@@ -235,6 +236,11 @@ function ensureHeadClef(
   lineEl.textContent = String(line);
   clef.appendChild(signEl);
   clef.appendChild(lineEl);
+  if (oct != null && oct !== 0) {
+    const octEl = doc.createElementNS(measure.namespaceURI, 'clef-octave-change');
+    octEl.textContent = String(oct);
+    clef.appendChild(octEl);
+  }
   attrs.appendChild(clef);
 }
 
@@ -287,7 +293,7 @@ function ensureHeadDivisions(doc: Document, measure: Element, divisions: number)
  */
 function injectCarriedClefsBeforeFilter(doc: Document, lo: number, hi: number): void {
   for (const part of findXmlParts(doc)) {
-    const carried = new Map<number, { sign: string; line: number }>();
+    const carried = new Map<number, { sign: string; line: number; oct?: number }>();
     let carriedDivisions: number | null = null;
     for (const measure of [...part.children]) {
       if (xmlLocalName(measure) !== 'measure') continue;
@@ -306,7 +312,9 @@ function injectCarriedClefsBeforeFilter(doc: Document, lo: number, hi: number): 
           const numAttr = clef.getAttribute('number');
           const staffN =
             numAttr && /^\d+$/.test(numAttr) ? parseInt(numAttr, 10) : 1;
-          carried.set(staffN, { sign, line });
+          const octRaw = clef.querySelector('clef-octave-change, *|clef-octave-change')?.textContent?.trim();
+          const oct = octRaw && /^-?\d+$/.test(octRaw) ? parseInt(octRaw, 10) : undefined;
+          carried.set(staffN, { sign, line, oct });
         }
       }
       if (n >= lo && n <= hi) {
@@ -314,7 +322,7 @@ function injectCarriedClefsBeforeFilter(doc: Document, lo: number, hi: number): 
           ensureHeadDivisions(doc, measure, carriedDivisions);
         }
         for (const [staffN, clef] of carried) {
-          ensureHeadClef(doc, measure, staffN, clef.sign, clef.line);
+          ensureHeadClef(doc, measure, staffN, clef.sign, clef.line, clef.oct);
         }
       }
     }

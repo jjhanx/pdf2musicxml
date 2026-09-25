@@ -9912,6 +9912,29 @@ def _clef_matches_staff(clef: ET.Element, staff_n: int) -> bool:
         return str(c_staff).strip() == str(staff_n)
 
 
+def _clef_element_targets_staff(clef: ET.Element, staff_n: int) -> bool:
+    """clef@number가 staff_n에 해당하는지. number 없음 = staff 1만."""
+    c_staff = clef.get("number")
+    if c_staff is None or not str(c_staff).strip():
+        return int(staff_n) == 1
+    try:
+        return int(str(c_staff).strip()) == int(staff_n)
+    except ValueError:
+        return str(c_staff).strip() == str(staff_n)
+
+
+def _measure_has_pre_note_clef_on_staff(measure: ET.Element, ns: str, staff_n: int) -> bool:
+    for child in list(measure):
+        if _local(child) == "note":
+            break
+        if _local(child) != "attributes":
+            continue
+        for clef in child.findall(_q(ns, "clef")):
+            if _clef_element_targets_staff(clef, staff_n):
+                return True
+    return False
+
+
 def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     part_id = str(fix.get("partId") or "").strip()
     measure_spec = str(fix.get("measureMxl") or "").strip()
@@ -9936,6 +9959,7 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
     if not measures:
         return False
 
+    bounded_end_n: int | None = None
     if "-" in measure_spec:
         parts = measure_spec.split("-", 1)
         try:
@@ -9945,6 +9969,7 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
                 m for m in measures
                 if m.get("number") and m.get("number").isdigit() and start_n <= int(m.get("number")) <= end_n
             ]
+            bounded_end_n = end_n
         except ValueError:
             target_measures = [m for m in measures if m.get("number") == measure_spec]
     else:
@@ -9953,31 +9978,73 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
     if not target_measures:
         return False
 
+    first_target = target_measures[0]
+
+    # 구간 지정(bounded range) 시 구간 직후 마디에 복원할 기존 clef 파악
+    prior_clef_sign = "G"
+    prior_clef_line = 2
+    prior_clef_oct: int | None = None
+    if bounded_end_n is not None:
+        first_target_n = int(first_target.get("number") or 1) if (first_target.get("number") or "").isdigit() else 1
+        if first_target_n > 1:
+            prev_snap = _effective_clef_for_measure(part, ns, str(first_target_n - 1), staff_n)
+            if prev_snap and prev_snap.get("sign"):
+                prior_clef_sign = str(prev_snap.get("sign")).upper()
+                prior_clef_line = int(prev_snap.get("line") or (2 if prior_clef_sign == "G" else 4))
+                prior_clef_oct = prev_snap.get("clefOctaveChange") if prev_snap.get("clefOctaveChange") is not None else prev_snap.get("octaveChange")
+        else:
+            for child in list(first_target):
+                if _local(child) == "note":
+                    break
+                if _local(child) != "attributes":
+                    continue
+                for clef in child.findall(_q(ns, "clef")):
+                    if _clef_element_targets_staff(clef, staff_n):
+                        spec = _clef_sign_line_octave(clef, ns)
+                        if spec:
+                            prior_clef_sign, prior_clef_line, prior_clef_oct = spec[0], spec[1], (spec[2] if spec[2] != 0 else None)
+                            break
+
     # 오선 위치 유지 변환: clef 바꾸기 전 각 음의 유효 clef를 스냅샷
     old_clefs_by_measure: list[dict[int, tuple[str, int, int]]] = []
     if remap_pitches:
         for m in target_measures:
             old_clefs_by_measure.append(_snapshot_note_clefs(part, m, ns, staff_n))
 
-    first_target = target_measures[0]
     changed = _ensure_measure_start_clef_on_staff(
         first_target, ns, staff_n, clef_sign, clef_line, clef_octave_change
     )
 
-    if remove_subsequent and len(target_measures) > 1:
+    if len(target_measures) > 1:
         for m in target_measures[1:]:
-            m_attrs = m.find(_q(ns, "attributes"))
-            if m_attrs is not None:
-                for c in list(m_attrs.findall(_q(ns, "clef"))):
-                    if not _clef_matches_staff(c, staff_n):
-                        continue
-                    c_staff = c.get("number")
-                    if c_staff is None and staff_n != 1:
-                        continue
-                    m_attrs.remove(c)
+            has_new_system = _measure_has_new_system_print(m, ns)
+            if has_new_system:
+                if _ensure_measure_start_clef_on_staff(
+                    m, ns, staff_n, clef_sign, clef_line, clef_octave_change
+                ):
                     changed = True
-                if len(list(m_attrs)) == 0:
-                    m.remove(m_attrs)
+            elif remove_subsequent:
+                for m_attrs in list(m.findall(_q(ns, "attributes"))):
+                    for c in list(m_attrs.findall(_q(ns, "clef"))):
+                        if not _clef_matches_staff(c, staff_n):
+                            continue
+                        c_staff = c.get("number")
+                        if c_staff is None and staff_n != 1:
+                            continue
+                        m_attrs.remove(c)
+                        changed = True
+                    if len(list(m_attrs)) == 0 and m_attrs in list(m):
+                        m.remove(m_attrs)
+                        changed = True
+
+    # 구간 지정 직후 마디에 명시적 clef가 없으면 기존 clef 복원 (구간 밖으로의 clef 누출 방지)
+    if bounded_end_n is not None:
+        next_m = find_measure(part, ns, str(bounded_end_n + 1))
+        if next_m is not None:
+            if not _measure_has_pre_note_clef_on_staff(next_m, ns, staff_n):
+                if _ensure_measure_start_clef_on_staff(
+                    next_m, ns, staff_n, prior_clef_sign, prior_clef_line, prior_clef_oct
+                ):
                     changed = True
 
     if remap_pitches:
@@ -9990,15 +10057,6 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
     return changed
 
 
-def _clef_element_targets_staff(clef: ET.Element, staff_n: int) -> bool:
-    """clef@number가 staff_n에 해당하는지. number 없음 = staff 1만."""
-    c_staff = clef.get("number")
-    if c_staff is None or not str(c_staff).strip():
-        return int(staff_n) == 1
-    try:
-        return int(str(c_staff).strip()) == int(staff_n)
-    except ValueError:
-        return str(c_staff).strip() == str(staff_n)
 
 
 def _clef_sign_line(clef: ET.Element, ns: str) -> tuple[str, int] | None:

@@ -14,6 +14,7 @@ const tests = [
   'test_partial_voice_timeline_realign.ts',
   'test_partial_voice_play_order_ref.ts',
   'test_partial_voice_osmd_align.ts',
+  'test_natural_accidental_beam_order.ts',
 ] as const;
 
 for (const file of tests) {

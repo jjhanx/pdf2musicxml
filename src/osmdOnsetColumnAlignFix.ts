@@ -102,7 +102,9 @@ function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
     const pitch = asRecord(src.Pitch ?? src.pitch);
     if (pitch && typeof (pitch as any).ToStringShort === 'function') {
       const s = (pitch as any).ToStringShort(3);
-      if (typeof s === 'string' && s.trim()) return s.trim();
+      if (typeof s === 'string' && s.trim()) {
+        return s.trim().replace(/^([A-Ga-g])n(\d+)$/, '$1$2');
+      }
     }
     const fn = coordNum(pitch?.FundamentalNote ?? pitch?.fundamentalNote);
     const oct = coordNum(pitch?.Octave ?? pitch?.octave);
@@ -289,7 +291,16 @@ type NoteHit = {
   timestamp: number | null;
   /** 화음 notehead 수 — [F4,Bb4](2) vs [F4,Bb4,D5,F5](4) 구분 */
   heads: number;
+  isGrace?: boolean;
 };
+
+function isGraceGraphicNote(gn: Record<string, unknown>): boolean {
+  const src = asRecord(gn.sourceNote ?? gn.SourceNote);
+  if (!src) return false;
+  if (typeof (src as any).isGraceNote === 'function') return Boolean((src as any).isGraceNote());
+  if (typeof (src as any).IsGraceNote === 'function') return Boolean((src as any).IsGraceNote());
+  return Boolean(src.isGrace ?? src.IsGrace);
+}
 
 function isRestGraphicNote(gn: Record<string, unknown>): boolean {
   const src = asRecord(gn.sourceNote ?? gn.SourceNote);
@@ -349,11 +360,19 @@ function restCenterXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
   return null;
 }
 
+function normalizePitchForCompare(p: string): string {
+  if (!p) return '';
+  let s = p.trim();
+  // OSMD Pitch.ToStringShort emits Gn4, An4 for natural accidentals; MusicXML XML labels are G4, A4
+  s = s.replace(/^([A-Ga-g])n(\d+)$/, '$1$2');
+  // OSMD vfpitch often emits Bn for MusicXML B♭ (alter=-1)
+  s = s.replace(/^Bb(\d+)$/i, 'B$1');
+  return s.toUpperCase();
+}
+
 function pitchClassesEqual(a: string, b: string): boolean {
   if (a === b) return true;
-  // OSMD vfpitch often emits Bn for MusicXML B♭ (alter=-1)
-  const softB = (p: string) => p.replace(/^Bb(\d+)$/i, 'B$1');
-  return softB(a) === softB(b);
+  return normalizePitchForCompare(a) === normalizePitchForCompare(b);
 }
 
 function hitHasPitch(hit: NoteHit, pitch: string): boolean {
@@ -405,6 +424,7 @@ function collectMeasureNoteHits(osmd: OpenSheetMusicDisplay, gmRaw: unknown): No
           centerX,
           timestamp,
           heads: rest ? 0 : stavenote.querySelectorAll('.vf-notehead').length,
+          isGrace: isGraceGraphicNote(gn),
         };
         bySvg.set(stavenote, hit);
         hits.push(hit);
@@ -3455,7 +3475,7 @@ function alignMeasureNotesByOnsetLayoutGrid(
     if (!columns.length) continue;
 
     const voiceHits = hits
-      .filter((h) => h.voice === voice)
+      .filter((h) => h.voice === voice && !h.isGrace)
       .sort((a, b) => {
         if (a.timestamp != null && b.timestamp != null && Math.abs(a.timestamp - b.timestamp) > 1e-4) {
           return a.timestamp - b.timestamp;
@@ -3475,9 +3495,15 @@ function alignMeasureNotesByOnsetLayoutGrid(
 
     const ordered = [...voicePlan].sort((a, b) => a.layoutX - b.layoutX || a.centerX - b.centerX);
     let prevWant = -Infinity;
+    let prevLayoutX = -Infinity;
+    const minNoteGap = Math.max(6, osmdSvgScale(osmd) * 0.2);
     for (const p of ordered) {
       let want = wantXFromLayoutGrid(measureSpan, p.layoutX);
-      if (want < prevWant + 0.5) want = prevWant + 0.5;
+      if (p.layoutX > prevLayoutX) {
+        if (want < prevWant + minNoteGap) want = prevWant + minNoteGap;
+      } else {
+        if (want < prevWant + 0.5) want = prevWant + 0.5;
+      }
       const dx = want - p.centerX;
       if (Math.abs(dx) > 0.5) moved = true;
       applySvgTranslateX(
@@ -3486,6 +3512,7 @@ function alignMeasureNotesByOnsetLayoutGrid(
         Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2),
       );
       prevWant = want;
+      prevLayoutX = p.layoutX;
     }
     const maxAllowedRight =
       contentRightPx != null && Number.isFinite(contentRightPx) && contentRightPx > 0
@@ -3499,6 +3526,18 @@ function alignMeasureNotesByOnsetLayoutGrid(
           -shiftBack,
           Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2),
         );
+      }
+    }
+    // 꾸밈음(grace notes): 뒤따르는 본음(regular note)의 translate를 상속하여 일치
+    for (const h of hits) {
+      if (!h.isGrace || h.voice !== voice) continue;
+      const nextRegular = ordered.find((p) => p.centerX > h.centerX);
+      if (nextRegular) {
+        const tr = nextRegular.stavenote.getAttribute('transform');
+        if (tr) {
+          h.stavenote.setAttribute('transform', tr);
+          moved = true;
+        }
       }
     }
   }

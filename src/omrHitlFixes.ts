@@ -120,6 +120,8 @@ export type OmrHitlFix = {
   endMeasureMxl?: string;
   clefSign?: 'G' | 'F' | 'C' | string;
   clefLine?: number;
+  /** MusicXML clef-octave-change (-1=8vb/테너, 1=8va 등) */
+  clefOctaveChange?: number;
   removeSubsequentClefs?: boolean;
   /**
    * insertClef / setMeasureClef — true면 오선 위치를 유지하도록
@@ -262,6 +264,7 @@ export function fixDedupeKey(fix: OmrHitlFix): string {
     fix.afterClefIndex ?? '',
     fix.clefIndex ?? '',
     fix.clefScope ?? '',
+    fix.clefOctaveChange ?? '',
     fix.fifths ?? '',
     fix.keyMode ?? '',
     fix.leaderNoteIndex ?? '',
@@ -333,7 +336,8 @@ export function mergeFix(fixes: OmrHitlFix[], next: OmrHitlFix): OmrHitlFix[] {
           (f.staff ?? 1) === staff &&
           (f.afterNoteIndex ?? null) === afterNote &&
           (f.afterClefIndex ?? null) === afterClef &&
-          (f.clefSign ?? 'G') === (next.clefSign ?? 'G')
+          (f.clefSign ?? 'G') === (next.clefSign ?? 'G') &&
+          (f.clefOctaveChange ?? 0) === (next.clefOctaveChange ?? 0)
         ),
     );
     return [...filtered, { ...next, id: next.id || newFixId() }];
@@ -622,7 +626,19 @@ export function formatFixSummary(fix: OmrHitlFix): string {
     else if (fix.afterNoteIndex != null) {
       parts.push(fix.afterNoteIndex < 0 ? '마디 앞' : `#${fix.afterNoteIndex} 뒤`);
     }
-    if (fix.clefSign) parts.push(fix.clefSign === 'F' ? '𝄢 F' : fix.clefSign === 'G' ? '𝄞 G' : fix.clefSign);
+    if (fix.clefSign) {
+      if (fix.clefSign === 'F') {
+        parts.push('𝄢 F');
+      } else if (fix.clefSign === 'G' && fix.clefOctaveChange === -1) {
+        parts.push('𝄞₈ G (8vb)');
+      } else if (fix.clefSign === 'G' && fix.clefOctaveChange === 1) {
+        parts.push('𝄞⁸ G (8va)');
+      } else if (fix.clefSign === 'G') {
+        parts.push('𝄞 G');
+      } else {
+        parts.push(fix.clefSign);
+      }
+    }
     if (fix.staff != null) parts.push(`staff ${fix.staff}`);
     if (fix.remapStaffPitches) parts.push('오선위치유지·음높이변환');
   }

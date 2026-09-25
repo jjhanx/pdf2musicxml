@@ -413,6 +413,7 @@ export type MeasureClefEl = {
   beforeNoteIndex?: number | null;
   clefSign?: string;
   clefLine?: number;
+  clefOctaveChange?: number;
   staff?: number | null;
   /** mid=current measure body, nextHeader=다음 마디 머리 clef가 현재 마디 끝 예고로 보이는 경우 */
   clefScope?: 'mid' | 'header' | 'nextHeader' | string;
@@ -513,9 +514,9 @@ type MeasureSnapshot = {
   barlines?: MeasureBarlineEl[];
   directionSourcePartId?: string;
   effectiveTempoBpm?: number | null;
-  effectiveClef?: { sign?: string; line?: number };
+  effectiveClef?: { sign?: string; line?: number; octaveChange?: number; clefOctaveChange?: number };
   /** staff 번호 → 그 줄 첫 음에 적용되는 clef (trailing 끝 clef 제외) */
-  effectiveClefsByStaff?: Record<string, { sign?: string; line?: number }>;
+  effectiveClefsByStaff?: Record<string, { sign?: string; line?: number; octaveChange?: number; clefOctaveChange?: number }>;
 };
 
 type MeasureTempoEntry = {
@@ -2045,7 +2046,17 @@ function elementTitle(
 ): string {
   if (el.elementKind === 'clef') {
     const sign = (el.clefSign ?? 'G').toUpperCase();
-    const name = sign === 'F' ? '낮은음자리표(𝄢)' : sign === 'C' ? '가온음자리표(𝄡)' : '높은음자리표(𝄞)';
+    const oct = el.clefOctaveChange;
+    const name =
+      sign === 'F'
+        ? '낮은음자리표(𝄢)'
+        : sign === 'C'
+          ? '가온음자리표(𝄡)'
+          : oct === -1
+            ? '옥타브 높은음자리표(𝄞₈)'
+            : oct === 1
+              ? '옥타브 높은음자리표(𝄞⁸)'
+              : '높은음자리표(𝄞)';
     if (el.clefScope === 'nextHeader') {
       const target = el.targetMeasureMxl ? `m.${el.targetMeasureMxl}` : '다음 마디';
       return `음자리표 clef#${el.clefIndex} ${name} · ${target} 머리 예고(현재 마디 끝에 보일 수 있음)${
@@ -2350,7 +2361,7 @@ export function OmrMeasureEditor({
   const [timeApplyAllParts, setTimeApplyAllParts] = useState<boolean>(true);
 
   const handleApplyClef = useCallback(
-    (sign: 'G' | 'F', line: 2 | 4) => {
+    (sign: 'G' | 'F', line: number, octaveChange?: number) => {
       let rangeStr = String(measureMxl);
       let scopeLabel = `${measureMxl}마디`;
       if (clefScope === 'all') {
@@ -2361,7 +2372,14 @@ export function OmrMeasureEditor({
         scopeLabel = `${rangeStr}마디`;
       }
 
-      const clefName = sign === 'G' ? '높은음자리표(𝄞)' : '낮은음자리표(𝄢)';
+      const clefName =
+        sign === 'F'
+          ? '낮은음자리표(𝄢)'
+          : octaveChange === -1
+            ? '옥타브 높은음자리표(𝄞₈)'
+            : octaveChange === 1
+              ? '옥타브 높은음자리표(𝄞⁸)'
+              : '높은음자리표(𝄞)';
       const remap = clefPitchMode === 'remap';
       const pitchLabel = remap ? ' · 오선 위치 유지(음높이 변환)' : ' · 음높이 유지';
 
@@ -2372,6 +2390,7 @@ export function OmrMeasureEditor({
         measureMxl: rangeStr,
         clefSign: sign,
         clefLine: line,
+        clefOctaveChange: octaveChange,
         staff: editStaffWithinPart ?? 1,
         removeSubsequentClefs: true,
         remapStaffPitches: remap || undefined,
@@ -3365,20 +3384,33 @@ export function OmrMeasureEditor({
               snapshot?.effectiveClef;
             if (!ec) return null;
             const isF = ec.sign === 'F';
+            const oct = ec.clefOctaveChange ?? ec.octaveChange;
+            const isOctDown = ec.sign === 'G' && oct === -1;
+            const isOctUp = ec.sign === 'G' && oct === 1;
+            const badgeText = isF
+              ? '𝄢 낮은음자리표 (F)'
+              : isOctDown
+                ? '𝄞₈ 옥타브 높은음자리표 (G8vb)'
+                : isOctUp
+                  ? '𝄞⁸ 옥타브 높은음자리표 (G8va)'
+                  : '𝄞 높은음자리표 (G)';
+            const color = isF ? '#b45309' : isOctDown ? '#0f766e' : '#0369a1';
+            const bg = isF ? '#fef3c7' : isOctDown ? '#ccfbf1' : '#e0f2fe';
+            const border = isF ? '1px solid #fde68a' : isOctDown ? '1px solid #99f6e4' : '1px solid #bae6fd';
             return (
             <span
               style={{
                 fontSize: '0.82rem',
                 fontWeight: 600,
-                color: isF ? '#b45309' : '#0369a1',
-                background: isF ? '#fef3c7' : '#e0f2fe',
+                color,
+                background: bg,
                 padding: '2px 8px',
                 borderRadius: 4,
-                border: isF ? '1px solid #fde68a' : '1px solid #bae6fd',
+                border,
               }}
               title="이 마디 앞·음표에 적용되는 clef (끝 mid/예고 clef 제외)"
             >
-              현재 적용: {isF ? '𝄢 낮은음자리표 (F)' : '𝄞 높은음자리표 (G)'}
+              현재 적용: {badgeText}
             </span>
             );
           })()}
@@ -3463,7 +3495,7 @@ export function OmrMeasureEditor({
           </label>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
           <button
             type="button"
             className="btn-primary"
@@ -3481,6 +3513,24 @@ export function OmrMeasureEditor({
           >
             <span>𝄢</span>
             <span>낮은음자리표 (Bass F) 로 변경</span>
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            style={{
+              padding: '5px 12px',
+              fontSize: '0.86rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              background: '#0d9488',
+              borderColor: '#0f766e',
+            }}
+            onClick={() => handleApplyClef('G', 2, -1)}
+            title="테너 파트 등에서 사용하는 8도 아래 높은음자리표 (MusicXML clef-octave-change: -1)"
+          >
+            <span>𝄞₈</span>
+            <span>옥타브 높은음자리표 (Treble 8vb / 테너)</span>
           </button>
         </div>
 
@@ -4108,9 +4158,16 @@ export function OmrMeasureEditor({
             `화음 ${members.length}개 (${labels}) 대기 (리더 #${leaderNoteIndex} 예정) → 「MXL에 반영·미리보기」`,
           );
         }}
-        onInsertClef={(afterNoteIndex, clefSign, staff, afterClefIndex) => {
+        onInsertClef={(afterNoteIndex, clefSign, staff, afterClefIndex, octaveChange) => {
           setPendingInsertLeader(null);
-          const clefName = clefSign === 'G' ? '높은음자리표(𝄞)' : '낮은음자리표(𝄢)';
+          const clefName =
+            clefSign === 'F'
+              ? '낮은음자리표(𝄢)'
+              : octaveChange === -1
+                ? '옥타브 높은음자리표(𝄞₈)'
+                : octaveChange === 1
+                  ? '옥타브 높은음자리표(𝄞⁸)'
+                  : '높은음자리표(𝄞)';
           const where =
             afterClefIndex != null
               ? `clef#${afterClefIndex} 뒤`
@@ -4124,6 +4181,7 @@ export function OmrMeasureEditor({
             afterClefIndex: afterClefIndex ?? undefined,
             clefSign,
             clefLine: clefSign === 'G' ? 2 : 4,
+            clefOctaveChange: octaveChange,
             staff,
             remapStaffPitches: remap || undefined,
             detail: `${where} ${clefName}${remap ? ' · 오선위치유지·음높이변환' : ' · 음높이유지'}`,
@@ -6131,7 +6189,7 @@ function InsertElementForm({
       voice?: string;
     },
   ) => void;
-  onInsertClef: (after: number, sign: 'G' | 'F', staff: number, afterClef?: number | null) => void;
+  onInsertClef: (after: number, sign: 'G' | 'F', staff: number, afterClef?: number | null, octaveChange?: number) => void;
   clefPitchMode?: 'keep' | 'remap';
   onClefPitchModeChange?: (mode: 'keep' | 'remap') => void;
 }) {
@@ -6407,6 +6465,15 @@ function InsertElementForm({
           onClick={() => onInsertClef(afterNoteIndex, 'F', staff, afterClefIndex)}
         >
           𝄢 낮은음자리표
+        </button>
+        <button
+          type="button"
+          className="omr-hitl-fix-btn"
+          style={{ background: '#f0fdfa', borderColor: '#0d9488', color: '#0f766e', fontWeight: 600 }}
+          onClick={() => onInsertClef(afterNoteIndex, 'G', staff, afterClefIndex, -1)}
+          title="테너 음자리표 (8도 아래 높은음자리표 𝄞₈)"
+        >
+          𝄞₈ 옥타브 높은음자리표 (8vb)
         </button>
       </div>
       <p className="omr-measure-hint" style={{ margin: '0 0 0.5rem', fontSize: '0.85em', opacity: 0.85 }}>

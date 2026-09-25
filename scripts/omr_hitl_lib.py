@@ -2227,6 +2227,7 @@ def _mid_measure_clef_snap(
     sign = "G"
     line = 2
     staff_n = 1
+    octave_change: int | None = None
     if clef is not None:
         s_el = clef.find(_q(ns, "sign"))
         if s_el is not None and s_el.text and s_el.text.strip():
@@ -2236,6 +2237,13 @@ def _mid_measure_clef_snap(
             line = int(l_el.text.strip())
         else:
             line = 2 if sign == "G" else (4 if sign == "F" else 3)
+        oc_el = clef.find(_q(ns, "clef-octave-change"))
+        if oc_el is not None and oc_el.text and oc_el.text.strip():
+            raw_oc = oc_el.text.strip()
+            try:
+                octave_change = int(raw_oc)
+            except ValueError:
+                octave_change = None
         c_staff = clef.get("number")
         if c_staff and str(c_staff).isdigit():
             staff_n = int(c_staff)
@@ -2265,6 +2273,7 @@ def _mid_measure_clef_snap(
         "beforeNoteIndex": before_note_index,
         "clefSign": sign,
         "clefLine": line,
+        "clefOctaveChange": octave_change,
         "staff": staff_n,
         "primaryVoice": primary_voice,
         "anchorVoice": anchor_voice,
@@ -2303,7 +2312,7 @@ def _head_clef_snap(
     target_measure_mxl: str,
     scope: str,
 ) -> dict[str, Any]:
-    parsed = _clef_sign_line(clef, ns) or ("G", 2)
+    parsed = _clef_sign_line_octave(clef, ns) or ("G", 2, 0)
     return {
         "elementKind": "clef",
         "kind": "clef",
@@ -2313,6 +2322,7 @@ def _head_clef_snap(
         "beforeNoteIndex": None,
         "clefSign": parsed[0],
         "clefLine": parsed[1],
+        "clefOctaveChange": parsed[2] if parsed[2] != 0 else None,
         "staff": _clef_staff_number_for_snap(clef),
         "clefScope": scope,
         "targetMeasureMxl": target_measure_mxl,
@@ -2351,10 +2361,11 @@ def _following_header_clef_snaps(
     for i, (_attrs, clef) in enumerate(_list_head_measure_clef_pairs(next_m, ns)):
         staff_n = _clef_staff_number_for_snap(clef)
         cur = _effective_clef_for_measure(part, ns, cur_mxl, staff_n)
-        nxt = _clef_sign_line(clef, ns)
+        nxt = _clef_sign_line_octave(clef, ns)
         if nxt is None:
             continue
-        if cur and (cur.get("sign"), int(cur.get("line") or 0)) == nxt:
+        cur_oc = (cur.get("octaveChange") if cur else None) or 0
+        if cur and (cur.get("sign"), int(cur.get("line") or 0), cur_oc) == nxt:
             continue
         out.append(
             _head_clef_snap(
@@ -2651,6 +2662,13 @@ def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, sta
                     continue
                 sign = clef.find(_q(ns, "sign"))
                 line = clef.find(_q(ns, "line"))
+                oc = clef.find(_q(ns, "clef-octave-change"))
+                oc_val: int | None = None
+                if oc is not None and oc.text and oc.text.strip():
+                    try:
+                        oc_val = int(oc.text.strip())
+                    except ValueError:
+                        oc_val = None
                 if sign is not None and sign.text:
                     s_text = sign.text.strip().upper()
                     l_text = (
@@ -2658,7 +2676,12 @@ def _effective_clef_for_measure(part: ET.Element, ns: str, measure_mxl: str, sta
                         if line is not None and line.text and line.text.strip().isdigit()
                         else (2 if s_text == "G" else 4)
                     )
-                    last_clef = {"sign": s_text, "line": l_text}
+                    last_clef = {
+                        "sign": s_text,
+                        "line": l_text,
+                        "octaveChange": oc_val,
+                        "clefOctaveChange": oc_val,
+                    }
         if is_target:
             # 해당 staff 음이 없으면 머리까지 반영된 last_clef
             return last_clef
@@ -3206,24 +3229,34 @@ def _pitch_diatonic(note: ET.Element, ns: str) -> int | None:
     return octave * 7 + _STEP_DIATONIC[step]
 
 
-def _middle_line_diatonic(clef_sign: str, clef_line: int = 2) -> int:
+def _middle_line_diatonic(
+    clef_sign: str, clef_line: int = 2, clef_octave_change: int = 0
+) -> int:
     sign = (clef_sign or "G").strip().upper()
     if sign == "F":
-        return 3 * 7 + 1  # D3
-    if sign == "C":
+        base = 3 * 7 + 1  # D3
+    elif sign == "C":
         if clef_line == 4:
-            return 3 * 7 + 5  # A3 tenor
-        return 4 * 7 + 0  # C4 alto
-    return 4 * 7 + 6  # B4 treble
+            base = 3 * 7 + 5  # A3 tenor
+        else:
+            base = 4 * 7 + 0  # C4 alto
+    else:
+        base = 4 * 7 + 6  # B4 treble
+    return base + int(clef_octave_change or 0) * 7
 
 
 def _clef_change_diatonic_delta(
-    old_sign: str, old_line: int, new_sign: str, new_line: int
+    old_sign: str,
+    old_line: int,
+    new_sign: str,
+    new_line: int,
+    old_octave: int = 0,
+    new_octave: int = 0,
 ) -> int:
     """음자리표만 바뀔 때 오선 위치를 유지하려면 pitch에 더할 다이아토닉 오프셋."""
-    return _middle_line_diatonic(new_sign, new_line) - _middle_line_diatonic(
-        old_sign, old_line
-    )
+    return _middle_line_diatonic(
+        new_sign, new_line, new_octave
+    ) - _middle_line_diatonic(old_sign, old_line, old_octave)
 
 
 def _set_step_octave_texts(
@@ -3259,13 +3292,17 @@ def _remap_note_pitch_preserve_staff(
     old_line: int,
     new_sign: str,
     new_line: int,
+    old_octave: int = 0,
+    new_octave: int = 0,
 ) -> bool:
     """음자리표 변경 시 오선上의 위치를 유지하도록 pitch·쉼표 display를 변환.
 
     OMR이 clef만 틀리고 음표는 오선 제자리에 둔 경우: 새 clef에 맞춰 음높이만 고친다.
     alter(임시표)는 그대로 둔다.
     """
-    delta = _clef_change_diatonic_delta(old_sign, old_line, new_sign, new_line)
+    delta = _clef_change_diatonic_delta(
+        old_sign, old_line, new_sign, new_line, old_octave, new_octave
+    )
     if delta == 0:
         return False
     changed = False
@@ -3314,19 +3351,67 @@ def _remap_note_pitch_preserve_staff(
     return changed
 
 
+def _clef_spec_for_note_in_part(
+    part: ET.Element | None, measure: ET.Element | None, note: ET.Element, ns: str
+) -> tuple[str, int, int]:
+    """음표 직전까지의 유효 clef spec (sign, line, octave_change)."""
+    sign, line = _clef_for_note_in_part(part, measure, note, ns)
+    staff_n = _note_staff_number(note, ns) or 1
+    measures: list[ET.Element] = []
+    if part is not None:
+        for m in part.findall(_q(ns, "measure")):
+            measures.append(m)
+            if measure is not None and m is measure:
+                break
+    elif measure is not None:
+        measures = [measure]
+    octave_change = 0
+    for m in measures:
+        is_current = measure is not None and m is measure
+        if is_current:
+            for child in list(m):
+                if child is note:
+                    break
+                if _local(child) != "attributes":
+                    continue
+                for clef in child.findall(_q(ns, "clef")):
+                    if _clef_matches_staff(clef, staff_n):
+                        oc_el = clef.find(_q(ns, "clef-octave-change"))
+                        if oc_el is not None and oc_el.text and oc_el.text.strip():
+                            try:
+                                octave_change = int(oc_el.text.strip())
+                            except ValueError:
+                                octave_change = 0
+                        else:
+                            octave_change = 0
+            continue
+        for attrs in m.findall(_q(ns, "attributes")):
+            for clef in attrs.findall(_q(ns, "clef")):
+                if _clef_matches_staff(clef, staff_n):
+                    oc_el = clef.find(_q(ns, "clef-octave-change"))
+                    if oc_el is not None and oc_el.text and oc_el.text.strip():
+                        try:
+                            octave_change = int(oc_el.text.strip())
+                        except ValueError:
+                            octave_change = 0
+                    else:
+                        octave_change = 0
+    return sign, line, octave_change
+
+
 def _snapshot_note_clefs(
     part: ET.Element | None,
     measure: ET.Element,
     ns: str,
     staff_n: int | None = None,
-) -> dict[int, tuple[str, int]]:
-    """note 객체 id → 직전까지의 유효 clef (sign, line)."""
-    out: dict[int, tuple[str, int]] = {}
+) -> dict[int, tuple[str, int, int]]:
+    """note 객체 id → 직전까지의 유효 clef (sign, line, octave_change)."""
+    out: dict[int, tuple[str, int, int]] = {}
     for note in list_note_elements(measure, ns):
         sn = _note_staff_number(note, ns) or 1
         if staff_n is not None and sn != staff_n:
             continue
-        out[id(note)] = _clef_for_note_in_part(part, measure, note, ns)
+        out[id(note)] = _clef_spec_for_note_in_part(part, measure, note, ns)
     return out
 
 
@@ -3334,12 +3419,12 @@ def _remap_measure_notes_after_clef_change(
     part: ET.Element | None,
     measure: ET.Element,
     ns: str,
-    old_clefs: dict[int, tuple[str, int]],
+    old_clefs: dict[int, tuple[str, int, int] | tuple[str, int]],
     staff_n: int | None = None,
     *,
     only_after_el: ET.Element | None = None,
-    force_old_clef: tuple[str, int] | None = None,
-    force_new_clef: tuple[str, int] | None = None,
+    force_old_clef: tuple[str, int, int] | tuple[str, int] | None = None,
+    force_new_clef: tuple[str, int, int] | tuple[str, int] | None = None,
 ) -> bool:
     """clef 적용 후, 삽입·변경된 clef의 **뒤쪽** 음만 오선 위치 유지로 pitch 변환.
 
@@ -3359,18 +3444,24 @@ def _remap_measure_notes_after_clef_change(
         if staff_n is not None and sn != staff_n:
             continue
         if force_old_clef is not None and force_new_clef is not None:
-            old_sign, old_line = force_old_clef
-            new_sign, new_line = force_new_clef
+            old_sign = force_old_clef[0]
+            old_line = force_old_clef[1]
+            old_oct = force_old_clef[2] if len(force_old_clef) > 2 else 0
+            new_sign = force_new_clef[0]
+            new_line = force_new_clef[1]
+            new_oct = force_new_clef[2] if len(force_new_clef) > 2 else 0
         else:
             old = old_clefs.get(id(child))
             if old is None:
                 continue
-            old_sign, old_line = old
-            new_sign, new_line = _clef_for_note_in_part(part, measure, child, ns)
-        if (old_sign, old_line) == (new_sign, new_line):
+            old_sign = old[0]
+            old_line = old[1]
+            old_oct = old[2] if len(old) > 2 else 0
+            new_sign, new_line, new_oct = _clef_spec_for_note_in_part(part, measure, child, ns)
+        if (old_sign, old_line, old_oct) == (new_sign, new_line, new_oct):
             continue
         if _remap_note_pitch_preserve_staff(
-            child, ns, old_sign, old_line, new_sign, new_line
+            child, ns, old_sign, old_line, new_sign, new_line, old_oct, new_oct
         ):
             changed = True
     return changed
@@ -5028,7 +5119,13 @@ def _collect_rebuild_attributes(
     note_attachments.setdefault(anchor, []).append(el)
 
 
-def _build_clef_attributes(ns: str, clef_sign: str, clef_line: int, staff_n: int) -> ET.Element:
+def _build_clef_attributes(
+    ns: str,
+    clef_sign: str,
+    clef_line: int,
+    staff_n: int,
+    clef_octave_change: int | None = None,
+) -> ET.Element:
     attrs = ET.Element(_q(ns, "attributes"))
     clef = ET.SubElement(attrs, _q(ns, "clef"))
     # staff 1도 number를 두어 rebuild·OSMD가 mid clef staff를 혼동하지 않게 함
@@ -5037,6 +5134,9 @@ def _build_clef_attributes(ns: str, clef_sign: str, clef_line: int, staff_n: int
     s_el.text = clef_sign
     l_el = ET.SubElement(clef, _q(ns, "line"))
     l_el.text = str(clef_line)
+    if clef_octave_change is not None and clef_octave_change != 0:
+        o_el = ET.SubElement(clef, _q(ns, "clef-octave-change"))
+        o_el.text = str(clef_octave_change)
     return attrs
 
 
@@ -9817,6 +9917,13 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
     measure_spec = str(fix.get("measureMxl") or "").strip()
     clef_sign = str(fix.get("clefSign") or "G").strip().upper()
     clef_line = int(fix.get("clefLine") or (2 if clef_sign == "G" else 4))
+    clef_octave_raw = fix.get("clefOctaveChange")
+    clef_octave_change: int | None = None
+    if clef_octave_raw is not None and str(clef_octave_raw).strip() != "":
+        try:
+            clef_octave_change = int(clef_octave_raw)
+        except (TypeError, ValueError):
+            clef_octave_change = None
     staff_n = int(fix.get("staff") or 1)
     remove_subsequent = bool(fix.get("removeSubsequentClefs", True))
     remap_pitches = _fix_wants_remap_staff_pitches(fix)
@@ -9847,14 +9954,14 @@ def _apply_set_measure_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
         return False
 
     # 오선 위치 유지 변환: clef 바꾸기 전 각 음의 유효 clef를 스냅샷
-    old_clefs_by_measure: list[dict[int, tuple[str, int]]] = []
+    old_clefs_by_measure: list[dict[int, tuple[str, int, int]]] = []
     if remap_pitches:
         for m in target_measures:
             old_clefs_by_measure.append(_snapshot_note_clefs(part, m, ns, staff_n))
 
     first_target = target_measures[0]
     changed = _ensure_measure_start_clef_on_staff(
-        first_target, ns, staff_n, clef_sign, clef_line
+        first_target, ns, staff_n, clef_sign, clef_line, clef_octave_change
     )
 
     if remove_subsequent and len(target_measures) > 1:
@@ -9909,8 +10016,27 @@ def _clef_sign_line(clef: ET.Element, ns: str) -> tuple[str, int] | None:
     return (sign, line)
 
 
+def _clef_sign_line_octave(clef: ET.Element, ns: str) -> tuple[str, int, int] | None:
+    """clef의 (sign, line, octave_change). octave_change 없으면 0."""
+    res = _clef_sign_line(clef, ns)
+    if res is None:
+        return None
+    oc_el = clef.find(_q(ns, "clef-octave-change"))
+    oc = 0
+    if oc_el is not None and oc_el.text and oc_el.text.strip():
+        try:
+            oc = int(oc_el.text.strip())
+        except ValueError:
+            oc = 0
+    return (res[0], res[1], oc)
+
+
 def _rewrite_clef_sign_line(
-    clef: ET.Element, ns: str, sign: str, line: int
+    clef: ET.Element,
+    ns: str,
+    sign: str,
+    line: int,
+    octave_change: int | None = None,
 ) -> bool:
     changed = False
     sign_el = clef.find(_q(ns, "sign"))
@@ -9927,6 +10053,23 @@ def _rewrite_clef_sign_line(
     if (line_el.text or "").strip() != str(line):
         line_el.text = str(line)
         changed = True
+    oc_elements = list(clef.findall(_q(ns, "clef-octave-change")))
+    if octave_change is not None and octave_change != 0:
+        if not oc_elements:
+            oc_el = ET.SubElement(clef, _q(ns, "clef-octave-change"))
+            oc_el.text = str(octave_change)
+            changed = True
+        else:
+            if (oc_elements[0].text or "").strip() != str(octave_change):
+                oc_elements[0].text = str(octave_change)
+                changed = True
+            for extra in oc_elements[1:]:
+                clef.remove(extra)
+                changed = True
+    else:
+        for oc_el in oc_elements:
+            clef.remove(oc_el)
+            changed = True
     return changed
 
 
@@ -9936,8 +10079,8 @@ def _remap_forward_from_inserted_clef(
     ns: str,
     attrs: ET.Element,
     staff_n: int,
-    old_clef: tuple[str, int],
-    new_clef: tuple[str, int],
+    old_clef: tuple[str, int] | tuple[str, int, int],
+    new_clef: tuple[str, int] | tuple[str, int, int],
     *,
     remap_pitches: bool = True,
 ) -> bool:
@@ -9949,7 +10092,9 @@ def _remap_forward_from_inserted_clef(
     - old·new가 아닌 다른 clef면 그 앞에서 중단(의도적 이후 전환).
     - remap_pitches=True 이면 그 구간 음만 오선 위치 유지 변환.
     """
-    if old_clef == new_clef:
+    old_c3 = (old_clef[0], old_clef[1], old_clef[2] if len(old_clef) > 2 else 0)
+    new_c3 = (new_clef[0], new_clef[1], new_clef[2] if len(new_clef) > 2 else 0)
+    if old_c3 == new_c3:
         return False
     measures = part.findall(_q(ns, "measure"))
     try:
@@ -9986,14 +10131,14 @@ def _remap_forward_from_inserted_clef(
                 for clef in child.findall(_q(ns, "clef")):
                     if not _clef_element_targets_staff(clef, staff_n):
                         continue
-                    cur = _clef_sign_line(clef, ns)
+                    cur = _clef_sign_line_octave(clef, ns)
                     if cur is None:
                         continue
-                    if cur == new_clef:
+                    if cur == new_c3:
                         continue
-                    if cur == old_clef:
+                    if cur == old_c3:
                         if _rewrite_clef_sign_line(
-                            clef, ns, new_clef[0], new_clef[1]
+                            clef, ns, new_c3[0], new_c3[1], new_c3[2]
                         ):
                             changed = True
                         continue
@@ -10008,7 +10153,7 @@ def _remap_forward_from_inserted_clef(
             if (_note_staff_number(child, ns) or 1) != staff_n:
                 continue
             if _remap_note_pitch_preserve_staff(
-                child, ns, old_clef[0], old_clef[1], new_clef[0], new_clef[1]
+                child, ns, old_c3[0], old_c3[1], new_c3[0], new_c3[1], old_c3[2], new_c3[2]
             ):
                 changed = True
         if m is start_measure:
@@ -10044,7 +10189,12 @@ def _remove_trailing_clefs_on_staff_after_note(
 
 
 def _ensure_header_clef_on_staff(
-    measure: ET.Element, ns: str, staff_n: int, sign: str, line: int
+    measure: ET.Element,
+    ns: str,
+    staff_n: int,
+    sign: str,
+    line: int,
+    octave_change: int | None = None,
 ) -> bool:
     """첫 음 이전 attributes의 해당 staff clef를 모두 sign/line으로 맞춘다(없으면 추가).
 
@@ -10072,16 +10222,12 @@ def _ensure_header_clef_on_staff(
             if clef.get("number") is None and staff_n > 1:
                 clef.set("number", str(staff_n))
                 changed = True
-            if _rewrite_clef_sign_line(clef, ns, sign, line):
-                changed = True
-            # 잔류 clef-octave-change는 새 clef 의미와 어긋남
-            for oc in list(clef.findall(_q(ns, "clef-octave-change"))):
-                clef.remove(oc)
+            if _rewrite_clef_sign_line(clef, ns, sign, line, octave_change):
                 changed = True
     if not found_any:
         found = ET.SubElement(pre_note_attrs[0], _q(ns, "clef"))
         found.set("number", str(staff_n))
-        _rewrite_clef_sign_line(found, ns, sign, line)
+        _rewrite_clef_sign_line(found, ns, sign, line, octave_change)
         changed = True
     return changed
 
@@ -10448,7 +10594,12 @@ def _apply_set_measure_time(root: ET.Element, ns: str, fix: dict[str, Any]) -> b
 
 
 def _ensure_measure_start_clef_on_staff(
-    measure: ET.Element, ns: str, staff_n: int, sign: str, line: int
+    measure: ET.Element,
+    ns: str,
+    staff_n: int,
+    sign: str,
+    line: int,
+    octave_change: int | None = None,
 ) -> bool:
     """해당 staff 첫 음 전에 적용되는 clef를 하나의 마디 시작 clef로 정규화.
 
@@ -10456,7 +10607,7 @@ def _ensure_measure_start_clef_on_staff(
     문서상 mid attributes이지만 음악적으로는 그 staff의 마디 시작 clef다.
     "마디 앞" 삽입은 이전 마디 끝 courtesy만 만들지 말고 이 구간을 직접 갱신한다.
     """
-    changed = _ensure_header_clef_on_staff(measure, ns, staff_n, sign, line)
+    changed = _ensure_header_clef_on_staff(measure, ns, staff_n, sign, line, octave_change)
     children = list(measure)
     first_staff_note_i: int | None = None
     for i, child in enumerate(children):
@@ -10479,10 +10630,7 @@ def _ensure_measure_start_clef_on_staff(
                 if clef.get("number") is None and staff_n > 1:
                     clef.set("number", str(staff_n))
                     changed = True
-                if _rewrite_clef_sign_line(clef, ns, sign, line):
-                    changed = True
-                for oc in list(clef.findall(_q(ns, "clef-octave-change"))):
-                    clef.remove(oc)
+                if _rewrite_clef_sign_line(clef, ns, sign, line, octave_change):
                     changed = True
                 kept = True
                 continue
@@ -10498,8 +10646,8 @@ def _propagate_clef_from_measure_end(
     start_measure: ET.Element,
     ns: str,
     staff_n: int,
-    old_clef: tuple[str, int],
-    new_clef: tuple[str, int],
+    old_clef: tuple[str, int] | tuple[str, int, int],
+    new_clef: tuple[str, int] | tuple[str, int, int],
     *,
     remap_pitches: bool,
 ) -> bool:
@@ -10511,7 +10659,9 @@ def _propagate_clef_from_measure_end(
     old/new가 아닌 mid clef가 나오면 그 앞 음까지는 처리하고 중단한다.
     (머리만 보고 통째로 return 하면 remapping이 빠져 G만 바뀌는 회귀가 난다.)
     """
-    if old_clef == new_clef:
+    old_c3 = (old_clef[0], old_clef[1], old_clef[2] if len(old_clef) > 2 else 0)
+    new_c3 = (new_clef[0], new_clef[1], new_clef[2] if len(new_clef) > 2 else 0)
+    if old_c3 == new_c3:
         return False
     measures = part.findall(_q(ns, "measure"))
     try:
@@ -10531,10 +10681,10 @@ def _propagate_clef_from_measure_end(
             for clef in child.findall(_q(ns, "clef")):
                 if not _clef_element_targets_staff(clef, staff_n):
                     continue
-                cur = _clef_sign_line(clef, ns)
+                cur = _clef_sign_line_octave(clef, ns)
                 if cur is None:
                     continue
-                if cur == new_clef or cur == old_clef:
+                if cur == new_c3 or cur == old_c3:
                     continue
                 stop_at_header = True
                 break
@@ -10543,7 +10693,9 @@ def _propagate_clef_from_measure_end(
         if stop_at_header:
             return changed
 
-        if _ensure_header_clef_on_staff(m, ns, staff_n, new_clef[0], new_clef[1]):
+        if _ensure_header_clef_on_staff(
+            m, ns, staff_n, new_c3[0], new_c3[1], new_c3[2]
+        ):
             changed = True
 
         # 문서 순: mid other clef 앞까지만 rewrite·remap
@@ -10554,14 +10706,14 @@ def _propagate_clef_from_measure_end(
                 for clef in child.findall(_q(ns, "clef")):
                     if not _clef_element_targets_staff(clef, staff_n):
                         continue
-                    cur = _clef_sign_line(clef, ns)
+                    cur = _clef_sign_line_octave(clef, ns)
                     if cur is None:
                         continue
-                    if cur == new_clef:
+                    if cur == new_c3:
                         continue
-                    if cur == old_clef:
+                    if cur == old_c3:
                         if _rewrite_clef_sign_line(
-                            clef, ns, new_clef[0], new_clef[1]
+                            clef, ns, new_c3[0], new_c3[1], new_c3[2]
                         ):
                             changed = True
                         continue
@@ -10578,7 +10730,7 @@ def _propagate_clef_from_measure_end(
             if (_note_staff_number(child, ns) or 1) != staff_n:
                 continue
             if _remap_note_pitch_preserve_staff(
-                child, ns, old_clef[0], old_clef[1], new_clef[0], new_clef[1]
+                child, ns, old_c3[0], old_c3[1], new_c3[0], new_c3[1], old_c3[2], new_c3[2]
             ):
                 changed = True
         if stop_after_mid_other:
@@ -10607,6 +10759,13 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
         after_idx = int(fix.get("afterNoteIndex", -1))
     except (TypeError, ValueError):
         return False
+    clef_octave_raw = fix.get("clefOctaveChange")
+    clef_octave_change: int | None = None
+    if clef_octave_raw is not None and str(clef_octave_raw).strip() != "":
+        try:
+            clef_octave_change = int(clef_octave_raw)
+        except (TypeError, ValueError):
+            clef_octave_change = None
     after_clef_index: int | None = None
     if fix.get("afterClefIndex") is not None and fix.get("afterClefIndex") != "":
         try:
@@ -10632,9 +10791,9 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
     )
     at_staff_end = not has_later_staff_note and after_clef_index is None
 
-    old_clef_for_delta: tuple[str, int] | None = None
+    old_clef_for_delta: tuple[str, int, int] | None = None
     if 0 <= insert_after_idx < len(notes):
-        old_clef_for_delta = _clef_for_note_in_part(
+        old_clef_for_delta = _clef_spec_for_note_in_part(
             part, measure, notes[insert_after_idx], ns
         )
     else:
@@ -10647,11 +10806,11 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             notes[0] if notes else None,
         )
         if first is not None:
-            old_clef_for_delta = _clef_for_note_in_part(part, measure, first, ns)
+            old_clef_for_delta = _clef_spec_for_note_in_part(part, measure, first, ns)
         else:
-            old_clef_for_delta = ("G", 2)
+            old_clef_for_delta = ("G", 2, 0)
 
-    new_clef = (clef_sign, clef_line)
+    new_clef = (clef_sign, clef_line, clef_octave_change or 0)
 
     # 마디 앞 삽입: 현재 마디의 해당 staff 시작 clef를 직접 갱신한다.
     # staff 2 시작 clef가 backup 뒤에 있더라도 음악적으로는 이 마디 시작 clef다.
@@ -10660,7 +10819,7 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             _snapshot_note_clefs(part, measure, ns, staff_n) if remap_pitches else {}
         )
         changed = _ensure_measure_start_clef_on_staff(
-            measure, ns, staff_n, clef_sign, clef_line
+            measure, ns, staff_n, clef_sign, clef_line, clef_octave_change
         )
         if remap_pitches:
             if _remap_measure_notes_after_clef_change(
@@ -10694,12 +10853,12 @@ def _apply_insert_clef(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             _remove_trailing_clefs_on_staff_after_note(
                 measure, ns, staff_n, notes[insert_after_idx]
             )
-        attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n)
+        attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n, clef_octave_change)
         _insert_attributes_at_measure_end(measure, attrs)
         return True
 
     # 중간 삽입: 지정 음 뒤 mid clef + 이후만 remap
-    attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n)
+    attrs = _build_clef_attributes(ns, clef_sign, clef_line, staff_n, clef_octave_change)
     _insert_note_element(
         measure,
         ns,

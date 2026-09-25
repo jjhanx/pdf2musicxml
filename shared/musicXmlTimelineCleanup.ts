@@ -100,6 +100,8 @@ export function repairTimelineForOsmdPreview(
   out = stripPrintElementsForOsmdPreview(out);
   out = stripMeasureWidthAttributesForOsmdPreview(out);
   out = stripDefaultXyForOsmdPreview(out);
+  // type·duration 불일치(예: half+dur=2)를 duration←type로 맞춘 뒤 timeline onset 계산
+  out = coerceNoteDurationsToTypeForOsmdPreview(out);
   if (faithful) {
     // partial voice column: 문서 순서 → 타임라인 onset( forward/trim ) → layout-x. 순서 변경 금지.
     out = reorderPlayOrderDocumentOrderInXml(out);
@@ -109,8 +111,6 @@ export function repairTimelineForOsmdPreview(
   out = stripChordBeamsForOsmdPreview(out);
   out = ensureSecondaryBeamLevelsForOsmdPreview(out);
   out = dedupeIdenticalChordPitchesForOsmdPreview(out);
-  // type·duration 불일치(예: half+dur=2)를 duration←type로 맞춘 뒤 slur 짝 정리
-  out = coerceNoteDurationsToTypeForOsmdPreview(out);
   // non-faithful만 coerce 후 재clamp. faithful은 음표 보존.
   out = capBackupDurationsForOsmdPreview(out, capOpts);
   // cap이 PR→PL backup을 voice cursor로 줄인 경우 staff1 길이로 재보정

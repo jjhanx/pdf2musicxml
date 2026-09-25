@@ -86,25 +86,45 @@ function pitchFromVfPitch(vfpitch: unknown): string | null {
   return `${step}${flat}${m[3]}`;
 }
 
+const OSMD_FUNDAMENTAL_TO_STEP: Record<number, string> = {
+  0: 'C',
+  2: 'D',
+  4: 'E',
+  5: 'F',
+  7: 'G',
+  9: 'A',
+  11: 'B',
+};
+
 function pitchFromGraphicNote(gn: Record<string, unknown>): string | null {
+  const src = asRecord(gn.sourceNote ?? gn.SourceNote);
+  if (src) {
+    const pitch = asRecord(src.Pitch ?? src.pitch);
+    if (pitch && typeof (pitch as any).ToStringShort === 'function') {
+      const s = (pitch as any).ToStringShort(3);
+      if (typeof s === 'string' && s.trim()) return s.trim();
+    }
+    const fn = coordNum(pitch?.FundamentalNote ?? pitch?.fundamentalNote);
+    const oct = coordNum(pitch?.Octave ?? pitch?.octave);
+    if (fn != null && oct != null) {
+      const step = OSMD_FUNDAMENTAL_TO_STEP[fn] ?? (fn >= 0 && fn <= 6 ? STEP_NAMES[fn] : null);
+      if (step) {
+        const accRaw = coordNum(pitch?.Accidental ?? pitch?.accidental);
+        const acc =
+          accRaw === OSMD_ACCIDENTAL_FLAT ? 'b' : accRaw === OSMD_ACCIDENTAL_SHARP ? '#' : '';
+        return `${step}${acc}${oct + 3}`;
+      }
+    }
+    const ht = coordNum(src.halfTone ?? src.HalfTone);
+    if (ht != null) {
+      return pitchLabelFromHalfTone(ht + 12);
+    }
+  }
+
   const fromVf = pitchFromVfPitch(gn.vfpitch ?? gn.vfPitch);
   if (fromVf) return fromVf;
 
-  const src = asRecord(gn.sourceNote ?? gn.SourceNote);
-  if (!src) return null;
-
-  const ht = coordNum(src.halfTone ?? src.HalfTone);
-  if (ht != null) return pitchLabelFromHalfTone(ht);
-
-  const pitch = asRecord(src.Pitch ?? src.pitch);
-  if (!pitch) return null;
-  const fn = coordNum(pitch.FundamentalNote ?? pitch.fundamentalNote);
-  const oct = coordNum(pitch.Octave ?? pitch.octave);
-  if (fn == null || oct == null || fn < 0 || fn > 6) return null;
-  const accRaw = coordNum(pitch.Accidental ?? pitch.accidental);
-  const acc =
-    accRaw === OSMD_ACCIDENTAL_FLAT ? 'b' : accRaw === OSMD_ACCIDENTAL_SHARP ? '#' : '';
-  return `${STEP_NAMES[fn] ?? 'C'}${acc}${oct}`;
+  return null;
 }
 
 function voiceFromGraphicNote(gn: Record<string, unknown>): string | null {
@@ -3257,6 +3277,112 @@ function alignPlayOrderAlignRefsToAnchorVoice(
 /**
  * Softmax notehead 구간 안에서 layout-x(duration) 비례 재배치.
  * **실제 쓰인** layout-x 구간만 [minHit, 마디끝−여백]에 매핑(32..432 전체 우겨넣기 금지 —
+type OnsetColumn = { layoutX: number; pitchSet: string[]; expectHeads: number };
+
+/**
+ * 음표를 onset column에 단조(monotonic) 매칭한다.
+ * 1) column 수와 rendered stavenote 수가 같을 때: 1:1 순차 매칭 (시간 순서 100% 보존).
+ * 2) 다를 때: DP(동적 계획법)를 통해 i < k => j < l 단조 증가 순서를 엄격히 강제.
+ * 어떤 경우에도 뒤쪽 음표가 앞쪽 음표를 가로지르거나(reverse crossing),
+ * 빔에서 떨어져 나와 다른 빔과 겹치는 현상을 원천 방지한다.
+ */
+function matchVoiceHitsToColumnsMonotonically(
+  voiceHits: readonly NoteHit[],
+  columns: readonly OnsetColumn[],
+): Array<{ hit: NoteHit; col: OnsetColumn }> {
+  const m = columns.length;
+  const n = voiceHits.length;
+  if (!m || !n) return [];
+
+  if (m === n) {
+    let matchCount = 0;
+    for (let i = 0; i < n; i++) {
+      const col = columns[i]!;
+      const hit = voiceHits[i]!;
+      if (
+        col.pitchSet.some((p) => hitHasPitch(hit, p)) ||
+        (col.pitchSet.includes('REST') &&
+          (hit.pitch === 'REST' || hit.pitches.includes('REST')))
+      ) {
+        matchCount++;
+      }
+    }
+    if (matchCount > 0 || n <= 2) {
+      return columns.map((col, i) => ({ hit: voiceHits[i]!, col }));
+    }
+  }
+
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(-Infinity));
+  const parent: Array<Array<[number, number] | null>> = Array.from({ length: m + 1 }, () =>
+    Array(n + 1).fill(null),
+  );
+
+  dp[0]![0] = 0;
+  for (let i = 0; i <= m; i++) {
+    for (let j = 0; j <= n; j++) {
+      const cur = dp[i]![j]!;
+      if (cur === -Infinity) continue;
+
+      if (i < m && cur > dp[i + 1]![j]!) {
+        dp[i + 1]![j] = cur;
+        parent[i + 1]![j] = [i, j];
+      }
+      if (j < n && cur > dp[i]![j + 1]!) {
+        dp[i]![j + 1] = cur;
+        parent[i]![j + 1] = [i, j];
+      }
+      if (i < m && j < n) {
+        const col = columns[i]!;
+        const hit = voiceHits[j]!;
+        let score = 0;
+        const pitchMatch =
+          col.pitchSet.some((p) => hitHasPitch(hit, p)) ||
+          (col.pitchSet.includes('REST') &&
+            (hit.pitch === 'REST' || hit.pitches.includes('REST')));
+        if (pitchMatch) {
+          score += 100;
+          if (col.expectHeads > 0 && Math.abs(hit.heads - col.expectHeads) === 0) {
+            score += 20;
+          }
+        } else {
+          score -= 50;
+        }
+        if (cur + score > dp[i + 1]![j + 1]!) {
+          dp[i + 1]![j + 1] = cur + score;
+          parent[i + 1]![j + 1] = [i, j];
+        }
+      }
+    }
+  }
+
+  let ci = m;
+  let cj = n;
+  const pairs: Array<{ hit: NoteHit; col: OnsetColumn }> = [];
+  while (ci > 0 && cj > 0) {
+    const p = parent[ci]![cj];
+    if (!p) break;
+    const [pi, pj] = p;
+    if (pi === ci - 1 && pj === cj - 1) {
+      const col = columns[pi]!;
+      const hit = voiceHits[pj]!;
+      const pitchMatch =
+        col.pitchSet.some((pitch) => hitHasPitch(hit, pitch)) ||
+        (col.pitchSet.includes('REST') &&
+          (hit.pitch === 'REST' || hit.pitches.includes('REST')));
+      if (pitchMatch) {
+        pairs.push({ hit, col });
+      }
+    }
+    ci = pi;
+    cj = pj;
+  }
+  pairs.reverse();
+  return pairs;
+}
+
+/**
+ * Softmax notehead 구간 안에서 layout-x(duration) 비례 재배치.
+ * **실제 쓰인** layout-x 구간만 notehead [min,max]에 매핑(32..432 전체 우겨넣기 금지 —
  * 앞쪽 밀집·떡·빔 붕괴 원인). Softmax max만 쓰면 마지막 음이 마디선에 포개짐.
  * 마디 g·바로는 건드리지 않음. syncVf가 빔·hook 맞춤.
  */
@@ -3305,13 +3431,12 @@ function alignMeasureNotesByOnsetLayoutGrid(
   );
   if (!measureSpan) return false;
 
-  type Column = { layoutX: number; pitchSet: string[]; expectHeads: number };
   type Place = { stavenote: SVGGraphicsElement; centerX: number; layoutX: number };
   let moved = false;
 
   for (const voice of [...new Set(measureTargets.map((t) => t.voice))]) {
     const voiceTargets = measureTargets.filter((t) => t.voice === voice);
-    const colMap = new Map<string, Column>();
+    const colMap = new Map<string, OnsetColumn>();
     for (const t of voiceTargets) {
       const key = t.defaultXTenths.toFixed(2);
       const col = colMap.get(key);
@@ -3339,25 +3464,14 @@ function alignMeasureNotesByOnsetLayoutGrid(
       });
     if (!voiceHits.length) continue;
 
-    const used = new Set<SVGGraphicsElement>();
-    const voicePlan: Place[] = [];
-    for (const col of columns) {
-      const candidates = voiceHits
-        .filter((h) => !used.has(h.stavenote))
-        .filter((h) => col.pitchSet.some((p) => hitHasPitch(h, p)));
-      if (!candidates.length) continue;
-      let hit = candidates[0]!;
-      if (col.expectHeads > 1) {
-        hit =
-          candidates.find((c) => Math.abs(c.heads - col.expectHeads) === 0) ??
-          [...candidates].sort(
-            (a, b) => Math.abs(a.heads - col.expectHeads) - Math.abs(b.heads - col.expectHeads),
-          )[0]!;
-      }
-      used.add(hit.stavenote);
-      voicePlan.push({ stavenote: hit.stavenote, centerX: hit.centerX, layoutX: col.layoutX });
-    }
-    if (voicePlan.length < 2) continue;
+    const pairs = matchVoiceHitsToColumnsMonotonically(voiceHits, columns);
+    if (pairs.length < 2) continue;
+
+    const voicePlan: Place[] = pairs.map(({ hit, col }) => ({
+      stavenote: hit.stavenote,
+      centerX: hit.centerX,
+      layoutX: col.layoutX,
+    }));
 
     const ordered = [...voicePlan].sort((a, b) => a.layoutX - b.layoutX || a.centerX - b.centerX);
     let prevWant = -Infinity;

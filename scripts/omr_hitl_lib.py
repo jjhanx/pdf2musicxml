@@ -118,10 +118,91 @@ def load_mxl_root(mxl_path: Path) -> tuple[dict[str, bytes], str, ET.Element]:
 
 
 def write_mxl_root(mxl_path: Path, files: dict[str, bytes], root_path: str, root: ET.Element) -> None:
+    ns = _ns(root)
+    sync_measure_widths_across_all_parts(root, ns)
     files[root_path] = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     with zipfile.ZipFile(mxl_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for name, data in files.items():
             z.writestr(name, data)
+
+
+def sync_measure_widths_across_all_parts(
+    root: ET.Element,
+    ns: str,
+    *,
+    only_measures: set[str] | None = None,
+) -> int:
+    """악보 전체(또는 지정 마디)의 파트별 마디 폭(width)을 일치시키고, 음표 default-x 초과 시 안전 폭으로 자동 확장.
+
+    규칙:
+    1. MusicXML score-partwise 규격상 첫 번째 파트(P1)의 마디 폭이 시스템 전체 열의 폭을 결정하므로,
+       모든 파트의 동일 마디 번호는 반드시 일치된 width를 가져야 한다.
+    2. 음표들의 박자 비례 거리(default-x)는 그대로 보존하되, 음표가 마디 경계(오른쪽 마디선)를 넘지 않도록
+       마디 폭을 충분히 확보한다(기본 max_x + 58, 350+인 경우 최소 440, 380+인 경우 최소 480).
+    3. 기존 파트들에 정의된 폭과 음표 필요 폭 중 최대값(max)으로 모든 파트의 해당 마디 width를 통일한다.
+    """
+    parts = root.findall(f".//{_q(ns, 'part')}")
+    if not parts:
+        return 0
+
+    m_nums: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        for m in part.findall(f"./{_q(ns, 'measure')}"):
+            num = m.get("number")
+            if num and num not in seen:
+                if only_measures is not None and num not in only_measures:
+                    continue
+                seen.add(num)
+                m_nums.append(num)
+
+    changed_measures = 0
+    for mn in m_nums:
+        measures: list[ET.Element] = []
+        max_xs: list[float] = []
+        curr_widths: list[float] = []
+        for part in parts:
+            m = find_measure(part, ns, mn)
+            if m is not None:
+                measures.append(m)
+                w_attr = m.get("width")
+                if w_attr:
+                    try:
+                        curr_widths.append(float(w_attr))
+                    except (ValueError, TypeError):
+                        pass
+                notes = m.findall(f".//{_q(ns, 'note')}")
+                for n in notes:
+                    dx = n.get("default-x")
+                    if dx is not None:
+                        try:
+                            max_xs.append(float(dx))
+                        except (ValueError, TypeError):
+                            pass
+
+        global_max_x = max(max_xs, default=0.0)
+        curr_max_w = max(curr_widths, default=0.0)
+
+        needed_w = curr_max_w
+        if global_max_x > 0:
+            min_needed = global_max_x + 58.0
+            if global_max_x >= 380.0:
+                min_needed = max(min_needed, 480.0)
+            elif global_max_x >= 350.0:
+                min_needed = max(min_needed, 440.0)
+            needed_w = max(curr_max_w, min_needed)
+
+        if needed_w > 0:
+            target_w_str = str(int(round(needed_w)))
+            col_changed = False
+            for m in measures:
+                if m.get("width") != target_w_str:
+                    m.set("width", target_w_str)
+                    col_changed = True
+            if col_changed:
+                changed_measures += 1
+
+    return changed_measures
 
 
 def find_part(root: ET.Element, ns: str, part_id: str) -> ET.Element | None:
@@ -6135,18 +6216,24 @@ def _compact_default_x_by_staff(
                     n.set("default-x", new_x)
                     changed = True
 
-    # 마디 폭 부족 방지: 음표 간 박자 비례 거리를 유지하되, 음표가 마디선(width)을 넘어가지 않도록 최소 마디 폭 보장
+    # 마디 폭 부족 방지: 음표 간 박자 비례 거리를 유지하되, 음표가 마디선(width)을 넘어가지 않도록 충분한 마디 폭 보장
     w_attr = measure.get("width")
-    if w_attr:
-        try:
-            curr_w = float(w_attr)
-            max_note_x = max((float(n.get("default-x", "0")) for n in notes if n.get("default-x") is not None), default=0.0)
-            needed_w = max_note_x + 48.0
-            if max_note_x > 0 and curr_w < needed_w:
-                measure.set("width", str(int(round(needed_w))))
-                changed = True
-        except (ValueError, TypeError):
-            pass
+    curr_w = float(w_attr) if w_attr else 0.0
+    try:
+        max_note_x = max((float(n.get("default-x", "0")) for n in notes if n.get("default-x") is not None), default=0.0)
+        needed_w = curr_w
+        if max_note_x > 0:
+            min_needed = max_note_x + 58.0
+            if max_note_x >= 380.0:
+                min_needed = max(min_needed, 480.0)
+            elif max_note_x >= 350.0:
+                min_needed = max(min_needed, 440.0)
+            needed_w = max(curr_w, min_needed)
+        if needed_w > curr_w:
+            measure.set("width", str(int(round(needed_w))))
+            changed = True
+    except (ValueError, TypeError):
+        pass
     return changed
 
 
@@ -16132,6 +16219,7 @@ def apply_fixes_to_root(root: ET.Element, fixes: list[dict[str, Any]]) -> dict[s
             only_staff = next(iter(staffs)) if staffs in ({"1"}, {"2"}) else None
             rebuild_measure_timeline_clean(measure, ns, part, staff=only_staff)
             _migrate_directions_to_notes(measure, ns)
+    sync_measure_widths_across_all_parts(root, ns)
     return stats
 
 

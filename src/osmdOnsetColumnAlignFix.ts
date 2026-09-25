@@ -3487,6 +3487,20 @@ function alignMeasureNotesByOnsetLayoutGrid(
       );
       prevWant = want;
     }
+    const maxAllowedRight =
+      contentRightPx != null && Number.isFinite(contentRightPx) && contentRightPx > 0
+        ? contentRightPx - Math.max(10, osmdSvgScale(osmd) * 0.35)
+        : Infinity;
+    if (prevWant > maxAllowedRight && ordered.length > 0) {
+      const shiftBack = prevWant - maxAllowedRight;
+      for (const p of ordered) {
+        applySvgTranslateX(
+          p.stavenote,
+          -shiftBack,
+          Math.max(MAX_ONSET_ALIGN_SHIFT_PX, measureSpan.spanPx * 2),
+        );
+      }
+    }
   }
   return moved;
 }

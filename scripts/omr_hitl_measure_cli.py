@@ -25,6 +25,7 @@ from omr_hitl_lib import (  # noqa: E402
     normalize_dynamics_in_root,
     normalize_measure_timelines_in_root,
     rebuild_measure_timeline_clean,
+    sync_measure_widths_across_all_parts,
     write_mxl_root,
     _ns,
 )
@@ -66,12 +67,15 @@ def main() -> int:
                 measure = find_measure(part, ns, args.measure)
                 if measure is not None:
                     rebuild_measure_timeline_clean(measure, ns, part)
+            sync_fixed = sync_measure_widths_across_all_parts(
+                root, ns, only_measures={str(args.measure).strip()}
+            )
         snap = measure_snapshot(root, ns, args.part_id, args.measure)
         if snap is None:
             print(json.dumps({"error": "part or measure not found"}, ensure_ascii=False))
             return 1
         if (not args.read_only) and (
-            coalesce_fixed or chord_dupes or dyns_fixed or timeline_fixed
+            coalesce_fixed or chord_dupes or dyns_fixed or timeline_fixed or sync_fixed
         ):
             write_mxl_root(args.mxl_path, files, root_path, root)
             if coalesce_fixed:

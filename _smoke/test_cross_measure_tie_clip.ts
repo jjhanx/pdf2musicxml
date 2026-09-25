@@ -61,11 +61,57 @@ async function main() {
   await osmd.load(previewXml);
   osmd.render();
 
+  const { alignOsmdPreviewNotesByOnsetColumn } = await import('../src/osmdOnsetColumnAlignFix.ts');
+  const { snapOsmdTiesToNoteheads } = await import('../src/osmdTieFix.ts');
+
+  // Full preview pipeline: contain -> clip -> align -> snap ties -> re-clip
   containOsmdMeasureNotesInAllocatedWidth(host, osmd);
   clipOsmdMeasuresToAllocatedWidth(host, osmd);
+  alignOsmdPreviewNotesByOnsetColumn(osmd);
+  alignOsmdPreviewNotesByOnsetColumn(osmd);
+  const snappedCount = snapOsmdTiesToNoteheads(host, osmd);
+  clipOsmdMeasuresToAllocatedWidth(host, osmd);
 
-  // Measure 29 (measure index 1 for staff 0)
+  console.log(`snappedCount: ${snappedCount}`);
+
+  // Measure 28 & 29 stavenotes & tie check
+  const m0 = host.querySelectorAll('g.vf-measure')[0];
   const m1 = host.querySelectorAll('g.vf-measure')[1];
+
+  // M28 last notehead
+  const m0Notes = m0.querySelectorAll('.vf-stavenote');
+  const lastM0Note = m0Notes[m0Notes.length - 1];
+  const lastM0Heads = lastM0Note.querySelectorAll('.vf-notehead');
+  const m0Tr = lastM0Note.getAttribute('transform') || '';
+  const m0TrMatch = /translate\(\s*([-\d.]+)/.exec(m0Tr);
+  const m0Tx = m0TrMatch ? parseFloat(m0TrMatch[1]!) : 0;
+  let fnMaxX = -Infinity;
+  for (const h of lastM0Heads) {
+    const p = h.tagName.toLowerCase() === 'path' ? h : h.querySelector('path');
+    const d = p?.getAttribute('d') || '';
+    const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+    for (let i = 0; i < nums.length; i += 2) {
+      if (Number.isFinite(nums[i])) fnMaxX = Math.max(fnMaxX, nums[i]! + m0Tx);
+    }
+  }
+
+  // M29 first notehead
+  const m1Notes = m1.querySelectorAll('.vf-stavenote');
+  const firstM1Note = m1Notes[0];
+  const firstM1Heads = firstM1Note.querySelectorAll('.vf-notehead');
+  const m1Tr = firstM1Note.getAttribute('transform') || '';
+  const m1TrMatch = /translate\(\s*([-\d.]+)/.exec(m1Tr);
+  const m1Tx = m1TrMatch ? parseFloat(m1TrMatch[1]!) : 0;
+  let lnMinX = Infinity;
+  for (const h of firstM1Heads) {
+    const p = h.tagName.toLowerCase() === 'path' ? h : h.querySelector('path');
+    const d = p?.getAttribute('d') || '';
+    const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+    for (let i = 0; i < nums.length; i += 2) {
+      if (Number.isFinite(nums[i])) lnMinX = Math.min(lnMinX, nums[i]! + m1Tx);
+    }
+  }
+
   const clipId = m1.getAttribute('clip-path')?.replace(/url\(#|\)/g, '');
   const clipRect = host.querySelector(`#${clipId} rect`);
   if (!clipRect) throw new Error('clipRect missing');
@@ -78,6 +124,7 @@ async function main() {
   if (!tiePath) throw new Error('tiePath missing');
 
   const d = tiePath.getAttribute('d') || '';
+  const matchTie = /M\s*([-\d.]+)\s+([-\d.]+).*?([-\d.]+)\s+([-\d.]+)\s*Q/i.exec(d);
   const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
   const xs: number[] = [];
   for (let i = 0; i < nums.length; i += 2) {
@@ -86,13 +133,28 @@ async function main() {
 
   const tieMinX = Math.min(...xs);
   const tieMaxX = Math.max(...xs);
+  const tieStartX = parseFloat(matchTie ? matchTie[1]! : String(tieMinX));
+  const tieEndX = parseFloat(matchTie ? matchTie[3]! : String(tieMaxX));
 
-  console.log(`Measure 29 Clip: [${clipLeft}, ${clipRight}], Tie X range: [${tieMinX}, ${tieMaxX}]`);
+  console.log(`fnMaxX: ${fnMaxX.toFixed(2)}, lnMinX: ${lnMinX.toFixed(2)}`);
+  console.log(`tieStartX: ${tieStartX.toFixed(2)}, tieEndX: ${tieEndX.toFixed(2)}`);
+  console.log(`Measure 29 Clip: [${clipLeft.toFixed(2)}, ${clipRight.toFixed(2)}], Tie X range: [${tieMinX.toFixed(2)}, ${tieMaxX.toFixed(2)}]`);
 
-  if (tieMinX < clipLeft) {
+  // User requirement 1: tie start X <= first notehead right X (no gap on left)
+  if (tieStartX > fnMaxX + 0.05) {
+    throw new Error(`Tie start X ${tieStartX} is detached/to the right of first notehead maxX ${fnMaxX}!`);
+  }
+
+  // User requirement 2: tie end X >= last notehead left X (no gap on right)
+  if (tieEndX < lnMinX - 0.05) {
+    throw new Error(`Tie end X ${tieEndX} is detached/to the left of last notehead minX ${lnMinX}!`);
+  }
+
+  // Not clipped by measure clip
+  if (tieMinX < clipLeft - 0.01) {
     throw new Error(`Tie minX ${tieMinX} is clipped by clipLeft ${clipLeft}!`);
   }
-  if (tieMaxX > clipRight) {
+  if (tieMaxX > clipRight + 0.01) {
     throw new Error(`Tie maxX ${tieMaxX} is clipped by clipRight ${clipRight}!`);
   }
 

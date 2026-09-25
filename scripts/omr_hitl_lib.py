@@ -6134,6 +6134,19 @@ def _compact_default_x_by_staff(
                 if n.get("default-x") != new_x:
                     n.set("default-x", new_x)
                     changed = True
+
+    # 마디 폭 부족 방지: 음표 간 박자 비례 거리를 유지하되, 음표가 마디선(width)을 넘어가지 않도록 최소 마디 폭 보장
+    w_attr = measure.get("width")
+    if w_attr:
+        try:
+            curr_w = float(w_attr)
+            max_note_x = max((float(n.get("default-x", "0")) for n in notes if n.get("default-x") is not None), default=0.0)
+            needed_w = max_note_x + 48.0
+            if max_note_x > 0 and curr_w < needed_w:
+                measure.set("width", str(int(round(needed_w))))
+                changed = True
+        except (ValueError, TypeError):
+            pass
     return changed
 
 

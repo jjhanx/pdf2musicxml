@@ -3531,6 +3531,124 @@ function pushNotesOutOfBeginInstructions(osmd: OpenSheetMusicDisplay): boolean {
   return moved;
 }
 
+function expressionRelTimestamps(expr: Record<string, unknown>): number[] {
+  const cd = asRecord(
+    expr.ContinuousDynamic ?? expr.continuousDynamic ?? expr.SourceExpression ?? expr.sourceExpression,
+  );
+  const start = asRecord(cd?.StartMultiExpression ?? cd?.startMultiExpression);
+  const out: number[] = [];
+  for (const v of [start?.Timestamp, start?.timestamp, cd?.Timestamp, cd?.timestamp]) {
+    const n = coordNum(v);
+    if (n != null) out.push(n);
+  }
+  return out;
+}
+
+function staffEntryRelTimestamp(se: Record<string, unknown>): number | null {
+  const src = asRecord(se.sourceStaffEntry ?? se.SourceStaffEntry);
+  return coordNum(src?.Timestamp ?? src?.timestamp);
+}
+
+function entryNoteheadCenterX(osmd: OpenSheetMusicDisplay, se: Record<string, unknown>): number | null {
+  const gves = (se.graphicalVoiceEntries ?? se.GraphicalVoiceEntries ?? []) as unknown[];
+  for (const gveRaw of gves) {
+    const gve = asRecord(gveRaw);
+    if (!gve) continue;
+    for (const gnRaw of (gve.notes ?? gve.Notes ?? []) as unknown[]) {
+      const gn = asRecord(gnRaw);
+      if (!gn) continue;
+      const stavenote = graphicNoteStavenote(osmd, gn);
+      if (!stavenote) continue;
+      const x = noteheadCenterXInSvgRoot(stavenote);
+      if (x != null && Number.isFinite(x)) return x;
+    }
+  }
+  return null;
+}
+
+function verbalLabelSvg(expr: Record<string, unknown>): SVGGraphicsElement | null {
+  const label = asRecord(expr.Label ?? expr.label);
+  const node = label?.SVGNode ?? label?.svgNode;
+  if (!node || typeof node !== 'object') return null;
+  const el = node as Element;
+  if (typeof el.getAttribute !== 'function') return null;
+  return el as SVGGraphicsElement;
+}
+
+function verbalLabelWidthPx(expr: Record<string, unknown>, scale: number): number | null {
+  const label = asRecord(expr.Label ?? expr.label);
+  const shape = asRecord(label?.PositionAndShape ?? label?.positionAndShape);
+  const size = asRecord(shape?.Size ?? shape?.size);
+  const w = coordNum(size?.width ?? size?.Width);
+  if (w == null || w <= 0 || !Number.isFinite(scale) || scale <= 0) return null;
+  return w * scale;
+}
+
+function svgTextLeftInRoot(el: Element): number | null {
+  const text = el.tagName?.toLowerCase() === 'text' ? el : el.querySelector('text');
+  if (!text) return null;
+  const x = parseFloat(text.getAttribute('x') ?? '');
+  if (!Number.isFinite(x)) return null;
+  return svgUserXFromElement(text, x);
+}
+
+/**
+ * OSMD는 cresc./dim. 같은 말로 된 연속 셈여림을 해당 음표 왼쪽 끝에 붙여
+ * 글자 폭만큼 오른쪽(다음 음)으로 그린다. 글자 중심을 그 타임스탬프의 음머리로 옮긴다.
+ * 저장 MXL·wedge 점선·곡별 좌표는 바꾸지 않는다.
+ */
+export function anchorVerbalDynamicLabelsToNoteheads(osmd: OpenSheetMusicDisplay): void {
+  const scale = osmdSvgScale(osmd);
+  const sheet = asRecord(
+    (osmd as unknown as { GraphicSheet?: unknown; graphicSheet?: unknown }).GraphicSheet ??
+      (osmd as unknown as { graphicSheet?: unknown }).graphicSheet,
+  );
+  if (!sheet) return;
+  const pages = (sheet.MusicPages ?? sheet.musicPages ?? []) as unknown[];
+  for (const pageRaw of pages) {
+    const page = asRecord(pageRaw);
+    const systems = (page?.MusicSystems ?? page?.musicSystems ?? []) as unknown[];
+    for (const sysRaw of systems) {
+      const sys = asRecord(sysRaw);
+      const lines = (sys?.StaffLines ?? sys?.staffLines ?? []) as unknown[];
+      for (const slRaw of lines) {
+        const sl = asRecord(slRaw);
+        const exprs = (sl?.AbstractExpressions ?? sl?.abstractExpressions ?? []) as unknown[];
+        for (const exprRaw of exprs) {
+          const expr = asRecord(exprRaw);
+          if (!expr || expr.IsVerbal !== true) continue;
+          const cands = expressionRelTimestamps(expr);
+          if (!cands.length) continue;
+          const gm = asRecord(expr.StartMeasure ?? expr.startMeasure);
+          const entries = (gm?.staffEntries ?? gm?.StaffEntries ?? []) as unknown[];
+          let noteX: number | null = null;
+          let bestDist = Infinity;
+          for (const seRaw of entries) {
+            const se = asRecord(seRaw);
+            if (!se) continue;
+            const ts = staffEntryRelTimestamp(se);
+            if (ts == null) continue;
+            const dist = Math.min(...cands.map((c) => Math.abs(c - ts)));
+            if (dist > 0.02 || dist >= bestDist) continue;
+            const x = entryNoteheadCenterX(osmd, se);
+            if (x == null) continue;
+            noteX = x;
+            bestDist = dist;
+          }
+          if (noteX == null) continue;
+          const svg = verbalLabelSvg(expr);
+          const widthPx = verbalLabelWidthPx(expr, scale);
+          if (!svg || widthPx == null) continue;
+          const left = svgTextLeftInRoot(svg);
+          if (left == null) continue;
+          const dx = noteX - (left + widthPx / 2);
+          applySvgTranslateX(svg, dx);
+        }
+      }
+    }
+  }
+}
+
 export function alignOsmdPreviewNotesByOnsetColumn(
   osmd: OpenSheetMusicDisplay,
   previewXml?: string | null,
@@ -3596,6 +3714,8 @@ export function alignOsmdPreviewNotesByOnsetColumn(
     (osmd as unknown as { root?: ParentNode | null }).root ??
     null;
   if (host) syncVfStemsAndBeamsAfterStavenoteAlign(host);
+  // 음표 x가 확정된 뒤 — cresc. 등 말로 된 크레셴도는 왼쪽 정렬이라 다음 음 위로 넘어감
+  anchorVerbalDynamicLabelsToNoteheads(osmd);
 }
 
 export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHint): number {

@@ -432,7 +432,19 @@ export function clipOsmdMeasuresToAllocatedWidth(
   });
 }
 
-/** 빔·줄기 path의 x 범위가 마디 bounds 밖이면 clip 가로를 그만큼 넓힘(음표 spill contain과 별개). */
+function elementTranslateXRelativeTo(el: Element, ancestor: Element): number {
+  let x = 0;
+  let cur: Element | null = el;
+  while (cur && cur !== ancestor) {
+    const tr = cur.getAttribute?.('transform') ?? '';
+    const m = /translate\(\s*([-\d.eE+]+)/.exec(tr);
+    if (m) x += parseFloat(m[1]!);
+    cur = cur.parentElement;
+  }
+  return x;
+}
+
+/** 빔·줄기·붙임줄(tie)·이음줄(slur) path의 x 범위가 마디 bounds 밖이면 clip 가로를 그만큼 넓힘(마디 경계를 넘는 붙임줄/이음줄이 잘려 보이지 않는 현상 방지). */
 export function expandBoundsForEngravingGlyphs(
   measureG: Element,
   bounds: { left: number; right: number },
@@ -440,14 +452,30 @@ export function expandBoundsForEngravingGlyphs(
   let left = bounds.left;
   let right = bounds.right;
   const pad = 2;
+  // 1) 빔 & 줄기
   for (const p of measureG.querySelectorAll('.vf-beam path, .vf-stem path, :scope > .vf-stem path')) {
     const d = p.getAttribute('d') || '';
+    const tx = elementTranslateXRelativeTo(p, measureG);
     const xs: number[] = [];
     const re = /[MmLl]\s*([-\d.eE+]+)/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(d))) {
       const x = parseFloat(m[1]!);
-      if (Number.isFinite(x)) xs.push(x);
+      if (Number.isFinite(x)) xs.push(x + tx);
+    }
+    if (!xs.length) continue;
+    left = Math.min(left, Math.min(...xs) - pad);
+    right = Math.max(right, Math.max(...xs) + pad);
+  }
+  // 2) 붙임줄(tie) & 이음줄(slur) - 마디를 가로지르는 곡선(M/Q/C) 좌표 반영
+  for (const p of measureG.querySelectorAll('.vf-stavetie path, [class*="vf-tie"] path, .vf-curve path, [class*="vf-curve"] path')) {
+    const d = p.getAttribute('d') || '';
+    if (!d) continue;
+    const tx = elementTranslateXRelativeTo(p, measureG);
+    const nums = [...d.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+    const xs: number[] = [];
+    for (let i = 0; i < nums.length; i += 2) {
+      if (Number.isFinite(nums[i])) xs.push(nums[i]! + tx);
     }
     if (!xs.length) continue;
     left = Math.min(left, Math.min(...xs) - pad);

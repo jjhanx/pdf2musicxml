@@ -248,6 +248,23 @@ function stavenoteFromGraphicEl(svg: SVGGraphicsElement | null): SVGGraphicsElem
   return svg.closest('.vf-stavenote, .vf-staveNote') as SVGGraphicsElement | null;
 }
 
+/** stavenote 내부의 좌측 돌출 요소(꾸밈음, 임시표 등)가 음표머리 중심으로부터 왼쪽으로 뻗은 최대 거리(px) */
+function stavenoteLeftExtentPx(stavenote: SVGGraphicsElement, centerNoteheadX: number): number {
+  let minPathX = centerNoteheadX;
+  const paths = stavenote.querySelectorAll('path');
+  for (const path of paths) {
+    const d = path.getAttribute('d');
+    if (!d) continue;
+    for (const match of d.matchAll(/[ML]\s*([-\d.]+)/g)) {
+      const x = parseFloat(match[1]!);
+      if (Number.isFinite(x) && x < minPathX) {
+        minPathX = x;
+      }
+    }
+  }
+  return Math.max(0, centerNoteheadX - minPathX);
+}
+
 /** 상대 snap — 좌표계 혼용·과대 이동 시 notehead 소실 방지. */
 const MAX_ONSET_ALIGN_SHIFT_PX = 120;
 
@@ -297,9 +314,23 @@ type NoteHit = {
 function isGraceGraphicNote(gn: Record<string, unknown>): boolean {
   const src = asRecord(gn.sourceNote ?? gn.SourceNote);
   if (!src) return false;
-  if (typeof (src as any).isGraceNote === 'function') return Boolean((src as any).isGraceNote());
-  if (typeof (src as any).IsGraceNote === 'function') return Boolean((src as any).IsGraceNote());
-  return Boolean(src.isGrace ?? src.IsGrace);
+  if (typeof (src as any).isGraceNote === 'function') {
+    try {
+      if ((src as any).isGraceNote()) return true;
+    } catch { /* ignore */ }
+  }
+  if (typeof (src as any).IsGraceNote === 'function') {
+    try {
+      if ((src as any).IsGraceNote()) return true;
+    } catch { /* ignore */ }
+  }
+  if (src.isGrace === true || src.IsGrace === true) return true;
+  if ((src as any).isGraceNote === true || (src as any).IsGraceNote === true) return true;
+  const pve = asRecord(gn.parentVoiceEntry ?? gn.ParentVoiceEntry);
+  if (pve?.isGrace === true || pve?.IsGrace === true) return true;
+  const ppve = asRecord(pve?.parentVoiceEntry ?? pve?.ParentVoiceEntry);
+  if (ppve?.isGrace === true || ppve?.IsGrace === true) return true;
+  return false;
 }
 
 function isRestGraphicNote(gn: Record<string, unknown>): boolean {
@@ -739,7 +770,11 @@ export function placementSpanFromExtentAndLayouts(
   const f0 = Math.max(0, Math.min(1, (lxMin - LAYOUT_BASE_X) / dynamicSpan));
   const f1 = Math.max(0, Math.min(1, (lxEnd - LAYOUT_BASE_X) / dynamicSpan));
   const fSpan = Math.max(1e-6, f1 - f0);
-  const spanPx = (rightEdge - leftEdge) / fSpan;
+  let spanPx = (rightEdge - leftEdge) / fSpan;
+  if (dynamicSpan > LAYOUT_SPAN) {
+    const scaleRatio = dynamicSpan / LAYOUT_SPAN;
+    spanPx = Math.max(spanPx, spanPx * scaleRatio);
+  }
   const originX = leftEdge - f0 * spanPx;
   if (!(spanPx >= 8)) return null;
   return { originX, spanPx, layoutSpan: dynamicSpan };
@@ -3510,8 +3545,15 @@ function alignMeasureNotesByOnsetLayoutGrid(
     const minNoteGap = Math.max(6, osmdSvgScale(osmd) * 0.2);
     for (const p of ordered) {
       let want = wantXFromLayoutGrid(measureSpan, p.layoutX);
+      const leftExtent = stavenoteLeftExtentPx(p.stavenote, p.centerX);
+      const graceAccidentalGap = leftExtent > 0 ? leftExtent + Math.max(14, osmdSvgScale(osmd) * 0.4) : 0;
+      const minGap = Math.max(minNoteGap, graceAccidentalGap);
       if (p.layoutX > prevLayoutX) {
-        if (want < prevWant + minNoteGap) want = prevWant + minNoteGap;
+        const nominalStep = prevLayoutX >= 0
+          ? wantXFromLayoutGrid(measureSpan, p.layoutX) - wantXFromLayoutGrid(measureSpan, prevLayoutX)
+          : 0;
+        const requiredGap = Math.max(minGap, nominalStep);
+        if (want < prevWant + requiredGap) want = prevWant + requiredGap;
       } else {
         if (want < prevWant + 0.5) want = prevWant + 0.5;
       }
@@ -3540,28 +3582,17 @@ function alignMeasureNotesByOnsetLayoutGrid(
       }
     }
     // 꾸밈음(grace notes): 뒤따르는 본음(regular note)의 translate를 상속하여 일치
-    // 및 앞선 regular note와의 최소 안전 간격 보장
+    // (VexFlow 계층상 본음의 SVG 하위 요소로 이미 포함된 경우 부모의 transform을 자동 상속하므로 중복 transform 금지)
     for (const h of hits) {
       if (!h.isGrace || h.voice !== voice) continue;
       const nextRegular = ordered.find((p) => p.centerX > h.centerX);
       if (nextRegular) {
-        let tr = nextRegular.stavenote.getAttribute('transform');
-        const prevRegular = [...ordered].reverse().find((p) => p.centerX < h.centerX);
-        if (prevRegular) {
-          const prevWant = wantXFromLayoutGrid(measureSpan, prevRegular.layoutX);
-          const minGraceGap = Math.max(12, osmdSvgScale(osmd) * 0.35);
-          const trMatch = tr?.match(/translate\(([-\d.]+)(?:[ ,]([-\d.]+))?\)/);
-          const nextDx = trMatch ? parseFloat(trMatch[1]!) : 0;
-          const currentDx = Number.isFinite(nextDx) ? nextDx : 0;
-          const graceXAfter = h.centerX + currentDx;
-          if (graceXAfter < prevWant + minGraceGap) {
-            const shift = (prevWant + minGraceGap) - graceXAfter;
-            tr = `translate(${(currentDx + shift).toFixed(3)}, 0)`;
+        if (!nextRegular.stavenote.contains(h.stavenote)) {
+          const tr = nextRegular.stavenote.getAttribute('transform');
+          if (tr) {
+            h.stavenote.setAttribute('transform', tr);
+            moved = true;
           }
-        }
-        if (tr) {
-          h.stavenote.setAttribute('transform', tr);
-          moved = true;
         }
       }
     }

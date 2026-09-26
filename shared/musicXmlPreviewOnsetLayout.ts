@@ -224,18 +224,18 @@ export function measureRequiredVisualSpan(
 
       // 꾸밈음이나 임시표 등 시각적 돌출 요소가 있을 때 필요한 최소 가로 폭 계산
       if (hasGrace || hasAccidental) {
-        let neededWidth = 30; // 기본 머리 최소 폭
-        if (hasAccidental) neededWidth += 14;
-        if (child.querySelector(':scope > dot, :scope > *|dot')) neededWidth += 8;
+        let neededWidth = 32; // 기본 머리 최소 폭
+        if (hasAccidental) neededWidth += 18;
+        if (child.querySelector(':scope > dot, :scope > *|dot')) neededWidth += 10;
 
         if (hasGrace) {
           for (const g of currentGraceGroup) {
-            neededWidth += 16; // 꾸밈음 머리 + 기둥
+            neededWidth += 24; // 꾸밈음 머리 + 기둥
             if (noteHasAccidentalOrAlter(g)) {
-              neededWidth += 18; // 꾸밈음 앞의 #, b 등 임시표
+              neededWidth += 28; // 꾸밈음 앞의 #, b 등 임시표
             }
           }
-          neededWidth += 12; // 꾸밈음과 앞 음표 사이 안전 간격
+          neededWidth += 28; // 꾸밈음/임시표와 앞선 본음 사이 충분한 안전 간격
         }
 
         const rate = neededWidth / dur;

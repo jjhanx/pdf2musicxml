@@ -161,9 +161,21 @@ function svgUserXFromElement(el: Element, localX: number): number {
   return tx + localX;
 }
 
+const STAVENOTE_SEL = '.vf-stavenote, .vf-staveNote';
+
+/**
+ * stavenote 자신의 glyph만 — 꾸밈음은 본음 `.vf-modifiers` 안에 중첩된 stavenote라
+ * 그대로 querySelectorAll 하면 꾸밈음 머리·줄기가 본음 것으로 섞인다.
+ */
+function ownStavenoteParts(stavenote: Element, selector: string): Element[] {
+  return [...stavenote.querySelectorAll(selector)].filter(
+    (el) => el.closest(STAVENOTE_SEL) === stavenote,
+  );
+}
+
 function noteheadXsInSvgRoot(stavenote: SVGGraphicsElement): number[] {
   const xs: number[] = [];
-  for (const path of stavenote.querySelectorAll('.vf-notehead path')) {
+  for (const path of ownStavenoteParts(stavenote, '.vf-notehead path')) {
     const d = path.getAttribute('d');
     if (!d) continue;
     const m = /^M\s*([-\d.]+)/.exec(d.trim());
@@ -176,8 +188,9 @@ function noteheadXsInSvgRoot(stavenote: SVGGraphicsElement): number[] {
 /** 줄기 x — 리듬 column의 일반적 기준(반대편 머리와 무관). */
 function stemXInSvgRoot(stavenote: SVGGraphicsElement): number | null {
   const stemRoot =
-    (stavenote.querySelector('.vf-stem') as Element | null) ??
-    (stavenote.querySelector('[class*="stem"]') as Element | null);
+    ownStavenoteParts(stavenote, '.vf-stem')[0] ??
+    ownStavenoteParts(stavenote, '[class*="stem"]')[0] ??
+    null;
   const scope: ParentNode = stemRoot ?? stavenote;
 
   for (const path of scope.querySelectorAll('path')) {
@@ -1333,6 +1346,11 @@ function anchorHookBeamsToStemTips(
   }
 }
 
+function isGraceStemInStavenote(stem: Element): boolean {
+  const sn = stem.closest(STAVENOTE_SEL);
+  return !!sn?.parentElement?.closest(STAVENOTE_SEL);
+}
+
 function collectStemTipsInMeasure(measure: Element): StemTip[] {
   const tips: StemTip[] = [];
   const seen = new Set<Element>();
@@ -1343,6 +1361,8 @@ function collectStemTipsInMeasure(measure: Element): StemTip[] {
   for (const stem of stemNodes) {
     if (seen.has(stem)) continue;
     seen.add(stem);
+    // 꾸밈음은 본음 stavenote의 `.vf-modifiers` 안에 중첩된 stavenote — 본음 빔 멤버가 아니다.
+    if (isGraceStemInStavenote(stem)) continue;
     const localX = stemLocalX(stem);
     if (localX == null) continue;
     const yr = stemLocalYRange(stem);
@@ -1633,7 +1653,7 @@ function syncVfEngravingInMeasure(measure: Element): void {
       el: sn,
       naturalX: center - dx,
       dx,
-      hasInnerStem: !!sn.querySelector('.vf-stem, [class*="vf-stem"]'),
+      hasInnerStem: ownStavenoteParts(sn, '.vf-stem, [class*="vf-stem"]').length > 0,
     });
   }
   if (!notes.length) return;

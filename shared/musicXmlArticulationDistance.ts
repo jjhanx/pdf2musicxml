@@ -314,6 +314,10 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
     fix.noteIndex != null
       ? notes.find((n) => n.getAttribute(HITL_SRC_NOTE_INDEX_ATTR)?.trim() === String(fix.noteIndex))
       : undefined;
+  // PR/PL 분할·스태프 필터 XML: noteIndex는 원본 part의 document order라 이 마디의 위치 순서와 다르다.
+  // 위치로 찾으면 다른 줄(PL 첫 음 등)에 표가 새로 생긴다.
+  const hasSrcIndex = notes.some((n) => n.hasAttribute(HITL_SRC_NOTE_INDEX_ATTR));
+  const byIndex = fix.noteIndex == null ? undefined : hasSrcIndex ? bySrcIndex : notes[fix.noteIndex];
 
   // PR/PL 분할 후에도 편집기 document-order noteIndex로 같은 음만
   if ((isAdd || isRemove) && bySrcIndex && !isRest(bySrcIndex) && matchesPitch(bySrcIndex)) {
@@ -321,8 +325,8 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
   }
 
   // add/remove: noteIndex 우선(아직 표가 없거나 곧 지울 음 — matchesArt가 실패함)
-  if ((isAdd || isRemove) && fix.noteIndex != null && notes[fix.noteIndex]) {
-    const target = notes[fix.noteIndex]!;
+  if ((isAdd || isRemove) && byIndex) {
+    const target = byIndex;
     if (!isRest(target) && matchesPitch(target) && matchesStaff(target)) return target;
     if (!isRest(target) && matchesPitch(target)) return target;
   }
@@ -340,16 +344,13 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
     const hits = notes.filter((n) => !isRest(n) && matchesPitch(n) && matchesStaff(n));
     if (hits.length === 1) return hits[0]!;
     if (bySrcIndex && !isRest(bySrcIndex) && matchesPitch(bySrcIndex)) return bySrcIndex;
-    if (fix.noteIndex != null && notes[fix.noteIndex] && !isRest(notes[fix.noteIndex]!) && matchesPitch(notes[fix.noteIndex]!)) {
-      return notes[fix.noteIndex]!;
-    }
+    if (byIndex && !isRest(byIndex) && matchesPitch(byIndex)) return byIndex;
     // 같은 피치가 둘 이상이면 첫 음에 몰지 않음(점 2분 A3 + 뒤 화음 A3)
   }
 
   // 분할 전 part의 document-order noteIndex (마디 편집기와 동일)
-  if (fix.noteIndex != null && notes[fix.noteIndex]) {
-    const target = notes[fix.noteIndex]!;
-    if (isAdd || isRemove || (matchesArt(target) && matchesPitch(target))) return target;
+  if (byIndex) {
+    if (isAdd || isRemove || (matchesArt(byIndex) && matchesPitch(byIndex))) return byIndex;
   }
 
   if (art) {
@@ -362,8 +363,7 @@ function findNoteForArticulationFix(measure: Element, fix: ArticulationPreviewFi
     }
   }
 
-  if (fix.noteIndex != null && notes[fix.noteIndex]) return notes[fix.noteIndex]!;
-  return null;
+  return byIndex ?? null;
 }
 
 function applyArticulationAttrsToNote(

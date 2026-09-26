@@ -190,37 +190,78 @@ export function resolveNoteHeadY(
   return 0;
 }
 
+function ancestorTranslateX(el: Element): number {
+  let x = 0;
+  let cur: Element | null = el;
+  while (cur && cur.tagName.toLowerCase() !== 'svg') {
+    const tr = cur.getAttribute('transform') || '';
+    const m = /translate\(\s*([-\d.eE+]+)/.exec(tr);
+    if (m) {
+      x += parseFloat(m[1]!);
+    }
+    cur = cur.parentElement;
+  }
+  return x;
+}
+
+function pathCenterX(el: Element): number | null {
+  const target = el.tagName.toLowerCase() === 'path' ? el : el.querySelector('path') || el;
+  const d = target.getAttribute('d') || '';
+  const nums = d.match(/[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/g);
+  if (nums && nums.length >= 2) {
+    const xs: number[] = [];
+    for (let i = 0; i < nums.length - 1; i += 2) {
+      xs.push(parseFloat(nums[i]!));
+    }
+    if (xs.length) {
+      return (Math.min(...xs) + Math.max(...xs)) / 2;
+    }
+  }
+  const p = pathStartXY(target);
+  return p ? p.x + 6 : null;
+}
+
 export function resolveNoteHeadX(staveNoteSvg: Element, artEls: Element[]): number {
-  // 음표머리 우선 — 표 path x를 쓰면 VexFlow가 오른쪽(다음 음)에 둔 유령 위치를 그대로 씀
+  // 음표머리 우선 — 표 path x를 쓰면 VexFlow가 오른쪽(다음 음)에 둔 유령 위치를 그대로 씀.
+  // overlay <text>는 svgRoot에 직접 그려지므로(text-anchor="middle"),
+  // 조상 translate X를 합산하고 음표머리의 중심(cx)을 반환해야 음표머리 정중앙에 배치된다.
   const nh =
     staveNoteSvg.querySelector('.vf-notehead path') ||
     staveNoteSvg.querySelector('.vf-note path') ||
     staveNoteSvg.querySelector('.vf-notehead');
   if (nh) {
-    const p = pathStartXY(nh);
-    if (p) return p.x;
+    const cx = pathCenterX(nh);
+    if (cx != null && Number.isFinite(cx)) return cx + ancestorTranslateX(nh);
   }
   for (const el of artEls) {
-    const p = pathStartXY(el);
-    if (p) return p.x;
+    const cx = pathCenterX(el);
+    if (cx != null && Number.isFinite(cx)) return cx + ancestorTranslateX(el);
   }
   return 0;
 }
 
+/**
+ * `anchor`(보통 `.vf-stavenote`)를 주면 text를 그 그룹 안에 넣는다 — 이후 align·contain이
+ * stavenote에 translate를 더해도 `>`가 음표머리와 함께 움직인다.
+ * x는 SVG root 좌표(조상 translate 포함), noteHeadY는 음표머리 path 좌표.
+ */
 export function paintHitlArticulationOverlayTexts(
   svg: SVGSVGElement,
   specs: Array<HitlArtOverlaySpec & { x: number; noteHeadY: number }>,
   staffSpacePx: number,
+  anchor?: Element | null,
 ): number {
   const ns = svg.namespaceURI || 'http://www.w3.org/2000/svg';
   const gap = staffSpacePx > 2 ? staffSpacePx : 10;
+  const parent = anchor ?? svg;
+  const originX = anchor ? ancestorTranslateX(anchor) : 0;
   let n = 0;
   for (const s of stackOverlayArtSpaces(specs)) {
     const y = overlayArticulationY(s.noteHeadY, s.staffSpaces, s.placement, gap);
     const text = svg.ownerDocument!.createElementNS(ns, 'text');
     text.setAttribute(OVERLAY_ATTR, s.tag);
     text.setAttribute('data-hitl-art-tag', s.tag);
-    text.setAttribute('x', String(s.x));
+    text.setAttribute('x', String(s.x - originX));
     text.setAttribute('y', String(y));
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('dominant-baseline', 'middle');
@@ -230,7 +271,7 @@ export function paintHitlArticulationOverlayTexts(
     text.setAttribute('data-art-shift-y', String(Math.abs(y - s.noteHeadY)));
     text.setAttribute('data-art-spaces', String(s.staffSpaces));
     text.textContent = s.glyph;
-    svg.appendChild(text);
+    parent.appendChild(text);
     n += 1;
   }
   return n;

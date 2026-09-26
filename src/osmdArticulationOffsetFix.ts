@@ -2481,6 +2481,7 @@ function applyAbsoluteArticulationDistances(
               noteHeadY,
             })),
             gap,
+            staveNoteSvg,
           );
           if (n > 0) {
             shifted += n;
@@ -2500,11 +2501,7 @@ function applyAbsoluteArticulationDistances(
           const cur = pathStartXY(el);
           const targetY = overlayArticulationY(noteHeadY, spec.staffSpaces, spec.placement, gap);
           if (headYOk && cur && Number.isFinite(cur.y)) {
-            const dx =
-              noteHeadX && Number.isFinite(noteHeadX) && Math.abs(noteHeadX - cur.x) > 2
-                ? noteHeadX - cur.x
-                : 0;
-            applyArticulationShiftXY(el, dx, targetY - cur.y);
+            applyArticulationShiftY(el, targetY - cur.y);
           } else {
             const extra = (Math.max(1, spec.staffSpaces) - 1) * gap;
             applyArticulationShiftY(el, (spec.placement === 'above' ? -1 : 1) * extra);
@@ -2533,6 +2530,7 @@ function applyAbsoluteArticulationDistances(
               noteHeadY,
             })),
             gap,
+            staveNoteSvg,
           );
           if (n > 0) {
             shifted += n;

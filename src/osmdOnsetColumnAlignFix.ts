@@ -3836,8 +3836,86 @@ export function alignOsmdPreviewNotesByOnsetColumn(
     (osmd as unknown as { root?: ParentNode | null }).root ??
     null;
   if (host) syncVfStemsAndBeamsAfterStavenoteAlign(host);
+  syncOsmdTupletsAfterStavenoteAlign(osmd);
   // 음표 x가 확정된 뒤 — cresc. 등 말로 된 크레셴도는 왼쪽 정렬이라 다음 음 위로 넘어감
   anchorVerbalDynamicLabelsToNoteheads(osmd);
+}
+
+type VfTupletLike = {
+  x_pos?: number;
+  width?: number;
+  y_pos?: number;
+  point?: number;
+  notes?: Array<{ attrs?: { id?: string } }>;
+};
+
+const TUPLET_INK_ATTR = 'data-hitl-tuplet-ink';
+
+/** d/rect의 로컬 bbox(자체 transform 제외 — 재적용해도 원좌표로 매칭). */
+function localInkBox(el: Element): { x0: number; x1: number; y0: number; y1: number } | null {
+  if (el.tagName.toLowerCase() === 'rect') {
+    const x = parseFloat(el.getAttribute('x') ?? '');
+    const y = parseFloat(el.getAttribute('y') ?? '');
+    const w = parseFloat(el.getAttribute('width') ?? '0');
+    const h = parseFloat(el.getAttribute('height') ?? '0');
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x0: x, x1: x + w, y0: y, y1: y + h };
+  }
+  const nums = (el.getAttribute('d') ?? '').match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi);
+  if (!nums || nums.length < 2) return null;
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    const x = parseFloat(nums[i]!);
+    const y = parseFloat(nums[i + 1]!);
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y);
+    y1 = Math.max(y1, y);
+  }
+  return Number.isFinite(x0) ? { x0, x1, y0, y1 } : null;
+}
+
+/**
+ * VexFlow 세잇단 숫자·괄호는 class 없는 path/rect로 마디에 직접 그려져
+ * stavenote translate(align/contain)를 따라가지 않는다. 숫자 중심은 첫·끝 음 줄기 x의
+ * 중앙이므로 두 음의 이동량 평균만큼 옮긴다(절대 translate — 여러 번 호출해도 동일).
+ */
+export function syncOsmdTupletsAfterStavenoteAlign(osmd: OpenSheetMusicDisplay): void {
+  forEachGraphicalMeasure(osmd, (gmRaw) => {
+    const byVoice = (gmRaw as { vftuplets?: Record<string, VfTupletLike[]> }).vftuplets;
+    if (!byVoice) return;
+    for (const tuplets of Object.values(byVoice)) {
+      for (const t of tuplets ?? []) {
+        const notes = t.notes ?? [];
+        const xPos = t.x_pos;
+        const width = t.width;
+        const yPos = t.y_pos;
+        if (notes.length < 2 || xPos == null || width == null || yPos == null) continue;
+        const doc = (osmd as unknown as { container?: HTMLElement }).container?.ownerDocument ?? document;
+        const first = doc.getElementById(`vf-${notes[0]!.attrs?.id ?? ''}`);
+        const last = doc.getElementById(`vf-${notes[notes.length - 1]!.attrs?.id ?? ''}`);
+        const measure = first?.closest('.vf-measure');
+        if (!first || !last || !measure || !measure.contains(last)) continue;
+        const shift = (translateXUpTo(first, measure) + translateXUpTo(last, measure)) / 2;
+        const point = t.point ?? 12;
+        const pad = Math.max(6, point * 0.6);
+        for (const el of measure.querySelectorAll(':scope > path, :scope > rect')) {
+          if (el.getAttribute('class') && !el.hasAttribute(TUPLET_INK_ATTR)) continue;
+          const b = localInkBox(el);
+          if (!b) continue;
+          const inX = b.x0 >= xPos - pad && b.x1 <= xPos + width + pad;
+          const inY = b.y0 >= yPos - point && b.y1 <= yPos + point * 1.2;
+          if (!inX || !inY) continue;
+          el.setAttribute(TUPLET_INK_ATTR, '1');
+          if (Math.abs(shift) < 0.01) el.removeAttribute('transform');
+          else el.setAttribute('transform', `translate(${shift.toFixed(3)},0)`);
+        }
+      }
+    }
+  });
 }
 
 export function osmdTimestampFromLinkedParallelHint(hint: LinkedParallelOnsetHint): number {

@@ -6,7 +6,10 @@ import {
   measureMxlFromGraphic,
   partIdFromGraphic,
 } from './osmdMeasureClick';
-import { syncVfStemsAndBeamsAfterStavenoteAlign } from './osmdOnsetColumnAlignFix';
+import {
+  syncOsmdTupletsAfterStavenoteAlign,
+  syncVfStemsAndBeamsAfterStavenoteAlign,
+} from './osmdOnsetColumnAlignFix';
 
 const OVERLAY_CLASS = 'hitl-measure-timing-warning';
 
@@ -614,4 +617,5 @@ export function containOsmdMeasureNotesInAllocatedWidth(
 
   // contain 이동 유무와 관계없이 빔을 줄기 끝에 맞춤(앞으로 삐져나옴·이탈 방지)
   syncVfStemsAndBeamsAfterStavenoteAlign(host);
+  syncOsmdTupletsAfterStavenoteAlign(osmd);
 }

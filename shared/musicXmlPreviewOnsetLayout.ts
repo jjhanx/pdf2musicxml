@@ -218,30 +218,25 @@ export function measureRequiredVisualSpan(
     }
 
     const dur = noteDurationValue(child);
-    if (dur > 0) {
-      const hasGrace = currentGraceGroup.length > 0;
-      const hasAccidental = noteHasAccidentalOrAlter(child);
+    const hasGrace = currentGraceGroup.length > 0;
+    // 꾸밈음이 본음 앞에 달려있는 경우에만, 본음의 박자(dur) 대비 필요한 시각적 폭을 산출하여 마디 span을 확장
+    // (일반 임시표를 가진 일반 음표는 기본 박자 배치를 유지해야 하므로 대상에서 제외)
+    if (dur > 0 && hasGrace) {
+      let neededWidth = 30; // 기본 본음 머리 폭
+      if (noteHasAccidentalOrAlter(child)) neededWidth += 14;
+      if (child.querySelector(':scope > dot, :scope > *|dot')) neededWidth += 8;
 
-      // 꾸밈음이나 임시표 등 시각적 돌출 요소가 있을 때 필요한 최소 가로 폭 계산
-      if (hasGrace || hasAccidental) {
-        let neededWidth = 32; // 기본 머리 최소 폭
-        if (hasAccidental) neededWidth += 18;
-        if (child.querySelector(':scope > dot, :scope > *|dot')) neededWidth += 10;
-
-        if (hasGrace) {
-          for (const g of currentGraceGroup) {
-            neededWidth += 24; // 꾸밈음 머리 + 기둥
-            if (noteHasAccidentalOrAlter(g)) {
-              neededWidth += 28; // 꾸밈음 앞의 #, b 등 임시표
-            }
-          }
-          neededWidth += 28; // 꾸밈음/임시표와 앞선 본음 사이 충분한 안전 간격
+      for (const g of currentGraceGroup) {
+        neededWidth += 16; // 꾸밈음 머리 + 기둥
+        if (noteHasAccidentalOrAlter(g)) {
+          neededWidth += 18; // 꾸밈음 앞의 #, b 등 임시표
         }
+      }
+      neededWidth += 12; // 꾸밈음/임시표와 앞선 본음 사이 안전 간격
 
-        const rate = neededWidth / dur;
-        if (rate > maxRate) {
-          maxRate = rate;
-        }
+      const rate = neededWidth / dur;
+      if (rate > maxRate) {
+        maxRate = rate;
       }
     }
 

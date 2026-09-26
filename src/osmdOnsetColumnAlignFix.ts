@@ -770,11 +770,7 @@ export function placementSpanFromExtentAndLayouts(
   const f0 = Math.max(0, Math.min(1, (lxMin - LAYOUT_BASE_X) / dynamicSpan));
   const f1 = Math.max(0, Math.min(1, (lxEnd - LAYOUT_BASE_X) / dynamicSpan));
   const fSpan = Math.max(1e-6, f1 - f0);
-  let spanPx = (rightEdge - leftEdge) / fSpan;
-  if (dynamicSpan > LAYOUT_SPAN) {
-    const scaleRatio = dynamicSpan / LAYOUT_SPAN;
-    spanPx = Math.max(spanPx, spanPx * scaleRatio);
-  }
+  const spanPx = (rightEdge - leftEdge) / fSpan;
   const originX = leftEdge - f0 * spanPx;
   if (!(spanPx >= 8)) return null;
   return { originX, spanPx, layoutSpan: dynamicSpan };
@@ -3545,15 +3541,12 @@ function alignMeasureNotesByOnsetLayoutGrid(
     const minNoteGap = Math.max(6, osmdSvgScale(osmd) * 0.2);
     for (const p of ordered) {
       let want = wantXFromLayoutGrid(measureSpan, p.layoutX);
-      const leftExtent = stavenoteLeftExtentPx(p.stavenote, p.centerX);
+      const hasAttachedGrace = p.stavenote.querySelector('.vf-modifiers .vf-stavenote') !== null;
+      const leftExtent = hasAttachedGrace ? stavenoteLeftExtentPx(p.stavenote, p.centerX) : 0;
       const graceAccidentalGap = leftExtent > 0 ? leftExtent + Math.max(14, osmdSvgScale(osmd) * 0.4) : 0;
       const minGap = Math.max(minNoteGap, graceAccidentalGap);
       if (p.layoutX > prevLayoutX) {
-        const nominalStep = prevLayoutX >= 0
-          ? wantXFromLayoutGrid(measureSpan, p.layoutX) - wantXFromLayoutGrid(measureSpan, prevLayoutX)
-          : 0;
-        const requiredGap = Math.max(minGap, nominalStep);
-        if (want < prevWant + requiredGap) want = prevWant + requiredGap;
+        if (want < prevWant + minGap) want = prevWant + minGap;
       } else {
         if (want < prevWant + 0.5) want = prevWant + 0.5;
       }

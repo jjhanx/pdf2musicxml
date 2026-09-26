@@ -92,17 +92,17 @@ function restPitchSpec(
 ): { fundamental: number; octave: number } {
   if (clefKind === 'F') {
     return wantAbove
-      ? { fundamental: NOTE_ENUM.A, octave: 3 }
-      : { fundamental: NOTE_ENUM.G, octave: 2 };
+      ? { fundamental: NOTE_ENUM.F, octave: 3 }
+      : { fundamental: NOTE_ENUM.B, octave: 2 };
   }
   if (clefKind === 'C') {
     return wantAbove
-      ? { fundamental: NOTE_ENUM.G, octave: 4 }
-      : { fundamental: NOTE_ENUM.F, octave: 3 };
+      ? { fundamental: NOTE_ENUM.E, octave: 4 }
+      : { fundamental: NOTE_ENUM.A, octave: 3 };
   }
   return wantAbove
-    ? { fundamental: NOTE_ENUM.F, octave: 5 }
-    : { fundamental: NOTE_ENUM.E, octave: 4 };
+    ? { fundamental: NOTE_ENUM.D, octave: 5 }
+    : { fundamental: NOTE_ENUM.G, octave: 4 };
 }
 
 function clefKindFromStaffEntry(se: Record<string, unknown>): 'G' | 'F' | 'C' {
@@ -282,9 +282,9 @@ export function patchOsmdPolyphonicRestVfpitch(osmd: OpenSheetMusicDisplay): num
 }
 
 function restVfKey(kind: 'G' | 'F' | 'C', wantAbove: boolean): string {
-  if (kind === 'F') return wantAbove ? 'an/3' : 'gn/2';
-  if (kind === 'C') return wantAbove ? 'gn/4' : 'fn/3';
-  return wantAbove ? 'fn/5' : 'en/4';
+  if (kind === 'F') return wantAbove ? 'fn/3' : 'bn/2';
+  if (kind === 'C') return wantAbove ? 'en/4' : 'an/3';
+  return wantAbove ? 'dn/5' : 'gn/4';
 }
 
 function pitchLabelFromVf(vfpitch: unknown): string | null {
@@ -438,13 +438,62 @@ function stavenoteFromGraphic(
   return null;
 }
 
+function restGlyphBounds(stavenote: SVGGraphicsElement): { minY: number; maxY: number; centerY: number } | null {
+  const paths = stavenote.querySelectorAll('path');
+  const ys: number[] = [];
+  for (const p of paths) {
+    const d = p.getAttribute('d');
+    if (!d) continue;
+    const matches = d.matchAll(/[MLCSQTAZ]([-\d.]+)[, ]([-\d.]+)/g);
+    for (const m of matches) {
+      ys.push(svgUserYFromElement(p, parseFloat(m[2]!)));
+    }
+  }
+  if (!ys.length) return null;
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return { minY, maxY, centerY: (minY + maxY) / 2 };
+}
+
+function getMeasureStaveBounds(gm: unknown, host: HTMLElement): { topY: number; bottomY: number } | null {
+  const rec = asRecord(gm);
+  const sl = asRecord(rec?.ParentStaffLine ?? rec?.parentStaffLine);
+  if (!sl) return null;
+  const pos = asRecord(sl.PositionAndShape ?? sl.positionAndShape);
+  const abs = asRecord(pos?.AbsolutePosition ?? pos?.absolutePosition);
+  const top = coordNum(abs?.y);
+  if (top == null) return null;
+
+  const expectedTopPx = top * 10;
+  const slSvg = callMaybe(sl, 'getSVGGElement') as SVGGraphicsElement | undefined;
+  const container = slSvg ?? host;
+  const paths = container.querySelectorAll('path');
+  const staveYs: number[] = [];
+  for (const p of paths) {
+    const d = p.getAttribute('d') || '';
+    const m = /M\s*[-\d.]+\s+([-\d.]+)\s*L\s*[-\d.]+\s+\1/.exec(d);
+    if (m) {
+      const y = parseFloat(m[1]!);
+      if (y >= expectedTopPx - 6 && y <= expectedTopPx + 46) {
+        staveYs.push(y);
+      }
+    }
+  }
+  if (staveYs.length >= 5) {
+    staveYs.sort((a, b) => a - b);
+    return { topY: staveYs[0]!, bottomY: staveYs[staveYs.length - 1]! };
+  }
+  return { topY: expectedTopPx, bottomY: expectedTopPx + 40 };
+}
+
 /**
- * render 직후 보조 — 쉼표가 실음과 같은 쪽(아래)에 있으면 SVG Y로 반대편으로 민다.
+ * render 직후 보조 — 쉼표가 실음과 같은 쪽에 있으면 반대편으로 밀고,
+ * 쉼표가 오선 밖으로 벗어났으면 오선 안쪽(가운데줄~4줄 사이)으로 당긴다.
  */
 export function applyOsmdPolyphonicRestOffsets(host: HTMLElement, osmd: OpenSheetMusicDisplay): number {
-  void host;
   let shifted = 0;
   forEachGraphicalMeasure(osmd, (gm) => {
+    const staveBounds = getMeasureStaveBounds(gm, host);
     const entries = (gm.staffEntries ?? gm.StaffEntries ?? []) as unknown[];
     for (const seRaw of entries) {
       const se = asRecord(seRaw);
@@ -475,29 +524,53 @@ export function applyOsmdPolyphonicRestOffsets(host: HTMLElement, osmd: OpenShee
           pitchedSvgs.push(svg);
         }
       }
-      if (!restSvgs.length || !pitchedSvgs.length) continue;
-      const above = wantRestAbove(middleDiatonic(kind), pitchedDias);
-      const noteYs = pitchedSvgs
-        .map((s) => glyphCenterY(s, false))
-        .filter((y): y is number => y != null && Number.isFinite(y));
-      if (!noteYs.length) continue;
-      const noteY = noteYs.reduce((a, b) => a + b, 0) / noteYs.length;
-      for (const svg of restSvgs) {
-        const restY = glyphCenterY(svg, true);
-        if (restY == null) continue;
-        let delta = 0;
-        if (above && restY > noteY - 8) {
-          // 실음보다 위로 — 오선 위쪽 칸
-          delta = noteY - restY - 36;
-        } else if (!above && restY < noteY + 8) {
-          delta = noteY - restY + 36;
-        } else {
-          continue;
+
+      // 1) 동시 onset 다성부 실음과의 충돌 회피 shift
+      if (restSvgs.length && pitchedSvgs.length) {
+        const above = wantRestAbove(middleDiatonic(kind), pitchedDias);
+        const noteYs = pitchedSvgs
+          .map((s) => glyphCenterY(s, false))
+          .filter((y): y is number => y != null && Number.isFinite(y));
+        if (noteYs.length) {
+          const noteY = noteYs.reduce((a, b) => a + b, 0) / noteYs.length;
+          for (const svg of restSvgs) {
+            const restY = glyphCenterY(svg, true);
+            if (restY == null) continue;
+            let delta = 0;
+            if (above && restY > noteY - 8) {
+              delta = noteY - restY - 24;
+            } else if (!above && restY < noteY + 8) {
+              delta = noteY - restY + 24;
+            } else {
+              continue;
+            }
+            const capped = Math.sign(delta) * Math.min(Math.abs(delta), 48);
+            if (Math.abs(capped) >= 2) {
+              applyArticulationShiftY(svg, capped);
+              shifted += 1;
+            }
+          }
         }
-        const capped = Math.sign(delta) * Math.min(Math.abs(delta), 56);
-        if (Math.abs(capped) < 2) continue;
-        applyArticulationShiftY(svg, capped);
-        shifted += 1;
+      }
+
+      // 2) 오선 밖으로 벗어난 쉼표를 오선 안쪽으로 당기기 (Stave Inset Containment)
+      if (staveBounds && restSvgs.length) {
+        for (const svg of restSvgs) {
+          const b = restGlyphBounds(svg);
+          if (!b) continue;
+          let clampShift = 0;
+          if (b.minY < staveBounds.topY + 4) {
+            // 맨 윗줄 위로 삐져나온 경우 오선 안쪽으로 당김
+            clampShift = (staveBounds.topY + 8) - b.minY;
+          } else if (b.maxY > staveBounds.bottomY - 4) {
+            // 맨 아랫줄 아래로 삐져나온 경우 오선 안쪽으로 당김
+            clampShift = (staveBounds.bottomY - 8) - b.maxY;
+          }
+          if (Math.abs(clampShift) >= 1) {
+            applyArticulationShiftY(svg, clampShift);
+            shifted += 1;
+          }
+        }
       }
     }
   });

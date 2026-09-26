@@ -7,6 +7,7 @@
  *    다음 음표가 조표 기준(예: G natural)으로 복귀할 때 명시적 제자리표(<accidental>natural</accidental>)를 부착한다.
  * 3. 피치에 alter가 지정되었으나 accidental 태그가 누락된 경우, MusicXML 규격 순서에 맞게 accidental 요소를 보충한다.
  * 4. 조표(<key><fifths>)가 변경되면 해당 오선의 임시표 상태는 새 조표 기준으로 초기화된다.
+ * 5. alter와 모순되는 accidental(음높이만 고치고 남은 옛 표기)은 alter 기준으로 바로잡는다.
  */
 
 function getExpectedAlterFromFifths(step: string, fifths: number): number {
@@ -37,6 +38,35 @@ function insertAccidentalElement(note: Element, accEl: Element): void {
     }
   }
   note.appendChild(accEl);
+}
+
+const ACCIDENTAL_ALTER: Record<string, number> = {
+  sharp: 1,
+  flat: -1,
+  natural: 0,
+  'double-sharp': 2,
+  'sharp-sharp': 2,
+  'flat-flat': -2,
+};
+const ALTER_ACCIDENTAL: Record<number, string> = {
+  1: 'sharp',
+  [-1]: 'flat',
+  0: 'natural',
+  2: 'double-sharp',
+  [-2]: 'flat-flat',
+};
+
+/**
+ * `<alter>`(소리)와 모순되는 표준 `<accidental>`(예: alter=-1 + natural)은 음높이 수정 전 표기의 찌꺼기.
+ * OSMD는 표기를 믿고 다른 음(A♭→A♮)으로 그리므로 alter에 맞는 기호로 바꾼다(속성 유지).
+ */
+function syncStaleAccidentalToAlter(accEl: Element | null, noteAlter: number): void {
+  const text = accEl?.textContent?.trim();
+  if (!accEl || !text) return;
+  const implied = ACCIDENTAL_ALTER[text];
+  const wanted = ALTER_ACCIDENTAL[noteAlter];
+  if (implied === undefined || wanted === undefined || implied === noteAlter) return;
+  accEl.textContent = wanted;
 }
 
 export function propagateAccidentalStatesForMusicXml(xml: string): string {
@@ -83,6 +113,7 @@ export function propagateAccidentalStatesForMusicXml(xml: string): string {
           let noteAlter = 0;
           if (alterText && /^-?\d+$/.test(alterText)) {
             noteAlter = parseInt(alterText, 10);
+            syncStaleAccidentalToAlter(accEl, noteAlter);
           } else if (accEl?.textContent?.trim()) {
             const at = accEl.textContent.trim();
             if (at === 'sharp') noteAlter = 1;

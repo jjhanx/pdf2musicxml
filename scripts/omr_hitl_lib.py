@@ -216,6 +216,23 @@ def _get_expected_alter_from_fifths(step: str, fifths: int) -> int:
     return 0
 
 
+_ACCIDENTAL_ALTER = {"sharp": 1, "flat": -1, "natural": 0, "double-sharp": 2, "sharp-sharp": 2, "flat-flat": -2}
+_ALTER_ACCIDENTAL = {1: "sharp", -1: "flat", 0: "natural", 2: "double-sharp", -2: "flat-flat"}
+
+
+def _sync_stale_accidental_to_alter(acc_el: ET.Element | None, note_alter: int) -> bool:
+    """`<alter>`(소리)와 모순되는 표준 `<accidental>`(예: alter=-1 + natural)은 음높이 수정 전 표기의
+    찌꺼기 — 렌더러가 표기를 믿고 다른 음으로 그리므로 alter에 맞는 기호로 바꾼다(속성 유지)."""
+    if acc_el is None or not acc_el.text:
+        return False
+    implied = _ACCIDENTAL_ALTER.get(acc_el.text.strip())
+    wanted = _ALTER_ACCIDENTAL.get(note_alter)
+    if implied is None or wanted is None or implied == note_alter:
+        return False
+    acc_el.text = wanted
+    return True
+
+
 def propagate_accidental_states_in_root(root: ET.Element, ns: str) -> int:
     """악보 전체의 파트 및 오선별로 음표의 반음 올림(#)/내림(b) 변화 상태를 다음 마디/음표로 전파.
 
@@ -226,6 +243,7 @@ def propagate_accidental_states_in_root(root: ET.Element, ns: str) -> int:
     3. 꾸밈음이나 일반 음표가 alter 속성을 가지고 있으나 accidental 태그가 누락된 경우,
        해당 임시표 태그(<accidental>sharp/flat/natural</accidental>)를 MusicXML 규격 순서에 맞게 보충한다.
     4. 조표(<key><fifths>)가 변경되면 해당 오선의 임시표 상태는 새 조표 기준으로 초기화된다.
+    5. alter와 모순되는 accidental(음높이만 고치고 남은 옛 표기)은 alter 기준으로 바로잡는다.
     """
     parts = root.findall(f".//{_q(ns, 'part')}")
     if not parts:
@@ -280,6 +298,7 @@ def propagate_accidental_states_in_root(root: ET.Element, ns: str) -> int:
                         note_alter = int(float(alter_el.text.strip()))
                     except ValueError:
                         note_alter = 0
+                    _sync_stale_accidental_to_alter(acc_el, note_alter)
                 elif acc_el is not None and acc_el.text:
                     acc_text = acc_el.text.strip()
                     if acc_text == "sharp":

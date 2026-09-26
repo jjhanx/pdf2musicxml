@@ -119,6 +119,7 @@ def load_mxl_root(mxl_path: Path) -> tuple[dict[str, bytes], str, ET.Element]:
 
 def write_mxl_root(mxl_path: Path, files: dict[str, bytes], root_path: str, root: ET.Element) -> None:
     ns = _ns(root)
+    propagate_accidental_states_in_root(root, ns)
     sync_measure_widths_across_all_parts(root, ns)
     files[root_path] = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     with zipfile.ZipFile(mxl_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
@@ -203,6 +204,145 @@ def sync_measure_widths_across_all_parts(
                 changed_measures += 1
 
     return changed_measures
+
+
+def _get_expected_alter_from_fifths(step: str, fifths: int) -> int:
+    sharp_order = ("F", "C", "G", "D", "A", "E", "B")
+    flat_order = ("B", "E", "A", "D", "G", "C", "F")
+    if fifths > 0 and step in sharp_order[:fifths]:
+        return 1
+    if fifths < 0 and step in flat_order[:-fifths]:
+        return -1
+    return 0
+
+
+def propagate_accidental_states_in_root(root: ET.Element, ns: str) -> int:
+    """악보 전체의 파트 및 오선별로 음표의 반음 올림(#)/내림(b) 변화 상태를 다음 마디/음표로 전파.
+
+    원칙:
+    1. 각 파트 및 오선(staff)별로 음표(일반 음표 및 꾸밈음)의 피치 변화(alter)를 추적한다.
+    2. 이전 마디나 동일 마디 선행 음표에서 임시표로 인해 피치가 변경되었던 경우(예: G#),
+       다음 음표가 조표 기준(예: G natural)으로 복귀할 때 명시적 제자리표(<accidental>natural</accidental>)를 자동 부착한다.
+    3. 꾸밈음이나 일반 음표가 alter 속성을 가지고 있으나 accidental 태그가 누락된 경우,
+       해당 임시표 태그(<accidental>sharp/flat/natural</accidental>)를 MusicXML 규격 순서에 맞게 보충한다.
+    4. 조표(<key><fifths>)가 변경되면 해당 오선의 임시표 상태는 새 조표 기준으로 초기화된다.
+    """
+    parts = root.findall(f".//{_q(ns, 'part')}")
+    if not parts:
+        return 0
+
+    total_added = 0
+    for part in parts:
+        current_fifths = 0
+        prev_measure_alters: dict[tuple[int, str, int], int] = {}
+
+        for m in part.findall(_q(ns, "measure")):
+            k = m.find(f".//{_q(ns, 'fifths')}")
+            if k is not None and k.text and k.text.strip():
+                try:
+                    new_fifths = int(k.text.strip())
+                    if new_fifths != current_fifths:
+                        current_fifths = new_fifths
+                        prev_measure_alters.clear()
+                except ValueError:
+                    pass
+
+            curr_measure_alters: dict[tuple[int, str, int], int] = {}
+
+            for n in m.findall(_q(ns, "note")):
+                if n.find(_q(ns, "rest")) is not None:
+                    continue
+                pitch = n.find(_q(ns, "pitch"))
+                if pitch is None:
+                    continue
+                step_el = pitch.find(_q(ns, "step"))
+                oct_el = pitch.find(_q(ns, "octave"))
+                if step_el is None or oct_el is None or not step_el.text or not oct_el.text:
+                    continue
+                step = step_el.text.strip().upper()
+                try:
+                    octave = int(oct_el.text.strip())
+                except ValueError:
+                    continue
+
+                staff_el = n.find(_q(ns, "staff"))
+                staff = (
+                    int(staff_el.text.strip())
+                    if (staff_el is not None and staff_el.text and staff_el.text.strip().isdigit())
+                    else 1
+                )
+
+                alter_el = pitch.find(_q(ns, "alter"))
+                acc_el = n.find(_q(ns, "accidental"))
+
+                if alter_el is not None and alter_el.text and alter_el.text.strip():
+                    try:
+                        note_alter = int(float(alter_el.text.strip()))
+                    except ValueError:
+                        note_alter = 0
+                elif acc_el is not None and acc_el.text:
+                    acc_text = acc_el.text.strip()
+                    if acc_text == "sharp":
+                        note_alter = 1
+                    elif acc_text == "flat":
+                        note_alter = -1
+                    elif acc_text == "natural":
+                        note_alter = 0
+                    elif acc_text == "double-sharp":
+                        note_alter = 2
+                    elif acc_text == "flat-flat":
+                        note_alter = -2
+                    else:
+                        note_alter = 0
+                else:
+                    note_alter = 0
+
+                key = (staff, step, octave)
+                expected_from_key = _get_expected_alter_from_fifths(step, current_fifths)
+
+                # Check if tied stop note
+                is_tie_stop = False
+                for t in n.findall(_q(ns, "tie")):
+                    if t.get("type") == "stop":
+                        is_tie_stop = True
+                for notations in n.findall(_q(ns, "notations")):
+                    for tied in notations.findall(_q(ns, "tied")):
+                        if tied.get("type") == "stop":
+                            is_tie_stop = True
+
+                if key in curr_measure_alters:
+                    active_alter = curr_measure_alters[key]
+                elif key in prev_measure_alters:
+                    active_alter = prev_measure_alters[key]
+                else:
+                    active_alter = expected_from_key
+
+                if not is_tie_stop and note_alter != active_alter:
+                    if acc_el is None:
+                        needed = None
+                        if note_alter == expected_from_key:
+                            needed = "natural" if expected_from_key == 0 else ("sharp" if expected_from_key > 0 else "flat")
+                        elif note_alter == 1:
+                            needed = "sharp"
+                        elif note_alter == -1:
+                            needed = "flat"
+                        elif note_alter == 2:
+                            needed = "double-sharp"
+                        elif note_alter == -2:
+                            needed = "flat-flat"
+
+                        if needed:
+                            new_acc = ET.Element(_q(ns, "accidental"))
+                            new_acc.text = needed
+                            n.append(new_acc)
+                            _sort_note_children(n, ns)
+                            total_added += 1
+
+                curr_measure_alters[key] = note_alter
+
+            prev_measure_alters = curr_measure_alters
+
+    return total_added
 
 
 def find_part(root: ET.Element, ns: str, part_id: str) -> ET.Element | None:

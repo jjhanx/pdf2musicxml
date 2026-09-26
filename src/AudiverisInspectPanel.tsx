@@ -15,6 +15,7 @@ import {
   fixCrossStaffBackupDurationsInXml,
 } from '../shared/musicXmlStaffPreview';
 import { removeRedundantCourtesyClefsForOsmd } from '../shared/musicXmlCourtesyClef';
+import { propagateAccidentalStatesForMusicXml } from '../shared/musicXmlAccidentalPropagation';
 import {
   realignMeasureDefaultXFromTimelineForOsmd,
   reorderSingleStaffTimelineByOnsetForOsmdPreview,
@@ -2083,6 +2084,7 @@ export function buildOsmdPreviewXml(
   xml = anchorTrailingMidClefsForOsmdPreview(xml);
   // 마디 끝 셈여림/words — OSMD가 마지막 음 onset에 붙이지 않도록 숨은 쉼 앵커(저장 MXL 불변)
   xml = anchorMeasureEndDirectionsForOsmdPreview(xml);
+  xml = propagateAccidentalStatesForMusicXml(xml);
   if (options?.voiceSequentialMeasures?.length) {
     xml = applyVoiceSequentialPreviewToXml(xml, options.voiceSequentialMeasures);
   }
@@ -2125,6 +2127,7 @@ function sanitizeMusicXmlForOsmd(
     out = normalizeTiePlacementsForOsmdPreview(out);
     out = normalizeDynamicsAndWedgesForOsmdPreview(out);
     out = anchorMeasureEndDirectionsForOsmdPreview(out);
+    out = propagateAccidentalStatesForMusicXml(out);
     out = removeAudiverisMeasureNumberingForOsmd(out);
     const mxlMeasureLabels = buildMxlMeasureNumberAllowedMap(out);
     out = stripSpuriousMeasureNumberWordsForOsmd(out, mxlMeasureLabels);

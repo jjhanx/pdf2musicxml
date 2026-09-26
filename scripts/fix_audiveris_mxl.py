@@ -2657,7 +2657,7 @@ def _measure_first_chord_note_ids(measure: ET.Element, ns: str) -> set[int]:
 
 
 
-def _normalize_accidentals(measure, ns: str, key_fifths: int) -> int:
+def _normalize_accidentals(measure, ns: str, key_fifths: int, prev_measure_alters: dict | None = None) -> int:
     fixed = 0
     
     def get_expected_alter(step: str, fifths: int) -> int:
@@ -2677,20 +2677,51 @@ def _normalize_accidentals(measure, ns: str, key_fifths: int) -> int:
         alter_el = pitch.find(qname(ns, "alter"))
         alter = int(alter_el.text) if alter_el is not None and alter_el.text else 0
         
+        staff_el = n.find(qname(ns, "staff"))
+        staff = int(staff_el.text.strip()) if (staff_el is not None and staff_el.text and staff_el.text.strip().isdigit()) else 1
+        key = (staff, step, octave)
+        expected_alter = get_expected_alter(step, key_fifths)
+
+        if key in seen_in_measure:
+            active_alter = seen_in_measure[key]
+        elif prev_measure_alters and key in prev_measure_alters:
+            active_alter = prev_measure_alters[key]
+        else:
+            active_alter = expected_alter
+
         acc = n.find(qname(ns, "accidental"))
         if acc is not None:
             acc_type = acc.text.strip() if acc.text else ""
-            key = (step, octave)
-            
-            expected_alter = seen_in_measure.get(key, get_expected_alter(step, key_fifths))
-            
-            if alter == 0 and acc_type == "natural" and expected_alter == 0:
+            if alter == 0 and acc_type == "natural" and expected_alter == 0 and active_alter == 0:
                 n.remove(acc)
                 fixed += 1
-                
             seen_in_measure[key] = alter
-            
+        else:
+            if alter != active_alter:
+                needed = None
+                if alter == expected_alter:
+                    needed = "natural" if expected_alter == 0 else ("sharp" if expected_alter > 0 else "flat")
+                elif alter == 1:
+                    needed = "sharp"
+                elif alter == -1:
+                    needed = "flat"
+                elif alter == 2:
+                    needed = "double-sharp"
+                elif alter == -2:
+                    needed = "flat-flat"
+                if needed:
+                    new_acc = ET.Element(qname(ns, "accidental"))
+                    new_acc.text = needed
+                    n.append(new_acc)
+                    fixed += 1
+            seen_in_measure[key] = alter
+
+    if prev_measure_alters is not None:
+        prev_measure_alters.clear()
+        prev_measure_alters.update(seen_in_measure)
+
     return fixed
+
 
 
 def _fix_misread_natural_accidental(
@@ -5262,6 +5293,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         if _part_has_two_staves(part, ns):
             stats["tuplet_dynamics_removed"] += _remove_spurious_tuplet_dynamics(part, ns)
 
+        prev_measure_alters: dict[tuple[int, str, int], int] = {}
         for measure in part.findall(qname(ns, "measure")):
             stats["tuplet_brackets_adjusted"] += _renumber_tuplets_in_measure(measure, ns)
             key_fifths = _key_fifths_before_measure(part, int(measure.get("number") or 0), ns)
@@ -5276,10 +5308,10 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
                     stats["tuplet_show_number_fixed"] += 1
                 if _ensure_tuplet_normal_fields(note, ns):
                     stats["tuplet_normal_fields_fixed"] += 1
-            # OMR `<accidental>natural</accidental>` 중 조표·음높이상 불필요한 것만 제거(기본 on)
+            # OMR `<accidental>natural</accidental>` 중 조표·음높이상 불필요한 것만 제거 및 필요한 임시표 보충
             if _strip_redundant_naturals_enabled():
                 stats["spurious_natural_removed"] += _normalize_accidentals(
-                    measure, ns, key_fifths
+                    measure, ns, key_fifths, prev_measure_alters
                 )
 
         stats["chord_ties_completed"] += _extrapolate_chord_ties(part, ns)

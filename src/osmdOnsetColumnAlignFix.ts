@@ -508,8 +508,14 @@ export function pairHitsWithLayoutTargetsByBestMatch<T extends { defaultXTenths:
   return bestPairs;
 }
 
-function targetXFromDefaultTenths(originX: number, spanPx: number, defaultXTenths: number): number {
-  const frac = Math.max(0, Math.min(1, (defaultXTenths - LAYOUT_BASE_X) / LAYOUT_SPAN));
+function targetXFromDefaultTenths(
+  originX: number,
+  spanPx: number,
+  defaultXTenths: number,
+  layoutSpan = LAYOUT_SPAN,
+): number {
+  const span = Math.max(1, layoutSpan);
+  const frac = Math.max(0, Math.min(1, (defaultXTenths - LAYOUT_BASE_X) / span));
   return originX + frac * spanPx;
 }
 
@@ -691,7 +697,8 @@ function noteExtentClearedOfInstructions(
   if (contentRight == null && layoutXs && layoutXs.length >= 1) {
     const lxMin = Math.min(...layoutXs);
     const lxMax = Math.max(...layoutXs);
-    const layoutEnd = LAYOUT_BASE_X + LAYOUT_SPAN;
+    const dynamicSpan = Math.max(LAYOUT_SPAN, lxMax - LAYOUT_BASE_X);
+    const layoutEnd = LAYOUT_BASE_X + dynamicSpan;
     const used = Math.max(1e-6, lxMax - lxMin);
     const remain = Math.max(0, layoutEnd - lxMax);
     if (remain > 1e-3) {
@@ -722,19 +729,20 @@ export function placementSpanFromExtentAndLayouts(
   rightEdge: number,
   layoutXs: readonly number[],
   extendToMeasureEnd = false,
-): { originX: number; spanPx: number } | null {
+): { originX: number; spanPx: number; layoutSpan?: number } | null {
   if (!(rightEdge - leftEdge >= 8) || !layoutXs.length) return null;
   const lxMin = Math.min(...layoutXs);
   const lxMax = Math.max(...layoutXs);
-  const layoutEnd = LAYOUT_BASE_X + LAYOUT_SPAN;
+  const dynamicSpan = Math.max(LAYOUT_SPAN, lxMax - LAYOUT_BASE_X);
+  const layoutEnd = LAYOUT_BASE_X + dynamicSpan;
   const lxEnd = extendToMeasureEnd ? Math.max(lxMax, layoutEnd) : lxMax;
-  const f0 = Math.max(0, Math.min(1, (lxMin - LAYOUT_BASE_X) / LAYOUT_SPAN));
-  const f1 = Math.max(0, Math.min(1, (lxEnd - LAYOUT_BASE_X) / LAYOUT_SPAN));
+  const f0 = Math.max(0, Math.min(1, (lxMin - LAYOUT_BASE_X) / dynamicSpan));
+  const f1 = Math.max(0, Math.min(1, (lxEnd - LAYOUT_BASE_X) / dynamicSpan));
   const fSpan = Math.max(1e-6, f1 - f0);
   const spanPx = (rightEdge - leftEdge) / fSpan;
   const originX = leftEdge - f0 * spanPx;
   if (!(spanPx >= 8)) return null;
-  return { originX, spanPx };
+  return { originX, spanPx, layoutSpan: dynamicSpan };
 }
 
 /**
@@ -766,7 +774,10 @@ function contentSpanFromGraphicMeasure(
     layoutXs,
   );
   if (!ext) return measureSpanFromHits(hits);
-  const lxs = layoutXs?.length ? layoutXs : [LAYOUT_BASE_X, LAYOUT_BASE_X + LAYOUT_SPAN];
+  const dynamicSpan = layoutXs?.length
+    ? Math.max(LAYOUT_SPAN, Math.max(...layoutXs) - LAYOUT_BASE_X)
+    : LAYOUT_SPAN;
+  const lxs = layoutXs?.length ? layoutXs : [LAYOUT_BASE_X, LAYOUT_BASE_X + dynamicSpan];
   return (
     placementSpanFromExtentAndLayouts(ext.leftEdge, ext.rightEdge, lxs, hasContentRight) ??
     measureSpanFromHits(hits)
@@ -800,10 +811,10 @@ function buildStaffWithinPartByStaffIndex(osmd: OpenSheetMusicDisplay): Map<numb
  * 항상 전체 PREVIEW_LAYOUT span에 비례 배치.
  */
 function wantXFromLayoutGrid(
-  span: { originX: number; spanPx: number },
+  span: { originX: number; spanPx: number; layoutSpan?: number },
   defaultXTenths: number,
 ): number {
-  return targetXFromDefaultTenths(span.originX, span.spanPx, defaultXTenths);
+  return targetXFromDefaultTenths(span.originX, span.spanPx, defaultXTenths, span.layoutSpan);
 }
 
 /** 순번 column 최소 간격(px) — 같은 박이어도 화음끼리 겹치지 않게. */
@@ -3529,11 +3540,25 @@ function alignMeasureNotesByOnsetLayoutGrid(
       }
     }
     // 꾸밈음(grace notes): 뒤따르는 본음(regular note)의 translate를 상속하여 일치
+    // 및 앞선 regular note와의 최소 안전 간격 보장
     for (const h of hits) {
       if (!h.isGrace || h.voice !== voice) continue;
       const nextRegular = ordered.find((p) => p.centerX > h.centerX);
       if (nextRegular) {
-        const tr = nextRegular.stavenote.getAttribute('transform');
+        let tr = nextRegular.stavenote.getAttribute('transform');
+        const prevRegular = [...ordered].reverse().find((p) => p.centerX < h.centerX);
+        if (prevRegular) {
+          const prevWant = wantXFromLayoutGrid(measureSpan, prevRegular.layoutX);
+          const minGraceGap = Math.max(12, osmdSvgScale(osmd) * 0.35);
+          const trMatch = tr?.match(/translate\(([-\d.]+)(?:[ ,]([-\d.]+))?\)/);
+          const nextDx = trMatch ? parseFloat(trMatch[1]!) : 0;
+          const currentDx = Number.isFinite(nextDx) ? nextDx : 0;
+          const graceXAfter = h.centerX + currentDx;
+          if (graceXAfter < prevWant + minGraceGap) {
+            const shift = (prevWant + minGraceGap) - graceXAfter;
+            tr = `translate(${(currentDx + shift).toFixed(3)}, 0)`;
+          }
+        }
         if (tr) {
           h.stavenote.setAttribute('transform', tr);
           moved = true;

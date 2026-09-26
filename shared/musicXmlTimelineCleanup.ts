@@ -1243,13 +1243,13 @@ function measureLengthUnits(measure: Element): number {
   return Math.max(1, Math.round((divisions * beats * 4) / beatType));
 }
 
-function realignMeasureDefaultXFromTimeline(measure: Element): void {
-  applyPlayOrderLayoutToMeasure(measure);
+function realignMeasureDefaultXFromTimeline(measure: Element, layoutSpan?: number): void {
+  applyPlayOrderLayoutToMeasure(measure, layoutSpan);
 }
 
 /** 단일 마디 OSMD 미리보기 — onset slot·lyric slot·default-x 재주입. */
-export function realignMeasureDefaultXFromTimelineForOsmd(measure: Element): void {
-  realignMeasureDefaultXFromTimeline(measure);
+export function realignMeasureDefaultXFromTimelineForOsmd(measure: Element, layoutSpan?: number): void {
+  realignMeasureDefaultXFromTimeline(measure, layoutSpan);
 }
 
 /** reorder·layer 정규화 전 MXL default-x 보존 — linkParallel(동일 x) vs 자연 다성부(미세히 다른 x) 구분. */

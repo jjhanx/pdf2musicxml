@@ -11,6 +11,9 @@ import {
   previewLayoutLengthUnits,
   OSMD_LAYOUT_X_ATTR,
   collectStaffNoteOnsets,
+  PREVIEW_LAYOUT_SPAN,
+  measureRequiredVisualSpan,
+  buildScoreMeasureLayoutSpans,
 } from './musicXmlPreviewOnsetLayout';
 
 const xmlLocalName = (el: Element) =>
@@ -243,8 +246,9 @@ function setLayoutAttrsOnGroup(
   layoutOnset: number,
   layoutLen: number,
   playOrder: number | null,
+  layoutSpan?: number,
 ): void {
-  const x = defaultXFromOnset(layoutOnset, layoutLen);
+  const x = defaultXFromOnset(layoutOnset, layoutLen, layoutSpan);
   for (const note of noteGroupWithChords(measure, leader)) {
     if (playOrder != null) note.setAttribute(HITL_PLAY_ORDER_ATTR, String(playOrder));
     note.setAttribute(OSMD_LAYOUT_X_ATTR, x);
@@ -678,7 +682,7 @@ export function realignPlayOrderColumnTimelinesInXml(xml: string): string {
   }
 }
 
-export function applyPlayOrderLayoutToMeasure(measure: Element): void {
+export function applyPlayOrderLayoutToMeasure(measure: Element, layoutSpan?: number): void {
   // 병행 성부 layout은 **musical onset(박자)** 권위.
   // staff:po 최소 onset에 묶으면 voice5 4분 순번2와 voice6 2분 순번2가 같은 열이 됨(d3dd m9 PL).
   // partial(첫 음 onset>0 · 앞 forward)만 column snap.
@@ -686,6 +690,7 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
   // voice 없는 forward가 앞 성부에 붙어 partial onset이 0으로 붕괴함.
   ensureRestPlayOrdersInMeasure(measure);
   const layoutLen = Math.max(1, previewLayoutLengthUnits(measure));
+  const effectiveSpan = layoutSpan ?? measureRequiredVisualSpan(measure, PREVIEW_LAYOUT_SPAN);
   const onsets = collectStaffNoteOnsets(measure);
 
   const staves = new Set<number>();
@@ -749,7 +754,7 @@ export function applyPlayOrderLayoutToMeasure(measure: Element): void {
       layoutOnset =
         layoutOnsetForAnchorInMeasure(measure, staff, spec.voice, spec.order) ?? musicalOnset;
     }
-    setLayoutAttrsOnGroup(measure, leader, layoutOnset, layoutLen, null);
+    setLayoutAttrsOnGroup(measure, leader, layoutOnset, layoutLen, null, effectiveSpan);
   }
 }
 
@@ -870,10 +875,20 @@ export function applyPlayOrderLayoutToXml(xml: string): string {
   try {
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return xml;
+    const spanMap = buildScoreMeasureLayoutSpans(doc);
     for (const part of findXmlParts(doc)) {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
-        applyPlayOrderLayoutToMeasure(measure);
+        const num = parseInt(measure.getAttribute('number') ?? '0', 10);
+        const span = Number.isFinite(num) && num > 0 ? spanMap.get(num) : undefined;
+        applyPlayOrderLayoutToMeasure(measure, span);
+        if (span != null && span > PREVIEW_LAYOUT_SPAN) {
+          const ratio = span / PREVIEW_LAYOUT_SPAN;
+          const origW = parseFloat(measure.getAttribute('width') || '');
+          if (Number.isFinite(origW) && origW > 0) {
+            measure.setAttribute('width', String(Math.round(origW * ratio)));
+          }
+        }
       }
     }
     return serializeMusicXmlDocument(doc);

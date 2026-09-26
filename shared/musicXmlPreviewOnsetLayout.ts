@@ -25,8 +25,8 @@ export const OSMD_LYRIC_SLOT_ATTR = 'data-osmd-lyric-slot';
 /** SVG align 전용 column x — OSMD load XML에는 default-x를 두지 않음(0폭·skip 방지). */
 export const OSMD_LAYOUT_X_ATTR = 'data-osmd-layout-x';
 
-const PREVIEW_LAYOUT_BASE_X = 32;
-const PREVIEW_LAYOUT_SPAN = 400;
+export const PREVIEW_LAYOUT_BASE_X = 32;
+export const PREVIEW_LAYOUT_SPAN = 400;
 
 function timelineVoiceEl(el: Element, fallbackVoice: string): string {
   const v = el.querySelector(':scope > voice, :scope > *|voice');
@@ -166,10 +166,130 @@ export function measureTimelineEndUnits(measure: Element, staffN?: number): numb
 }
 
 /** 미리보기 default-x — onset ÷ layoutLen × span (tenths). */
-export function defaultXFromOnset(onset: number, measureLen: number): string {
+export function defaultXFromOnset(onset: number, measureLen: number, layoutSpan?: number): string {
   const len = Math.max(1, measureLen);
   const clamped = Math.max(0, Math.min(onset, len));
-  return (PREVIEW_LAYOUT_BASE_X + (clamped / len) * PREVIEW_LAYOUT_SPAN).toFixed(2);
+  const span = layoutSpan != null && Number.isFinite(layoutSpan) && layoutSpan > 0
+    ? layoutSpan
+    : PREVIEW_LAYOUT_SPAN;
+  return (PREVIEW_LAYOUT_BASE_X + (clamped / len) * span).toFixed(2);
+}
+
+function noteHasAccidentalOrAlter(note: Element): boolean {
+  if (note.querySelector(':scope > accidental, :scope > *|accidental')) return true;
+  const alterEl = note.querySelector(':scope > pitch > alter, :scope > *|pitch > *|alter');
+  const alt = alterEl?.textContent?.trim();
+  if (alt && alt !== '0') return true;
+  return false;
+}
+
+export const OSMD_MEASURE_LAYOUT_SPAN_ATTR = 'data-osmd-layout-span';
+
+/**
+ * 마디 내 음표들에 그려지는 시각적 요소(꾸밈음, 임시표, 점 등)를 고려한 최소 필요 layout span(tenths).
+ * 꾸밈음을 달고 있는 음표의 폭(꾸밈음 + # + 본음)을 기준으로 단위 박자 비율을 계산하고,
+ * 그 마디의 다른 음표들도 그 기준에 비례하도록 마디 span을 확장한다.
+ */
+export function measureRequiredVisualSpan(
+  measure: Element,
+  baseSpan = PREVIEW_LAYOUT_SPAN,
+): number {
+  const len = Math.max(1, previewLayoutLengthUnits(measure));
+  const attrSpan = parseFloat(measure.getAttribute(OSMD_MEASURE_LAYOUT_SPAN_ATTR) || '');
+  const minBase = Number.isFinite(attrSpan) && attrSpan > baseSpan ? attrSpan : baseSpan;
+  const baseRate = minBase / len;
+  let maxRate = baseRate;
+
+  const children = [...measure.children];
+  let currentGraceGroup: Element[] = [];
+
+  for (const child of children) {
+    if (xmlLocalName(child) !== 'note') {
+      if (xmlLocalName(child) === 'backup') {
+        currentGraceGroup = [];
+      }
+      continue;
+    }
+    if (isChordMember(child)) continue;
+
+    if (isGraceNote(child)) {
+      currentGraceGroup.push(child);
+      continue;
+    }
+
+    const dur = noteDurationValue(child);
+    if (dur > 0) {
+      const hasGrace = currentGraceGroup.length > 0;
+      const hasAccidental = noteHasAccidentalOrAlter(child);
+
+      // 꾸밈음이나 임시표 등 시각적 돌출 요소가 있을 때 필요한 최소 가로 폭 계산
+      if (hasGrace || hasAccidental) {
+        let neededWidth = 30; // 기본 머리 최소 폭
+        if (hasAccidental) neededWidth += 14;
+        if (child.querySelector(':scope > dot, :scope > *|dot')) neededWidth += 8;
+
+        if (hasGrace) {
+          for (const g of currentGraceGroup) {
+            neededWidth += 16; // 꾸밈음 머리 + 기둥
+            if (noteHasAccidentalOrAlter(g)) {
+              neededWidth += 18; // 꾸밈음 앞의 #, b 등 임시표
+            }
+          }
+          neededWidth += 12; // 꾸밈음과 앞 음표 사이 안전 간격
+        }
+
+        const rate = neededWidth / dur;
+        if (rate > maxRate) {
+          maxRate = rate;
+        }
+      }
+    }
+
+    currentGraceGroup = [];
+  }
+
+  return Math.max(minBase, Math.round(len * maxRate));
+}
+
+/**
+ * 악보 전체에서 동일 마디 번호의 모든 성부(Part/Staff)를 조사하여,
+ * 가장 큰 필요 layout span으로 마디 길이를 통일하는 맵(measureNumber -> unifiedSpan) 반환.
+ * 각 measure 엘리먼트에도 `data-osmd-layout-span` 속성을 설정하여,
+ * 이후 성부/스태프 필터링 후에도 통일된 마디 길이가 보존되도록 한다.
+ */
+export function buildScoreMeasureLayoutSpans(
+  docOrRoot: Element | Document,
+  baseSpan = PREVIEW_LAYOUT_SPAN,
+): Map<number, number> {
+  const spanByMeasure = new Map<number, number>();
+  const parts = findXmlParts(docOrRoot as Document);
+  for (const part of parts) {
+    for (const measure of [...part.children]) {
+      if (xmlLocalName(measure) !== 'measure') continue;
+      const num = parseInt(measure.getAttribute('number') ?? '0', 10);
+      if (!Number.isFinite(num) || num <= 0) continue;
+      const span = measureRequiredVisualSpan(measure, baseSpan);
+      const prev = spanByMeasure.get(num) ?? baseSpan;
+      if (span > prev) {
+        spanByMeasure.set(num, span);
+      }
+    }
+  }
+
+  // 모든 성부의 해당 마디에 통일된 span 속성 기록 (필터링 후에도 전 성부 길이 일치 보존)
+  for (const part of parts) {
+    for (const measure of [...part.children]) {
+      if (xmlLocalName(measure) !== 'measure') continue;
+      const num = parseInt(measure.getAttribute('number') ?? '0', 10);
+      if (!Number.isFinite(num) || num <= 0) continue;
+      const unified = spanByMeasure.get(num);
+      if (unified != null && unified > baseSpan) {
+        measure.setAttribute(OSMD_MEASURE_LAYOUT_SPAN_ATTR, String(unified));
+      }
+    }
+  }
+
+  return spanByMeasure;
 }
 
 function setPreviewAttrsOnGroup(
@@ -178,8 +298,9 @@ function setPreviewAttrsOnGroup(
   onset: number,
   onsetSlot: number,
   measureLen: number,
+  layoutSpan?: number,
 ): void {
-  const x = defaultXFromOnset(onset, measureLen);
+  const x = defaultXFromOnset(onset, measureLen, layoutSpan);
   for (const note of noteGroupWithChords(measure, leader)) {
     note.setAttribute(OSMD_ONSET_UNITS_ATTR, String(onset));
     note.setAttribute(OSMD_ONSET_SLOT_ATTR, String(onsetSlot));
@@ -192,8 +313,8 @@ function setPreviewAttrsOnGroup(
  * staff별 unique onset → column slot(0..) 부여 후 default-x 재주입.
  * 동시 onset(다 voice·다른 박자)은 같은 column·같은 x.
  */
-export function applyPreviewOnsetSlotLayoutToMeasure(measure: Element): void {
-  applyPlayOrderLayoutToMeasure(measure);
+export function applyPreviewOnsetSlotLayoutToMeasure(measure: Element, layoutSpan?: number): void {
+  applyPlayOrderLayoutToMeasure(measure, layoutSpan);
   assignPreviewLyricSlotsToMeasure(measure);
 }
 
@@ -222,10 +343,13 @@ export function applyPreviewOnsetSlotLayoutToXml(xml: string): string {
   try {
     const doc = parseMusicXmlDocument(xml);
     if (!doc) return xml;
+    const spanMap = buildScoreMeasureLayoutSpans(doc);
     for (const part of findXmlParts(doc)) {
       for (const measure of [...part.children]) {
         if (xmlLocalName(measure) !== 'measure') continue;
-        applyPreviewOnsetSlotLayoutToMeasure(measure);
+        const num = parseInt(measure.getAttribute('number') ?? '0', 10);
+        const span = Number.isFinite(num) && num > 0 ? spanMap.get(num) : undefined;
+        applyPreviewOnsetSlotLayoutToMeasure(measure, span);
       }
     }
     return serializeMusicXmlDocument(doc);

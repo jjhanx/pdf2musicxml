@@ -19,6 +19,7 @@ from omr_hitl_lib import (  # noqa: E402
     normalize_wedges_in_root,
     realign_play_order_column_timelines_in_root,
     repair_octave_shift_stops_before_cross_staff_backup_in_root,
+    sanitize_measure_voice_timelines_in_root,
     write_mxl_root,
 )
 
@@ -42,6 +43,7 @@ def main() -> int:
         n_wedges = normalize_wedges_in_root(root)
         # timeline rebuild 이후 — 같은 연주순번 column onset을 저장 MXL에 맞춤(재생)
         n_po_align = realign_play_order_column_timelines_in_root(root)
+        n_sanitize = sanitize_measure_voice_timelines_in_root(root)
         if (
             n
             or n_chord
@@ -54,13 +56,14 @@ def main() -> int:
             or n_slurs
             or n_wedges
             or n_po_align
+            or n_sanitize
         ):
             write_mxl_root(mxl_path, files, root_path, root)
         print(
             json.dumps(
                 {
                     "coalesceVoiceMeasures": max(
-                        n, n_rebuild, n_wedges, n_oshift, n_dur, n_slurs
+                        n, n_rebuild, n_wedges, n_oshift, n_dur, n_slurs, n_sanitize
                     ),
                     "homophonicChordMeasures": n_chord,
                     "multivoiceStemMeasures": n_stem,
@@ -68,6 +71,7 @@ def main() -> int:
                     "octaveShiftStopRepaired": n_oshift,
                     "noteDurationsCoercedToType": n_dur,
                     "slursNormalizedMeasures": n_slurs,
+                    "voiceTimelinesSanitized": n_sanitize,
                 },
                 ensure_ascii=False,
             )

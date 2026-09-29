@@ -5119,6 +5119,7 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "adjacent_wedge_stops_moved": 0,
         "backup_wedge_stops_moved": 0,
         "wedge_spreads_amplified": 0,
+        "voice_timelines_sanitized": 0,
     }
 
     # 1) 텍스트 정리 + orphan backup/forward + backup/forward 겹침 voice 병합
@@ -5398,6 +5399,13 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     stats["play_order_document_order_measures"] = stats.get(
         "play_order_document_order_measures", 0
     ) + materialize_play_order_document_order_in_root(root)
+    try:
+        from omr_hitl_lib import sanitize_measure_voice_timelines_in_root
+    except ImportError:
+        from scripts.omr_hitl_lib import sanitize_measure_voice_timelines_in_root  # type: ignore
+    stats["voice_timelines_sanitized"] = stats.get(
+        "voice_timelines_sanitized", 0
+    ) + sanitize_measure_voice_timelines_in_root(root)
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats

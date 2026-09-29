@@ -1675,10 +1675,149 @@ def realign_measure_timeline_to_play_order_columns(
     return changed
 
 
-def realign_play_order_column_timelines_in_root(
+def sanitize_measure_voice_timelines(
+    measure: ET.Element, ns: str, part: ET.Element | None = None
+) -> bool:
+    """다성부 마디에서 voice별 (forward + notes_dur)가 measure_len을 초과하는 현상을 일반 교정.
+
+    Audiveris OMR이 voice2/voice6 등 보조 성부에 임의로 넣은 유령 forward가 음표 자체
+    온마디(예: 2분음표 2개)와 합쳐져 72/48 등 초과 박자를 만들거나, forward와 음표가
+    마디 끝을 뚫고 나가 다른 voice에 유령 쉼표를 유발하는 현상을 원천 방지한다.
+    """
+    divisions, beats, beat_type = _measure_divisions_beats(measure, ns, part)
+    measure_len = _measure_length_units(divisions, beats, beat_type)
+    if measure_len <= 0:
+        return False
+
+    changed = False
+    children = list(measure)
+
+    voice_forwards: dict[str, list[ET.Element]] = {}
+    voice_leader_notes: dict[str, list[ET.Element]] = {}
+    last_voice = "1"
+
+    for el in children:
+        tag = _local(el)
+        if tag == "forward":
+            v = el.findtext(_q(ns, "voice")) or last_voice
+            voice_forwards.setdefault(v, []).append(el)
+        elif tag == "note":
+            if el.find(_q(ns, "chord")) is not None:
+                continue
+            v, _st = _note_voice_staff(el, ns)
+            last_voice = v
+            voice_leader_notes.setdefault(v, []).append(el)
+
+    for v, leaders in voice_leader_notes.items():
+        notes_dur = 0
+        for l in leaders:
+            if not _is_grace_or_cue(l, ns):
+                notes_dur += _note_duration(l, ns)
+
+        fwd_els = voice_forwards.get(v, [])
+        fwd_dur = 0
+        for f in fwd_els:
+            dur_el = f.find(_q(ns, "duration"))
+            if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
+                fwd_dur += int(dur_el.text.strip())
+
+        total_voice_len = fwd_dur + notes_dur
+        if total_voice_len <= measure_len:
+            continue
+
+        # Case A: 음표 자체만으로 이미 온마디를 충족하거나 넘침 → 앞에 붙은 forward는 유령 오인
+        if notes_dur >= measure_len and fwd_dur > 0:
+            for f in fwd_els:
+                if f in measure:
+                    measure.remove(f)
+                    changed = True
+            fwd_dur = 0
+            total_voice_len = notes_dur
+
+        # Case B: 음표는 마디 용량 이하이지만 forward + notes_dur > measure_len → forward를 허용 한도로 축소
+        elif notes_dur < measure_len and fwd_dur > 0:
+            max_allowed_fwd = max(0, measure_len - notes_dur)
+            diff = fwd_dur - max_allowed_fwd
+            if diff > 0:
+                remaining_diff = diff
+                for f in reversed(fwd_els):
+                    dur_el = f.find(_q(ns, "duration"))
+                    if dur_el is not None and dur_el.text and dur_el.text.strip().isdigit():
+                        cur_f = int(dur_el.text.strip())
+                        take = min(cur_f, remaining_diff)
+                        new_f = cur_f - take
+                        remaining_diff -= take
+                        if new_f <= 0:
+                            if f in measure:
+                                measure.remove(f)
+                        else:
+                            dur_el.text = str(new_f)
+                        changed = True
+                    if remaining_diff <= 0:
+                        break
+                fwd_dur = max_allowed_fwd
+                total_voice_len = fwd_dur + notes_dur
+
+        # Case C: forward 조정 후에도 개별 음표가 마디 끝을 초과하는 경우 clamp
+        if total_voice_len > measure_len:
+            cursor = fwd_dur
+            current_children = list(measure)
+            for l in leaders:
+                if _is_grace_or_cue(l, ns):
+                    continue
+                dur = _note_duration(l, ns)
+                if cursor >= measure_len:
+                    # 마디 끝 이후 시작되는 음표/화음 제거
+                    group = [l]
+                    l_idx = current_children.index(l) if l in current_children else -1
+                    if l_idx >= 0:
+                        for next_idx in range(l_idx + 1, len(current_children)):
+                            next_el = current_children[next_idx]
+                            if _local(next_el) == "note" and next_el.find(_q(ns, "chord")) is not None:
+                                group.append(next_el)
+                            else:
+                                break
+                    for g in group:
+                        if g in measure:
+                            measure.remove(g)
+                    changed = True
+                elif cursor + dur > measure_len:
+                    # 마디 끝에 걸친 음표 duration 축소 및 type 교정
+                    clamped_dur = measure_len - cursor
+                    if clamped_dur > 0:
+                        group = [l]
+                        l_idx = current_children.index(l) if l in current_children else -1
+                        if l_idx >= 0:
+                            for next_idx in range(l_idx + 1, len(current_children)):
+                                next_el = current_children[next_idx]
+                                if _local(next_el) == "note" and next_el.find(_q(ns, "chord")) is not None:
+                                    group.append(next_el)
+                                else:
+                                    break
+                        new_type = _guess_type_for_duration(clamped_dur, divisions)
+                        for g in group:
+                            dur_el = g.find(_q(ns, "duration"))
+                            if dur_el is not None:
+                                dur_el.text = str(clamped_dur)
+                            if new_type:
+                                type_el = g.find(_q(ns, "type"))
+                                if type_el is not None:
+                                    type_el.text = new_type
+                            for dot in g.findall(_q(ns, "dot")):
+                                g.remove(dot)
+                        changed = True
+                    cursor = measure_len
+                else:
+                    cursor += dur
+
+    _align_staves_timeline(measure, ns)
+    return changed
+
+
+def sanitize_measure_voice_timelines_in_root(
     root: ET.Element, *, only_measures: MeasureScope = None
 ) -> int:
-    """전 악보 — 연주순번 column onset 맞춤. 변경된 마디 수."""
+    """전 악보 — 마디별 성부 타임라인 초과(overfull) 정규화. 변경된 마디 수."""
     ns = _ns(root)
     n = 0
     for part in root.findall(_q(ns, "part")):
@@ -1686,7 +1825,30 @@ def realign_play_order_column_timelines_in_root(
         for measure in part.findall(_q(ns, "measure")):
             if not _part_measure_in_scope(part_id, measure, only_measures):
                 continue
+            if sanitize_measure_voice_timelines(measure, ns, part):
+                n += 1
+    return n
+
+
+def realign_play_order_column_timelines_in_root(
+    root: ET.Element, *, only_measures: MeasureScope = None
+) -> int:
+    """전 악보 — 연주순번 column onset 맞춤 및 성부 타임라인 정합성 보장. 변경된 마디 수."""
+    ns = _ns(root)
+    n = 0
+    for part in root.findall(_q(ns, "part")):
+        part_id = part.get("id") or ""
+        for measure in part.findall(_q(ns, "measure")):
+            if not _part_measure_in_scope(part_id, measure, only_measures):
+                continue
+            ch = False
+            if sanitize_measure_voice_timelines(measure, ns, part):
+                ch = True
             if realign_measure_timeline_to_play_order_columns(measure, ns):
+                ch = True
+            if sanitize_measure_voice_timelines(measure, ns, part):
+                ch = True
+            if ch:
                 n += 1
     return n
 
@@ -1884,7 +2046,22 @@ def _direction_element_info(direction: ET.Element, ns: str) -> dict[str, Any]:
     pl = (direction.get("placement") or "").strip().lower()
 
     dtype = direction.find(_q(ns, "direction-type"))
-    if dtype is None:
+    if _direction_has_tempo(direction, ns):
+        bpm = _parse_bpm_from_tempo_direction(direction, ns)
+        beat = _beat_unit_from_tempo_direction(direction, ns)
+        words_txt = " ".join(
+            (w.text or "").strip()
+            for w in direction.iter(_q(ns, "words"))
+            if (w.text or "").strip()
+        )
+        out = {
+            "directionType": "tempo",
+            "directionValue": _tempo_label(bpm, beat),
+            "tempoBpm": bpm,
+            "beatUnit": beat,
+            "tempoText": words_txt or None,
+        }
+    elif dtype is None:
         text = _direction_text(direction)
         out = {"directionType": "words", "directionValue": text or ""}
     else:
@@ -2042,6 +2219,14 @@ def _format_tempo_bpm_str(bpm: float) -> str:
     if bpm == int(bpm):
         return str(int(bpm))
     return str(bpm)
+
+
+NOTE_TEMPO_ATTR = "data-hitl-note-tempo"
+
+
+def _is_note_tempo_direction(direction: ET.Element) -> bool:
+    """음표 onset에 붙인 마디 중간 템포 — 마디 템포(머리) 편집 대상이 아니다."""
+    return direction.get(NOTE_TEMPO_ATTR) == "1"
 
 
 def _direction_has_tempo(direction: ET.Element, ns: str) -> bool:
@@ -2235,7 +2420,7 @@ def _remove_tempo_directions_in_measure(
         return False
     removed = False
     for direction in list(measure.findall(_q(ns, "direction"))):
-        if _direction_has_tempo(direction, ns):
+        if _direction_has_tempo(direction, ns) and not _is_note_tempo_direction(direction):
             measure.remove(direction)
             removed = True
     return removed
@@ -2252,19 +2437,23 @@ def _set_tempo_on_measure(
 ) -> bool:
     directions = measure.findall(_q(ns, "direction"))
     target: ET.Element | None = None
+
+    def _is_measure_tempo(d: ET.Element) -> bool:
+        return _direction_has_tempo(d, ns) and not _is_note_tempo_direction(d)
+
     if direction_index is not None and 0 <= direction_index < len(directions):
         cand = directions[direction_index]
-        if _direction_has_tempo(cand, ns):
+        if _is_measure_tempo(cand):
             target = cand
     if target is None:
         for direction in directions:
-            if _direction_has_tempo(direction, ns):
+            if _is_measure_tempo(direction):
                 target = direction
                 break
     if target is not None:
         _update_tempo_direction(target, ns, bpm, beat_unit, show_metronome=show_metronome)
         for direction in list(measure.findall(_q(ns, "direction"))):
-            if direction is not target and _direction_has_tempo(direction, ns):
+            if direction is not target and _is_measure_tempo(direction):
                 measure.remove(direction)
         # Move target to correct position
         measure.remove(target)
@@ -2280,7 +2469,7 @@ def _set_tempo_on_measure(
 def _measure_tempo_snapshot(measure: ET.Element, ns: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for i, direction in enumerate(measure.findall(_q(ns, "direction"))):
-        if not _direction_has_tempo(direction, ns):
+        if not _direction_has_tempo(direction, ns) or _is_note_tempo_direction(direction):
             continue
         bpm = _parse_bpm_from_tempo_direction(direction, ns)
         beat = _beat_unit_from_tempo_direction(direction, ns)
@@ -5026,6 +5215,63 @@ def _clear_note_direction(
     return changed
 
 
+def _apply_note_tempo(
+    measure: ET.Element,
+    notes: list[ET.Element],
+    note_idx: int,
+    ns: str,
+    fix: dict[str, Any],
+    placement: str | None = None,
+    distance: str | None = None,
+) -> bool:
+    """음표 onset부터 템포 변경 — 그 음 바로 앞 `<direction>`(♩=BPM 표기 + `<sound tempo>`).
+
+    같은 음 앞에 이미 템포가 있으면 그것을 갱신(재적용해도 하나만 남음).
+    """
+    if note_idx < 0 or note_idx >= len(notes):
+        return False
+    try:
+        bpm = float(fix.get("tempoBpm"))
+    except (TypeError, ValueError):
+        return False
+    if not (1 <= bpm <= 400):
+        return False
+    beat_unit = str(fix.get("beatUnit") or "quarter").strip() or "quarter"
+    text = str(fix.get("directionValue") or "").strip()
+    pl = placement if placement in ("above", "below") else "above"
+    dy = _calc_direction_default_y(pl, distance)
+    note = notes[note_idx]
+    for old in _directions_before_note(measure, note, ns):
+        if _direction_has_tempo(old, ns):
+            measure.remove(old)
+
+    direction = ET.Element(_q(ns, "direction"))
+    direction.set(NOTE_TEMPO_ATTR, "1")
+    direction.set("placement", pl)
+    direction.set("default-y", str(dy))
+    _set_direction_distance_on_el(direction, distance)
+    if text:
+        wtype = ET.SubElement(direction, _q(ns, "direction-type"))
+        words = ET.SubElement(wtype, _q(ns, "words"))
+        words.text = text
+        words.set("default-y", str(dy))
+    mtype = ET.SubElement(direction, _q(ns, "direction-type"))
+    metro = ET.SubElement(mtype, _q(ns, "metronome"))
+    metro.set("parentheses", "no")
+    metro.set("default-y", str(dy))
+    ET.SubElement(metro, _q(ns, "beat-unit")).text = beat_unit
+    ET.SubElement(metro, _q(ns, "per-minute")).text = _format_tempo_bpm_str(bpm)
+    _attach_voice_to_direction_from_note(direction, ns, note)
+    staff_n = _note_staff_number(note, ns)
+    if staff_n is not None:
+        ET.SubElement(direction, _q(ns, "staff")).text = str(staff_n)
+    ET.SubElement(direction, _q(ns, "sound")).set("tempo", _format_tempo_bpm_str(bpm))
+    if note.get("default-x"):
+        direction.set("default-x", note.get("default-x"))
+    _insert_before_note_element(measure, ns, direction, note_idx)
+    return True
+
+
 def _apply_note_direction(
     measure: ET.Element,
     notes: list[ET.Element],
@@ -6528,10 +6774,15 @@ def _infer_staff_voice_forward_prefixes(
     _p0, _pd, p_leaders = meta[primary]
     last_pri_onset = max((onsets.get(n, 0) for n in p_leaders), default=0)
     for v in voices[1:]:
-        if out.get(v, 0) > 0:
-            continue
         _s0, s_dur, s_leaders = meta[v]
         if not s_leaders:
+            continue
+        if out.get(v, 0) > 0:
+            if measure_len > 0:
+                if s_dur >= measure_len:
+                    out[v] = 0
+                elif out[v] + s_dur > measure_len:
+                    out[v] = max(0, measure_len - s_dur)
             continue
         min_onset = min(onsets.get(n, 0) for n in s_leaders)
         if min_onset <= 0:
@@ -6999,6 +7250,8 @@ def normalize_measure_timelines_in_root(
             if not _part_measure_in_scope(part_id, measure, only_measures):
                 continue
             touched = False
+            if sanitize_measure_voice_timelines(measure, ns, part):
+                touched = True
             if _measure_has_multivoice_layers(measure, ns):
                 rebuild_measure_timeline_clean(measure, ns, part)
                 touched = True
@@ -7008,6 +7261,8 @@ def normalize_measure_timelines_in_root(
             if normalize_grand_staff_voices_in_measure(measure, ns):
                 touched = True
             if repair_octave_shift_stops_before_cross_staff_backup_in_measure(measure, ns):
+                touched = True
+            if sanitize_measure_voice_timelines(measure, ns, part):
                 touched = True
             if touched:
                 n += 1
@@ -12658,6 +12913,15 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
                                 wel.set("default-y", str(dy))
                                 _set_direction_distance_on_el(wel, dist)
                             changed = True
+                    elif direction_type == "tempo":
+                        if _direction_has_tempo(c, ns):
+                            c.set("placement", placement)
+                            c.set("default-y", str(dy))
+                            _set_direction_distance_on_el(c, dist)
+                            for dt in c.findall(_q(ns, "direction-type")):
+                                for child in dt:
+                                    child.set("default-y", str(dy))
+                            changed = True
                     else:
                         mark = dtype.find(_q(ns, direction_type))
                         if mark is not None and (not direction_value or (mark.text or "").strip() == direction_value):
@@ -12744,6 +13008,8 @@ def apply_fix(root: ET.Element, ns: str, fix: dict[str, Any]) -> bool:
             placement = None
         if direction_type == "dynamics" and placement is None:
             placement = _DEFAULT_DYNAMICS_PLACEMENT
+        if direction_type == "tempo":
+            return _apply_note_tempo(measure, notes, note_idx, ns, fix, placement, distance=dist)
         return _apply_note_direction(
             measure, notes, note_idx, ns, direction_type, direction_value, placement, distance=dist
         )
@@ -15692,6 +15958,9 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
         prev_voice_dur = 0
         staff_dur = 0
 
+        prev_voice_end = 0
+        last_staff_end = 0
+
         for v in v_list:
             notes = voice_notes.get((v, st), [])
             if not notes:
@@ -15703,12 +15972,12 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
                     if d_el is not None and d_el.text and d_el.text.strip().isdigit():
                         v_dur += int(d_el.text.strip())
 
+            fwd_dur = voice_forward.get(v, 0)
             if not first_voice:
                 b_el = ET.Element(_q(ns, "backup"))
                 d_el = ET.SubElement(b_el, _q(ns, "duration"))
-                d_el.text = str(prev_voice_dur)
+                d_el.text = str(prev_voice_end)
                 measure.append(b_el)
-                fwd_dur = voice_forward.get(v, 0)
                 if fwd_dur > 0:
                     fwd_el = ET.Element(_q(ns, "forward"))
                     ET.SubElement(fwd_el, _q(ns, "duration")).text = str(fwd_dur)
@@ -15717,8 +15986,13 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
             elif not first_staff:
                 b_el = ET.Element(_q(ns, "backup"))
                 d_el = ET.SubElement(b_el, _q(ns, "duration"))
-                d_el.text = str(prev_staff_dur)
+                d_el.text = str(last_staff_end)
                 measure.append(b_el)
+                if fwd_dur > 0:
+                    fwd_el = ET.Element(_q(ns, "forward"))
+                    ET.SubElement(fwd_el, _q(ns, "duration")).text = str(fwd_dur)
+                    ET.SubElement(fwd_el, _q(ns, "voice")).text = v
+                    measure.append(fwd_el)
 
             for note in notes:
                 for pre in note_preamble.get(note, []):
@@ -15727,11 +16001,10 @@ def _rebuild_measure_preserve_voices(measure: ET.Element, ns: str) -> None:
                 for att in note_attachments.get(note, []):
                     measure.append(att)
 
-            prev_voice_dur = v_dur
-            staff_dur = max(staff_dur, v_dur)
+            prev_voice_end = fwd_dur + v_dur
+            last_staff_end = prev_voice_end
             first_voice = False
 
-        prev_staff_dur = staff_dur
         first_staff = False
 
     for el in end_elements:
@@ -16086,6 +16359,7 @@ def rebuild_measure_timeline_clean(
     else:
         _rebuild_measure_flat_staffs(measure, ns)
     _repair_same_staff_backup_before_forward(measure, ns)
+    sanitize_measure_voice_timelines(measure, ns, part)
     _align_staves_timeline(measure, ns)
     notes_after = list_note_elements(measure, ns)
     _fix_chord_tag_consistency(notes_after, ns)

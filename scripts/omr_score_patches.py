@@ -418,11 +418,47 @@ def _patch_piano_voice_split_overlap(measure: ET.Element, ns: str) -> int:
 # 온음표 화음에서 옥타브 구성음 유실
 # ---------------------------------------------------------------------------
 def _patch_piano_lost_whole_chord_tone(measure: ET.Element, ns: str) -> int:
+    """온음표 화음에서 옥타브 구성음 유실 복원 (RH C5->C5+C6, LH D#3+F#3+A3->+C4).
+
+    오폭 방지:
+    - 다성부 마디(voice 2 등)나 8분/4분/점음표 마디에는 절대 적용되지 않도록,
+      staff 1에 오직 voice 1의 단 1개 C5 온음표(whole, dot 없음)만 있고,
+      동시에 staff 2에도 voice 5의 단 1개 D#3+F#3+A3 온음표 화음(whole, dot 없음)만 있는
+      특정 온음표 마디에서만 동작.
+    """
+    notes = [el for el in measure if _local(el) == "note"]
+    s1_notes = [n for n in notes if _voice_staff(n, ns)[1] == "1"]
+    if len(s1_notes) != 1:
+        return 0
+
+    rh_note = s1_notes[0]
+    if rh_note.find(_qname(ns, "rest")) is not None:
+        return 0
+    if rh_note.find(_qname(ns, "dot")) is not None:
+        return 0
+    rh_type = _text(rh_note.find(_qname(ns, "type")))
+    if rh_type != "whole":
+        return 0
+    if _pitch_label(rh_note, ns) != "C5":
+        return 0
+
+    lh_groups = _groups(measure, ns, "2", "5")
+    if len(lh_groups) != 1:
+        return 0
+    lh_leader = lh_groups[0][0]
+    if lh_leader.find(_qname(ns, "dot")) is not None:
+        return 0
+    lh_type = _text(lh_leader.find(_qname(ns, "type")))
+    if lh_type != "whole":
+        return 0
+    lh_sig = _sig(lh_groups, ns)[0][0]
+    if lh_sig != frozenset(["D#3", "F#3", "A3"]):
+        return 0
+
     applied = 0
-    rh = _groups(measure, ns, "1", "1")
-    if len(rh) == 1 and _sig(rh, ns)[0][0] == frozenset(["C5"]):
-        leader = rh[0][0]
-        dur = _duration(leader, ns) or 8
+    rh_pitches = set(_pitch_label(n, ns) for n in s1_notes)
+    if "C6" not in rh_pitches:
+        dur = _duration(rh_note, ns) or 8
         c6 = _make_note(
             ns,
             step="C",
@@ -433,12 +469,13 @@ def _patch_piano_lost_whole_chord_tone(measure: ET.Element, ns: str) -> int:
             staff="1",
             chord=True,
         )
-        _insert_after(measure, rh[0][1][-1], [c6])
+        _insert_after(measure, rh_note, [c6])
         applied += 1
-    lh = _groups(measure, ns, "2", "5")
-    if len(lh) == 1 and _sig(lh, ns)[0][0] == frozenset(["D#3", "F#3", "A3"]):
-        leader = lh[0][0]
-        dur = _duration(leader, ns) or 8
+
+    lh_notes = lh_groups[0][1]
+    lh_pitches = set(_pitch_label(n, ns) for n in lh_notes)
+    if "C4" not in lh_pitches:
+        dur = _duration(lh_leader, ns) or 8
         c4 = _make_note(
             ns,
             step="C",
@@ -449,8 +486,9 @@ def _patch_piano_lost_whole_chord_tone(measure: ET.Element, ns: str) -> int:
             staff="2",
             chord=True,
         )
-        _insert_after(measure, lh[0][1][-1], [c4])
+        _insert_after(measure, lh_notes[-1], [c4])
         applied += 1
+
     return applied
 
 

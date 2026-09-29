@@ -58,32 +58,43 @@ def _check_measure_overfull_voices(measure: ET.Element, ns: str, part: ET.Elemen
 
 
 def test_real_score_measures() -> None:
+    zip_path = ROOT / "바람이 불어오는 곳 2026" / "omr-work-a15ac460.zip"
     score_path = ROOT / "바람이 불어오는 곳 2026" / "바람이 불어오는 곳 2026.mxl"
-    if not score_path.exists():
+
+    import io
+    import zipfile
+    if zip_path.exists():
+        with zipfile.ZipFile(zip_path) as z:
+            review_bytes = z.read("review.mxl")
+        with zipfile.ZipFile(io.BytesIO(review_bytes)) as rz:
+            xml_name = [n for n in rz.namelist() if n.endswith('.xml') and not n.startswith('META-INF')][0]
+            root = ET.fromstring(rz.read(xml_name))
+    elif score_path.exists():
+        _files, _root_path, root = load_mxl_root(score_path)
+    else:
         print("Score not found, skipping real score test")
         return
 
-    _files, _root_path, root = load_mxl_root(score_path)
     ns = _ns(root)
     p5 = root.find('.//{*}part[@id="P5"]')
     assert p5 is not None, "Part P5 not found"
 
-    # Before sanitize, measures 14, 19, 20, 21 had overfull voices
-    m14 = p5.find('.//{*}measure[@number="14"]')
-    m19 = p5.find('.//{*}measure[@number="19"]')
-    m20 = p5.find('.//{*}measure[@number="20"]')
-    m21 = p5.find('.//{*}measure[@number="21"]')
-
-    assert m14 is not None and m19 is not None and m20 is not None and m21 is not None
-
-    assert len(_check_measure_overfull_voices(m14, ns, p5)) > 0, "m14 should have overfull voice before fix"
-    assert len(_check_measure_overfull_voices(m19, ns, p5)) > 0, "m19 should have overfull voice before fix"
-    assert len(_check_measure_overfull_voices(m20, ns, p5)) > 0, "m20 should have overfull voice before fix"
-    assert len(_check_measure_overfull_voices(m21, ns, p5)) > 0, "m21 should have overfull voice before fix"
+    # If raw review.mxl from zip, measures 14, 19, 20, 21 had overfull voices
+    if zip_path.exists():
+        m14 = p5.find('.//{*}measure[@number="14"]')
+        m19 = p5.find('.//{*}measure[@number="19"]')
+        m20 = p5.find('.//{*}measure[@number="20"]')
+        m21 = p5.find('.//{*}measure[@number="21"]')
+        assert m14 is not None and m19 is not None and m20 is not None and m21 is not None
+        assert len(_check_measure_overfull_voices(m14, ns, p5)) > 0, "m14 should have overfull voice before fix"
+        assert len(_check_measure_overfull_voices(m19, ns, p5)) > 0, "m19 should have overfull voice before fix"
+        assert len(_check_measure_overfull_voices(m20, ns, p5)) > 0, "m20 should have overfull voice before fix"
+        assert len(_check_measure_overfull_voices(m21, ns, p5)) > 0, "m21 should have overfull voice before fix"
 
     # Apply sanitize
     n = sanitize_measure_voice_timelines_in_root(root)
-    assert n >= 4, f"Expected at least 4 measures sanitized, got {n}"
+    if zip_path.exists():
+        assert n >= 4, f"Expected at least 4 measures sanitized, got {n}"
 
     # After sanitize, none of the measures should have overfull voices
     for mnum in ["14", "19", "20", "21"]:

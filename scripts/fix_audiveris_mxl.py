@@ -5400,9 +5400,18 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
         "play_order_document_order_measures", 0
     ) + materialize_play_order_document_order_in_root(root)
     try:
-        from omr_hitl_lib import sanitize_measure_voice_timelines_in_root
+        from omr_hitl_lib import (
+            realign_play_order_column_timelines_in_root,
+            sanitize_measure_voice_timelines_in_root,
+        )
     except ImportError:
-        from scripts.omr_hitl_lib import sanitize_measure_voice_timelines_in_root  # type: ignore
+        from scripts.omr_hitl_lib import (  # type: ignore
+            realign_play_order_column_timelines_in_root,
+            sanitize_measure_voice_timelines_in_root,
+        )
+    stats["play_order_timeline_measures"] = stats.get(
+        "play_order_timeline_measures", 0
+    ) + realign_play_order_column_timelines_in_root(root)
     stats["voice_timelines_sanitized"] = stats.get(
         "voice_timelines_sanitized", 0
     ) + sanitize_measure_voice_timelines_in_root(root)

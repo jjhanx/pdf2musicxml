@@ -1560,21 +1560,40 @@ def _po_column_onsets_explicit(
 
 def _layout_onset_for_anchor_voice_order(
     measure: ET.Element, ns: str, staff: str, anchor_voice: int, order: int
-) -> int | None:
-    """참조 `voice-order`의 앵커 voice·순번 column onset."""
+) -> tuple[int, str | None] | None:
+    """참조 `voice-order`(예: 1-5)의 앵커 voice·순번 column onset 및 default-x.
+
+    앵커 voice에 명시적 data-hitl-play-order가 없더라도 타임라인 기본 순번
+    (_default_play_orders_for_staff) 또는 앵커 성부 내 N번째 음표로 해석하여
+    OSMD 미리보기(TS layoutOnsetForAnchorInMeasure)와 100% 동일하게 앵커 위치를 찾는다.
+    """
     onsets = _voice_parallel_note_onsets(measure, ns)
     po_col = _po_column_onsets_explicit(measure, ns)
     voice_key = str(anchor_voice)
-    best: int | None = None
+    defaults = _default_play_orders_for_staff(measure, ns, staff)
+    notes = list_note_elements(measure, ns)
+    note_to_idx = {n: i for i, n in enumerate(notes)}
+
+    best: tuple[int, str | None] | None = None
+    voice_leader_count = 0
     for leader in _iter_chord_leaders(measure, ns):
         v, st = _note_voice_staff(leader, ns)
         if st != staff or v != voice_key:
             continue
-        if _read_play_order(leader) != order:
+        voice_leader_count += 1
+        eff = _read_play_order(leader)
+        if eff is None:
+            idx = note_to_idx.get(leader)
+            eff = defaults.get(idx) if idx is not None else None
+        if eff is None:
+            eff = voice_leader_count
+        if eff != order:
             continue
         key = f"{staff}:{order}"
         onset = po_col.get(key, onsets.get(leader, 0))
-        best = onset if best is None else min(best, onset)
+        dx = leader.get("default-x")
+        if best is None or onset < best[0]:
+            best = (onset, dx)
     return best
 
 
@@ -1593,24 +1612,25 @@ def realign_measure_timeline_to_play_order_columns(
         return False
 
     po_col = _po_column_onsets_explicit(measure, ns)
-    rows: list[tuple[ET.Element, int, int]] = []
+    rows: list[tuple[ET.Element, int, int, str | None]] = []
     for leader in leaders:
         _v, staff = _note_voice_staff(leader, ns)
         po = _read_play_order(leader)
         if po is not None:
             target = po_col.get(f"{staff}:{po}")
             if target is not None:
-                rows.append((leader, target, po))
+                rows.append((leader, target, po, None))
             continue
         ref = _read_play_order_ref(leader)
         if ref is None:
             continue
         anchor_voice, order = ref
-        target = _layout_onset_for_anchor_voice_order(
+        res = _layout_onset_for_anchor_voice_order(
             measure, ns, staff, anchor_voice, order
         )
-        if target is not None:
-            rows.append((leader, target, order))
+        if res is not None:
+            target, target_dx = res
+            rows.append((leader, target, order, target_dx))
     if not rows:
         return False
 
@@ -1642,15 +1662,25 @@ def realign_measure_timeline_to_play_order_columns(
                 local_changed = True
         return local_changed
 
-    for leader, target, _sort in rows:
+    children = list(measure)
+    for leader, target, _sort, target_dx in rows:
         if _pull_or_push(leader, target):
+            changed = True
+        if target_dx and leader.get("default-x") != target_dx:
+            leader.set("default-x", target_dx)
+            if leader in children:
+                l_idx = children.index(leader)
+                for fol in children[l_idx + 1:]:
+                    if _local(fol) != "note" or fol.find(_q(ns, "chord")) is None:
+                        break
+                    fol.set("default-x", target_dx)
             changed = True
 
     # 1차(min column)에서 앞 음을 duration 0으로 자를 수 없으면 잔여 어긋남.
     # 같은 명시 순번·참조끼리 max onset으로 forward 맞춤(1 divisions 등).
     onsets = _voice_parallel_note_onsets(measure, ns)
     by_col: dict[str, list[ET.Element]] = {}
-    for leader, _t, _s in rows:
+    for leader, _t, _s, *_ in rows:
         _v, staff = _note_voice_staff(leader, ns)
         po = _read_play_order(leader)
         if po is not None:

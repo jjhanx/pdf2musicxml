@@ -2422,8 +2422,9 @@ def _measure_end_before_barline_index(measure: ET.Element) -> int:
 
 def _tempo_insert_index(measure: ET.Element) -> int:
     """Insert tempo after header, before first note/forward/backup (or append)."""
+    is_m1 = (measure.get("number") or "").strip() == "1"
     has_attr = any(_local(c) == "attributes" for c in measure)
-    if not has_attr:
+    if is_m1 and not has_attr:
         # attributes 없는 파트 m1 — 맨 앞 direction은 OSMD pickup/빈 마디 유발 → 마디 끝에 sound tempo
         return _measure_end_before_barline_index(measure)
     header_end = _measure_header_insert_index(measure)
@@ -2435,6 +2436,76 @@ def _tempo_insert_index(measure: ET.Element) -> int:
             return i
         insert_at = i + 1
     return insert_at
+
+
+def reposition_trailing_tempo_directions_in_measure(measure: ET.Element, ns: str) -> int:
+    """마디 내 마지막 note/forward/backup 뒤(마디 끝)에 밀려난 마디 템포 direction을 마디 시작부(첫 note 앞)로 정규화.
+
+    마디 끝에 위치한 템포는 다음 마디 첫 박과 onset이 일치하여 다음 마디에 중복 표시되는 원인이 됨.
+    m1에서 attributes가 없는 특수한 경우를 제외하고, 마디 템포는 첫 note/forward/backup 직전에 와야 함.
+    """
+    is_m1 = (measure.get("number") or "").strip() == "1"
+    has_attr = any(_local(c) == "attributes" for c in measure)
+    if is_m1 and not has_attr:
+        return 0
+
+    children = list(measure)
+    first_musical_idx = -1
+    last_musical_idx = -1
+    for i, c in enumerate(children):
+        if _local(c) in ("note", "forward", "backup"):
+            if first_musical_idx < 0:
+                first_musical_idx = i
+            last_musical_idx = i
+
+    if first_musical_idx < 0 or last_musical_idx < 0:
+        return 0
+
+    moved = 0
+    for c in list(children):
+        if c not in list(measure):
+            continue
+        curr_idx = list(measure).index(c)
+        curr_kids = list(measure)
+        f_idx = -1
+        l_idx = -1
+        for ki, kc in enumerate(curr_kids):
+            if _local(kc) in ("note", "forward", "backup"):
+                if f_idx < 0:
+                    f_idx = ki
+                l_idx = ki
+        if l_idx < 0 or curr_idx <= l_idx:
+            continue
+        if _local(c) != "direction":
+            continue
+        if not _direction_has_tempo(c, ns) or _is_note_tempo_direction(c):
+            continue
+
+        has_leading_tempo = any(
+            _local(ch) == "direction"
+            and _direction_has_tempo(ch, ns)
+            and not _is_note_tempo_direction(ch)
+            for ch in curr_kids[:f_idx]
+        )
+        measure.remove(c)
+        if not has_leading_tempo:
+            insert_idx = _tempo_insert_index(measure)
+            measure.insert(insert_idx, c)
+            _reposition_directions_before_first_attributes(measure, ns, tempo_only=True)
+        moved += 1
+
+    return moved
+
+
+def reposition_trailing_tempo_directions_in_root(root: ET.Element) -> int:
+    """전체 스코어에서 마디 끝에 밀려난 마디 템포 direction들을 마디 시작부로 정규화."""
+    ns = _ns(root)
+    count = 0
+    for part in root.findall(_q(ns, "part")):
+        for measure in part.findall(_q(ns, "measure")):
+            count += reposition_trailing_tempo_directions_in_measure(measure, ns)
+    return count
+
 
 
 def _remove_tempo_directions_in_measure(
@@ -2493,6 +2564,7 @@ def _set_tempo_on_measure(
 
     measure.insert(_tempo_insert_index(measure), new_dir)
     _reposition_directions_before_first_attributes(measure, ns, tempo_only=True)
+    reposition_trailing_tempo_directions_in_measure(measure, ns)
     return True
 
 

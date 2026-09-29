@@ -42,15 +42,51 @@ export function directionHasTempo(dir: Element): boolean {
 function repositionMeasureDirectionsBeforeAttributes(meas: Element, tempoOnly: boolean): void {
   const children = [...meas.children];
   const firstAttr = children.findIndex((c) => xmlLocalName(c) === 'attributes');
-  if (firstAttr < 0) return;
-  for (let i = 0; i < firstAttr; i++) {
-    const child = children[i]!;
-    if (xmlLocalName(child) !== 'direction') continue;
-    if (tempoOnly && !directionHasTempo(child)) continue;
-    child.remove();
-    const insertAt = measureHeaderInsertIndex(meas);
-    if (insertAt >= meas.childElementCount) meas.appendChild(child);
-    else meas.insertBefore(child, meas.children[insertAt] ?? null);
+  if (firstAttr >= 0) {
+    for (let i = 0; i < firstAttr; i++) {
+      const child = children[i]!;
+      if (xmlLocalName(child) !== 'direction') continue;
+      if (tempoOnly && !directionHasTempo(child)) continue;
+      child.remove();
+      const insertAt = measureHeaderInsertIndex(meas);
+      if (insertAt >= meas.childElementCount) meas.appendChild(child);
+      else meas.insertBefore(child, meas.children[insertAt] ?? null);
+    }
+  }
+
+  // Trailing tempo direction 정규화:
+  // 마디 끝(마지막 note/forward/backup 뒤)에 위치한 템포 direction은
+  // MusicXML 타임라인상 마디 끝(=다음 마디 시작)에 걸려 다음 마디에 중복 표시를 유발함.
+  // 첫 note/forward/backup 직전으로 이동하거나 중복 제거.
+  const updatedKids = [...meas.children];
+  let firstMusIdx = -1;
+  let lastMusIdx = -1;
+  for (let i = 0; i < updatedKids.length; i++) {
+    const name = xmlLocalName(updatedKids[i]!);
+    if (name === 'note' || name === 'forward' || name === 'backup') {
+      if (firstMusIdx < 0) firstMusIdx = i;
+      lastMusIdx = i;
+    }
+  }
+  if (firstMusIdx >= 0 && lastMusIdx >= 0) {
+    const isM1 = (meas.getAttribute('number') || '').trim() === '1';
+    const hasAttr = updatedKids.some((c) => xmlLocalName(c) === 'attributes');
+    if (!(isM1 && !hasAttr)) {
+      for (let i = updatedKids.length - 1; i > lastMusIdx; i--) {
+        const child = updatedKids[i]!;
+        if (xmlLocalName(child) !== 'direction') continue;
+        if (!directionHasTempo(child)) continue;
+        const hasLeadingTempo = [...meas.children]
+          .slice(0, firstMusIdx)
+          .some((c) => xmlLocalName(c) === 'direction' && directionHasTempo(c));
+        child.remove();
+        if (!hasLeadingTempo) {
+          const insertAt = measureHeaderInsertIndex(meas);
+          if (insertAt >= meas.childElementCount) meas.appendChild(child);
+          else meas.insertBefore(child, meas.children[insertAt] ?? null);
+        }
+      }
+    }
   }
 }
 

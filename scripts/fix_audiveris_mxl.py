@@ -5402,11 +5402,13 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     try:
         from omr_hitl_lib import (
             realign_play_order_column_timelines_in_root,
+            reposition_trailing_tempo_directions_in_root,
             sanitize_measure_voice_timelines_in_root,
         )
     except ImportError:
         from scripts.omr_hitl_lib import (  # type: ignore
             realign_play_order_column_timelines_in_root,
+            reposition_trailing_tempo_directions_in_root,
             sanitize_measure_voice_timelines_in_root,
         )
     stats["play_order_timeline_measures"] = stats.get(
@@ -5415,6 +5417,9 @@ def fix_score_xml(xml_bytes: bytes) -> tuple[bytes, dict[str, int]]:
     stats["voice_timelines_sanitized"] = stats.get(
         "voice_timelines_sanitized", 0
     ) + sanitize_measure_voice_timelines_in_root(root)
+    stats["trailing_tempo_repositioned"] = stats.get(
+        "trailing_tempo_repositioned", 0
+    ) + reposition_trailing_tempo_directions_in_root(root)
 
     out = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return out, stats

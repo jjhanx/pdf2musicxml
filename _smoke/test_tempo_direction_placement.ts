@@ -53,3 +53,27 @@ if (!filled.includes('<metronome') || !filled.includes('print-object="no"')) {
   process.exit(1);
 }
 console.log('OK: sound-only tempo gets hidden metronome');
+
+const TRAILING_TEMPO = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="50">
+      <print/>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <direction placement="above">
+        <direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>75</per-minute></metronome></direction-type>
+        <sound tempo="75"/>
+      </direction>
+    </measure>
+  </part>
+</score-partwise>`;
+
+const trailingOut = repositionDirectionsBeforeAttributesForOsmdPreview(TRAILING_TEMPO, { tempoOnly: true });
+const notePos = trailingOut.indexOf('<note');
+const dirPos = trailingOut.indexOf('<direction');
+if (notePos < 0 || dirPos < 0 || dirPos > notePos) {
+  console.error('expected direction before note in m50 trailing tempo test, got:', trailingOut);
+  process.exit(1);
+}
+console.log('OK: trailing tempo repositioned before first note in measure');
+
